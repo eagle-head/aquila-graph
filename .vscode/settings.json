@@ -1,0 +1,20 @@
+{
+  "cSpell.overrides": [
+    {
+      "filename": "docs/discussion/ptBR/**",
+      "language": "en,pt,pt_BR"
+    }
+  ],
+  "cSpell.words": [
+    "classfile",
+    "eduardo",
+    "endlegend",
+    "enduml",
+    "javac",
+    "skinparam",
+    "startuml",
+    "usecase",
+    "Wazlawick",
+    "Eler"
+  ]
+}

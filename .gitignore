@@ -1,0 +1,59 @@
+# Project documents
+/pdf/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.hypothesis/
+
+# Python environments and packaging output
+.venv/
+venv/
+env/
+ENV/
+.tox/
+.nox/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+build/
+dist/
+
+# Python coverage reports
+.coverage
+.coverage.*
+htmlcov/
+
+# Java and JVM build output
+*.class
+*.jar
+*.war
+*.ear
+target/
+out/
+.gradle/
+hs_err_pid*
+replay_pid*
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+
+# IDE metadata
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Operating system files
+.DS_Store
+Thumbs.db
