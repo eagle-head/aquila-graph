@@ -17,7 +17,8 @@ import org.aquilagraph.model.CompilerConfiguration;
 public record AnalysisRequest(Path sourceRoot, CompilerConfiguration compilerConfiguration, RepositorySavePolicy repositorySavePolicy) {
   /** Validates and normalizes request input. */
   public AnalysisRequest {
-    sourceRoot = Objects.requireNonNull(sourceRoot, "sourceRoot").toAbsolutePath().normalize();
+    sourceRoot = Objects.requireNonNull(Objects.requireNonNull(sourceRoot, "sourceRoot").toAbsolutePath().normalize(),
+        "normalized sourceRoot");
     Objects.requireNonNull(compilerConfiguration, "compilerConfiguration");
     Objects.requireNonNull(repositorySavePolicy, "repositorySavePolicy");
   }
