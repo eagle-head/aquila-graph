@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SyntaxKind;
 import org.junit.jupiter.api.Test;
@@ -35,7 +36,7 @@ class JavaFrontendTest {
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.java25());
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25));
 
     // Assert
     assertTrue(result.diagnostics().isEmpty());
@@ -67,7 +68,7 @@ class JavaFrontendTest {
     var frontend = new JavaFrontend(loader);
 
     // Act
-    var result = frontend.analyze(snapshot, CompilerConfiguration.java25());
+    var result = frontend.analyze(snapshot, CompilerConfiguration.standard(JavaRelease.JAVA_25));
 
     // Assert
     assertTrue(result.diagnostics().isEmpty());
@@ -97,7 +98,7 @@ class JavaFrontendTest {
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.java25());
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25));
 
     // Assert
     assertTrue(
@@ -123,7 +124,7 @@ class JavaFrontendTest {
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.java25());
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25));
 
     // Assert
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.isError()));
@@ -157,7 +158,7 @@ class JavaFrontendTest {
     var frontend = new JavaFrontend(loader);
 
     // Act
-    var result = frontend.analyze(snapshot, CompilerConfiguration.java25());
+    var result = frontend.analyze(snapshot, CompilerConfiguration.standard(JavaRelease.JAVA_25));
 
     // Assert
     assertEquals(
@@ -184,7 +185,7 @@ class JavaFrontendTest {
   void givenEmptySourceRoot_whenFrontendRuns_thenEmptyProgramRetainsCompilerEnvironment()
       throws IOException {
     // Arrange
-    var configuration = CompilerConfiguration.java25();
+    var configuration = CompilerConfiguration.standard(JavaRelease.JAVA_25);
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
@@ -205,7 +206,7 @@ class JavaFrontendTest {
     Files.writeString(sourceRoot.resolve("Stable.java"), "final class Stable { int value() { return 1; } }");
     var dependencyFile = dependencyRoot.resolve("version.txt");
     Files.writeString(dependencyFile, "first");
-    var configuration = new CompilerConfiguration(25, List.of(dependencyRoot), List.of(), List.of());
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(dependencyRoot), List.of(), List.of());
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act

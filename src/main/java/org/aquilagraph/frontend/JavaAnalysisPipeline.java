@@ -22,7 +22,7 @@ final class JavaAnalysisPipeline {
   FrontendResult analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(configuration, "configuration");
-    var compiler = systemCompiler();
+    var compiler = systemCompiler(configuration);
     var invocation = JavaCompilerInvocation.from(configuration);
     var environment = environmentCapture.capture(compiler, configuration, invocation.analysisOptions());
     if (snapshot.sourceFiles().isEmpty()) {
@@ -44,11 +44,12 @@ final class JavaAnalysisPipeline {
     return result;
   }
 
-  private static JavaCompiler systemCompiler() {
+  private static JavaCompiler systemCompiler(CompilerConfiguration configuration) {
     var compiler = ToolProvider.getSystemJavaCompiler();
     if (compiler == null) {
-      throw new IllegalStateException("A JDK 25 system compiler is required");
+      throw new IllegalStateException("A JDK system compiler is required for Java release " + configuration.release().feature());
     }
+    JavaCompilerReleaseSupport.requireSupported(compiler.getSourceVersions(), configuration.release());
     return compiler;
   }
 

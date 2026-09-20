@@ -20,6 +20,7 @@ import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.model.JavaRelease;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -43,7 +44,10 @@ class Neo4jAnalysisRunMapperTest {
                     .analyze(
                         sourceRoot,
                         new CompilerConfiguration(
-                            25, List.of(firstDependency), List.of(), List.of())));
+                            JavaRelease.JAVA_25,
+                            List.of(firstDependency),
+                            List.of(),
+                            List.of())));
     var secondRun =
         new AnalysisEngine()
             .analyze(
@@ -51,7 +55,10 @@ class Neo4jAnalysisRunMapperTest {
                     .analyze(
                         sourceRoot,
                         new CompilerConfiguration(
-                            25, List.of(secondDependency), List.of(), List.of())));
+                            JavaRelease.JAVA_25,
+                            List.of(secondDependency),
+                            List.of(),
+                            List.of())));
     var mapper = new Neo4jAnalysisRunMapper();
     var runs = List.of(firstRun, secondRun);
     var expectedProjections =
@@ -108,7 +115,7 @@ class Neo4jAnalysisRunMapperTest {
                     .analyze(
                         sourceRoot,
                         new CompilerConfiguration(
-                            25, List.of(dependency), List.of(), List.of())));
+                            JavaRelease.JAVA_25, List.of(dependency), List.of(), List.of())));
 
     // Act
     var projection = new Neo4jAnalysisRunMapper().map(run);
@@ -168,7 +175,7 @@ class Neo4jAnalysisRunMapperTest {
         new AnalysisEngine()
             .analyze(
                 new JavaFrontend(new JavaSourceLoader())
-                    .analyze(temporaryDirectory, CompilerConfiguration.java25()));
+                    .analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25)));
     var mapper = new Neo4jAnalysisRunMapper();
 
     // Act

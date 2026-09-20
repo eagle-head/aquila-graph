@@ -15,6 +15,7 @@ import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisRun;
+import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.repository.AnalysisRunRepository;
 import org.aquilagraph.repository.AnalysisRunRepositoryFactory;
 import org.aquilagraph.repository.RepositoryException;
@@ -38,7 +39,7 @@ class AnalysisApplicationServiceTest {
             });
 
     // Act
-    var execution = service.execute(AnalysisRequest.java25(temporaryDirectory, false));
+    var execution = service.execute(AnalysisRequest.forJava(temporaryDirectory, JavaRelease.JAVA_25, false));
 
     // Assert
     assertTrue(execution.run().isComplete());
@@ -59,7 +60,7 @@ class AnalysisApplicationServiceTest {
             });
 
     // Act
-    var execution = service.execute(AnalysisRequest.java25(temporaryDirectory, true));
+    var execution = service.execute(AnalysisRequest.forJava(temporaryDirectory, JavaRelease.JAVA_25, true));
 
     // Assert
     assertFalse(execution.run().isComplete());
@@ -90,7 +91,7 @@ class AnalysisApplicationServiceTest {
                 });
 
     // Act
-    var execution = service.execute(AnalysisRequest.java25(temporaryDirectory, true));
+    var execution = service.execute(AnalysisRequest.forJava(temporaryDirectory, JavaRelease.JAVA_25, true));
 
     // Assert
     assertTrue(execution.run().isComplete());
@@ -124,7 +125,7 @@ class AnalysisApplicationServiceTest {
     var exception =
         assertThrows(
             AnalysisRepositoryException.class,
-            () -> service.execute(AnalysisRequest.java25(temporaryDirectory, true)));
+            () -> service.execute(AnalysisRequest.forJava(temporaryDirectory, JavaRelease.JAVA_25, true)));
 
     // Assert
     assertTrue(exception.analysisRun().isComplete());

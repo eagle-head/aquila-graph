@@ -13,6 +13,7 @@ import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.OperationKind;
 import org.aquilagraph.model.TransferKind;
 import org.junit.jupiter.api.Test;
@@ -42,7 +43,7 @@ class AnalysisEngineTest {
 
     // Act
     var run =
-        engine.analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.java25()));
+        engine.analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25)));
 
     // Assert
     assertEquals(AnalysisCompletion.COMPLETED, run.completion());
@@ -79,7 +80,7 @@ class AnalysisEngineTest {
     // Act
     var run =
         new AnalysisEngine()
-            .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.java25()));
+            .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25)));
 
     // Assert
     assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
@@ -94,7 +95,7 @@ class AnalysisEngineTest {
     // Act
     var run =
         new AnalysisEngine()
-            .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.java25()));
+            .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25)));
 
     // Assert
     assertEquals(AnalysisCompletion.REJECTED, run.completion());
@@ -111,7 +112,7 @@ class AnalysisEngineTest {
     var dependency = Files.createDirectory(temporaryDirectory.resolve("dependency"));
     Files.writeString(dependency.resolve("marker.txt"), "first");
     var configuration =
-        new CompilerConfiguration(25, List.of(dependency), List.of(), List.of());
+        new CompilerConfiguration(JavaRelease.JAVA_25, List.of(dependency), List.of(), List.of());
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var engine = new AnalysisEngine();
 
@@ -144,13 +145,13 @@ class AnalysisEngineTest {
             frontend.analyze(
                 temporaryDirectory,
                 new CompilerConfiguration(
-                    25, List.of(firstDependency), List.of(), List.of())));
+                    JavaRelease.JAVA_25, List.of(firstDependency), List.of(), List.of())));
     var secondRun =
         engine.analyze(
             frontend.analyze(
                 temporaryDirectory,
                 new CompilerConfiguration(
-                    25, List.of(secondDependency), List.of(), List.of())));
+                    JavaRelease.JAVA_25, List.of(secondDependency), List.of(), List.of())));
 
     // Assert
     assertEquals(firstRun.runId(), secondRun.runId());

@@ -20,7 +20,7 @@ record JavaCompilerInvocation(List<String> compilerOptions, List<String> analysi
     var compilerOptions = new ArrayList<String>();
     var analysisOptions = new ArrayList<String>();
 
-    addSharedOption(compilerOptions, analysisOptions, "--release", Integer.toString(configuration.release()));
+    addSharedOption(compilerOptions, analysisOptions, "--release", Integer.toString(configuration.release().feature()));
     addSharedOption(compilerOptions, analysisOptions, "-encoding", StandardCharsets.UTF_8.name());
     compilerOptions.add("-proc:none");
     analysisOptions.add("-proc:none");

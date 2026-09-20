@@ -16,7 +16,8 @@ class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
 
   @Test
-  void givenPackagedJarAndCalculator_whenProcessRuns_thenAnalysisCompletes() throws IOException, InterruptedException {
+  void givenPackagedJarCalculatorAndRelease_whenProcessRuns_thenAnalysisCompletes()
+      throws IOException, InterruptedException {
     // Arrange
     var javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java.exe");
     var jar = Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath().normalize();
@@ -24,7 +25,12 @@ class AquilaGraphProcessIT {
         Path.of("analysis-targets/calculator/src/main/java").toAbsolutePath().normalize();
     var process =
         new ProcessBuilder(
-                javaExecutable.toString(), "-jar", jar.toString(), calculator.toString())
+                javaExecutable.toString(),
+                "-jar",
+                jar.toString(),
+                calculator.toString(),
+                "--release",
+                "25")
             .redirectErrorStream(true)
             .start();
 
@@ -36,6 +42,7 @@ class AquilaGraphProcessIT {
     assertTrue(completed, "The packaged analyzer process did not finish within 30 seconds");
     assertEquals(0, process.exitValue(), output);
     assertTrue(output.contains("Completion: COMPLETED"), output);
+    assertTrue(output.contains("Java release: 25"), output);
     assertTrue(output.contains("Java source files: 3"), output);
   }
 

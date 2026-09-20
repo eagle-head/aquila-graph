@@ -16,7 +16,7 @@ final class Neo4jEnvironmentMapper {
 
     var configuration = environment.compilerConfiguration();
     var configurationKey = StableId.sha256("compiler-configuration", configuration.canonicalForm());
-    projection.node("CompilerConfiguration", configurationKey, "release", configuration.release(), "classPath",
+    projection.node("CompilerConfiguration", configurationKey, "release", configuration.release().feature(), "classPath",
         configuration.classPath().stream().map(Object::toString).toList(), "modulePath",
         configuration.modulePath().stream().map(Object::toString).toList(), "options", configuration.options());
     projection.relate("HAS_CONFIGURATION", environmentKey, configurationKey, "configuration");

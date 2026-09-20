@@ -10,6 +10,7 @@ import java.util.List;
 import javax.tools.ToolProvider;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.DependencyKind;
+import org.aquilagraph.model.JavaRelease;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -22,7 +23,7 @@ class AnalysisEnvironmentCaptureTest {
     // Arrange
     var dependency = temporaryDirectory.resolve("dependency.jar");
     Files.writeString(dependency, "first");
-    var configuration = new CompilerConfiguration(25, List.of(dependency), List.of(), List.of());
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(dependency), List.of(), List.of());
     var invocation = JavaCompilerInvocation.from(configuration);
     var compiler = ToolProvider.getSystemJavaCompiler();
     var capture = new AnalysisEnvironmentCapture(new CompilerDependencyCapture());
@@ -42,7 +43,7 @@ class AnalysisEnvironmentCaptureTest {
       throws IOException {
     // Arrange
     var missingDependency = temporaryDirectory.resolve("missing.jar");
-    var configuration = new CompilerConfiguration(25, List.of(missingDependency), List.of(), List.of());
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(missingDependency), List.of(), List.of());
     var invocation = JavaCompilerInvocation.from(configuration);
     var capture = new AnalysisEnvironmentCapture(new CompilerDependencyCapture());
 

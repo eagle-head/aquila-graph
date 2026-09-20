@@ -18,7 +18,7 @@ class CompilerConfigurationTest {
     options.add("-Xlint:all");
 
     // Act
-    var configuration = new CompilerConfiguration(25, classPath, List.of(), options);
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, classPath, List.of(), options);
     classPath.clear();
     options.clear();
 
@@ -39,7 +39,7 @@ class CompilerConfigurationTest {
     var exception =
         assertThrows(
             IllegalArgumentException.class,
-            () -> new CompilerConfiguration(25, List.of(), List.of(), options));
+            () -> new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(), options));
 
     // Assert
     assertEquals("Compiler option is managed by Aquila Graph: --release=24", exception.getMessage());
@@ -56,7 +56,7 @@ class CompilerConfigurationTest {
       var exception =
           assertThrows(
               IllegalArgumentException.class,
-              () -> new CompilerConfiguration(25, List.of(), List.of(), List.of(option)));
+              () -> new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(), List.of(option)));
 
       // Assert
       assertEquals("Compiler option is managed by Aquila Graph: " + option, exception.getMessage());

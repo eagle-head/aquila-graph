@@ -8,7 +8,7 @@ import java.util.Objects;
  * Normalized compiler inputs accepted by the Java frontend.
  *
  * @param release
- *          Java language release
+ *          supported Java language release
  * @param classPath
  *          class-path entries
  * @param modulePath
@@ -16,14 +16,10 @@ import java.util.Objects;
  * @param options
  *          caller-supplied non-managed compiler options
  */
-public record CompilerConfiguration(int release, List<Path> classPath, List<Path> modulePath, List<String> options) {
-  private static final int SUPPORTED_RELEASE = 25;
-
+public record CompilerConfiguration(JavaRelease release, List<Path> classPath, List<Path> modulePath, List<String> options) {
   /** Validates the release and normalizes paths and options. */
   public CompilerConfiguration {
-    if (release != SUPPORTED_RELEASE) {
-      throw new IllegalArgumentException("The supported Java release is 25");
-    }
+    Objects.requireNonNull(release, "release");
     classPath = normalizePaths(classPath, "classPath");
     modulePath = normalizePaths(modulePath, "modulePath");
     options = List.copyOf(Objects.requireNonNull(options, "options"));
@@ -36,12 +32,14 @@ public record CompilerConfiguration(int release, List<Path> classPath, List<Path
   }
 
   /**
-   * Creates the default Java 25 configuration without external dependencies.
+   * Creates a standard configuration for a supported Java release without external dependencies.
    *
-   * @return Java 25 compiler configuration
+   * @param release
+   *          supported Java language release
+   * @return compiler configuration for the release
    */
-  public static CompilerConfiguration java25() {
-    return new CompilerConfiguration(SUPPORTED_RELEASE, List.of(), List.of(), List.of());
+  public static CompilerConfiguration standard(JavaRelease release) {
+    return new CompilerConfiguration(release, List.of(), List.of(), List.of());
   }
 
   /**
@@ -70,7 +68,7 @@ public record CompilerConfiguration(int release, List<Path> classPath, List<Path
    * @return canonical configuration text
    */
   public String canonicalForm() {
-    return release + "\n" + join(classPath) + "\n" + join(modulePath) + "\n" + String.join("\u0000", options);
+    return release.feature() + "\n" + join(classPath) + "\n" + join(modulePath) + "\n" + String.join("\u0000", options);
   }
 
   private static List<Path> normalizePaths(List<Path> paths, String name) {

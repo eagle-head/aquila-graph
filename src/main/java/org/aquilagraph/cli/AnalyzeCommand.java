@@ -12,10 +12,12 @@ import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.RepositoryStatus;
 import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.AnalysisRun;
+import org.aquilagraph.model.JavaRelease;
 
 /** Parses analysis command arguments and presents execution results. */
 public final class AnalyzeCommand {
   private static final String PERSIST_OPTION = "--persist";
+  private static final String RELEASE_OPTION = "--release";
   private static final int REQUIRED_POSITIONAL_ARGUMENTS = 1;
 
   /** Exit code for a completed analysis and any requested repository save. */
@@ -28,15 +30,19 @@ public final class AnalyzeCommand {
   public static final int EXIT_REPOSITORY_FAILED = 3;
 
   private final AnalysisApplicationService analysisService;
+  private final JavaRelease defaultRelease;
 
   /**
    * Creates a command backed by the application service.
    *
    * @param analysisService
    *          analysis use case
+   * @param defaultRelease
+   *          Java release used when the option is omitted
    */
-  public AnalyzeCommand(AnalysisApplicationService analysisService) {
+  public AnalyzeCommand(AnalysisApplicationService analysisService, JavaRelease defaultRelease) {
     this.analysisService = Objects.requireNonNull(analysisService, "analysisService");
+    this.defaultRelease = Objects.requireNonNull(defaultRelease, "defaultRelease");
   }
 
   /**
@@ -57,16 +63,16 @@ public final class AnalyzeCommand {
 
     final CommandArguments parsed;
     try {
-      parsed = CommandArguments.parse(arguments);
+      parsed = CommandArguments.parse(arguments, defaultRelease);
     } catch (IllegalArgumentException exception) {
       error.println(exception.getMessage());
-      error.println("Usage: java -jar aquila-graph.jar <source-root> [--persist]");
+      error.println("Usage: java -jar aquila-graph.jar <source-root> [--release <feature>] [--persist]");
       return EXIT_REJECTED;
     }
 
     final AnalysisExecution execution;
     try {
-      execution = analysisService.execute(AnalysisRequest.java25(parsed.sourceRoot(), parsed.persist()));
+      execution = analysisService.execute(AnalysisRequest.forJava(parsed.sourceRoot(), parsed.release(), parsed.persist()));
     } catch (AnalysisRepositoryException exception) {
       printRun(exception.analysisRun(), output, error);
       var cause = Objects.requireNonNull(exception.getCause(), "repository cause");
@@ -98,6 +104,7 @@ public final class AnalyzeCommand {
   private static void printRun(AnalysisRun run, PrintStream output, PrintStream error) {
     output.printf("Run: %s%n", run.runId());
     output.printf("Completion: %s%n", run.completion());
+    output.printf("Java release: %d%n", run.compilerConfiguration().release().feature());
     output.printf("Java source files: %d%n", run.inputSnapshot().sourceFileCount());
     run.representation().ifPresent(representation -> {
       output.printf("Java types: %d%n", representation.program().types().size());
@@ -115,16 +122,31 @@ public final class AnalyzeCommand {
     }
   }
 
-  private record CommandArguments(Path sourceRoot, boolean persist) {
-    private static CommandArguments parse(String... arguments) {
+  private record CommandArguments(Path sourceRoot, JavaRelease release, boolean persist) {
+    private static CommandArguments parse(String[] arguments, JavaRelease defaultRelease) {
       var positional = new ArrayList<String>();
+      var release = defaultRelease;
+      var releaseSupplied = false;
       var persist = false;
-      for (var argument : arguments) {
+      var index = 0;
+      while (index < arguments.length) {
+        var argument = arguments[index];
+        index++;
         if (PERSIST_OPTION.equals(argument)) {
           if (persist) {
             throw new IllegalArgumentException(PERSIST_OPTION + " may be supplied only once");
           }
           persist = true;
+        } else if (RELEASE_OPTION.equals(argument)) {
+          if (releaseSupplied) {
+            throw new IllegalArgumentException(RELEASE_OPTION + " may be supplied only once");
+          }
+          if (index >= arguments.length || arguments[index].startsWith("--")) {
+            throw new IllegalArgumentException(RELEASE_OPTION + " requires a Java feature-release number");
+          }
+          release = parseRelease(arguments[index]);
+          index++;
+          releaseSupplied = true;
         } else if (argument.startsWith("--")) {
           throw new IllegalArgumentException("Unknown option: " + argument);
         } else {
@@ -134,7 +156,17 @@ public final class AnalyzeCommand {
       if (positional.size() != REQUIRED_POSITIONAL_ARGUMENTS) {
         throw new IllegalArgumentException("Exactly one source root is required");
       }
-      return new CommandArguments(Path.of(positional.getFirst()), persist);
+      return new CommandArguments(Path.of(positional.getFirst()), release, persist);
+    }
+
+    private static JavaRelease parseRelease(String value) {
+      final int feature;
+      try {
+        feature = Integer.parseInt(value);
+      } catch (NumberFormatException exception) {
+        throw new IllegalArgumentException("Invalid Java release: " + value, exception);
+      }
+      return JavaRelease.fromFeature(feature);
     }
   }
 }

@@ -15,6 +15,7 @@ import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisRun;
+import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.repository.AnalysisRunRepository;
 import org.aquilagraph.repository.AnalysisRunRepositoryFactory;
 import org.aquilagraph.repository.RepositoryException;
@@ -42,9 +43,125 @@ class AnalyzeCommandTest {
     // Assert
     assertEquals(AnalyzeCommand.EXIT_COMPLETED, exitCode);
     assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Completion: COMPLETED"));
+    assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Java release: 25"));
     assertTrue(
         capturedOutput.toString(StandardCharsets.UTF_8).contains("Repository: NOT_REQUESTED"));
     assertEquals("", capturedError.toString(StandardCharsets.UTF_8));
+  }
+
+  @Test
+  void givenExplicitSupportedRelease_whenCommandRuns_thenSelectedReleaseIsUsed() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
+    var capturedOutput = new ByteArrayOutputStream();
+    var capturedError = new ByteArrayOutputStream();
+    var command = command(repositoryMustNotOpen());
+
+    // Act
+    var exitCode =
+        command.run(
+            new String[] {temporaryDirectory.toString(), "--release", "25"},
+            new PrintStream(capturedOutput, true, StandardCharsets.UTF_8),
+            new PrintStream(capturedError, true, StandardCharsets.UTF_8));
+
+    // Assert
+    assertEquals(AnalyzeCommand.EXIT_COMPLETED, exitCode);
+    assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Java release: 25"));
+    assertEquals("", capturedError.toString(StandardCharsets.UTF_8));
+  }
+
+  @Test
+  void givenUnsupportedRelease_whenCommandRuns_thenArgumentsAreRejected() {
+    // Arrange
+    var capturedOutput = new ByteArrayOutputStream();
+    var capturedError = new ByteArrayOutputStream();
+    var command = command(repositoryMustNotOpen());
+
+    // Act
+    var exitCode =
+        command.run(
+            new String[] {temporaryDirectory.toString(), "--release", "26"},
+            new PrintStream(capturedOutput, true, StandardCharsets.UTF_8),
+            new PrintStream(capturedError, true, StandardCharsets.UTF_8));
+
+    // Assert
+    assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
+    assertEquals("", capturedOutput.toString(StandardCharsets.UTF_8));
+    assertTrue(
+        capturedError
+            .toString(StandardCharsets.UTF_8)
+            .contains("Unsupported Java release: 26. Supported releases: 25"));
+  }
+
+  @Test
+  void givenMalformedRelease_whenCommandRuns_thenArgumentsAreRejected() {
+    // Arrange
+    var capturedOutput = new ByteArrayOutputStream();
+    var capturedError = new ByteArrayOutputStream();
+    var command = command(repositoryMustNotOpen());
+
+    // Act
+    var exitCode =
+        command.run(
+            new String[] {temporaryDirectory.toString(), "--release", "latest"},
+            new PrintStream(capturedOutput, true, StandardCharsets.UTF_8),
+            new PrintStream(capturedError, true, StandardCharsets.UTF_8));
+
+    // Assert
+    assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
+    assertEquals("", capturedOutput.toString(StandardCharsets.UTF_8));
+    assertTrue(
+        capturedError
+            .toString(StandardCharsets.UTF_8)
+            .contains("Invalid Java release: latest"));
+  }
+
+  @Test
+  void givenReleaseWithoutValue_whenCommandRuns_thenArgumentsAreRejected() {
+    // Arrange
+    var capturedOutput = new ByteArrayOutputStream();
+    var capturedError = new ByteArrayOutputStream();
+    var command = command(repositoryMustNotOpen());
+
+    // Act
+    var exitCode =
+        command.run(
+            new String[] {temporaryDirectory.toString(), "--release"},
+            new PrintStream(capturedOutput, true, StandardCharsets.UTF_8),
+            new PrintStream(capturedError, true, StandardCharsets.UTF_8));
+
+    // Assert
+    assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
+    assertEquals("", capturedOutput.toString(StandardCharsets.UTF_8));
+    assertTrue(
+        capturedError
+            .toString(StandardCharsets.UTF_8)
+            .contains("--release requires a Java feature-release number"));
+  }
+
+  @Test
+  void givenDuplicateReleaseOptions_whenCommandRuns_thenArgumentsAreRejected() {
+    // Arrange
+    var capturedOutput = new ByteArrayOutputStream();
+    var capturedError = new ByteArrayOutputStream();
+    var command = command(repositoryMustNotOpen());
+
+    // Act
+    var exitCode =
+        command.run(
+            new String[] {
+              temporaryDirectory.toString(), "--release", "25", "--release", "25"
+            },
+            new PrintStream(capturedOutput, true, StandardCharsets.UTF_8),
+            new PrintStream(capturedError, true, StandardCharsets.UTF_8));
+
+    // Assert
+    assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
+    assertEquals("", capturedOutput.toString(StandardCharsets.UTF_8));
+    assertTrue(
+        capturedError
+            .toString(StandardCharsets.UTF_8)
+            .contains("--release may be supplied only once"));
   }
 
   @Test
@@ -130,7 +247,8 @@ class AnalyzeCommandTest {
         new AnalysisApplicationService(
             new JavaFrontend(new JavaSourceLoader()),
             new AnalysisEngine(),
-            repositoryFactory));
+            repositoryFactory),
+        JavaRelease.JAVA_25);
   }
 
   private static AnalysisRunRepositoryFactory repositoryMustNotOpen() {

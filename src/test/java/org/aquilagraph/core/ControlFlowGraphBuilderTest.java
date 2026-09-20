@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.OperationKind;
 import org.aquilagraph.model.TransferKind;
 import org.aquilagraph.model.ValueKind;
@@ -350,7 +351,7 @@ class ControlFlowGraphBuilderTest {
 
   private org.aquilagraph.model.JavaMethod method(String name) throws IOException {
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    return frontend.analyze(temporaryDirectory, CompilerConfiguration.java25()).program().methods().stream()
+    return frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25)).program().methods().stream()
         .filter(candidate -> candidate.name().equals(name))
         .findFirst()
         .orElseThrow();

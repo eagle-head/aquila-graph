@@ -15,6 +15,7 @@ import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisRun;
 import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.repository.RepositoryException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -153,7 +154,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
     return new AnalysisEngine()
         .analyze(
             new JavaFrontend(new JavaSourceLoader())
-                .analyze(sourceRoot, CompilerConfiguration.java25()));
+                .analyze(sourceRoot, CompilerConfiguration.standard(JavaRelease.JAVA_25)));
   }
 
   private static Neo4jGraphProjection invalidProjection(AnalysisRun run) {
