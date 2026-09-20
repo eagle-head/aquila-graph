@@ -12,7 +12,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.model.FrontendResult;
 import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.model.MethodBody;
 import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SyntaxKind;
 import org.junit.jupiter.api.Test;
@@ -112,6 +114,102 @@ class JavaFrontendTest {
     assertTrue(
         result.diagnostics().stream()
             .anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
+  }
+
+  @Test
+  void givenCompositeSupportedBody_whenFrontendRuns_thenOrderedSyntaxStructureAndIdentityAreStable()
+      throws IOException {
+    // Arrange
+    Files.writeString(
+        temporaryDirectory.resolve("Structured.java"),
+        """
+        final class Structured {
+          int evaluate(int left, int right) {
+            int sum = left + right;
+            if (sum > 0) {
+              return Math.max(sum, 1);
+            }
+            return -sum;
+          }
+        }
+        """);
+    var loader = new JavaSourceLoader();
+    var snapshot = loader.discover(temporaryDirectory);
+    var frontend = new JavaFrontend(loader);
+    var configuration = CompilerConfiguration.standard(JavaRelease.JAVA_25);
+
+    // Act
+    var first = frontend.analyze(snapshot, configuration);
+    var second = frontend.analyze(snapshot, configuration);
+
+    // Assert
+    assertTrue(first.diagnostics().isEmpty());
+    var firstBody = methodBody(first, "evaluate");
+    var secondBody = methodBody(second, "evaluate");
+    assertTrue(firstBody.supported());
+    assertEquals(firstBody.syntaxRoot(), secondBody.syntaxRoot());
+    assertEquals(
+        List.of(SyntaxKind.LOCAL_DECLARATION, SyntaxKind.IF, SyntaxKind.RETURN),
+        firstBody.syntaxRoot().children().stream().map(node -> node.syntaxKind()).toList());
+    assertEquals(
+        List.of(SyntaxKind.PARENTHESIZED, SyntaxKind.BLOCK),
+        firstBody.syntaxRoot().children().get(1).children().stream().map(node -> node.syntaxKind()).toList());
+  }
+
+  @Test
+  void givenTryWithResourcesAndFinally_whenFrontendRuns_thenBodyIsRejectedAndChildrenRemainOrdered()
+      throws IOException {
+    // Arrange
+    Files.writeString(
+        temporaryDirectory.resolve("ResourceOwner.java"),
+        """
+        final class ResourceOwner {
+          void read() {
+            try (var reader = new java.io.StringReader("value")) {
+              reader.read();
+            } finally {
+              System.out.println("closed");
+            }
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25));
+
+    // Assert
+    var body = methodBody(result, "read");
+    assertFalse(body.supported());
+    assertEquals(1, result.diagnostics().stream()
+        .filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")).count());
+    var tryNode = body.syntaxRoot().children().getFirst();
+    assertEquals(SyntaxKind.TRY, tryNode.syntaxKind());
+    assertEquals(
+        List.of(SyntaxKind.LOCAL_DECLARATION, SyntaxKind.BLOCK, SyntaxKind.BLOCK),
+        tryNode.children().stream().map(node -> node.syntaxKind()).toList());
+  }
+
+  @Test
+  void givenUnsupportedUnaryUpdate_whenFrontendRuns_thenBodyAndDiagnosticRejectConstruct()
+      throws IOException {
+    // Arrange
+    Files.writeString(
+        temporaryDirectory.resolve("Updating.java"),
+        "final class Updating { int increment(int value) { return ++value; } }");
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25));
+
+    // Assert
+    var body = methodBody(result, "increment");
+    assertFalse(body.supported());
+    assertEquals(
+        List.of(SyntaxKind.BLOCK, SyntaxKind.RETURN, SyntaxKind.UNSUPPORTED, SyntaxKind.VARIABLE_ACCESS),
+        body.syntaxRoot().descendantsAndSelf().stream().map(node -> node.syntaxKind()).toList());
+    assertEquals(1, result.diagnostics().stream()
+        .filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")).count());
   }
 
   @Test
@@ -219,5 +317,10 @@ class JavaFrontendTest {
     assertTrue(second.diagnostics().isEmpty());
     assertEquals(first.program(), second.program());
     assertNotEquals(first.environmentSnapshot().environmentDigest(), second.environmentSnapshot().environmentDigest());
+  }
+
+  private static MethodBody methodBody(FrontendResult result, String methodName) {
+    return result.program().methods().stream().filter(method -> method.name().equals(methodName)).findFirst().orElseThrow().body()
+        .orElseThrow();
   }
 }

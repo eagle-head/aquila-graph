@@ -25,15 +25,17 @@ and `SnapshotSourceCatalog` is the single correlation point between captured
 ownership. `CompilerDiagnosticTranslator` converts compiler diagnostics;
 `JavaProgramTranslator`, `JavaTypeTranslator`, and `JavaMethodTranslator` own
 their respective declaration levels; `JavaMethodBodyTranslator` recursively
-converts one method body; and `JavaSyntaxClassifier` classifies one tree without
-owning traversal. `JavaSemanticResolver` projects compiler elements and types,
-while `JavaSourceEvidence` independently projects source positions. Translation
-results carry their diagnostics explicitly, and recursive body assembly confines
-mutation to one syntax node. All compiler-owned objects remain package-internal
-and are translated into project-owned records before the facade returns. Target
-source files are not reopened after snapshot discovery. Source access and UTF-8
-decoding failures remain checked `IOException` values, with source-path context
-and the original cause preserved, through the frontend and application service.
+converts one method body; and `MethodBodySyntaxProfile` maps each compiler-tree
+form through visitor dispatch to its normalized kind, ordered retained children,
+structural paths, and local acceptance. `JavaSemanticResolver` projects compiler
+elements and types, while `JavaSourceEvidence` independently projects source
+positions. Translation results carry their diagnostics explicitly, and recursive
+body assembly uses immutable mappings without retaining per-method state. All
+compiler-owned objects remain package-internal and are translated into project-owned
+records before the facade returns. Target source files are not reopened after
+snapshot discovery. Source access and UTF-8 decoding failures remain checked
+`IOException` values, with source-path context and the original cause preserved,
+through the frontend and application service.
 [1][2][16]
 
 `JavaSourceLoader` orders normalized relative paths, hashes each captured UTF-8
@@ -235,7 +237,7 @@ implements its bounded model and has no runtime dependency on
    [CompilerDiagnosticTranslator](../../src/main/java/org/aquilagraph/frontend/CompilerDiagnosticTranslator.java), compiler diagnostics;
    [JavaProgramTranslator](../../src/main/java/org/aquilagraph/frontend/JavaProgramTranslator.java), declaration translation;
    [JavaMethodBodyTranslator](../../src/main/java/org/aquilagraph/frontend/JavaMethodBodyTranslator.java), method-body traversal;
-   [JavaSyntaxClassifier](../../src/main/java/org/aquilagraph/frontend/JavaSyntaxClassifier.java), syntax classification; and
+   [MethodBodySyntaxProfile](../../src/main/java/org/aquilagraph/frontend/MethodBodySyntaxProfile.java), accepted syntax mapping; and
    [JavaSemanticResolver](../../src/main/java/org/aquilagraph/frontend/JavaSemanticResolver.java), compiler semantic queries;
    [JavaSourceEvidence](../../src/main/java/org/aquilagraph/frontend/JavaSourceEvidence.java), source-position projection.
 3. [InputSnapshot](../../src/main/java/org/aquilagraph/model/InputSnapshot.java), record invariants.
