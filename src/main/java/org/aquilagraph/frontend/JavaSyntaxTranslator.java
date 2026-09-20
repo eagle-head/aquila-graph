@@ -40,6 +40,8 @@ import org.aquilagraph.model.SyntaxKind;
 import org.aquilagraph.model.SyntaxNode;
 
 final class JavaSyntaxTranslator {
+  private static final String EXPRESSION_PATH = ".expression";
+
   private final JavaTreeSemantics semantics;
   private final JavaSyntaxClassifier classifier;
   private final CompilationUnitTree unit;
@@ -48,11 +50,7 @@ final class JavaSyntaxTranslator {
   private final List<AnalysisDiagnostic> diagnostics = new ArrayList<>();
   private boolean supported = true;
 
-  JavaSyntaxTranslator(
-      JavaTreeSemantics semantics,
-      CompilationUnitTree unit,
-      SourceFile sourceFile,
-      String methodKey) {
+  JavaSyntaxTranslator(JavaTreeSemantics semantics, CompilationUnitTree unit, SourceFile sourceFile, String methodKey) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     classifier = new JavaSyntaxClassifier(semantics);
     this.unit = Objects.requireNonNull(unit, "unit");
@@ -73,16 +71,11 @@ final class JavaSyntaxTranslator {
     var detail = classifier.detail(tree);
     switch (tree) {
       case BlockTree block -> addAll(children, block.getStatements(), path, structuralPath);
-      case VariableTree variable ->
-          add(children, variable.getInitializer(), path, structuralPath + ".initializer");
-      case ExpressionStatementTree statement ->
-          add(children, statement.getExpression(), path, structuralPath + ".expression");
-      case ReturnTree statement ->
-          add(children, statement.getExpression(), path, structuralPath + ".expression");
-      case ThrowTree statement ->
-          add(children, statement.getExpression(), path, structuralPath + ".expression");
-      case YieldTree statement ->
-          add(children, statement.getValue(), path, structuralPath + ".value");
+      case VariableTree variable -> add(children, variable.getInitializer(), path, structuralPath + ".initializer");
+      case ExpressionStatementTree statement -> add(children, statement.getExpression(), path, structuralPath + EXPRESSION_PATH);
+      case ReturnTree statement -> add(children, statement.getExpression(), path, structuralPath + EXPRESSION_PATH);
+      case ThrowTree statement -> add(children, statement.getExpression(), path, structuralPath + EXPRESSION_PATH);
+      case YieldTree statement -> add(children, statement.getValue(), path, structuralPath + ".value");
       case IfTree statement -> {
         add(children, statement.getCondition(), path, structuralPath + ".condition");
         add(children, statement.getThenStatement(), path, structuralPath + ".then");
@@ -120,10 +113,8 @@ final class JavaSyntaxTranslator {
         add(children, creation.getEnclosingExpression(), path, structuralPath + ".enclosing");
         addAll(children, creation.getArguments(), path, structuralPath + ".argument");
       }
-      case MemberSelectTree selection ->
-          add(children, selection.getExpression(), path, structuralPath + ".qualifier");
-      case UnaryTree unary ->
-          add(children, unary.getExpression(), path, structuralPath + ".operand");
+      case MemberSelectTree selection -> add(children, selection.getExpression(), path, structuralPath + ".qualifier");
+      case UnaryTree unary -> add(children, unary.getExpression(), path, structuralPath + ".operand");
       case BinaryTree binary -> {
         add(children, binary.getLeftOperand(), path, structuralPath + ".left");
         add(children, binary.getRightOperand(), path, structuralPath + ".right");
@@ -136,17 +127,17 @@ final class JavaSyntaxTranslator {
         add(children, access.getExpression(), path, structuralPath + ".array");
         add(children, access.getIndex(), path, structuralPath + ".index");
       }
-      case ParenthesizedTree expression ->
-          add(children, expression.getExpression(), path, structuralPath + ".expression");
-      case TypeCastTree expression ->
-          add(children, expression.getExpression(), path, structuralPath + ".expression");
+      case ParenthesizedTree expression -> add(children, expression.getExpression(), path, structuralPath + EXPRESSION_PATH);
+      case TypeCastTree expression -> add(children, expression.getExpression(), path, structuralPath + EXPRESSION_PATH);
       case ConditionalExpressionTree expression -> {
         add(children, expression.getCondition(), path, structuralPath + ".condition");
         add(children, expression.getTrueExpression(), path, structuralPath + ".true");
         add(children, expression.getFalseExpression(), path, structuralPath + ".false");
       }
-      case IdentifierTree ignored -> {}
-      case LiteralTree ignored -> {}
+      case IdentifierTree ignored -> {
+      }
+      case LiteralTree ignored -> {
+      }
       default -> {
         if (kind == SyntaxKind.UNSUPPORTED) {
           addUnsupportedDiagnostic(tree);
@@ -155,35 +146,18 @@ final class JavaSyntaxTranslator {
     }
 
     var origins = semantics.sourceOrigins(unit, sourceFile, tree);
-    var nodeId =
-        StableId.sha256(
-            "syntax",
-            methodKey,
-            structuralPath,
-            tree.getKind().name(),
-            origins.stream().map(Object::toString).collect(Collectors.joining("|")));
-    return new SyntaxNode(
-        nodeId,
-        kind,
-        detail,
-        children,
-        semantics.semanticReferences(path),
-        origins,
-        origins.isEmpty());
+    var nodeId = StableId.sha256("syntax", methodKey, structuralPath, tree.getKind().name(),
+        origins.stream().map(Object::toString).collect(Collectors.joining("|")));
+    return new SyntaxNode(nodeId, kind, detail, children, semantics.semanticReferences(path), origins, origins.isEmpty());
   }
 
-  private void add(
-      List<SyntaxNode> children, Tree child, TreePath parent, String structuralPath) {
+  private void add(List<SyntaxNode> children, Tree child, TreePath parent, String structuralPath) {
     if (child != null) {
       children.add(translateTree(child, new TreePath(parent, child), structuralPath));
     }
   }
 
-  private void addAll(
-      List<SyntaxNode> children,
-      List<? extends Tree> childTrees,
-      TreePath parent,
-      String structuralPath) {
+  private void addAll(List<SyntaxNode> children, List<? extends Tree> childTrees, TreePath parent, String structuralPath) {
     for (var index = 0; index < childTrees.size(); index++) {
       add(children, childTrees.get(index), parent, structuralPath + "." + index);
     }
@@ -193,19 +167,13 @@ final class JavaSyntaxTranslator {
     supported = false;
     var origins = semantics.sourceOrigins(unit, sourceFile, tree);
     var message = "Unsupported Java construct in method body: " + tree.getKind();
-    diagnostics.add(
-        new AnalysisDiagnostic(
-            StableId.sha256("diagnostic", methodKey, tree.getKind().name(), message),
-            "frontend.unsupported-syntax",
-            DiagnosticStage.FRONTEND,
-            DiagnosticSeverity.ERROR,
-            message,
-            origins));
+    diagnostics.add(new AnalysisDiagnostic(StableId.sha256("diagnostic", methodKey, tree.getKind().name(), message),
+        "frontend.unsupported-syntax", DiagnosticStage.FRONTEND, DiagnosticSeverity.ERROR, message, origins));
   }
 
   record Translation(MethodBody body, List<AnalysisDiagnostic> diagnostics) {
     Translation {
-      body = Objects.requireNonNull(body, "body");
+      Objects.requireNonNull(body, "body");
       diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics"));
     }
   }

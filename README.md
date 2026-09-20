@@ -18,6 +18,11 @@ completion contract, CLI behavior, and limitations are defined in the
 [Java analysis design](docs/design/java-analysis.md); its Compose-managed Neo4j
 publication schema is defined in the [persistence design](docs/persistence/neo4j-schema.md).
 
+Production code is governed by compiler, nullness, formatting, static-analysis, architecture,
+dependency, documentation, license, and SBOM gates. Their responsibilities and local
+commands are defined in the [build quality guide](docs/build-quality.md). Continuous integration
+is intentionally outside this repository configuration.
+
 ## Purpose of This Document
 
 This document establishes the preliminary vision and scope boundary for Aquila Graph. In

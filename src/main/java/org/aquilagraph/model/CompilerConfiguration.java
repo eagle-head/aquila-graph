@@ -4,10 +4,24 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 
-public record CompilerConfiguration(
-    int release, List<Path> classPath, List<Path> modulePath, List<String> options) {
+/**
+ * Normalized compiler inputs accepted by the Java frontend.
+ *
+ * @param release
+ *          Java language release
+ * @param classPath
+ *          class-path entries
+ * @param modulePath
+ *          module-path entries
+ * @param options
+ *          caller-supplied non-managed compiler options
+ */
+public record CompilerConfiguration(int release, List<Path> classPath, List<Path> modulePath, List<String> options) {
+  private static final int SUPPORTED_RELEASE = 25;
+
+  /** Validates the release and normalizes paths and options. */
   public CompilerConfiguration {
-    if (release != 25) {
+    if (release != SUPPORTED_RELEASE) {
       throw new IllegalArgumentException("The supported Java release is 25");
     }
     classPath = normalizePaths(classPath, "classPath");
@@ -21,18 +35,47 @@ public record CompilerConfiguration(
     }
   }
 
+  /**
+   * Creates the default Java 25 configuration without external dependencies.
+   *
+   * @return Java 25 compiler configuration
+   */
   public static CompilerConfiguration java25() {
-    return new CompilerConfiguration(25, List.of(), List.of(), List.of());
+    return new CompilerConfiguration(SUPPORTED_RELEASE, List.of(), List.of(), List.of());
   }
 
+  /**
+   * Returns an immutable copy of normalized class-path entries.
+   *
+   * @return class path
+   */
+  @Override
+  public List<Path> classPath() {
+    return List.copyOf(classPath);
+  }
+
+  /**
+   * Returns an immutable copy of normalized module-path entries.
+   *
+   * @return module path
+   */
+  @Override
+  public List<Path> modulePath() {
+    return List.copyOf(modulePath);
+  }
+
+  /**
+   * Serializes the configuration deterministically for stable identity.
+   *
+   * @return canonical configuration text
+   */
   public String canonicalForm() {
     return release + "\n" + join(classPath) + "\n" + join(modulePath) + "\n" + String.join("\u0000", options);
   }
 
   private static List<Path> normalizePaths(List<Path> paths, String name) {
     return Objects.requireNonNull(paths, name).stream()
-        .map(path -> Objects.requireNonNull(path, name + " entry").toAbsolutePath().normalize())
-        .toList();
+        .map(path -> Objects.requireNonNull(path, name + " entry").toAbsolutePath().normalize()).toList();
   }
 
   private static String join(List<Path> paths) {
@@ -40,35 +83,17 @@ public record CompilerConfiguration(
   }
 
   private static boolean isManagedOption(String option) {
-    return option.startsWith("@")
-        || isOption(option, "--release")
-        || option.equals("-encoding")
-        || option.equals("-proc:none")
-        || option.startsWith("-proc:")
-        || isOption(option, "--class-path")
-        || isOption(option, "-classpath")
-        || isOption(option, "-cp")
-        || isOption(option, "--module-path")
-        || isOption(option, "-p")
-        || isOption(option, "--source-path")
-        || isOption(option, "-sourcepath")
-        || isOption(option, "--module-source-path")
-        || isOption(option, "--upgrade-module-path")
-        || isOption(option, "--system")
-        || isOption(option, "--patch-module")
-        || isOption(option, "--processor-path")
-        || isOption(option, "-processorpath")
-        || isOption(option, "--processor-module-path")
-        || isOption(option, "--boot-class-path")
-        || isOption(option, "-bootclasspath")
-        || isOption(option, "-extdirs")
-        || isOption(option, "-endorseddirs")
-        || option.startsWith("-Xbootclasspath:")
-        || option.startsWith("-Xbootclasspath/p:")
-        || option.startsWith("-Xbootclasspath/a:");
+    return option.startsWith("@") || isOption(option, "--release") || "-encoding".equals(option) || "-proc:none".equals(option)
+        || option.startsWith("-proc:") || isOption(option, "--class-path") || isOption(option, "-classpath") || isOption(option, "-cp")
+        || isOption(option, "--module-path") || isOption(option, "-p") || isOption(option, "--source-path")
+        || isOption(option, "-sourcepath") || isOption(option, "--module-source-path") || isOption(option, "--upgrade-module-path")
+        || isOption(option, "--system") || isOption(option, "--patch-module") || isOption(option, "--processor-path")
+        || isOption(option, "-processorpath") || isOption(option, "--processor-module-path") || isOption(option, "--boot-class-path")
+        || isOption(option, "-bootclasspath") || isOption(option, "-extdirs") || isOption(option, "-endorseddirs")
+        || option.startsWith("-Xbootclasspath:") || option.startsWith("-Xbootclasspath/p:") || option.startsWith("-Xbootclasspath/a:");
   }
 
   private static boolean isOption(String option, String managedName) {
-    return option.equals(managedName) || option.startsWith(managedName + "=");
+    return managedName.equals(option) || option.startsWith(managedName + "=");
   }
 }

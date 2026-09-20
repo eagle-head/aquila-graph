@@ -20,13 +20,8 @@ record JavaCompilerInvocation(List<String> compilerOptions, List<String> analysi
     var compilerOptions = new ArrayList<String>();
     var analysisOptions = new ArrayList<String>();
 
-    addSharedOption(
-        compilerOptions,
-        analysisOptions,
-        "--release",
-        Integer.toString(configuration.release()));
-    addSharedOption(
-        compilerOptions, analysisOptions, "-encoding", StandardCharsets.UTF_8.name());
+    addSharedOption(compilerOptions, analysisOptions, "--release", Integer.toString(configuration.release()));
+    addSharedOption(compilerOptions, analysisOptions, "-encoding", StandardCharsets.UTF_8.name());
     compilerOptions.add("-proc:none");
     analysisOptions.add("-proc:none");
 
@@ -42,11 +37,7 @@ record JavaCompilerInvocation(List<String> compilerOptions, List<String> analysi
     return new JavaCompilerInvocation(compilerOptions, analysisOptions);
   }
 
-  private static void addSharedOption(
-      List<String> compilerOptions,
-      List<String> analysisOptions,
-      String option,
-      String value) {
+  private static void addSharedOption(List<String> compilerOptions, List<String> analysisOptions, String option, String value) {
     compilerOptions.add(option);
     compilerOptions.add(value);
     analysisOptions.add(option);

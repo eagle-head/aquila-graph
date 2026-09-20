@@ -37,39 +37,16 @@ final class JavaSyntaxClassifier {
       case YIELD -> SyntaxKind.YIELD;
       case METHOD_INVOCATION -> SyntaxKind.INVOCATION;
       case NEW_CLASS -> SyntaxKind.OBJECT_CREATION;
-      case MEMBER_SELECT ->
-          semantics.isArrayLength((MemberSelectTree) tree, path)
-              ? SyntaxKind.ARRAY_LENGTH
-              : SyntaxKind.MEMBER_ACCESS;
+      case MEMBER_SELECT -> semantics.isArrayLength((MemberSelectTree) tree, path) ? SyntaxKind.ARRAY_LENGTH : SyntaxKind.MEMBER_ACCESS;
       case IDENTIFIER -> SyntaxKind.VARIABLE_ACCESS;
-      case BOOLEAN_LITERAL,
-          CHAR_LITERAL,
-          DOUBLE_LITERAL,
-          FLOAT_LITERAL,
-          INT_LITERAL,
-          LONG_LITERAL,
-          NULL_LITERAL,
-          STRING_LITERAL -> SyntaxKind.LITERAL;
+      case BOOLEAN_LITERAL, CHAR_LITERAL, DOUBLE_LITERAL, FLOAT_LITERAL, INT_LITERAL, LONG_LITERAL, NULL_LITERAL, STRING_LITERAL ->
+        SyntaxKind.LITERAL;
       case UNARY_PLUS, UNARY_MINUS, BITWISE_COMPLEMENT, LOGICAL_COMPLEMENT -> SyntaxKind.UNARY;
       case CONDITIONAL_AND -> SyntaxKind.CONDITIONAL_AND;
       case CONDITIONAL_OR -> SyntaxKind.CONDITIONAL_OR;
-      case MULTIPLY,
-          DIVIDE,
-          REMAINDER,
-          PLUS,
-          MINUS,
-          LEFT_SHIFT,
-          RIGHT_SHIFT,
-          UNSIGNED_RIGHT_SHIFT,
-          LESS_THAN,
-          GREATER_THAN,
-          LESS_THAN_EQUAL,
-          GREATER_THAN_EQUAL,
-          EQUAL_TO,
-          NOT_EQUAL_TO,
-          AND,
-          XOR,
-          OR -> SyntaxKind.BINARY;
+      case MULTIPLY, DIVIDE, REMAINDER, PLUS, MINUS, LEFT_SHIFT, RIGHT_SHIFT, UNSIGNED_RIGHT_SHIFT, LESS_THAN, GREATER_THAN,
+          LESS_THAN_EQUAL, GREATER_THAN_EQUAL, EQUAL_TO, NOT_EQUAL_TO, AND, XOR, OR ->
+        SyntaxKind.BINARY;
       case ASSIGNMENT -> SyntaxKind.ASSIGNMENT;
       case ARRAY_ACCESS -> SyntaxKind.ARRAY_ACCESS;
       case PARENTHESIZED -> SyntaxKind.PARENTHESIZED;
@@ -83,10 +60,8 @@ final class JavaSyntaxClassifier {
   String detail(Tree tree) {
     return switch (tree) {
       case VariableTree variable -> variable.getType() + " " + variable.getName();
-      case CatchTree catchTree ->
-          catchTree.getParameter().getType() + " " + catchTree.getParameter().getName();
-      case CaseTree caseTree ->
-          caseTree.getLabels().stream().map(Object::toString).collect(Collectors.joining(","));
+      case CatchTree catchTree -> catchTree.getParameter().getType() + " " + catchTree.getParameter().getName();
+      case CaseTree caseTree -> caseTree.getLabels().stream().map(Object::toString).collect(Collectors.joining(","));
       case MemberSelectTree selection -> selection.getIdentifier().toString();
       case IdentifierTree identifier -> identifier.getName().toString();
       case LiteralTree literal -> String.valueOf(literal.getValue());

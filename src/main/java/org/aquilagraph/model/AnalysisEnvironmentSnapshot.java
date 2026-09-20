@@ -5,16 +5,30 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-public record AnalysisEnvironmentSnapshot(
-    CompilerConfiguration compilerConfiguration,
-    String compilerImplementation,
-    String compilerVendor,
-    String compilerVersion,
-    List<String> analysisOptions,
-    List<DependencySnapshot> classPath,
-    List<DependencySnapshot> modulePath) {
+/**
+ * Reproducibility snapshot of the compiler runtime and dependency inputs.
+ *
+ * @param compilerConfiguration
+ *          normalized compiler configuration
+ * @param compilerImplementation
+ *          compiler implementation class
+ * @param compilerVendor
+ *          Java runtime vendor
+ * @param compilerVersion
+ *          Java runtime version
+ * @param analysisOptions
+ *          effective compiler options
+ * @param classPath
+ *          captured class-path entries
+ * @param modulePath
+ *          captured module-path entries
+ */
+public record AnalysisEnvironmentSnapshot(CompilerConfiguration compilerConfiguration, String compilerImplementation, String compilerVendor,
+    String compilerVersion, List<String> analysisOptions, List<DependencySnapshot> classPath, List<DependencySnapshot> modulePath) {
+  /** Digest algorithm used for environment identity. */
   public static final String DIGEST_ALGORITHM = "SHA-256";
 
+  /** Validates and defensively copies environment data. */
   public AnalysisEnvironmentSnapshot {
     Objects.requireNonNull(compilerConfiguration, "compilerConfiguration");
     compilerImplementation = requireText(compilerImplementation, "compilerImplementation");
@@ -27,10 +41,30 @@ public record AnalysisEnvironmentSnapshot(
     requireMatchingLocations(compilerConfiguration.modulePath(), modulePath, "modulePath");
   }
 
+  /**
+   * Returns the environment digest algorithm.
+   *
+   * @return {@value #DIGEST_ALGORITHM}
+   */
   public String digestAlgorithm() {
     return DIGEST_ALGORITHM;
   }
 
+  /**
+   * Returns an immutable copy of the effective compiler options.
+   *
+   * @return compiler options
+   */
+  @Override
+  public List<String> analysisOptions() {
+    return List.copyOf(analysisOptions);
+  }
+
+  /**
+   * Computes the stable identity of compiler and dependency inputs.
+   *
+   * @return namespaced SHA-256 environment identifier
+   */
   public String environmentDigest() {
     var components = new ArrayList<String>();
     components.add("compiler-implementation");
@@ -53,8 +87,7 @@ public record AnalysisEnvironmentSnapshot(
     return copy;
   }
 
-  private static void requireMatchingLocations(
-      List<Path> configured, List<DependencySnapshot> captured, String name) {
+  private static void requireMatchingLocations(List<Path> configured, List<DependencySnapshot> captured, String name) {
     if (configured.size() != captured.size()) {
       throw new IllegalArgumentException(name + " snapshot count must match the configuration");
     }
@@ -66,8 +99,7 @@ public record AnalysisEnvironmentSnapshot(
     }
   }
 
-  private static void addDependencyIdentity(
-      List<String> components, String role, List<DependencySnapshot> dependencies) {
+  private static void addDependencyIdentity(List<String> components, String role, List<DependencySnapshot> dependencies) {
     components.add(role);
     components.add(Integer.toString(dependencies.size()));
     for (var dependency : dependencies) {

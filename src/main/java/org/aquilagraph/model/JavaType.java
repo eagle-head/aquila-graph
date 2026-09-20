@@ -4,13 +4,25 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 
-public record JavaType(
-    String typeKey,
-    String qualifiedName,
-    JavaTypeKind kind,
-    boolean sourceDeclared,
-    List<JavaMethod> methods,
+/**
+ * Translated Java type declaration.
+ *
+ * @param typeKey
+ *          stable type identifier
+ * @param qualifiedName
+ *          compiler-reported or derived qualified name
+ * @param kind
+ *          declaration category
+ * @param sourceDeclared
+ *          whether the declaration has a source origin
+ * @param methods
+ *          declared methods
+ * @param origins
+ *          declaration source locations
+ */
+public record JavaType(String typeKey, String qualifiedName, JavaTypeKind kind, boolean sourceDeclared, List<JavaMethod> methods,
     List<SourceSpan> origins) {
+  /** Validates and defensively copies type data. */
   public JavaType {
     Objects.requireNonNull(typeKey, "typeKey");
     Objects.requireNonNull(qualifiedName, "qualifiedName");

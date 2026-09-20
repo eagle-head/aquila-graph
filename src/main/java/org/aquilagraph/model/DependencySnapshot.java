@@ -3,12 +3,22 @@ package org.aquilagraph.model;
 import java.nio.file.Path;
 import java.util.Objects;
 
-public record DependencySnapshot(
-    Path location,
-    DependencyKind kind,
-    long byteCount,
-    int entryCount,
-    String fingerprint) {
+/**
+ * Captured identity and size metadata for one compiler dependency entry.
+ *
+ * @param location
+ *          normalized dependency location
+ * @param kind
+ *          dependency entry form
+ * @param byteCount
+ *          captured content size
+ * @param entryCount
+ *          number of files represented
+ * @param fingerprint
+ *          content fingerprint
+ */
+public record DependencySnapshot(Path location, DependencyKind kind, long byteCount, int entryCount, String fingerprint) {
+  /** Validates and normalizes dependency metadata. */
   public DependencySnapshot {
     location = Objects.requireNonNull(location, "location").toAbsolutePath().normalize();
     Objects.requireNonNull(kind, "kind");

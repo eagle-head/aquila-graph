@@ -6,9 +6,20 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Objects;
 
+/** Creates deterministic, namespaced SHA-256 identifiers. */
 public final class StableId {
-  private StableId() {}
+  private StableId() {
+  }
 
+  /**
+   * Hashes a namespace and ordered components with unambiguous length framing.
+   *
+   * @param namespace
+   *          identifier namespace
+   * @param components
+   *          ordered identity components
+   * @return lowercase hexadecimal SHA-256 identifier
+   */
   public static String sha256(String namespace, String... components) {
     Objects.requireNonNull(namespace, "namespace");
     Objects.requireNonNull(components, "components");

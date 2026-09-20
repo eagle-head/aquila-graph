@@ -33,8 +33,7 @@ final class JavaTreeSemantics {
     return trees.getElement(path);
   }
 
-  List<SourceSpan> sourceOrigins(
-      CompilationUnitTree unit, SourceFile sourceFile, Tree tree) {
+  List<SourceSpan> sourceOrigins(CompilationUnitTree unit, SourceFile sourceFile, Tree tree) {
     var start = positions.getStartPosition(unit, tree);
     var end = positions.getEndPosition(unit, tree);
     if (start == Diagnostic.NOPOS || end == Diagnostic.NOPOS || end < start) {
@@ -47,27 +46,13 @@ final class JavaTreeSemantics {
     var element = trees.getElement(path);
     if (element == null) {
       return unresolvedReferenceKind(path.getLeaf())
-          .map(
-              kind ->
-                  List.of(
-                      new SemanticReference(
-                          kind,
-                          ResolutionStatus.UNRESOLVED,
-                          Optional.empty(),
-                          Optional.empty())))
+          .map(kind -> List.of(new SemanticReference(kind, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty())))
           .orElseGet(List::of);
     }
     var type = trees.getTypeMirror(path);
-    var status =
-        type != null && type.getKind() == TypeKind.ERROR
-            ? ResolutionStatus.ERROR
-            : ResolutionStatus.RESOLVED;
-    return List.of(
-        new SemanticReference(
-            referenceKind(element.getKind()),
-            status,
-            Optional.of(symbolKey(element)),
-            type == null ? Optional.empty() : Optional.of(type.toString())));
+    var status = type != null && type.getKind() == TypeKind.ERROR ? ResolutionStatus.ERROR : ResolutionStatus.RESOLVED;
+    return List.of(new SemanticReference(referenceKind(element.getKind()), status, Optional.of(symbolKey(element)),
+        type == null ? Optional.empty() : Optional.of(type.toString())));
   }
 
   boolean isArrayLength(MemberSelectTree tree, TreePath path) {
@@ -96,8 +81,7 @@ final class JavaTreeSemantics {
       case METHOD -> ReferenceKind.METHOD;
       case FIELD -> ReferenceKind.FIELD;
       case PARAMETER -> ReferenceKind.PARAMETER;
-      case LOCAL_VARIABLE, EXCEPTION_PARAMETER, RESOURCE_VARIABLE, BINDING_VARIABLE ->
-          ReferenceKind.LOCAL;
+      case LOCAL_VARIABLE, EXCEPTION_PARAMETER, RESOURCE_VARIABLE, BINDING_VARIABLE -> ReferenceKind.LOCAL;
       case ENUM_CONSTANT -> ReferenceKind.ENUM_CONSTANT;
       case PACKAGE -> ReferenceKind.PACKAGE;
       default -> ReferenceKind.TYPE;
@@ -106,10 +90,9 @@ final class JavaTreeSemantics {
 
   private static String symbolKey(Element element) {
     var owner = element.getEnclosingElement();
-    var ownerName =
-        owner instanceof TypeElement typeElement
-            ? typeElement.getQualifiedName().toString()
-            : owner == null ? "" : owner.toString();
+    var ownerName = owner instanceof TypeElement typeElement
+        ? typeElement.getQualifiedName().toString()
+        : owner == null ? "" : owner.toString();
     return switch (element.getKind()) {
       case CONSTRUCTOR, METHOD -> ownerName + "#" + element.getSimpleName() + element.asType();
       default -> ownerName + "#" + element.getSimpleName() + ":" + element.asType();

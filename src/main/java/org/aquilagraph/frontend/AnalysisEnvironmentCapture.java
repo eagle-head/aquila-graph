@@ -20,23 +20,14 @@ import org.aquilagraph.model.DependencyKind;
 import org.aquilagraph.model.DependencySnapshot;
 
 final class AnalysisEnvironmentCapture {
-  AnalysisEnvironmentSnapshot capture(
-      JavaCompiler compiler,
-      CompilerConfiguration configuration,
-      List<String> analysisOptions)
+  AnalysisEnvironmentSnapshot capture(JavaCompiler compiler, CompilerConfiguration configuration, List<String> analysisOptions)
       throws IOException {
-    return new AnalysisEnvironmentSnapshot(
-        configuration,
-        compiler.getClass().getName(),
-        requiredSystemProperty("java.vendor"),
-        requiredSystemProperty("java.runtime.version"),
-        analysisOptions,
-        captureDependencies(configuration.classPath()),
+    return new AnalysisEnvironmentSnapshot(configuration, compiler.getClass().getName(), requiredSystemProperty("java.vendor"),
+        requiredSystemProperty("java.runtime.version"), analysisOptions, captureDependencies(configuration.classPath()),
         captureDependencies(configuration.modulePath()));
   }
 
-  private static List<DependencySnapshot> captureDependencies(List<Path> locations)
-      throws IOException {
+  private static List<DependencySnapshot> captureDependencies(List<Path> locations) throws IOException {
     var dependencies = new ArrayList<DependencySnapshot>(locations.size());
     for (var location : locations) {
       dependencies.add(captureDependency(location));
@@ -46,19 +37,13 @@ final class AnalysisEnvironmentCapture {
 
   private static DependencySnapshot captureDependency(Path location) throws IOException {
     if (Files.notExists(location)) {
-      return new DependencySnapshot(
-          location, DependencyKind.MISSING, 0, 0, fingerprint("missing", List.of()));
+      return new DependencySnapshot(location, DependencyKind.MISSING, 0, 0, fingerprint("missing", List.of()));
     }
     if (Files.isRegularFile(location)) {
       var digest = sha256();
       updateString(digest, "regular-file");
       var byteCount = updateContent(digest, location);
-      return new DependencySnapshot(
-          location,
-          DependencyKind.REGULAR_FILE,
-          byteCount,
-          1,
-          formattedFingerprint(digest));
+      return new DependencySnapshot(location, DependencyKind.REGULAR_FILE, byteCount, 1, formattedFingerprint(digest));
     }
     if (Files.isDirectory(location)) {
       return captureDirectory(location);
@@ -69,15 +54,10 @@ final class AnalysisEnvironmentCapture {
   private static DependencySnapshot captureDirectory(Path location) throws IOException {
     List<Path> files;
     try (var paths = Files.walk(location, FileVisitOption.FOLLOW_LINKS)) {
-      files =
-          paths
-              .filter(Files::isRegularFile)
-              .sorted(
-                  Comparator.comparing(
-                      path -> canonicalRelativePath(location.relativize(path))))
-              .toList();
+      files = paths.filter(Files::isRegularFile).sorted(Comparator.comparing(path -> canonicalRelativePath(location.relativize(path))))
+          .toList();
     } catch (UncheckedIOException exception) {
-      throw exception.getCause();
+      throw new IOException("Failed to enumerate compiler dependency directory: " + location, exception);
     }
 
     var digest = sha256();
@@ -94,20 +74,18 @@ final class AnalysisEnvironmentCapture {
       }
       byteCount = Math.addExact(byteCount, capturedSize);
     }
-    return new DependencySnapshot(
-        location,
-        DependencyKind.DIRECTORY,
-        byteCount,
-        files.size(),
-        formattedFingerprint(digest));
+    return new DependencySnapshot(location, DependencyKind.DIRECTORY, byteCount, files.size(), formattedFingerprint(digest));
   }
 
   private static long updateContent(MessageDigest digest, Path path) throws IOException {
     long byteCount = 0;
     var buffer = new byte[8192];
     try (var input = Files.newInputStream(path)) {
-      int read;
-      while ((read = input.read(buffer)) >= 0) {
+      while (true) {
+        var read = input.read(buffer);
+        if (read < 0) {
+          break;
+        }
         if (read == 0) {
           continue;
         }

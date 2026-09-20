@@ -3,19 +3,31 @@ package org.aquilagraph.model;
 import java.util.Objects;
 import java.util.Optional;
 
-public record FlowValue(
-    String valueId,
-    String graphId,
-    ValueKind kind,
-    Optional<String> displayName,
-    Optional<String> literal,
+/**
+ * Value owned by a method control-flow graph.
+ *
+ * @param valueId
+ *          stable value identifier
+ * @param graphId
+ *          owning graph identifier
+ * @param kind
+ *          value origin or role
+ * @param displayName
+ *          optional source-facing name
+ * @param literal
+ *          optional literal representation
+ * @param staticType
+ *          optional compiler-reported type
+ */
+public record FlowValue(String valueId, String graphId, ValueKind kind, Optional<String> displayName, Optional<String> literal,
     Optional<String> staticType) {
+  /** Validates value identity, ownership, and optional attributes. */
   public FlowValue {
     Objects.requireNonNull(valueId, "valueId");
     Objects.requireNonNull(graphId, "graphId");
     Objects.requireNonNull(kind, "kind");
-    displayName = Objects.requireNonNull(displayName, "displayName");
-    literal = Objects.requireNonNull(literal, "literal");
-    staticType = Objects.requireNonNull(staticType, "staticType");
+    Objects.requireNonNull(displayName, "displayName");
+    Objects.requireNonNull(literal, "literal");
+    Objects.requireNonNull(staticType, "staticType");
   }
 }

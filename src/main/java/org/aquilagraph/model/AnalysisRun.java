@@ -4,23 +4,40 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-public record AnalysisRun(
-    String runId,
-    InputSnapshot inputSnapshot,
-    AnalysisEnvironmentSnapshot environmentSnapshot,
-    Optional<ProgramRepresentation> representation,
-    List<AnalysisDiagnostic> diagnostics,
-    AnalysisCompletion completion,
-    String analyzerVersion,
-    String modelVersion) {
+/**
+ * Versioned result of analyzing one immutable input snapshot.
+ *
+ * @param runId
+ *          stable run identifier
+ * @param inputSnapshot
+ *          analyzed source snapshot
+ * @param environmentSnapshot
+ *          compiler environment snapshot
+ * @param representation
+ *          program representation when one was produced
+ * @param diagnostics
+ *          ordered analysis diagnostics
+ * @param completion
+ *          completion classification
+ * @param analyzerVersion
+ *          analyzer implementation version
+ * @param modelVersion
+ *          persisted model version
+ */
+public record AnalysisRun(String runId, InputSnapshot inputSnapshot, AnalysisEnvironmentSnapshot environmentSnapshot,
+    Optional<ProgramRepresentation> representation, List<AnalysisDiagnostic> diagnostics, AnalysisCompletion completion,
+    String analyzerVersion, String modelVersion) {
+  /** Analyzer version written into newly created runs. */
   public static final String CURRENT_ANALYZER_VERSION = "0.2.0";
+  /** Model version written into newly created runs. */
   public static final String CURRENT_MODEL_VERSION = "3";
 
+  /** Validates run invariants and defensively copies diagnostics. */
   public AnalysisRun {
     Objects.requireNonNull(runId, "runId");
     Objects.requireNonNull(inputSnapshot, "inputSnapshot");
     Objects.requireNonNull(environmentSnapshot, "environmentSnapshot");
-    representation = Objects.requireNonNull(representation, "representation");
+    Objects.requireNonNull(representation, "representation");
     diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics"));
     Objects.requireNonNull(completion, "completion");
     Objects.requireNonNull(analyzerVersion, "analyzerVersion");
@@ -29,15 +46,24 @@ public record AnalysisRun(
       throw new IllegalArgumentException("A completed run requires a program representation");
     }
     if (completion == AnalysisCompletion.REJECTED && representation.isPresent()) {
-      throw new IllegalArgumentException(
-          "A rejected run cannot contain an accepted representation");
+      throw new IllegalArgumentException("A rejected run cannot contain an accepted representation");
     }
   }
 
+  /**
+   * Indicates whether the run is eligible for persistence.
+   *
+   * @return {@code true} only for completed runs
+   */
   public boolean isComplete() {
     return completion == AnalysisCompletion.COMPLETED;
   }
 
+  /**
+   * Returns the compiler configuration captured for the run.
+   *
+   * @return compiler configuration
+   */
   public CompilerConfiguration compilerConfiguration() {
     return environmentSnapshot.compilerConfiguration();
   }

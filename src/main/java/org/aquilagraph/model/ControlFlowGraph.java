@@ -6,15 +6,29 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
-public record ControlFlowGraph(
-    String graphId,
-    String methodKey,
-    EntryNode entry,
-    List<OperationNode> operationNodes,
-    List<FlowValue> values,
-    ExitNode exit,
-    List<CfgEdge> edges) {
+/**
+ * Validated intraprocedural control-flow graph and its owned values.
+ *
+ * @param graphId
+ *          stable graph identifier
+ * @param methodKey
+ *          analyzed method identifier
+ * @param entry
+ *          unique graph entry
+ * @param operationNodes
+ *          ordered semantic operation nodes
+ * @param values
+ *          values owned by the graph
+ * @param exit
+ *          unique graph exit
+ * @param edges
+ *          validated control transfers
+ */
+public record ControlFlowGraph(String graphId, String methodKey, EntryNode entry, List<OperationNode> operationNodes,
+    List<FlowValue> values, ExitNode exit, List<CfgEdge> edges) {
+  /** Validates graph ownership, uniqueness, and edge integrity. */
   public ControlFlowGraph {
     Objects.requireNonNull(graphId, "graphId");
     Objects.requireNonNull(methodKey, "methodKey");
@@ -39,16 +53,18 @@ public record ControlFlowGraph(
     requireOwnedNode(graphId, exit, nodeIds);
     var edgeIds = new HashSet<String>();
     for (var edge : edges) {
-      if (!edge.graphId().equals(graphId)
-          || !nodeIds.contains(edge.sourceNodeId())
-          || !nodeIds.contains(edge.targetNodeId())
+      if (!edge.graphId().equals(graphId) || !nodeIds.contains(edge.sourceNodeId()) || !nodeIds.contains(edge.targetNodeId())
           || !edgeIds.add(edge.edgeId())) {
-        throw new IllegalArgumentException(
-            "CFG edges must be unique and connect nodes in the same graph");
+        throw new IllegalArgumentException("CFG edges must be unique and connect nodes in the same graph");
       }
     }
   }
 
+  /**
+   * Returns entry, operation nodes, and exit in deterministic order.
+   *
+   * @return all graph nodes
+   */
   public List<CfgNode> nodes() {
     var nodes = new ArrayList<CfgNode>(operationNodes.size() + 2);
     nodes.add(entry);
@@ -57,10 +73,24 @@ public record ControlFlowGraph(
     return List.copyOf(nodes);
   }
 
+  /**
+   * Returns nodes directly reachable from an owned node.
+   *
+   * @param node
+   *          source node
+   * @return direct successors
+   */
   public List<CfgNode> successors(CfgNode node) {
     return adjacent(node, true);
   }
 
+  /**
+   * Returns nodes that transfer directly to an owned node.
+   *
+   * @param node
+   *          target node
+   * @return direct predecessors
+   */
   public List<CfgNode> predecessors(CfgNode node) {
     return adjacent(node, false);
   }
@@ -72,15 +102,11 @@ public record ControlFlowGraph(
     }
     Map<String, CfgNode> byId = new HashMap<>();
     nodes().forEach(candidate -> byId.put(candidate.nodeId(), candidate));
-    return edges.stream()
-        .filter(
-            edge ->
-                (outgoing ? edge.sourceNodeId() : edge.targetNodeId()).equals(node.nodeId()))
-        .map(edge -> byId.get(outgoing ? edge.targetNodeId() : edge.sourceNodeId()))
-        .toList();
+    return edges.stream().filter(edge -> (outgoing ? edge.sourceNodeId() : edge.targetNodeId()).equals(node.nodeId()))
+        .map(edge -> byId.get(outgoing ? edge.targetNodeId() : edge.sourceNodeId())).toList();
   }
 
-  private static void requireOwnedNode(String graphId, CfgNode node, HashSet<String> nodeIds) {
+  private static void requireOwnedNode(String graphId, CfgNode node, Set<String> nodeIds) {
     if (!node.graphId().equals(graphId) || !nodeIds.add(node.nodeId())) {
       throw new IllegalArgumentException("CFG nodes must be unique and owned by the graph");
     }

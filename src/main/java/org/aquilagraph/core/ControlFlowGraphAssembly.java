@@ -4,8 +4,10 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import org.aquilagraph.model.CfgEdge;
 import org.aquilagraph.model.ControlFlowGraph;
 import org.aquilagraph.model.EntryNode;
@@ -26,9 +28,9 @@ final class ControlFlowGraphAssembly {
   private final EntryNode entry;
   private final ExitNode exit;
   private final List<OperationNode> operationNodes = new ArrayList<>();
-  private final LinkedHashMap<String, FlowValue> values = new LinkedHashMap<>();
+  private final Map<String, FlowValue> values = new LinkedHashMap<>();
   private final List<PendingEdge> pendingEdges = new ArrayList<>();
-  private final HashSet<String> edgeIds = new HashSet<>();
+  private final Set<String> edgeIds = new HashSet<>();
 
   ControlFlowGraphAssembly(JavaMethod method) {
     this.method = Objects.requireNonNull(method, "method");
@@ -37,25 +39,14 @@ final class ControlFlowGraphAssembly {
     exit = new ExitNode(StableId.sha256("cfg-node", graphId, "exit"), graphId);
   }
 
-  FlowValue value(
-      String valueId,
-      ValueKind kind,
-      Optional<String> displayName,
-      Optional<String> literal,
-      Optional<String> staticType) {
+  FlowValue value(String valueId, ValueKind kind, Optional<String> displayName, Optional<String> literal, Optional<String> staticType) {
     var value = new FlowValue(valueId, graphId, kind, displayName, literal, staticType);
     addValue(value);
     return value;
   }
 
-  FlowValue temporary(
-      String operationNodeId, String displayName, Optional<String> staticType) {
-    return value(
-        StableId.sha256("value", operationNodeId),
-        ValueKind.TEMPORARY,
-        Optional.of(displayName),
-        Optional.empty(),
-        staticType);
+  FlowValue temporary(String operationNodeId, String displayName, Optional<String> staticType) {
+    return value(StableId.sha256("value", operationNodeId), ValueKind.TEMPORARY, Optional.of(displayName), Optional.empty(), staticType);
   }
 
   void addValue(FlowValue value) {
@@ -67,81 +58,35 @@ final class ControlFlowGraphAssembly {
   }
 
   String operationNodeId(SyntaxNode node, String role) {
-    return StableId.sha256(
-        "cfg-node",
-        graphId,
-        "operation",
-        StableId.sha256("operation", method.methodKey(), node.nodeId(), role));
+    return StableId.sha256("cfg-node", graphId, "operation", StableId.sha256("operation", method.methodKey(), node.nodeId(), role));
   }
 
-  OperationNode addOperation(
-      String operationNodeId,
-      SyntaxNode node,
-      OperationKind kind,
-      String detail,
-      List<FlowValue> operands,
-      Optional<FlowValue> definedValue,
-      List<String> possibleExceptions) {
+  OperationNode addOperation(String operationNodeId, SyntaxNode node, OperationKind kind, String detail, List<FlowValue> operands,
+      Optional<FlowValue> definedValue, List<String> possibleExceptions) {
     definedValue.ifPresent(this::addValue);
     var orderedOperands = new ArrayList<OperationOperand>();
     for (var index = 0; index < operands.size(); index++) {
       addValue(operands.get(index));
       orderedOperands.add(new OperationOperand(index, operands.get(index)));
     }
-    var operation =
-        new OperationNode(
-            operationNodeId,
-            graphId,
-            kind,
-            detail,
-            orderedOperands,
-            definedValue,
-            node.semanticReferences(),
-            possibleExceptions,
-            node.origins());
+    var operation = new OperationNode(operationNodeId, graphId, kind, detail, orderedOperands, definedValue, node.semanticReferences(),
+        possibleExceptions, node.origins());
     operationNodes.add(operation);
     return operation;
   }
 
-  void addEdge(
-      CfgEndpoint source,
-      CfgEndpoint target,
-      TransferKind kind,
-      Optional<String> discriminator) {
-    var edgeIdentity =
-        StableId.sha256(
-            "transfer",
-            method.methodKey(),
-            source.canonicalForm(),
-            target.canonicalForm(),
-            kind.name(),
-            discriminator.orElse(""));
+  void addEdge(CfgEndpoint source, CfgEndpoint target, TransferKind kind, Optional<String> discriminator) {
+    var edgeIdentity = StableId.sha256("transfer", method.methodKey(), source.canonicalForm(), target.canonicalForm(), kind.name(),
+        discriminator.orElse(""));
     if (edgeIds.add(edgeIdentity)) {
       pendingEdges.add(new PendingEdge(edgeIdentity, source, target, kind, discriminator));
     }
   }
 
   ControlFlowGraph toGraph() {
-    var edges =
-        pendingEdges.stream()
-            .map(
-                edge ->
-                    new CfgEdge(
-                        StableId.sha256("cfg-edge", graphId, edge.edgeIdentity()),
-                        graphId,
-                        nodeId(edge.source()),
-                        nodeId(edge.target()),
-                        edge.kind(),
-                        edge.discriminator()))
-            .toList();
-    return new ControlFlowGraph(
-        graphId,
-        method.methodKey(),
-        entry,
-        operationNodes,
-        new ArrayList<>(values.values()),
-        exit,
-        edges);
+    var edges = pendingEdges.stream().map(edge -> new CfgEdge(StableId.sha256("cfg-edge", graphId, edge.edgeIdentity()), graphId,
+        nodeId(edge.source()), nodeId(edge.target()), edge.kind(), edge.discriminator())).toList();
+    return new ControlFlowGraph(graphId, method.methodKey(), entry, operationNodes, new ArrayList<>(values.values()), exit, edges);
   }
 
   private String nodeId(CfgEndpoint endpoint) {
@@ -152,54 +97,17 @@ final class ControlFlowGraphAssembly {
     };
   }
 
-  private record PendingEdge(
-      String edgeIdentity,
-      CfgEndpoint source,
-      CfgEndpoint target,
-      TransferKind kind,
+  private record PendingEdge(String edgeIdentity, CfgEndpoint source, CfgEndpoint target, TransferKind kind,
       Optional<String> discriminator) {
     private PendingEdge {
       Objects.requireNonNull(edgeIdentity, "edgeIdentity");
       Objects.requireNonNull(source, "source");
       Objects.requireNonNull(target, "target");
       Objects.requireNonNull(kind, "kind");
-      discriminator = Objects.requireNonNull(discriminator, "discriminator");
+      Objects.requireNonNull(discriminator, "discriminator");
       if (source.kind() == CfgEndpoint.Kind.EXIT || target.kind() == CfgEndpoint.Kind.ENTRY) {
-        throw new IllegalArgumentException(
-            "CFG edges must move from entry or operations toward operations or exit");
+        throw new IllegalArgumentException("CFG edges must move from entry or operations toward operations or exit");
       }
     }
-  }
-}
-
-record CfgEndpoint(Kind kind, Optional<String> operationNodeId) {
-  enum Kind {
-    ENTRY,
-    OPERATION,
-    EXIT
-  }
-
-  CfgEndpoint {
-    Objects.requireNonNull(kind, "kind");
-    operationNodeId = Objects.requireNonNull(operationNodeId, "operationNodeId");
-    if ((kind == Kind.OPERATION) != operationNodeId.isPresent()) {
-      throw new IllegalArgumentException("Only operation endpoints have a node identifier");
-    }
-  }
-
-  static CfgEndpoint entry() {
-    return new CfgEndpoint(Kind.ENTRY, Optional.empty());
-  }
-
-  static CfgEndpoint operation(String operationNodeId) {
-    return new CfgEndpoint(Kind.OPERATION, Optional.of(operationNodeId));
-  }
-
-  static CfgEndpoint exit() {
-    return new CfgEndpoint(Kind.EXIT, Optional.empty());
-  }
-
-  String canonicalForm() {
-    return kind + operationNodeId.map(value -> ":" + value).orElse("");
   }
 }

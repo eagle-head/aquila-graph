@@ -14,32 +14,38 @@ import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.StableId;
 
+/** Discovers Java sources and captures their normalized immutable snapshot. */
 public final class JavaSourceLoader {
+  /** Creates a stateless source loader. */
+  public JavaSourceLoader() {
+  }
+
+  /**
+   * Discovers all Java source files below a directory in deterministic order.
+   *
+   * @param sourceRoot
+   *          source directory
+   * @return content-addressed input snapshot
+   * @throws IOException
+   *           if a discovered source cannot be read
+   */
   public InputSnapshot discover(Path sourceRoot) throws IOException {
-    var normalizedRoot =
-        Objects.requireNonNull(sourceRoot, "sourceRoot").toAbsolutePath().normalize();
+    var normalizedRoot = Objects.requireNonNull(sourceRoot, "sourceRoot").toAbsolutePath().normalize();
 
     if (!Files.isDirectory(normalizedRoot)) {
       throw new IllegalArgumentException("Source root is not a directory: " + normalizedRoot);
     }
 
     try (var paths = Files.walk(normalizedRoot)) {
-      var sourcePaths =
-          paths
-              .filter(Files::isRegularFile)
-              .filter(JavaSourceLoader::isJavaSource)
-              .map(path -> path.toAbsolutePath().normalize())
-              .sorted(
-                  (left, right) ->
-                      canonicalRelativePath(normalizedRoot.relativize(left))
-                          .compareTo(canonicalRelativePath(normalizedRoot.relativize(right))))
-              .toList();
+      var sourcePaths = paths.filter(Files::isRegularFile).filter(JavaSourceLoader::isJavaSource)
+          .map(path -> path.toAbsolutePath().normalize()).sorted((left, right) -> canonicalRelativePath(normalizedRoot.relativize(left))
+              .compareTo(canonicalRelativePath(normalizedRoot.relativize(right))))
+          .toList();
       var sourceFiles = new ArrayList<SourceFile>(sourcePaths.size());
       for (var sourcePath : sourcePaths) {
         sourceFiles.add(readSource(normalizedRoot, sourcePath));
       }
-      return new InputSnapshot(
-          normalizedRoot, "SHA-256", snapshotDigest(sourceFiles), sourceFiles);
+      return new InputSnapshot(normalizedRoot, "SHA-256", snapshotDigest(sourceFiles), sourceFiles);
     }
   }
 
@@ -48,8 +54,7 @@ public final class JavaSourceLoader {
       var relativePath = sourceRoot.relativize(sourcePath).normalize();
       var content = Files.readString(sourcePath, StandardCharsets.UTF_8);
       var contentDigest = digest(content.getBytes(StandardCharsets.UTF_8));
-      var sourceFileKey =
-          StableId.sha256("source", canonicalRelativePath(relativePath), contentDigest);
+      var sourceFileKey = StableId.sha256("source", canonicalRelativePath(relativePath), contentDigest);
       return new SourceFile(sourceFileKey, relativePath, contentDigest, content);
     } catch (IOException exception) {
       throw new IOException("Cannot read Java source: " + sourcePath, exception);
@@ -57,14 +62,9 @@ public final class JavaSourceLoader {
   }
 
   private static String snapshotDigest(List<SourceFile> sourceFiles) {
-    var components =
-        sourceFiles.stream()
-            .flatMap(
-                sourceFile ->
-                    java.util.stream.Stream.of(
-                        canonicalRelativePath(sourceFile.relativePath()),
-                        sourceFile.contentDigest()))
-            .toArray(String[]::new);
+    var components = sourceFiles.stream()
+        .flatMap(sourceFile -> java.util.stream.Stream.of(canonicalRelativePath(sourceFile.relativePath()), sourceFile.contentDigest()))
+        .toArray(String[]::new);
     return StableId.sha256("snapshot", components);
   }
 
@@ -81,6 +81,7 @@ public final class JavaSourceLoader {
   }
 
   private static boolean isJavaSource(Path path) {
-    return path.getFileName().toString().endsWith(".java");
+    var fileName = path.getFileName();
+    return fileName != null && fileName.toString().endsWith(".java");
   }
 }

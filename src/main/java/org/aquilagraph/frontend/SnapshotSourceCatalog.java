@@ -12,9 +12,10 @@ import javax.tools.JavaFileObject;
 import javax.tools.SimpleJavaFileObject;
 import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.SourceFile;
+import org.jspecify.annotations.Nullable;
 
 final class SnapshotSourceCatalog {
-  private final List<JavaFileObject> compilationUnits;
+  private final List<JavaFileObject> compilerInputs;
   private final Map<Path, SourceFile> sourceFilesByPath;
 
   SnapshotSourceCatalog(InputSnapshot snapshot) {
@@ -26,12 +27,12 @@ final class SnapshotSourceCatalog {
       sources.put(sourcePath, sourceFile);
       units.add(SimpleJavaFileObject.forSource(sourcePath.toUri(), sourceFile.content()));
     }
-    compilationUnits = List.copyOf(units);
+    compilerInputs = List.copyOf(units);
     sourceFilesByPath = Map.copyOf(sources);
   }
 
   List<JavaFileObject> compilationUnits() {
-    return compilationUnits;
+    return compilerInputs;
   }
 
   Optional<SourceFile> find(CompilationUnitTree unit) {
@@ -39,7 +40,7 @@ final class SnapshotSourceCatalog {
     return find(unit.getSourceFile());
   }
 
-  Optional<SourceFile> find(JavaFileObject source) {
+  Optional<SourceFile> find(@Nullable JavaFileObject source) {
     if (source == null) {
       return Optional.empty();
     }
@@ -48,10 +49,6 @@ final class SnapshotSourceCatalog {
   }
 
   private static Path absolutePath(InputSnapshot snapshot, SourceFile sourceFile) {
-    return snapshot
-        .sourceRoot()
-        .resolve(sourceFile.relativePath())
-        .toAbsolutePath()
-        .normalize();
+    return snapshot.sourceRoot().resolve(sourceFile.relativePath()).toAbsolutePath().normalize();
   }
 }

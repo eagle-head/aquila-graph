@@ -25,52 +25,40 @@ final class JavaCompilerAnalyzer {
   private final AnalysisEnvironmentCapture environmentCapture;
 
   JavaCompilerAnalyzer(AnalysisEnvironmentCapture environmentCapture) {
-    this.environmentCapture =
-        Objects.requireNonNull(environmentCapture, "environmentCapture");
+    this.environmentCapture = Objects.requireNonNull(environmentCapture, "environmentCapture");
   }
 
-  FrontendResult analyze(InputSnapshot snapshot, CompilerConfiguration configuration)
-      throws IOException {
+  FrontendResult analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(configuration, "configuration");
     var compiler = systemCompiler();
     var invocation = JavaCompilerInvocation.from(configuration);
-    var environmentSnapshot =
-        environmentCapture.capture(compiler, configuration, invocation.analysisOptions());
+    var environmentSnapshot = environmentCapture.capture(compiler, configuration, invocation.analysisOptions());
     if (snapshot.sourceFiles().isEmpty()) {
-      return new FrontendResult(
-          snapshot, environmentSnapshot, new JavaProgram(List.of()), List.of());
+      return new FrontendResult(snapshot, environmentSnapshot, new JavaProgram(List.of()), List.of());
     }
 
     var sources = new SnapshotSourceCatalog(snapshot);
     var collector = new DiagnosticCollector<JavaFileObject>();
     FrontendResult result;
-    try (StandardJavaFileManager fileManager =
-        compiler.getStandardFileManager(collector, Locale.ROOT, StandardCharsets.UTF_8)) {
+    try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(collector, Locale.ROOT, StandardCharsets.UTF_8)) {
       var task = compilerTask(compiler, fileManager, collector, invocation, sources);
       var units = parseAndAnalyze(task);
       var semantics = new JavaTreeSemantics(Trees.instance(task));
       var translation = new JavaProgramTranslator(sources, semantics).translate(units);
       var diagnostics = new ArrayList<AnalysisDiagnostic>();
-      diagnostics.addAll(
-          new CompilerDiagnosticTranslator(sources).translate(collector.getDiagnostics()));
+      diagnostics.addAll(new CompilerDiagnosticTranslator(sources).translate(collector.getDiagnostics()));
       diagnostics.addAll(translation.diagnostics());
-      result =
-          new FrontendResult(snapshot, environmentSnapshot, translation.program(), diagnostics);
+      result = new FrontendResult(snapshot, environmentSnapshot, translation.program(), diagnostics);
     }
 
     verifyEnvironment(compiler, configuration, invocation, environmentSnapshot);
     return result;
   }
 
-  private void verifyEnvironment(
-      JavaCompiler compiler,
-      CompilerConfiguration configuration,
-      JavaCompilerInvocation invocation,
-      AnalysisEnvironmentSnapshot expected)
-      throws IOException {
-    var actual =
-        environmentCapture.capture(compiler, configuration, invocation.analysisOptions());
+  private void verifyEnvironment(JavaCompiler compiler, CompilerConfiguration configuration, JavaCompilerInvocation invocation,
+      AnalysisEnvironmentSnapshot expected) throws IOException {
+    var actual = environmentCapture.capture(compiler, configuration, invocation.analysisOptions());
     if (!expected.equals(actual)) {
       throw new IOException("Compiler dependencies changed during analysis");
     }
@@ -84,20 +72,9 @@ final class JavaCompilerAnalyzer {
     return compiler;
   }
 
-  private static JavacTask compilerTask(
-      JavaCompiler compiler,
-      StandardJavaFileManager fileManager,
-      DiagnosticCollector<JavaFileObject> collector,
-      JavaCompilerInvocation invocation,
-      SnapshotSourceCatalog sources) {
-    return (JavacTask)
-        compiler.getTask(
-            null,
-            fileManager,
-            collector,
-            invocation.compilerOptions(),
-            null,
-            sources.compilationUnits());
+  private static JavacTask compilerTask(JavaCompiler compiler, StandardJavaFileManager fileManager,
+      DiagnosticCollector<JavaFileObject> collector, JavaCompilerInvocation invocation, SnapshotSourceCatalog sources) {
+    return (JavacTask) compiler.getTask(null, fileManager, collector, invocation.compilerOptions(), null, sources.compilationUnits());
   }
 
   private static List<CompilationUnitTree> parseAndAnalyze(JavacTask task) throws IOException {

@@ -7,7 +7,7 @@ import org.aquilagraph.model.JavaProgram;
 
 record JavaProgramTranslation(JavaProgram program, List<AnalysisDiagnostic> diagnostics) {
   JavaProgramTranslation {
-    program = Objects.requireNonNull(program, "program");
+    Objects.requireNonNull(program, "program");
     diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics"));
   }
 }
