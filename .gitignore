@@ -1,5 +1,6 @@
 # Project documents
 /pdf/
+/books/
 
 # Local CodeGraph index
 .codegraph/
@@ -56,6 +57,7 @@ tmp/
 deployment/neo4j/.env
 
 # IDE metadata
+.vscode/
 .idea/
 *.iml
 *.ipr
