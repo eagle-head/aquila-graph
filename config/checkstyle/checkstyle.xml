@@ -16,6 +16,7 @@
     <module name="AvoidStarImport" />
     <module name="RedundantImport" />
     <module name="UnusedImports" />
+    <module name="UnnecessaryFullyQualifiedType" />
     <module name="IllegalImport">
       <property name="illegalPkgs" value="sun,jdk.internal,com.sun.tools.javac" />
     </module>

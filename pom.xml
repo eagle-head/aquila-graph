@@ -273,6 +273,23 @@
               <goal>check</goal>
             </goals>
           </execution>
+          <execution>
+            <id>check-test-type-reference-policy</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <configuration>
+              <configLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/test-type-references.xml</configLocation>
+              <sourceDirectories>
+                <sourceDirectory>${project.build.testSourceDirectory}</sourceDirectory>
+              </sourceDirectories>
+              <includeTestSourceDirectory>false</includeTestSourceDirectory>
+              <includeResources>false</includeResources>
+              <includeTestResources>false</includeTestResources>
+              <cacheFile>${project.build.directory}/checkstyle-test-type-references-cachefile</cacheFile>
+            </configuration>
+          </execution>
         </executions>
       </plugin>
 

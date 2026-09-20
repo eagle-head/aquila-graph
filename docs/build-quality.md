@@ -2,10 +2,11 @@
 
 ## Purpose
 
-The project treats production code under `src/main/java` as a build contract. Test sources are not
-formatted or analyzed by these gates. The default `verify` lifecycle
-checks deterministic properties that can be evaluated from the repository and resolved Maven
-artifacts. The opt-in `supply-chain` profile creates a production software bill of materials
+The project treats production code under `src/main/java` as a build contract. A focused Checkstyle
+policy also rejects unnecessary fully qualified type references under `src/test/java`; the remaining
+static-analysis and formatting gates apply only to production sources. The default `verify`
+lifecycle checks deterministic properties that can be evaluated from the repository and resolved
+Maven artifacts. The opt-in `supply-chain` profile creates a production software bill of materials
 (SBOM).
 
 These gates do not replace behavioral tests or a dependency-vulnerability assessment. The SBOM is
@@ -50,7 +51,7 @@ Equivalent Make targets are `compile`, `format`, `format-check`, `quality`, and
 | Error Prone | Detect compiler-integrated Java correctness defects. |
 | NullAway with JSpecify | Enforce explicit package nullness and reject unsafe null flows in production code. |
 | Spotless with Eclipse JDT | Own Java formatting and the 140-character line limit. |
-| Checkstyle | Enforce import hygiene, naming, structural rules, and package dependency boundaries. |
+| Checkstyle | Enforce production import hygiene, naming, structural rules, and package dependency boundaries, plus unnecessary fully qualified type references in tests. |
 | PMD | Detect source-level correctness, maintainability, performance, and security patterns. |
 | CPD | Reject substantial duplicated production Java blocks. |
 | SpotBugs | Inspect compiled production bytecode at maximum effort and low confidence threshold. |
@@ -100,6 +101,7 @@ repository only owns its policy configuration.
 - [Maven Dependency Plugin dependency analysis](https://maven.apache.org/plugins/maven-dependency-plugin/examples/failing-the-build-on-dependency-analysis-warnings.html)
 - [NullAway JSpecify support](https://github.com/uber/NullAway/wiki/JSpecify-Support)
 - [Checkstyle ImportControl](https://checkstyle.org/checks/imports/importcontrol.html)
+- [Checkstyle UnnecessaryFullyQualifiedType](https://checkstyle.org/checks/imports/unnecessaryfullyqualifiedtype.html)
 - [PMD Maven Plugin](https://pmd.github.io/pmd/pmd_userdocs_tools_maven.html)
 - [SpotBugs Maven Plugin](https://spotbugs.github.io/spotbugs-maven-plugin/)
 - [CycloneDX Maven Plugin](https://cyclonedx.github.io/cyclonedx-maven-plugin/)
