@@ -1,11 +1,9 @@
 package org.aquilagraph.frontend;
 
-import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.CatchTree;
 import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
-import com.sun.source.util.SourcePositions;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.Trees;
 import java.util.ArrayDeque;
@@ -20,38 +18,25 @@ import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.UnionType;
 import javax.lang.model.util.Types;
-import javax.tools.Diagnostic;
 import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SemanticReference;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
 
-final class JavaTreeSemantics {
+final class JavaSemanticResolver {
   private final Trees trees;
   private final Types types;
-  private final SourcePositions positions;
 
-  JavaTreeSemantics(Trees trees, Types types) {
+  JavaSemanticResolver(Trees trees, Types types) {
     this.trees = Objects.requireNonNull(trees, "trees");
     this.types = Objects.requireNonNull(types, "types");
-    positions = trees.getSourcePositions();
   }
 
   Element element(TreePath path) {
-    return trees.getElement(path);
+    return trees.getElement(Objects.requireNonNull(path, "path"));
   }
 
-  List<SourceSpan> sourceOrigins(CompilationUnitTree unit, SourceFile sourceFile, Tree tree) {
-    var start = positions.getStartPosition(unit, tree);
-    var end = positions.getEndPosition(unit, tree);
-    if (start == Diagnostic.NOPOS || end == Diagnostic.NOPOS || end < start) {
-      return List.of();
-    }
-    return List.of(new SourceSpan(sourceFile.sourceFileKey(), start, end));
-  }
-
-  List<SemanticReference> semanticReferences(TreePath path) {
+  List<SemanticReference> references(TreePath path) {
+    Objects.requireNonNull(path, "path");
     var element = trees.getElement(path);
     if (element == null) {
       return unresolvedReferenceKind(path.getLeaf())
@@ -67,6 +52,8 @@ final class JavaTreeSemantics {
   }
 
   boolean isArrayLength(MemberSelectTree tree, TreePath path) {
+    Objects.requireNonNull(tree, "tree");
+    Objects.requireNonNull(path, "path");
     if (!tree.getIdentifier().contentEquals("length")) {
       return false;
     }

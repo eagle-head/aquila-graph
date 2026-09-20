@@ -6,41 +6,47 @@ Aquila Graph analyzes a recursively discovered Java 25 source root without
 executing the target and without emitting target bytecode. `JavaSourceLoader`
 reads each source once as UTF-8 and captures its content in the input snapshot.
 `JavaFrontend` is the stable public facade: it delegates source discovery to the
-loader and snapshot analysis to `JavaCompilerAnalyzer`. The analyzer owns one
-compiler session, including compiler acquisition, environment capture and
-verification, file-manager lifetime, `JavacTask.parse()`, `JavacTask.analyze()`,
-and result assembly.[1][2]
+loader and snapshot analysis to `JavaAnalysisPipeline`. The pipeline coordinates
+one run without owning compiler resources. `JavaCompilerSession` owns exactly one
+standard file manager and `JavacTask`, performs `parse()` and `analyze()`, and
+closes the file manager before environment verification and result publication.
+[1][2][19]
 
 Inside that session, `JavaCompilerInvocation` derives managed compiler options,
 and `SnapshotSourceCatalog` is the single correlation point between captured
 `SourceFile` values, in-memory `JavaFileObject` values, compiler URIs, and source
 ownership. `CompilerDiagnosticTranslator` converts compiler diagnostics;
-`JavaProgramTranslator` converts compilation units, types, methods, and
-parameters; `JavaSyntaxTranslator` recursively converts one method body;
-`JavaSyntaxClassifier` classifies syntax independently from traversal; and
-`JavaTreeSemantics` alone queries compiler elements, types, and source positions.
-All compiler-owned objects remain package-internal and are translated into
-project-owned records before the facade returns. Target source files are not
-reopened after snapshot discovery. Source access and UTF-8 decoding failures
-remain checked `IOException` values, with source-path context and the original
-cause preserved, through the frontend and application service.[1][2][16]
+`JavaProgramTranslator`, `JavaTypeTranslator`, and `JavaMethodTranslator` own
+their respective declaration levels; `JavaMethodBodyTranslator` recursively
+converts one method body; and `JavaSyntaxClassifier` classifies one tree without
+owning traversal. `JavaSemanticResolver` projects compiler elements and types,
+while `JavaSourceEvidence` independently projects source positions. Translation
+results carry their diagnostics explicitly, and recursive body assembly confines
+mutation to one syntax node. All compiler-owned objects remain package-internal
+and are translated into project-owned records before the facade returns. Target
+source files are not reopened after snapshot discovery. Source access and UTF-8
+decoding failures remain checked `IOException` values, with source-path context
+and the original cause preserved, through the frontend and application service.
+[1][2][16]
 
 `JavaSourceLoader` orders normalized relative paths, hashes each captured UTF-8
 source with SHA-256, and derives a length-framed SHA-256 snapshot identity from
 ordered path/digest pairs. The captured `SourceFile.content` is therefore the
 authoritative compiler input and persisted source evidence for that run.[3][4]
 
-Before compiler analysis, `JavaCompilerAnalyzer` captures an immutable
+Before compiler analysis, `JavaAnalysisPipeline` captures an immutable
 `AnalysisEnvironmentSnapshot` through `AnalysisEnvironmentCapture`. It records
 the compiler implementation class,
 JVM vendor and runtime version, location-independent analysis options, and the
-ordered class-path and module-path dependencies. Regular files are fingerprinted
+ordered class-path and module-path dependencies. `CompilerDependencyCapture`
+owns dependency enumeration and content identity. Regular files are fingerprinted
 from their bytes; directories are fingerprinted from ordered relative entry
 names, file sizes, and file bytes; a missing configured entry has an explicit
-fingerprint. The frontend captures the environment again after analysis and
-rejects the result if any captured value changed in the interval. It always
-passes an explicit class path, including the empty class path, so compiler
-analysis cannot inherit the analyzer process class path implicitly.[2][14]
+fingerprint. `AnalysisEnvironmentCapture` verifies the complete environment again
+after the compiler session closes and rejects the result if any captured value
+changed in the interval. The frontend always passes an explicit class path,
+including the empty class path, so compiler analysis cannot inherit the analyzer
+process class path implicitly.[2][14]
 
 The analysis-run key combines the input snapshot digest, the environment digest,
 and analyzer/model versions. The environment digest includes compiler identity,
@@ -211,13 +217,15 @@ implements its bounded model and has no runtime dependency on
 
 1. [JavaSourceLoader](../../src/main/java/org/aquilagraph/frontend/JavaSourceLoader.java), `discover`.
 2. [JavaFrontend](../../src/main/java/org/aquilagraph/frontend/JavaFrontend.java), public facade;
-   [JavaCompilerAnalyzer](../../src/main/java/org/aquilagraph/frontend/JavaCompilerAnalyzer.java), compiler-session coordination;
+   [JavaAnalysisPipeline](../../src/main/java/org/aquilagraph/frontend/JavaAnalysisPipeline.java), analysis-run coordination;
+   [JavaCompilerSession](../../src/main/java/org/aquilagraph/frontend/JavaCompilerSession.java), compiler-resource ownership;
    [SnapshotSourceCatalog](../../src/main/java/org/aquilagraph/frontend/SnapshotSourceCatalog.java), captured-source correlation;
    [CompilerDiagnosticTranslator](../../src/main/java/org/aquilagraph/frontend/CompilerDiagnosticTranslator.java), compiler diagnostics;
    [JavaProgramTranslator](../../src/main/java/org/aquilagraph/frontend/JavaProgramTranslator.java), declaration translation;
-   [JavaSyntaxTranslator](../../src/main/java/org/aquilagraph/frontend/JavaSyntaxTranslator.java), method-body traversal;
+   [JavaMethodBodyTranslator](../../src/main/java/org/aquilagraph/frontend/JavaMethodBodyTranslator.java), method-body traversal;
    [JavaSyntaxClassifier](../../src/main/java/org/aquilagraph/frontend/JavaSyntaxClassifier.java), syntax classification; and
-   [JavaTreeSemantics](../../src/main/java/org/aquilagraph/frontend/JavaTreeSemantics.java), compiler semantic queries.
+   [JavaSemanticResolver](../../src/main/java/org/aquilagraph/frontend/JavaSemanticResolver.java), compiler semantic queries;
+   [JavaSourceEvidence](../../src/main/java/org/aquilagraph/frontend/JavaSourceEvidence.java), source-position projection.
 3. [InputSnapshot](../../src/main/java/org/aquilagraph/model/InputSnapshot.java), record invariants.
 4. [StableId](../../src/main/java/org/aquilagraph/model/StableId.java), `sha256`.
 5. [ControlFlowGraphBuilder](../../src/main/java/org/aquilagraph/core/ControlFlowGraphBuilder.java), public facade; [SyntaxGraphLowerer](../../src/main/java/org/aquilagraph/core/SyntaxGraphLowerer.java), recursive dispatch; [StatementGraphLowerer](../../src/main/java/org/aquilagraph/core/StatementGraphLowerer.java) and [ExpressionGraphLowerer](../../src/main/java/org/aquilagraph/core/ExpressionGraphLowerer.java), syntax-family translation; [ControlFlowGraphConstruction](../../src/main/java/org/aquilagraph/core/ControlFlowGraphConstruction.java), graph construction and exception routing; and [FlowValueScope](../../src/main/java/org/aquilagraph/core/FlowValueScope.java), lexical bindings.
@@ -237,8 +245,13 @@ implements its bounded model and has no runtime dependency on
 13. OMG, [*Unified Modeling Language 2.5.1*](https://www.omg.org/spec/UML/2.5.1/PDF),
     §§11.4–11.6, classes, associations, composition, and components; §17.8,
     sequence diagrams.
-14. [AnalysisEnvironmentCapture](../../src/main/java/org/aquilagraph/frontend/AnalysisEnvironmentCapture.java), `capture`; [AnalysisEnvironmentSnapshot](../../src/main/java/org/aquilagraph/model/AnalysisEnvironmentSnapshot.java) and [DependencySnapshot](../../src/main/java/org/aquilagraph/model/DependencySnapshot.java), immutable environment identity.
+14. [AnalysisEnvironmentCapture](../../src/main/java/org/aquilagraph/frontend/AnalysisEnvironmentCapture.java), capture and verification;
+    [CompilerDependencyCapture](../../src/main/java/org/aquilagraph/frontend/CompilerDependencyCapture.java), dependency-content identity;
+    [AnalysisEnvironmentSnapshot](../../src/main/java/org/aquilagraph/model/AnalysisEnvironmentSnapshot.java) and
+    [DependencySnapshot](../../src/main/java/org/aquilagraph/model/DependencySnapshot.java), immutable environment identity.
 15. [CompilerConfiguration](../../src/main/java/org/aquilagraph/model/CompilerConfiguration.java), managed compiler options.
 16. [AnalysisApplicationService](../../src/main/java/org/aquilagraph/application/AnalysisApplicationService.java), `execute`; [AnalysisExecution](../../src/main/java/org/aquilagraph/application/AnalysisExecution.java), repository outcome invariants; [AnalysisRunRepository](../../src/main/java/org/aquilagraph/repository/AnalysisRunRepository.java), technology-neutral repository port.
 17. [AquilaGraphApplication](../../src/main/java/org/aquilagraph/AquilaGraphApplication.java), composition root and Neo4j adapter selection.
 18. [JavaProgram](../../src/main/java/org/aquilagraph/model/JavaProgram.java), program-wide method-key uniqueness; [ProgramRepresentation](../../src/main/java/org/aquilagraph/model/ProgramRepresentation.java), canonical method-analysis membership.
+19. Oracle, [Java SE 25 `JavaCompiler` API](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/tools/JavaCompiler.html),
+    compiler task, diagnostic collector, standard file manager, and explicit close pattern.

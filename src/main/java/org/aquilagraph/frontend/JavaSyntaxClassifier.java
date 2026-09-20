@@ -16,14 +16,16 @@ import java.util.stream.Collectors;
 import org.aquilagraph.model.SyntaxKind;
 
 final class JavaSyntaxClassifier {
-  private final JavaTreeSemantics semantics;
+  private final JavaSemanticResolver semantics;
 
-  JavaSyntaxClassifier(JavaTreeSemantics semantics) {
+  JavaSyntaxClassifier(JavaSemanticResolver semantics) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
   }
 
-  SyntaxKind classify(Tree tree, TreePath path) {
-    return switch (tree.getKind()) {
+  JavaSyntaxDescription classify(Tree tree, TreePath path) {
+    Objects.requireNonNull(tree, "tree");
+    Objects.requireNonNull(path, "path");
+    var kind = switch (tree.getKind()) {
       case BLOCK -> SyntaxKind.BLOCK;
       case VARIABLE -> SyntaxKind.LOCAL_DECLARATION;
       case EXPRESSION_STATEMENT -> SyntaxKind.EXPRESSION_STATEMENT;
@@ -55,9 +57,10 @@ final class JavaSyntaxClassifier {
       case EMPTY_STATEMENT -> SyntaxKind.EMPTY;
       default -> SyntaxKind.UNSUPPORTED;
     };
+    return new JavaSyntaxDescription(kind, detail(tree));
   }
 
-  String detail(Tree tree) {
+  private static String detail(Tree tree) {
     return switch (tree) {
       case VariableTree variable -> variable.getType() + " " + variable.getName();
       case CatchTree catchTree -> catchTree.getParameter().getType() + " " + catchTree.getParameter().getName();

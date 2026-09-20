@@ -2,11 +2,13 @@ package org.aquilagraph.frontend;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.aquilagraph.model.CompilerConfiguration;
@@ -192,5 +194,29 @@ class JavaFrontendTest {
     assertTrue(result.program().types().isEmpty());
     assertTrue(result.diagnostics().isEmpty());
     assertEquals(configuration, result.environmentSnapshot().compilerConfiguration());
+  }
+
+  @Test
+  void givenFrontendIsReusedAcrossDependencyChanges_whenAnalysisRuns_thenEnvironmentSnapshotsRemainIsolated()
+      throws IOException {
+    // Arrange
+    var sourceRoot = Files.createDirectory(temporaryDirectory.resolve("source"));
+    var dependencyRoot = Files.createDirectory(temporaryDirectory.resolve("dependency"));
+    Files.writeString(sourceRoot.resolve("Stable.java"), "final class Stable { int value() { return 1; } }");
+    var dependencyFile = dependencyRoot.resolve("version.txt");
+    Files.writeString(dependencyFile, "first");
+    var configuration = new CompilerConfiguration(25, List.of(dependencyRoot), List.of(), List.of());
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var first = frontend.analyze(sourceRoot, configuration);
+    Files.writeString(dependencyFile, "second");
+    var second = frontend.analyze(sourceRoot, configuration);
+
+    // Assert
+    assertTrue(first.diagnostics().isEmpty());
+    assertTrue(second.diagnostics().isEmpty());
+    assertEquals(first.program(), second.program());
+    assertNotEquals(first.environmentSnapshot().environmentDigest(), second.environmentSnapshot().environmentDigest());
   }
 }

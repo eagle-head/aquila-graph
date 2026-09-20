@@ -7,10 +7,10 @@ import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.FrontendResult;
 import org.aquilagraph.model.InputSnapshot;
 
-/** Owns source discovery, compiler invocation, and translation into the analysis model. */
+/** Public facade for source discovery and Java analysis. */
 public final class JavaFrontend {
   private final JavaSourceLoader sourceLoader;
-  private final JavaCompilerAnalyzer compilerAnalyzer;
+  private final JavaAnalysisPipeline analysisPipeline;
 
   /**
    * Creates a frontend with an explicit source loader.
@@ -20,7 +20,7 @@ public final class JavaFrontend {
    */
   public JavaFrontend(JavaSourceLoader sourceLoader) {
     this.sourceLoader = Objects.requireNonNull(sourceLoader, "sourceLoader");
-    compilerAnalyzer = new JavaCompilerAnalyzer(new AnalysisEnvironmentCapture());
+    analysisPipeline = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture()));
   }
 
   /**
@@ -51,6 +51,6 @@ public final class JavaFrontend {
    *           if compiler dependencies cannot be captured
    */
   public FrontendResult analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
-    return compilerAnalyzer.analyze(snapshot, configuration);
+    return analysisPipeline.analyze(snapshot, configuration);
   }
 }
