@@ -42,12 +42,13 @@ The application has no graphical interface, web endpoint, persistence, or intera
 After packaging the root project, analyze the calculator without executing it:
 
 ```powershell
-java -jar ..\..\target\aquila-graph-0.1.0-SNAPSHOT.jar src\main\java
+java -jar ..\..\target\aquila-graph-0.1.0-SNAPSHOT.jar src\main\java --release 25
 ```
 
 From the repository root, the equivalent source root is
-`analysis-targets\calculator\src\main\java`. Add `--persist` only while the
-documented Compose-managed Neo4j instance is healthy.
+`analysis-targets\calculator\src\main\java`. Java 25 is also the default when
+`--release` is omitted. Add `--persist` only while the documented Compose-managed
+Neo4j instance is healthy.
 
 ## References
 

@@ -38,6 +38,8 @@ produce origin nodes.[2]
 
 Compiler implementation, vendor, runtime version, analysis options, digest
 algorithm, and environment digest are stored on `AnalysisEnvironmentSnapshot`.
+The selected `JavaRelease` remains a typed model value in memory and is stored
+as its numeric feature-release property on `CompilerConfiguration`.
 Each ordered class-path or module-path `DependencySnapshot` stores its kind,
 content fingerprint, byte and entry counts, and configured location. The
 location is provenance metadata; the environment digest is derived from the

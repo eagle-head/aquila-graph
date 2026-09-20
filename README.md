@@ -10,9 +10,12 @@
 
 ## Current Development Increment
 
-The repository now contains an executable, deliberately bounded Java 25 source
-analyzer implementing the Chapter 2 program-representation and intraprocedural
-CFG foundation. This engineering increment does not settle the broader product
+The repository now contains an executable Java source analyzer whose currently
+supported language release is Java 25. Its Java-specific core implements the
+Chapter 2 program-representation and intraprocedural CFG foundation. The
+selected release is an explicit domain value and command input, while the
+composition root preserves Java 25 as the default. This engineering increment
+does not settle the broader product
 and stakeholder questions in this General View. Its accepted source profile,
 completion contract, CLI behavior, and limitations are defined in the
 [Java analysis design](docs/design/java-analysis.md); its Compose-managed Neo4j

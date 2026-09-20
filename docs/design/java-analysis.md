@@ -2,15 +2,22 @@
 
 ## Implemented Boundary
 
-Aquila Graph analyzes a recursively discovered Java 25 source root without
-executing the target and without emitting target bytecode. `JavaSourceLoader`
+Aquila Graph analyzes a recursively discovered Java source root for a selected,
+supported Java language release without executing the target and without
+emitting target bytecode. `JavaRelease` owns the set of language releases whose
+semantics Aquila Graph currently supports; that set contains Java 25.
+`CompilerConfiguration` carries this typed release with the class path, module
+path, and caller options. `JavaSourceLoader`
 reads each source once as UTF-8 and captures its content in the input snapshot.
 `JavaFrontend` is the stable public facade: it delegates source discovery to the
 loader and snapshot analysis to `JavaAnalysisPipeline`. The pipeline coordinates
 one run without owning compiler resources. `JavaCompilerSession` owns exactly one
 standard file manager and `JavacTask`, performs `parse()` and `analyze()`, and
 closes the file manager before environment verification and result publication.
-[1][2][19]
+Before a compiler session starts, `JavaCompilerReleaseSupport` verifies that the
+active system compiler advertises the selected release. The composition root
+injects Java 25 as the CLI default rather than embedding a release constant in
+the analysis pipeline.[1][2][15][17][19]
 
 Inside that session, `JavaCompilerInvocation` derives managed compiler options,
 and `SnapshotSourceCatalog` is the single correlation point between captured
@@ -83,6 +90,8 @@ are not part of this profile.[2][5]
 
 ## Graph-Native Semantic Lowering and Control Flow
 
+The core is Java-specific: it consumes the project-owned Java program and syntax
+model, while remaining independent of compiler-owned `javac` objects.
 Compiler-derived syntax remains distinct from the control-flow graph because it
 preserves source structure and provenance. There is no separate normalized-body
 aggregate. `ControlFlowGraphBuilder` is a small public facade. It delegates one
@@ -192,11 +201,14 @@ the CLI maps that outcome to its repository exit code.[8][9][16]
 ## CLI Contract
 
 ```text
-java -jar target/aquila-graph-0.1.0-SNAPSHOT.jar <source-root> [--persist]
+java -jar target/aquila-graph-0.1.0-SNAPSHOT.jar <source-root> [--release <feature>] [--persist]
 ```
 
-The command reports the run ID, completion, diagnostics, source/type/method
-counts, CFG operation/node/edge counts, and repository
+Omitting `--release` selects the Java 25 default. An explicit release is resolved
+through `JavaRelease`; unsupported, missing, malformed, or duplicate release
+arguments are rejected before analysis. The command reports the selected Java
+release, run ID, completion, diagnostics, source/type/method counts, CFG
+operation/node/edge counts, and repository
 outcome. Exit codes are `0` completed, `1` incomplete analysis, `2` rejected
 input or usage, and `3` completed analysis followed by repository failure. Exit
 code `2` includes an invalid source root and source access or UTF-8 decoding
@@ -249,7 +261,9 @@ implements its bounded model and has no runtime dependency on
     [CompilerDependencyCapture](../../src/main/java/org/aquilagraph/frontend/CompilerDependencyCapture.java), dependency-content identity;
     [AnalysisEnvironmentSnapshot](../../src/main/java/org/aquilagraph/model/AnalysisEnvironmentSnapshot.java) and
     [DependencySnapshot](../../src/main/java/org/aquilagraph/model/DependencySnapshot.java), immutable environment identity.
-15. [CompilerConfiguration](../../src/main/java/org/aquilagraph/model/CompilerConfiguration.java), managed compiler options.
+15. [JavaRelease](../../src/main/java/org/aquilagraph/model/JavaRelease.java), supported release values;
+    [CompilerConfiguration](../../src/main/java/org/aquilagraph/model/CompilerConfiguration.java), managed compiler inputs; and
+    [JavaCompilerReleaseSupport](../../src/main/java/org/aquilagraph/frontend/JavaCompilerReleaseSupport.java), system compiler capability validation.
 16. [AnalysisApplicationService](../../src/main/java/org/aquilagraph/application/AnalysisApplicationService.java), `execute`; [AnalysisExecution](../../src/main/java/org/aquilagraph/application/AnalysisExecution.java), repository outcome invariants; [AnalysisRunRepository](../../src/main/java/org/aquilagraph/repository/AnalysisRunRepository.java), technology-neutral repository port.
 17. [AquilaGraphApplication](../../src/main/java/org/aquilagraph/AquilaGraphApplication.java), composition root and Neo4j adapter selection.
 18. [JavaProgram](../../src/main/java/org/aquilagraph/model/JavaProgram.java), program-wide method-key uniqueness; [ProgramRepresentation](../../src/main/java/org/aquilagraph/model/ProgramRepresentation.java), canonical method-analysis membership.

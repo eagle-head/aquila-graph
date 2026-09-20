@@ -31,7 +31,7 @@ local process:
 ```powershell
 $env:NEO4J_PASSWORD = '<the value from deployment\neo4j\.env>'
 java -jar target\aquila-graph-0.1.0-SNAPSHOT.jar `
-  analysis-targets\calculator\src\main\java --persist
+  analysis-targets\calculator\src\main\java --release 25 --persist
 ```
 
 Stop Neo4j without removing its data:
