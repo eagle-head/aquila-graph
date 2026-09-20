@@ -11,14 +11,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import org.aquilagraph.application.port.AnalysisRunRepository;
+import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisRun;
+import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.repository.AnalysisRunRepository;
-import org.aquilagraph.repository.AnalysisRunRepositoryFactory;
-import org.aquilagraph.repository.RepositoryException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -39,7 +40,9 @@ class AnalysisApplicationServiceTest {
             });
 
     // Act
-    var execution = service.execute(AnalysisRequest.forJava(temporaryDirectory, JavaRelease.JAVA_25, false));
+    var execution =
+        service.execute(new AnalysisRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+            RepositorySavePolicy.DO_NOT_SAVE));
 
     // Assert
     assertTrue(execution.run().isComplete());
@@ -60,11 +63,13 @@ class AnalysisApplicationServiceTest {
             });
 
     // Act
-    var execution = service.execute(AnalysisRequest.forJava(temporaryDirectory, JavaRelease.JAVA_25, true));
+    var execution =
+        service.execute(new AnalysisRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+            RepositorySavePolicy.SAVE_COMPLETED));
 
     // Assert
     assertFalse(execution.run().isComplete());
-    assertEquals(RepositoryStatus.NOT_ATTEMPTED, execution.repositoryStatus());
+    assertEquals(RepositoryStatus.NOT_ELIGIBLE, execution.repositoryStatus());
     assertFalse(repositoryOpened.get());
   }
 
@@ -91,7 +96,9 @@ class AnalysisApplicationServiceTest {
                 });
 
     // Act
-    var execution = service.execute(AnalysisRequest.forJava(temporaryDirectory, JavaRelease.JAVA_25, true));
+    var execution =
+        service.execute(new AnalysisRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+            RepositorySavePolicy.SAVE_COMPLETED));
 
     // Assert
     assertTrue(execution.run().isComplete());
@@ -125,7 +132,8 @@ class AnalysisApplicationServiceTest {
     var exception =
         assertThrows(
             AnalysisRepositoryException.class,
-            () -> service.execute(AnalysisRequest.forJava(temporaryDirectory, JavaRelease.JAVA_25, true)));
+            () -> service.execute(new AnalysisRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+                RepositorySavePolicy.SAVE_COMPLETED)));
 
     // Assert
     assertTrue(exception.analysisRun().isComplete());

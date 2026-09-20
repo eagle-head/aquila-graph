@@ -27,8 +27,13 @@ final class Neo4jAnalysisRunMapper {
     var projection = new Neo4jProjectionBuilder(run.runId());
     projection.node("AnalysisRun", run.runId(), "completion", run.completion().name(), "analyzerVersion", run.analyzerVersion(),
         "modelVersion", run.modelVersion());
-    inputMapper.map(run.runId(), run.inputSnapshot(), projection);
-    environmentMapper.map(run.runId(), run.environmentSnapshot(), projection);
+    var softwareVersion = run.softwareVersion();
+    projection.node("SoftwareVersion", softwareVersion.signature(), "signatureAlgorithm", softwareVersion.signatureAlgorithm(), "signature",
+        softwareVersion.signature(), "sourceSignature", softwareVersion.sourceSignature(), "environmentSignature",
+        softwareVersion.environmentSignature());
+    projection.relate("ANALYZED_SOFTWARE", run.runId(), softwareVersion.signature(), "software-version");
+    inputMapper.map(softwareVersion.signature(), run.inputSnapshot(), projection);
+    environmentMapper.map(softwareVersion.signature(), run.environmentSnapshot(), projection);
     evidenceMapper.mapDiagnostics(run.runId(), run.diagnostics(), projection);
     programMapper.map(run.runId(), run.representation().orElseThrow(), projection);
     return projection.build();

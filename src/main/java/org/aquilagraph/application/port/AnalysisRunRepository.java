@@ -1,8 +1,8 @@
-package org.aquilagraph.repository;
+package org.aquilagraph.application.port;
 
 import org.aquilagraph.model.AnalysisRun;
 
-/** Repository contract for storing completed analysis runs. */
+/** Stores completed analysis runs without exposing a persistence technology. */
 public interface AnalysisRunRepository extends AutoCloseable {
   /**
    * Stores one completed analysis run.

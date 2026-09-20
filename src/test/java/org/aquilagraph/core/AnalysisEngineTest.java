@@ -43,7 +43,7 @@ class AnalysisEngineTest {
 
     // Act
     var run =
-        engine.analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25)));
+        engine.analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
 
     // Assert
     assertEquals(AnalysisCompletion.COMPLETED, run.completion());
@@ -80,7 +80,7 @@ class AnalysisEngineTest {
     // Act
     var run =
         new AnalysisEngine()
-            .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25)));
+            .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
 
     // Assert
     assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
@@ -95,7 +95,7 @@ class AnalysisEngineTest {
     // Act
     var run =
         new AnalysisEngine()
-            .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25)));
+            .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
 
     // Assert
     assertEquals(AnalysisCompletion.REJECTED, run.completion());

@@ -353,7 +353,7 @@ class ControlFlowGraphBuilderTest {
 
   private JavaMethod method(String name) throws IOException {
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    return frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25)).program().methods().stream()
+    return frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)).program().methods().stream()
         .filter(candidate -> candidate.name().equals(name))
         .findFirst()
         .orElseThrow();

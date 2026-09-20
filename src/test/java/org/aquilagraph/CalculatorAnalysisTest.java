@@ -33,7 +33,7 @@ class CalculatorAnalysisTest {
     // Act
     var run =
         new AnalysisEngine()
-            .analyze(frontend.analyze(CALCULATOR_SOURCES, CompilerConfiguration.standard(JavaRelease.JAVA_25)));
+            .analyze(frontend.analyze(CALCULATOR_SOURCES, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
 
     // Assert
     assertEquals(AnalysisCompletion.COMPLETED, run.completion());
@@ -60,7 +60,7 @@ class CalculatorAnalysisTest {
         new AnalysisEngine()
             .analyze(
                 new JavaFrontend(new JavaSourceLoader())
-                    .analyze(CALCULATOR_SOURCES, CompilerConfiguration.standard(JavaRelease.JAVA_25)));
+                    .analyze(CALCULATOR_SOURCES, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
     var analyses = run.representation().orElseThrow().methodAnalyses();
 
     // Act

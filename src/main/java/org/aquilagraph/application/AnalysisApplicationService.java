@@ -1,30 +1,30 @@
 package org.aquilagraph.application;
 
-import java.io.IOException;
 import java.util.Objects;
+import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import org.aquilagraph.application.port.RepositoryException;
+import org.aquilagraph.application.port.SourceAnalyzer;
 import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.repository.AnalysisRunRepositoryFactory;
-import org.aquilagraph.repository.RepositoryException;
 
 /** Coordinates source discovery, analysis, and optional repository storage. */
 public final class AnalysisApplicationService {
-  private final JavaFrontend frontend;
+  private final SourceAnalyzer sourceAnalyzer;
   private final AnalysisEngine analysisEngine;
   private final AnalysisRunRepositoryFactory repositoryFactory;
 
   /**
    * Creates the application service from its analysis and repository collaborators.
    *
-   * @param frontend
-   *          Java source frontend
+   * @param sourceAnalyzer
+   *          source-analysis port
    * @param analysisEngine
    *          control-flow analysis engine
    * @param repositoryFactory
    *          repository factory
    */
-  public AnalysisApplicationService(JavaFrontend frontend, AnalysisEngine analysisEngine, AnalysisRunRepositoryFactory repositoryFactory) {
-    this.frontend = Objects.requireNonNull(frontend, "frontend");
+  public AnalysisApplicationService(SourceAnalyzer sourceAnalyzer, AnalysisEngine analysisEngine,
+      AnalysisRunRepositoryFactory repositoryFactory) {
+    this.sourceAnalyzer = Objects.requireNonNull(sourceAnalyzer, "sourceAnalyzer");
     this.analysisEngine = Objects.requireNonNull(analysisEngine, "analysisEngine");
     this.repositoryFactory = Objects.requireNonNull(repositoryFactory, "repositoryFactory");
   }
@@ -35,19 +35,17 @@ public final class AnalysisApplicationService {
    * @param request
    *          analysis input and repository policy
    * @return analysis execution and repository status
-   * @throws IOException
-   *           if source input cannot be read
    * @throws AnalysisRepositoryException
    *           if the repository fails
    */
-  public AnalysisExecution execute(AnalysisRequest request) throws IOException {
+  public AnalysisExecution execute(AnalysisRequest request) {
     Objects.requireNonNull(request, "request");
-    var frontendResult = frontend.analyze(request.sourceRoot(), request.compilerConfiguration());
+    var frontendResult = sourceAnalyzer.analyze(request.sourceRoot(), request.compilerConfiguration());
     var run = analysisEngine.analyze(frontendResult);
     if (!run.isComplete()) {
-      return AnalysisExecution.notEligibleForRepository(run);
+      return AnalysisExecution.notEligibleForRepository(run, request.repositorySavePolicy());
     }
-    if (!request.repositorySaveRequested()) {
+    if (request.repositorySavePolicy() == RepositorySavePolicy.DO_NOT_SAVE) {
       return AnalysisExecution.withoutRepositoryRequest(run);
     }
 

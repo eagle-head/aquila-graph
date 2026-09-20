@@ -176,7 +176,7 @@ class Neo4jAnalysisRunMapperTest {
         new AnalysisEngine()
             .analyze(
                 new JavaFrontend(new JavaSourceLoader())
-                    .analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25)));
+                    .analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
     var mapper = new Neo4jAnalysisRunMapper();
 
     // Act

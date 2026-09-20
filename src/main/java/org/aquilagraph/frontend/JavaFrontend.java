@@ -3,12 +3,15 @@ package org.aquilagraph.frontend;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Objects;
+import org.aquilagraph.application.port.AnalysisEnvironmentException;
+import org.aquilagraph.application.port.AnalysisInputException;
+import org.aquilagraph.application.port.SourceAnalyzer;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.FrontendResult;
 import org.aquilagraph.model.InputSnapshot;
 
 /** Public facade for source discovery and Java analysis. */
-public final class JavaFrontend {
+public final class JavaFrontend implements SourceAnalyzer {
   private final JavaSourceLoader sourceLoader;
   private final JavaAnalysisPipeline analysisPipeline;
 
@@ -31,12 +34,28 @@ public final class JavaFrontend {
    * @param configuration
    *          compiler configuration
    * @return translated program and diagnostics
-   * @throws IOException
-   *           if input or compiler dependencies cannot be read
+   * @throws AnalysisInputException
+   *           if the source input cannot be captured
+   * @throws AnalysisEnvironmentException
+   *           if compiler dependencies or the active compiler environment cannot be read
    */
-  public FrontendResult analyze(Path sourceRoot, CompilerConfiguration configuration) throws IOException {
+  @Override
+  public FrontendResult analyze(Path sourceRoot, CompilerConfiguration configuration) {
+    Objects.requireNonNull(sourceRoot, "sourceRoot");
     Objects.requireNonNull(configuration, "configuration");
-    return analyze(sourceLoader.discover(sourceRoot), configuration);
+    final InputSnapshot snapshot;
+    try {
+      snapshot = sourceLoader.discover(sourceRoot);
+    } catch (IOException | IllegalArgumentException exception) {
+      throw new AnalysisInputException("Java source input could not be captured: " + exception.getMessage(), exception);
+    }
+
+    try {
+      return analyze(snapshot, configuration);
+    } catch (IOException exception) {
+      throw new AnalysisEnvironmentException("Java analysis environment could not be captured consistently: " + exception.getMessage(),
+          exception);
+    }
   }
 
   /**

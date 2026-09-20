@@ -12,6 +12,7 @@ import org.aquilagraph.model.DiagnosticStage;
 import org.aquilagraph.model.FrontendResult;
 import org.aquilagraph.model.MethodAnalysis;
 import org.aquilagraph.model.ProgramRepresentation;
+import org.aquilagraph.model.SoftwareVersion;
 import org.aquilagraph.model.StableId;
 
 /** Builds the accepted program representation and per-method control-flow graphs. */
@@ -43,8 +44,9 @@ public final class AnalysisEngine {
   public AnalysisRun analyze(FrontendResult input) {
     Objects.requireNonNull(input, "input");
     var diagnostics = new ArrayList<>(input.diagnostics());
-    var runId = StableId.sha256("analysis-run", input.snapshot().snapshotDigest(), input.environmentSnapshot().environmentDigest(),
-        AnalysisRun.CURRENT_ANALYZER_VERSION, AnalysisRun.CURRENT_MODEL_VERSION);
+    var softwareVersion = SoftwareVersion.from(input.snapshot(), input.environmentSnapshot());
+    var runId = StableId.sha256("analysis-run", softwareVersion.signature(), AnalysisRun.CURRENT_ANALYZER_VERSION,
+        AnalysisRun.CURRENT_MODEL_VERSION);
 
     if (input.snapshot().sourceFiles().isEmpty()) {
       diagnostics.add(diagnostic(runId, "input.empty", DiagnosticStage.INPUT, "The source root does not contain Java source files"));

@@ -38,7 +38,7 @@ class JavaFrontendTest {
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25));
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
     assertTrue(result.diagnostics().isEmpty());
@@ -70,7 +70,7 @@ class JavaFrontendTest {
     var frontend = new JavaFrontend(loader);
 
     // Act
-    var result = frontend.analyze(snapshot, CompilerConfiguration.standard(JavaRelease.JAVA_25));
+    var result = frontend.analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
     assertTrue(result.diagnostics().isEmpty());
@@ -100,7 +100,7 @@ class JavaFrontendTest {
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25));
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
     assertTrue(
@@ -136,7 +136,7 @@ class JavaFrontendTest {
     var loader = new JavaSourceLoader();
     var snapshot = loader.discover(temporaryDirectory);
     var frontend = new JavaFrontend(loader);
-    var configuration = CompilerConfiguration.standard(JavaRelease.JAVA_25);
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
 
     // Act
     var first = frontend.analyze(snapshot, configuration);
@@ -176,7 +176,7 @@ class JavaFrontendTest {
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25));
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
     var body = methodBody(result, "read");
@@ -200,7 +200,7 @@ class JavaFrontendTest {
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25));
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
     var body = methodBody(result, "increment");
@@ -222,7 +222,7 @@ class JavaFrontendTest {
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25));
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.isError()));
@@ -256,7 +256,7 @@ class JavaFrontendTest {
     var frontend = new JavaFrontend(loader);
 
     // Act
-    var result = frontend.analyze(snapshot, CompilerConfiguration.standard(JavaRelease.JAVA_25));
+    var result = frontend.analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
     assertEquals(
@@ -283,7 +283,7 @@ class JavaFrontendTest {
   void givenEmptySourceRoot_whenFrontendRuns_thenEmptyProgramRetainsCompilerEnvironment()
       throws IOException {
     // Arrange
-    var configuration = CompilerConfiguration.standard(JavaRelease.JAVA_25);
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act

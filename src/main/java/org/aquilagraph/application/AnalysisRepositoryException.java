@@ -5,8 +5,8 @@ import java.io.IOException;
 import java.io.InvalidObjectException;
 import java.io.ObjectInputStream;
 import java.util.Objects;
+import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.model.AnalysisRun;
-import org.aquilagraph.repository.RepositoryException;
 
 /** Associates a repository failure with the completed analysis run that could not be stored. */
 public final class AnalysisRepositoryException extends RuntimeException {

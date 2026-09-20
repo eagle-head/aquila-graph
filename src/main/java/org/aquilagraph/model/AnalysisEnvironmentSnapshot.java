@@ -67,6 +67,8 @@ public record AnalysisEnvironmentSnapshot(CompilerConfiguration compilerConfigur
    */
   public String environmentDigest() {
     var components = new ArrayList<String>();
+    components.add("language-release");
+    components.add(Integer.toString(compilerConfiguration.release().feature()));
     components.add("compiler-implementation");
     components.add(compilerImplementation);
     components.add("compiler-vendor");

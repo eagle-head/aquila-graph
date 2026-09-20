@@ -11,14 +11,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.aquilagraph.application.AnalysisApplicationService;
+import org.aquilagraph.application.port.AnalysisRunRepository;
+import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisRun;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.repository.AnalysisRunRepository;
-import org.aquilagraph.repository.AnalysisRunRepositoryFactory;
-import org.aquilagraph.repository.RepositoryException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -36,7 +35,7 @@ class AnalyzeCommandTest {
     // Act
     var exitCode =
         command.run(
-            new String[] {temporaryDirectory.toString()},
+            new String[] {temporaryDirectory.toString(), "--release", "25"},
             new PrintStream(capturedOutput, true, StandardCharsets.UTF_8),
             new PrintStream(capturedError, true, StandardCharsets.UTF_8));
 
@@ -195,7 +194,7 @@ class AnalyzeCommandTest {
     // Act
     var exitCode =
         command.run(
-            new String[] {temporaryDirectory.toString()},
+            new String[] {temporaryDirectory.toString(), "--release", "25"},
             new PrintStream(capturedOutput, true, StandardCharsets.UTF_8),
             new PrintStream(capturedError, true, StandardCharsets.UTF_8));
 
@@ -230,7 +229,7 @@ class AnalyzeCommandTest {
     // Act
     var exitCode =
         command.run(
-            new String[] {temporaryDirectory.toString(), "--persist"},
+            new String[] {temporaryDirectory.toString(), "--release", "25", "--persist"},
             new PrintStream(capturedOutput, true, StandardCharsets.UTF_8),
             new PrintStream(capturedError, true, StandardCharsets.UTF_8));
 
@@ -247,8 +246,7 @@ class AnalyzeCommandTest {
         new AnalysisApplicationService(
             new JavaFrontend(new JavaSourceLoader()),
             new AnalysisEngine(),
-            repositoryFactory),
-        JavaRelease.JAVA_25);
+            repositoryFactory));
   }
 
   private static AnalysisRunRepositoryFactory repositoryMustNotOpen() {

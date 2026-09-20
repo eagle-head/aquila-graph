@@ -8,23 +8,18 @@ import org.aquilagraph.model.AnalysisRun;
  *
  * @param run
  *          completed, incomplete, or rejected analysis run
+ * @param repositorySavePolicy
+ *          repository intent retained from the request
  * @param repositoryStatus
  *          repository decision or outcome
  */
-public record AnalysisExecution(AnalysisRun run, RepositoryStatus repositoryStatus) {
-  /** Validates consistency between analysis completion and repository status. */
+public record AnalysisExecution(AnalysisRun run, RepositorySavePolicy repositorySavePolicy, RepositoryStatus repositoryStatus) {
+  /** Validates consistency among analysis completion, repository intent, and repository outcome. */
   public AnalysisExecution {
     Objects.requireNonNull(run, "run");
+    Objects.requireNonNull(repositorySavePolicy, "repositorySavePolicy");
     Objects.requireNonNull(repositoryStatus, "repositoryStatus");
-    if (repositoryStatus == RepositoryStatus.SAVED && !run.isComplete()) {
-      throw new IllegalArgumentException("Only a completed analysis run can be saved");
-    }
-    if (repositoryStatus == RepositoryStatus.NOT_REQUESTED && !run.isComplete()) {
-      throw new IllegalArgumentException("An incomplete run cannot report repository storage as not requested");
-    }
-    if (repositoryStatus == RepositoryStatus.NOT_ATTEMPTED && run.isComplete()) {
-      throw new IllegalArgumentException("A completed run must report a repository decision");
-    }
+    validateRepositoryState(run, repositorySavePolicy, repositoryStatus);
   }
 
   /**
@@ -32,10 +27,12 @@ public record AnalysisExecution(AnalysisRun run, RepositoryStatus repositoryStat
    *
    * @param run
    *          incomplete or rejected run
+   * @param repositorySavePolicy
+   *          repository intent retained from the request
    * @return execution without a repository attempt
    */
-  public static AnalysisExecution notEligibleForRepository(AnalysisRun run) {
-    return new AnalysisExecution(run, RepositoryStatus.NOT_ATTEMPTED);
+  public static AnalysisExecution notEligibleForRepository(AnalysisRun run, RepositorySavePolicy repositorySavePolicy) {
+    return new AnalysisExecution(run, repositorySavePolicy, RepositoryStatus.NOT_ELIGIBLE);
   }
 
   /**
@@ -46,7 +43,7 @@ public record AnalysisExecution(AnalysisRun run, RepositoryStatus repositoryStat
    * @return execution without a repository attempt
    */
   public static AnalysisExecution withoutRepositoryRequest(AnalysisRun run) {
-    return new AnalysisExecution(run, RepositoryStatus.NOT_REQUESTED);
+    return new AnalysisExecution(run, RepositorySavePolicy.DO_NOT_SAVE, RepositoryStatus.NOT_REQUESTED);
   }
 
   /**
@@ -57,6 +54,12 @@ public record AnalysisExecution(AnalysisRun run, RepositoryStatus repositoryStat
    * @return saved execution
    */
   public static AnalysisExecution saved(AnalysisRun run) {
-    return new AnalysisExecution(run, RepositoryStatus.SAVED);
+    return new AnalysisExecution(run, RepositorySavePolicy.SAVE_COMPLETED, RepositoryStatus.SAVED);
+  }
+
+  private static void validateRepositoryState(AnalysisRun run, RepositorySavePolicy policy, RepositoryStatus status) {
+    if (!status.isCompatibleWith(run, policy)) {
+      throw new IllegalArgumentException(status.incompatibleStateMessage());
+    }
   }
 }

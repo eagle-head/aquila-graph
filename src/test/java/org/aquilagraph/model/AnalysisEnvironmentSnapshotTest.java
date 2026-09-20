@@ -10,7 +10,7 @@ class AnalysisEnvironmentSnapshotTest {
   @Test
   void givenCompilerIdentityChanges_whenEnvironmentDigestIsDerived_thenEachIdentityIsDistinct() {
     // Arrange
-    var configuration = CompilerConfiguration.standard(JavaRelease.JAVA_25);
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var analysisOptions = List.of("--release", "25", "-encoding", "UTF-8", "-proc:none");
     var baseline =
         environment(configuration, "compiler.Implementation", "Vendor", "25.0.4+1", analysisOptions);

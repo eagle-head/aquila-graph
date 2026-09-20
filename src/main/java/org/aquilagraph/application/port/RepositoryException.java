@@ -1,4 +1,4 @@
-package org.aquilagraph.repository;
+package org.aquilagraph.application.port;
 
 import java.io.Serial;
 import java.util.Objects;
@@ -16,7 +16,7 @@ public final class RepositoryException extends RuntimeException {
    * @param cause
    *          implementation-specific failure
    */
-  public RepositoryException(String message, RuntimeException cause) {
+  public RepositoryException(String message, Exception cause) {
     super(Objects.requireNonNull(message, "message"), Objects.requireNonNull(cause, "cause"));
   }
 }

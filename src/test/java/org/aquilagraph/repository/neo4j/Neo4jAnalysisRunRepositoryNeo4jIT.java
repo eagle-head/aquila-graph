@@ -11,13 +11,13 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisRun;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.repository.RepositoryException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
@@ -156,7 +156,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
     return new AnalysisEngine()
         .analyze(
             new JavaFrontend(new JavaSourceLoader())
-                .analyze(sourceRoot, CompilerConfiguration.standard(JavaRelease.JAVA_25)));
+                .analyze(sourceRoot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
   }
 
   private static Neo4jGraphProjection invalidProjection(AnalysisRun run) {

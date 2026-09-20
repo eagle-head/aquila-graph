@@ -32,13 +32,13 @@ public record CompilerConfiguration(JavaRelease release, List<Path> classPath, L
   }
 
   /**
-   * Creates a standard configuration for a supported Java release without external dependencies.
+   * Creates an explicit configuration for a supported release without external dependencies or additional options.
    *
    * @param release
    *          supported Java language release
    * @return compiler configuration for the release
    */
-  public static CompilerConfiguration standard(JavaRelease release) {
+  public static CompilerConfiguration forRelease(JavaRelease release) {
     return new CompilerConfiguration(release, List.of(), List.of(), List.of());
   }
 

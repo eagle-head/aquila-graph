@@ -30,6 +30,7 @@
   <subpackage name="frontend">
     <allow pkg="com.sun.source" />
     <allow pkg="javax.tools" />
+    <allow pkg="org.aquilagraph.application.port" />
     <disallow pkg="org.aquilagraph.application" />
     <disallow pkg="org.aquilagraph.cli" />
     <disallow pkg="org.aquilagraph.core" />
@@ -38,7 +39,8 @@
 
   <subpackage name="application">
     <disallow pkg="org.aquilagraph.cli" />
-    <disallow pkg="org.aquilagraph.repository.neo4j" />
+    <disallow pkg="org.aquilagraph.frontend" />
+    <disallow pkg="org.aquilagraph.repository" />
   </subpackage>
 
   <subpackage name="cli">
@@ -53,6 +55,7 @@
     <disallow pkg="org.aquilagraph.core" />
     <disallow pkg="org.aquilagraph.frontend" />
     <subpackage name="neo4j">
+      <allow pkg="org.aquilagraph.application.port" />
       <allow pkg="org.neo4j" />
     </subpackage>
   </subpackage>

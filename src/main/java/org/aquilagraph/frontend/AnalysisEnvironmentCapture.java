@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 import javax.tools.JavaCompiler;
+import org.aquilagraph.application.port.AnalysisEnvironmentException;
 import org.aquilagraph.model.AnalysisEnvironmentSnapshot;
 import org.aquilagraph.model.CompilerConfiguration;
 
@@ -36,7 +37,7 @@ final class AnalysisEnvironmentCapture {
   private static String requiredSystemProperty(String name) {
     var value = System.getProperty(name);
     if (value == null || value.isBlank()) {
-      throw new IllegalStateException("Required system property is unavailable: " + name);
+      throw new AnalysisEnvironmentException("Required system property is unavailable: " + name);
     }
     return value;
   }

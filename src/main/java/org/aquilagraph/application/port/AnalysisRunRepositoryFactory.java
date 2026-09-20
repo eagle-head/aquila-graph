@@ -1,4 +1,4 @@
-package org.aquilagraph.repository;
+package org.aquilagraph.application.port;
 
 /** Opens repositories only when a completed analysis run must be stored. */
 @FunctionalInterface

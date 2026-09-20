@@ -1,15 +1,18 @@
 package org.aquilagraph.cli;
 
-import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Objects;
+import java.util.Optional;
 import org.aquilagraph.application.AnalysisApplicationService;
 import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRepositoryException;
 import org.aquilagraph.application.AnalysisRequest;
-import org.aquilagraph.application.RepositoryStatus;
+import org.aquilagraph.application.RepositorySavePolicy;
+import org.aquilagraph.application.port.AnalysisEnvironmentException;
+import org.aquilagraph.application.port.AnalysisInputException;
+import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.AnalysisRun;
 import org.aquilagraph.model.JavaRelease;
@@ -30,19 +33,15 @@ public final class AnalyzeCommand {
   public static final int EXIT_REPOSITORY_FAILED = 3;
 
   private final AnalysisApplicationService analysisService;
-  private final JavaRelease defaultRelease;
 
   /**
    * Creates a command backed by the application service.
    *
    * @param analysisService
    *          analysis use case
-   * @param defaultRelease
-   *          Java release used when the option is omitted
    */
-  public AnalyzeCommand(AnalysisApplicationService analysisService, JavaRelease defaultRelease) {
+  public AnalyzeCommand(AnalysisApplicationService analysisService) {
     this.analysisService = Objects.requireNonNull(analysisService, "analysisService");
-    this.defaultRelease = Objects.requireNonNull(defaultRelease, "defaultRelease");
   }
 
   /**
@@ -63,46 +62,43 @@ public final class AnalyzeCommand {
 
     final CommandArguments parsed;
     try {
-      parsed = CommandArguments.parse(arguments, defaultRelease);
+      parsed = CommandArguments.parse(arguments);
     } catch (IllegalArgumentException exception) {
       error.println(exception.getMessage());
-      error.println("Usage: java -jar aquila-graph.jar <source-root> [--release <feature>] [--persist]");
+      error.println("Usage: java -jar aquila-graph.jar <source-root> --release <feature> [--persist]");
       return EXIT_REJECTED;
     }
 
     final AnalysisExecution execution;
     try {
-      execution = analysisService.execute(AnalysisRequest.forJava(parsed.sourceRoot(), parsed.release(), parsed.persist()));
+      var repositorySavePolicy = parsed.persist() ? RepositorySavePolicy.SAVE_COMPLETED : RepositorySavePolicy.DO_NOT_SAVE;
+      execution = analysisService
+          .execute(new AnalysisRequest(parsed.sourceRoot(), CompilerConfiguration.forRelease(parsed.release()), repositorySavePolicy));
     } catch (AnalysisRepositoryException exception) {
       printRun(exception.analysisRun(), output, error);
       var cause = Objects.requireNonNull(exception.getCause(), "repository cause");
       error.println("Repository save failed: " + Objects.toString(cause.getMessage(), cause.getClass().getSimpleName()));
       return EXIT_REPOSITORY_FAILED;
-    } catch (IOException | IllegalArgumentException exception) {
+    } catch (AnalysisInputException exception) {
       error.println("Input rejected: " + exception.getMessage());
       return EXIT_REJECTED;
-    } catch (IllegalStateException exception) {
+    } catch (AnalysisEnvironmentException exception) {
       error.println("Analysis failed: " + exception.getMessage());
       return EXIT_INCOMPLETE;
     }
 
     var run = execution.run();
     printRun(run, output, error);
+    output.println("Repository: " + execution.repositoryStatus());
     if (run.completion() != AnalysisCompletion.COMPLETED) {
-      output.println("Repository: NOT_ATTEMPTED");
       return run.completion() == AnalysisCompletion.REJECTED ? EXIT_REJECTED : EXIT_INCOMPLETE;
     }
-    if (execution.repositoryStatus() == RepositoryStatus.NOT_REQUESTED) {
-      output.println("Repository: NOT_REQUESTED");
-      return EXIT_COMPLETED;
-    }
-
-    output.println("Repository: SAVED");
     return EXIT_COMPLETED;
   }
 
   private static void printRun(AnalysisRun run, PrintStream output, PrintStream error) {
     output.printf("Run: %s%n", run.runId());
+    output.printf("Software version: %s%n", run.softwareVersion().signature());
     output.printf("Completion: %s%n", run.completion());
     output.printf("Java release: %d%n", run.compilerConfiguration().release().feature());
     output.printf("Java source files: %d%n", run.inputSnapshot().sourceFileCount());
@@ -123,10 +119,9 @@ public final class AnalyzeCommand {
   }
 
   private record CommandArguments(Path sourceRoot, JavaRelease release, boolean persist) {
-    private static CommandArguments parse(String[] arguments, JavaRelease defaultRelease) {
+    private static CommandArguments parse(String... arguments) {
       var positional = new ArrayList<String>();
-      var release = defaultRelease;
-      var releaseSupplied = false;
+      Optional<JavaRelease> release = Optional.empty();
       var persist = false;
       var index = 0;
       while (index < arguments.length) {
@@ -138,15 +133,14 @@ public final class AnalyzeCommand {
           }
           persist = true;
         } else if (RELEASE_OPTION.equals(argument)) {
-          if (releaseSupplied) {
+          if (release.isPresent()) {
             throw new IllegalArgumentException(RELEASE_OPTION + " may be supplied only once");
           }
           if (index >= arguments.length || arguments[index].startsWith("--")) {
             throw new IllegalArgumentException(RELEASE_OPTION + " requires a Java feature-release number");
           }
-          release = parseRelease(arguments[index]);
+          release = Optional.of(parseRelease(arguments[index]));
           index++;
-          releaseSupplied = true;
         } else if (argument.startsWith("--")) {
           throw new IllegalArgumentException("Unknown option: " + argument);
         } else {
@@ -156,7 +150,10 @@ public final class AnalyzeCommand {
       if (positional.size() != REQUIRED_POSITIONAL_ARGUMENTS) {
         throw new IllegalArgumentException("Exactly one source root is required");
       }
-      return new CommandArguments(Path.of(positional.getFirst()), release, persist);
+      if (release.isEmpty()) {
+        throw new IllegalArgumentException(RELEASE_OPTION + " is required");
+      }
+      return new CommandArguments(Path.of(positional.getFirst()), release.orElseThrow(), persist);
     }
 
     private static JavaRelease parseRelease(String value) {

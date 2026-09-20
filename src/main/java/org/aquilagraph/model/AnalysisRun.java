@@ -30,7 +30,7 @@ public record AnalysisRun(String runId, InputSnapshot inputSnapshot, AnalysisEnv
   /** Analyzer version written into newly created runs. */
   public static final String CURRENT_ANALYZER_VERSION = "0.2.0";
   /** Model version written into newly created runs. */
-  public static final String CURRENT_MODEL_VERSION = "3";
+  public static final String CURRENT_MODEL_VERSION = "4";
 
   /** Validates run invariants and defensively copies diagnostics. */
   public AnalysisRun {
@@ -66,5 +66,14 @@ public record AnalysisRun(String runId, InputSnapshot inputSnapshot, AnalysisEnv
    */
   public CompilerConfiguration compilerConfiguration() {
     return environmentSnapshot.compilerConfiguration();
+  }
+
+  /**
+   * Returns the content-addressed version of the captured software target.
+   *
+   * @return complete software-version signature and its component identities
+   */
+  public SoftwareVersion softwareVersion() {
+    return SoftwareVersion.from(inputSnapshot, environmentSnapshot);
   }
 }

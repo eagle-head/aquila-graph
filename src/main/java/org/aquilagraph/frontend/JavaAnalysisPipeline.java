@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Objects;
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
+import org.aquilagraph.application.port.AnalysisEnvironmentException;
+import org.aquilagraph.application.port.AnalysisInputException;
 import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.FrontendResult;
@@ -30,8 +32,15 @@ final class JavaAnalysisPipeline {
     }
 
     var sources = new SnapshotSourceCatalog(snapshot);
+    final JavaCompilerSession session;
+    try {
+      session = JavaCompilerSession.open(compiler, invocation, sources);
+    } catch (IllegalArgumentException exception) {
+      throw new AnalysisInputException("The compiler rejected the analysis configuration", exception);
+    }
+
     FrontendResult result;
-    try (var session = JavaCompilerSession.open(compiler, invocation, sources)) {
+    try (session) {
       var compilation = session.analyze();
       var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence())
           .translate(compilation.units());
@@ -47,9 +56,14 @@ final class JavaAnalysisPipeline {
   private static JavaCompiler systemCompiler(CompilerConfiguration configuration) {
     var compiler = ToolProvider.getSystemJavaCompiler();
     if (compiler == null) {
-      throw new IllegalStateException("A JDK system compiler is required for Java release " + configuration.release().feature());
+      throw new AnalysisEnvironmentException("A JDK system compiler is required for Java release " + configuration.release().feature());
     }
-    JavaCompilerReleaseSupport.requireSupported(compiler.getSourceVersions(), configuration.release());
+    try {
+      JavaCompilerReleaseSupport.requireSupported(compiler.getSourceVersions(), configuration.release());
+    } catch (IllegalStateException exception) {
+      throw new AnalysisEnvironmentException("The system compiler cannot analyze Java release " + configuration.release().feature(),
+          exception);
+    }
     return compiler;
   }
 
