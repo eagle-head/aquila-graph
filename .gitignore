@@ -1,6 +1,9 @@
 # Project documents
 /pdf/
 
+# Local CodeGraph index
+.codegraph/
+
 # Python bytecode and caches
 __pycache__/
 *.py[cod]
@@ -47,6 +50,10 @@ replay_pid*
 *.swp
 *.swo
 *~
+tmp/
+
+# Local Neo4j credentials
+deployment/neo4j/.env
 
 # IDE metadata
 .idea/

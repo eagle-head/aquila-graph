@@ -8,6 +8,16 @@
 | Delivery dates and budget | Not established |
 | Architecture and implementation | Not selected by this document |
 
+## Current Development Increment
+
+The repository now contains an executable, deliberately bounded Java 25 source
+analyzer implementing the Chapter 2 program-representation and intraprocedural
+CFG foundation. This engineering increment does not settle the broader product
+and stakeholder questions in this General View. Its accepted source profile,
+completion contract, CLI behavior, and limitations are defined in the
+[Java analysis design](docs/design/java-analysis.md); its Compose-managed Neo4j
+publication schema is defined in the [persistence design](docs/persistence/neo4j-schema.md).
+
 ## Purpose of This Document
 
 This document establishes the preliminary vision and scope boundary for Aquila Graph. In

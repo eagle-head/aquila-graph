@@ -10,11 +10,17 @@
 
 These instructions apply to the entire directory tree rooted at this file. More specific `AGENTS.md` or `AGENTS.override.md` files in descendant directories may add to or override these rules for their own scope.
 
+## CodeGraph Location
+
+- The existing CodeGraph index is located at `D:\Projects\aquila-graph\aquila-graph\src\main\java\org\aquilagraph\.codegraph`; use `D:\Projects\aquila-graph\aquila-graph\src\main\java\org\aquilagraph` as the CodeGraph project path.
+- Before initializing CodeGraph or reporting that no index exists, search the entire repository tree for directories named `.codegraph`.
+
 ## Language
 
-- Write all new or materially revised content in United States English.
-- This rule applies to source code identifiers, code comments, documentation, diagrams, configuration, schemas, tests, fixtures, commit messages, logs, generated text, and user-facing responses.
-- Preserve non-English text only when it is a load-bearing external value, such as an exact protocol field, quoted source passage, legal name, or compatibility fixture. Explain the exception in United States English.
+- Write all new or materially revised repository content stored outside chat in United States English.
+- This rule applies to source code identifiers, code comments, documentation, diagrams, configuration, schemas, tests, fixtures, commit messages, logs, generated text, and other artifacts stored in the repository.
+- Chat and other conversational responses have no fixed language. Respond in the language and regional variety used by the user unless the user requests another language. Preserve established technical terms when translating them would be inaccurate, ambiguous, or unnatural.
+- Preserve non-English text in repository content only when it is a load-bearing external value, such as an exact protocol field, quoted source passage, legal name, or compatibility fixture. Explain the exception in United States English within the relevant repository content.
 
 ## Diagram Paths and Filenames
 

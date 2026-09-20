@@ -6,15 +6,25 @@
     }
   ],
   "cSpell.words": [
+    "aquilagraph",
     "classfile",
+    "codegraph",
     "eduardo",
+    "Eler",
     "endlegend",
     "enduml",
+    "Intraprocedural",
     "javac",
+    "javax",
+    "jupiter",
+    "linetype",
+    "nodesep",
+    "ranksep",
+    "roundcorner",
+    "Segoe",
     "skinparam",
     "startuml",
     "usecase",
-    "Wazlawick",
-    "Eler"
+    "Wazlawick"
   ]
 }
