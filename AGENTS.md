@@ -22,6 +22,10 @@ These instructions apply to the entire directory tree rooted at this file. More 
 - Chat and other conversational responses have no fixed language. Respond in the language and regional variety used by the user unless the user requests another language. Preserve established technical terms when translating them would be inaccurate, ambiguous, or unnatural.
 - Preserve non-English text in repository content only when it is a load-bearing external value, such as an exact protocol field, quoted source passage, legal name, or compatibility fixture. Explain the exception in United States English within the relevant repository content.
 
+## Platform-Specific Build Commands
+
+- When showing repository build commands, use `make <target>` for Linux and macOS and `.\Invoke-Build.ps1 <target>` for Windows.
+
 ## Diagram Paths and Filenames
 
 - Treat every diagram path as one semantic identifier composed of its directories and filename.
