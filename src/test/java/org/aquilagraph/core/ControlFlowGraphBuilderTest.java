@@ -1,6 +1,7 @@
 package org.aquilagraph.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -11,6 +12,7 @@ import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.OperationKind;
 import org.aquilagraph.model.TransferKind;
+import org.aquilagraph.model.ValueKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -78,6 +80,272 @@ class ControlFlowGraphBuilderTest {
     assertTrue(graph.edges().stream().anyMatch(edge -> edge.transferKind() == TransferKind.FALSE_BRANCH));
     assertTrue(graph.operationNodes().stream().anyMatch(node -> node.kind() == OperationKind.THROW));
     assertTrue(graph.edges().stream().anyMatch(edge -> edge.transferKind() == TransferKind.EXCEPTIONAL));
+  }
+
+  @Test
+  void givenKnownExceptionAndOrderedCatches_whenCfgIsBuilt_thenOnlyFirstMatchingCatchReceivesTheTransfer()
+      throws IOException {
+    // Arrange
+    Files.writeString(
+        temporaryDirectory.resolve("CatchOrder.java"),
+        """
+        class CatchOrder {
+          void execute() {
+            try {
+              throw new IllegalArgumentException();
+            } catch (IllegalArgumentException expected) {
+            } catch (RuntimeException fallback) {
+            }
+          }
+        }
+        """);
+    var method = method("execute");
+
+    // Act
+    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+
+    // Assert
+    var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
+    var expectedCatch = graph.operationNodes().stream()
+        .filter(node -> node.kind() == OperationKind.CATCH && node.detail().endsWith("IllegalArgumentException"))
+        .findFirst().orElseThrow();
+    var exceptionalTransfers = graph.edges().stream()
+        .filter(edge -> edge.sourceNodeId().equals(throwNode.nodeId()) && edge.transferKind() == TransferKind.EXCEPTIONAL).toList();
+    assertEquals(1, exceptionalTransfers.size());
+    assertEquals(expectedCatch.nodeId(), exceptionalTransfers.getFirst().targetNodeId());
+  }
+
+  @Test
+  void givenNestedTryWithUnmatchedInnerCatch_whenCfgIsBuilt_thenExceptionReachesOuterCatch()
+      throws IOException {
+    // Arrange
+    Files.writeString(
+        temporaryDirectory.resolve("NestedTry.java"),
+        """
+        class NestedTry {
+          void execute() {
+            try {
+              try {
+                throw new IllegalStateException();
+              } catch (IllegalArgumentException ignored) {
+              }
+            } catch (IllegalStateException expected) {
+            }
+          }
+        }
+        """);
+    var method = method("execute");
+
+    // Act
+    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+
+    // Assert
+    var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
+    var outerCatch = graph.operationNodes().stream()
+        .filter(node -> node.kind() == OperationKind.CATCH && node.detail().endsWith("IllegalStateException"))
+        .findFirst().orElseThrow();
+    assertTrue(graph.edges().stream()
+        .anyMatch(edge -> edge.sourceNodeId().equals(throwNode.nodeId()) && edge.targetNodeId().equals(outerCatch.nodeId())
+            && edge.transferKind() == TransferKind.EXCEPTIONAL));
+    assertFalse(graph.edges().stream()
+        .anyMatch(edge -> edge.sourceNodeId().equals(throwNode.nodeId()) && edge.targetNodeId().equals(graph.exit().nodeId())
+            && edge.transferKind() == TransferKind.EXCEPTIONAL));
+  }
+
+  @Test
+  void givenUserDefinedExceptionHierarchy_whenCfgIsBuilt_thenNearestAssignableCatchReceivesTheTransfer()
+      throws IOException {
+    // Arrange
+    Files.writeString(
+        temporaryDirectory.resolve("ExceptionHierarchy.java"),
+        """
+        class ExceptionHierarchy {
+          static class BaseFailure extends RuntimeException {
+          }
+
+          static class SpecificFailure extends BaseFailure {
+          }
+
+          void execute() {
+            try {
+              throw new SpecificFailure();
+            } catch (BaseFailure expected) {
+            } catch (RuntimeException fallback) {
+            }
+          }
+        }
+        """);
+    var method = method("execute");
+
+    // Act
+    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+
+    // Assert
+    var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
+    var expectedCatch = graph.operationNodes().stream()
+        .filter(node -> node.kind() == OperationKind.CATCH && node.detail().endsWith("BaseFailure"))
+        .findFirst().orElseThrow();
+    var exceptionalTransfers = graph.edges().stream()
+        .filter(edge -> edge.sourceNodeId().equals(throwNode.nodeId()) && edge.transferKind() == TransferKind.EXCEPTIONAL).toList();
+    assertEquals(1, exceptionalTransfers.size());
+    assertEquals(expectedCatch.nodeId(), exceptionalTransfers.getFirst().targetNodeId());
+  }
+
+  @Test
+  void givenMultiCatch_whenCfgIsBuilt_thenEachCompilerResolvedAlternativeCanHandleTheException()
+      throws IOException {
+    // Arrange
+    Files.writeString(
+        temporaryDirectory.resolve("MultiCatch.java"),
+        """
+        class MultiCatch {
+          void execute() {
+            try {
+              throw new IllegalStateException();
+            } catch (IllegalArgumentException | IllegalStateException expected) {
+            }
+          }
+        }
+        """);
+    var method = method("execute");
+
+    // Act
+    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+
+    // Assert
+    var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
+    var catchNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.CATCH).findFirst().orElseThrow();
+    assertTrue(graph.edges().stream()
+        .anyMatch(edge -> edge.sourceNodeId().equals(throwNode.nodeId()) && edge.targetNodeId().equals(catchNode.nodeId())
+            && edge.transferKind() == TransferKind.EXCEPTIONAL));
+  }
+
+  @Test
+  void givenMultiCatchWithoutACompatibleAlternative_whenCfgIsBuilt_thenCommonSupertypeDoesNotCauseFalseCatch()
+      throws IOException {
+    // Arrange
+    Files.writeString(
+        temporaryDirectory.resolve("UnmatchedMultiCatch.java"),
+        """
+        class UnmatchedMultiCatch {
+          void execute() {
+            try {
+              throw new NullPointerException();
+            } catch (IllegalArgumentException | IllegalStateException unrelated) {
+            }
+          }
+        }
+        """);
+    var method = method("execute");
+
+    // Act
+    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+
+    // Assert
+    var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
+    var catchNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.CATCH).findFirst().orElseThrow();
+    assertFalse(graph.edges().stream()
+        .anyMatch(edge -> edge.sourceNodeId().equals(throwNode.nodeId()) && edge.targetNodeId().equals(catchNode.nodeId())
+            && edge.transferKind() == TransferKind.EXCEPTIONAL));
+    assertTrue(graph.edges().stream()
+        .anyMatch(edge -> edge.sourceNodeId().equals(throwNode.nodeId()) && edge.targetNodeId().equals(graph.exit().nodeId())
+            && edge.transferKind() == TransferKind.EXCEPTIONAL));
+  }
+
+  @Test
+  void givenUnrelatedExceptionsWithTheSameSimpleName_whenCfgIsBuilt_thenQualifiedTypesPreventFalseCatch()
+      throws IOException {
+    // Arrange
+    Files.writeString(
+        temporaryDirectory.resolve("QualifiedException.java"),
+        """
+        class QualifiedException {
+          static class Left {
+            static class Failure extends RuntimeException {
+            }
+          }
+
+          static class Right {
+            static class Failure extends RuntimeException {
+            }
+          }
+
+          void execute() {
+            try {
+              throw new Right.Failure();
+            } catch (Left.Failure unrelated) {
+            }
+          }
+        }
+        """);
+    var method = method("execute");
+
+    // Act
+    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+
+    // Assert
+    var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
+    var catchNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.CATCH).findFirst().orElseThrow();
+    assertFalse(graph.edges().stream()
+        .anyMatch(edge -> edge.sourceNodeId().equals(throwNode.nodeId()) && edge.targetNodeId().equals(catchNode.nodeId())
+            && edge.transferKind() == TransferKind.EXCEPTIONAL));
+    assertTrue(graph.edges().stream()
+        .anyMatch(edge -> edge.sourceNodeId().equals(throwNode.nodeId()) && edge.targetNodeId().equals(graph.exit().nodeId())
+            && edge.transferKind() == TransferKind.EXCEPTIONAL));
+  }
+
+  @Test
+  void givenSameMethod_whenCfgIsBuiltTwice_thenGraphIdentityAndStructureAreStable()
+      throws IOException {
+    // Arrange
+    Files.writeString(
+        temporaryDirectory.resolve("Stable.java"),
+        """
+        class Stable {
+          int choose(boolean condition) {
+            return condition ? 1 : 2;
+          }
+        }
+        """);
+    var method = method("choose");
+    var builder = new ControlFlowGraphBuilder();
+
+    // Act
+    var first = builder.build(method);
+    var second = builder.build(method);
+
+    // Assert
+    assertEquals(first, second);
+  }
+
+  @Test
+  void givenBlockLocalShadowingAField_whenCfgIsBuilt_thenLocalBindingDoesNotEscapeItsScope()
+      throws IOException {
+    // Arrange
+    Files.writeString(
+        temporaryDirectory.resolve("LexicalScope.java"),
+        """
+        class LexicalScope {
+          int value;
+
+          int read() {
+            {
+              int value = 1;
+            }
+            return value;
+          }
+        }
+        """);
+    var method = method("read");
+
+    // Act
+    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+
+    // Assert
+    var fieldRead = graph.operationNodes().stream()
+        .filter(node -> node.kind() == OperationKind.READ && node.detail().equals("value"))
+        .findFirst().orElseThrow();
+    assertEquals(ValueKind.SYMBOL, fieldRead.operands().getFirst().value().kind());
   }
 
   private org.aquilagraph.model.JavaMethod method(String name) throws IOException {

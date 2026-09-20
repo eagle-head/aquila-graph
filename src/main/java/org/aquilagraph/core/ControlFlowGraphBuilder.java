@@ -33,6 +33,6 @@ public final class ControlFlowGraphBuilder {
           DiagnosticStage.CONTROL_FLOW, DiagnosticSeverity.ERROR, message, method.origins());
       return new ControlFlowGraphResult(Optional.empty(), List.of(diagnostic));
     }
-    return new MethodGraphLowerer(method).lower();
+    return new SyntaxGraphLowerer(method).lower();
   }
 }

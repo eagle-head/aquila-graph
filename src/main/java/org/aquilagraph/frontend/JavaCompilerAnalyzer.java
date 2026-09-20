@@ -44,7 +44,7 @@ final class JavaCompilerAnalyzer {
     try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(collector, Locale.ROOT, StandardCharsets.UTF_8)) {
       var task = compilerTask(compiler, fileManager, collector, invocation, sources);
       var units = parseAndAnalyze(task);
-      var semantics = new JavaTreeSemantics(Trees.instance(task));
+      var semantics = new JavaTreeSemantics(Trees.instance(task), task.getTypes());
       var translation = new JavaProgramTranslator(sources, semantics).translate(units);
       var diagnostics = new ArrayList<AnalysisDiagnostic>();
       diagnostics.addAll(new CompilerDiagnosticTranslator(sources).translate(collector.getDiagnostics()));

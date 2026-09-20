@@ -129,6 +129,14 @@ class Neo4jAnalysisRunMapperTest {
         projection.nodes().stream()
             .filter(node -> node.label().equals("OperationNode"))
             .anyMatch(node -> node.properties().containsKey("kind")));
+    assertTrue(
+        projection.nodes().stream()
+            .filter(node -> node.label().equals("SemanticReference"))
+            .anyMatch(node -> node.properties().get("typeAlternativeNames") instanceof List<?> types && !types.isEmpty()));
+    assertTrue(
+        projection.nodes().stream()
+            .filter(node -> node.label().equals("SemanticReference"))
+            .anyMatch(node -> node.properties().get("assignableToTypeNames") instanceof List<?> types && !types.isEmpty()));
     assertFalse(
         projection.nodes().stream().anyMatch(node -> node.label().startsWith("Normalized")));
     assertTrue(projection.relationships().stream().anyMatch(relation -> relation.type().equals("IN_SOURCE")));

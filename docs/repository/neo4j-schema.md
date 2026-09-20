@@ -25,6 +25,12 @@ which makes publication idempotent at the run boundary.[1][2]
 `SemanticReference`, `MethodAnalysis`, `ControlFlowGraph`, `FlowValue`,
 `EntryNode`, `OperationNode`, `ExitNode`, `Diagnostic`, and `SourceOrigin`.[1]
 
+Each resolved `SemanticReference` stores its compiler-reported `typeName`, its
+ordered `typeAlternativeNames`, and its transitive `assignableToTypeNames`.
+The alternatives preserve union types such as Java multi-catch declarations;
+the hierarchy supports exception-handler selection without introducing
+compiler-owned objects into the persisted model.[2]
+
 Source content and its SHA-256 digest are stored on `SourceFile`. Exact available
 offsets are stored on `SourceOrigin`, connected to the owning entity by
 `HAS_ORIGIN` and to its source by `IN_SOURCE`. Missing compiler positions do not

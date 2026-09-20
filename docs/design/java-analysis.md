@@ -80,14 +80,29 @@ are not part of this profile.[2][5]
 Compiler-derived syntax remains distinct from the control-flow graph because it
 preserves source structure and provenance. There is no separate normalized-body
 aggregate. `ControlFlowGraphBuilder` is a small public facade. It delegates one
-accepted method to `MethodGraphLowerer`, which coordinates separate statement
-and expression translators. `ControlFlowGraphAssembly` alone owns graph
-identity, mutable construction collections, and final immutable assembly.
-Together these collaborators visit operands left to right and lower supported
-syntax directly into graph-owned operation nodes, flow values, and typed edges.
+accepted method to `SyntaxGraphLowerer`, which owns recursive syntax dispatch
+and delegates syntax-family semantics to separate statement and expression
+lowerers. `ControlFlowGraphConstruction` owns graph identity, mutable graph
+state, fragment composition, nested exception targets, and final immutable
+assembly. `FlowValueScope` separately owns lexical value visibility. Together
+these collaborators visit operands left to right and lower supported syntax
+directly into graph-owned operation nodes, flow values, and typed edges.
 These elements preserve conditional evaluation of `&&`, `||`,
 conditional expressions, branches, switch alternatives, returns, throws, and
 exceptional flow.[5][6]
+
+Exception targets form an outer-linked chain. A known thrown type transfers to
+the first matching handler in source order; when the current `try` does not
+match, resolution continues through enclosing targets before reaching method
+exit. Unknown invocation and constructor exceptions conservatively retain all
+reachable handler and exit alternatives. Every block and catch body uses a
+lexical value scope that is restored after lowering. Known explicit throws use
+the qualified type names and transitive assignability hierarchy captured from
+the compiler, including user-defined exception classes. Matching never falls
+back to simple class names, so unrelated homonymous exception types remain
+distinct. Multi-catch alternatives are retained separately from their common
+supertype, and an unresolved handler is modeled as a conservative possible
+target rather than inferred from display text.[2][5]
 
 `ControlFlowGraph` is the aggregate root for one method's analysis. It owns one
 entry, one exit, ordered operation nodes, ordered flow values, and edges;
@@ -146,12 +161,12 @@ The model is conservative and profile-specific:
 | object construction | `unchecked-constructor` |
 | explicit throw | the resolved/static thrown type when available |
 
-Known exceptions route to a matching catch by exact/simple name, the broad
-`Throwable`, `Exception`, or `RuntimeException` categories, and the required
-`NumberFormatException` to `IllegalArgumentException` relation. Unknown
-invocation and construction effects route to every in-scope handler and to the
-exit. These edges mean “possible transfer”; they are not a path-feasibility or
-whole-program exception proof.[5][7]
+Known explicit exceptions route to the first catch whose qualified declared
+type appears in the compiler-derived transitive assignability hierarchy. Known implicit JVM
+runtime effects carry their documented `RuntimeException`, `Exception`, and
+`Throwable` hierarchy. Unknown invocation and construction effects route to
+every in-scope handler and to the exit. These edges mean “possible transfer”;
+they are not a path-feasibility or whole-program exception proof.[2][5][7]
 
 ## Completion Contract
 
@@ -205,7 +220,7 @@ implements its bounded model and has no runtime dependency on
    [JavaTreeSemantics](../../src/main/java/org/aquilagraph/frontend/JavaTreeSemantics.java), compiler semantic queries.
 3. [InputSnapshot](../../src/main/java/org/aquilagraph/model/InputSnapshot.java), record invariants.
 4. [StableId](../../src/main/java/org/aquilagraph/model/StableId.java), `sha256`.
-5. [ControlFlowGraphBuilder](../../src/main/java/org/aquilagraph/core/ControlFlowGraphBuilder.java), public facade; [MethodGraphLowerer](../../src/main/java/org/aquilagraph/core/MethodGraphLowerer.java), coordination; [StatementGraphLowerer](../../src/main/java/org/aquilagraph/core/StatementGraphLowerer.java) and [ExpressionGraphLowerer](../../src/main/java/org/aquilagraph/core/ExpressionGraphLowerer.java), syntax-family translation; [ControlFlowGraphAssembly](../../src/main/java/org/aquilagraph/core/ControlFlowGraphAssembly.java), graph construction.
+5. [ControlFlowGraphBuilder](../../src/main/java/org/aquilagraph/core/ControlFlowGraphBuilder.java), public facade; [SyntaxGraphLowerer](../../src/main/java/org/aquilagraph/core/SyntaxGraphLowerer.java), recursive dispatch; [StatementGraphLowerer](../../src/main/java/org/aquilagraph/core/StatementGraphLowerer.java) and [ExpressionGraphLowerer](../../src/main/java/org/aquilagraph/core/ExpressionGraphLowerer.java), syntax-family translation; [ControlFlowGraphConstruction](../../src/main/java/org/aquilagraph/core/ControlFlowGraphConstruction.java), graph construction and exception routing; and [FlowValueScope](../../src/main/java/org/aquilagraph/core/FlowValueScope.java), lexical bindings.
 6. [ControlFlowGraph](../../src/main/java/org/aquilagraph/model/ControlFlowGraph.java), aggregate invariants; [OperationNode](../../src/main/java/org/aquilagraph/model/OperationNode.java) and [FlowValue](../../src/main/java/org/aquilagraph/model/FlowValue.java), graph-owned semantics.
 7. *The Java Language Specification, Java SE 25 Edition*, §§14.1, 14.17,
    14.18, 14.20, 15.6, 15.7, 15.23, 15.24, and 15.28; local copy
