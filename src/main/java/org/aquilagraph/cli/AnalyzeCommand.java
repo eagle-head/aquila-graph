@@ -7,9 +7,9 @@ import java.util.ArrayList;
 import java.util.Objects;
 import org.aquilagraph.application.AnalysisApplicationService;
 import org.aquilagraph.application.AnalysisExecution;
-import org.aquilagraph.application.AnalysisPersistenceException;
+import org.aquilagraph.application.AnalysisRepositoryException;
 import org.aquilagraph.application.AnalysisRequest;
-import org.aquilagraph.application.PersistenceStatus;
+import org.aquilagraph.application.RepositoryStatus;
 import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.AnalysisRun;
 
@@ -18,14 +18,14 @@ public final class AnalyzeCommand {
   private static final String PERSIST_OPTION = "--persist";
   private static final int REQUIRED_POSITIONAL_ARGUMENTS = 1;
 
-  /** Exit code for a completed analysis and any requested persistence. */
+  /** Exit code for a completed analysis and any requested repository save. */
   public static final int EXIT_COMPLETED = 0;
   /** Exit code for an analysis that produced an incomplete result. */
   public static final int EXIT_INCOMPLETE = 1;
   /** Exit code for rejected input or arguments. */
   public static final int EXIT_REJECTED = 2;
-  /** Exit code for a completed analysis whose persistence failed. */
-  public static final int EXIT_PERSISTENCE_FAILED = 3;
+  /** Exit code for a completed analysis whose repository save failed. */
+  public static final int EXIT_REPOSITORY_FAILED = 3;
 
   private final AnalysisApplicationService analysisService;
 
@@ -67,11 +67,11 @@ public final class AnalyzeCommand {
     final AnalysisExecution execution;
     try {
       execution = analysisService.execute(AnalysisRequest.java25(parsed.sourceRoot(), parsed.persist()));
-    } catch (AnalysisPersistenceException exception) {
+    } catch (AnalysisRepositoryException exception) {
       printRun(exception.analysisRun(), output, error);
-      var cause = Objects.requireNonNull(exception.getCause(), "persistence cause");
-      error.println("Persistence failed: " + Objects.toString(cause.getMessage(), cause.getClass().getSimpleName()));
-      return EXIT_PERSISTENCE_FAILED;
+      var cause = Objects.requireNonNull(exception.getCause(), "repository cause");
+      error.println("Repository save failed: " + Objects.toString(cause.getMessage(), cause.getClass().getSimpleName()));
+      return EXIT_REPOSITORY_FAILED;
     } catch (IOException | IllegalArgumentException exception) {
       error.println("Input rejected: " + exception.getMessage());
       return EXIT_REJECTED;
@@ -83,16 +83,15 @@ public final class AnalyzeCommand {
     var run = execution.run();
     printRun(run, output, error);
     if (run.completion() != AnalysisCompletion.COMPLETED) {
-      output.println("Persistence: NOT_ATTEMPTED");
+      output.println("Repository: NOT_ATTEMPTED");
       return run.completion() == AnalysisCompletion.REJECTED ? EXIT_REJECTED : EXIT_INCOMPLETE;
     }
-    if (execution.persistenceStatus() == PersistenceStatus.NOT_REQUESTED) {
-      output.println("Persistence: NOT_REQUESTED");
+    if (execution.repositoryStatus() == RepositoryStatus.NOT_REQUESTED) {
+      output.println("Repository: NOT_REQUESTED");
       return EXIT_COMPLETED;
     }
 
-    var receipt = execution.persistenceReceipt().orElseThrow();
-    output.printf("Persistence: COMPLETED (%d nodes, %d relationships)%n", receipt.nodeCount(), receipt.relationshipCount());
+    output.println("Repository: SAVED");
     return EXIT_COMPLETED;
   }
 

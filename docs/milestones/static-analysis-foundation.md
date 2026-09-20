@@ -20,9 +20,9 @@ first source profile.[4][5]
   compiler invocation, and translation of syntax/semantics/origins;
 - `model`: immutable source, program, diagnostic, and graph-owned CFG data;
 - `core`: semantic lowering into CFGs, completion, and run assembly;
-- `persistence`: driver-independent projection plus transactional Neo4j
-  publication;
-- `cli`: process arguments, counts, diagnostics, exit codes, and persistence
+- `repository`: technology-neutral storage contracts plus the transactional
+  `repository.neo4j` adapter;
+- `cli`: process arguments, counts, diagnostics, exit codes, and repository
   outcome;
 - `org.aquilagraph.AquilaGraphApplication`: composition root.
 
@@ -59,4 +59,4 @@ of this milestone.[2]
 4. [Analysis targets](../../analysis-targets/README.md).
 5. [Calculator target](../../analysis-targets/calculator/README.md).
 6. [Neo4j deployment](../../deployment/neo4j/README.md).
-7. [Neo4j integration test](../../src/test/java/org/aquilagraph/persistence/Neo4jAnalysisRepositoryNeo4jIT.java).
+7. [Neo4j integration test](../../src/test/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunRepositoryNeo4jIT.java).

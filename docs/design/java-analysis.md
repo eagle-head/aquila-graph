@@ -117,16 +117,17 @@ origins inside the same aggregate.[8][18]
 an `AnalysisRequest`, invokes the frontend and analysis engine, applies the
 completed-run publication rule, opens and closes the configured repository only
 when publication was requested, and returns an `AnalysisExecution`. The
-execution distinguishes persistence that was not requested, was not attempted
-because analysis did not complete, and completed with a receipt.[16]
+execution distinguishes repository storage that was not requested, was not
+attempted because analysis did not complete, and completed successfully.[16]
 
-`AnalysisRepository` and `AnalysisRepositoryFactory` are application-owned
-ports. `Neo4jAnalysisRepository` implements the repository port, while
+`AnalysisRunRepository` and `AnalysisRunRepositoryFactory` are
+technology-neutral repository ports. `Neo4jAnalysisRunRepository` implements
+the repository port, while
 `AquilaGraphApplication` is the composition root that reads Neo4j settings and
 selects the adapter. `AnalyzeCommand` is limited to parsing CLI arguments,
-presenting the application result, and mapping it to an exit code. A persistence
+presenting the application result, and mapping it to an exit code. A repository
 failure retains the completed `AnalysisRun` and original cause in
-`AnalysisPersistenceException`, allowing another delivery interface to reuse the
+`AnalysisRepositoryException`, allowing another delivery interface to reuse the
 same use case without reproducing orchestration or depending on Neo4j
 configuration.[9][16][17]
 
@@ -163,9 +164,9 @@ whole-program exception proof.[5][7]
 - `REJECTED`: no Java sources or no accepted Java type exists. No
   `ProgramRepresentation` is attached.
 
-Only completed runs are eligible for persistence. A persistence failure is a
+Only completed runs are eligible for repository storage. A repository failure is a
 separate application outcome and never changes the already computed completion;
-the CLI maps that outcome to its persistence exit code.[8][9][16]
+the CLI maps that outcome to its repository exit code.[8][9][16]
 
 ## CLI Contract
 
@@ -174,9 +175,9 @@ java -jar target/aquila-graph-0.1.0-SNAPSHOT.jar <source-root> [--persist]
 ```
 
 The command reports the run ID, completion, diagnostics, source/type/method
-counts, CFG operation/node/edge counts, and persistence
+counts, CFG operation/node/edge counts, and repository
 outcome. Exit codes are `0` completed, `1` incomplete analysis, `2` rejected
-input or usage, and `3` completed analysis followed by persistence failure. Exit
+input or usage, and `3` completed analysis followed by repository failure. Exit
 code `2` includes an invalid source root and source access or UTF-8 decoding
 failures detected during snapshot discovery.[1][9]
 
@@ -223,6 +224,6 @@ implements its bounded model and has no runtime dependency on
     sequence diagrams.
 14. [AnalysisEnvironmentCapture](../../src/main/java/org/aquilagraph/frontend/AnalysisEnvironmentCapture.java), `capture`; [AnalysisEnvironmentSnapshot](../../src/main/java/org/aquilagraph/model/AnalysisEnvironmentSnapshot.java) and [DependencySnapshot](../../src/main/java/org/aquilagraph/model/DependencySnapshot.java), immutable environment identity.
 15. [CompilerConfiguration](../../src/main/java/org/aquilagraph/model/CompilerConfiguration.java), managed compiler options.
-16. [AnalysisApplicationService](../../src/main/java/org/aquilagraph/application/AnalysisApplicationService.java), `execute`; [AnalysisExecution](../../src/main/java/org/aquilagraph/application/AnalysisExecution.java), persistence outcome invariants; [AnalysisRepository](../../src/main/java/org/aquilagraph/application/AnalysisRepository.java), application-owned persistence port.
+16. [AnalysisApplicationService](../../src/main/java/org/aquilagraph/application/AnalysisApplicationService.java), `execute`; [AnalysisExecution](../../src/main/java/org/aquilagraph/application/AnalysisExecution.java), repository outcome invariants; [AnalysisRunRepository](../../src/main/java/org/aquilagraph/repository/AnalysisRunRepository.java), technology-neutral repository port.
 17. [AquilaGraphApplication](../../src/main/java/org/aquilagraph/AquilaGraphApplication.java), composition root and Neo4j adapter selection.
 18. [JavaProgram](../../src/main/java/org/aquilagraph/model/JavaProgram.java), program-wide method-key uniqueness; [ProgramRepresentation](../../src/main/java/org/aquilagraph/model/ProgramRepresentation.java), canonical method-analysis membership.

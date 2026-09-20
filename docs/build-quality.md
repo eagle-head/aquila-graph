@@ -73,7 +73,8 @@ component model:
 - `core` and `frontend` depend on `model`;
 - `application` may depend on `core`, `frontend`, and `model`;
 - `cli` may depend on `application` and `model`;
-- `persistence` may depend on `application`, `model`, and the Neo4j driver; and
+- `repository` exposes a technology-neutral contract and may depend on `model`;
+- `repository.neo4j` may depend on `repository`, `model`, and the Neo4j driver; and
 - the root package is the composition boundary.
 
 Only `frontend` may import the supported compiler-tree APIs in `com.sun.source` and `javax.tools`.

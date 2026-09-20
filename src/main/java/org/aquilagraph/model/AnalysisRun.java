@@ -22,7 +22,7 @@ import java.util.Optional;
  * @param analyzerVersion
  *          analyzer implementation version
  * @param modelVersion
- *          persisted model version
+ *          stored model version
  */
 public record AnalysisRun(String runId, InputSnapshot inputSnapshot, AnalysisEnvironmentSnapshot environmentSnapshot,
     Optional<ProgramRepresentation> representation, List<AnalysisDiagnostic> diagnostics, AnalysisCompletion completion,
@@ -51,7 +51,7 @@ public record AnalysisRun(String runId, InputSnapshot inputSnapshot, AnalysisEnv
   }
 
   /**
-   * Indicates whether the run is eligible for persistence.
+   * Indicates whether the run is complete and eligible for repository storage.
    *
    * @return {@code true} only for completed runs
    */

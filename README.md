@@ -16,7 +16,8 @@ CFG foundation. This engineering increment does not settle the broader product
 and stakeholder questions in this General View. Its accepted source profile,
 completion contract, CLI behavior, and limitations are defined in the
 [Java analysis design](docs/design/java-analysis.md); its Compose-managed Neo4j
-publication schema is defined in the [persistence design](docs/persistence/neo4j-schema.md).
+repository boundary is defined in the [repository design](docs/design/analysis-repository.md),
+and the selected publication schema is defined in the [Neo4j repository design](docs/repository/neo4j-schema.md).
 
 Production code is governed by compiler, nullness, formatting, static-analysis, architecture,
 dependency, documentation, license, and SBOM gates. Their responsibilities and local

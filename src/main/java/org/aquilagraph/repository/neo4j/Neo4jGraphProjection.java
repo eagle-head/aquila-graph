@@ -1,11 +1,11 @@
-package org.aquilagraph.persistence;
+package org.aquilagraph.repository.neo4j;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * Immutable graph publication payload for one analysis run.
+ * Immutable Neo4j storage payload for one analysis run.
  *
  * @param runId
  *          analysis run identifier
@@ -14,7 +14,7 @@ import java.util.Objects;
  * @param relationships
  *          projected relationships
  */
-public record Neo4jGraphProjection(String runId, List<ProjectedNode> nodes, List<ProjectedRelationship> relationships) {
+record Neo4jGraphProjection(String runId, List<Neo4jNode> nodes, List<Neo4jRelationship> relationships) {
   /** Validates projection ownership and defensively copies elements. */
   public Neo4jGraphProjection {
     Objects.requireNonNull(runId, "runId");

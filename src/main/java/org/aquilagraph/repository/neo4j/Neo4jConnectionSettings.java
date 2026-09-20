@@ -1,4 +1,4 @@
-package org.aquilagraph.persistence;
+package org.aquilagraph.repository.neo4j;
 
 import java.net.URI;
 import java.util.Map;

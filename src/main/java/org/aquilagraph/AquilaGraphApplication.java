@@ -2,14 +2,14 @@ package org.aquilagraph;
 
 import java.util.Map;
 import org.aquilagraph.application.AnalysisApplicationService;
-import org.aquilagraph.application.AnalysisRepository;
-import org.aquilagraph.application.AnalysisRepositoryException;
 import org.aquilagraph.cli.AnalyzeCommand;
 import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
-import org.aquilagraph.persistence.Neo4jAnalysisRepository;
-import org.aquilagraph.persistence.Neo4jConnectionSettings;
+import org.aquilagraph.repository.AnalysisRunRepository;
+import org.aquilagraph.repository.RepositoryException;
+import org.aquilagraph.repository.neo4j.Neo4jAnalysisRunRepository;
+import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 
 /** Composition root and process entry point for the Aquila Graph command-line application. */
 public final class AquilaGraphApplication {
@@ -33,11 +33,11 @@ public final class AquilaGraphApplication {
     }
   }
 
-  private static AnalysisRepository openNeo4jRepository(Map<String, String> environment) {
+  private static AnalysisRunRepository openNeo4jRepository(Map<String, String> environment) {
     try {
-      return new Neo4jAnalysisRepository(Neo4jConnectionSettings.fromEnvironment(environment));
+      return new Neo4jAnalysisRunRepository(Neo4jConnectionSettings.fromEnvironment(environment));
     } catch (IllegalArgumentException exception) {
-      throw new AnalysisRepositoryException("Invalid Neo4j persistence configuration", exception);
+      throw new RepositoryException("Invalid Neo4j repository configuration", exception);
     }
   }
 }

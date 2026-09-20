@@ -17,14 +17,14 @@
     <disallow pkg="org.aquilagraph.cli" />
     <disallow pkg="org.aquilagraph.core" />
     <disallow pkg="org.aquilagraph.frontend" />
-    <disallow pkg="org.aquilagraph.persistence" />
+    <disallow pkg="org.aquilagraph.repository" />
   </subpackage>
 
   <subpackage name="core">
     <disallow pkg="org.aquilagraph.application" />
     <disallow pkg="org.aquilagraph.cli" />
     <disallow pkg="org.aquilagraph.frontend" />
-    <disallow pkg="org.aquilagraph.persistence" />
+    <disallow pkg="org.aquilagraph.repository" />
   </subpackage>
 
   <subpackage name="frontend">
@@ -33,24 +33,27 @@
     <disallow pkg="org.aquilagraph.application" />
     <disallow pkg="org.aquilagraph.cli" />
     <disallow pkg="org.aquilagraph.core" />
-    <disallow pkg="org.aquilagraph.persistence" />
+    <disallow pkg="org.aquilagraph.repository" />
   </subpackage>
 
   <subpackage name="application">
     <disallow pkg="org.aquilagraph.cli" />
-    <disallow pkg="org.aquilagraph.persistence" />
+    <disallow pkg="org.aquilagraph.repository.neo4j" />
   </subpackage>
 
   <subpackage name="cli">
     <disallow pkg="org.aquilagraph.core" />
     <disallow pkg="org.aquilagraph.frontend" />
-    <disallow pkg="org.aquilagraph.persistence" />
+    <disallow pkg="org.aquilagraph.repository" />
   </subpackage>
 
-  <subpackage name="persistence">
-    <allow pkg="org.neo4j" />
+  <subpackage name="repository">
+    <disallow pkg="org.aquilagraph.application" />
     <disallow pkg="org.aquilagraph.cli" />
     <disallow pkg="org.aquilagraph.core" />
     <disallow pkg="org.aquilagraph.frontend" />
+    <subpackage name="neo4j">
+      <allow pkg="org.neo4j" />
+    </subpackage>
   </subpackage>
 </import-control>

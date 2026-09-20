@@ -1,76 +1,62 @@
 package org.aquilagraph.application;
 
 import java.util.Objects;
-import java.util.Optional;
 import org.aquilagraph.model.AnalysisRun;
 
 /**
- * Combines an analysis result with the outcome of its optional persistence step.
+ * Combines an analysis result with the outcome of its optional repository step.
  *
  * @param run
  *          completed, incomplete, or rejected analysis run
- * @param persistenceStatus
- *          persistence decision or outcome
- * @param persistenceReceipt
- *          receipt present only after successful persistence
+ * @param repositoryStatus
+ *          repository decision or outcome
  */
-public record AnalysisExecution(AnalysisRun run, PersistenceStatus persistenceStatus, Optional<PersistenceReceipt> persistenceReceipt) {
-  /** Validates the consistency between persistence status and receipt. */
+public record AnalysisExecution(AnalysisRun run, RepositoryStatus repositoryStatus) {
+  /** Validates consistency between analysis completion and repository status. */
   public AnalysisExecution {
     Objects.requireNonNull(run, "run");
-    Objects.requireNonNull(persistenceStatus, "persistenceStatus");
-    Objects.requireNonNull(persistenceReceipt, "persistenceReceipt");
-    if (persistenceStatus == PersistenceStatus.COMPLETED) {
-      var receipt = persistenceReceipt.orElseThrow(() -> new IllegalArgumentException("Completed persistence requires a receipt"));
-      if (!run.isComplete()) {
-        throw new IllegalArgumentException("Only a completed analysis run can be persisted");
-      }
-      if (!run.runId().equals(receipt.runId())) {
-        throw new IllegalArgumentException("Persistence receipt must identify the analysis run");
-      }
-    } else if (persistenceReceipt.isPresent()) {
-      throw new IllegalArgumentException("A persistence receipt requires completed persistence");
+    Objects.requireNonNull(repositoryStatus, "repositoryStatus");
+    if (repositoryStatus == RepositoryStatus.SAVED && !run.isComplete()) {
+      throw new IllegalArgumentException("Only a completed analysis run can be saved");
     }
-    if (persistenceStatus == PersistenceStatus.NOT_REQUESTED && !run.isComplete()) {
-      throw new IllegalArgumentException("An incomplete run cannot report persistence as not requested");
+    if (repositoryStatus == RepositoryStatus.NOT_REQUESTED && !run.isComplete()) {
+      throw new IllegalArgumentException("An incomplete run cannot report repository storage as not requested");
     }
-    if (persistenceStatus == PersistenceStatus.NOT_ATTEMPTED && run.isComplete()) {
-      throw new IllegalArgumentException("A completed run must report a persistence decision");
+    if (repositoryStatus == RepositoryStatus.NOT_ATTEMPTED && run.isComplete()) {
+      throw new IllegalArgumentException("A completed run must report a repository decision");
     }
   }
 
   /**
-   * Creates an execution whose run is not eligible for persistence.
+   * Creates an execution whose run is not eligible for repository storage.
    *
    * @param run
    *          incomplete or rejected run
-   * @return non-persisted execution
+   * @return execution without a repository attempt
    */
-  public static AnalysisExecution notEligibleForPersistence(AnalysisRun run) {
-    return new AnalysisExecution(run, PersistenceStatus.NOT_ATTEMPTED, Optional.empty());
+  public static AnalysisExecution notEligibleForRepository(AnalysisRun run) {
+    return new AnalysisExecution(run, RepositoryStatus.NOT_ATTEMPTED);
   }
 
   /**
-   * Creates a completed execution for which persistence was not requested.
+   * Creates a completed execution for which repository storage was not requested.
    *
    * @param run
    *          completed run
-   * @return execution without a persistence attempt
+   * @return execution without a repository attempt
    */
-  public static AnalysisExecution withoutPersistenceRequest(AnalysisRun run) {
-    return new AnalysisExecution(run, PersistenceStatus.NOT_REQUESTED, Optional.empty());
+  public static AnalysisExecution withoutRepositoryRequest(AnalysisRun run) {
+    return new AnalysisExecution(run, RepositoryStatus.NOT_REQUESTED);
   }
 
   /**
-   * Creates a successfully persisted execution.
+   * Creates an execution whose completed run was saved.
    *
    * @param run
    *          completed run
-   * @param receipt
-   *          persistence receipt
-   * @return persisted execution
+   * @return saved execution
    */
-  public static AnalysisExecution persisted(AnalysisRun run, PersistenceReceipt receipt) {
-    return new AnalysisExecution(run, PersistenceStatus.COMPLETED, Optional.of(receipt));
+  public static AnalysisExecution saved(AnalysisRun run) {
+    return new AnalysisExecution(run, RepositoryStatus.SAVED);
   }
 }

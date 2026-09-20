@@ -11,13 +11,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.aquilagraph.application.AnalysisApplicationService;
-import org.aquilagraph.application.AnalysisRepository;
-import org.aquilagraph.application.AnalysisRepositoryFactory;
-import org.aquilagraph.application.PersistenceReceipt;
 import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisRun;
+import org.aquilagraph.repository.AnalysisRunRepository;
+import org.aquilagraph.repository.AnalysisRunRepositoryFactory;
+import org.aquilagraph.repository.RepositoryException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -43,7 +43,7 @@ class AnalyzeCommandTest {
     assertEquals(AnalyzeCommand.EXIT_COMPLETED, exitCode);
     assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Completion: COMPLETED"));
     assertTrue(
-        capturedOutput.toString(StandardCharsets.UTF_8).contains("Persistence: NOT_REQUESTED"));
+        capturedOutput.toString(StandardCharsets.UTF_8).contains("Repository: NOT_REQUESTED"));
     assertEquals("", capturedError.toString(StandardCharsets.UTF_8));
   }
 
@@ -91,7 +91,7 @@ class AnalyzeCommandTest {
   }
 
   @Test
-  void givenCompletedAnalysisAndUnavailableRepository_whenPersistenceRuns_thenCompletionRemainsSeparate()
+  void givenCompletedAnalysisAndUnavailableRepository_whenSaveRuns_thenCompletionRemainsSeparate()
       throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
@@ -100,10 +100,10 @@ class AnalyzeCommandTest {
     var command =
         command(
             () ->
-                new AnalysisRepository() {
+                new AnalysisRunRepository() {
                   @Override
-                  public PersistenceReceipt persist(AnalysisRun run) {
-                    throw new IllegalStateException("database unavailable");
+                  public void save(AnalysisRun run) {
+                    throw new RepositoryException("database unavailable", new IllegalStateException("connection refused"));
                   }
 
                   @Override
@@ -118,14 +118,14 @@ class AnalyzeCommandTest {
             new PrintStream(capturedError, true, StandardCharsets.UTF_8));
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_PERSISTENCE_FAILED, exitCode);
+    assertEquals(AnalyzeCommand.EXIT_REPOSITORY_FAILED, exitCode);
     assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Completion: COMPLETED"));
     assertTrue(
         capturedError.toString(StandardCharsets.UTF_8)
-            .contains("Persistence failed: database unavailable"));
+            .contains("Repository save failed: database unavailable"));
   }
 
-  private static AnalyzeCommand command(AnalysisRepositoryFactory repositoryFactory) {
+  private static AnalyzeCommand command(AnalysisRunRepositoryFactory repositoryFactory) {
     return new AnalyzeCommand(
         new AnalysisApplicationService(
             new JavaFrontend(new JavaSourceLoader()),
@@ -133,7 +133,7 @@ class AnalyzeCommandTest {
             repositoryFactory));
   }
 
-  private static AnalysisRepositoryFactory repositoryMustNotOpen() {
+  private static AnalysisRunRepositoryFactory repositoryMustNotOpen() {
     return () -> {
       throw new AssertionError("Repository must not be opened");
     };

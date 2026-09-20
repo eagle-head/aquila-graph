@@ -1,4 +1,4 @@
-package org.aquilagraph.persistence;
+package org.aquilagraph.repository.neo4j;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -10,12 +10,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import org.aquilagraph.application.PersistenceReceipt;
 import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisRun;
 import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.repository.RepositoryException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
@@ -23,7 +23,7 @@ import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 
-class Neo4jAnalysisRepositoryNeo4jIT {
+class Neo4jAnalysisRunRepositoryNeo4jIT {
   @TempDir Path temporaryDirectory;
 
   @Test
@@ -41,22 +41,20 @@ class Neo4jAnalysisRepositoryNeo4jIT {
 
     try {
       // Act
-      final PersistenceReceipt first;
-      final PersistenceReceipt second;
-      try (var repository = new Neo4jAnalysisRepository(settings)) {
-        first = repository.persist(calculatorRun);
-        second = repository.persist(calculatorRun);
-        repository.persist(independentRun);
+      var expectedCalculatorProjection = new Neo4jAnalysisRunMapper().map(calculatorRun);
+      try (var repository = new Neo4jAnalysisRunRepository(settings)) {
+        repository.save(calculatorRun);
+        repository.save(calculatorRun);
+        repository.save(independentRun);
       }
 
       // Assert
-      assertEquals(first, second);
       try (var driver =
               GraphDatabase.driver(
                   settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
           var session = driver.session(sessionConfig)) {
         driver.verifyConnectivity();
-        assertEquals(first.nodeCount(), nodeCount(session, calculatorRun.runId()));
+        assertEquals(expectedCalculatorProjection.nodes().size(), nodeCount(session, calculatorRun.runId()));
         assertTrue(nodeCount(session, independentRun.runId()) > 0);
         assertEquals(
             0,
@@ -136,15 +134,15 @@ class Neo4jAnalysisRepositoryNeo4jIT {
               GraphDatabase.driver(
                   settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
           var failingRepository =
-              new Neo4jAnalysisRepository(
+              new Neo4jAnalysisRunRepository(
                   failingDriver, sessionConfig, ignored -> invalidProjection)) {
-        assertThrows(RuntimeException.class, () -> failingRepository.persist(calculatorRun));
+        assertThrows(RepositoryException.class, () -> failingRepository.save(calculatorRun));
       }
       try (var verificationDriver =
               GraphDatabase.driver(
                   settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
           var verificationSession = verificationDriver.session(sessionConfig)) {
-        assertEquals(first.nodeCount(), nodeCount(verificationSession, calculatorRun.runId()));
+        assertEquals(expectedCalculatorProjection.nodes().size(), nodeCount(verificationSession, calculatorRun.runId()));
       }
     } finally {
       cleanup(settings, List.of(calculatorRun.runId(), independentRun.runId()));
@@ -159,12 +157,12 @@ class Neo4jAnalysisRepositoryNeo4jIT {
   }
 
   private static Neo4jGraphProjection invalidProjection(AnalysisRun run) {
-    var valid = new AnalysisRunProjector().project(run);
+    var valid = new Neo4jAnalysisRunMapper().map(run);
     var nodes = new ArrayList<>(valid.nodes());
     var first = nodes.getFirst();
     var invalidProperties = new LinkedHashMap<>(first.properties());
     invalidProperties.put("invalidNestedMap", java.util.Map.of("not", "a Neo4j property"));
-    nodes.set(0, new ProjectedNode(first.key(), first.label(), invalidProperties));
+    nodes.set(0, new Neo4jNode(first.key(), first.label(), invalidProperties));
     return new Neo4jGraphProjection(valid.runId(), nodes, valid.relationships());
   }
 

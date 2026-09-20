@@ -15,6 +15,9 @@ import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisRun;
+import org.aquilagraph.repository.AnalysisRunRepository;
+import org.aquilagraph.repository.AnalysisRunRepositoryFactory;
+import org.aquilagraph.repository.RepositoryException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -22,7 +25,7 @@ class AnalysisApplicationServiceTest {
   @TempDir Path temporaryDirectory;
 
   @Test
-  void givenCompletedSourceAndNoPersistenceRequest_whenAnalysisExecutes_thenRepositoryIsNotOpened()
+  void givenCompletedSourceAndNoRepositoryRequest_whenAnalysisExecutes_thenRepositoryIsNotOpened()
       throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
@@ -39,13 +42,12 @@ class AnalysisApplicationServiceTest {
 
     // Assert
     assertTrue(execution.run().isComplete());
-    assertEquals(PersistenceStatus.NOT_REQUESTED, execution.persistenceStatus());
-    assertTrue(execution.persistenceReceipt().isEmpty());
+    assertEquals(RepositoryStatus.NOT_REQUESTED, execution.repositoryStatus());
     assertFalse(repositoryOpened.get());
   }
 
   @Test
-  void givenRejectedSourceAndPersistenceRequest_whenAnalysisExecutes_thenRepositoryIsNotOpened()
+  void givenRejectedSourceAndRepositoryRequest_whenAnalysisExecutes_thenRepositoryIsNotOpened()
       throws IOException {
     // Arrange
     var repositoryOpened = new AtomicBoolean();
@@ -61,13 +63,12 @@ class AnalysisApplicationServiceTest {
 
     // Assert
     assertFalse(execution.run().isComplete());
-    assertEquals(PersistenceStatus.NOT_ATTEMPTED, execution.persistenceStatus());
-    assertTrue(execution.persistenceReceipt().isEmpty());
+    assertEquals(RepositoryStatus.NOT_ATTEMPTED, execution.repositoryStatus());
     assertFalse(repositoryOpened.get());
   }
 
   @Test
-  void givenCompletedSourceAndPersistenceRequest_whenAnalysisExecutes_thenCompletedRunIsPersisted()
+  void givenCompletedSourceAndRepositoryRequest_whenAnalysisExecutes_thenCompletedRunIsSaved()
       throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
@@ -76,11 +77,10 @@ class AnalysisApplicationServiceTest {
     var service =
         service(
             () ->
-                new AnalysisRepository() {
+                new AnalysisRunRepository() {
                   @Override
-                  public PersistenceReceipt persist(AnalysisRun run) {
+                  public void save(AnalysisRun run) {
                     persistedRun.set(run);
-                    return new PersistenceReceipt(run.runId(), 7, 11);
                   }
 
                   @Override
@@ -94,8 +94,7 @@ class AnalysisApplicationServiceTest {
 
     // Assert
     assertTrue(execution.run().isComplete());
-    assertEquals(PersistenceStatus.COMPLETED, execution.persistenceStatus());
-    assertEquals(7, execution.persistenceReceipt().orElseThrow().nodeCount());
+    assertEquals(RepositoryStatus.SAVED, execution.repositoryStatus());
     assertSame(execution.run(), persistedRun.get());
     assertTrue(repositoryClosed.get());
   }
@@ -109,10 +108,10 @@ class AnalysisApplicationServiceTest {
     var service =
         service(
             () ->
-                new AnalysisRepository() {
+                new AnalysisRunRepository() {
                   @Override
-                  public PersistenceReceipt persist(AnalysisRun run) {
-                    throw new IllegalStateException("database unavailable");
+                  public void save(AnalysisRun run) {
+                    throw new RepositoryException("database unavailable", new IllegalStateException("connection refused"));
                   }
 
                   @Override
@@ -124,7 +123,7 @@ class AnalysisApplicationServiceTest {
     // Act
     var exception =
         assertThrows(
-            AnalysisPersistenceException.class,
+            AnalysisRepositoryException.class,
             () -> service.execute(AnalysisRequest.java25(temporaryDirectory, true)));
 
     // Assert
@@ -133,7 +132,7 @@ class AnalysisApplicationServiceTest {
     assertTrue(repositoryClosed.get());
   }
 
-  private static AnalysisApplicationService service(AnalysisRepositoryFactory repositoryFactory) {
+  private static AnalysisApplicationService service(AnalysisRunRepositoryFactory repositoryFactory) {
     return new AnalysisApplicationService(
         new JavaFrontend(new JavaSourceLoader()), new AnalysisEngine(), repositoryFactory);
   }

@@ -1,12 +1,12 @@
-# Neo4j Persistence Schema
+# Neo4j Repository Schema
 
 ## Publication Contract
 
-`Neo4jAnalysisRepository` accepts only `COMPLETED` `AnalysisRun` values. The
-projector first converts project-owned records to driver-independent projected
-nodes and relationships. The projector itself is stateless; every `project`
-invocation creates an isolated context for the run identifier, nodes, and
-relationships. The repository creates constraints, then publishes one run in a
+`Neo4jAnalysisRunRepository` accepts only `COMPLETED` `AnalysisRun` values. The
+mapper first converts project-owned records to Neo4j-specific nodes and
+relationships. The mapper coordinator is stateless; every `map` invocation
+creates an isolated builder for the run identifier, nodes, and relationships.
+The repository creates constraints, then stores one run in a
 single managed write transaction: it deletes any existing projection with the
 same `runId`, creates the complete replacement, and commits. A failed transaction
 rolls the deletion and replacement back together.[1][2]
@@ -79,15 +79,16 @@ are scoped to their calls.[1]
 
 ## Failure and Deployment Behavior
 
-Analysis completion is computed before repository access. Connection, mapping,
-constraint, or transaction failure is wrapped by the application service with
-the completed in-memory run and original cause. The CLI maps that application
-failure to persistence exit code `3`. Incomplete and rejected runs do not open
-the repository and are not published.[1][4][5]
+Analysis completion is computed before repository access. Connection,
+constraint, or transaction failure becomes a technology-neutral
+`RepositoryException`; the application service associates it with the completed
+in-memory run. The CLI maps that application failure to repository exit code
+`3`. Incomplete and rejected runs do not open the repository and are not
+stored.[1][4][5]
 
-The application layer owns the `AnalysisRepository` port and its technology-free
-factory contract. `Neo4jAnalysisRepository` is the persistence adapter, and the
-composition root selects it and maps environment values to
+The `repository` module owns the `AnalysisRunRepository` port and its
+technology-free factory contract. `Neo4jAnalysisRunRepository` is one adapter,
+and the composition root selects it and maps environment values to
 `Neo4jConnectionSettings`; neither the application service nor the CLI depends
 on those Neo4j settings.[1][4][5]
 
@@ -98,10 +99,10 @@ Browser use, and `/data` is backed by the named
 
 ## References
 
-1. [Neo4jAnalysisRepository](../../src/main/java/org/aquilagraph/persistence/Neo4jAnalysisRepository.java), `persist` and `ensureSchema`.
-2. [AnalysisRunProjector](../../src/main/java/org/aquilagraph/persistence/AnalysisRunProjector.java), `project`.
+1. [Neo4jAnalysisRunRepository](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunRepository.java), `save` and `ensureSchema`.
+2. [Neo4jAnalysisRunMapper](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunMapper.java), `map`, and its focused mapping collaborators.
 3. [StableId](../../src/main/java/org/aquilagraph/model/StableId.java), `sha256`.
-4. [AnalysisApplicationService](../../src/main/java/org/aquilagraph/application/AnalysisApplicationService.java), repository lifecycle and publication eligibility; [AnalysisRepository](../../src/main/java/org/aquilagraph/application/AnalysisRepository.java), persistence port.
+4. [AnalysisApplicationService](../../src/main/java/org/aquilagraph/application/AnalysisApplicationService.java), repository lifecycle and storage eligibility; [AnalysisRunRepository](../../src/main/java/org/aquilagraph/repository/AnalysisRunRepository.java), repository port.
 5. [AquilaGraphApplication](../../src/main/java/org/aquilagraph/AquilaGraphApplication.java), Neo4j adapter composition; [AnalyzeCommand](../../src/main/java/org/aquilagraph/cli/AnalyzeCommand.java), result and failure mapping.
 6. [Compose deployment](../../deployment/neo4j/compose.yaml) and [operations](../../deployment/neo4j/README.md).
 7. Neo4j Java Driver Manual, [transactions](https://neo4j.com/docs/java-manual/current/transactions/).

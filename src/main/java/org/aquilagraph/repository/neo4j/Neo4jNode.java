@@ -1,4 +1,4 @@
-package org.aquilagraph.persistence;
+package org.aquilagraph.repository.neo4j;
 
 import java.util.Map;
 import java.util.Objects;
@@ -13,9 +13,9 @@ import java.util.Objects;
  * @param properties
  *          node properties
  */
-public record ProjectedNode(String key, String label, Map<String, Object> properties) {
+record Neo4jNode(String key, String label, Map<String, Object> properties) {
   /** Validates and defensively copies node data. */
-  public ProjectedNode {
+  Neo4jNode {
     Objects.requireNonNull(key, "key");
     Objects.requireNonNull(label, "label");
     properties = Map.copyOf(Objects.requireNonNull(properties, "properties"));

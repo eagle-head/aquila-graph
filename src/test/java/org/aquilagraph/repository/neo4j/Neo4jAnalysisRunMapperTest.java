@@ -1,8 +1,9 @@
-package org.aquilagraph.persistence;
+package org.aquilagraph.repository.neo4j;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -22,11 +23,11 @@ import org.aquilagraph.model.CompilerConfiguration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class AnalysisRunProjectorTest {
+class Neo4jAnalysisRunMapperTest {
   @TempDir Path temporaryDirectory;
 
   @Test
-  void givenSharedProjector_whenDifferentRunsProjectedConcurrently_thenEachProjectionIsIsolated()
+  void givenSharedMapper_whenDifferentRunsMappedConcurrently_thenEachProjectionIsIsolated()
       throws Exception {
     // Arrange
     var sourceRoot =
@@ -51,10 +52,10 @@ class AnalysisRunProjectorTest {
                         sourceRoot,
                         new CompilerConfiguration(
                             25, List.of(secondDependency), List.of(), List.of())));
-    var projector = new AnalysisRunProjector();
+    var mapper = new Neo4jAnalysisRunMapper();
     var runs = List.of(firstRun, secondRun);
     var expectedProjections =
-        List.of(projector.project(firstRun), projector.project(secondRun));
+        List.of(mapper.map(firstRun), mapper.map(secondRun));
     var workerCount = 8;
     var ready = new CountDownLatch(workerCount);
     var start = new CountDownLatch(1);
@@ -70,7 +71,7 @@ class AnalysisRunProjectorTest {
                   if (!start.await(30, TimeUnit.SECONDS)) {
                     throw new IllegalStateException("Timed out waiting to start projection");
                   }
-                  return projector.project(run);
+                  return mapper.map(run);
                 }));
       }
       assertTrue(ready.await(30, TimeUnit.SECONDS));
@@ -94,7 +95,7 @@ class AnalysisRunProjectorTest {
   }
 
   @Test
-  void givenCompletedCalculatorRun_whenProjected_thenIdentityOriginsAndTypedFlowArePreserved()
+  void givenCompletedCalculatorRun_whenMapped_thenIdentityOriginsAndTypedFlowArePreserved()
       throws IOException {
     // Arrange
     var sourceRoot =
@@ -110,7 +111,7 @@ class AnalysisRunProjectorTest {
                             25, List.of(dependency), List.of(), List.of())));
 
     // Act
-    var projection = new AnalysisRunProjector().project(run);
+    var projection = new Neo4jAnalysisRunMapper().map(run);
 
     // Assert
     assertTrue(projection.nodes().stream().allMatch(node -> node.properties().get("runId").equals(run.runId())));
@@ -145,10 +146,27 @@ class AnalysisRunProjectorTest {
                         .contains(relation.type())));
     var flowTypes =
         projection.relationships().stream()
-            .map(ProjectedRelationship::type)
+            .map(Neo4jRelationship::type)
             .filter(type -> type.endsWith("_FLOW"))
             .collect(java.util.stream.Collectors.toSet());
     assertTrue(flowTypes.containsAll(Set.of("NORMAL_FLOW", "RETURN_FLOW", "EXCEPTIONAL_FLOW")));
     assertEquals(run.runId(), projection.runId());
+  }
+
+  @Test
+  void givenRejectedRun_whenMapped_thenRunIsRejected() throws IOException {
+    // Arrange
+    var run =
+        new AnalysisEngine()
+            .analyze(
+                new JavaFrontend(new JavaSourceLoader())
+                    .analyze(temporaryDirectory, CompilerConfiguration.java25()));
+    var mapper = new Neo4jAnalysisRunMapper();
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> mapper.map(run));
+
+    // Assert
+    assertEquals("Only completed analysis runs may be stored", exception.getMessage());
   }
 }

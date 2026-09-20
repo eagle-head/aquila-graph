@@ -3,6 +3,26 @@
 Validation date: September 19, 2026. Environment: Temurin Java `25.0.4.1`,
 Apache Maven `3.9.16`, Docker Engine `29.7.2`, and Docker Compose `5.5.0`.
 
+## Repository Refactoring Validation
+
+Revalidation date: September 20, 2026.
+
+- `.\mvnw.cmd -q verify`: build success; 43 unit tests and 2 packaged-process
+  integration tests passed with no failures, errors, or skips.
+- `.\mvnw.cmd -q -Pneo4j-integration verify`: build success; the same default
+  gates plus the real Neo4j integration test passed. The database test covered
+  repeated saves, run isolation, constraints, typed relationships, source
+  origins, rollback, and cleanup of its exact run identifiers.[1]
+- The bundled PlantUML `1.2025.0` runtime rendered the repository class,
+  component, sequence, and updated program-representation views successfully.
+  The repository, component, and sequence PNGs were visually inspected.
+- A fresh CodeGraph index covered 92 production Java files, 1,120 symbols, and
+  2,103 edges without indexing errors.
+
+The packaged output recorded below predates the repository-contract refactoring.
+The current CLI reports `Repository: SAVED` and intentionally omits Neo4j node
+and relationship counts from its technology-neutral application result.[6]
+
 ## Baseline
 
 - `.\mvnw.cmd test`: 7 tests passed before implementation.
@@ -77,12 +97,13 @@ per-method coordination 307, and graph assembly 205. These counts are a size
 observation, not proof of design quality. The responsibility evidence is the
 separation between public validation, syntax-family translation, method-scoped
 coordination, and graph identity/assembly, with behavior preserved by the build
-and persistence gates above.[5]
+and storage gates above.[5]
 
 ## References
 
-1. [Neo4j integration test](../../src/test/java/org/aquilagraph/persistence/Neo4jAnalysisRepositoryNeo4jIT.java).
+1. [Neo4j integration test](../../src/test/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunRepositoryNeo4jIT.java).
 2. [Diagram index](../../diagrams/README.md) and the linked PlantUML/SVG artifacts.
 3. [Root Maven configuration](../../pom.xml), unit/process/integration lifecycle.
 4. [Calculator analysis test](../../src/test/java/org/aquilagraph/CalculatorAnalysisTest.java).
 5. [Graph-construction classes](../../src/main/java/org/aquilagraph/core/ControlFlowGraphBuilder.java) and [focused class model](../../diagrams/class/control-flow-graph.puml).
+6. [Analysis repository design](../design/analysis-repository.md) and [AnalyzeCommand](../../src/main/java/org/aquilagraph/cli/AnalyzeCommand.java), repository outcome reporting.
