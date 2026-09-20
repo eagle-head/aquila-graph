@@ -7,9 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.stream.IntStream;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.model.JavaMethod;
 import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.OperationKind;
 import org.aquilagraph.model.TransferKind;
@@ -41,13 +43,13 @@ class ControlFlowGraphBuilderTest {
     // Assert
     var operations = result.graph().orElseThrow().operationNodes();
     var invocationPositions =
-        java.util.stream.IntStream.range(0, operations.size())
+        IntStream.range(0, operations.size())
             .filter(index -> operations.get(index).kind() == OperationKind.INVOKE)
             .boxed()
             .toList();
     assertEquals(2, invocationPositions.size());
     var binaryPosition =
-        java.util.stream.IntStream.range(0, operations.size())
+        IntStream.range(0, operations.size())
             .filter(index -> operations.get(index).kind() == OperationKind.BINARY)
             .findFirst()
             .orElseThrow();
@@ -349,7 +351,7 @@ class ControlFlowGraphBuilderTest {
     assertEquals(ValueKind.SYMBOL, fieldRead.operands().getFirst().value().kind());
   }
 
-  private org.aquilagraph.model.JavaMethod method(String name) throws IOException {
+  private JavaMethod method(String name) throws IOException {
     var frontend = new JavaFrontend(new JavaSourceLoader());
     return frontend.analyze(temporaryDirectory, CompilerConfiguration.standard(JavaRelease.JAVA_25)).program().methods().stream()
         .filter(candidate -> candidate.name().equals(name))

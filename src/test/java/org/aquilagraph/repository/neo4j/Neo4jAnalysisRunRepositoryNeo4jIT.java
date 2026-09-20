@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.GraphDatabase;
+import org.neo4j.driver.Session;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 
@@ -162,12 +164,12 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
     var nodes = new ArrayList<>(valid.nodes());
     var first = nodes.getFirst();
     var invalidProperties = new LinkedHashMap<>(first.properties());
-    invalidProperties.put("invalidNestedMap", java.util.Map.of("not", "a Neo4j property"));
+    invalidProperties.put("invalidNestedMap", Map.of("not", "a Neo4j property"));
     nodes.set(0, new Neo4jNode(first.key(), first.label(), invalidProperties));
     return new Neo4jGraphProjection(valid.runId(), nodes, valid.relationships());
   }
 
-  private static long nodeCount(org.neo4j.driver.Session session, String runId) {
+  private static long nodeCount(Session session, String runId) {
     return session
         .run(
             "MATCH (node:AnalysisEntity {runId: $runId}) RETURN count(node) AS count",

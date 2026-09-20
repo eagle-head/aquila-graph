@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.StableId;
@@ -63,7 +64,7 @@ public final class JavaSourceLoader {
 
   private static String snapshotDigest(List<SourceFile> sourceFiles) {
     var components = sourceFiles.stream()
-        .flatMap(sourceFile -> java.util.stream.Stream.of(canonicalRelativePath(sourceFile.relativePath()), sourceFile.contentDigest()))
+        .flatMap(sourceFile -> Stream.of(canonicalRelativePath(sourceFile.relativePath()), sourceFile.contentDigest()))
         .toArray(String[]::new);
     return StableId.sha256("snapshot", components);
   }

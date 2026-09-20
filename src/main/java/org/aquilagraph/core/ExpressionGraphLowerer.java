@@ -1,6 +1,7 @@
 package org.aquilagraph.core;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -215,6 +216,6 @@ final class ExpressionGraphLowerer {
   }
 
   private static List<ExceptionType> runtimeExceptions(String... typeNames) {
-    return java.util.Arrays.stream(typeNames).map(ExceptionType::runtime).toList();
+    return Arrays.stream(typeNames).map(ExceptionType::runtime).toList();
   }
 }

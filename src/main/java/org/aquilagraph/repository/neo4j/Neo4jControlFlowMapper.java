@@ -3,6 +3,8 @@ package org.aquilagraph.repository.neo4j;
 import java.util.List;
 import java.util.Objects;
 import org.aquilagraph.model.CfgNode;
+import org.aquilagraph.model.EntryNode;
+import org.aquilagraph.model.ExitNode;
 import org.aquilagraph.model.MethodAnalysis;
 import org.aquilagraph.model.OperationNode;
 import org.aquilagraph.model.TransferKind;
@@ -75,9 +77,9 @@ final class Neo4jControlFlowMapper {
 
   private static String cfgNodeLabel(CfgNode node) {
     return switch (node) {
-      case org.aquilagraph.model.EntryNode ignored -> "EntryNode";
+      case EntryNode ignored -> "EntryNode";
       case OperationNode ignored -> "OperationNode";
-      case org.aquilagraph.model.ExitNode ignored -> "ExitNode";
+      case ExitNode ignored -> "ExitNode";
     };
   }
 

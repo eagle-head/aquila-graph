@@ -16,6 +16,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
@@ -163,7 +164,7 @@ class Neo4jAnalysisRunMapperTest {
         projection.relationships().stream()
             .map(Neo4jRelationship::type)
             .filter(type -> type.endsWith("_FLOW"))
-            .collect(java.util.stream.Collectors.toSet());
+            .collect(Collectors.toSet());
     assertTrue(flowTypes.containsAll(Set.of("NORMAL_FLOW", "RETURN_FLOW", "EXCEPTIONAL_FLOW")));
     assertEquals(run.runId(), projection.runId());
   }
