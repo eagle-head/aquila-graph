@@ -1,6 +1,6 @@
 # Project documents
-/pdf/
-/books/
+pdf/
+books/
 
 # Local CodeGraph index
 .codegraph/
