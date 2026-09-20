@@ -17,6 +17,7 @@
     <cyclonedx-maven-plugin.version>2.9.3</cyclonedx-maven-plugin.version>
     <eclipse.jdt.formatter.version>4.39</eclipse.jdt.formatter.version>
     <error-prone.version>2.50.0</error-prone.version>
+    <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
     <jspecify.version>1.0.1</jspecify.version>
     <junit.version>6.1.2</junit.version>
     <license-maven-plugin.version>2.7.1</license-maven-plugin.version>
@@ -428,6 +429,16 @@
         </executions>
       </plugin>
 
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco-maven-plugin.version}</version>
+        <configuration>
+          <excludes>
+            <exclude>**/package-info*</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>

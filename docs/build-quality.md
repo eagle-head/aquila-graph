@@ -13,9 +13,10 @@ These gates do not replace behavioral tests or a dependency-vulnerability assess
 an inventory of resolved production components; it does not determine whether those components
 have published vulnerabilities or whether vulnerable code is reachable in Aquila Graph.
 
-No code-coverage tool is configured by this quality profile. If coverage is introduced
-independently, non-executable package descriptors such as `**/package-info.class` must be excluded
-from coverage measurement.
+JaCoCo measures unit-test coverage only when the dedicated `coverage` target is invoked. It generates
+HTML, XML, and CSV reports under `target/site/jacoco` without enforcing a coverage threshold.
+Non-executable `package-info.java` descriptors and their compiled artifacts are excluded from measurement
+through the `**/package-info*` pattern.
 
 ## Required Toolchain
 
@@ -34,13 +35,15 @@ Use the Wrapper so the Maven version and distribution checksum remain enforced:
 
 ```shell
 ./mvnw -B --no-transfer-progress -Dmaven.test.skip=true compile
+./mvnw -B --no-transfer-progress test
+./mvnw -B --no-transfer-progress jacoco:prepare-agent test jacoco:report
 ./mvnw -B --no-transfer-progress spotless:apply
 ./mvnw -B --no-transfer-progress spotless:check
 ./mvnw -B --no-transfer-progress -Dmaven.test.skip=true verify
 ./mvnw -B --no-transfer-progress -Dmaven.test.skip=true -Psupply-chain verify
 ```
 
-Equivalent Make targets are `compile`, `format`, `format-check`, `quality`, and
+Equivalent Make targets are `compile`, `test`, `coverage`, `format`, `format-check`, `quality`, and
 `supply-chain-check`. On Windows PowerShell, use `./mvnw.cmd` when invoking Maven directly.
 
 ## Responsibility Boundaries
@@ -57,6 +60,7 @@ Equivalent Make targets are `compile`, `format`, `format-check`, `quality`, and
 | SpotBugs | Inspect compiled production bytecode at maximum effort and low confidence threshold. |
 | Maven Dependency Analyzer | Reject used-but-undeclared and declared-but-unused production dependencies. |
 | Maven Javadoc | Reject malformed or incomplete public API documentation through full doclint. |
+| JaCoCo | Measure unit-test coverage and produce HTML, XML, and CSV reports on demand. |
 | License Maven Plugin | Reject missing or non-allowlisted production dependency licenses. |
 | CycloneDX | Produce JSON and XML production SBOMs in `target/`. |
 | Renovate configuration | Propose pinned dependency and Wrapper updates without automatic merging. |

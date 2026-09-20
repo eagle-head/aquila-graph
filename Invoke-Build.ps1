@@ -24,12 +24,18 @@ Arguments included in targets that skip test compilation and execution.
 .\Invoke-Build.ps1 compile
 
 .EXAMPLE
+.\Invoke-Build.ps1 test
+
+.EXAMPLE
+.\Invoke-Build.ps1 coverage
+
+.EXAMPLE
 .\Invoke-Build.ps1 supply-chain-check
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('compile', 'format', 'format-check', 'quality', 'supply-chain-check')]
+    [ValidateSet('compile', 'test', 'coverage', 'format', 'format-check', 'quality', 'supply-chain-check')]
     [string] $Target = 'compile',
 
     [string] $MavenCommand,
@@ -58,6 +64,14 @@ else {
 [string[]] $mavenArguments = switch ($Target) {
     'compile' {
         $MavenFlags + $SkipTestFlags + @('compile')
+        break
+    }
+    'test' {
+        $MavenFlags + @('test')
+        break
+    }
+    'coverage' {
+        $MavenFlags + @('jacoco:prepare-agent', 'test', 'jacoco:report')
         break
     }
     'format' {
