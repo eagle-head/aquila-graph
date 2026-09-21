@@ -4,6 +4,8 @@ package org.aquilagraph.model;
 public enum OperationKind {
   /** Reads a program value. */
   READ,
+  /** Materializes an implicit or explicit Java receiver value. */
+  RECEIVER,
   /** Writes or declares a program value. */
   WRITE,
   /** Produces a literal constant. */

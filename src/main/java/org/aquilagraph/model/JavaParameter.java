@@ -11,11 +11,11 @@ import java.util.Objects;
  * @param name
  *          source name
  * @param staticType
- *          compiler-reported type
+ *          compiler-resolved type identity
  * @param origins
  *          declaration source locations
  */
-public record JavaParameter(String parameterKey, String name, String staticType, List<SourceSpan> origins) {
+public record JavaParameter(String parameterKey, String name, JavaTypeIdentity staticType, List<SourceSpan> origins) {
   /** Validates and defensively copies parameter data. */
   public JavaParameter {
     Objects.requireNonNull(parameterKey, "parameterKey");

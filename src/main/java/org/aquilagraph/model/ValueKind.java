@@ -12,6 +12,8 @@ public enum ValueKind {
   CONSTANT,
   /** Exception handler value. */
   EXCEPTION,
+  /** Implicit or explicit Java receiver value. */
+  RECEIVER,
   /** Referenced symbol without a local binding. */
   SYMBOL
 }

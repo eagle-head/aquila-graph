@@ -24,19 +24,42 @@ and `SnapshotSourceCatalog` is the single correlation point between captured
 `SourceFile` values, in-memory `JavaFileObject` values, compiler URIs, and source
 ownership. `CompilerDiagnosticTranslator` converts compiler diagnostics;
 `JavaProgramTranslator`, `JavaTypeTranslator`, and `JavaMethodTranslator` own
-their respective declaration levels; `JavaMethodBodyTranslator` recursively
-converts one method body; and `MethodBodySyntaxProfile` maps each compiler-tree
-form through visitor dispatch to its normalized kind, ordered retained children,
-structural paths, and local acceptance. `JavaSemanticResolver` projects compiler
-elements and types, while `JavaSourceEvidence` independently projects source
-positions. Translation results carry their diagnostics explicitly, and recursive
-body assembly uses immutable mappings without retaining per-method state. All
-compiler-owned objects remain package-internal and are translated into project-owned
-records before the facade returns. Target source files are not reopened after
-snapshot discovery. Source access and UTF-8 decoding failures remain checked
+their respective declaration levels. `JavaTypeTranslator` classifies every
+compiler-reported class-body member: it translates fields, enum constants,
+methods, constructors, and nested types; treats empty declarations as inert;
+and emits a source-located error for initializers or any other unsupported
+member. It also projects compiler-derived type modifiers, exact nested-member
+ownership, an optional direct superclass, ordered direct interfaces, ordered
+permitted subclasses, and ordered type parameters with their compiler-resolved
+bounds. `JavaTypeReference` retains the compiler-derived identity and the
+canonical declaration key when one is available, including for declarations
+outside the analyzed source root. Type, type-parameter, and declaration-header
+type-use annotations are outside the current bounded profile; each occurrence
+therefore produces a deterministic, source-located unsupported diagnostic
+instead of being discarded. `JavaDeclarationIdentities` assigns canonical keys
+to declarations, including owner-and-ordinal type-parameter keys, while compiler
+elements remain available. `JavaMethodBodyTranslator` recursively
+converts one method body into transient `MethodSyntax`; and
+`MethodBodySyntaxProfile` maps each compiler-tree form through visitor dispatch
+to a typed `SyntaxKind`, typed `SyntaxValue`, role-bearing `SyntaxChild` values,
+stable structural paths, and contextual value or assignment-location use.
+Unsupported forms are represented by their node kind rather than parallel
+acceptance state. `JavaSemanticResolver` projects compiler elements, independent
+expression types, declaration references, type hierarchies, and invocation
+qualifying types and modes, while
+`JavaSourceEvidence` independently projects
+source positions. Translation results carry their diagnostics explicitly, and
+recursive body assembly uses immutable mappings without retaining per-method
+state. `JavaProgram`, `JavaType`, and `JavaMethod` retain declaration facts only,
+including exact type ownership and whether a method body exists;
+`SyntaxAnalysisInput` carries the corresponding syntax trees
+only across the frontend-to-core boundary. All compiler-owned objects remain
+package-internal and are translated into project-owned records before the facade
+returns. Target source files are not reopened after snapshot discovery. Source
+access and UTF-8 decoding failures remain checked
 `IOException` values, with source-path context and the original cause preserved,
 through the frontend and application service.
-[1][2][16]
+[1][2][16][22]
 
 `JavaSourceLoader` orders normalized relative paths, hashes each captured UTF-8
 source with SHA-256, and derives a length-framed SHA-256 snapshot identity from
@@ -70,13 +93,18 @@ The first profile is deliberately smaller than Java 25. It accepts the
 calculator and the following constructs when compiler analysis resolves their
 required semantics:
 
-- top-level class, interface, enum, record, and annotation declarations;
+- top-level and nested class, interface, enum, record, and annotation
+  declarations;
 - constructors and methods, including parameters and compiler-generated
   declarations when javac exposes them; abstract and native declarations have
   no body analysis;
+- field and enum-constant declarations as durable program facts; their
+  initializers and class or instance initializer blocks are reported explicitly
+  because executable initializer lowering is not yet supported;
 - blocks, local declarations, expression statements, `return`, explicit
   `throw`, `if`/`else`, and `try` with `catch` clauses;
-- arrow-style switch expressions and their cases/yields;
+- arrow-style switch expressions whose cases use literal, enum-constant, or
+  `default` labels, together with their yielded expressions;
 - method invocation, object construction, member selection, array length and
   array access, identifiers, literals, parentheses, casts, simple assignment,
   conditional expressions, `&&`, `||`, unary `+`, unary `-`, `!`, `~`, and the
@@ -86,24 +114,86 @@ Unsupported syntax is retained as `SyntaxKind.UNSUPPORTED`, emits a frontend
 error, marks the containing body unsupported, and prevents a completed run.
 Notably unsupported are loops, switch statements, labeled control, `break`,
 `continue`, `assert`, synchronized statements, lambdas, method references,
-compound assignment, increment/decrement, try-with-resources, and `finally`.
-Statement-group switch fall-through and unrestricted nested exception handling
-are not part of this profile.[2][5]
+compound assignment, increment/decrement, try-with-resources, `finally`, and
+anonymous class bodies. An ordinary field whose initializer contains an
+anonymous class reports
+`frontend.unsupported-anonymous-class-field-initializer`; an enum
+constant-specific class body reports `frontend.unsupported-enum-constant-body`.
+Type declaration, type-parameter, and declaration-header type-use annotations
+report `frontend.unsupported-type-declaration-annotation`,
+`frontend.unsupported-type-parameter-annotation`, and
+`frontend.unsupported-type-use-annotation`, respectively. Switch statement
+groups, patterns, guards, `null`
+labels, and constant-expression labels other than literals or enum constants
+are also rejected as complete constructs. They remain outside the profile until
+their full CFG semantics can be represented without discarding source
+information. Unrestricted nested exception handling is likewise not part of
+this profile.[2][5]
 
 ## Graph-Native Semantic Lowering and Control Flow
 
-The core is Java-specific: it consumes the project-owned Java program and syntax
-model, while remaining independent of compiler-owned `javac` objects.
-Compiler-derived syntax remains distinct from the control-flow graph because it
-preserves source structure and provenance. There is no separate normalized-body
-aggregate. `ControlFlowGraphBuilder` is a small public facade. It delegates one
-accepted method to `SyntaxGraphLowerer`, which owns recursive syntax dispatch
-and delegates syntax-family semantics to separate statement and expression
-lowerers. `ControlFlowGraphConstruction` owns graph identity, mutable graph
-state, fragment composition, nested exception targets, and final immutable
-assembly. `FlowValueScope` separately owns lexical value visibility. Together
-these collaborators visit operands left to right and lower supported syntax
-directly into graph-owned operation nodes, flow values, and typed edges.
+The core is Java-specific: it consumes a declaration-only `JavaMethod` together
+with its transient `MethodSyntax`, while remaining independent of compiler-owned
+`javac` objects. The syntax tree is source-structure evidence at this boundary,
+not the analysis IR or a member of `ProgramRepresentation`. `SyntaxNode` keeps
+stable node IDs, zero-or-one direct source origin, typed structural values, and
+zero-or-one semantic declaration reference only where symbol identity is
+relevant. Independently, every value-bearing node records a `SyntaxType`
+outcome: a resolved `JavaTypeIdentity` with category, display form, erasure, and
+stable key; an unresolved outcome; or an erroneous compiler-type outcome. This
+prevents expression typing from depending on the presence of an `Element` and
+keeps unavailable semantics distinguishable from syntax that is outside the
+supported profile.
+Each child is labeled with a `SyntaxRole`, so lowerers request `CONDITION`,
+`THEN_BRANCH`, `ELSE_BRANCH`, `INITIALIZER`, `OPERAND`, and other roles without
+interpreting list positions or display text. Node construction validates the
+value and type contracts, allowed roles, role-local positions, and required
+cardinalities for its kind; it also enforces unique tree ownership. Physical
+child-list order is therefore not an evaluation-order contract. A
+`MethodSyntax` derives exactly one `SyntaxReadiness`: `LOWERABLE`,
+`UNSUPPORTED`, `UNRESOLVED_SEMANTICS`, or `ERRONEOUS_SEMANTICS`.
+
+`SyntaxValue.Invocation` carries the shared model-layer `InvocationForm` and
+compiler-derived `InvocationSemantics`; missing semantics prevents lowerable
+readiness. The resolver selects the qualifying class or interface from the
+actual invocation form in accordance with JLS 13.1: an `Object` declaration is
+qualified by `Object`; a simple name uses the innermost lexical type of which
+the selected method is a member; a type name uses that named type; an expression
+uses its erased compile-time type, with an intersection using the erasure of its
+first bound; and `super` or qualified `super` uses its dedicated superclass or
+interface rule. Mode is `STATIC` for a static compile-time declaration, `SUPER`
+for either super form, `INTERFACE` when the resulting qualifying type is an
+interface, and `VIRTUAL` otherwise. Constructor forms use `CONSTRUCTOR`. This
+classification does not infer mode from the element that originally declared
+an inherited method.[20][21]
+
+`ControlFlowGraphBuilder` is a small public facade. It verifies the method/syntax
+identity pair and requires `LOWERABLE` readiness, then delegates to
+`SyntaxGraphLowerer`, which owns recursive syntax dispatch and delegates
+syntax-family semantics to separate statement and expression lowerers.
+`AssignmentLocationLowerer` separately evaluates variable, field, and array
+storage locations without reading the value already stored there, while
+`FieldReceiverLowerer` shares the receiver contract used by field reads and
+field writes. These
+lowerers branch on `SyntaxKind`, `SyntaxRole`, and
+`SyntaxOperator`; `SyntaxValue` supplies declaration, symbol, literal, type,
+typed switch-case form and labels, and unsupported-syntax data without parsing
+a generic detail string. A rule case requires exactly one `BODY` and no
+`STATEMENT` child; the statement-group representation remains structurally
+validated even though the accepted frontend profile currently rejects it.
+`ControlFlowGraphConstruction` owns graph identity, mutable graph state, fragment
+composition, nested exception targets, and final immutable assembly.
+`FlowValueScope` separately owns lexical value visibility. Together these
+collaborators visit operands in Java evaluation order and lower ready syntax directly
+into graph-owned operation nodes, flow values, and typed edges. Resolved syntax
+types propagate to `FlowValue` as `JavaTypeIdentity`; semantic references remain
+responsible for symbol and exception-hierarchy evidence rather than serving as
+an indirect type channel. Invocation lowering copies the mode, qualifying
+`JavaTypeReference`, and receiver form into graph-owned `InvocationSemantics`.
+`OperationNode` requires that value exactly for `INVOKE` and `NEW_OBJECT` and
+forbids it for unrelated kinds. The selected compile-time target remains a
+separate `SemanticReference`; no consumer parses `detail`, a name, or a key to
+recover invocation semantics.
 These elements preserve conditional evaluation of `&&`, `||`,
 conditional expressions, branches, switch alternatives, returns, throws, and
 exceptional flow.[5][6]
@@ -124,7 +214,8 @@ target rather than inferred from display text.[2][5]
 `ControlFlowGraph` is the aggregate root for one method's analysis. It owns one
 entry, one exit, ordered operation nodes, ordered flow values, and edges;
 `OperationNode` owns its operation kind, ordered operands, optional defined
-value, semantic references, possible exceptions, and source origins. Temporary
+value, optional kind-constrained invocation semantics, semantic references,
+possible exceptions, and source origins. Temporary
 endpoints and pending edges exist only inside the builder while the immutable
 graph is assembled; they are neither public model concepts nor persisted
 entities. This responsibility distribution keeps the graph invariants with the
@@ -135,12 +226,20 @@ Entry and exit never receive fabricated origins. An exit may be unreachable.
 The CFG is intraprocedural: invocation operations are not expanded into
 callees.[5][6]
 
-`JavaProgram` is the canonical owner of translated `JavaMethod` values and
-requires method keys to be unique across the whole program. A
+`JavaProgram` is the canonical owner of translated types, type parameters,
+fields, and methods. Canonical type, type-parameter, field, and method keys are
+unique across the whole program. Every nested type's enclosing reference must
+identify another canonical type in the same program, match that declaration's
+compiler-derived identity, and form no ownership cycle. Superclass, interface,
+permit, and bound references may instead identify declarations outside the
+analyzed root while retaining their type identity and available canonical key;
+method signatures use erased parameter types, parameters use their ordinal in
+the owning executable, and source locals use their executable owner, declaration
+kind, and exact compiler source range. A
 `ProgramRepresentation` accepts a `MethodAnalysis` only when its complete
 `sourceMethod` value equals the canonical program method for that key, and it
 accepts at most one analysis for each program method. Consequently, equal keys
-cannot conceal divergent names, signatures, bodies, parameters, or source
+cannot conceal divergent names, signatures, body-presence facts, parameters, or source
 origins inside the same aggregate.[8][18]
 
 ## Application Orchestration
@@ -169,14 +268,24 @@ The model is conservative and profile-specific:
 
 | Operation family | Possible exceptional transfer |
 | --- | --- |
-| member access and array length | `NullPointerException` |
-| array access | `NullPointerException`, `ArrayIndexOutOfBoundsException` |
+| instance field read and array length | `NullPointerException` |
+| array read | `NullPointerException`, `ArrayIndexOutOfBoundsException` |
+| instance field assignment | receiver evaluation, then right operand, then `NullPointerException` on the write |
+| array assignment | array, index, and right operand evaluation, then `NullPointerException` or `ArrayIndexOutOfBoundsException`; reference arrays may also produce `ArrayStoreException` |
 | integer division and remainder | `ArithmeticException` |
 | cast | `ClassCastException` |
 | switch selector | `NullPointerException`, `MatchException` |
 | invocation | `NullPointerException` plus `unchecked-invocation` |
 | object construction | `unchecked-constructor` |
 | explicit throw | the resolved/static thrown type when available |
+
+An expression-qualified static field or method still evaluates and discards its
+qualifier before the static access or invocation. Invocation syntax and the
+lowered operation retain the distinction among implicit, `this`, `super`,
+qualified-super, expression, type, and constructor forms; selectors used only
+to name a declaration are not lowered as value reads. Simple assignment
+similarly retains a dedicated storage location so the CFG never invents an
+old-value read.[2][5][7][20][21]
 
 Known explicit exceptions route to the first catch whose qualified declared
 type appears in the compiler-derived transitive assignability hierarchy. Known implicit JVM
@@ -236,14 +345,21 @@ implements its bounded model and has no runtime dependency on
    [SnapshotSourceCatalog](../../src/main/java/org/aquilagraph/frontend/SnapshotSourceCatalog.java), captured-source correlation;
    [CompilerDiagnosticTranslator](../../src/main/java/org/aquilagraph/frontend/CompilerDiagnosticTranslator.java), compiler diagnostics;
    [JavaProgramTranslator](../../src/main/java/org/aquilagraph/frontend/JavaProgramTranslator.java), declaration translation;
+   [JavaTypeTranslator](../../src/main/java/org/aquilagraph/frontend/JavaTypeTranslator.java), exhaustive class-member classification;
+   [JavaDeclarationIdentities](../../src/main/java/org/aquilagraph/frontend/JavaDeclarationIdentities.java), canonical declaration keys;
    [JavaMethodBodyTranslator](../../src/main/java/org/aquilagraph/frontend/JavaMethodBodyTranslator.java), method-body traversal;
-   [MethodBodySyntaxProfile](../../src/main/java/org/aquilagraph/frontend/MethodBodySyntaxProfile.java), accepted syntax mapping; and
+   [MethodBodySyntaxProfile](../../src/main/java/org/aquilagraph/frontend/MethodBodySyntaxProfile.java), contextual syntax mapping; and
    [JavaSemanticResolver](../../src/main/java/org/aquilagraph/frontend/JavaSemanticResolver.java), compiler semantic queries;
-   [JavaSourceEvidence](../../src/main/java/org/aquilagraph/frontend/JavaSourceEvidence.java), source-position projection.
+   [JavaSourceEvidence](../../src/main/java/org/aquilagraph/frontend/JavaSourceEvidence.java), source-position projection;
+   [SyntaxAnalysisInput](../../src/main/java/org/aquilagraph/syntax/SyntaxAnalysisInput.java), transient frontend-to-core boundary; and
+   [syntax package](../../src/main/java/org/aquilagraph/syntax), typed syntax evidence contracts.
 3. [InputSnapshot](../../src/main/java/org/aquilagraph/model/InputSnapshot.java), record invariants.
 4. [StableId](../../src/main/java/org/aquilagraph/model/StableId.java), `sha256`.
-5. [ControlFlowGraphBuilder](../../src/main/java/org/aquilagraph/core/ControlFlowGraphBuilder.java), public facade; [SyntaxGraphLowerer](../../src/main/java/org/aquilagraph/core/SyntaxGraphLowerer.java), recursive dispatch; [StatementGraphLowerer](../../src/main/java/org/aquilagraph/core/StatementGraphLowerer.java) and [ExpressionGraphLowerer](../../src/main/java/org/aquilagraph/core/ExpressionGraphLowerer.java), syntax-family translation; [ControlFlowGraphConstruction](../../src/main/java/org/aquilagraph/core/ControlFlowGraphConstruction.java), graph construction and exception routing; and [FlowValueScope](../../src/main/java/org/aquilagraph/core/FlowValueScope.java), lexical bindings.
-6. [ControlFlowGraph](../../src/main/java/org/aquilagraph/model/ControlFlowGraph.java), aggregate invariants; [OperationNode](../../src/main/java/org/aquilagraph/model/OperationNode.java) and [FlowValue](../../src/main/java/org/aquilagraph/model/FlowValue.java), graph-owned semantics.
+5. [ControlFlowGraphBuilder](../../src/main/java/org/aquilagraph/core/ControlFlowGraphBuilder.java), public facade; [SyntaxGraphLowerer](../../src/main/java/org/aquilagraph/core/SyntaxGraphLowerer.java), recursive dispatch; [StatementGraphLowerer](../../src/main/java/org/aquilagraph/core/StatementGraphLowerer.java), [ExpressionGraphLowerer](../../src/main/java/org/aquilagraph/core/ExpressionGraphLowerer.java), [AssignmentLocationLowerer](../../src/main/java/org/aquilagraph/core/AssignmentLocationLowerer.java), and [FieldReceiverLowerer](../../src/main/java/org/aquilagraph/core/FieldReceiverLowerer.java), direct graph lowering; [ControlFlowGraphConstruction](../../src/main/java/org/aquilagraph/core/ControlFlowGraphConstruction.java), graph construction and exception routing; and [FlowValueScope](../../src/main/java/org/aquilagraph/core/FlowValueScope.java), lexical bindings.
+6. [ControlFlowGraph](../../src/main/java/org/aquilagraph/model/ControlFlowGraph.java), aggregate invariants;
+   [OperationNode](../../src/main/java/org/aquilagraph/model/OperationNode.java),
+   [InvocationSemantics](../../src/main/java/org/aquilagraph/model/InvocationSemantics.java), and
+   [FlowValue](../../src/main/java/org/aquilagraph/model/FlowValue.java), graph-owned semantics.
 7. *The Java Language Specification, Java SE 25 Edition*, §§14.1, 14.17,
    14.18, 14.20, 15.6, 15.7, 15.23, 15.24, and 15.28; local copy
    [the-java-language-specification.pdf](../../books/the-java-language-specification.pdf).
@@ -255,7 +371,8 @@ implements its bounded model and has no runtime dependency on
     [static-program-analysis.pdf](../../books/static-program-analysis.pdf#page=22).
 12. Raul Sidnei Wazlawick, *Object-Oriented Analysis and Design for Information
     Systems* (2014), §9.2, PDF pp. 286–289, responsibility distribution and
-    cohesion; §9.6, PDF pp. 316–319, delegation and coupling.
+    cohesion; §9.6, PDF pp. 316–319, delegation and coupling; and §13.2.2.9,
+    PDF pp. 441–442, transient associations.
 13. OMG, [*Unified Modeling Language 2.5.1*](https://www.omg.org/spec/UML/2.5.1/PDF),
     §§11.4–11.6, classes, associations, composition, and components; §17.8,
     sequence diagrams.
@@ -271,3 +388,14 @@ implements its bounded model and has no runtime dependency on
 18. [JavaProgram](../../src/main/java/org/aquilagraph/model/JavaProgram.java), program-wide method-key uniqueness; [ProgramRepresentation](../../src/main/java/org/aquilagraph/model/ProgramRepresentation.java), canonical method-analysis membership.
 19. Oracle, [Java SE 25 `JavaCompiler` API](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/tools/JavaCompiler.html),
     compiler task, diagnostic collector, standard file manager, and explicit close pattern.
+20. Oracle, *The Java Language Specification, Java SE 25 Edition*,
+    [§13.1](https://docs.oracle.com/javase/specs/jls/se25/html/jls-13.html#jls-13.1),
+    invocation qualifying types.
+21. Oracle, *The Java Language Specification, Java SE 25 Edition*,
+    [§15.12.3](https://docs.oracle.com/javase/specs/jls/se25/html/jls-15.html#jls-15.12.3),
+    compile-time invocation modes.
+22. Oracle, Java SE 25
+    [`ClassTree`](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/ClassTree.html)
+    and
+    [`TypeElement`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/TypeElement.html)
+    APIs, declaration-header syntax and compiler-resolved type relationships.

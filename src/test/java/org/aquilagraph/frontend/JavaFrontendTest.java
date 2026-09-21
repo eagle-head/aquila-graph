@@ -12,11 +12,17 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.FrontendResult;
 import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.MethodBody;
+import org.aquilagraph.model.JavaTypeCategory;
+import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.ResolutionStatus;
-import org.aquilagraph.model.SyntaxKind;
+import org.aquilagraph.syntax.MethodSyntax;
+import org.aquilagraph.syntax.SyntaxAnalysisInput;
+import org.aquilagraph.syntax.SyntaxChild;
+import org.aquilagraph.syntax.SyntaxKind;
+import org.aquilagraph.syntax.SyntaxReadiness;
+import org.aquilagraph.syntax.SyntaxRole;
+import org.aquilagraph.syntax.SyntaxValue;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -50,8 +56,8 @@ class JavaFrontendTest {
             .orElseThrow();
     assertFalse(method.origins().isEmpty());
     assertTrue(
-        method.body().orElseThrow().syntaxRoot().descendantsAndSelf().stream()
-            .flatMap(node -> node.semanticReferences().stream())
+        result.methodSyntax(method.methodKey()).orElseThrow().root().descendantsAndSelf().stream()
+            .flatMap(node -> node.semanticReference().stream())
             .anyMatch(reference -> reference.status() == ResolutionStatus.RESOLVED));
     assertFalse(Files.exists(temporaryDirectory.resolve("sample/Resolved.class")));
   }
@@ -75,13 +81,9 @@ class JavaFrontendTest {
     // Assert
     assertTrue(result.diagnostics().isEmpty());
     assertTrue(
-        result.program().methods().stream()
-            .filter(method -> method.name().equals("value"))
-            .flatMap(method -> method.body().stream())
-            .flatMap(body -> body.syntaxRoot().descendantsAndSelf().stream())
-            .anyMatch(
-                node ->
-                    node.syntaxKind() == SyntaxKind.LITERAL && node.detail().equals("1")));
+        result.methodSyntax().stream().flatMap(body -> body.root().descendantsAndSelf().stream())
+            .anyMatch(node -> node.syntaxKind() == SyntaxKind.LITERAL
+                && node.value(SyntaxValue.Literal.class).text().equals("1")));
   }
 
   @Test
@@ -106,11 +108,11 @@ class JavaFrontendTest {
     assertTrue(
         result.program().methods().stream()
             .filter(method -> method.name().equals("abstractCall") || method.name().equals("nativeCall"))
-            .allMatch(method -> method.body().isEmpty()));
+            .noneMatch(method -> method.hasBody() || result.methodSyntax(method.methodKey()).isPresent()));
     assertTrue(
         result.program().methods().stream()
             .filter(method -> method.name().equals("unsupported"))
-            .allMatch(method -> !method.body().orElseThrow().supported()));
+            .allMatch(method -> result.methodSyntax(method.methodKey()).orElseThrow().readiness() == SyntaxReadiness.UNSUPPORTED));
     assertTrue(
         result.diagnostics().stream()
             .anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
@@ -146,14 +148,236 @@ class JavaFrontendTest {
     assertTrue(first.diagnostics().isEmpty());
     var firstBody = methodBody(first, "evaluate");
     var secondBody = methodBody(second, "evaluate");
-    assertTrue(firstBody.supported());
-    assertEquals(firstBody.syntaxRoot(), secondBody.syntaxRoot());
+    assertEquals(SyntaxReadiness.LOWERABLE, firstBody.readiness());
+    assertEquals(firstBody.root(), secondBody.root());
     assertEquals(
         List.of(SyntaxKind.LOCAL_DECLARATION, SyntaxKind.IF, SyntaxKind.RETURN),
-        firstBody.syntaxRoot().children().stream().map(node -> node.syntaxKind()).toList());
+        firstBody.root().children(SyntaxRole.STATEMENT).stream().map(node -> node.syntaxKind()).toList());
+    var ifNode = firstBody.root().children(SyntaxRole.STATEMENT).get(1);
+    assertEquals(List.of(SyntaxRole.CONDITION, SyntaxRole.THEN_BRANCH),
+        ifNode.children().stream().map(SyntaxChild::role).toList());
     assertEquals(
         List.of(SyntaxKind.PARENTHESIZED, SyntaxKind.BLOCK),
-        firstBody.syntaxRoot().children().get(1).children().stream().map(node -> node.syntaxKind()).toList());
+        ifNode.children().stream().map(SyntaxChild::node).map(node -> node.syntaxKind()).toList());
+  }
+
+  @Test
+  void givenElementFreeExpressions_whenFrontendRuns_thenEachExpressionCarriesItsResolvedType() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("TypedExpressions.java"), """
+        final class TypedExpressions {
+          long evaluate(boolean condition) {
+            return condition ? 1L + 2L : 3L;
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    assertTrue(result.diagnostics().isEmpty());
+    var nodes = methodBody(result, "evaluate").root().descendantsAndSelf();
+    var binary = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.BINARY).findFirst().orElseThrow();
+    var conditional = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.CONDITIONAL_EXPRESSION).findFirst().orElseThrow();
+    assertTrue(binary.semanticReference().isEmpty());
+    assertEquals(JavaTypeCategory.LONG, binary.resolvedType().orElseThrow().category());
+    assertEquals("long", binary.resolvedType().orElseThrow().erasedName());
+    assertTrue(conditional.semanticReference().isEmpty());
+    assertEquals(JavaTypeCategory.LONG, conditional.resolvedType().orElseThrow().category());
+  }
+
+  @Test
+  void givenLiteralAndDefaultSwitchLabels_whenFrontendRuns_thenCaseFormAndLabelsRemainTyped() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("TypedSwitch.java"), """
+        final class TypedSwitch {
+          int classify(int value) {
+            return switch (value) {
+              case 1, 2 -> 3;
+              default -> 4;
+            };
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    var body = methodBody(result, "classify");
+    assertTrue(result.diagnostics().isEmpty());
+    assertEquals(SyntaxReadiness.LOWERABLE, body.readiness());
+    var cases = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.CASE).toList();
+    assertEquals(2, cases.size());
+    var literalCase = cases.getFirst();
+    var literalCaseValue = literalCase.value(SyntaxValue.SwitchCase.class);
+    assertEquals(SyntaxValue.SwitchCaseForm.RULE, literalCaseValue.form());
+    assertEquals(List.of(new SyntaxValue.SwitchLabel.Expression(0), new SyntaxValue.SwitchLabel.Expression(1)),
+        literalCaseValue.labels());
+    assertEquals(2, literalCase.children(SyntaxRole.LABEL).size());
+    assertEquals(List.of(SyntaxValue.SwitchLabel.Default.INSTANCE),
+        cases.get(1).value(SyntaxValue.SwitchCase.class).labels());
+  }
+
+  @Test
+  void givenEnumSwitchLabels_whenFrontendRuns_thenLabelsRetainResolvedSymbolIdentity() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("EnumSwitch.java"), """
+        final class EnumSwitch {
+          enum Mode { FIRST, SECOND }
+          int classify(Mode mode) {
+            return switch (mode) {
+              case FIRST -> 1;
+              case SECOND -> 2;
+            };
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    var body = methodBody(result, "classify");
+    assertTrue(result.diagnostics().stream()
+        .allMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-enum-constant-initialization")));
+    assertEquals(SyntaxReadiness.LOWERABLE, body.readiness());
+    var labels = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.CASE)
+        .flatMap(node -> node.children(SyntaxRole.LABEL).stream()).toList();
+    assertEquals(2, labels.size());
+    assertTrue(labels.stream().allMatch(label -> label.semanticReference().stream()
+        .anyMatch(reference -> reference.referenceKind() == ReferenceKind.ENUM_CONSTANT && reference.symbolKey().isPresent())));
+  }
+
+  @Test
+  void givenUnmodeledConstantSwitchExpression_whenFrontendRuns_thenEntireCaseIsRejected() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("ConstantExpressionSwitch.java"), """
+        final class ConstantExpressionSwitch {
+          int classify(int value) {
+            return switch (value) {
+              case 1 + 2 -> 1;
+              default -> 0;
+            };
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    var body = methodBody(result, "classify");
+    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
+    assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
+    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
+  }
+
+  @Test
+  void givenGuardedPatternSwitch_whenFrontendRuns_thenEntireCaseIsRejected() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("GuardedSwitch.java"), """
+        final class GuardedSwitch {
+          int classify(Object value) {
+            return switch (value) {
+              case String text when !text.isEmpty() -> 1;
+              default -> 0;
+            };
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    var body = methodBody(result, "classify");
+    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
+    assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
+    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
+  }
+
+  @Test
+  void givenNullSwitchLabel_whenFrontendRuns_thenEntireCaseIsRejected() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("NullSwitch.java"), """
+        final class NullSwitch {
+          int classify(Object value) {
+            return switch (value) {
+              case null -> 0;
+              default -> 1;
+            };
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    var body = methodBody(result, "classify");
+    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
+    assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
+    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
+  }
+
+  @Test
+  void givenStatementGroupSwitchExpression_whenFrontendRuns_thenEntireCaseIsRejected() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("StatementGroupSwitch.java"), """
+        final class StatementGroupSwitch {
+          int classify(int value) {
+            return switch (value) {
+              case 1:
+                yield 1;
+              default:
+                yield 0;
+            };
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    var body = methodBody(result, "classify");
+    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
+    assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
+    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
+  }
+
+  @Test
+  void givenAnonymousClassCreation_whenFrontendRuns_thenEntireConstructionIsRejected() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("AnonymousCreation.java"), """
+        final class AnonymousCreation {
+          Object create() {
+            return new Object() {
+              int value = 1;
+            };
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    var body = methodBody(result, "create");
+    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
+    assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED
+        && node.value(SyntaxValue.Unsupported.class).compilerKind().equals("NEW_CLASS")));
+    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
   }
 
   @Test
@@ -180,14 +404,16 @@ class JavaFrontendTest {
 
     // Assert
     var body = methodBody(result, "read");
-    assertFalse(body.supported());
+    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
     assertEquals(1, result.diagnostics().stream()
         .filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")).count());
-    var tryNode = body.syntaxRoot().children().getFirst();
-    assertEquals(SyntaxKind.TRY, tryNode.syntaxKind());
+    var tryNode = body.root().children(SyntaxRole.STATEMENT).getFirst();
+    assertEquals(SyntaxKind.UNSUPPORTED, tryNode.syntaxKind());
+    assertEquals(List.of(SyntaxRole.RESOURCE, SyntaxRole.TRY_BLOCK, SyntaxRole.FINALLY_BLOCK),
+        tryNode.children().stream().map(SyntaxChild::role).toList());
     assertEquals(
         List.of(SyntaxKind.LOCAL_DECLARATION, SyntaxKind.BLOCK, SyntaxKind.BLOCK),
-        tryNode.children().stream().map(node -> node.syntaxKind()).toList());
+        tryNode.children().stream().map(SyntaxChild::node).map(node -> node.syntaxKind()).toList());
   }
 
   @Test
@@ -204,10 +430,10 @@ class JavaFrontendTest {
 
     // Assert
     var body = methodBody(result, "increment");
-    assertFalse(body.supported());
+    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
     assertEquals(
         List.of(SyntaxKind.BLOCK, SyntaxKind.RETURN, SyntaxKind.UNSUPPORTED, SyntaxKind.VARIABLE_ACCESS),
-        body.syntaxRoot().descendantsAndSelf().stream().map(node -> node.syntaxKind()).toList());
+        body.root().descendantsAndSelf().stream().map(node -> node.syntaxKind()).toList());
     assertEquals(1, result.diagnostics().stream()
         .filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")).count());
   }
@@ -227,11 +453,8 @@ class JavaFrontendTest {
     // Assert
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.isError()));
     assertTrue(
-        result.program().methods().stream()
-            .filter(method -> method.name().equals("value"))
-            .flatMap(method -> method.body().stream())
-            .flatMap(body -> body.syntaxRoot().descendantsAndSelf().stream())
-            .flatMap(node -> node.semanticReferences().stream())
+        methodBody(result, "value").root().descendantsAndSelf().stream()
+            .flatMap(node -> node.semanticReference().stream())
             .anyMatch(reference -> reference.status() != ResolutionStatus.RESOLVED));
   }
 
@@ -319,8 +542,8 @@ class JavaFrontendTest {
     assertNotEquals(first.environmentSnapshot().environmentDigest(), second.environmentSnapshot().environmentDigest());
   }
 
-  private static MethodBody methodBody(FrontendResult result, String methodName) {
-    return result.program().methods().stream().filter(method -> method.name().equals(methodName)).findFirst().orElseThrow().body()
-        .orElseThrow();
+  private static MethodSyntax methodBody(SyntaxAnalysisInput result, String methodName) {
+    var method = result.program().methods().stream().filter(candidate -> candidate.name().equals(methodName)).findFirst().orElseThrow();
+    return result.methodSyntax(method.methodKey()).orElseThrow();
   }
 }

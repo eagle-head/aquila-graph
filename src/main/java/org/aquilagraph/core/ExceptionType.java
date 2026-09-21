@@ -3,7 +3,7 @@ package org.aquilagraph.core;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
-import org.aquilagraph.model.SyntaxNode;
+import org.aquilagraph.syntax.SyntaxNode;
 
 record ExceptionType(String typeName, List<String> assignableToTypeNames, boolean unknown) {
   ExceptionType {
@@ -28,7 +28,7 @@ record ExceptionType(String typeName, List<String> assignableToTypeNames, boolea
 
   static ExceptionType fromSyntax(SyntaxNode node, String typeName) {
     Objects.requireNonNull(node, "node");
-    return node.semanticReferences().stream().filter(reference -> !reference.assignableToTypeNames().isEmpty())
+    return node.semanticReference().stream().filter(reference -> !reference.assignableToTypeNames().isEmpty())
         .map(reference -> resolved(typeName, reference.assignableToTypeNames())).findFirst().orElseGet(() -> unknown(typeName));
   }
 

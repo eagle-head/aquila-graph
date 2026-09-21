@@ -30,6 +30,14 @@ public record SemanticReference(ReferenceKind referenceKind, ResolutionStatus st
     Objects.requireNonNull(typeName, "typeName");
     typeAlternativeNames = List.copyOf(Objects.requireNonNull(typeAlternativeNames, "typeAlternativeNames"));
     assignableToTypeNames = List.copyOf(Objects.requireNonNull(assignableToTypeNames, "assignableToTypeNames"));
+    symbolKey.ifPresent(key -> {
+      if (key.isBlank()) {
+        throw new IllegalArgumentException("A semantic reference identity cannot be blank");
+      }
+    });
+    if (status == ResolutionStatus.RESOLVED && symbolKey.isEmpty()) {
+      throw new IllegalArgumentException("A resolved semantic reference requires a declaration identity");
+    }
     if (typeName.isEmpty() && (!typeAlternativeNames.isEmpty() || !assignableToTypeNames.isEmpty())) {
       throw new IllegalArgumentException("Type alternatives and assignability require a compiler-reported type");
     }

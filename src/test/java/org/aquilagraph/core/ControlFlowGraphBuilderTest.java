@@ -7,15 +7,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.IntStream;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaMethod;
 import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.model.JavaTypeIdentity;
+import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.OperationKind;
 import org.aquilagraph.model.TransferKind;
 import org.aquilagraph.model.ValueKind;
+import org.aquilagraph.syntax.MethodSyntax;
+import org.aquilagraph.syntax.SyntaxChild;
+import org.aquilagraph.syntax.SyntaxKind;
+import org.aquilagraph.syntax.SyntaxNode;
+import org.aquilagraph.syntax.SyntaxOperator;
+import org.aquilagraph.syntax.SyntaxRole;
+import org.aquilagraph.syntax.SyntaxType;
+import org.aquilagraph.syntax.SyntaxValue;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -38,7 +51,7 @@ class ControlFlowGraphBuilderTest {
     var method = method("combined");
 
     // Act
-    var result = new ControlFlowGraphBuilder().build(method);
+    var result = build(method);
 
     // Assert
     var operations = result.graph().orElseThrow().operationNodes();
@@ -55,6 +68,109 @@ class ControlFlowGraphBuilderTest {
             .orElseThrow();
     assertTrue(invocationPositions.get(0) < invocationPositions.get(1));
     assertTrue(invocationPositions.get(1) < binaryPosition);
+  }
+
+  @Test
+  void givenElementFreeBinaryExpression_whenCfgIsBuilt_thenResolvedTypeReachesDefinedFlowValue() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("TypedValue.java"),
+        "final class TypedValue { long calculate() { return 1L + 2L; } }");
+    var method = method("calculate");
+
+    // Act
+    var graph = build(method).graph().orElseThrow();
+
+    // Assert
+    var binary = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.BINARY).findFirst().orElseThrow();
+    var type = binary.definedValue().orElseThrow().staticType().orElseThrow();
+    assertEquals(JavaTypeCategory.LONG, type.category());
+    assertEquals("long", type.erasedName());
+  }
+
+  @Test
+  void givenUnresolvedExpressionType_whenCfgIsRequested_thenUnresolvedDiagnosticPreventsGraphConstruction() {
+    // Arrange
+    var method = syntheticMethod(SyntaxType.Unresolved.INSTANCE);
+
+    // Act
+    var result = build(method);
+
+    // Assert
+    assertTrue(result.graph().isEmpty());
+    assertEquals(List.of("control-flow.unresolved-semantics"),
+        result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
+  }
+
+  @Test
+  void givenErroneousExpressionType_whenCfgIsRequested_thenErroneousDiagnosticPreventsGraphConstruction() {
+    // Arrange
+    var method = syntheticMethod(SyntaxType.Erroneous.INSTANCE);
+
+    // Act
+    var result = build(method);
+
+    // Assert
+    assertTrue(result.graph().isEmpty());
+    assertEquals(List.of("control-flow.erroneous-semantics"),
+        result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
+  }
+
+  @Test
+  void givenBinaryChildrenStoredOutOfOrder_whenCfgIsBuilt_thenTypedRolesDetermineEvaluationOrder() {
+    // Arrange
+    var left = syntaxLeaf("left", SyntaxKind.LITERAL, new SyntaxValue.Literal("1"));
+    var right = syntaxLeaf("right", SyntaxKind.LITERAL, new SyntaxValue.Literal("2"));
+    var binary =
+        SyntaxNode.withoutDirectSource(
+            "binary",
+            SyntaxKind.BINARY,
+            resolvedIntType(),
+            new SyntaxValue.Operator(SyntaxOperator.PLUS),
+            List.of(
+                new SyntaxChild(SyntaxRole.RIGHT_OPERAND, 0, right),
+                new SyntaxChild(SyntaxRole.LEFT_OPERAND, 0, left)),
+            Optional.empty());
+    var returnNode =
+        SyntaxNode.withoutDirectSource(
+            "return",
+            SyntaxKind.RETURN,
+            SyntaxType.NotApplicable.INSTANCE,
+            SyntaxValue.None.INSTANCE,
+            List.of(new SyntaxChild(SyntaxRole.EXPRESSION, 0, binary)),
+            Optional.empty());
+    var root =
+        SyntaxNode.withoutDirectSource(
+            "root",
+            SyntaxKind.BLOCK,
+            SyntaxType.NotApplicable.INSTANCE,
+            SyntaxValue.None.INSTANCE,
+            List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, returnNode)),
+            Optional.empty());
+    var declaration =
+        new JavaMethod(
+            "type:RoleOrder#evaluate()",
+            "type:RoleOrder",
+            "evaluate",
+            "evaluate()",
+            "int",
+            List.of(),
+            Set.of(),
+            false,
+            true,
+            true,
+            List.of());
+    var syntax = new MethodSyntax(declaration.methodKey(), root);
+
+    // Act
+    var graph = new ControlFlowGraphBuilder().build(declaration, syntax).graph().orElseThrow();
+
+    // Assert
+    var constants =
+        graph.operationNodes().stream()
+            .filter(node -> node.kind() == OperationKind.CONSTANT)
+            .map(node -> node.definedValue().orElseThrow().literal().orElseThrow())
+            .toList();
+    assertEquals(List.of("1", "2"), constants);
   }
 
   @Test
@@ -75,7 +191,7 @@ class ControlFlowGraphBuilderTest {
     var method = method("test");
 
     // Act
-    var result = new ControlFlowGraphBuilder().build(method);
+    var result = build(method);
     var graph = result.graph().orElseThrow();
 
     // Assert
@@ -105,7 +221,7 @@ class ControlFlowGraphBuilderTest {
     var method = method("execute");
 
     // Act
-    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+    var graph = build(method).graph().orElseThrow();
 
     // Assert
     var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
@@ -140,7 +256,7 @@ class ControlFlowGraphBuilderTest {
     var method = method("execute");
 
     // Act
-    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+    var graph = build(method).graph().orElseThrow();
 
     // Assert
     var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
@@ -181,7 +297,7 @@ class ControlFlowGraphBuilderTest {
     var method = method("execute");
 
     // Act
-    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+    var graph = build(method).graph().orElseThrow();
 
     // Assert
     var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
@@ -213,7 +329,7 @@ class ControlFlowGraphBuilderTest {
     var method = method("execute");
 
     // Act
-    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+    var graph = build(method).graph().orElseThrow();
 
     // Assert
     var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
@@ -242,7 +358,7 @@ class ControlFlowGraphBuilderTest {
     var method = method("execute");
 
     // Act
-    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+    var graph = build(method).graph().orElseThrow();
 
     // Assert
     var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
@@ -284,7 +400,7 @@ class ControlFlowGraphBuilderTest {
     var method = method("execute");
 
     // Act
-    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+    var graph = build(method).graph().orElseThrow();
 
     // Assert
     var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
@@ -314,8 +430,8 @@ class ControlFlowGraphBuilderTest {
     var builder = new ControlFlowGraphBuilder();
 
     // Act
-    var first = builder.build(method);
-    var second = builder.build(method);
+    var first = builder.build(method.declaration(), method.syntax());
+    var second = builder.build(method.declaration(), method.syntax());
 
     // Assert
     assertEquals(first, second);
@@ -342,20 +458,46 @@ class ControlFlowGraphBuilderTest {
     var method = method("read");
 
     // Act
-    var graph = new ControlFlowGraphBuilder().build(method).graph().orElseThrow();
+    var graph = build(method).graph().orElseThrow();
 
     // Assert
     var fieldRead = graph.operationNodes().stream()
-        .filter(node -> node.kind() == OperationKind.READ && node.detail().equals("value"))
+        .filter(node -> node.kind() == OperationKind.MEMBER_ACCESS && node.detail().equals("value"))
         .findFirst().orElseThrow();
-    assertEquals(ValueKind.SYMBOL, fieldRead.operands().getFirst().value().kind());
+    assertEquals(ValueKind.RECEIVER, fieldRead.operands().getFirst().value().kind());
   }
 
-  private JavaMethod method(String name) throws IOException {
+  private static ControlFlowGraphResult build(MethodInput method) {
+    return new ControlFlowGraphBuilder().build(method.declaration(), method.syntax());
+  }
+
+  private static SyntaxNode syntaxLeaf(String nodeId, SyntaxKind kind, SyntaxValue value) {
+    return SyntaxNode.withoutDirectSource(nodeId, kind, resolvedIntType(), value, List.of(), Optional.empty());
+  }
+
+  private static SyntaxType resolvedIntType() {
+    return new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"));
+  }
+
+  private static MethodInput syntheticMethod(SyntaxType expressionType) {
+    var literal = SyntaxNode.withoutDirectSource("literal", SyntaxKind.LITERAL, expressionType, new SyntaxValue.Literal("1"), List.of(),
+        Optional.empty());
+    var returnNode = SyntaxNode.withoutDirectSource("return", SyntaxKind.RETURN, SyntaxType.NotApplicable.INSTANCE,
+        SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.EXPRESSION, 0, literal)), Optional.empty());
+    var root = SyntaxNode.withoutDirectSource("root", SyntaxKind.BLOCK, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, returnNode)), Optional.empty());
+    var declaration = new JavaMethod("type:Synthetic#value()", "type:Synthetic", "value", "value()", "int", List.of(), Set.of(),
+        false, true, true, List.of());
+    return new MethodInput(declaration, new MethodSyntax(declaration.methodKey(), root));
+  }
+
+  private MethodInput method(String name) throws IOException {
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    return frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)).program().methods().stream()
-        .filter(candidate -> candidate.name().equals(name))
-        .findFirst()
-        .orElseThrow();
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var declaration = result.program().methods().stream().filter(candidate -> candidate.name().equals(name)).findFirst().orElseThrow();
+    return new MethodInput(declaration, result.methodSyntax(declaration.methodKey()).orElseThrow());
+  }
+
+  private record MethodInput(JavaMethod declaration, MethodSyntax syntax) {
   }
 }

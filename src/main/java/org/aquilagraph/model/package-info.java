@@ -1,4 +1,4 @@
-/** Immutable analysis inputs, outputs, diagnostics, syntax, and graph model types. */
+/** Immutable analysis inputs, outputs, diagnostics, declarations, and semantic graph model types. */
 @NullMarked
 package org.aquilagraph.model;
 

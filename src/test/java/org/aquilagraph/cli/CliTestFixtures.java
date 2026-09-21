@@ -23,12 +23,9 @@ import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.JavaType;
 import org.aquilagraph.model.JavaTypeKind;
 import org.aquilagraph.model.MethodAnalysis;
-import org.aquilagraph.model.MethodBody;
 import org.aquilagraph.model.ProgramRepresentation;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.StableId;
-import org.aquilagraph.model.SyntaxKind;
-import org.aquilagraph.model.SyntaxNode;
 import org.aquilagraph.model.TransferKind;
 
 final class CliTestFixtures {
@@ -94,11 +91,9 @@ final class CliTestFixtures {
   private static ProgramRepresentation programRepresentation() {
     var typeKey = StableId.sha256("type", "Example");
     var methodKey = StableId.sha256("method", "Example", "run()");
-    var syntaxRoot = new SyntaxNode(StableId.sha256("syntax", methodKey, "block"), SyntaxKind.BLOCK, "{}", List.of(), List.of(),
-        List.of(), false);
-    var method = new JavaMethod(methodKey, typeKey, "run", "run()", "void", List.of(), Set.of(), false, true,
-        Optional.of(new MethodBody(syntaxRoot, true)), List.of());
-    var type = new JavaType(typeKey, "Example", JavaTypeKind.CLASS, true, List.of(method), List.of());
+    var method = new JavaMethod(methodKey, typeKey, "run", "run()", "void", List.of(), Set.of(), false, true, true, List.of());
+    var type = new JavaType(typeKey, "Example", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(),
+        List.of(), false, List.of(), List.of(method), List.of());
 
     var graphId = StableId.sha256("cfg", methodKey);
     var entry = new EntryNode(StableId.sha256("cfg-node", graphId, "entry"), graphId);

@@ -30,9 +30,9 @@ and delivery logic.[6]
 | `Neo4jAnalysisRunMapper` | Validate a completed run and coordinate one isolated mapping operation. |
 | `Neo4jInputMapper` | Map input snapshot and captured source files. |
 | `Neo4jEnvironmentMapper` | Map compiler configuration and dependency snapshots. |
-| `Neo4jProgramMapper` | Map program declarations and method bodies. |
+| `Neo4jProgramMapper` | Map durable type, field, method, and parameter declarations. |
 | `Neo4jControlFlowMapper` | Map method analyses, values, CFG nodes, and transfer relationships. |
-| `Neo4jEvidenceMapper` | Map diagnostics, syntax, semantic references, and source origins. |
+| `Neo4jEvidenceMapper` | Map diagnostics plus semantic references and source origins retained by durable owners. |
 | `Neo4jProjectionBuilder` | Own mutable node and relationship accumulation for exactly one run. |
 
 ## Dependency Rules

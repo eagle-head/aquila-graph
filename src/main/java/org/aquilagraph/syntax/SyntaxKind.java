@@ -1,6 +1,6 @@
-package org.aquilagraph.model;
+package org.aquilagraph.syntax;
 
-/** Normalized Java syntax categories retained by the accepted source profile. */
+/** Java syntax categories retained temporarily while semantic graphs are built. */
 public enum SyntaxKind {
   /** Statement block. */
   BLOCK,
@@ -28,10 +28,12 @@ public enum SyntaxKind {
   INVOCATION,
   /** Class instance creation. */
   OBJECT_CREATION,
-  /** Member selection. */
-  MEMBER_ACCESS,
-  /** Identifier or variable access. */
+  /** Field value access with a classified receiver form. */
+  FIELD_ACCESS,
+  /** Local or parameter value access. */
   VARIABLE_ACCESS,
+  /** {@code this}, qualified {@code this}, or {@code super} receiver value. */
+  RECEIVER,
   /** Literal expression. */
   LITERAL,
   /** Unary expression. */
@@ -44,6 +46,12 @@ public enum SyntaxKind {
   CONDITIONAL_OR,
   /** Assignment expression. */
   ASSIGNMENT,
+  /** Local or parameter storage location. */
+  VARIABLE_LOCATION,
+  /** Field storage location with a classified receiver form. */
+  FIELD_LOCATION,
+  /** Array component storage location. */
+  ARRAY_LOCATION,
   /** Array access expression. */
   ARRAY_ACCESS,
   /** Array length selection. */
@@ -57,5 +65,15 @@ public enum SyntaxKind {
   /** Empty statement. */
   EMPTY,
   /** Syntax outside the accepted translation profile. */
-  UNSUPPORTED
+  UNSUPPORTED;
+
+  boolean requiresType() {
+    return switch (this) {
+      case LOCAL_DECLARATION, SWITCH_EXPRESSION, INVOCATION, OBJECT_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY,
+          BINARY, CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT, VARIABLE_LOCATION, FIELD_LOCATION, ARRAY_LOCATION, ARRAY_ACCESS,
+          ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST, CONDITIONAL_EXPRESSION ->
+        true;
+      default -> false;
+    };
+  }
 }

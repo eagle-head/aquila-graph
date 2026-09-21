@@ -39,7 +39,7 @@ final class Neo4jControlFlowMapper {
           Neo4jSchema.POSITION_PROPERTY, valuePosition);
       value.displayName().ifPresent(displayName -> properties.put("displayName", displayName));
       value.literal().ifPresent(literal -> properties.put("literal", literal));
-      value.staticType().ifPresent(staticType -> properties.put("staticType", staticType));
+      value.staticType().ifPresent(staticType -> Neo4jTypeProperties.put(properties, "staticType", staticType));
       projection.node("FlowValue", value.valueId(), properties);
       projection.relate("HAS_VALUE", graph.graphId(), value.valueId(), Integer.toString(valuePosition), Neo4jSchema.POSITION_PROPERTY,
           valuePosition);
@@ -59,8 +59,15 @@ final class Neo4jControlFlowMapper {
   private void mapNode(CfgNode cfgNode, String graphId, int position, Neo4jProjectionBuilder projection) {
     var label = cfgNodeLabel(cfgNode);
     if (cfgNode instanceof OperationNode operationNode) {
-      projection.node(label, cfgNode.nodeId(), "graphId", cfgNode.graphId(), Neo4jSchema.KIND_PROPERTY, operationNode.kind().name(),
-          "detail", operationNode.detail(), "possibleExceptions", operationNode.possibleExceptions());
+      var properties = Neo4jProjectionBuilder.properties("graphId", cfgNode.graphId(), Neo4jSchema.KIND_PROPERTY,
+          operationNode.kind().name(), "detail", operationNode.detail(), "possibleExceptions", operationNode.possibleExceptions());
+      operationNode.invocationSemantics().ifPresent(semantics -> {
+        properties.put("invocationMode", semantics.mode().name());
+        properties.put("invocationForm", semantics.form().name());
+        Neo4jTypeProperties.put(properties, "qualifyingType", semantics.qualifyingType().identity());
+        semantics.qualifyingType().declarationKey().ifPresent(key -> properties.put("qualifyingTypeDeclarationKey", key));
+      });
+      projection.node(label, cfgNode.nodeId(), properties);
       evidenceMapper.mapSemanticReferences(operationNode.nodeId(), operationNode.semanticReferences(), projection);
       for (var operand : operationNode.operands()) {
         projection.relate("USES_VALUE", operationNode.nodeId(), operand.value().valueId(), Integer.toString(operand.position()),

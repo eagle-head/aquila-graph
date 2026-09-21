@@ -17,10 +17,10 @@ import java.util.Optional;
  * @param literal
  *          optional literal representation
  * @param staticType
- *          optional compiler-reported type
+ *          optional compiler-resolved type identity
  */
 public record FlowValue(String valueId, String graphId, ValueKind kind, Optional<String> displayName, Optional<String> literal,
-    Optional<String> staticType) {
+    Optional<JavaTypeIdentity> staticType) {
   /** Validates value identity, ownership, and optional attributes. */
   public FlowValue {
     Objects.requireNonNull(valueId, "valueId");

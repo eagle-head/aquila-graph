@@ -1,0 +1,417 @@
+package org.aquilagraph.frontend;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.aquilagraph.core.AnalysisEngine;
+import org.aquilagraph.model.AnalysisCompletion;
+import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.model.InvocationForm;
+import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.model.JavaTypeModifier;
+import org.aquilagraph.model.ReferenceKind;
+import org.aquilagraph.model.SourceSpan;
+import org.aquilagraph.syntax.MethodSyntax;
+import org.aquilagraph.syntax.SyntaxAnalysisInput;
+import org.aquilagraph.syntax.SyntaxKind;
+import org.aquilagraph.syntax.SyntaxRole;
+import org.aquilagraph.syntax.SyntaxValue;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class JavaAstBoundaryRegressionTest {
+  @TempDir Path temporaryDirectory;
+
+  @Test
+  void givenExecutableAndNestedClassMembers_whenFrontendRuns_thenEveryMemberIsTranslatedOrDiagnosed() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("Members.java"), """
+        class Members {
+          static int staticValue = 1;
+          int instanceValue = 2;
+          ;
+          static { staticValue = 3; }
+          { instanceValue = 4; }
+
+          static class Nested {
+            int nestedMethod() { return 1; }
+          }
+
+          enum Mode {
+            SPECIAL {
+              int code() { return 1; }
+            }
+          }
+
+          Members() { }
+          void ordinaryMethod() { }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    assertEquals(Set.of("Members", "Members.Nested", "Members.Mode"), result.program().types().stream()
+        .map(type -> type.qualifiedName()).collect(Collectors.toSet()));
+    assertTrue(result.program().methods().stream().anyMatch(method -> method.name().equals("nestedMethod")));
+    assertTrue(result.program().methods().stream().anyMatch(method -> method.name().equals("ordinaryMethod")));
+    assertTrue(result.program().methods().stream().anyMatch(method -> method.constructor() && method.ownerTypeKey().equals("type:Members")));
+    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-field-initializer")));
+    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-initializer")));
+    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-enum-constant-body")));
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-class-member")));
+  }
+
+  @Test
+  void givenParametersAndSameNamedSiblingLocals_whenFrontendRuns_thenUseSitesMatchUniqueDeclarationKeys() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("Identities.java"), """
+        class Identities {
+          int evaluate(int input) {
+            { int repeated = input; }
+            { int repeated = input; }
+            return input;
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    var method = result.program().methods().stream().filter(candidate -> candidate.name().equals("evaluate")).findFirst().orElseThrow();
+    var nodes = result.methodSyntax(method.methodKey()).orElseThrow().root().descendantsAndSelf();
+    var parameterKey = method.parameters().getFirst().parameterKey();
+    assertTrue(nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS)
+        .filter(node -> node.value(SyntaxValue.Symbol.class).name().equals("input"))
+        .allMatch(node -> node.semanticReference().stream().anyMatch(reference -> reference.referenceKind() == ReferenceKind.PARAMETER
+            && reference.symbolKey().orElseThrow().equals(parameterKey))));
+    var localKeys = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION)
+        .filter(node -> node.value(SyntaxValue.LocalDeclaration.class).name().equals("repeated"))
+        .flatMap(node -> node.semanticReference().stream()).map(reference -> reference.symbolKey().orElseThrow()).collect(Collectors.toSet());
+    assertEquals(2, localKeys.size());
+  }
+
+  @Test
+  void givenTwoUnsupportedOccurrencesOfTheSameKind_whenFrontendRunsTwice_thenDiagnosticKeysAreDistinctAndRepeatable()
+      throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("UnsupportedOccurrences.java"), """
+        class UnsupportedOccurrences {
+          void execute() {
+            while (false) { }
+            while (false) { }
+          }
+        }
+        """);
+    var loader = new JavaSourceLoader();
+    var snapshot = loader.discover(temporaryDirectory);
+    var frontend = new JavaFrontend(loader);
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+
+    // Act
+    var first = frontend.analyze(snapshot, configuration);
+    var second = frontend.analyze(snapshot, configuration);
+
+    // Assert
+    var firstKeys = first.diagnostics().stream().filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax"))
+        .map(diagnostic -> diagnostic.diagnosticKey()).toList();
+    var secondKeys = second.diagnostics().stream().filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax"))
+        .map(diagnostic -> diagnostic.diagnosticKey()).toList();
+    assertEquals(2, firstKeys.stream().distinct().count());
+    assertEquals(firstKeys, secondKeys);
+  }
+
+  @Test
+  void givenInvocationContexts_whenFrontendRuns_thenSelectorsAndReceiversRemainTyped() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("InvocationContexts.java"), """
+        class InvocationBase {
+          void inherited() { }
+        }
+        class InvocationContexts extends InvocationBase {
+          static void staticCall(Object value) { }
+          void foo() { }
+          InvocationContexts receiver() { return this; }
+
+          void execute(Object value, InvocationContexts object) {
+            foo();
+            object.foo();
+            InvocationContexts.staticCall(value);
+            java.util.Objects.requireNonNull(value);
+            receiver().staticCall(value);
+            super.inherited();
+          }
+
+          class Inner {
+            void call() { InvocationContexts.super.inherited(); }
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    assertTrue(result.diagnostics().isEmpty());
+    var execute = syntax(result, "execute");
+    var forms = execute.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION)
+        .map(node -> node.value(SyntaxValue.Invocation.class).form()).collect(Collectors.toSet());
+    assertTrue(forms.containsAll(Set.of(InvocationForm.INSTANCE_IMPLICIT, InvocationForm.INSTANCE_EXPRESSION,
+        InvocationForm.STATIC_TYPE, InvocationForm.STATIC_EXPRESSION, InvocationForm.SUPER)));
+    assertTrue(execute.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS)
+        .map(node -> node.value(SyntaxValue.Symbol.class).name())
+        .noneMatch(name -> Set.of("foo", "staticCall", "InvocationContexts", "java", "util", "Objects").contains(name)));
+    assertTrue(syntax(result, "call").root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION)
+        .map(node -> node.value(SyntaxValue.Invocation.class).form())
+        .anyMatch(form -> form == InvocationForm.QUALIFIED_SUPER));
+  }
+
+  @Test
+  void givenQualifiedSuperclassConstructorInvocation_whenFrontendRuns_thenEnclosingInstanceEvaluationIsRetained() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("QualifiedConstructor.java"), """
+        class Host {
+          class Parent { Parent(int value) { } }
+        }
+        class Owner {
+          class Child extends Host.Parent {
+            Child(Host host) { host.super(1); }
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    assertTrue(result.diagnostics().isEmpty());
+    var child = result.program().types().stream().filter(type -> type.qualifiedName().equals("Owner.Child")).findFirst().orElseThrow();
+    var constructor = child.methods().stream().filter(method -> method.constructor()).findFirst().orElseThrow();
+    var invocation = result.methodSyntax(constructor.methodKey()).orElseThrow().root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION).findFirst().orElseThrow();
+    assertEquals(InvocationForm.QUALIFIED_SUPER_CONSTRUCTOR,
+        invocation.value(SyntaxValue.Invocation.class).form());
+    assertEquals(List.of(SyntaxKind.VARIABLE_ACCESS), invocation.children(SyntaxRole.RECEIVER).stream()
+        .map(node -> node.syntaxKind()).toList());
+  }
+
+  @Test
+  void givenCatchLocalsOverloadsAndDifferentOwners_whenFrontendRunsTwice_thenDeclarationKeysAreExactAndStable() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("ScopedIdentities.java"), """
+        class FirstOwner {
+          void overloaded(int marker) {
+            int repeated = marker;
+            try { throw new IllegalArgumentException(); } catch (IllegalArgumentException problem) { }
+            try { throw new IllegalStateException(); } catch (IllegalStateException problem) { }
+          }
+          void overloaded(String marker) { String repeated = marker; }
+        }
+        class SecondOwner {
+          void overloaded(int marker) { int repeated = marker; }
+        }
+        """);
+    var loader = new JavaSourceLoader();
+    var snapshot = loader.discover(temporaryDirectory);
+    var frontend = new JavaFrontend(loader);
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+
+    // Act
+    var first = frontend.analyze(snapshot, configuration);
+    var second = frontend.analyze(snapshot, configuration);
+
+    // Assert
+    assertTrue(first.diagnostics().isEmpty());
+    var firstKeys = localDeclarationKeys(first, Set.of("repeated", "problem"));
+    var secondKeys = localDeclarationKeys(second, Set.of("repeated", "problem"));
+    assertEquals(5, firstKeys.size());
+    assertEquals(firstKeys, secondKeys);
+    for (var method : first.program().methods().stream().filter(candidate -> candidate.name().equals("overloaded")).toList()) {
+      assertTrue(first.methodSyntax(method.methodKey()).orElseThrow().root().descendantsAndSelf().stream()
+          .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION)
+          .map(node -> node.requiredReference().symbolKey().orElseThrow()).allMatch(key -> key.startsWith(method.methodKey() + ':')));
+    }
+  }
+
+  @Test
+  void givenDeclaredTypesFieldsExecutablesAndEnumConstants_whenFrontendRuns_thenUseSitesReferenceDurableDeclarationKeys()
+      throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("DeclarationTarget.java"), """
+        class DeclarationTarget {
+          int field;
+          DeclarationTarget() { }
+          int method() { return field; }
+          Object use(Object value, Mode mode) {
+            method();
+            new DeclarationTarget();
+            var cast = (DeclarationTarget) value;
+            return switch (mode) { case ONE -> cast; };
+          }
+          enum Mode { ONE }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    var target = result.program().types().stream().filter(type -> type.qualifiedName().equals("DeclarationTarget")).findFirst()
+        .orElseThrow();
+    var mode = result.program().types().stream().filter(type -> type.qualifiedName().equals("DeclarationTarget.Mode")).findFirst()
+        .orElseThrow();
+    var references = result.methodSyntax().stream().flatMap(method -> method.root().descendantsAndSelf().stream())
+        .flatMap(node -> node.semanticReference().stream()).toList();
+    var fieldKey = target.fields().stream().filter(field -> field.name().equals("field")).findFirst().orElseThrow().fieldKey();
+    var enumKey = mode.fields().stream().filter(field -> field.enumConstant()).findFirst().orElseThrow().fieldKey();
+    var methodKey = target.methods().stream().filter(method -> method.name().equals("method")).findFirst().orElseThrow().methodKey();
+    var constructorKey = target.methods().stream().filter(method -> method.constructor()).findFirst().orElseThrow().methodKey();
+    assertTrue(references.stream().anyMatch(reference -> reference.referenceKind() == ReferenceKind.FIELD
+        && reference.symbolKey().orElseThrow().equals(fieldKey)));
+    assertTrue(references.stream().anyMatch(reference -> reference.referenceKind() == ReferenceKind.ENUM_CONSTANT
+        && reference.symbolKey().orElseThrow().equals(enumKey)));
+    assertTrue(references.stream().anyMatch(reference -> reference.referenceKind() == ReferenceKind.METHOD
+        && reference.symbolKey().orElseThrow().equals(methodKey)));
+    assertTrue(references.stream().anyMatch(reference -> reference.referenceKind() == ReferenceKind.CONSTRUCTOR
+        && reference.symbolKey().orElseThrow().equals(constructorKey)));
+    assertTrue(references.stream().anyMatch(reference -> reference.referenceKind() == ReferenceKind.TYPE
+        && reference.symbolKey().orElseThrow().equals(target.typeKey())));
+  }
+
+  @Test
+  void givenInheritanceOwnershipPermitsAndGenericBounds_whenFrontendRunsTwice_thenDeclarationFactsAreCompleteAndStable()
+      throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("TypeHeaders.java"), """
+        sealed interface Contract<T extends Number & Comparable<T>> extends java.io.Serializable permits Implementation {
+        }
+        final class Implementation extends java.util.ArrayList<String> implements Contract<Integer>, Runnable {
+          public void run() { }
+        }
+        class Owner {
+          private static final class Nested { }
+        }
+        """);
+    var loader = new JavaSourceLoader();
+    var snapshot = loader.discover(temporaryDirectory);
+    var frontend = new JavaFrontend(loader);
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+
+    // Act
+    var first = frontend.analyze(snapshot, configuration);
+    var second = frontend.analyze(snapshot, configuration);
+
+    // Assert
+    assertTrue(first.diagnostics().isEmpty());
+    assertEquals(first.program(), second.program());
+    var contract = first.program().types().stream().filter(type -> type.qualifiedName().equals("Contract")).findFirst().orElseThrow();
+    assertEquals(Set.of(JavaTypeModifier.ABSTRACT, JavaTypeModifier.SEALED), contract.modifiers());
+    assertTrue(contract.directSuperclass().isEmpty());
+    assertEquals(List.of("type:java.io.Serializable"), contract.directInterfaces().stream()
+        .map(reference -> reference.declarationKey().orElseThrow()).toList());
+    assertEquals(List.of("type:Implementation"), contract.permittedSubclasses().stream()
+        .map(reference -> reference.declarationKey().orElseThrow()).toList());
+    var parameter = contract.typeParameters().getFirst();
+    assertEquals("type:Contract#type-parameter:0", parameter.typeParameterKey());
+    assertEquals(List.of("type:java.lang.Number", "type:java.lang.Comparable"), parameter.bounds().stream()
+        .map(reference -> reference.declarationKey().orElseThrow()).toList());
+    var implementation = first.program().types().stream().filter(type -> type.qualifiedName().equals("Implementation")).findFirst()
+        .orElseThrow();
+    assertEquals("type:java.util.ArrayList", implementation.directSuperclass().orElseThrow().declarationKey().orElseThrow());
+    assertEquals("java.util.ArrayList<java.lang.String>", implementation.directSuperclass().orElseThrow().identity().displayName());
+    assertEquals(List.of("type:Contract", "type:java.lang.Runnable"), implementation.directInterfaces().stream()
+        .map(reference -> reference.declarationKey().orElseThrow()).toList());
+    var nested = first.program().types().stream().filter(type -> type.qualifiedName().equals("Owner.Nested")).findFirst().orElseThrow();
+    assertEquals(Set.of(JavaTypeModifier.PRIVATE, JavaTypeModifier.STATIC, JavaTypeModifier.FINAL), nested.modifiers());
+    assertEquals("type:Owner", nested.enclosingType().orElseThrow().declarationKey().orElseThrow());
+  }
+
+  @Test
+  void givenAnnotationsInTypeHeaders_whenAnalysisRuns_thenPreciseDiagnosticsPreventFalseCompletion() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("Annotated.java"), """
+        @interface Marker { }
+        @Marker class Annotated<@Marker T extends @Marker Number> { }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var input = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var run = new AnalysisEngine().analyze(input);
+
+    // Assert
+    var codes = input.diagnostics().stream().map(diagnostic -> diagnostic.code()).collect(Collectors.toSet());
+    assertTrue(codes.containsAll(Set.of("frontend.unsupported-type-declaration-annotation",
+        "frontend.unsupported-type-parameter-annotation", "frontend.unsupported-type-use-annotation")));
+    assertTrue(input.diagnostics().stream().filter(diagnostic -> codes.contains(diagnostic.code()))
+        .allMatch(diagnostic -> diagnostic.origins().size() == 1 && diagnostic.origins().getFirst().length() > 0));
+    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+  }
+
+  @Test
+  void givenEnumConstantBodyAndAnonymousClassFieldInitializer_whenFrontendRuns_thenDiagnosticsRetainDistinctTaxonomyAndOrigins()
+      throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("AnonymousInitializers.java"), """
+        enum Mode { SPECIAL { } }
+        class FieldOwner {
+          Runnable task = new Runnable() { public void run() { } };
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var repeated = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Assert
+    var enumDiagnostic = result.diagnostics().stream()
+        .filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-enum-constant-body")).findFirst().orElseThrow();
+    var fieldDiagnostic = result.diagnostics().stream()
+        .filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-anonymous-class-field-initializer")).findFirst()
+        .orElseThrow();
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-field-initializer")));
+    assertEquals(1, enumDiagnostic.origins().size());
+    assertEquals(1, fieldDiagnostic.origins().size());
+    assertTrue(!enumDiagnostic.diagnosticKey().equals(fieldDiagnostic.diagnosticKey()));
+    var repeatedEnum = repeated.diagnostics().stream()
+        .filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-enum-constant-body")).findFirst().orElseThrow();
+    var repeatedField = repeated.diagnostics().stream()
+        .filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-anonymous-class-field-initializer")).findFirst()
+        .orElseThrow();
+    assertEquals(enumDiagnostic.diagnosticKey(), repeatedEnum.diagnosticKey());
+    assertEquals(fieldDiagnostic.diagnosticKey(), repeatedField.diagnosticKey());
+    var content = result.snapshot().sourceFiles().getFirst().content();
+    assertEquals("SPECIAL { }", sourceText(content, enumDiagnostic.origins().getFirst()));
+    assertTrue(sourceText(content, fieldDiagnostic.origins().getFirst()).contains("public void run()"));
+  }
+
+  private static MethodSyntax syntax(SyntaxAnalysisInput result, String methodName) {
+    var method = result.program().methods().stream().filter(candidate -> candidate.name().equals(methodName)).findFirst().orElseThrow();
+    return result.methodSyntax(method.methodKey()).orElseThrow();
+  }
+
+  private static Set<String> localDeclarationKeys(SyntaxAnalysisInput result, Set<String> names) {
+    return result.methodSyntax().stream().flatMap(method -> method.root().descendantsAndSelf().stream())
+        .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION)
+        .filter(node -> names.contains(node.value(SyntaxValue.LocalDeclaration.class).name()))
+        .map(node -> node.requiredReference().symbolKey().orElseThrow()).collect(Collectors.toSet());
+  }
+
+  private static String sourceText(String content, SourceSpan origin) {
+    return content.substring(Math.toIntExact(origin.startOffset()), Math.toIntExact(origin.endOffsetExclusive()));
+  }
+}

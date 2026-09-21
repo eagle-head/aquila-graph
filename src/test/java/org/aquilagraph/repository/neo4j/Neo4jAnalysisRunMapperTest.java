@@ -32,8 +32,7 @@ class Neo4jAnalysisRunMapperTest {
   void givenSharedMapper_whenDifferentRunsMappedConcurrently_thenEachProjectionIsIsolated()
       throws Exception {
     // Arrange
-    var sourceRoot =
-        Path.of("analysis-targets/calculator/src/main/java").toAbsolutePath().normalize();
+    var sourceRoot = completedSourceRoot("concurrent-source");
     var firstDependency = Files.createDirectory(temporaryDirectory.resolve("first-dependency"));
     var secondDependency = Files.createDirectory(temporaryDirectory.resolve("second-dependency"));
     Files.writeString(firstDependency.resolve("marker.txt"), "first");
@@ -103,11 +102,10 @@ class Neo4jAnalysisRunMapperTest {
   }
 
   @Test
-  void givenCompletedCalculatorRun_whenMapped_thenIdentityOriginsAndTypedFlowArePreserved()
+  void givenCompletedSupportedRun_whenMapped_thenIdentityOriginsAndTypedFlowArePreserved()
       throws IOException {
     // Arrange
-    var sourceRoot =
-        Path.of("analysis-targets/calculator/src/main/java").toAbsolutePath().normalize();
+    var sourceRoot = completedSourceRoot("mapped-source");
     var dependency = Files.createDirectory(temporaryDirectory.resolve("dependency"));
     var run =
         new AnalysisEngine()
@@ -128,6 +126,14 @@ class Neo4jAnalysisRunMapperTest {
             .allMatch(relationship -> relationship.properties().get("runId").equals(run.runId())));
     assertTrue(projection.nodes().stream().anyMatch(node -> node.label().equals("SourceOrigin")));
     assertTrue(projection.nodes().stream().anyMatch(node -> node.label().equals("FlowValue")));
+    assertTrue(projection.nodes().stream().filter(node -> node.label().equals("FlowValue"))
+        .anyMatch(node -> node.properties().containsKey("staticTypeKey")
+            && node.properties().containsKey("staticTypeErasure")
+            && node.properties().containsKey("staticTypeCategory")));
+    assertTrue(projection.nodes().stream().filter(node -> node.label().equals("JavaParameter"))
+        .anyMatch(node -> node.properties().containsKey("staticTypeKey")
+            && node.properties().containsKey("staticTypeErasure")
+            && node.properties().containsKey("staticTypeCategory")));
     assertTrue(
         projection.nodes().stream()
             .anyMatch(node -> node.label().equals("AnalysisEnvironmentSnapshot")));
@@ -146,8 +152,30 @@ class Neo4jAnalysisRunMapperTest {
             .filter(node -> node.label().equals("SemanticReference"))
             .anyMatch(node -> node.properties().get("assignableToTypeNames") instanceof List<?> types && !types.isEmpty()));
     assertFalse(
-        projection.nodes().stream().anyMatch(node -> node.label().startsWith("Normalized")));
+        projection.nodes().stream()
+            .anyMatch(node -> Set.of("MethodBody", "SyntaxNode").contains(node.label())));
+    assertTrue(
+        projection.nodes().stream()
+            .filter(node -> node.label().equals("JavaMethod"))
+            .anyMatch(node -> Boolean.TRUE.equals(node.properties().get("hasBody"))));
     assertTrue(projection.relationships().stream().anyMatch(relation -> relation.type().equals("IN_SOURCE")));
+    var operationKeys =
+        projection.nodes().stream()
+            .filter(node -> node.label().equals("OperationNode"))
+            .map(Neo4jNode::key)
+            .collect(Collectors.toSet());
+    assertTrue(
+        projection.relationships().stream()
+            .anyMatch(
+                relation ->
+                    relation.type().equals("HAS_REFERENCE")
+                        && operationKeys.contains(relation.sourceKey())));
+    assertTrue(
+        projection.relationships().stream()
+            .anyMatch(
+                relation ->
+                    relation.type().equals("HAS_ORIGIN")
+                        && operationKeys.contains(relation.sourceKey())));
     assertTrue(
         projection.relationships().stream()
             .anyMatch(relation -> relation.type().equals("HAS_ENVIRONMENT")));
@@ -158,7 +186,12 @@ class Neo4jAnalysisRunMapperTest {
         projection.relationships().stream()
             .anyMatch(
                 relation ->
-                    Set.of("HAS_NORMALIZED_BODY", "HAS_OPERATION", "REPRESENTS_OPERATION")
+                    Set.of(
+                            "HAS_BODY",
+                            "HAS_SYNTAX_ROOT",
+                            "CHILD",
+                            "HAS_OPERATION",
+                            "REPRESENTS_OPERATION")
                         .contains(relation.type())));
     var flowTypes =
         projection.relationships().stream()
@@ -167,6 +200,65 @@ class Neo4jAnalysisRunMapperTest {
             .collect(Collectors.toSet());
     assertTrue(flowTypes.containsAll(Set.of("NORMAL_FLOW", "RETURN_FLOW", "EXCEPTIONAL_FLOW")));
     assertEquals(run.runId(), projection.runId());
+  }
+
+  @Test
+  void givenSourceField_whenCompletedRunIsMapped_thenDeclarationTypeOwnershipAndOriginArePreserved() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("FieldOwner.java"),
+        "final class FieldOwner { private String value; String read() { return value; } }");
+    var run = new AnalysisEngine().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory,
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
+
+    // Act
+    var projection = new Neo4jAnalysisRunMapper().map(run);
+
+    // Assert
+    var field = projection.nodes().stream().filter(node -> node.label().equals("JavaField")).findFirst().orElseThrow();
+    assertEquals("value", field.properties().get("name"));
+    assertEquals("java.lang.String", field.properties().get("staticTypeErasure"));
+    assertTrue(projection.relationships().stream().anyMatch(relation -> relation.type().equals("DECLARES_FIELD")
+        && relation.targetKey().equals(field.key())));
+    assertTrue(projection.relationships().stream().anyMatch(relation -> relation.type().equals("HAS_ORIGIN")
+        && relation.sourceKey().equals(field.key())));
+  }
+
+  @Test
+  void givenTypeRelationshipsAndInvocationSemantics_whenCompletedRunIsMapped_thenTypedFactsSurviveProjection() throws IOException {
+    // Arrange
+    var sourceRoot = Files.createDirectory(temporaryDirectory.resolve("typed-projection"));
+    Files.writeString(sourceRoot.resolve("Projected.java"), """
+        sealed interface Contract<T extends Number & Comparable<T>> permits Projected { }
+        class Base { }
+        final class Projected extends Base implements Contract<Integer> {
+          String call(Contract<Integer> value) { return value.toString(); }
+        }
+        class Owner { class Nested { } }
+        """);
+    var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot,
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var run = new AnalysisEngine().analyze(input);
+
+    // Act
+    var projection = new Neo4jAnalysisRunMapper().map(run);
+
+    // Assert
+    assertTrue(projection.relationships().stream().anyMatch(relation -> relation.type().equals("HAS_DIRECT_SUPERCLASS")));
+    assertTrue(projection.relationships().stream().anyMatch(relation -> relation.type().equals("HAS_DIRECT_INTERFACE")));
+    assertTrue(projection.relationships().stream().anyMatch(relation -> relation.type().equals("PERMITS_SUBCLASS")));
+    assertTrue(projection.relationships().stream().anyMatch(relation -> relation.type().equals("ENCLOSED_BY")));
+    assertTrue(projection.relationships().stream().anyMatch(relation -> relation.type().equals("DECLARES_TYPE_PARAMETER")));
+    assertEquals(2, projection.relationships().stream().filter(relation -> relation.type().equals("HAS_TYPE_BOUND")).count());
+    assertTrue(projection.nodes().stream().filter(node -> node.label().equals("JavaTypeReference"))
+        .allMatch(node -> node.properties().containsKey("typeKey") && node.properties().containsKey("typeErasure")
+            && node.properties().containsKey("typeCategory") && node.properties().containsKey("declarationKey")));
+    var invocation = projection.nodes().stream().filter(node -> node.label().equals("OperationNode"))
+        .filter(node -> node.properties().get("kind").equals("INVOKE") && node.properties().get("detail").equals("toString"))
+        .findFirst().orElseThrow();
+    assertEquals("VIRTUAL", invocation.properties().get("invocationMode"));
+    assertEquals("INSTANCE_EXPRESSION", invocation.properties().get("invocationForm"));
+    assertEquals("type:java.lang.Object", invocation.properties().get("qualifyingTypeDeclarationKey"));
+    assertEquals("java.lang.Object", invocation.properties().get("qualifyingTypeErasure"));
   }
 
   @Test
@@ -184,5 +276,22 @@ class Neo4jAnalysisRunMapperTest {
 
     // Assert
     assertEquals("Only completed analysis runs may be stored", exception.getMessage());
+  }
+
+  private Path completedSourceRoot(String directoryName) throws IOException {
+    var sourceRoot = Files.createDirectory(temporaryDirectory.resolve(directoryName));
+    Files.writeString(sourceRoot.resolve("Persisted.java"), """
+        final class Persisted {
+          int field;
+          int evaluate(String input, int denominator) {
+            try {
+              return input.length() / denominator;
+            } catch (ArithmeticException exception) {
+              return field;
+            }
+          }
+        }
+        """);
+    return sourceRoot;
   }
 }

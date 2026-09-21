@@ -22,6 +22,7 @@ class ControlFlowGraphTest {
             "test",
             List.of(),
             Optional.empty(),
+            Optional.empty(),
             List.of(),
             List.of(),
             List.of());
@@ -111,6 +112,7 @@ class ControlFlowGraphTest {
             "test",
             List.of(new OperationOperand(0, foreignValue)),
             Optional.empty(),
+            Optional.empty(),
             List.of(),
             List.of(),
             List.of());
@@ -131,5 +133,34 @@ class ControlFlowGraphTest {
 
     // Assert
     assertEquals("Operations may reference only values owned by the CFG", exception.getMessage());
+  }
+
+  @Test
+  void givenInvokeOperationWithoutInvocationSemantics_whenOperationIsCreated_thenInputIsRejected() {
+    // Arrange
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new OperationNode("node", "graph", OperationKind.INVOKE, "call", List.of(), Optional.empty(), Optional.empty(),
+            List.of(), List.of(), List.of()));
+
+    // Assert
+    assertEquals("Invocation semantics must be present exactly for invocation and construction operations", exception.getMessage());
+  }
+
+  @Test
+  void givenUnrelatedOperationWithInvocationSemantics_whenOperationIsCreated_thenInputIsRejected() {
+    // Arrange
+    var qualifyingType = new JavaTypeReference(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Example", "Example"),
+        Optional.of("type:Example"));
+    var semantics = new InvocationSemantics(InvocationMode.VIRTUAL, qualifyingType, InvocationForm.INSTANCE_IMPLICIT);
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new OperationNode("node", "graph", OperationKind.READ, "read", List.of(), Optional.empty(), Optional.of(semantics),
+            List.of(), List.of(), List.of()));
+
+    // Assert
+    assertEquals("Invocation semantics must be present exactly for invocation and construction operations", exception.getMessage());
   }
 }

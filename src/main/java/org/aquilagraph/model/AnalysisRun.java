@@ -28,9 +28,9 @@ public record AnalysisRun(String runId, InputSnapshot inputSnapshot, AnalysisEnv
     Optional<ProgramRepresentation> representation, List<AnalysisDiagnostic> diagnostics, AnalysisCompletion completion,
     String analyzerVersion, String modelVersion) {
   /** Analyzer version written into newly created runs. */
-  public static final String CURRENT_ANALYZER_VERSION = "0.2.0";
+  public static final String CURRENT_ANALYZER_VERSION = "0.5.0";
   /** Model version written into newly created runs. */
-  public static final String CURRENT_MODEL_VERSION = "4";
+  public static final String CURRENT_MODEL_VERSION = "7";
 
   /** Validates run invariants and defensively copies diagnostics. */
   public AnalysisRun {

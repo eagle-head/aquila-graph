@@ -23,6 +23,47 @@ The packaged output recorded below predates the repository-contract refactoring.
 The current CLI reports `Repository: SAVED` and intentionally omits Neo4j node
 and relationship counts from its technology-neutral application result.[6]
 
+## Syntax Boundary Validation
+
+Validation date: September 21, 2026.
+
+- `.\Invoke-Build.ps1 test`:
+  build success; 157 tests passed with no
+  failures, errors, or skips. The focused boundary tests cover controlled
+  syntax-node construction, contextual invocation and receiver forms,
+  declaration/reference key alignment, distinct deterministic diagnostics,
+  exhaustive class-member classification, nested types, assignment-location
+  evaluation order, field receiver evaluation, and rejection of unresolved or
+  unsupported semantics before completed analysis. New durable-model coverage
+  verifies inheritance, interface relationships, sealed permits, nested
+  ownership, external supertypes, stable type-parameter identities and multiple
+  bounds, annotation rejection, anonymous-class diagnostic taxonomy, all
+  required invocation modes and qualifying forms, model invariants, and Neo4j
+  projection.[7][8][9][10][11]
+- `.\Invoke-Build.ps1 quality`:
+  build success; formatting, Checkstyle, PMD,
+  duplicate-code analysis, SpotBugs, dependency analysis, license checks, and
+  public Javadoc validation passed. This target intentionally skips test
+  execution; the preceding test gate supplies behavioral evidence.
+- The bundled PlantUML `1.2025.0` runtime passed syntax checks and produced SVG
+  renders for the updated Java frontend, program representation, CFG, and
+  analysis-run sequence sources. The render result establishes renderer
+  acceptance only; no visible-layout claim is made for this change.[2]
+- The final CodeGraph sync reported the index up to date for 145 Java files,
+  with 2,028 nodes and 4,304 edges. A follow-up exploration traced invocation
+  classification through `SyntaxValue.Invocation`, direct graph lowering,
+  `OperationNode`, and the Neo4j mapper.
+- The Neo4j mapper unit test verifies that syntax nodes and syntax relationships
+  are absent while method body presence, operation semantic references,
+  operation origins, invocation mode/form/qualifying type, declaration
+  hierarchy and ownership, type parameters and bounds, and
+  parameter/flow-value type identities remain. The real
+  Neo4j integration profile also passed: 148 unit tests, three packaged-process
+  integration tests, and one database integration test completed with no
+  failures, errors, or skips. The database integration test includes durable
+  field properties and `DECLARES_FIELD` projection. The database container was
+  stopped afterward and its named data volume was preserved.[1][9][12]
+
 ## Baseline
 
 - `.\mvnw.cmd test`: 7 tests passed before implementation.
@@ -61,8 +102,8 @@ Persistence: COMPLETED (1376 nodes, 2464 relationships)
 
 A follow-up Cypher query returned 1,376 run-scoped nodes, 2,464 run-scoped
 relationships, 12 `JavaMethod` nodes, 179 graph-owned `OperationNode` nodes,
-207 `FlowValue` nodes, and 12 `ControlFlowGraph` nodes. No persisted label began
-with `Normalized`. The relationship set included `NORMAL_FLOW`,
+207 `FlowValue` nodes, and 12 `ControlFlowGraph` nodes. No separate operation
+representation label was persisted. The relationship set included `NORMAL_FLOW`,
 `TRUE_FLOW`, `FALSE_FLOW`, `SWITCH_FLOW`, `RETURN_FLOW`, and
 `EXCEPTIONAL_FLOW`. `SHOW CONSTRAINTS` returned both
 `analysis_entity_identity` and `analysis_run_identity` as node-property
@@ -107,3 +148,10 @@ and storage gates above.[5]
 4. [Calculator analysis test](../../src/test/java/org/aquilagraph/CalculatorAnalysisTest.java).
 5. [Graph-construction classes](../../src/main/java/org/aquilagraph/core/ControlFlowGraphBuilder.java) and [focused class model](../../diagrams/class/control-flow-graph.puml).
 6. [Analysis repository design](../design/analysis-repository.md) and [AnalyzeCommand](../../src/main/java/org/aquilagraph/cli/AnalyzeCommand.java), repository outcome reporting.
+7. [Syntax boundary tests](../../src/test/java/org/aquilagraph/syntax/SyntaxNodeTest.java) and
+   [frontend boundary tests](../../src/test/java/org/aquilagraph/frontend/JavaFrontendTest.java).
+8. [Control-flow construction tests](../../src/test/java/org/aquilagraph/core/ControlFlowGraphBuilderTest.java).
+9. [Neo4j projection mapper tests](../../src/test/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunMapperTest.java).
+10. [Java AST boundary regression tests](../../src/test/java/org/aquilagraph/frontend/JavaAstBoundaryRegressionTest.java).
+11. [Direct graph-lowering regression tests](../../src/test/java/org/aquilagraph/core/JavaGraphLoweringRegressionTest.java).
+12. [Packaged-process integration tests](../../src/test/java/org/aquilagraph/AquilaGraphProcessIT.java).

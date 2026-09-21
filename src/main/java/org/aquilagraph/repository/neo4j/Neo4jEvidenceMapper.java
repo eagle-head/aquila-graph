@@ -5,7 +5,6 @@ import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.model.StableId;
-import org.aquilagraph.model.SyntaxNode;
 
 /** Maps diagnostics and source evidence shared by program and control-flow projections. */
 final class Neo4jEvidenceMapper {
@@ -17,18 +16,6 @@ final class Neo4jEvidenceMapper {
       projection.relate("HAS_DIAGNOSTIC", runId, diagnostic.diagnosticKey(), Integer.toString(position), Neo4jSchema.POSITION_PROPERTY,
           position);
       mapOrigins(diagnostic.diagnosticKey(), diagnostic.origins(), projection);
-    }
-  }
-
-  void mapSyntax(SyntaxNode syntaxNode, String parentKey, int position, boolean root, Neo4jProjectionBuilder projection) {
-    projection.node("SyntaxNode", syntaxNode.nodeId(), Neo4jSchema.KIND_PROPERTY, syntaxNode.syntaxKind().name(), "detail",
-        syntaxNode.detail(), "compilerGenerated", syntaxNode.compilerGenerated());
-    projection.relate(root ? "HAS_SYNTAX_ROOT" : "CHILD", parentKey, syntaxNode.nodeId(), Integer.toString(position),
-        Neo4jSchema.POSITION_PROPERTY, position);
-    mapOrigins(syntaxNode.nodeId(), syntaxNode.origins(), projection);
-    mapSemanticReferences(syntaxNode.nodeId(), syntaxNode.semanticReferences(), projection);
-    for (var childPosition = 0; childPosition < syntaxNode.children().size(); childPosition++) {
-      mapSyntax(syntaxNode.children().get(childPosition), syntaxNode.nodeId(), childPosition, false, projection);
     }
   }
 

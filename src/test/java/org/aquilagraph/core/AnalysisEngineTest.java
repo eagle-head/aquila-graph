@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisCompletion;
@@ -85,6 +86,52 @@ class AnalysisEngineTest {
     // Assert
     assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
     assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.isError()));
+  }
+
+  @Test
+  void givenUnsupportedExecutableClassMembers_whenAnalysisRuns_thenRunCannotComplete() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("Initialization.java"), """
+        class Initialization {
+          static int staticValue = 1;
+          int instanceValue = 2;
+          static { staticValue = 3; }
+          { instanceValue = 4; }
+          void supportedMethod() { }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var run = new AnalysisEngine()
+        .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
+
+    // Assert
+    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+    assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("frontend.unsupported-")));
+  }
+
+  @Test
+  void givenUnavailableElementsAndErrorTypes_whenAnalysisRuns_thenStructuredDiagnosticsPreventCompletion() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("BrokenSemantics.java"), """
+        class BrokenSemantics {
+          MissingType evaluate(MissingType value) { return missingName; }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var run = new AnalysisEngine()
+        .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
+
+    // Assert
+    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+    var codes = run.diagnostics().stream().map(diagnostic -> diagnostic.code()).collect(Collectors.toSet());
+    assertTrue(codes.contains("frontend.error-parameter-type"));
+    assertTrue(codes.contains("frontend.error-type"));
+    assertTrue(codes.contains("frontend.unresolved-reference"));
+    assertTrue(codes.contains("control-flow.erroneous-semantics"));
   }
 
   @Test

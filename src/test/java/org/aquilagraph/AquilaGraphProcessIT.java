@@ -16,19 +16,20 @@ class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
 
   @Test
-  void givenPackagedJarCalculatorAndRelease_whenProcessRuns_thenAnalysisCompletes()
+  void givenPackagedJarSupportedSourceAndRelease_whenProcessRuns_thenAnalysisCompletes()
       throws IOException, InterruptedException {
     // Arrange
+    Files.writeString(
+        temporaryDirectory.resolve("Supported.java"),
+        "class Supported { int value(int input) { return input + 1; } }");
     var javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java.exe");
     var jar = Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath().normalize();
-    var calculator =
-        Path.of("analysis-targets/calculator/src/main/java").toAbsolutePath().normalize();
     var process =
         new ProcessBuilder(
                 javaExecutable.toString(),
                 "-jar",
                 jar.toString(),
-                calculator.toString(),
+                temporaryDirectory.toString(),
                 "--release",
                 "25")
             .redirectErrorStream(true)
@@ -43,7 +44,33 @@ class AquilaGraphProcessIT {
     assertEquals(0, process.exitValue(), output);
     assertTrue(output.contains("Completion: COMPLETED"), output);
     assertTrue(output.contains("Java release: 25"), output);
-    assertTrue(output.contains("Java source files: 3"), output);
+    assertTrue(output.contains("Java source files: 1"), output);
+  }
+
+  @Test
+  void givenPackagedJarCalculator_whenProcessRuns_thenUnsupportedInitializersAreReported()
+      throws IOException, InterruptedException {
+    // Arrange
+    var javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java.exe");
+    var jar = Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath().normalize();
+    var calculator =
+        Path.of("analysis-targets/calculator/src/main/java").toAbsolutePath().normalize();
+    var process =
+        new ProcessBuilder(javaExecutable.toString(), "-jar", jar.toString(), calculator.toString())
+            .redirectErrorStream(true)
+            .start();
+
+    // Act
+    var completed = process.waitFor(Duration.ofSeconds(30).toMillis(), TimeUnit.MILLISECONDS);
+    var output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+
+    // Assert
+    assertTrue(completed, "The packaged analyzer process did not finish within 30 seconds");
+    assertEquals(1, process.exitValue(), output);
+    assertTrue(output.contains("Completion: INCOMPLETE"), output);
+    assertTrue(output.contains("frontend.unsupported-field-initializer"), output);
+    assertTrue(output.contains("frontend.unsupported-enum-constant-initialization"), output);
+    assertTrue(output.contains("Repository: NOT_ELIGIBLE"), output);
   }
 
   @Test

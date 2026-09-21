@@ -18,13 +18,16 @@ import org.aquilagraph.model.ExitNode;
 import org.aquilagraph.model.FlowValue;
 import org.aquilagraph.model.JavaMethod;
 import org.aquilagraph.model.JavaParameter;
+import org.aquilagraph.model.JavaTypeIdentity;
+import org.aquilagraph.model.InvocationSemantics;
 import org.aquilagraph.model.OperationKind;
 import org.aquilagraph.model.OperationNode;
 import org.aquilagraph.model.OperationOperand;
+import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.model.StableId;
-import org.aquilagraph.model.SyntaxNode;
 import org.aquilagraph.model.TransferKind;
 import org.aquilagraph.model.ValueKind;
+import org.aquilagraph.syntax.SyntaxNode;
 
 final class ControlFlowGraphConstruction {
   private static final String VALUE_ID_NAMESPACE = "value";
@@ -53,27 +56,30 @@ final class ControlFlowGraphConstruction {
         Optional.empty(), Optional.of(parameter.staticType()));
   }
 
-  FlowValue localValue(SyntaxNode node, String name, Optional<String> staticType) {
-    return value(StableId.sha256(VALUE_ID_NAMESPACE, method.methodKey(), node.nodeId(), "local", name), ValueKind.LOCAL, Optional.of(name),
-        Optional.empty(), staticType);
+  FlowValue localValue(String declarationKey, String name, Optional<JavaTypeIdentity> staticType) {
+    return value(StableId.sha256(VALUE_ID_NAMESPACE, declarationKey), ValueKind.LOCAL, Optional.of(name), Optional.empty(), staticType);
   }
 
-  FlowValue symbolValue(SyntaxNode node, String name, Optional<String> staticType) {
-    return value(StableId.sha256(VALUE_ID_NAMESPACE, method.methodKey(), node.nodeId(), "symbol"), ValueKind.SYMBOL, Optional.of(name),
-        Optional.empty(), staticType);
+  FlowValue symbolValue(String declarationKey, String name, Optional<JavaTypeIdentity> staticType) {
+    return value(StableId.sha256(VALUE_ID_NAMESPACE, declarationKey), ValueKind.SYMBOL, Optional.of(name), Optional.empty(), staticType);
   }
 
-  FlowValue exceptionValue(String catchOperationId, String name, Optional<String> staticType) {
+  FlowValue receiverValue(SyntaxNode node, String name, Optional<JavaTypeIdentity> staticType) {
+    return value(StableId.sha256(VALUE_ID_NAMESPACE, method.methodKey(), node.nodeId(), "receiver", name), ValueKind.RECEIVER,
+        Optional.of(name), Optional.empty(), staticType);
+  }
+
+  FlowValue exceptionValue(String catchOperationId, String name, Optional<JavaTypeIdentity> staticType) {
     return value(StableId.sha256(VALUE_ID_NAMESPACE, catchOperationId), ValueKind.EXCEPTION, Optional.of(name), Optional.empty(),
         staticType);
   }
 
-  FlowValue constantValue(String operationNodeId, String literal, Optional<String> staticType) {
+  FlowValue constantValue(String operationNodeId, String literal, Optional<JavaTypeIdentity> staticType) {
     return value(StableId.sha256(VALUE_ID_NAMESPACE, operationNodeId), ValueKind.CONSTANT, Optional.empty(), Optional.of(literal),
         staticType);
   }
 
-  FlowValue temporaryValue(String operationNodeId, String displayName, Optional<String> staticType) {
+  FlowValue temporaryValue(String operationNodeId, String displayName, Optional<JavaTypeIdentity> staticType) {
     return value(StableId.sha256(VALUE_ID_NAMESPACE, operationNodeId), ValueKind.TEMPORARY, Optional.of(displayName), Optional.empty(),
         staticType);
   }
@@ -89,6 +95,26 @@ final class ControlFlowGraphConstruction {
 
   OperationNode addOperationWithId(String operationNodeId, SyntaxNode node, OperationKind kind, String detail, List<FlowValue> operands,
       Optional<FlowValue> definedValue, List<ExceptionType> possibleExceptions) {
+    return addOperationWithId(operationNodeId, node, kind, detail, operands, definedValue, possibleExceptions,
+        node.semanticReference().stream().toList());
+  }
+
+  OperationNode addOperationWithId(String operationNodeId, SyntaxNode node, OperationKind kind, String detail, List<FlowValue> operands,
+      Optional<FlowValue> definedValue, List<ExceptionType> possibleExceptions, List<SemanticReference> semanticReferences) {
+    return addOperationWithSemantics(operationNodeId, node, kind, detail, operands, definedValue, possibleExceptions, Optional.empty(),
+        semanticReferences);
+  }
+
+  OperationNode addInvocationOperationWithId(String operationNodeId, SyntaxNode node, OperationKind kind, String detail,
+      List<FlowValue> operands, Optional<FlowValue> definedValue, List<ExceptionType> possibleExceptions,
+      InvocationSemantics invocationSemantics) {
+    return addOperationWithSemantics(operationNodeId, node, kind, detail, operands, definedValue, possibleExceptions,
+        Optional.of(Objects.requireNonNull(invocationSemantics, "invocationSemantics")), node.semanticReference().stream().toList());
+  }
+
+  private OperationNode addOperationWithSemantics(String operationNodeId, SyntaxNode node, OperationKind kind, String detail,
+      List<FlowValue> operands, Optional<FlowValue> definedValue, List<ExceptionType> possibleExceptions,
+      Optional<InvocationSemantics> invocationSemantics, List<SemanticReference> semanticReferences) {
     definedValue.ifPresent(this::addValue);
     var orderedOperands = new ArrayList<OperationOperand>();
     for (var index = 0; index < operands.size(); index++) {
@@ -96,8 +122,8 @@ final class ControlFlowGraphConstruction {
       orderedOperands.add(new OperationOperand(index, operands.get(index)));
     }
     var exceptionTypeNames = possibleExceptions.stream().map(ExceptionType::typeName).toList();
-    var operation = new OperationNode(operationNodeId, graphId, kind, detail, orderedOperands, definedValue, node.semanticReferences(),
-        exceptionTypeNames, node.origins());
+    var operation = new OperationNode(operationNodeId, graphId, kind, detail, orderedOperands, definedValue, invocationSemantics,
+        semanticReferences, exceptionTypeNames, node.origin().stream().toList());
     operationNodes.add(operation);
     addExceptionTransfers(operation, possibleExceptions);
     return operation;
@@ -163,7 +189,7 @@ final class ControlFlowGraphConstruction {
   }
 
   private FlowValue value(String valueId, ValueKind kind, Optional<String> displayName, Optional<String> literal,
-      Optional<String> staticType) {
+      Optional<JavaTypeIdentity> staticType) {
     var value = new FlowValue(valueId, graphId, kind, displayName, literal, staticType);
     addValue(value);
     return value;

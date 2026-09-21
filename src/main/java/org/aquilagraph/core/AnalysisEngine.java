@@ -9,11 +9,11 @@ import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.AnalysisRun;
 import org.aquilagraph.model.DiagnosticSeverity;
 import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.FrontendResult;
 import org.aquilagraph.model.MethodAnalysis;
 import org.aquilagraph.model.ProgramRepresentation;
 import org.aquilagraph.model.SoftwareVersion;
 import org.aquilagraph.model.StableId;
+import org.aquilagraph.syntax.SyntaxAnalysisInput;
 
 /** Builds the accepted program representation and per-method control-flow graphs. */
 public final class AnalysisEngine {
@@ -38,10 +38,10 @@ public final class AnalysisEngine {
    * Analyzes translated Java input and determines run completion.
    *
    * @param input
-   *          immutable frontend result
+   *          transient syntax analysis input
    * @return versioned analysis run
    */
-  public AnalysisRun analyze(FrontendResult input) {
+  public AnalysisRun analyze(SyntaxAnalysisInput input) {
     Objects.requireNonNull(input, "input");
     var diagnostics = new ArrayList<>(input.diagnostics());
     var softwareVersion = SoftwareVersion.from(input.snapshot(), input.environmentSnapshot());
@@ -66,7 +66,8 @@ public final class AnalysisEngine {
         continue;
       }
       try {
-        var graphResult = cfgBuilder.build(method);
+        var methodSyntax = input.methodSyntax(method.methodKey()).orElseThrow();
+        var graphResult = cfgBuilder.build(method, methodSyntax);
         diagnostics.addAll(graphResult.diagnostics());
         if (graphResult.graph().isEmpty()) {
           continue;

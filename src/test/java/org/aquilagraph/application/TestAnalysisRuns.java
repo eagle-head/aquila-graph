@@ -3,6 +3,7 @@ package org.aquilagraph.application;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.AnalysisEnvironmentSnapshot;
 import org.aquilagraph.model.AnalysisRun;
@@ -28,7 +29,8 @@ final class TestAnalysisRuns {
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var environmentSnapshot = new AnalysisEnvironmentSnapshot(configuration, "test-compiler", "test-vendor", "25-test",
         List.of("--release", "25"), List.of(), List.of());
-    var type = new JavaType(StableId.sha256("type", "Example"), "Example", JavaTypeKind.CLASS, true, List.of(), List.of());
+    var type = new JavaType(StableId.sha256("type", "Example"), "Example", JavaTypeKind.CLASS, Set.of(), Optional.empty(),
+        Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of());
     var representation = new ProgramRepresentation(new JavaProgram(List.of(type)), List.of());
     return new AnalysisRun(StableId.sha256("analysis-run", "completed"), inputSnapshot, environmentSnapshot,
         Optional.of(representation), List.of(), AnalysisCompletion.COMPLETED, AnalysisRun.CURRENT_ANALYZER_VERSION,

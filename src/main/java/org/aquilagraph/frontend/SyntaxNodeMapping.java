@@ -2,16 +2,17 @@ package org.aquilagraph.frontend;
 
 import java.util.List;
 import java.util.Objects;
-import org.aquilagraph.model.SyntaxKind;
+import java.util.Optional;
+import org.aquilagraph.model.SemanticReference;
+import org.aquilagraph.syntax.SyntaxKind;
+import org.aquilagraph.syntax.SyntaxValue;
 
-record SyntaxNodeMapping(SyntaxKind kind, String detail, List<SyntaxChildMapping> children, SyntaxAcceptance acceptance) {
+record SyntaxNodeMapping(SyntaxKind kind, SyntaxValue value, List<SyntaxChildMapping> children,
+    Optional<SemanticReference> semanticReference) {
   SyntaxNodeMapping {
     Objects.requireNonNull(kind, "kind");
-    Objects.requireNonNull(detail, "detail");
+    Objects.requireNonNull(value, "value");
     children = List.copyOf(Objects.requireNonNull(children, "children"));
-    Objects.requireNonNull(acceptance, "acceptance");
-    if (kind == SyntaxKind.UNSUPPORTED && acceptance != SyntaxAcceptance.UNSUPPORTED) {
-      throw new IllegalArgumentException("Unsupported syntax cannot be accepted");
-    }
+    Objects.requireNonNull(semanticReference, "semanticReference");
   }
 }

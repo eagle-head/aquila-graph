@@ -8,14 +8,15 @@ final class Neo4jSchema {
   static final String POSITION_PROPERTY = "position";
 
   private static final Set<String> NODE_LABELS = Set.of("AnalysisRun", "SoftwareVersion", "InputSnapshot", "AnalysisEnvironmentSnapshot",
-      "DependencySnapshot", "CompilerConfiguration", "SourceFile", "Program", "JavaType", "JavaMethod", "JavaParameter", "MethodBody",
-      "SyntaxNode", "SemanticReference", "MethodAnalysis", "ControlFlowGraph", "FlowValue", "EntryNode", "OperationNode", "ExitNode",
-      "Diagnostic", "SourceOrigin");
+      "DependencySnapshot", "CompilerConfiguration", "SourceFile", "Program", "JavaType", "JavaField", "JavaMethod", "JavaParameter",
+      "JavaTypeParameter", "JavaTypeReference", "SemanticReference", "MethodAnalysis", "ControlFlowGraph", "FlowValue", "EntryNode",
+      "OperationNode", "ExitNode", "Diagnostic", "SourceOrigin");
   private static final Set<String> RELATIONSHIP_TYPES = Set.of("ANALYZED_SOFTWARE", "HAS_INPUT", "HAS_ENVIRONMENT", "HAS_CONFIGURATION",
-      "HAS_CLASS_PATH_ENTRY", "HAS_MODULE_PATH_ENTRY", "HAS_SOURCE", "HAS_PROGRAM", "HAS_DIAGNOSTIC", "DECLARES_TYPE", "DECLARES_METHOD",
-      "DECLARES_PARAMETER", "HAS_BODY", "HAS_SYNTAX_ROOT", "CHILD", "HAS_REFERENCE", "HAS_ORIGIN", "IN_SOURCE", "HAS_METHOD_ANALYSIS",
-      "ANALYZES_METHOD", "HAS_VALUE", "USES_VALUE", "DEFINES_VALUE", "HAS_CFG", "HAS_NODE", "NORMAL_FLOW", "TRUE_FLOW", "FALSE_FLOW",
-      "SWITCH_FLOW", "RETURN_FLOW", "EXCEPTIONAL_FLOW");
+      "HAS_CLASS_PATH_ENTRY", "HAS_MODULE_PATH_ENTRY", "HAS_SOURCE", "HAS_PROGRAM", "HAS_DIAGNOSTIC", "DECLARES_TYPE", "DECLARES_FIELD",
+      "DECLARES_METHOD", "DECLARES_PARAMETER", "DECLARES_TYPE_PARAMETER", "ENCLOSED_BY", "HAS_DIRECT_SUPERCLASS", "HAS_DIRECT_INTERFACE",
+      "PERMITS_SUBCLASS", "HAS_TYPE_BOUND", "HAS_REFERENCE", "HAS_ORIGIN", "IN_SOURCE", "HAS_METHOD_ANALYSIS", "ANALYZES_METHOD",
+      "HAS_VALUE", "USES_VALUE", "DEFINES_VALUE", "HAS_CFG", "HAS_NODE", "NORMAL_FLOW", "TRUE_FLOW", "FALSE_FLOW", "SWITCH_FLOW",
+      "RETURN_FLOW", "EXCEPTIONAL_FLOW");
 
   private Neo4jSchema() {
   }

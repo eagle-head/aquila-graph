@@ -7,8 +7,8 @@ import org.aquilagraph.application.port.AnalysisEnvironmentException;
 import org.aquilagraph.application.port.AnalysisInputException;
 import org.aquilagraph.application.port.SourceAnalyzer;
 import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.FrontendResult;
 import org.aquilagraph.model.InputSnapshot;
+import org.aquilagraph.syntax.SyntaxAnalysisInput;
 
 /** Public facade for source discovery and Java analysis. */
 public final class JavaFrontend implements SourceAnalyzer {
@@ -33,14 +33,14 @@ public final class JavaFrontend implements SourceAnalyzer {
    *          source directory
    * @param configuration
    *          compiler configuration
-   * @return translated program and diagnostics
+   * @return declarations, transient syntax evidence, environment identity, and diagnostics
    * @throws AnalysisInputException
    *           if the source input cannot be captured
    * @throws AnalysisEnvironmentException
    *           if compiler dependencies or the active compiler environment cannot be read
    */
   @Override
-  public FrontendResult analyze(Path sourceRoot, CompilerConfiguration configuration) {
+  public SyntaxAnalysisInput analyze(Path sourceRoot, CompilerConfiguration configuration) {
     Objects.requireNonNull(sourceRoot, "sourceRoot");
     Objects.requireNonNull(configuration, "configuration");
     final InputSnapshot snapshot;
@@ -65,11 +65,11 @@ public final class JavaFrontend implements SourceAnalyzer {
    *          captured source input
    * @param configuration
    *          compiler configuration
-   * @return translated program and diagnostics
+   * @return declarations, transient syntax evidence, environment identity, and diagnostics
    * @throws IOException
    *           if compiler dependencies cannot be captured
    */
-  public FrontendResult analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
+  public SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
     return analysisPipeline.analyze(snapshot, configuration);
   }
 }

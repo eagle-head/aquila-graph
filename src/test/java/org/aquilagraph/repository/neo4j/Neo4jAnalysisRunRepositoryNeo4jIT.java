@@ -34,20 +34,36 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
       throws IOException {
     // Arrange
     var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
-    var calculatorRun =
-        analyze(Path.of("analysis-targets/calculator/src/main/java").toAbsolutePath().normalize());
+    var primarySourceRoot = Files.createDirectories(temporaryDirectory.resolve("primary"));
     Files.writeString(
-        temporaryDirectory.resolve("Independent.java"),
+        primarySourceRoot.resolve("PersistentSample.java"),
+        """
+        class PersistentSample {
+          int field;
+          int evaluate(int input, Object receiver, int[] values) {
+            receiver.toString();
+            values[0] = input;
+            return switch (input) {
+              case 0 -> field;
+              default -> input / values.length;
+            };
+          }
+        }
+        """);
+    var primaryRun = analyze(primarySourceRoot);
+    var independentSourceRoot = Files.createDirectories(temporaryDirectory.resolve("independent"));
+    Files.writeString(
+        independentSourceRoot.resolve("Independent.java"),
         "class Independent { int value() { return 42; } }");
-    var independentRun = analyze(temporaryDirectory);
+    var independentRun = analyze(independentSourceRoot);
     var sessionConfig = SessionConfig.forDatabase(settings.database());
 
     try {
       // Act
-      var expectedCalculatorProjection = new Neo4jAnalysisRunMapper().map(calculatorRun);
+      var expectedPrimaryProjection = new Neo4jAnalysisRunMapper().map(primaryRun);
       try (var repository = new Neo4jAnalysisRunRepository(settings)) {
-        repository.save(calculatorRun);
-        repository.save(calculatorRun);
+        repository.save(primaryRun);
+        repository.save(primaryRun);
         repository.save(independentRun);
       }
 
@@ -57,7 +73,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                   settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
           var session = driver.session(sessionConfig)) {
         driver.verifyConnectivity();
-        assertEquals(expectedCalculatorProjection.nodes().size(), nodeCount(session, calculatorRun.runId()));
+        assertEquals(expectedPrimaryProjection.nodes().size(), nodeCount(session, primaryRun.runId()));
         assertTrue(nodeCount(session, independentRun.runId()) > 0);
         assertEquals(
             0,
@@ -84,7 +100,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                     "MATCH (:AnalysisEntity {runId: $runId})-[relation]->() "
                         + "WHERE relation.runId = $runId AND type(relation) ENDS WITH '_FLOW' "
                         + "RETURN collect(DISTINCT type(relation)) AS types",
-                    Values.parameters("runId", calculatorRun.runId()))
+                    Values.parameters("runId", primaryRun.runId()))
                 .single()
                 .get("types")
                 .asList(value -> value.asString());
@@ -94,7 +110,48 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
             session
                     .run(
                         "MATCH (:FlowValue {runId: $runId}) RETURN count(*) AS count",
-                        Values.parameters("runId", calculatorRun.runId()))
+                        Values.parameters("runId", primaryRun.runId()))
+                    .single()
+                    .get("count")
+                    .asLong()
+                > 0);
+        assertTrue(
+            session
+                    .run(
+                        "MATCH (value:FlowValue {runId: $runId}) "
+                            + "WHERE value.staticTypeKey IS NOT NULL "
+                            + "AND value.staticTypeErasure IS NOT NULL "
+                            + "AND value.staticTypeCategory IS NOT NULL "
+                            + "RETURN count(value) AS count",
+                        Values.parameters("runId", primaryRun.runId()))
+                    .single()
+                    .get("count")
+                    .asLong()
+                > 0);
+        assertTrue(
+            session
+                    .run(
+                        "MATCH (parameter:JavaParameter {runId: $runId}) "
+                            + "WHERE parameter.staticTypeKey IS NOT NULL "
+                            + "AND parameter.staticTypeErasure IS NOT NULL "
+                            + "AND parameter.staticTypeCategory IS NOT NULL "
+                            + "RETURN count(parameter) AS count",
+                        Values.parameters("runId", primaryRun.runId()))
+                    .single()
+                    .get("count")
+                    .asLong()
+                > 0);
+        assertTrue(
+            session
+                    .run(
+                        "MATCH (:JavaType {runId: $runId})-"
+                            + "[declaration:DECLARES_FIELD]->(field:JavaField {runId: $runId}) "
+                            + "WHERE declaration.runId = $runId "
+                            + "AND field.staticTypeKey IS NOT NULL "
+                            + "AND field.staticTypeErasure IS NOT NULL "
+                            + "AND field.staticTypeCategory IS NOT NULL "
+                            + "RETURN count(field) AS count",
+                        Values.parameters("runId", primaryRun.runId()))
                     .single()
                     .get("count")
                     .asLong()
@@ -104,7 +161,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                     .run(
                         "MATCH (operation:OperationNode {runId: $runId}) "
                             + "WHERE operation.kind IS NOT NULL RETURN count(*) AS count",
-                        Values.parameters("runId", calculatorRun.runId()))
+                        Values.parameters("runId", primaryRun.runId()))
                     .single()
                     .get("count")
                     .asLong()
@@ -114,41 +171,72 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
             session
                 .run(
                     "MATCH (entity:AnalysisEntity {runId: $runId}) "
-                        + "WHERE any(label IN labels(entity) WHERE label STARTS WITH 'Normalized') "
+                        + "WHERE any(label IN labels(entity) WHERE label IN ['MethodBody', 'SyntaxNode']) "
                         + "RETURN count(entity) AS count",
-                    Values.parameters("runId", calculatorRun.runId()))
+                    Values.parameters("runId", primaryRun.runId()))
+                .single()
+                .get("count")
+                .asLong());
+        assertEquals(
+            0,
+            session
+                .run(
+                    "MATCH (:AnalysisEntity {runId: $runId})-[relation]->() "
+                        + "WHERE type(relation) IN ['HAS_BODY', 'HAS_SYNTAX_ROOT', 'CHILD'] "
+                        + "RETURN count(relation) AS count",
+                    Values.parameters("runId", primaryRun.runId()))
                 .single()
                 .get("count")
                 .asLong());
         assertTrue(
             session
                     .run(
+                        "MATCH (method:JavaMethod {runId: $runId}) "
+                            + "WHERE method.hasBody = true RETURN count(method) AS count",
+                        Values.parameters("runId", primaryRun.runId()))
+                    .single()
+                    .get("count")
+                    .asLong()
+                > 0);
+        assertTrue(
+            session
+                    .run(
+                        "MATCH (operation:OperationNode {runId: $runId})-[:HAS_REFERENCE|HAS_ORIGIN]->() "
+                            + "RETURN count(operation) AS count",
+                        Values.parameters("runId", primaryRun.runId()))
+                    .single()
+                    .get("count")
+                    .asLong()
+                > 0);
+        assertTrue(
+            session
+                    .run(
                         "MATCH (:SourceOrigin {runId: $runId})-[:IN_SOURCE]->"
                             + "(:SourceFile {runId: $runId}) RETURN count(*) AS count",
-                        Values.parameters("runId", calculatorRun.runId()))
+                        Values.parameters("runId", primaryRun.runId()))
                     .single()
                     .get("count")
                     .asLong()
                 > 0);
       }
 
-      var invalidProjection = invalidProjection(calculatorRun);
+      var invalidProjection = invalidProjection(primaryRun);
       try (var failingDriver =
               GraphDatabase.driver(
                   settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
           var failingRepository =
               new Neo4jAnalysisRunRepository(
                   failingDriver, sessionConfig, ignored -> invalidProjection)) {
-        assertThrows(RepositoryException.class, () -> failingRepository.save(calculatorRun));
+        assertThrows(RepositoryException.class, () -> failingRepository.save(primaryRun));
       }
       try (var verificationDriver =
               GraphDatabase.driver(
                   settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
           var verificationSession = verificationDriver.session(sessionConfig)) {
-        assertEquals(expectedCalculatorProjection.nodes().size(), nodeCount(verificationSession, calculatorRun.runId()));
+        assertEquals(expectedPrimaryProjection.nodes().size(), nodeCount(verificationSession, primaryRun.runId()));
       }
     } finally {
-      cleanup(settings, List.of(calculatorRun.runId(), independentRun.runId()));
+      cleanup(settings, List.of(primaryRun.runId(), independentRun.runId()));
     }
   }
 

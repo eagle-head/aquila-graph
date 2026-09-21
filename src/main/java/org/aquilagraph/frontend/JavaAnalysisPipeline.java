@@ -10,9 +10,9 @@ import org.aquilagraph.application.port.AnalysisEnvironmentException;
 import org.aquilagraph.application.port.AnalysisInputException;
 import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.FrontendResult;
 import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.JavaProgram;
+import org.aquilagraph.syntax.SyntaxAnalysisInput;
 
 final class JavaAnalysisPipeline {
   private final AnalysisEnvironmentCapture environmentCapture;
@@ -21,25 +21,26 @@ final class JavaAnalysisPipeline {
     this.environmentCapture = Objects.requireNonNull(environmentCapture, "environmentCapture");
   }
 
-  FrontendResult analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
+  SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(configuration, "configuration");
     var compiler = systemCompiler(configuration);
     var invocation = JavaCompilerInvocation.from(configuration);
     var environment = environmentCapture.capture(compiler, configuration, invocation.analysisOptions());
     if (snapshot.sourceFiles().isEmpty()) {
-      return new FrontendResult(snapshot, environment, new JavaProgram(List.of()), List.of());
+      return new SyntaxAnalysisInput(snapshot, environment, new JavaProgram(List.of()), List.of(), List.of());
     }
 
     var sources = new SnapshotSourceCatalog(snapshot);
-    FrontendResult result;
+    SyntaxAnalysisInput result;
     try (var session = openCompilerSession(compiler, invocation, sources)) {
       var compilation = session.analyze();
       var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence())
           .translate(compilation.units());
       var diagnostics = combineDiagnostics(new CompilerDiagnosticTranslator(sources).translate(compilation.diagnostics()),
           translation.diagnostics());
-      result = new FrontendResult(snapshot, environment, translation.value(), diagnostics);
+      result = new SyntaxAnalysisInput(snapshot, environment, translation.value().program(), translation.value().methodSyntax(),
+          diagnostics);
     }
 
     environmentCapture.verifyUnchanged(compiler, configuration, invocation.analysisOptions(), environment);

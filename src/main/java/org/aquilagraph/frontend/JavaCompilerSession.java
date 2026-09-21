@@ -45,8 +45,10 @@ final class JavaCompilerSession implements AutoCloseable {
     task.parse().forEach(units::add);
     task.analyze();
     var trees = Trees.instance(task);
-    return new JavaCompilation(units, new JavaSemanticResolver(trees, task.getTypes()), new JavaSourceEvidence(trees.getSourcePositions()),
-        diagnostics.getDiagnostics());
+    var types = task.getTypes();
+    var identities = new JavaDeclarationIdentities(trees, types);
+    return new JavaCompilation(units, new JavaSemanticResolver(trees, types, task.getElements(), identities),
+        new JavaSourceEvidence(trees.getSourcePositions()), diagnostics.getDiagnostics());
   }
 
   @Override

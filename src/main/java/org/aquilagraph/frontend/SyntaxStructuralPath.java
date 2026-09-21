@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import java.util.Objects;
+import org.aquilagraph.syntax.SyntaxRole;
 
 record SyntaxStructuralPath(String value) {
   SyntaxStructuralPath {
@@ -14,12 +15,9 @@ record SyntaxStructuralPath(String value) {
     return new SyntaxStructuralPath("body");
   }
 
-  SyntaxStructuralPath child(String role) {
+  SyntaxStructuralPath child(SyntaxRole role) {
     Objects.requireNonNull(role, "role");
-    if (role.isBlank() || role.indexOf('.') >= 0) {
-      throw new IllegalArgumentException("A syntax structural role must be one non-blank path segment");
-    }
-    return new SyntaxStructuralPath(value + "." + role);
+    return new SyntaxStructuralPath(value + "." + role.pathSegment());
   }
 
   SyntaxStructuralPath element(int index) {

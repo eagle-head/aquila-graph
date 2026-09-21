@@ -23,7 +23,7 @@ class CalculatorAnalysisTest {
       Path.of("analysis-targets/calculator/src/main/java").toAbsolutePath().normalize();
 
   @Test
-  void givenCalculatorSources_whenAnalyzedEndToEnd_thenEveryConcreteBodyHasCfg()
+  void givenCalculatorUnsupportedInitializers_whenAnalyzedEndToEnd_thenDiagnosticsPreventCompletionWithoutDroppingMethods()
       throws IOException {
     // Arrange
     var classFilesBefore = classFilesUnder(CALCULATOR_SOURCES);
@@ -35,7 +35,11 @@ class CalculatorAnalysisTest {
             .analyze(frontend.analyze(CALCULATOR_SOURCES, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
 
     // Assert
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion());
+    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+    assertTrue(run.diagnostics().stream()
+        .anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-field-initializer")));
+    assertTrue(run.diagnostics().stream()
+        .anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-enum-constant-initialization")));
     assertEquals(3, run.inputSnapshot().sourceFileCount());
     var representation = run.representation().orElseThrow();
     assertEquals(3, representation.program().types().size());

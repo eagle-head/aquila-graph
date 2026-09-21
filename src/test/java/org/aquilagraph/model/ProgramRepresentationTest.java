@@ -72,7 +72,14 @@ class ProgramRepresentationTest {
                 "type-1",
                 "Example",
                 JavaTypeKind.CLASS,
-                true,
+                Set.of(),
+                Optional.empty(),
+                Optional.empty(),
+                List.of(),
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
                 List.of(method),
                 List.of())));
   }
@@ -88,7 +95,7 @@ class ProgramRepresentationTest {
         Set.of(),
         false,
         true,
-        Optional.empty(),
+        false,
         List.of());
   }
 
