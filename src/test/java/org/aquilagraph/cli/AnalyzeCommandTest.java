@@ -35,7 +35,7 @@ class AnalyzeCommandTest {
     // Act
     var exitCode =
         command.run(
-            new String[] {temporaryDirectory.toString(), "--release", "25"},
+            new String[] {temporaryDirectory.toString()},
             new PrintStream(capturedOutput, true, StandardCharsets.UTF_8),
             new PrintStream(capturedError, true, StandardCharsets.UTF_8));
 
