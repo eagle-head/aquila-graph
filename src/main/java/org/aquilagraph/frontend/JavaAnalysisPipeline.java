@@ -32,15 +32,8 @@ final class JavaAnalysisPipeline {
     }
 
     var sources = new SnapshotSourceCatalog(snapshot);
-    final JavaCompilerSession session;
-    try {
-      session = JavaCompilerSession.open(compiler, invocation, sources);
-    } catch (IllegalArgumentException exception) {
-      throw new AnalysisInputException("The compiler rejected the analysis configuration", exception);
-    }
-
     FrontendResult result;
-    try (session) {
+    try (var session = openCompilerSession(compiler, invocation, sources)) {
       var compilation = session.analyze();
       var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence())
           .translate(compilation.units());
@@ -51,6 +44,15 @@ final class JavaAnalysisPipeline {
 
     environmentCapture.verifyUnchanged(compiler, configuration, invocation.analysisOptions(), environment);
     return result;
+  }
+
+  private static JavaCompilerSession openCompilerSession(JavaCompiler compiler, JavaCompilerInvocation invocation,
+      SnapshotSourceCatalog sources) {
+    try {
+      return JavaCompilerSession.open(compiler, invocation, sources);
+    } catch (IllegalArgumentException exception) {
+      throw new AnalysisInputException("The compiler rejected the analysis configuration", exception);
+    }
   }
 
   private static JavaCompiler systemCompiler(CompilerConfiguration configuration) {

@@ -36,4 +36,13 @@ public record JavaProgram(List<JavaType> types) {
   public List<JavaMethod> methods() {
     return types.stream().flatMap(type -> type.methods().stream()).toList();
   }
+
+  /**
+   * Returns the number of declared methods without materializing the flattened method list.
+   *
+   * @return declared method count
+   */
+  public int methodCount() {
+    return types.stream().mapToInt(type -> type.methods().size()).sum();
+  }
 }

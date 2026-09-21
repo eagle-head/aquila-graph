@@ -1,7 +1,6 @@
 package org.aquilagraph.model;
 
-import java.util.Arrays;
-import java.util.stream.Collectors;
+import java.util.Objects;
 
 /** Java language releases whose source semantics are supported by Aquila Graph. */
 public enum JavaRelease {
@@ -33,11 +32,49 @@ public enum JavaRelease {
    *           if Aquila Graph does not support the release
    */
   public static JavaRelease fromFeature(int feature) {
-    return Arrays.stream(values()).filter(release -> release.featureNumber == feature).findFirst().orElseThrow(
-        () -> new IllegalArgumentException("Unsupported Java release: " + feature + ". Supported releases: " + supportedFeatures()));
+    for (var release : values()) {
+      if (release.featureNumber == feature) {
+        return release;
+      }
+    }
+    throw new IllegalArgumentException(unsupportedFeatureMessage(feature));
   }
 
-  private static String supportedFeatures() {
-    return Arrays.stream(values()).map(release -> Integer.toString(release.featureNumber)).collect(Collectors.joining(", "));
+  /**
+   * Indicates whether Aquila Graph supports a Java feature number.
+   *
+   * @param feature
+   *          Java feature-release number
+   * @return {@code true} when the feature is supported
+   */
+  public static boolean supportsFeature(int feature) {
+    for (var release : values()) {
+      if (release.featureNumber == feature) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Describes an unsupported Java feature number and the supported alternatives.
+   *
+   * @param feature
+   *          unsupported Java feature-release number
+   * @return validation message
+   */
+  public static String unsupportedFeatureMessage(int feature) {
+    return "Unsupported Java release: " + feature + ". Supported releases: " + formatSupportedFeatures();
+  }
+
+  private static String formatSupportedFeatures() {
+    var supportedFeatures = new StringBuilder();
+    for (var release : values()) {
+      if (!supportedFeatures.isEmpty()) {
+        supportedFeatures.append(", ");
+      }
+      supportedFeatures.append(release.featureNumber);
+    }
+    return Objects.requireNonNull(supportedFeatures.toString(), "supported features");
   }
 }

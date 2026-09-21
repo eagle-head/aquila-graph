@@ -1,4 +1,4 @@
-/** Command-line request parsing and result presentation. */
+/** Command-line parsing, application invocation, outcome mapping, and presentation. */
 @NullMarked
 package org.aquilagraph.cli;
 

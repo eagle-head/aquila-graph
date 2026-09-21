@@ -1,4 +1,4 @@
-/** Technology-neutral contracts through which the application delegates analysis and persistence. */
+/** Technology-neutral input and output ports at the application boundary. */
 @NullMarked
 package org.aquilagraph.application.port;
 

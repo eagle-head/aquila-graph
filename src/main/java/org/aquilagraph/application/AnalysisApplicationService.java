@@ -2,12 +2,13 @@ package org.aquilagraph.application;
 
 import java.util.Objects;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import org.aquilagraph.application.port.AnalysisUseCase;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.application.port.SourceAnalyzer;
 import org.aquilagraph.core.AnalysisEngine;
 
 /** Coordinates source discovery, analysis, and optional repository storage. */
-public final class AnalysisApplicationService {
+public final class AnalysisApplicationService implements AnalysisUseCase {
   private final SourceAnalyzer sourceAnalyzer;
   private final AnalysisEngine analysisEngine;
   private final AnalysisRunRepositoryFactory repositoryFactory;
@@ -38,6 +39,7 @@ public final class AnalysisApplicationService {
    * @throws AnalysisRepositoryException
    *           if the repository fails
    */
+  @Override
   public AnalysisExecution execute(AnalysisRequest request) {
     Objects.requireNonNull(request, "request");
     var frontendResult = sourceAnalyzer.analyze(request.sourceRoot(), request.compilerConfiguration());

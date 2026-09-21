@@ -8,6 +8,7 @@ import org.aquilagraph.cli.AnalyzeCommand;
 import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.repository.neo4j.Neo4jAnalysisRunRepository;
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 
@@ -26,7 +27,7 @@ public final class AquilaGraphApplication {
     var environment = System.getenv();
     var analysisService = new AnalysisApplicationService(new JavaFrontend(new JavaSourceLoader()), new AnalysisEngine(),
         () -> openNeo4jRepository(environment));
-    var command = new AnalyzeCommand(analysisService);
+    var command = new AnalyzeCommand(analysisService, JavaRelease.JAVA_25);
     var exitCode = command.run(arguments, System.out, System.err);
     if (exitCode != AnalyzeCommand.EXIT_COMPLETED) {
       System.exit(exitCode);

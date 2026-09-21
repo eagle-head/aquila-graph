@@ -39,6 +39,15 @@ public final class AnalysisRepositoryException extends RuntimeException {
   }
 
   /**
+   * Returns the repository failure that prevented storage.
+   *
+   * @return repository boundary failure
+   */
+  public RepositoryException repositoryFailure() {
+    return (RepositoryException) Objects.requireNonNull(getCause(), "repository failure");
+  }
+
+  /**
    * Rejects deserialization because the transient run cannot be reconstructed.
    *
    * @param input

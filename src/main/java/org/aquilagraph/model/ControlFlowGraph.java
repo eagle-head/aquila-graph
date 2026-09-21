@@ -74,6 +74,15 @@ public record ControlFlowGraph(String graphId, String methodKey, EntryNode entry
   }
 
   /**
+   * Returns the number of graph nodes without materializing the combined node list.
+   *
+   * @return entry, operation, and exit node count
+   */
+  public int nodeCount() {
+    return operationNodes.size() + 2;
+  }
+
+  /**
    * Returns nodes directly reachable from an owned node.
    *
    * @param node
