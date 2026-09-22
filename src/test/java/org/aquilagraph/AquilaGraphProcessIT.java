@@ -8,6 +8,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -16,88 +18,83 @@ class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
 
   @Test
-  void givenPackagedJarSupportedSourceAndRelease_whenProcessRuns_thenAnalysisCompletes()
+  void givenPackagedJarWithUnrepresentedCompilerKinds_whenProcessRuns_thenCoverageBlocksCompletion()
       throws IOException, InterruptedException {
     // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
     Files.writeString(
-        temporaryDirectory.resolve("Supported.java"),
+        sourceRoot.resolve("Supported.java"),
         "class Supported { int value(int input) { return input + 1; } }");
-    var javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java.exe");
-    var jar = Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath().normalize();
-    var process =
-        new ProcessBuilder(
-                javaExecutable.toString(),
-                "-jar",
-                jar.toString(),
-                temporaryDirectory.toString(),
-                "--release",
-                "25")
-            .redirectErrorStream(true)
-            .start();
-
     // Act
-    var completed = process.waitFor(Duration.ofSeconds(30).toMillis(), TimeUnit.MILLISECONDS);
-    var output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+    var result = runPackagedJar(sourceRoot, "--release", "25");
 
     // Assert
-    assertTrue(completed, "The packaged analyzer process did not finish within 30 seconds");
-    assertEquals(0, process.exitValue(), output);
-    assertTrue(output.contains("Completion: COMPLETED"), output);
-    assertTrue(output.contains("Java release: 25"), output);
-    assertTrue(output.contains("Java source files: 1"), output);
+    assertTrue(result.completed(), "The packaged analyzer process did not finish within 30 seconds: " + result.output());
+    assertEquals(1, result.exitCode(), result.output());
+    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertTrue(result.output().contains("frontend.unsupported-tree-kind.compilation-unit"), result.output());
+    assertTrue(result.output().contains("frontend.unsupported-tree-kind.primitive-type"), result.output());
+    assertTrue(result.output().contains("Java release: 25"), result.output());
+    assertTrue(result.output().contains("Java source files: 1"), result.output());
+    assertTrue(result.output().contains("Repository: NOT_ELIGIBLE"), result.output());
   }
 
   @Test
   void givenPackagedJarCalculator_whenProcessRuns_thenUnsupportedInitializersAreReported()
       throws IOException, InterruptedException {
     // Arrange
-    var javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java.exe");
-    var jar = Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath().normalize();
     var calculator =
         Path.of("analysis-targets/calculator/src/main/java").toAbsolutePath().normalize();
-    var process =
-        new ProcessBuilder(javaExecutable.toString(), "-jar", jar.toString(), calculator.toString())
-            .redirectErrorStream(true)
-            .start();
 
     // Act
-    var completed = process.waitFor(Duration.ofSeconds(30).toMillis(), TimeUnit.MILLISECONDS);
-    var output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+    var result = runPackagedJar(calculator);
 
     // Assert
-    assertTrue(completed, "The packaged analyzer process did not finish within 30 seconds");
-    assertEquals(1, process.exitValue(), output);
-    assertTrue(output.contains("Completion: INCOMPLETE"), output);
-    assertTrue(output.contains("frontend.unsupported-field-initializer"), output);
-    assertTrue(output.contains("frontend.unsupported-enum-constant-initialization"), output);
-    assertTrue(output.contains("Repository: NOT_ELIGIBLE"), output);
+    assertTrue(result.completed(), "The packaged analyzer process did not finish within 30 seconds: " + result.output());
+    assertEquals(1, result.exitCode(), result.output());
+    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertTrue(result.output().contains("frontend.unsupported-field-initializer"), result.output());
+    assertTrue(result.output().contains("frontend.unsupported-enum-constant-initialization"), result.output());
+    assertTrue(result.output().contains("Repository: NOT_ELIGIBLE"), result.output());
   }
 
   @Test
   void givenPackagedJarAndMalformedUtf8Source_whenProcessRuns_thenInputIsRejected()
       throws IOException, InterruptedException {
     // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
     Files.write(
-        temporaryDirectory.resolve("Malformed.java"), new byte[] {(byte) 0xC3, (byte) 0x28});
-    var javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java.exe");
-    var jar = Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath().normalize();
-    var process =
-        new ProcessBuilder(
-                javaExecutable.toString(),
-                "-jar",
-                jar.toString(),
-                temporaryDirectory.toString())
-            .redirectErrorStream(true)
-            .start();
-
+        sourceRoot.resolve("Malformed.java"), new byte[] {(byte) 0xC3, (byte) 0x28});
     // Act
-    var completed = process.waitFor(Duration.ofSeconds(30).toMillis(), TimeUnit.MILLISECONDS);
-    var output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+    var result = runPackagedJar(sourceRoot);
 
     // Assert
-    assertTrue(completed, "The packaged analyzer process did not finish within 30 seconds");
-    assertEquals(2, process.exitValue(), output);
-    assertTrue(output.contains("Input rejected:"), output);
-    assertTrue(output.contains("Malformed.java"), output);
+    assertTrue(result.completed(), "The packaged analyzer process did not finish within 30 seconds: " + result.output());
+    assertEquals(2, result.exitCode(), result.output());
+    assertTrue(result.output().contains("Input rejected:"), result.output());
+    assertTrue(result.output().contains("Malformed.java"), result.output());
+  }
+
+  private ProcessResult runPackagedJar(Path sourceRoot, String... options) throws IOException, InterruptedException {
+    var javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java.exe");
+    var jar = Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath().normalize();
+    var command = new ArrayList<>(List.of(javaExecutable.toString(), "-jar", jar.toString(), sourceRoot.toString()));
+    command.addAll(List.of(options));
+    var outputFile = temporaryDirectory.resolve("process-output.txt");
+    var process = new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(outputFile.toFile()).start();
+    try {
+      var completed = process.waitFor(Duration.ofSeconds(30).toMillis(), TimeUnit.MILLISECONDS);
+      if (!completed) {
+        process.destroyForcibly().waitFor();
+      }
+      return new ProcessResult(completed, process.exitValue(), Files.readString(outputFile, StandardCharsets.UTF_8));
+    } finally {
+      if (process.isAlive()) {
+        process.destroyForcibly().waitFor();
+      }
+    }
+  }
+
+  private record ProcessResult(boolean completed, int exitCode, String output) {
   }
 }
