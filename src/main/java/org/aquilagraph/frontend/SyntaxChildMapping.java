@@ -4,6 +4,7 @@ import com.sun.source.tree.Tree;
 import com.sun.source.util.TreePath;
 import java.util.Objects;
 import org.aquilagraph.syntax.SyntaxRole;
+import org.aquilagraph.syntax.SyntaxStructuralPath;
 
 record SyntaxChildMapping(SyntaxRole role, int position, Tree tree, TreePath treePath, SyntaxStructuralPath structuralPath, SyntaxUse use) {
   SyntaxChildMapping {

@@ -17,10 +17,12 @@ import org.aquilagraph.model.LanguageFeatureOccurrence;
 import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.StableId;
+import org.aquilagraph.syntax.JavaSourceKind;
 import org.aquilagraph.syntax.MethodSyntax;
 import org.aquilagraph.syntax.SyntaxChild;
 import org.aquilagraph.syntax.SyntaxKind;
 import org.aquilagraph.syntax.SyntaxNode;
+import org.aquilagraph.syntax.SyntaxStructuralPath;
 import org.aquilagraph.syntax.SyntaxType;
 import org.aquilagraph.syntax.SyntaxValue;
 
@@ -45,7 +47,8 @@ final class JavaMethodBodyTranslator {
     Objects.requireNonNull(methodKey, "methodKey");
     Objects.requireNonNull(body, "body");
     Objects.requireNonNull(bodyPath, "bodyPath");
-    var translation = translateTree(unit, sourceFile, methodKey, body, bodyPath, SyntaxStructuralPath.methodBody(), SyntaxUse.VALUE);
+    var translation = translateTree(unit, sourceFile, methodKey, body, bodyPath, JavaSyntaxStructuralPath.methodBody(bodyPath),
+        SyntaxUse.VALUE);
     return new TranslationResult<>(new MethodSyntax(methodKey, translation.node()), translation.diagnostics(),
         translation.featureOccurrences(), translation.featureObservations());
   }
@@ -55,18 +58,17 @@ final class JavaMethodBodyTranslator {
     var mapping = syntaxProfile.describe(tree, path, structuralPath, use);
     var children = translateChildren(unit, sourceFile, methodKey, mapping.children());
     var origin = sourceEvidence.origin(unit, sourceFile, tree);
-    var nodeId = StableId.sha256("syntax", methodKey, structuralPath.value(), tree.getKind().name(),
-        origin.map(Object::toString).orElse("no-direct-source"));
+    var sourceKind = JavaSourceKind.valueOf(tree.getKind().name());
     var childNodes = new ArrayList<SyntaxChild>(children.size());
     for (var index = 0; index < children.size(); index++) {
       var childMapping = mapping.children().get(index);
       childNodes.add(new SyntaxChild(childMapping.role(), childMapping.position(), children.get(index).node()));
     }
     var node = origin
-        .map(source -> SyntaxNode.source(nodeId, mapping.kind(), semantics.type(path), mapping.value(), childNodes,
-            mapping.semanticReference(), source))
-        .orElseGet(() -> SyntaxNode.withoutDirectSource(nodeId, mapping.kind(), semantics.type(path), mapping.value(), childNodes,
-            mapping.semanticReference()));
+        .map(source -> SyntaxNode.source(sourceFile.sourceFileKey(), structuralPath, sourceKind, mapping.kind(), semantics.type(path),
+            mapping.value(), childNodes, mapping.semanticReference(), source))
+        .orElseGet(() -> SyntaxNode.withoutDirectSource(sourceFile.sourceFileKey(), structuralPath, sourceKind, mapping.kind(),
+            semantics.type(path), mapping.value(), childNodes, mapping.semanticReference()));
     var diagnostics = new ArrayList<>(diagnostics(methodKey, node, children));
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();

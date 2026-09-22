@@ -19,7 +19,11 @@ import org.aquilagraph.model.LanguageFeatureCoverage;
 import org.aquilagraph.model.LanguageFeatureCoverageResult;
 
 /**
- * Transient input passed from the Java frontend to semantic analysis.
+ * Frontend boundary input passed to semantic analysis.
+ *
+ * <p>
+ * This boundary container is transient. Its method syntax contains durable compiler-neutral in-memory occurrence values; aggregate
+ * ownership is introduced by later foundation tasks.
  *
  * @param snapshot
  *          analyzed source snapshot
@@ -72,7 +76,7 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
   }
 
   /**
-   * Finds transient syntax evidence by stable method identity.
+   * Finds durable in-memory syntax evidence by stable method identity.
    *
    * @param methodKey
    *          method identity

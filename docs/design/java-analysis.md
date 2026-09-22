@@ -39,7 +39,7 @@ therefore produces a deterministic, source-located unsupported diagnostic
 instead of being discarded. `DeclarationIdentityRegistry` assigns canonical keys
 to declarations, including owner-and-ordinal type-parameter keys, while compiler
 elements remain available. `JavaMethodBodyTranslator` recursively
-converts one method body into transient `MethodSyntax`; and
+converts one method body into durable project-owned `MethodSyntax` values held by the current in-memory analysis boundary; and
 `MethodBodySyntaxProfile` maps each compiler-tree form through visitor dispatch
 to a typed `SyntaxKind`, typed `SyntaxValue`, role-bearing `SyntaxChild` values,
 stable structural paths, and contextual value or assignment-location use.
@@ -90,6 +90,14 @@ analysis options, dependency roles, order, kinds, and content fingerprints, but
 excludes dependency locations. Locations remain provenance metadata. Options
 that could add an uncaptured compiler input location are reserved to Aquila
 Graph and must instead use the captured configuration fields.[8][14][15]
+
+Analyzer `0.6.0` and stored model `8` establish the identity boundary for the
+durable source-occurrence contract. CFG operation, value, transfer, and
+relationship keys derived from source occurrences intentionally differ from the
+model-7 contract. Because both versions participate in the analysis-run key,
+the same captured software and environment cannot reuse a model-7 run identity
+under model 8. The CFG semantics and topology are unchanged by this identity
+migration.[5][8]
 
 ## Release-Bound Language Coverage Contract
 
@@ -494,7 +502,7 @@ implements its bounded model and has no runtime dependency on
    [MethodBodySyntaxProfile](../../src/main/java/org/aquilagraph/frontend/MethodBodySyntaxProfile.java), contextual syntax mapping; and
    [SemanticResolver](../../src/main/java/org/aquilagraph/frontend/SemanticResolver.java), compiler semantic queries;
    [JavaSourceEvidence](../../src/main/java/org/aquilagraph/frontend/JavaSourceEvidence.java), source-position projection;
-   [SyntaxAnalysisInput](../../src/main/java/org/aquilagraph/syntax/SyntaxAnalysisInput.java), transient frontend-to-core boundary; and
+   [SyntaxAnalysisInput](../../src/main/java/org/aquilagraph/syntax/SyntaxAnalysisInput.java), durable in-memory frontend-to-core boundary; and
    [syntax package](../../src/main/java/org/aquilagraph/syntax), typed syntax evidence contracts.
 3. [InputSnapshot](../../src/main/java/org/aquilagraph/model/InputSnapshot.java), record invariants.
 4. [StableId](../../src/main/java/org/aquilagraph/model/StableId.java), `sha256`.

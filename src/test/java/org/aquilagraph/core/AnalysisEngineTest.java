@@ -14,9 +14,11 @@ import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.AnalysisOutcomeKind;
+import org.aquilagraph.model.AnalysisRun;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.OperationKind;
+import org.aquilagraph.model.StableId;
 import org.aquilagraph.model.TransferKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -156,6 +158,24 @@ class AnalysisEngineTest {
     // Assert
     assertEquals(AnalysisCompletion.REJECTED, run.completion());
     assertTrue(run.representation().isEmpty());
+  }
+
+  @Test
+  void givenDurableSyntaxIdentityContract_whenAnalysisRuns_thenRunIdentityUsesVersionedMigrationBoundary() throws IOException {
+    // Arrange
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+    var engine = new AnalysisEngine();
+
+    // Act
+    var run = engine.analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
+
+    // Assert
+    assertEquals("0.6.0", run.analyzerVersion());
+    assertEquals("8", run.modelVersion());
+    assertEquals(StableId.sha256("analysis-run", run.softwareVersion().signature(), "0.6.0", "8"), run.runId());
+    assertNotEquals(StableId.sha256("analysis-run", run.softwareVersion().signature(), "0.5.0", "7"), run.runId());
+    assertEquals(AnalysisRun.CURRENT_ANALYZER_VERSION, run.analyzerVersion());
+    assertEquals(AnalysisRun.CURRENT_MODEL_VERSION, run.modelVersion());
   }
 
   @Test

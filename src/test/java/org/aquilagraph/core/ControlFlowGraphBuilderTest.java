@@ -19,14 +19,17 @@ import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.JavaTypeIdentity;
 import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.OperationKind;
+import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.model.TransferKind;
 import org.aquilagraph.model.ValueKind;
+import org.aquilagraph.syntax.JavaSourceKind;
 import org.aquilagraph.syntax.MethodSyntax;
 import org.aquilagraph.syntax.SyntaxChild;
 import org.aquilagraph.syntax.SyntaxKind;
 import org.aquilagraph.syntax.SyntaxNode;
 import org.aquilagraph.syntax.SyntaxOperator;
 import org.aquilagraph.syntax.SyntaxRole;
+import org.aquilagraph.syntax.SyntaxStructuralPath;
 import org.aquilagraph.syntax.SyntaxType;
 import org.aquilagraph.syntax.SyntaxValue;
 import org.junit.jupiter.api.Test;
@@ -121,8 +124,9 @@ class ControlFlowGraphBuilderTest {
     var left = syntaxLeaf("left", SyntaxKind.LITERAL, new SyntaxValue.Literal("1"));
     var right = syntaxLeaf("right", SyntaxKind.LITERAL, new SyntaxValue.Literal("2"));
     var binary =
-        SyntaxNode.withoutDirectSource(
+        syntaxNode(
             "binary",
+            JavaSourceKind.PLUS,
             SyntaxKind.BINARY,
             resolvedIntType(),
             new SyntaxValue.Operator(SyntaxOperator.PLUS),
@@ -131,16 +135,18 @@ class ControlFlowGraphBuilderTest {
                 new SyntaxChild(SyntaxRole.LEFT_OPERAND, 0, left)),
             Optional.empty());
     var returnNode =
-        SyntaxNode.withoutDirectSource(
+        syntaxNode(
             "return",
+            JavaSourceKind.RETURN,
             SyntaxKind.RETURN,
             SyntaxType.NotApplicable.INSTANCE,
             SyntaxValue.None.INSTANCE,
             List.of(new SyntaxChild(SyntaxRole.EXPRESSION, 0, binary)),
             Optional.empty());
     var root =
-        SyntaxNode.withoutDirectSource(
+        syntaxNode(
             "root",
+            JavaSourceKind.BLOCK,
             SyntaxKind.BLOCK,
             SyntaxType.NotApplicable.INSTANCE,
             SyntaxValue.None.INSTANCE,
@@ -472,7 +478,7 @@ class ControlFlowGraphBuilderTest {
   }
 
   private static SyntaxNode syntaxLeaf(String nodeId, SyntaxKind kind, SyntaxValue value) {
-    return SyntaxNode.withoutDirectSource(nodeId, kind, resolvedIntType(), value, List.of(), Optional.empty());
+    return syntaxNode(nodeId, JavaSourceKind.INT_LITERAL, kind, resolvedIntType(), value, List.of(), Optional.empty());
   }
 
   private static SyntaxType resolvedIntType() {
@@ -480,15 +486,22 @@ class ControlFlowGraphBuilderTest {
   }
 
   private static MethodInput syntheticMethod(SyntaxType expressionType) {
-    var literal = SyntaxNode.withoutDirectSource("literal", SyntaxKind.LITERAL, expressionType, new SyntaxValue.Literal("1"), List.of(),
-        Optional.empty());
-    var returnNode = SyntaxNode.withoutDirectSource("return", SyntaxKind.RETURN, SyntaxType.NotApplicable.INSTANCE,
+    var literal = syntaxNode("literal", JavaSourceKind.INT_LITERAL, SyntaxKind.LITERAL, expressionType,
+        new SyntaxValue.Literal("1"), List.of(), Optional.empty());
+    var returnNode = syntaxNode("return", JavaSourceKind.RETURN, SyntaxKind.RETURN, SyntaxType.NotApplicable.INSTANCE,
         SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.EXPRESSION, 0, literal)), Optional.empty());
-    var root = SyntaxNode.withoutDirectSource("root", SyntaxKind.BLOCK, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
-        List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, returnNode)), Optional.empty());
+    var root = syntaxNode("root", JavaSourceKind.BLOCK, SyntaxKind.BLOCK, SyntaxType.NotApplicable.INSTANCE,
+        SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, returnNode)), Optional.empty());
     var declaration = new JavaMethod("type:Synthetic#value()", "type:Synthetic", "value", "value()", "int", List.of(), Set.of(),
         false, true, true, List.of());
     return new MethodInput(declaration, new MethodSyntax(declaration.methodKey(), root));
+  }
+
+  private static SyntaxNode syntaxNode(String identity, JavaSourceKind sourceKind, SyntaxKind kind, SyntaxType type,
+      SyntaxValue value, List<SyntaxChild> children, Optional<SemanticReference> reference) {
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.STATEMENT,
+        Math.floorMod(identity.hashCode(), Integer.MAX_VALUE));
+    return SyntaxNode.withoutDirectSource("source", path, sourceKind, kind, type, value, children, reference);
   }
 
   private MethodInput method(String name) throws IOException {

@@ -8,11 +8,20 @@
   <disallow pkg="jdk.internal" />
   <disallow pkg="sun" />
   <disallow pkg="com.sun.source" />
+  <disallow pkg="javax.lang.model" />
   <disallow pkg="javax.tools" />
   <disallow pkg="org.neo4j" />
   <allow pkg=".*" regex="true" />
 
   <subpackage name="model">
+    <disallow pkg="org.aquilagraph.application" />
+    <disallow pkg="org.aquilagraph.cli" />
+    <disallow pkg="org.aquilagraph.core" />
+    <disallow pkg="org.aquilagraph.frontend" />
+    <disallow pkg="org.aquilagraph.repository" />
+  </subpackage>
+
+  <subpackage name="syntax">
     <disallow pkg="org.aquilagraph.application" />
     <disallow pkg="org.aquilagraph.cli" />
     <disallow pkg="org.aquilagraph.core" />
@@ -29,6 +38,7 @@
 
   <subpackage name="frontend">
     <allow pkg="com.sun.source" />
+    <allow pkg="javax.lang.model" />
     <allow pkg="javax.tools" />
     <allow pkg="org.aquilagraph.application.port" />
     <disallow pkg="org.aquilagraph.application" />

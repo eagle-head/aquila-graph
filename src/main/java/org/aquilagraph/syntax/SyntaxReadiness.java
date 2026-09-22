@@ -1,6 +1,6 @@
 package org.aquilagraph.syntax;
 
-/** Derived readiness of transient method syntax for direct semantic graph lowering. */
+/** Derived readiness of durable in-memory method syntax for direct semantic graph lowering. */
 public enum SyntaxReadiness {
   /** Every retained construct and required compiler fact is available for lowering. */
   LOWERABLE,

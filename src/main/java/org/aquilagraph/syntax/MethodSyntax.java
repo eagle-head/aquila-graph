@@ -4,7 +4,11 @@ import java.util.Objects;
 import org.aquilagraph.model.ResolutionStatus;
 
 /**
- * Transient syntax evidence for one method body; it is consumed before an analysis run is created.
+ * Current method-level owner of durable in-memory source occurrences for one method body.
+ *
+ * <p>
+ * Aggregate ownership is introduced by the later foundation tasks; this record currently supplies the existing zero-copy semantic lowering
+ * view.
  *
  * @param methodKey
  *          stable identity of the method whose body was translated

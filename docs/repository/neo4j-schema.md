@@ -26,9 +26,10 @@ which makes publication idempotent at the run boundary.[1][2]
 `MethodAnalysis`, `ControlFlowGraph`, `FlowValue`,
 `EntryNode`, `OperationNode`, `ExitNode`, `Diagnostic`, and `SourceOrigin`.[1]
 
-The compiler-derived syntax tree is deliberately absent from this schema. It is
-transient source-structure evidence used while constructing the CFG, not the
-persisted analysis representation. `JavaMethod.hasBody` records whether the
+The durable project-owned source-occurrence tree is deliberately absent from
+this schema until the AST projection is introduced. It is retained in memory by
+the syntax analysis boundary while constructing the CFG, but it is not part of
+the current Neo4j projection. `JavaMethod.hasBody` records whether the
 declaration has a body without retaining that body. Semantic references and
 source spans needed after lowering are copied to their owning `OperationNode`
 entities and persisted through `HAS_REFERENCE` and `HAS_ORIGIN`.[2][9]
@@ -110,6 +111,16 @@ Domain keys are length-framed SHA-256 identifiers derived from stable source,
 symbol, structural-path, operation, graph, or relationship identity. Ordered
 positions are stored as properties where order is semantically relevant.[2][3]
 
+Analyzer `0.6.0` and stored model `8` are the migration boundary for durable
+source-occurrence identities. Existing CFG operation, value, transfer, and
+relationship keys that depend on a syntax-node identity change relative to
+model 7. The analyzer and model versions participate in `AnalysisRun.runId`, so
+a model-8 publication receives a different run identity and does not overwrite
+the model-7 projection for the same captured software and environment. Within
+model 8, repeating the same run remains idempotent. This migration changes
+identities, not Neo4j labels, relationship types, constraints, or CFG
+semantics.[1][2][3]
+
 The repository explicitly creates:
 
 ```cypher
@@ -155,7 +166,7 @@ Browser use, and `/data` is backed by the named
 6. [Compose deployment](../../deployment/neo4j/compose.yaml) and [operations](../../deployment/neo4j/README.md).
 7. Neo4j Java Driver Manual, [transactions](https://neo4j.com/docs/java-manual/current/transactions/).
 8. Neo4j Cypher Manual, [constraints](https://neo4j.com/docs/cypher-manual/current/constraints/).
-9. [SyntaxAnalysisInput](../../src/main/java/org/aquilagraph/syntax/SyntaxAnalysisInput.java), transient syntax ownership;
+9. [SyntaxAnalysisInput](../../src/main/java/org/aquilagraph/syntax/SyntaxAnalysisInput.java), durable in-memory syntax ownership;
    [JavaType](../../src/main/java/org/aquilagraph/model/JavaType.java), durable declaration relationships;
    [OperationNode](../../src/main/java/org/aquilagraph/model/OperationNode.java), retained invocation semantics, semantic references, and source origins;
    [Neo4jProgramMapper](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jProgramMapper.java), declaration projection; and

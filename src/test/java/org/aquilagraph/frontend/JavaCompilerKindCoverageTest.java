@@ -18,7 +18,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.LanguageFeature;
 import org.aquilagraph.model.LanguageFeatureCategory;
 import org.aquilagraph.model.LanguageFeatureClassification;
@@ -372,72 +371,16 @@ class JavaCompilerKindCoverageTest {
         }
       }
     }
-    result.methodSyntax().stream().flatMap(syntax -> syntax.root().descendantsAndSelf().stream())
-        .forEach(node -> addSyntaxEvidence(retainedKinds, node.syntaxKind(), node.value(), node.resolvedType()
-            .map(identity -> identity.category())));
+    result.methodSyntax().stream().flatMap(syntax -> syntax.root().descendantsAndSelf().stream()).forEach(node -> {
+      retainedKinds.add(Tree.Kind.valueOf(node.sourceKind().name()));
+      if (node.syntaxKind() == SyntaxKind.CASE) {
+        addSwitchLabelEvidence(retainedKinds, node.value(SyntaxValue.SwitchCase.class));
+      }
+    });
     return retainedKinds;
   }
 
-  private static void addSyntaxEvidence(EnumSet<Tree.Kind> retainedKinds, SyntaxKind syntaxKind, SyntaxValue value,
-      Optional<JavaTypeCategory> typeCategory) {
-    switch (syntaxKind) {
-      case BLOCK -> retainedKinds.add(Tree.Kind.BLOCK);
-      case LOCAL_DECLARATION -> retainedKinds.add(Tree.Kind.VARIABLE);
-      case EXPRESSION_STATEMENT -> retainedKinds.add(Tree.Kind.EXPRESSION_STATEMENT);
-      case RETURN -> retainedKinds.add(Tree.Kind.RETURN);
-      case THROW -> retainedKinds.add(Tree.Kind.THROW);
-      case IF -> retainedKinds.add(Tree.Kind.IF);
-      case TRY -> retainedKinds.add(Tree.Kind.TRY);
-      case CATCH -> retainedKinds.add(Tree.Kind.CATCH);
-      case SWITCH_EXPRESSION -> retainedKinds.add(Tree.Kind.SWITCH_EXPRESSION);
-      case CASE -> addCaseEvidence(retainedKinds, value);
-      case YIELD -> retainedKinds.add(Tree.Kind.YIELD);
-      case INVOCATION -> retainedKinds.add(Tree.Kind.METHOD_INVOCATION);
-      case OBJECT_CREATION -> retainedKinds.add(Tree.Kind.NEW_CLASS);
-      case FIELD_ACCESS, FIELD_LOCATION -> addFieldAccessEvidence(retainedKinds, value);
-      case VARIABLE_ACCESS, VARIABLE_LOCATION, RECEIVER -> retainedKinds.add(Tree.Kind.IDENTIFIER);
-      case LITERAL -> addLiteralEvidence(retainedKinds, typeCategory.orElseThrow());
-      case UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR ->
-        retainedKinds.add(Tree.Kind.valueOf(((SyntaxValue.Operator) value).operator().name()));
-      case ASSIGNMENT -> retainedKinds.add(Tree.Kind.ASSIGNMENT);
-      case ARRAY_LOCATION, ARRAY_ACCESS -> retainedKinds.add(Tree.Kind.ARRAY_ACCESS);
-      case ARRAY_LENGTH -> retainedKinds.add(Tree.Kind.MEMBER_SELECT);
-      case PARENTHESIZED -> retainedKinds.add(Tree.Kind.PARENTHESIZED);
-      case TYPE_CAST -> retainedKinds.add(Tree.Kind.TYPE_CAST);
-      case CONDITIONAL_EXPRESSION -> retainedKinds.add(Tree.Kind.CONDITIONAL_EXPRESSION);
-      case EMPTY -> retainedKinds.add(Tree.Kind.EMPTY_STATEMENT);
-      case UNSUPPORTED -> {
-        // The test rejects unsupported nodes before accepting this evidence set.
-      }
-    }
-  }
-
-  private static void addFieldAccessEvidence(EnumSet<Tree.Kind> retainedKinds, SyntaxValue value) {
-    var receiver = ((SyntaxValue.FieldAccess) value).receiver();
-    if (receiver == SyntaxValue.FieldReceiver.INSTANCE_IMPLICIT || receiver == SyntaxValue.FieldReceiver.STATIC_UNQUALIFIED) {
-      retainedKinds.add(Tree.Kind.IDENTIFIER);
-    } else {
-      retainedKinds.add(Tree.Kind.MEMBER_SELECT);
-    }
-  }
-
-  private static void addLiteralEvidence(EnumSet<Tree.Kind> retainedKinds, JavaTypeCategory typeCategory) {
-    retainedKinds.add(switch (typeCategory) {
-      case BOOLEAN -> Tree.Kind.BOOLEAN_LITERAL;
-      case CHAR -> Tree.Kind.CHAR_LITERAL;
-      case INT -> Tree.Kind.INT_LITERAL;
-      case LONG -> Tree.Kind.LONG_LITERAL;
-      case FLOAT -> Tree.Kind.FLOAT_LITERAL;
-      case DOUBLE -> Tree.Kind.DOUBLE_LITERAL;
-      case NULL -> Tree.Kind.NULL_LITERAL;
-      case DECLARED -> Tree.Kind.STRING_LITERAL;
-      default -> throw new AssertionError("Unexpected literal type category: " + typeCategory);
-    });
-  }
-
-  private static void addCaseEvidence(EnumSet<Tree.Kind> retainedKinds, SyntaxValue value) {
-    retainedKinds.add(Tree.Kind.CASE);
-    var switchCase = (SyntaxValue.SwitchCase) value;
+  private static void addSwitchLabelEvidence(EnumSet<Tree.Kind> retainedKinds, SyntaxValue.SwitchCase switchCase) {
     for (var label : switchCase.labels()) {
       if (label instanceof SyntaxValue.SwitchLabel.Expression) {
         retainedKinds.add(Tree.Kind.CONSTANT_CASE_LABEL);

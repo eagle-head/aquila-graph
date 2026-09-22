@@ -3,7 +3,7 @@ package org.aquilagraph.syntax;
 import java.util.Objects;
 import org.aquilagraph.model.JavaTypeIdentity;
 
-/** Compiler type outcome attached directly to transient syntax evidence. */
+/** Compiler type outcome projected onto a durable source occurrence. */
 public sealed interface SyntaxType {
   /** Indicates that a syntax node does not denote a typed Java value. */
   enum NotApplicable implements SyntaxType {

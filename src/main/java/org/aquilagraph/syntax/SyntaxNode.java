@@ -14,11 +14,14 @@ import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.model.SourceSpan;
 
-/** Immutable, transient compiler-boundary evidence for one javac tree. */
+/** Immutable, compiler-neutral facts for one durable Java source occurrence. */
 public final class SyntaxNode {
   private static final int SINGLE_CHILD_COUNT = 1;
 
-  private final String identity;
+  private final SyntaxNodeKey key;
+  private final String sourceOwner;
+  private final SyntaxStructuralPath path;
+  private final JavaSourceKind exactKind;
   private final SyntaxKind kind;
   private final SyntaxType syntaxType;
   private final SyntaxValue syntaxValue;
@@ -26,15 +29,21 @@ public final class SyntaxNode {
   private final Optional<SemanticReference> reference;
   private final Optional<SourceSpan> sourceOrigin;
 
-  private SyntaxNode(String nodeId, SyntaxKind syntaxKind, SyntaxType type, SyntaxValue value, List<SyntaxChild> children,
-      Optional<SemanticReference> semanticReference, Optional<SourceSpan> origin) {
-    identity = requireText(nodeId, "Syntax node identity");
+  private SyntaxNode(String sourceFileKey, SyntaxStructuralPath structuralPath, JavaSourceKind sourceKind, SyntaxKind syntaxKind,
+      SyntaxType type, SyntaxValue value, List<SyntaxChild> children, Optional<SemanticReference> semanticReference,
+      Optional<SourceSpan> origin) {
+    sourceOwner = requireText(sourceFileKey, "Source-file key");
+    path = Objects.requireNonNull(structuralPath, "structuralPath");
+    exactKind = Objects.requireNonNull(sourceKind, "sourceKind");
+    key = SyntaxNodeKey.from(sourceOwner, path, exactKind);
     kind = Objects.requireNonNull(syntaxKind, "syntaxKind");
     syntaxType = Objects.requireNonNull(type, "type");
     syntaxValue = Objects.requireNonNull(value, "value");
     childNodes = List.copyOf(Objects.requireNonNull(children, "children"));
     reference = Objects.requireNonNull(semanticReference, "semanticReference");
     sourceOrigin = Objects.requireNonNull(origin, "origin");
+    validateSourceKind(syntaxKind, sourceKind);
+    validateSourceOwner(sourceOwner, sourceOrigin);
     validateType(syntaxKind, type);
     validateReference(syntaxKind, semanticReference);
     validateChildPositions(childNodes);
@@ -44,8 +53,12 @@ public final class SyntaxNode {
   /**
    * Creates syntax evidence with one direct source origin.
    *
-   * @param nodeId
-   *          stable syntax identity
+   * @param sourceFileKey
+   *          captured source owner
+   * @param structuralPath
+   *          root-relative typed path
+   * @param sourceKind
+   *          exact Java source kind
    * @param syntaxKind
    *          retained syntax category
    * @param type
@@ -60,17 +73,22 @@ public final class SyntaxNode {
    *          direct source range
    * @return validated syntax evidence
    */
-  public static SyntaxNode source(String nodeId, SyntaxKind syntaxKind, SyntaxType type, SyntaxValue value, List<SyntaxChild> children,
-      Optional<SemanticReference> semanticReference, SourceSpan origin) {
-    return new SyntaxNode(nodeId, syntaxKind, type, value, children, semanticReference,
+  public static SyntaxNode source(String sourceFileKey, SyntaxStructuralPath structuralPath, JavaSourceKind sourceKind,
+      SyntaxKind syntaxKind, SyntaxType type, SyntaxValue value, List<SyntaxChild> children, Optional<SemanticReference> semanticReference,
+      SourceSpan origin) {
+    return new SyntaxNode(sourceFileKey, structuralPath, sourceKind, syntaxKind, type, value, children, semanticReference,
         Optional.of(Objects.requireNonNull(origin, "origin")));
   }
 
   /**
    * Creates syntax evidence for a compiler tree that has no direct source range.
    *
-   * @param nodeId
-   *          stable syntax identity
+   * @param sourceFileKey
+   *          captured source owner
+   * @param structuralPath
+   *          root-relative typed path
+   * @param sourceKind
+   *          exact Java source kind
    * @param syntaxKind
    *          retained syntax category
    * @param type
@@ -83,9 +101,11 @@ public final class SyntaxNode {
    *          optional declaration reference
    * @return validated syntax evidence
    */
-  public static SyntaxNode withoutDirectSource(String nodeId, SyntaxKind syntaxKind, SyntaxType type, SyntaxValue value,
-      List<SyntaxChild> children, Optional<SemanticReference> semanticReference) {
-    return new SyntaxNode(nodeId, syntaxKind, type, value, children, semanticReference, Optional.empty());
+  public static SyntaxNode withoutDirectSource(String sourceFileKey, SyntaxStructuralPath structuralPath, JavaSourceKind sourceKind,
+      SyntaxKind syntaxKind, SyntaxType type, SyntaxValue value, List<SyntaxChild> children,
+      Optional<SemanticReference> semanticReference) {
+    return new SyntaxNode(sourceFileKey, structuralPath, sourceKind, syntaxKind, type, value, children, semanticReference,
+        Optional.empty());
   }
 
   /**
@@ -94,7 +114,43 @@ public final class SyntaxNode {
    * @return stable syntax identity
    */
   public String nodeId() {
-    return identity;
+    return key.value();
+  }
+
+  /**
+   * Returns the typed stable occurrence key.
+   *
+   * @return stable occurrence key
+   */
+  public SyntaxNodeKey nodeKey() {
+    return key;
+  }
+
+  /**
+   * Returns the captured source owner.
+   *
+   * @return source-file key
+   */
+  public String sourceFileKey() {
+    return sourceOwner;
+  }
+
+  /**
+   * Returns the root-relative typed structural path.
+   *
+   * @return structural path
+   */
+  public SyntaxStructuralPath structuralPath() {
+    return path;
+  }
+
+  /**
+   * Returns the exact compiler-neutral Java source kind.
+   *
+   * @return exact source kind
+   */
+  public JavaSourceKind sourceKind() {
+    return exactKind;
   }
 
   /**
@@ -212,6 +268,44 @@ public final class SyntaxNode {
   }
 
   /**
+   * Returns the canonical occurrence identity projection.
+   *
+   * @return exact node tuple
+   */
+  public SyntaxNodeTuple nodeTuple() {
+    return new SyntaxNodeTuple(nodeId(), sourceOwner, path, exactKind);
+  }
+
+  /**
+   * Returns the direct range projection when this occurrence has source evidence.
+   *
+   * @return optional exact range tuple
+   */
+  public Optional<SyntaxRangeTuple> rangeTuple() {
+    return sourceOrigin.map(range -> new SyntaxRangeTuple(nodeId(), range));
+  }
+
+  /**
+   * Returns immutable structural edge tuples in the stored role/position order.
+   *
+   * @return exact structural tuples
+   */
+  public List<SyntaxStructuralEdge> structuralEdges() {
+    return childNodes.stream().map(child -> new SyntaxStructuralEdge(nodeId(), child.role(), child.position(), child.node().nodeId()))
+        .toList();
+  }
+
+  /**
+   * Returns the current declaration-reference edge as a typed semantic tuple.
+   *
+   * @return zero-or-one exact semantic tuples
+   */
+  public List<SyntaxSemanticEdge> semanticEdges() {
+    return reference.stream().map(target -> new SyntaxSemanticEdge(nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
+        new SyntaxSemanticTarget.Declaration(target))).toList();
+  }
+
+  /**
    * Returns the typed value required by a lowering operation.
    *
    * @param <T>
@@ -247,19 +341,21 @@ public final class SyntaxNode {
     if (!(other instanceof SyntaxNode that)) {
       return false;
     }
-    return identity.equals(that.identity) && kind == that.kind && syntaxType.equals(that.syntaxType) && syntaxValue.equals(that.syntaxValue)
+    return key.equals(that.key) && sourceOwner.equals(that.sourceOwner) && path.equals(that.path) && exactKind == that.exactKind
+        && kind == that.kind && syntaxType.equals(that.syntaxType) && syntaxValue.equals(that.syntaxValue)
         && childNodes.equals(that.childNodes) && reference.equals(that.reference) && sourceOrigin.equals(that.sourceOrigin);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(identity, kind, syntaxType, syntaxValue, childNodes, reference, sourceOrigin);
+    return Objects.hash(key, sourceOwner, path, exactKind, kind, syntaxType, syntaxValue, childNodes, reference, sourceOrigin);
   }
 
   @Override
   public String toString() {
-    return "SyntaxNode[nodeId=" + identity + ", syntaxKind=" + kind + ", type=" + syntaxType + ", value=" + syntaxValue + ", children="
-        + childNodes + ", semanticReference=" + reference + ", origin=" + sourceOrigin + ']';
+    return "SyntaxNode[nodeKey=" + key + ", sourceFileKey=" + sourceOwner + ", structuralPath=" + path + ", sourceKind=" + exactKind
+        + ", syntaxKind=" + kind + ", type=" + syntaxType + ", value=" + syntaxValue + ", children=" + childNodes + ", semanticReference="
+        + reference + ", origin=" + sourceOrigin + ']';
   }
 
   private static void collect(SyntaxNode node, List<SyntaxNode> result, Set<String> seen) {
@@ -281,6 +377,18 @@ public final class SyntaxNode {
         throw new IllegalArgumentException("Syntax child positions must be contiguous within each role");
       }
       nextPositions.put(child.role(), expected + 1);
+    }
+  }
+
+  private static void validateSourceKind(SyntaxKind syntaxKind, JavaSourceKind sourceKind) {
+    if (!syntaxKind.supports(sourceKind)) {
+      throw new IllegalArgumentException(syntaxKind + " cannot represent Java source kind " + sourceKind);
+    }
+  }
+
+  private static void validateSourceOwner(String sourceFileKey, Optional<SourceSpan> origin) {
+    if (origin.isPresent() && !sourceFileKey.equals(origin.orElseThrow().sourceFileKey())) {
+      throw new IllegalArgumentException("Syntax source range must belong to the node's source file");
     }
   }
 
@@ -474,7 +582,7 @@ public final class SyntaxNode {
   }
 
   private static String requireText(String value, String label) {
-    Objects.requireNonNull(value, "nodeId");
+    Objects.requireNonNull(value, label);
     if (value.isBlank()) {
       throw new IllegalArgumentException(label + " cannot be blank");
     }

@@ -1,6 +1,6 @@
 package org.aquilagraph.syntax;
 
-/** Java syntax categories retained temporarily while semantic graphs are built. */
+/** Derived Java syntax categories used by current semantic-graph consumers. */
 public enum SyntaxKind {
   /** Statement block. */
   BLOCK,
@@ -74,6 +74,53 @@ public enum SyntaxKind {
           ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST, CONDITIONAL_EXPRESSION ->
         true;
       default -> false;
+    };
+  }
+
+  boolean supports(JavaSourceKind sourceKind) {
+    if (this == UNSUPPORTED) {
+      return sourceKind.identifiesSourceSyntax();
+    }
+    return switch (this) {
+      case BLOCK -> sourceKind == JavaSourceKind.BLOCK;
+      case LOCAL_DECLARATION -> sourceKind == JavaSourceKind.VARIABLE;
+      case EXPRESSION_STATEMENT -> sourceKind == JavaSourceKind.EXPRESSION_STATEMENT;
+      case RETURN -> sourceKind == JavaSourceKind.RETURN;
+      case THROW -> sourceKind == JavaSourceKind.THROW;
+      case IF -> sourceKind == JavaSourceKind.IF;
+      case TRY -> sourceKind == JavaSourceKind.TRY;
+      case CATCH -> sourceKind == JavaSourceKind.CATCH;
+      case SWITCH_EXPRESSION -> sourceKind == JavaSourceKind.SWITCH_EXPRESSION;
+      case CASE -> sourceKind == JavaSourceKind.CASE;
+      case YIELD -> sourceKind == JavaSourceKind.YIELD;
+      case INVOCATION -> sourceKind == JavaSourceKind.METHOD_INVOCATION;
+      case OBJECT_CREATION -> sourceKind == JavaSourceKind.NEW_CLASS;
+      case FIELD_ACCESS, FIELD_LOCATION, RECEIVER -> sourceKind == JavaSourceKind.IDENTIFIER || sourceKind == JavaSourceKind.MEMBER_SELECT;
+      case VARIABLE_ACCESS, VARIABLE_LOCATION -> sourceKind == JavaSourceKind.IDENTIFIER;
+      case LITERAL -> switch (sourceKind) {
+        case INT_LITERAL, LONG_LITERAL, FLOAT_LITERAL, DOUBLE_LITERAL, BOOLEAN_LITERAL, CHAR_LITERAL, STRING_LITERAL, NULL_LITERAL -> true;
+        default -> false;
+      };
+      case UNARY -> switch (sourceKind) {
+        case UNARY_PLUS, UNARY_MINUS, BITWISE_COMPLEMENT, LOGICAL_COMPLEMENT -> true;
+        default -> false;
+      };
+      case BINARY -> switch (sourceKind) {
+        case MULTIPLY, DIVIDE, REMAINDER, PLUS, MINUS, LEFT_SHIFT, RIGHT_SHIFT, UNSIGNED_RIGHT_SHIFT, LESS_THAN, GREATER_THAN,
+            LESS_THAN_EQUAL, GREATER_THAN_EQUAL, EQUAL_TO, NOT_EQUAL_TO, AND, XOR, OR ->
+          true;
+        default -> false;
+      };
+      case CONDITIONAL_AND -> sourceKind == JavaSourceKind.CONDITIONAL_AND;
+      case CONDITIONAL_OR -> sourceKind == JavaSourceKind.CONDITIONAL_OR;
+      case ASSIGNMENT -> sourceKind == JavaSourceKind.ASSIGNMENT;
+      case ARRAY_LOCATION, ARRAY_ACCESS -> sourceKind == JavaSourceKind.ARRAY_ACCESS;
+      case ARRAY_LENGTH -> sourceKind == JavaSourceKind.MEMBER_SELECT;
+      case PARENTHESIZED -> sourceKind == JavaSourceKind.PARENTHESIZED;
+      case TYPE_CAST -> sourceKind == JavaSourceKind.TYPE_CAST;
+      case CONDITIONAL_EXPRESSION -> sourceKind == JavaSourceKind.CONDITIONAL_EXPRESSION;
+      case EMPTY -> sourceKind == JavaSourceKind.EMPTY_STATEMENT;
+      case UNSUPPORTED -> throw new IllegalStateException("UNSUPPORTED source-kind validation is handled separately");
     };
   }
 }

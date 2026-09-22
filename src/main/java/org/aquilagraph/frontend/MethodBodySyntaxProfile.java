@@ -42,6 +42,7 @@ import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.syntax.SyntaxKind;
 import org.aquilagraph.syntax.SyntaxOperator;
 import org.aquilagraph.syntax.SyntaxRole;
+import org.aquilagraph.syntax.SyntaxStructuralPath;
 import org.aquilagraph.syntax.SyntaxType;
 import org.aquilagraph.syntax.SyntaxValue;
 import org.jspecify.annotations.Nullable;
@@ -534,12 +535,12 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     }
 
     private void add(SyntaxRole role, Tree tree, TreePath treePath, SyntaxUse use) {
-      children.add(new SyntaxChildMapping(role, 0, tree, treePath, parentPath.child(role), use));
+      children.add(new SyntaxChildMapping(role, 0, tree, treePath, parentPath.child(role, 0), use));
     }
 
     private int addMultiple(SyntaxRole role, Tree tree, TreePath treePath, SyntaxUse use) {
       var position = (int) children.stream().filter(child -> child.role() == role).count();
-      children.add(new SyntaxChildMapping(role, position, tree, treePath, parentPath.child(role).element(position), use));
+      children.add(new SyntaxChildMapping(role, position, tree, treePath, parentPath.child(role, position), use));
       return position;
     }
 
@@ -547,18 +548,17 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
       Objects.requireNonNull(trees, "trees");
       for (var index = 0; index < trees.size(); index++) {
         var tree = trees.get(index);
-        children
-            .add(new SyntaxChildMapping(role, index, tree, new TreePath(parentTreePath, tree), parentPath.element(index), SyntaxUse.VALUE));
+        children.add(
+            new SyntaxChildMapping(role, index, tree, new TreePath(parentTreePath, tree), parentPath.child(role, index), SyntaxUse.VALUE));
       }
     }
 
     private void addAll(SyntaxRole role, List<? extends Tree> trees) {
       Objects.requireNonNull(trees, "trees");
-      var rolePath = parentPath.child(role);
       for (var index = 0; index < trees.size(); index++) {
         var tree = trees.get(index);
-        children
-            .add(new SyntaxChildMapping(role, index, tree, new TreePath(parentTreePath, tree), rolePath.element(index), SyntaxUse.VALUE));
+        children.add(
+            new SyntaxChildMapping(role, index, tree, new TreePath(parentTreePath, tree), parentPath.child(role, index), SyntaxUse.VALUE));
       }
     }
 

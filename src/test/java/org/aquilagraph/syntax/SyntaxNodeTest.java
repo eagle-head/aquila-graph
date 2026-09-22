@@ -81,16 +81,17 @@ class SyntaxNodeTest {
   }
 
   @Test
-  void givenBlankNodeIdentity_whenCreated_thenInvalidIdentityIsRejected() {
+  void givenBlankSourceOwner_whenCreated_thenInvalidIdentityIsRejected() {
     // Arrange
     var value = new SyntaxValue.Literal("1");
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> source(" ", SyntaxKind.LITERAL, new SyntaxType.Resolved(INT_TYPE), value, List.of(), Optional.empty()));
+        () -> SyntaxNode.source(" ", path("literal"), JavaSourceKind.INT_LITERAL, SyntaxKind.LITERAL,
+            new SyntaxType.Resolved(INT_TYPE), value, List.of(), Optional.empty(), ORIGIN));
 
     // Assert
-    assertTrue(exception.getMessage().contains("identity"));
+    assertTrue(exception.getMessage().contains("Source-file key"));
   }
 
   @Test
@@ -99,8 +100,8 @@ class SyntaxNodeTest {
     var value = new SyntaxValue.Literal("1");
 
     // Act
-    var node = SyntaxNode.withoutDirectSource("literal", SyntaxKind.LITERAL, new SyntaxType.Resolved(INT_TYPE), value, List.of(),
-        Optional.empty());
+    var node = SyntaxNode.withoutDirectSource("source", path("literal"), JavaSourceKind.INT_LITERAL, SyntaxKind.LITERAL,
+        new SyntaxType.Resolved(INT_TYPE), value, List.of(), Optional.empty());
 
     // Assert
     assertTrue(node.origin().isEmpty());
@@ -201,7 +202,26 @@ class SyntaxNodeTest {
 
   private static SyntaxNode source(String id, SyntaxKind kind, SyntaxType type, SyntaxValue value, List<SyntaxChild> children,
       Optional<SemanticReference> reference) {
-    return SyntaxNode.source(id, kind, type, value, children, reference, ORIGIN);
+    return SyntaxNode.source("source", path(id), sourceKind(kind, value), kind, type, value, children, reference, ORIGIN);
+  }
+
+  private static SyntaxStructuralPath path(String identity) {
+    return SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.STATEMENT,
+        Math.floorMod(identity.hashCode(), Integer.MAX_VALUE));
+  }
+
+  private static JavaSourceKind sourceKind(SyntaxKind kind, SyntaxValue value) {
+    return switch (kind) {
+      case BLOCK -> JavaSourceKind.BLOCK;
+      case LOCAL_DECLARATION -> JavaSourceKind.VARIABLE;
+      case IF -> JavaSourceKind.IF;
+      case VARIABLE_ACCESS -> JavaSourceKind.IDENTIFIER;
+      case LITERAL -> JavaSourceKind.INT_LITERAL;
+      case CASE -> JavaSourceKind.CASE;
+      case EMPTY -> JavaSourceKind.EMPTY_STATEMENT;
+      case UNSUPPORTED -> JavaSourceKind.valueOf(((SyntaxValue.Unsupported) value).compilerKind());
+      default -> throw new IllegalArgumentException("Missing test source kind for " + kind);
+    };
   }
 
   private static SemanticReference reference(ReferenceKind kind, String key) {

@@ -2,6 +2,12 @@ package org.aquilagraph.syntax;
 
 /** Structural role played by a child in its parent syntax node. */
 public enum SyntaxRole {
+  /** Captured source file that owns a compilation-unit occurrence tree. */
+  SOURCE_FILE_ROOT("source-file-root"),
+  /** Top-level type declaration within a compilation unit. */
+  TYPE_DECLARATION("type-declaration"),
+  /** Member declaration within a type. */
+  MEMBER("member"),
   /** Statement within an ordered statement sequence. */
   STATEMENT("statement"),
   /** Initializer belonging to a declaration. */
@@ -61,18 +67,18 @@ public enum SyntaxRole {
   /** False alternative of a conditional expression. */
   FALSE_EXPRESSION("false");
 
-  private final String stableSegment;
+  private final String stableIdentity;
 
-  SyntaxRole(String pathSegment) {
-    stableSegment = pathSegment;
+  SyntaxRole(String stableId) {
+    stableIdentity = stableId;
   }
 
   /**
-   * Returns the stable source-structure path segment for this role.
+   * Returns the stable domain identity for this role.
    *
-   * @return path segment used in syntax identity
+   * @return role identity used in keys and tuples
    */
-  public String pathSegment() {
-    return stableSegment;
+  public String stableId() {
+    return stableIdentity;
   }
 }
