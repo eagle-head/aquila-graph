@@ -47,7 +47,8 @@ class JavaFrontendTest {
     var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
-    assertTrue(result.diagnostics().isEmpty());
+    assertEquals(List.of("frontend.unsupported-package-declaration"),
+        result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
     assertEquals("sample.Resolved", result.program().types().getFirst().qualifiedName());
     var method =
         result.program().methods().stream()
@@ -243,8 +244,9 @@ class JavaFrontendTest {
 
     // Assert
     var body = methodBody(result, "classify");
-    assertTrue(result.diagnostics().stream()
-        .allMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-enum-constant-initialization")));
+    assertEquals(Set.of("frontend.unsupported-enum-constant-initialization", "frontend.unsupported-variable-initializer",
+        "frontend.unsupported-enclosed-declarations"),
+        result.diagnostics().stream().map(diagnostic -> diagnostic.code()).collect(Collectors.toSet()));
     assertEquals(SyntaxReadiness.LOWERABLE, body.readiness());
     var labels = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.CASE)
         .flatMap(node -> node.children(SyntaxRole.LABEL).stream()).toList();
@@ -476,6 +478,7 @@ class JavaFrontendTest {
             .filter(sourceFile -> sourceFile.relativePath().endsWith("Broken.java"))
             .findFirst()
             .orElseThrow();
+    var sourceKeys = snapshot.sourceFiles().stream().map(sourceFile -> sourceFile.sourceFileKey()).collect(Collectors.toSet());
     var frontend = new JavaFrontend(loader);
 
     // Act
@@ -489,17 +492,12 @@ class JavaFrontendTest {
             .collect(Collectors.toSet()));
     var errors = result.diagnostics().stream().filter(diagnostic -> diagnostic.isError()).toList();
     assertFalse(errors.isEmpty());
-    assertTrue(
-        errors.stream()
-            .allMatch(
-                diagnostic ->
-                    !diagnostic.origins().isEmpty()
-                        && diagnostic.origins().stream()
-                            .allMatch(
-                                origin ->
-                                    origin
-                                        .sourceFileKey()
-                                        .equals(brokenSource.sourceFileKey()))));
+    assertTrue(errors.stream().allMatch(diagnostic -> !diagnostic.origins().isEmpty()
+        && diagnostic.origins().stream().allMatch(origin -> sourceKeys.contains(origin.sourceFileKey()))));
+    var compilerErrors = errors.stream().filter(diagnostic -> diagnostic.code().startsWith("compiler.err.")).toList();
+    assertFalse(compilerErrors.isEmpty());
+    assertTrue(compilerErrors.stream().allMatch(diagnostic -> diagnostic.origins().stream()
+            .allMatch(origin -> origin.sourceFileKey().equals(brokenSource.sourceFileKey()))));
   }
 
   @Test

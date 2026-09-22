@@ -13,8 +13,6 @@ import java.util.stream.Collectors;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
 import org.aquilagraph.model.JavaMethod;
 import org.aquilagraph.model.JavaParameter;
 import org.aquilagraph.model.JavaTypeCategory;
@@ -60,10 +58,11 @@ final class JavaMethodTranslator {
     if (executable == null) {
       diagnostics.add(diagnostic(methodKey, "frontend.unresolved-method", "A method declaration element is unavailable", origin));
     }
+    diagnoseUnsupportedDeclarationProperties(unit, sourceFile, methodKey, methodTree, executable, diagnostics);
     var parameterTranslation = parameters(unit, sourceFile, methodKey, methodPath, methodTree, executable);
     diagnostics.addAll(parameterTranslation.diagnostics());
-    var modifiers = methodTree.getModifiers().getFlags().stream().map(modifier -> modifier.name().toLowerCase(Locale.ROOT))
-        .collect(Collectors.toSet());
+    var semanticModifiers = executable == null ? methodTree.getModifiers().getFlags() : executable.getModifiers();
+    var modifiers = semanticModifiers.stream().map(modifier -> modifier.name().toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
     var bodyTranslation = translateBody(unit, sourceFile, methodKey, methodPath, methodTree);
     diagnostics.addAll(bodyTranslation.diagnostics());
     var returnType = constructor ? "void" : executable == null ? "unresolved" : executable.getReturnType().toString();
@@ -88,6 +87,7 @@ final class JavaMethodTranslator {
         diagnostics.add(diagnostic(parameterKey, "frontend.unresolved-parameter",
             "A parameter declaration identity is unavailable or inconsistent", origin));
       }
+      diagnoseUnsupportedVariableProperties(unit, sourceFile, parameterKey, "Parameter", parameterTree, diagnostics);
       var type = parameterType(semantics.type(parameterPath));
       if (type.category() == JavaTypeCategory.ERROR) {
         diagnostics.add(diagnostic(parameterKey, "frontend.error-parameter-type", "javac reported an error type for a parameter", origin));
@@ -97,6 +97,67 @@ final class JavaMethodTranslator {
       parameters.add(new JavaParameter(parameterKey, parameterTree.getName().toString(), type, origin.stream().toList()));
     }
     return new ParameterTranslation(parameters, diagnostics);
+  }
+
+  private void diagnoseUnsupportedDeclarationProperties(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,
+      MethodTree methodTree, @Nullable ExecutableElement executable, List<AnalysisDiagnostic> diagnostics) {
+    if (!methodTree.getTypeParameters().isEmpty()) {
+      diagnostics.add(diagnostic(methodKey, JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS_DIAGNOSTIC,
+          "Method type parameters are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, methodTree.getTypeParameters().getFirst())));
+    }
+    if (!methodTree.getThrows().isEmpty()) {
+      diagnostics.add(diagnostic(methodKey, JavaDeclarationPropertyCoverage.THROWN_TYPES_DIAGNOSTIC,
+          "Declared thrown types are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, methodTree.getThrows().getFirst())));
+    }
+    if (methodTree.getReceiverParameter() != null) {
+      diagnostics.add(diagnostic(methodKey, JavaDeclarationPropertyCoverage.RECEIVER_PARAMETER_DIAGNOSTIC,
+          "Receiver parameters are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, methodTree.getReceiverParameter())));
+      diagnoseUnsupportedVariableProperties(unit, sourceFile, methodKey + ":receiver", "Receiver parameter",
+          methodTree.getReceiverParameter(), diagnostics);
+    }
+    if (executable != null && executable.isVarArgs()) {
+      var varargsTree = methodTree.getParameters().getLast();
+      diagnostics.add(diagnostic(methodKey, JavaDeclarationPropertyCoverage.VARARGS_DIAGNOSTIC,
+          "Variable-arity declarations are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, varargsTree)));
+    }
+    for (var annotation : methodTree.getModifiers().getAnnotations()) {
+      diagnostics.add(diagnostic(methodKey, JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC,
+          "Method and constructor declaration annotations are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, annotation)));
+    }
+    if (methodTree.getDefaultValue() != null) {
+      diagnostics.add(diagnostic(methodKey, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC,
+          "Annotation element defaults are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, methodTree.getDefaultValue())));
+    }
+  }
+
+  private void diagnoseUnsupportedVariableProperties(CompilationUnitTree unit, SourceFile sourceFile, String context,
+      String declarationKind, VariableTree variableTree, List<AnalysisDiagnostic> diagnostics) {
+    var origin = sourceEvidence.origin(unit, sourceFile, variableTree);
+    if (!variableTree.getModifiers().getFlags().isEmpty()) {
+      diagnostics.add(diagnostic(context, JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS_DIAGNOSTIC,
+          declarationKind + " modifiers are outside the supported semantic graph profile", origin));
+    }
+    for (var annotation : variableTree.getModifiers().getAnnotations()) {
+      diagnostics.add(diagnostic(context, JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC,
+          declarationKind + " annotations are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, annotation)));
+    }
+    if (variableTree.getNameExpression() != null) {
+      diagnostics.add(diagnostic(context, JavaDeclarationPropertyCoverage.VARIABLE_NAME_EXPRESSION_DIAGNOSTIC,
+          declarationKind + " name expressions are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, variableTree.getNameExpression())));
+    }
+    if (variableTree.getInitializer() != null) {
+      diagnostics.add(diagnostic(context, JavaDeclarationPropertyCoverage.VARIABLE_INITIALIZER_DIAGNOSTIC,
+          declarationKind + " initializers are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, variableTree.getInitializer())));
+    }
   }
 
   private static TreePath parameterPath(TreePath methodPath, VariableTree parameterTree) {
@@ -123,8 +184,7 @@ final class JavaMethodTranslator {
   }
 
   private static AnalysisDiagnostic diagnostic(String context, String code, String message, Optional<SourceSpan> origin) {
-    return new AnalysisDiagnostic(StableId.sha256("diagnostic", context, code), code, DiagnosticStage.FRONTEND, DiagnosticSeverity.ERROR,
-        message, origin.stream().toList());
+    return FrontendDiagnosticFactory.error(context, code, message, origin);
   }
 
   private record ParameterTranslation(List<JavaParameter> parameters, List<AnalysisDiagnostic> diagnostics) {

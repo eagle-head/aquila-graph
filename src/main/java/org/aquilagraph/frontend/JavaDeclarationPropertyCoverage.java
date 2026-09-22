@@ -1,0 +1,258 @@
+package org.aquilagraph.frontend;
+
+import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.VariableTree;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
+import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.TypeElement;
+import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.model.LanguageFeature;
+import org.aquilagraph.model.LanguageFeatureCategory;
+import org.aquilagraph.model.LanguageFeatureClassification;
+import org.aquilagraph.model.LanguageFeatureCoverage;
+
+/** Defines and verifies the closed declaration-property coverage contract for Java 25. */
+final class JavaDeclarationPropertyCoverage {
+  static final String METHOD_TYPE_PARAMETERS_DIAGNOSTIC = "frontend.unsupported-method-type-parameters";
+  static final String THROWN_TYPES_DIAGNOSTIC = "frontend.unsupported-thrown-types";
+  static final String RECEIVER_PARAMETER_DIAGNOSTIC = "frontend.unsupported-receiver-parameter";
+  static final String VARARGS_DIAGNOSTIC = "frontend.unsupported-varargs";
+  static final String DECLARATION_ANNOTATIONS_DIAGNOSTIC = "frontend.unsupported-declaration-annotations";
+  static final String ANNOTATION_DEFAULT_DIAGNOSTIC = "frontend.unsupported-annotation-default";
+  static final String RECORD_COMPONENTS_DIAGNOSTIC = "frontend.unsupported-record-components";
+  static final String PACKAGE_DECLARATION_DIAGNOSTIC = "frontend.unsupported-package-declaration";
+  static final String MODULE_DECLARATION_DIAGNOSTIC = "frontend.unsupported-module-declaration";
+  static final String IMPORT_DECLARATION_DIAGNOSTIC = "frontend.unsupported-import-declaration";
+  static final String ENCLOSED_DECLARATIONS_DIAGNOSTIC = "frontend.unsupported-enclosed-declarations";
+  static final String VARIABLE_MODIFIERS_DIAGNOSTIC = "frontend.unsupported-variable-modifiers";
+  static final String VARIABLE_INITIALIZER_DIAGNOSTIC = "frontend.unsupported-variable-initializer";
+  static final String VARIABLE_NAME_EXPRESSION_DIAGNOSTIC = "frontend.unsupported-variable-name-expression";
+  private static final Set<String> DECLARATION_PROPERTY_DIAGNOSTICS = Set.of(METHOD_TYPE_PARAMETERS_DIAGNOSTIC, THROWN_TYPES_DIAGNOSTIC,
+      RECEIVER_PARAMETER_DIAGNOSTIC, VARARGS_DIAGNOSTIC, DECLARATION_ANNOTATIONS_DIAGNOSTIC, ANNOTATION_DEFAULT_DIAGNOSTIC,
+      RECORD_COMPONENTS_DIAGNOSTIC, PACKAGE_DECLARATION_DIAGNOSTIC, MODULE_DECLARATION_DIAGNOSTIC, IMPORT_DECLARATION_DIAGNOSTIC,
+      ENCLOSED_DECLARATIONS_DIAGNOSTIC, VARIABLE_MODIFIERS_DIAGNOSTIC, VARIABLE_INITIALIZER_DIAGNOSTIC,
+      VARIABLE_NAME_EXPRESSION_DIAGNOSTIC);
+
+  private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
+      VariableTree.class, TypeElement.class, ExecutableElement.class);
+  private static final String TREE_API = "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/";
+  private static final String JAVA_COMPILER_API = "https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/";
+  private static final String ELEMENT_API = JAVA_COMPILER_API + "javax/lang/model/element/";
+  private static final String ANNOTATED_CONSTRUCT_API = JAVA_COMPILER_API + "javax/lang/model/AnnotatedConstruct.html";
+  private static final String ANNOTATION_PROXY_REASON = "Annotation proxy lookup is not a separate declaration fact";
+  private static final String TREE_VISITOR_REASON = "Visitor dispatch is a traversal protocol, not a Java declaration fact";
+  private static final String TREE_ACCEPT_SOURCE = TREE_API + "Tree.html#accept(V,D)";
+
+  private JavaDeclarationPropertyCoverage() {
+  }
+
+  static LanguageFeatureCoverage fromConfiguration(CompilerConfiguration configuration) {
+    return fromClassifications(configuration, classifications());
+  }
+
+  static LanguageFeatureCoverage fromClassifications(CompilerConfiguration configuration,
+      List<LanguageFeatureClassification> classifications) {
+    Objects.requireNonNull(configuration, "configuration");
+    var coverage = LanguageFeatureCoverageFactory.fromConfiguration(configuration, classifications);
+    var expected = accessorIdentifiers();
+    var actual = new TreeSet<String>();
+    var unrecognized = new TreeSet<String>();
+    for (var classification : coverage.classifications()) {
+      var feature = classification.feature();
+      if (feature.category() != LanguageFeatureCategory.DECLARATION_PROPERTY) {
+        throw new IllegalArgumentException("Java declaration property coverage contains a non-property feature: " + feature.identifier());
+      }
+      if (!expected.contains(feature.identifier())) {
+        unrecognized.add(feature.identifier());
+      }
+      actual.add(feature.identifier());
+    }
+    if (!unrecognized.isEmpty()) {
+      var message = unrecognized.size() == 1
+          ? "Unrecognized Java declaration property: " + unrecognized.getFirst()
+          : "Unrecognized Java declaration properties: " + unrecognized;
+      throw new IllegalArgumentException(message);
+    }
+    var missing = new TreeSet<>(expected);
+    missing.removeAll(actual);
+    var extra = new TreeSet<>(actual);
+    extra.removeAll(expected);
+    if (!missing.isEmpty() || !extra.isEmpty()) {
+      throw new IllegalArgumentException("Java declaration property coverage mismatch: missing=" + missing + ", extra=" + extra);
+    }
+    return coverage;
+  }
+
+  static boolean isDeclarationPropertyDiagnostic(String code) {
+    return DECLARATION_PROPERTY_DIAGNOSTICS.contains(Objects.requireNonNull(code, "code"));
+  }
+
+  private static List<LanguageFeatureClassification> classifications() {
+    var classifications = new ArrayList<LanguageFeatureClassification>();
+    classifications.addAll(compilationUnitClassifications());
+    classifications.addAll(classClassifications());
+    classifications.addAll(methodClassifications());
+    classifications.addAll(variableClassifications());
+    classifications.addAll(typeElementClassifications());
+    classifications.addAll(executableElementClassifications());
+    return List.copyOf(classifications);
+  }
+
+  private static List<LanguageFeatureClassification> compilationUnitClassifications() {
+    return List.of(
+        irrelevant("CompilationUnitTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
+            TREE_ACCEPT_SOURCE),
+        diagnosed("CompilationUnitTree::CompilationUnitTree#getImports()", IMPORT_DECLARATION_DIAGNOSTIC),
+        represented("CompilationUnitTree::Tree#getKind()", "JavaCompilerKindCoverage exact tree-kind contract"),
+        irrelevant("CompilationUnitTree::CompilationUnitTree#getLineMap()",
+            "SourceFile content and SourceSpan offsets own source evidence; line-number conversion is presentation metadata",
+            TREE_API + "CompilationUnitTree.html#getLineMap()"),
+        diagnosed("CompilationUnitTree::CompilationUnitTree#getModule()", MODULE_DECLARATION_DIAGNOSTIC),
+        diagnosed("CompilationUnitTree::CompilationUnitTree#getPackage()", PACKAGE_DECLARATION_DIAGNOSTIC),
+        diagnosed("CompilationUnitTree::CompilationUnitTree#getPackageAnnotations()", DECLARATION_ANNOTATIONS_DIAGNOSTIC),
+        diagnosed("CompilationUnitTree::CompilationUnitTree#getPackageName()", PACKAGE_DECLARATION_DIAGNOSTIC),
+        represented("CompilationUnitTree::CompilationUnitTree#getSourceFile()", "SourceFile input snapshot"),
+        represented("CompilationUnitTree::CompilationUnitTree#getTypeDecls()", "JavaProgram top-level type declarations"));
+  }
+
+  private static List<LanguageFeatureClassification> classClassifications() {
+    return List.of(
+        irrelevant("ClassTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
+        represented("ClassTree::ClassTree#getExtendsClause()", "JavaType direct superclass reference"),
+        represented("ClassTree::ClassTree#getImplementsClause()", "JavaType direct interface references"),
+        represented("ClassTree::Tree#getKind()", "JavaType declaration kind"),
+        represented("ClassTree::ClassTree#getMembers()", "JavaType field, method, and nested-type declarations"),
+        represented("ClassTree::ClassTree#getModifiers()", "JavaType modifier set and declaration-annotation diagnostics"),
+        represented("ClassTree::ClassTree#getPermitsClause()", "JavaType permitted-subclass references"),
+        represented("ClassTree::ClassTree#getSimpleName()", "JavaType qualified name and declaration identity"),
+        represented("ClassTree::ClassTree#getTypeParameters()", "JavaType type-parameter aggregates"));
+  }
+
+  private static List<LanguageFeatureClassification> methodClassifications() {
+    return List.of(
+        irrelevant("MethodTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
+        represented("MethodTree::MethodTree#getBody()", "MethodSyntax body occurrence and JavaMethod body-presence flag"),
+        diagnosed("MethodTree::MethodTree#getDefaultValue()", ANNOTATION_DEFAULT_DIAGNOSTIC),
+        represented("MethodTree::Tree#getKind()", "JavaMethod declaration aggregate"),
+        represented("MethodTree::MethodTree#getModifiers()", "JavaMethod modifier set and declaration-annotation diagnostics"),
+        represented("MethodTree::MethodTree#getName()", "JavaMethod name and declaration identity"),
+        represented("MethodTree::MethodTree#getParameters()", "JavaMethod ordered JavaParameter aggregates"),
+        diagnosed("MethodTree::MethodTree#getReceiverParameter()", RECEIVER_PARAMETER_DIAGNOSTIC),
+        represented("MethodTree::MethodTree#getReturnType()", "JavaMethod return type"),
+        diagnosed("MethodTree::MethodTree#getThrows()", THROWN_TYPES_DIAGNOSTIC),
+        diagnosed("MethodTree::MethodTree#getTypeParameters()", METHOD_TYPE_PARAMETERS_DIAGNOSTIC));
+  }
+
+  private static List<LanguageFeatureClassification> variableClassifications() {
+    return List.of(
+        irrelevant("VariableTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
+        diagnosed("VariableTree::VariableTree#getInitializer()", VARIABLE_INITIALIZER_DIAGNOSTIC),
+        represented("VariableTree::Tree#getKind()", "JavaField, JavaParameter, or MethodSyntax declaration aggregate"),
+        diagnosed("VariableTree::VariableTree#getModifiers()", VARIABLE_MODIFIERS_DIAGNOSTIC),
+        represented("VariableTree::VariableTree#getName()", "JavaField or JavaParameter name"),
+        diagnosed("VariableTree::VariableTree#getNameExpression()", VARIABLE_NAME_EXPRESSION_DIAGNOSTIC),
+        represented("VariableTree::VariableTree#getType()", "JavaField or JavaParameter type identity"));
+  }
+
+  private static List<LanguageFeatureClassification> typeElementClassifications() {
+    return List.of(
+        irrelevant("TypeElement::Element#accept(javax.lang.model.element.ElementVisitor,java.lang.Object)",
+            "Visitor dispatch is an element traversal protocol, not a Java declaration fact",
+            ELEMENT_API + "Element.html#accept(javax.lang.model.element.ElementVisitor,P)"),
+        represented("TypeElement::TypeElement#asType()", "JavaType declaration identity"),
+        irrelevant("TypeElement::Element#equals(java.lang.Object)",
+            "Element object equality is a compiler-model protocol; Aquila Graph uses stable declaration keys",
+            ELEMENT_API + "Element.html#equals(java.lang.Object)"),
+        irrelevant("TypeElement::Element#getAnnotation(java.lang.Class)", ANNOTATION_PROXY_REASON,
+            ANNOTATED_CONSTRUCT_API + "#getAnnotation(java.lang.Class)"),
+        diagnosed("TypeElement::Element#getAnnotationMirrors()", DECLARATION_ANNOTATIONS_DIAGNOSTIC),
+        irrelevant("TypeElement::Element#getAnnotationsByType(java.lang.Class)", ANNOTATION_PROXY_REASON,
+            ANNOTATED_CONSTRUCT_API + "#getAnnotationsByType(java.lang.Class)"),
+        diagnosed("TypeElement::TypeElement#getEnclosedElements()", ENCLOSED_DECLARATIONS_DIAGNOSTIC),
+        represented("TypeElement::TypeElement#getEnclosingElement()", "JavaType enclosing-type reference"),
+        represented("TypeElement::TypeElement#getInterfaces()", "JavaType direct interface references"),
+        represented("TypeElement::Element#getKind()", "JavaType declaration kind"),
+        represented("TypeElement::Element#getModifiers()", "JavaType modifier set"),
+        represented("TypeElement::TypeElement#getNestingKind()", "JavaType enclosing-type reference and qualified identity"),
+        represented("TypeElement::TypeElement#getPermittedSubclasses()", "JavaType permitted-subclass references"),
+        represented("TypeElement::TypeElement#getQualifiedName()", "JavaType qualified name"),
+        diagnosed("TypeElement::TypeElement#getRecordComponents()", RECORD_COMPONENTS_DIAGNOSTIC),
+        represented("TypeElement::TypeElement#getSimpleName()", "JavaType qualified name and declaration identity"),
+        represented("TypeElement::TypeElement#getSuperclass()", "JavaType direct superclass reference"),
+        represented("TypeElement::TypeElement#getTypeParameters()", "JavaType type-parameter aggregates"),
+        irrelevant("TypeElement::Element#hashCode()",
+            "Element object hashing is a compiler-model protocol; Aquila Graph uses stable declaration keys",
+            ELEMENT_API + "Element.html#hashCode()"));
+  }
+
+  private static List<LanguageFeatureClassification> executableElementClassifications() {
+    return List.of(
+        irrelevant("ExecutableElement::Element#accept(javax.lang.model.element.ElementVisitor,java.lang.Object)",
+            "Visitor dispatch is an element traversal protocol, not a Java declaration fact",
+            ELEMENT_API + "Element.html#accept(javax.lang.model.element.ElementVisitor,P)"),
+        represented("ExecutableElement::ExecutableElement#asType()", "JavaMethod signature, parameter, and return-type aggregates"),
+        irrelevant("ExecutableElement::Element#equals(java.lang.Object)",
+            "Element object equality is a compiler-model protocol; Aquila Graph uses stable declaration keys",
+            ELEMENT_API + "Element.html#equals(java.lang.Object)"),
+        irrelevant("ExecutableElement::Element#getAnnotation(java.lang.Class)", ANNOTATION_PROXY_REASON,
+            ANNOTATED_CONSTRUCT_API + "#getAnnotation(java.lang.Class)"),
+        diagnosed("ExecutableElement::Element#getAnnotationMirrors()", DECLARATION_ANNOTATIONS_DIAGNOSTIC),
+        irrelevant("ExecutableElement::Element#getAnnotationsByType(java.lang.Class)", ANNOTATION_PROXY_REASON,
+            ANNOTATED_CONSTRUCT_API + "#getAnnotationsByType(java.lang.Class)"),
+        diagnosed("ExecutableElement::ExecutableElement#getDefaultValue()", ANNOTATION_DEFAULT_DIAGNOSTIC),
+        irrelevant("ExecutableElement::Element#getEnclosedElements()",
+            "Executable elements do not contribute separately queryable enclosed declarations to the current semantic graph",
+            ELEMENT_API + "ExecutableElement.html"),
+        represented("ExecutableElement::ExecutableElement#getEnclosingElement()", "JavaMethod owner type key"),
+        represented("ExecutableElement::Element#getKind()", "JavaMethod constructor flag"),
+        represented("ExecutableElement::Element#getModifiers()", "JavaMethod modifier set"),
+        represented("ExecutableElement::ExecutableElement#getParameters()", "JavaMethod ordered JavaParameter aggregates"),
+        diagnosed("ExecutableElement::ExecutableElement#getReceiverType()", RECEIVER_PARAMETER_DIAGNOSTIC),
+        represented("ExecutableElement::ExecutableElement#getReturnType()", "JavaMethod return type"),
+        represented("ExecutableElement::ExecutableElement#getSimpleName()", "JavaMethod name and declaration identity"),
+        diagnosed("ExecutableElement::ExecutableElement#getThrownTypes()", THROWN_TYPES_DIAGNOSTIC),
+        diagnosed("ExecutableElement::ExecutableElement#getTypeParameters()", METHOD_TYPE_PARAMETERS_DIAGNOSTIC),
+        irrelevant("ExecutableElement::Element#hashCode()",
+            "Element object hashing is a compiler-model protocol; Aquila Graph uses stable declaration keys",
+            ELEMENT_API + "Element.html#hashCode()"),
+        represented("ExecutableElement::ExecutableElement#isDefault()", "JavaMethod modifier set"),
+        diagnosed("ExecutableElement::ExecutableElement#isVarArgs()", VARARGS_DIAGNOSTIC));
+  }
+
+  private static Set<String> accessorIdentifiers() {
+    return DECLARATION_SURFACES.stream().flatMap(surface -> Arrays.stream(surface.getMethods())
+        .filter(method -> !Modifier.isStatic(method.getModifiers())).map(method -> accessorIdentifier(surface, method)))
+        .collect(Collectors.toUnmodifiableSet());
+  }
+
+  private static String accessorIdentifier(Class<?> surface, Method method) {
+    var parameters = Arrays.stream(method.getParameterTypes()).map(Class::getName).collect(Collectors.joining(","));
+    return surface.getSimpleName() + "::" + method.getDeclaringClass().getSimpleName() + '#' + method.getName() + '(' + parameters + ')';
+  }
+
+  private static LanguageFeatureClassification represented(String identifier, String boundary) {
+    return LanguageFeatureClassification.represented(feature(identifier), boundary);
+  }
+
+  private static LanguageFeatureClassification irrelevant(String identifier, String rationale, String sourceLocator) {
+    return LanguageFeatureClassification.irrelevant(feature(identifier), rationale, sourceLocator);
+  }
+
+  private static LanguageFeatureClassification diagnosed(String identifier, String diagnosticCode) {
+    return LanguageFeatureClassification.diagnosed(feature(identifier), diagnosticCode);
+  }
+
+  private static LanguageFeature feature(String identifier) {
+    return new LanguageFeature(LanguageFeatureCategory.DECLARATION_PROPERTY, identifier);
+  }
+}

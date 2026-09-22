@@ -18,6 +18,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.Modifier;
@@ -27,8 +28,6 @@ import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
 import org.aquilagraph.model.JavaField;
 import org.aquilagraph.model.JavaMethod;
 import org.aquilagraph.model.JavaType;
@@ -80,6 +79,10 @@ final class JavaTypeTranslator {
     }
 
     diagnoseUnsupportedAnnotations(unit, sourceFile, typeKey, classTree, diagnostics);
+    if (typeElement != null && !typeElement.getRecordComponents().isEmpty()) {
+      diagnostics.add(diagnostic(typeKey, JavaDeclarationPropertyCoverage.RECORD_COMPONENTS_DIAGNOSTIC,
+          "Record components are outside the supported semantic graph profile", origin));
+    }
     var modifiers = typeModifiers(typeElement == null ? classTree.getModifiers().getFlags() : typeElement.getModifiers());
     var enclosingType = enclosingType(typeElement, typeKey, origin, diagnostics);
     var directSuperclass = directSuperclass(typeElement, typeKey, origin, diagnostics);
@@ -92,12 +95,44 @@ final class JavaTypeTranslator {
     for (var member : classTree.getMembers()) {
       classifyMember(unit, classPath, sourceFile, typeKey, member, fields, methods, methodSyntax, nestedTypes, diagnostics);
     }
+    diagnoseUnrepresentedEnclosedDeclarations(typeElement, typeKey, origin, fields, methods, nestedTypes, diagnostics);
     var type = new JavaType(typeKey, qualifiedName, javaTypeKind(classTree.getKind()), modifiers, enclosingType, directSuperclass,
         directInterfaces, permittedSubclasses, typeParameters, origin.isPresent(), fields, methods, origin.stream().toList());
     var types = new ArrayList<JavaType>();
     types.add(type);
     types.addAll(nestedTypes);
     return new TranslationResult<>(new TranslatedType(types, methodSyntax), diagnostics);
+  }
+
+  private void diagnoseUnrepresentedEnclosedDeclarations(@Nullable TypeElement typeElement, String typeKey, Optional<SourceSpan> origin,
+      List<JavaField> fields, List<JavaMethod> methods, List<JavaType> nestedTypes, List<AnalysisDiagnostic> diagnostics) {
+    if (typeElement == null) {
+      return;
+    }
+    var representedKeys = new TreeSet<String>();
+    fields.stream().map(JavaField::fieldKey).forEach(representedKeys::add);
+    methods.stream().map(JavaMethod::methodKey).forEach(representedKeys::add);
+    nestedTypes.stream().map(JavaType::typeKey).forEach(representedKeys::add);
+    var missing = new TreeSet<String>();
+    for (var enclosed : typeElement.getEnclosedElements()) {
+      if (isDirectDeclarationKind(enclosed.getKind())) {
+        var key = semantics.declarationKey(enclosed);
+        if (key.isEmpty() || !representedKeys.contains(key.orElseThrow())) {
+          missing.add(key.orElseGet(() -> enclosed.getKind() + ":" + enclosed.getSimpleName()));
+        }
+      }
+    }
+    if (!missing.isEmpty()) {
+      diagnostics.add(diagnostic(typeKey, JavaDeclarationPropertyCoverage.ENCLOSED_DECLARATIONS_DIAGNOSTIC,
+          "Compiler-exposed enclosed declarations are not represented: " + missing, origin));
+    }
+  }
+
+  private static boolean isDirectDeclarationKind(ElementKind kind) {
+    return switch (kind) {
+      case ANNOTATION_TYPE, CLASS, CONSTRUCTOR, ENUM, ENUM_CONSTANT, FIELD, INTERFACE, METHOD, RECORD -> true;
+      default -> false;
+    };
   }
 
   private void classifyMember(CompilationUnitTree unit, TreePath classPath, SourceFile sourceFile, String typeKey, Tree member,
@@ -145,6 +180,16 @@ final class JavaTypeTranslator {
     if (variable == null) {
       diagnostics.add(diagnostic(fieldKey, "frontend.unresolved-field", "A field declaration element is unavailable", origin));
     }
+    for (var annotation : variableTree.getModifiers().getAnnotations()) {
+      diagnostics.add(diagnostic(fieldKey, JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC,
+          "Field declaration annotations are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, annotation)));
+    }
+    if (variableTree.getNameExpression() != null) {
+      diagnostics.add(diagnostic(fieldKey, JavaDeclarationPropertyCoverage.VARIABLE_NAME_EXPRESSION_DIAGNOSTIC,
+          "Variable name expressions are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, variableTree.getNameExpression())));
+    }
     var staticType = declarationType(semantics.type(path));
     if (staticType.category() == JavaTypeCategory.ERROR) {
       diagnostics.add(diagnostic(fieldKey, "frontend.error-field-type", "javac reported an error type for a field", origin));
@@ -156,6 +201,9 @@ final class JavaTypeTranslator {
     var field = new JavaField(fieldKey, typeKey, variableTree.getName().toString(), staticType, modifiers, enumConstant, origin.isPresent(),
         origin.stream().toList());
     if (variableTree.getInitializer() != null) {
+      diagnostics.add(diagnostic(fieldKey, JavaDeclarationPropertyCoverage.VARIABLE_INITIALIZER_DIAGNOSTIC,
+          "Variable initializers are outside the supported declaration profile",
+          sourceEvidence.origin(unit, sourceFile, variableTree.getInitializer())));
       diagnostics.add(fieldInitializerDiagnostic(unit, sourceFile, fieldKey, variableTree, enumConstant));
     }
     return new TranslationResult<>(field, diagnostics);
@@ -266,6 +314,9 @@ final class JavaTypeTranslator {
     addAnnotationDiagnostics(unit, sourceFile, typeKey, classTree.getModifiers().getAnnotations(),
         "frontend.unsupported-type-declaration-annotation", "Type declaration annotations are outside the supported declaration profile",
         diagnostics);
+    addAnnotationDiagnostics(unit, sourceFile, typeKey, classTree.getModifiers().getAnnotations(),
+        JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC,
+        "Type declaration annotations are outside the supported semantic graph profile", diagnostics);
     for (var parameter : classTree.getTypeParameters()) {
       addAnnotationDiagnostics(unit, sourceFile, typeKey, parameter.getAnnotations(), "frontend.unsupported-type-parameter-annotation",
           "Type parameter annotations are outside the supported declaration profile", diagnostics);
@@ -331,9 +382,6 @@ final class JavaTypeTranslator {
   }
 
   private static AnalysisDiagnostic diagnostic(String context, String code, String message, Optional<SourceSpan> origin) {
-    var occurrence = origin.map(value -> value.sourceFileKey() + ':' + value.startOffset() + ':' + value.endOffsetExclusive())
-        .orElse("no-direct-source");
-    return new AnalysisDiagnostic(StableId.sha256("diagnostic", context, code, occurrence), code, DiagnosticStage.FRONTEND,
-        DiagnosticSeverity.ERROR, message, origin.stream().toList());
+    return FrontendDiagnosticFactory.error(context, code, message, origin);
   }
 }

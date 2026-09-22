@@ -3,6 +3,7 @@ package org.aquilagraph.frontend;
 import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.Tree;
+import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.List;
@@ -59,8 +60,33 @@ final class JavaMethodBodyTranslator {
             mapping.semanticReference(), source))
         .orElseGet(() -> SyntaxNode.withoutDirectSource(nodeId, mapping.kind(), semantics.type(path), mapping.value(), childNodes,
             mapping.semanticReference()));
-    var diagnostics = diagnostics(methodKey, node, children);
+    var diagnostics = new ArrayList<>(diagnostics(methodKey, node, children));
+    diagnostics.addAll(declarationPropertyDiagnostics(unit, sourceFile, methodKey, tree));
     return new SyntaxTreeTranslation(node, diagnostics);
+  }
+
+  private List<AnalysisDiagnostic> declarationPropertyDiagnostics(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,
+      Tree tree) {
+    if (!(tree instanceof VariableTree variableTree)) {
+      return List.of();
+    }
+    var diagnostics = new ArrayList<AnalysisDiagnostic>();
+    var origin = sourceEvidence.origin(unit, sourceFile, variableTree);
+    if (!variableTree.getModifiers().getFlags().isEmpty()) {
+      diagnostics.add(FrontendDiagnosticFactory.error(methodKey, JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS_DIAGNOSTIC,
+          "Local declaration modifiers are outside the supported semantic graph profile", origin));
+    }
+    for (var annotation : variableTree.getModifiers().getAnnotations()) {
+      diagnostics.add(FrontendDiagnosticFactory.error(methodKey, JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC,
+          "Local declaration annotations are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, annotation)));
+    }
+    if (variableTree.getNameExpression() != null) {
+      diagnostics.add(FrontendDiagnosticFactory.error(methodKey, JavaDeclarationPropertyCoverage.VARIABLE_NAME_EXPRESSION_DIAGNOSTIC,
+          "Local declaration name expressions are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, variableTree.getNameExpression())));
+    }
+    return List.copyOf(diagnostics);
   }
 
   private List<SyntaxTreeTranslation> translateChildren(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,
