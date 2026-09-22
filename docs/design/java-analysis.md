@@ -48,12 +48,16 @@ acceptance state. `SemanticResolver` projects compiler elements, independent
 expression types, declaration references, type hierarchies, and invocation
 qualifying types and modes, while
 `JavaSourceEvidence` independently projects
-source positions. Translation results carry their diagnostics explicitly, and
-recursive body assembly uses immutable mappings without retaining per-method
-state. `JavaProgram`, `JavaType`, and `JavaMethod` retain declaration facts only,
+source positions. Translation results carry diagnostics and contextual
+declaration-property observations explicitly, and recursive body assembly uses
+immutable mappings without retaining per-method state.
+`JavaDeclarationPropertyObserver` creates each property diagnostic together with
+the exact source-owned accessor occurrences represented by that diagnostic.
+`JavaProgram`, `JavaType`, and `JavaMethod` retain declaration facts only,
 including exact type ownership and whether a method body exists;
-`SyntaxAnalysisInput` carries the corresponding syntax trees
-only across the frontend-to-core boundary. All compiler-owned objects remain
+`SyntaxAnalysisInput` carries the corresponding syntax trees and the per-input,
+release-bound `LanguageFeatureCoverageResult` across the frontend-to-core boundary.
+All compiler-owned objects remain
 package-internal and are translated into project-owned records before the facade
 returns. Target source files are not reopened after snapshot discovery. Source
 access and UTF-8 decoding failures remain checked
@@ -154,11 +158,58 @@ would discard either fact must emit the catalog's diagnostic. Attributed executa
 modifiers, including implicit interface method modifiers, are retained in
 `JavaMethod`. Compiler errors retain their distinct `compiler.err.*` codes.[2][23][25]
 
-The compiler-kind catalog remains a staging boundary. Its diagnosed policies are not
-yet connected to encountered-source accounting; that integration is a later
-increment. Coverage values are not persisted, compiler API types remain confined to
-`frontend`, and the accepted source profile and completion contract below remain the
-implemented runtime behavior.[2][9][23][24][25]
+`JavaLanguageFeatureCoverage` validates both closed ledgers and combines them into
+one deterministic contract for the configured release. The contract identity hashes
+the release, exact feature set, policies, and policy evidence; the per-input result
+rejects any reduced, augmented, or reclassified substitute. `JavaCompilerKindDiagnostics`
+then scans every parsed compilation unit in compiler traversal order before compiler
+attribution can inject generated trees. Every source tree is
+looked up by its exact kind identity; a missing classification fails the frontend
+contract, a `DIAGNOSED` classification emits its catalog code with the available
+source span, and `REPRESENTED` or `IRRELEVANT` classifications emit no kind error.
+Each compiler-kind occurrence is recorded in a source-context manifest before its
+observation retains the exact classification, source owner, available origins, typed
+outcome, and inseparable catalog diagnostic when diagnosed. Declaration-property
+occurrences and observations are emitted by the translator that encounters the
+specific accessor context. One diagnostic may therefore own multiple exact accessor
+occurrences, while variable annotations are accounted for by
+`VariableTree.getModifiers()` rather than an unrelated element surface. The combined
+contract and all diagnostics are returned in
+`SyntaxAnalysisInput` before the existing completion projection runs. Construction
+rejects any partial or two-sided removal because the complete ordered occurrence
+manifest must equal the retained observation inventory. Construction also rejects a
+coverage diagnostic omitted from either boundary value, an observation whose
+classification differs from the active contract, an observation owned by a source
+outside the input snapshot, a capability diagnostic without a contextual feature
+observation, or a nonempty snapshot that lacks exactly one compilation-unit
+observation per captured source file.[2][23][24][25][26][27]
+
+The observable root causes remain distinct through `AnalysisOutcomeKind`.
+Each producer assigns the outcome while it owns the relevant compiler or frontend
+context; the model does not reconstruct the cause from a diagnostic-code prefix.
+Compiler-reported invalid source retains its exact compiler code, including a stable
+fallback when the compiler supplies no code; an `ERRONEOUS` compiler tree has the exact
+`frontend.unsupported-tree-kind.erroneous` capability code; deliberate irrelevance
+is an inspectable non-error policy with rationale and source locator; other valid but
+unsupported kinds and declaration properties retain their catalog codes at the
+`FRONTEND` stage; attributed error types and erroneous references retain the
+`ERRONEOUS_COMPILER_STATE` outcome; and unavailable method lowering retains a separate
+`control-flow.*` code at the `CONTROL_FLOW` stage. Feature observations also expose
+represented and irrelevant outcomes without an error. These distinctions may all project
+to `INCOMPLETE`, but no generic completion status replaces their typed diagnostic or
+policy evidence.[8][23][24][25][26][27]
+
+`COMPILATION_UNIT` is currently a diagnosed kind, so every nonempty Java input
+truthfully reports at least `frontend.unsupported-tree-kind.compilation-unit` and
+cannot be `COMPLETED`. Later representation work may change an entry from
+`DIAGNOSED` to `REPRESENTED` only when the corresponding project-owned boundary and
+tests retain that fact. This contract intentionally exposes the present gap instead
+of treating successful parsing or CFG construction as AST completeness. Coverage
+values are not persisted, compiler API types remain confined to `frontend`, and no
+Neo4j schema change is required. The focused class, sequence, and component views show
+the coverage scanner, contextual declaration-property observation, authoritative
+contract/result construction, transient syntax-input association, and application
+analysis-run collaboration.[2][8][9][23][24][26]
 
 ## Accepted Source Profile
 
@@ -331,10 +382,11 @@ origins inside the same aggregate.[8][18]
 
 ## Application Orchestration
 
-`AnalysisApplicationService` owns the complete application use case. It accepts
-an `AnalysisRequest`, invokes the frontend and analysis engine, applies the
-completed-run publication rule, opens and closes the configured repository only
-when publication was requested, and returns an `AnalysisExecution`. The
+`SourceAnalysisRunner` composes the source-analysis port and unchanged
+`AnalysisEngine` behind the caller-facing `AnalysisRunAnalyzer` operation.
+`AnalysisApplicationService` accepts an `AnalysisRequest`, invokes that operation,
+applies the completed-run publication rule, opens and closes the configured repository
+only when publication was requested, and returns an `AnalysisExecution`. The
 execution distinguishes repository storage that was not requested, was not
 attempted because analysis did not complete, and completed successfully.[16]
 
@@ -383,7 +435,8 @@ they are not a path-feasibility or whole-program exception proof.[2][5][7]
 
 ## Completion Contract
 
-- `COMPLETED`: the frontend/core diagnostics contain no errors and every
+- `COMPLETED`: every encountered language feature is either represented or
+  deliberately irrelevant, the frontend/core diagnostics contain no errors, and every
   compiler-visible concrete method body has exactly one `MethodAnalysis` with a
   CFG.
 - `INCOMPLETE`: a source model exists, but an error or missing method analysis
@@ -394,7 +447,10 @@ they are not a path-feasibility or whole-program exception proof.[2][5][7]
 
 Only completed runs are eligible for repository storage. A repository failure is a
 separate application outcome and never changes the already computed completion;
-the CLI maps that outcome to its repository exit code.[8][9][16]
+the CLI maps that outcome to its repository exit code. Completion consumes the
+frontend's coverage diagnostics, but CFG success is not evidence of language-feature
+coverage: catalog classification and encounter accounting happen before lowering,
+and control-flow diagnostics retain their separate stage.[8][9][16][26]
 
 ## CLI Contract
 
@@ -470,7 +526,11 @@ implements its bounded model and has no runtime dependency on
 15. [JavaRelease](../../src/main/java/org/aquilagraph/model/JavaRelease.java), supported release values;
     [CompilerConfiguration](../../src/main/java/org/aquilagraph/model/CompilerConfiguration.java), managed compiler inputs; and
     [JavaCompilerReleaseSupport](../../src/main/java/org/aquilagraph/frontend/JavaCompilerReleaseSupport.java), system compiler capability validation.
-16. [AnalysisApplicationService](../../src/main/java/org/aquilagraph/application/AnalysisApplicationService.java), `execute`; [AnalysisExecution](../../src/main/java/org/aquilagraph/application/AnalysisExecution.java), repository outcome invariants; [AnalysisRunRepository](../../src/main/java/org/aquilagraph/repository/AnalysisRunRepository.java), technology-neutral repository port.
+16. [AnalysisApplicationService](../../src/main/java/org/aquilagraph/application/AnalysisApplicationService.java), `execute`;
+    [SourceAnalysisRunner](../../src/main/java/org/aquilagraph/application/SourceAnalysisRunner.java), frontend/core composition;
+    [AnalysisRunAnalyzer](../../src/main/java/org/aquilagraph/application/port/AnalysisRunAnalyzer.java), caller-facing run operation;
+    [AnalysisExecution](../../src/main/java/org/aquilagraph/application/AnalysisExecution.java), repository outcome invariants; and
+    [AnalysisRunRepository](../../src/main/java/org/aquilagraph/application/port/AnalysisRunRepository.java), technology-neutral repository port.
 17. [AquilaGraphApplication](../../src/main/java/org/aquilagraph/AquilaGraphApplication.java), composition root and Neo4j adapter selection.
 18. [JavaProgram](../../src/main/java/org/aquilagraph/model/JavaProgram.java), program-wide method-key uniqueness; [ProgramRepresentation](../../src/main/java/org/aquilagraph/model/ProgramRepresentation.java), canonical method-analysis membership.
 19. Oracle, [Java SE 25 `JavaCompiler` API](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/tools/JavaCompiler.html),
@@ -508,3 +568,16 @@ implements its bounded model and has no runtime dependency on
     [`TypeElement`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/TypeElement.html), and
     [`ExecutableElement`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/ExecutableElement.html)
     APIs, complete declaration-tree and element accessor surfaces.
+26. [JavaLanguageFeatureCoverage](../../src/main/java/org/aquilagraph/frontend/JavaLanguageFeatureCoverage.java), combined release contract;
+    [JavaCompilerKindDiagnostics](../../src/main/java/org/aquilagraph/frontend/JavaCompilerKindDiagnostics.java), exact encountered-kind accounting;
+    [JavaDeclarationPropertyObserver](../../src/main/java/org/aquilagraph/frontend/JavaDeclarationPropertyObserver.java), contextual property accounting;
+    [JavaLanguageCompletionContractTest](../../src/test/java/org/aquilagraph/frontend/JavaLanguageCompletionContractTest.java), black-box
+    root-cause, completion, and determinism regressions; Oracle, Java SE 25
+    [`TreeScanner`](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/util/TreeScanner.html), recursive child traversal; and
+    [`JavacTask`](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/util/JavacTask.html), distinct parse and analysis phases.
+27. [LanguageFeatureCoverageResult](../../src/main/java/org/aquilagraph/model/LanguageFeatureCoverageResult.java), per-input coverage outcome;
+    [LanguageFeatureObservation](../../src/main/java/org/aquilagraph/model/LanguageFeatureObservation.java), exact source-owned occurrences;
+    [AnalysisOutcomeKind](../../src/main/java/org/aquilagraph/model/AnalysisOutcomeKind.java), typed root-cause vocabulary; and
+    [AnalysisDiagnostic](../../src/main/java/org/aquilagraph/model/AnalysisDiagnostic.java), stable diagnostics and typed outcome projection;
+    Oracle, Java SE 25 [`Diagnostic`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/tools/Diagnostic.html),
+    diagnostic kind and implementation-dependent optional code.
