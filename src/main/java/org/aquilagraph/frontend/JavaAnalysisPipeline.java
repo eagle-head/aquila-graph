@@ -47,10 +47,10 @@ final class JavaAnalysisPipeline {
     return result;
   }
 
-  private static JavaCompilerSession openCompilerSession(JavaCompiler compiler, JavaCompilerInvocation invocation,
+  private static CompilerSession openCompilerSession(JavaCompiler compiler, JavaCompilerInvocation invocation,
       SnapshotSourceCatalog sources) {
     try {
-      return JavaCompilerSession.open(compiler, invocation, sources);
+      return CompilerSession.open(compiler, invocation, sources);
     } catch (IllegalArgumentException exception) {
       throw new AnalysisInputException("The compiler rejected the analysis configuration", exception);
     }

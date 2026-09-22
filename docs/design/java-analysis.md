@@ -11,7 +11,7 @@ path, and caller options. `JavaSourceLoader`
 reads each source once as UTF-8 and captures its content in the input snapshot.
 `JavaFrontend` is the stable public facade: it delegates source discovery to the
 loader and snapshot analysis to `JavaAnalysisPipeline`. The pipeline coordinates
-one run without owning compiler resources. `JavaCompilerSession` owns exactly one
+one run without owning compiler resources. `CompilerSession` owns exactly one
 standard file manager and `JavacTask`, performs `parse()` and `analyze()`, and
 closes the file manager before environment verification and result publication.
 Before a compiler session starts, `JavaCompilerReleaseSupport` verifies that the
@@ -36,7 +36,7 @@ canonical declaration key when one is available, including for declarations
 outside the analyzed source root. Type, type-parameter, and declaration-header
 type-use annotations are outside the current bounded profile; each occurrence
 therefore produces a deterministic, source-located unsupported diagnostic
-instead of being discarded. `JavaDeclarationIdentities` assigns canonical keys
+instead of being discarded. `DeclarationIdentityRegistry` assigns canonical keys
 to declarations, including owner-and-ordinal type-parameter keys, while compiler
 elements remain available. `JavaMethodBodyTranslator` recursively
 converts one method body into transient `MethodSyntax`; and
@@ -44,7 +44,7 @@ converts one method body into transient `MethodSyntax`; and
 to a typed `SyntaxKind`, typed `SyntaxValue`, role-bearing `SyntaxChild` values,
 stable structural paths, and contextual value or assignment-location use.
 Unsupported forms are represented by their node kind rather than parallel
-acceptance state. `JavaSemanticResolver` projects compiler elements, independent
+acceptance state. `SemanticResolver` projects compiler elements, independent
 expression types, declaration references, type hierarchies, and invocation
 qualifying types and modes, while
 `JavaSourceEvidence` independently projects
@@ -371,15 +371,15 @@ implements its bounded model and has no runtime dependency on
 1. [JavaSourceLoader](../../src/main/java/org/aquilagraph/frontend/JavaSourceLoader.java), `discover`.
 2. [JavaFrontend](../../src/main/java/org/aquilagraph/frontend/JavaFrontend.java), public facade;
    [JavaAnalysisPipeline](../../src/main/java/org/aquilagraph/frontend/JavaAnalysisPipeline.java), analysis-run coordination;
-   [JavaCompilerSession](../../src/main/java/org/aquilagraph/frontend/JavaCompilerSession.java), compiler-resource ownership;
+   [CompilerSession](../../src/main/java/org/aquilagraph/frontend/CompilerSession.java), compiler-resource ownership;
    [SnapshotSourceCatalog](../../src/main/java/org/aquilagraph/frontend/SnapshotSourceCatalog.java), captured-source correlation;
    [CompilerDiagnosticTranslator](../../src/main/java/org/aquilagraph/frontend/CompilerDiagnosticTranslator.java), compiler diagnostics;
    [JavaProgramTranslator](../../src/main/java/org/aquilagraph/frontend/JavaProgramTranslator.java), declaration translation;
    [JavaTypeTranslator](../../src/main/java/org/aquilagraph/frontend/JavaTypeTranslator.java), exhaustive class-member classification;
-   [JavaDeclarationIdentities](../../src/main/java/org/aquilagraph/frontend/JavaDeclarationIdentities.java), canonical declaration keys;
+   [DeclarationIdentityRegistry](../../src/main/java/org/aquilagraph/frontend/DeclarationIdentityRegistry.java), canonical declaration keys;
    [JavaMethodBodyTranslator](../../src/main/java/org/aquilagraph/frontend/JavaMethodBodyTranslator.java), method-body traversal;
    [MethodBodySyntaxProfile](../../src/main/java/org/aquilagraph/frontend/MethodBodySyntaxProfile.java), contextual syntax mapping; and
-   [JavaSemanticResolver](../../src/main/java/org/aquilagraph/frontend/JavaSemanticResolver.java), compiler semantic queries;
+   [SemanticResolver](../../src/main/java/org/aquilagraph/frontend/SemanticResolver.java), compiler semantic queries;
    [JavaSourceEvidence](../../src/main/java/org/aquilagraph/frontend/JavaSourceEvidence.java), source-position projection;
    [SyntaxAnalysisInput](../../src/main/java/org/aquilagraph/syntax/SyntaxAnalysisInput.java), transient frontend-to-core boundary; and
    [syntax package](../../src/main/java/org/aquilagraph/syntax), typed syntax evidence contracts.

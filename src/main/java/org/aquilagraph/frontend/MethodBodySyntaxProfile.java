@@ -50,9 +50,9 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
   private static final String THIS_NAME = "this";
   private static final String SUPER_NAME = "super";
   private static final String CONSTRUCTOR_NAME = "<init>";
-  private final JavaSemanticResolver semantics;
+  private final SemanticResolver semantics;
 
-  MethodBodySyntaxProfile(JavaSemanticResolver semantics) {
+  MethodBodySyntaxProfile(SemanticResolver semantics) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
   }
 

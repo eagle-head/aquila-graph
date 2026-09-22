@@ -46,11 +46,11 @@ import org.aquilagraph.syntax.SyntaxType;
 import org.jspecify.annotations.Nullable;
 
 final class JavaTypeTranslator {
-  private final JavaSemanticResolver semantics;
+  private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
   private final JavaMethodTranslator methodTranslator;
 
-  JavaTypeTranslator(JavaSemanticResolver semantics, JavaSourceEvidence sourceEvidence, JavaMethodTranslator methodTranslator) {
+  JavaTypeTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, JavaMethodTranslator methodTranslator) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.methodTranslator = Objects.requireNonNull(methodTranslator, "methodTranslator");

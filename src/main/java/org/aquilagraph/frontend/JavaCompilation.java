@@ -6,7 +6,7 @@ import java.util.Objects;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
 
-record JavaCompilation(List<CompilationUnitTree> units, JavaSemanticResolver semantics, JavaSourceEvidence sourceEvidence,
+record JavaCompilation(List<CompilationUnitTree> units, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
     List<Diagnostic<? extends JavaFileObject>> diagnostics) {
   JavaCompilation {
     units = List.copyOf(Objects.requireNonNull(units, "units"));

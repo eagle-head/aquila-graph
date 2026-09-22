@@ -15,7 +15,7 @@ final class JavaProgramTranslator {
   private final SnapshotSourceCatalog sources;
   private final JavaTypeTranslator typeTranslator;
 
-  JavaProgramTranslator(SnapshotSourceCatalog sources, JavaSemanticResolver semantics, JavaSourceEvidence sourceEvidence) {
+  JavaProgramTranslator(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence) {
     this.sources = Objects.requireNonNull(sources, "sources");
     Objects.requireNonNull(semantics, "semantics");
     Objects.requireNonNull(sourceEvidence, "sourceEvidence");

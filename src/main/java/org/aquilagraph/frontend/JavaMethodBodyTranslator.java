@@ -21,11 +21,11 @@ import org.aquilagraph.syntax.SyntaxType;
 import org.aquilagraph.syntax.SyntaxValue;
 
 final class JavaMethodBodyTranslator {
-  private final JavaSemanticResolver semantics;
+  private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
   private final MethodBodySyntaxProfile syntaxProfile;
 
-  JavaMethodBodyTranslator(JavaSemanticResolver semantics, JavaSourceEvidence sourceEvidence) {
+  JavaMethodBodyTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     syntaxProfile = new MethodBodySyntaxProfile(semantics);

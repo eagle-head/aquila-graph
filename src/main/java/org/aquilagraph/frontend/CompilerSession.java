@@ -13,18 +13,18 @@ import javax.tools.JavaCompiler;
 import javax.tools.JavaFileObject;
 import javax.tools.StandardJavaFileManager;
 
-final class JavaCompilerSession implements AutoCloseable {
+final class CompilerSession implements AutoCloseable {
   private final StandardJavaFileManager fileManager;
   private final DiagnosticCollector<JavaFileObject> diagnostics;
   private final JavacTask task;
 
-  private JavaCompilerSession(StandardJavaFileManager fileManager, DiagnosticCollector<JavaFileObject> diagnostics, JavacTask task) {
+  private CompilerSession(StandardJavaFileManager fileManager, DiagnosticCollector<JavaFileObject> diagnostics, JavacTask task) {
     this.fileManager = Objects.requireNonNull(fileManager, "fileManager");
     this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
     this.task = Objects.requireNonNull(task, "task");
   }
 
-  static JavaCompilerSession open(JavaCompiler compiler, JavaCompilerInvocation invocation, SnapshotSourceCatalog sources) {
+  static CompilerSession open(JavaCompiler compiler, JavaCompilerInvocation invocation, SnapshotSourceCatalog sources) {
     Objects.requireNonNull(compiler, "compiler");
     Objects.requireNonNull(invocation, "invocation");
     Objects.requireNonNull(sources, "sources");
@@ -33,7 +33,7 @@ final class JavaCompilerSession implements AutoCloseable {
     try {
       var task = (JavacTask) compiler.getTask(null, fileManager, diagnostics, invocation.compilerOptions(), null,
           sources.compilationUnits());
-      return new JavaCompilerSession(fileManager, diagnostics, task);
+      return new CompilerSession(fileManager, diagnostics, task);
     } catch (IllegalArgumentException exception) {
       closeAfterFailure(fileManager, exception);
       throw exception;
@@ -46,8 +46,8 @@ final class JavaCompilerSession implements AutoCloseable {
     task.analyze();
     var trees = Trees.instance(task);
     var types = task.getTypes();
-    var identities = new JavaDeclarationIdentities(trees, types);
-    return new JavaCompilation(units, new JavaSemanticResolver(trees, types, task.getElements(), identities),
+    var identities = new DeclarationIdentityRegistry(trees, types);
+    return new JavaCompilation(units, new SemanticResolver(trees, types, task.getElements(), identities),
         new JavaSourceEvidence(trees.getSourcePositions()), diagnostics.getDiagnostics());
   }
 

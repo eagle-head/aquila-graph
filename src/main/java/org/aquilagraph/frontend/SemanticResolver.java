@@ -35,15 +35,15 @@ import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.syntax.SyntaxType;
 
-final class JavaSemanticResolver {
+final class SemanticResolver {
   private static final String PATH_ARGUMENT = "path";
   private static final String ELEMENT_ARGUMENT = "element";
   private final Trees trees;
   private final Types types;
   private final Elements elements;
-  private final JavaDeclarationIdentities identities;
+  private final DeclarationIdentityRegistry identities;
 
-  JavaSemanticResolver(Trees trees, Types types, Elements elements, JavaDeclarationIdentities identities) {
+  SemanticResolver(Trees trees, Types types, Elements elements, DeclarationIdentityRegistry identities) {
     this.trees = Objects.requireNonNull(trees, "trees");
     this.types = Objects.requireNonNull(types, "types");
     this.elements = Objects.requireNonNull(elements, "elements");
@@ -55,11 +55,11 @@ final class JavaSemanticResolver {
   }
 
   Optional<String> declarationKey(Element element) {
-    return identities.key(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
+    return identities.keyOf(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
   }
 
   String executableSignature(ExecutableElement element) {
-    return identities.executableSignature(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
+    return identities.signatureOf(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
   }
 
   Optional<SemanticReference> reference(TreePath path, ReferenceKind expectedKind) {
@@ -74,7 +74,7 @@ final class JavaSemanticResolver {
       return Optional.of(unresolvedReference(expectedKind));
     }
     var type = compilerType(path);
-    var symbolKey = identities.key(element);
+    var symbolKey = identities.keyOf(element);
     var status = type != null && type.getKind() == TypeKind.ERROR
         ? ResolutionStatus.ERROR
         : symbolKey.isPresent() ? ResolutionStatus.RESOLVED : ResolutionStatus.UNRESOLVED;
@@ -121,7 +121,7 @@ final class JavaSemanticResolver {
   }
 
   Optional<JavaTypeReference> typeReference(TypeMirror type) {
-    return javaTypeReference(type, false);
+    return projectTypeReference(type, false);
   }
 
   Optional<InvocationSemantics> invocationSemantics(TreePath invocationPath, ExecutableElement executable, InvocationForm form) {
@@ -236,16 +236,16 @@ final class JavaSemanticResolver {
   }
 
   private Optional<QualifyingType> qualifyingType(TypeMirror type) {
-    return javaTypeReference(type, true).map(reference -> new QualifyingType(reference, isInterface(types.erasure(type))));
+    return projectTypeReference(type, true).map(reference -> new QualifyingType(reference, isInterface(types.erasure(type))));
   }
 
-  private Optional<JavaTypeReference> javaTypeReference(TypeMirror type, boolean erase) {
+  private Optional<JavaTypeReference> projectTypeReference(TypeMirror type, boolean erase) {
     if (type == null || type.getKind() == TypeKind.NONE || type.getKind() == TypeKind.PACKAGE || type.getKind() == TypeKind.MODULE) {
       return Optional.empty();
     }
     var identityType = erase ? types.erasure(type) : type;
     var declaration = types.asElement(type);
-    var declarationKey = declaration == null ? Optional.<String>empty() : identities.key(declaration);
+    var declarationKey = declaration == null ? Optional.<String>empty() : identities.keyOf(declaration);
     return Optional.of(new JavaTypeReference(typeIdentity(identityType), declarationKey));
   }
 
