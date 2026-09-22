@@ -111,15 +111,14 @@ Domain keys are length-framed SHA-256 identifiers derived from stable source,
 symbol, structural-path, operation, graph, or relationship identity. Ordered
 positions are stored as properties where order is semantically relevant.[2][3]
 
-Analyzer `0.6.0` and stored model `8` are the migration boundary for durable
-source-occurrence identities. Existing CFG operation, value, transfer, and
-relationship keys that depend on a syntax-node identity change relative to
-model 7. The analyzer and model versions participate in `AnalysisRun.runId`, so
-a model-8 publication receives a different run identity and does not overwrite
-the model-7 projection for the same captured software and environment. Within
-model 8, repeating the same run remains idempotent. This migration changes
-identities, not Neo4j labels, relationship types, constraints, or CFG
-semantics.[1][2][3]
+`AnalysisRun.runId` is derived from the captured software target's source and
+environment signatures. No analyzer or stored-model version participates in
+the key or appears as an `AnalysisRun` property. Publishing a completed run
+for the same captured target replaces its existing projection atomically, even
+if a different analyzer build produced different derived identities. Older
+projections written with version-bearing run keys have different identities;
+this change does not delete or migrate them. A deployment that needs to remove
+those legacy projections requires a separate, explicit data migration.[1][2][3]
 
 The repository explicitly creates:
 

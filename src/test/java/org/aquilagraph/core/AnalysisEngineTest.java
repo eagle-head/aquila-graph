@@ -14,7 +14,6 @@ import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.AnalysisRun;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.OperationKind;
@@ -161,21 +160,20 @@ class AnalysisEngineTest {
   }
 
   @Test
-  void givenDurableSyntaxIdentityContract_whenAnalysisRuns_thenRunIdentityUsesVersionedMigrationBoundary() throws IOException {
+  void givenSameCapturedTarget_whenAnalysisRunsTwice_thenRunIdentityMatchesTargetSignature() throws IOException {
     // Arrange
+    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var engine = new AnalysisEngine();
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
 
     // Act
-    var run = engine.analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
+    var firstRun = engine.analyze(frontend.analyze(temporaryDirectory, configuration));
+    var secondRun = engine.analyze(frontend.analyze(temporaryDirectory, configuration));
 
     // Assert
-    assertEquals("0.6.0", run.analyzerVersion());
-    assertEquals("8", run.modelVersion());
-    assertEquals(StableId.sha256("analysis-run", run.softwareVersion().signature(), "0.6.0", "8"), run.runId());
-    assertNotEquals(StableId.sha256("analysis-run", run.softwareVersion().signature(), "0.5.0", "7"), run.runId());
-    assertEquals(AnalysisRun.CURRENT_ANALYZER_VERSION, run.analyzerVersion());
-    assertEquals(AnalysisRun.CURRENT_MODEL_VERSION, run.modelVersion());
+    assertEquals(StableId.sha256("analysis-run", firstRun.softwareVersion().signature()), firstRun.runId());
+    assertEquals(firstRun.runId(), secondRun.runId());
   }
 
   @Test

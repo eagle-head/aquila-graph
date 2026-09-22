@@ -25,8 +25,7 @@ final class Neo4jAnalysisRunMapper {
     }
 
     var projection = new Neo4jProjectionBuilder(run.runId());
-    projection.node("AnalysisRun", run.runId(), "completion", run.completion().name(), "analyzerVersion", run.analyzerVersion(),
-        "modelVersion", run.modelVersion());
+    projection.node("AnalysisRun", run.runId(), "completion", run.completion().name());
     var softwareVersion = run.softwareVersion();
     projection.node("SoftwareVersion", softwareVersion.signature(), "signatureAlgorithm", softwareVersion.signatureAlgorithm(), "signature",
         softwareVersion.signature(), "sourceSignature", softwareVersion.sourceSignature(), "environmentSignature",

@@ -185,8 +185,7 @@ class Neo4jAnalysisRunMapperTest {
         projection.relationships().stream()
             .anyMatch(relation -> relation.type().equals("HAS_CLASS_PATH_ENTRY")));
     var analysisRunNode = projection.nodes().stream().filter(node -> node.label().equals("AnalysisRun")).findFirst().orElseThrow();
-    assertEquals("0.6.0", analysisRunNode.properties().get("analyzerVersion"));
-    assertEquals("8", analysisRunNode.properties().get("modelVersion"));
+    assertEquals(Set.of("runId", "key", "completion"), analysisRunNode.properties().keySet());
     assertFalse(
         projection.relationships().stream()
             .anyMatch(
@@ -302,6 +301,6 @@ class Neo4jAnalysisRunMapperTest {
 
   private static AnalysisRun completedMapperFixture(AnalysisRun analyzedRun) {
     return new AnalysisRun(analyzedRun.runId(), analyzedRun.inputSnapshot(), analyzedRun.environmentSnapshot(),
-        analyzedRun.representation(), List.of(), AnalysisCompletion.COMPLETED, analyzedRun.analyzerVersion(), analyzedRun.modelVersion());
+        analyzedRun.representation(), List.of(), AnalysisCompletion.COMPLETED);
   }
 }

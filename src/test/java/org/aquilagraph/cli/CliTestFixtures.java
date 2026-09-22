@@ -70,8 +70,7 @@ final class CliTestFixtures {
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var environment = new AnalysisEnvironmentSnapshot(configuration, "test-compiler", "test-vendor", "25-test",
         List.of("--release", "25"), List.of(), List.of());
-    return new AnalysisRun(StableId.sha256("analysis-run", identity), inputSnapshot, environment, representation, diagnostics, completion,
-        AnalysisRun.CURRENT_ANALYZER_VERSION, AnalysisRun.CURRENT_MODEL_VERSION);
+    return new AnalysisRun(StableId.sha256("analysis-run", identity), inputSnapshot, environment, representation, diagnostics, completion);
   }
 
   private static InputSnapshot inputSnapshot() {

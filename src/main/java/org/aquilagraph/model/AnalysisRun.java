@@ -5,7 +5,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Versioned result of analyzing one immutable input snapshot.
+ * Result of analyzing one immutable input and environment snapshot.
  *
  * @param runId
  *          stable run identifier
@@ -19,18 +19,9 @@ import java.util.Optional;
  *          ordered analysis diagnostics
  * @param completion
  *          completion classification
- * @param analyzerVersion
- *          analyzer implementation version
- * @param modelVersion
- *          stored model version
  */
 public record AnalysisRun(String runId, InputSnapshot inputSnapshot, AnalysisEnvironmentSnapshot environmentSnapshot,
-    Optional<ProgramRepresentation> representation, List<AnalysisDiagnostic> diagnostics, AnalysisCompletion completion,
-    String analyzerVersion, String modelVersion) {
-  /** Analyzer version written into newly created runs. */
-  public static final String CURRENT_ANALYZER_VERSION = "0.6.0";
-  /** Model version written into newly created runs. */
-  public static final String CURRENT_MODEL_VERSION = "8";
+    Optional<ProgramRepresentation> representation, List<AnalysisDiagnostic> diagnostics, AnalysisCompletion completion) {
 
   /** Validates run invariants and defensively copies diagnostics. */
   public AnalysisRun {
@@ -40,8 +31,6 @@ public record AnalysisRun(String runId, InputSnapshot inputSnapshot, AnalysisEnv
     Objects.requireNonNull(representation, "representation");
     diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics"));
     Objects.requireNonNull(completion, "completion");
-    Objects.requireNonNull(analyzerVersion, "analyzerVersion");
-    Objects.requireNonNull(modelVersion, "modelVersion");
     if (completion == AnalysisCompletion.COMPLETED && representation.isEmpty()) {
       throw new IllegalArgumentException("A completed run requires a program representation");
     }

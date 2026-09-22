@@ -84,20 +84,22 @@ changed in the interval. The frontend always passes an explicit class path,
 including the empty class path, so compiler analysis cannot inherit the analyzer
 process class path implicitly.[2][14]
 
-The analysis-run key combines the input snapshot digest, the environment digest,
-and analyzer/model versions. The environment digest includes compiler identity,
+The analysis-run key is derived from the captured software target's source and
+environment signatures, not from an analyzer or stored-model version. The
+environment digest includes compiler identity,
 analysis options, dependency roles, order, kinds, and content fingerprints, but
 excludes dependency locations. Locations remain provenance metadata. Options
 that could add an uncaptured compiler input location are reserved to Aquila
 Graph and must instead use the captured configuration fields.[8][14][15]
 
-Analyzer `0.6.0` and stored model `8` establish the identity boundary for the
-durable source-occurrence contract. CFG operation, value, transfer, and
-relationship keys derived from source occurrences intentionally differ from the
-model-7 contract. Because both versions participate in the analysis-run key,
-the same captured software and environment cannot reuse a model-7 run identity
-under model 8. The CFG semantics and topology are unchanged by this identity
-migration.[5][8]
+The analyzer implementation revision is managed in Git and its published version
+belongs to the build artifact. Neither is embedded in `AnalysisRun` or its key.
+Reanalyzing the same captured source and environment with a different analyzer
+build produces the same run key. Publishing that completed run replaces the
+current projection at that key, including any changed derived CFG identities;
+it does not retain parallel projections by analyzer build. Projections already
+stored under the former version-bearing run-key scheme have different keys and
+are not removed or migrated automatically.[5][8]
 
 ## Release-Bound Language Coverage Contract
 

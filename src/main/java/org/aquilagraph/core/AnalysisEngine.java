@@ -39,25 +39,24 @@ public final class AnalysisEngine {
    *
    * @param input
    *          transient syntax analysis input
-   * @return versioned analysis run
+   * @return analysis run identified by the captured software target
    */
   public AnalysisRun analyze(SyntaxAnalysisInput input) {
     Objects.requireNonNull(input, "input");
     var diagnostics = new ArrayList<>(input.diagnostics());
     var softwareVersion = SoftwareVersion.from(input.snapshot(), input.environmentSnapshot());
-    var runId = StableId.sha256("analysis-run", softwareVersion.signature(), AnalysisRun.CURRENT_ANALYZER_VERSION,
-        AnalysisRun.CURRENT_MODEL_VERSION);
+    var runId = StableId.sha256("analysis-run", softwareVersion.signature());
 
     if (input.snapshot().sourceFiles().isEmpty()) {
       diagnostics.add(diagnostic(runId, "input.empty", DiagnosticStage.INPUT, "The source root does not contain Java source files"));
       return new AnalysisRun(runId, input.snapshot(), input.environmentSnapshot(), Optional.empty(), diagnostics,
-          AnalysisCompletion.REJECTED, AnalysisRun.CURRENT_ANALYZER_VERSION, AnalysisRun.CURRENT_MODEL_VERSION);
+          AnalysisCompletion.REJECTED);
     }
 
     if (input.program().types().isEmpty()) {
       diagnostics.add(diagnostic(runId, "frontend.no-types", DiagnosticStage.FRONTEND, "No Java type declaration could be accepted"));
       return new AnalysisRun(runId, input.snapshot(), input.environmentSnapshot(), Optional.empty(), diagnostics,
-          AnalysisCompletion.REJECTED, AnalysisRun.CURRENT_ANALYZER_VERSION, AnalysisRun.CURRENT_MODEL_VERSION);
+          AnalysisCompletion.REJECTED);
     }
 
     var analyses = new ArrayList<MethodAnalysis>();
@@ -84,8 +83,7 @@ public final class AnalysisEngine {
     var concreteMethodCount = input.program().methods().stream().filter(method -> method.hasBody()).count();
     var complete = diagnostics.stream().noneMatch(AnalysisDiagnostic::isError) && analyses.size() == concreteMethodCount;
     return new AnalysisRun(runId, input.snapshot(), input.environmentSnapshot(), Optional.of(representation), diagnostics,
-        complete ? AnalysisCompletion.COMPLETED : AnalysisCompletion.INCOMPLETE, AnalysisRun.CURRENT_ANALYZER_VERSION,
-        AnalysisRun.CURRENT_MODEL_VERSION);
+        complete ? AnalysisCompletion.COMPLETED : AnalysisCompletion.INCOMPLETE);
   }
 
   private static AnalysisDiagnostic diagnostic(String context, String code, DiagnosticStage stage, String message) {
