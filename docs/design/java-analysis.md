@@ -110,12 +110,29 @@ coverage contract rejects duplicate features before sorting classifications into
 deterministic order, owns an immutable copy, and resolves features only by exact
 identity. It has no wildcard, default, or unknown fallback lookup.[23]
 
-This contract is currently a staging boundary. The compiler-kind and declaration-
-property inventories are not yet populated, and the coverage result is not yet
-connected to the public completion projection. Until those later increments are
-implemented and verified, the accepted source profile and completion contract
-below remain the implemented runtime behavior. Coverage values are not persisted,
-and compiler API types remain confined to `frontend`.[2][9][23]
+`JavaCompilerKindCoverage` now owns the Java 25 compiler-kind catalog behind the
+frontend boundary. Its declarations contain one exact compiler-neutral feature
+identity and one policy for every `Tree.Kind`. Construction resolves every declared
+identity against the running Java 25 enum and compares the resulting set in both
+directions with `EnumSet.allOf(Tree.Kind.class)`. Missing, duplicate, unrecognized,
+catch-all, or policyless entries are rejected before the catalog can be used. The
+catalog has no wildcard, default, or future-kind fallback. `REPRESENTED` entries name
+the current `JavaProgram` or `MethodSyntax` boundary retaining the fact;
+`DIAGNOSED` entries carry deterministic kind-specific diagnostic codes for later
+encounter accounting; and the implementation-reserved `OTHER` kind is the sole
+`IRRELEVANT` entry, with an official API locator and semantic-scope rationale.[23][24]
+These policies classify the compiler-kind identity itself. They do not claim that
+every accessor or source form sharing that kind is already modeled: existing
+occurrence-specific diagnostics still reject unsupported forms, while the separate
+declaration-property catalog owns accessor completeness.[23][24]
+
+The compiler-kind catalog remains a staging boundary. Its diagnosed policies are not
+yet connected to encountered-source accounting or the public completion projection;
+that integration follows only after the declaration-property inventory is closed.
+Until those later increments are implemented and verified, the accepted source
+profile and completion contract below remain the implemented runtime behavior.
+Coverage values are not persisted, and compiler API types remain confined to
+`frontend`.[2][9][23][24]
 
 ## Accepted Source Profile
 
@@ -434,3 +451,7 @@ implements its bounded model and has no runtime dependency on
     [LanguageFeature](../../src/main/java/org/aquilagraph/model/LanguageFeature.java), exact feature identity;
     [LanguageFeaturePolicy](../../src/main/java/org/aquilagraph/model/LanguageFeaturePolicy.java), completion-blocking policy semantics; and
     [LanguageFeatureCoverageFactory](../../src/main/java/org/aquilagraph/frontend/LanguageFeatureCoverageFactory.java), compiler-configuration release binding.
+24. [JavaCompilerKindCoverage](../../src/main/java/org/aquilagraph/frontend/JavaCompilerKindCoverage.java), explicit Java 25 kind catalog and
+    runtime-enum equality validation; Oracle, Java SE 25
+    [`Tree.Kind`](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/Tree.Kind.html), complete enum universe and
+    implementation-reserved `OTHER` kind.
