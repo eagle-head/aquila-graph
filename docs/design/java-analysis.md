@@ -87,6 +87,36 @@ excludes dependency locations. Locations remain provenance metadata. Options
 that could add an uncaptured compiler input location are reserved to Aquila
 Graph and must instead use the captured configuration fields.[8][14][15]
 
+## Release-Bound Language Coverage Contract
+
+`LanguageFeatureCoverage` is the compiler-neutral contract for classifying Java
+language coverage. Its version is the typed `JavaRelease` selected by
+`CompilerConfiguration`. `LanguageFeatureCoverageFactory` obtains that release from
+the same configuration instance that `JavaCompilerInvocation` uses to derive the
+compiler's `--release` option; the coverage contract does not probe the runtime or
+carry an independent release literal.[2][15][23]
+
+Each exact `LanguageFeature` belongs to either the compiler-tree-kind or
+declaration-property category and has one `LanguageFeaturePolicy`:
+
+- `REPRESENTED` names the project-owned aggregate boundary that retains the fact;
+- `IRRELEVANT` carries a nonblank semantic-scope rationale and direct source
+  locator; or
+- `DIAGNOSED` carries one stable diagnostic code and is completion-blocking when
+  the feature is encountered.
+
+Classification construction rejects missing or conflicting policy metadata. A
+coverage contract rejects duplicate features before sorting classifications into
+deterministic order, owns an immutable copy, and resolves features only by exact
+identity. It has no wildcard, default, or unknown fallback lookup.[23]
+
+This contract is currently a staging boundary. The compiler-kind and declaration-
+property inventories are not yet populated, and the coverage result is not yet
+connected to the public completion projection. Until those later increments are
+implemented and verified, the accepted source profile and completion contract
+below remain the implemented runtime behavior. Coverage values are not persisted,
+and compiler API types remain confined to `frontend`.[2][9][23]
+
 ## Accepted Source Profile
 
 The first profile is deliberately smaller than Java 25. It accepts the
@@ -399,3 +429,8 @@ implements its bounded model and has no runtime dependency on
     and
     [`TypeElement`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/TypeElement.html)
     APIs, declaration-header syntax and compiler-resolved type relationships.
+23. [LanguageFeatureCoverage](../../src/main/java/org/aquilagraph/model/LanguageFeatureCoverage.java), immutable release-bound coverage contract;
+    [LanguageFeatureClassification](../../src/main/java/org/aquilagraph/model/LanguageFeatureClassification.java), exclusive policy metadata;
+    [LanguageFeature](../../src/main/java/org/aquilagraph/model/LanguageFeature.java), exact feature identity;
+    [LanguageFeaturePolicy](../../src/main/java/org/aquilagraph/model/LanguageFeaturePolicy.java), completion-blocking policy semantics; and
+    [LanguageFeatureCoverageFactory](../../src/main/java/org/aquilagraph/frontend/LanguageFeatureCoverageFactory.java), compiler-configuration release binding.
