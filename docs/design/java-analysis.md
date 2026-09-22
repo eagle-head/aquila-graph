@@ -126,13 +126,39 @@ every accessor or source form sharing that kind is already modeled: existing
 occurrence-specific diagnostics still reject unsupported forms, while the separate
 declaration-property catalog owns accessor completeness.[23][24]
 
+`JavaDeclarationPropertyCoverage` owns the Java 25 declaration-property catalog.
+Its exact identities include the declaring interface and raw parameter types for
+every non-static public accessor inherited or declared by `CompilationUnitTree`,
+`ClassTree`, `MethodTree`, `VariableTree`, `TypeElement`, and
+`ExecutableElement`. Construction derives that accessor universe from the configured
+JDK 25 APIs and compares it in both directions with the explicit catalog, so missing,
+duplicate, unrecognized, extra, catch-all, and policyless entries cannot silently
+enter the contract. Inherited visitor, element-identity, annotation-proxy lookup,
+and line-map protocols are explicitly irrelevant with direct API locators. Import
+declarations are diagnosed because javac uses them for attribution while the current
+semantic graph does not retain their provenance.[23][24][25]
+
+The declaration-property catalog's diagnosed policies for method type parameters,
+thrown types, receiver parameters, variable arity, declaration annotations,
+annotation defaults, record components, package declarations, and module declarations
+are connected to source-located frontend errors. Those errors flow through the
+existing completion projection and therefore prevent `COMPLETED` without using CFG
+construction as the declaration-coverage oracle. Unsupported import provenance,
+qualified receiver names, variable modifiers or initializers that lack a current
+representation boundary, local declaration annotations, and compiler-mandated
+enclosed declarations also produce source-located capability errors. The catalog
+therefore classifies `VariableTree.getModifiers()` and
+`VariableTree.getInitializer()` conservatively as diagnosed: field modifiers and
+local initializer syntax remain retained where supported, while any context that
+would discard either fact must emit the catalog's diagnostic. Attributed executable
+modifiers, including implicit interface method modifiers, are retained in
+`JavaMethod`. Compiler errors retain their distinct `compiler.err.*` codes.[2][23][25]
+
 The compiler-kind catalog remains a staging boundary. Its diagnosed policies are not
-yet connected to encountered-source accounting or the public completion projection;
-that integration follows only after the declaration-property inventory is closed.
-Until those later increments are implemented and verified, the accepted source
-profile and completion contract below remain the implemented runtime behavior.
-Coverage values are not persisted, and compiler API types remain confined to
-`frontend`.[2][9][23][24]
+yet connected to encountered-source accounting; that integration is a later
+increment. Coverage values are not persisted, compiler API types remain confined to
+`frontend`, and the accepted source profile and completion contract below remain the
+implemented runtime behavior.[2][9][23][24][25]
 
 ## Accepted Source Profile
 
@@ -176,6 +202,20 @@ are also rejected as complete constructs. They remain outside the profile until
 their full CFG semantics can be represented without discarding source
 information. Unrestricted nested exception handling is likewise not part of
 this profile.[2][5]
+
+Declaration facts outside this profile report stable capability-specific frontend
+errors: `frontend.unsupported-method-type-parameters`,
+`frontend.unsupported-thrown-types`, `frontend.unsupported-receiver-parameter`,
+`frontend.unsupported-varargs`, `frontend.unsupported-declaration-annotations`,
+`frontend.unsupported-annotation-default`, `frontend.unsupported-record-components`,
+`frontend.unsupported-package-declaration`, `frontend.unsupported-module-declaration`,
+`frontend.unsupported-import-declaration`, `frontend.unsupported-variable-modifiers`,
+`frontend.unsupported-variable-initializer`,
+`frontend.unsupported-variable-name-expression`, and
+`frontend.unsupported-enclosed-declarations`. The declaration-property regression
+suite uses valid Java 25 sources and verifies both the expected diagnostic and a
+non-completed analysis outcome for every named fact, plus the contextual variable,
+import, implicit-modifier, and compiler-mandated-member boundaries.[2][25]
 
 ## Graph-Native Semantic Lowering and Control Flow
 
@@ -455,3 +495,16 @@ implements its bounded model and has no runtime dependency on
     runtime-enum equality validation; Oracle, Java SE 25
     [`Tree.Kind`](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/Tree.Kind.html), complete enum universe and
     implementation-reserved `OTHER` kind.
+25. [JavaDeclarationPropertyCoverage](../../src/main/java/org/aquilagraph/frontend/JavaDeclarationPropertyCoverage.java), exact Java 25
+    declaration-accessor catalog and runtime-universe validation;
+    [JavaDeclarationPropertyCoverageTest](../../src/test/java/org/aquilagraph/frontend/JavaDeclarationPropertyCoverageTest.java), complete-set
+    and policy-integrity regressions;
+    [JavaDeclarationCompletenessRegressionTest](../../src/test/java/org/aquilagraph/frontend/JavaDeclarationCompletenessRegressionTest.java),
+    valid-source completion regressions; Oracle, Java SE 25
+    [`CompilationUnitTree`](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/CompilationUnitTree.html),
+    [`ClassTree`](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/ClassTree.html),
+    [`MethodTree`](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/MethodTree.html),
+    [`VariableTree`](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/VariableTree.html),
+    [`TypeElement`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/TypeElement.html), and
+    [`ExecutableElement`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/ExecutableElement.html)
+    APIs, complete declaration-tree and element accessor surfaces.
