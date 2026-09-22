@@ -2,6 +2,7 @@ package org.aquilagraph.application;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -27,7 +28,7 @@ class AnalysisApplicationServiceTest {
   @TempDir Path temporaryDirectory;
 
   @Test
-  void givenCompletedSourceAndNoRepositoryRequest_whenAnalysisExecutes_thenRepositoryIsNotOpened()
+  void givenDiagnosedSourceAndNoRepositoryRequest_whenAnalysisExecutes_thenRunIsNotEligible()
       throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
@@ -45,8 +46,8 @@ class AnalysisApplicationServiceTest {
             RepositorySavePolicy.DO_NOT_SAVE));
 
     // Assert
-    assertTrue(execution.run().isComplete());
-    assertEquals(RepositoryStatus.NOT_REQUESTED, execution.repositoryStatus());
+    assertFalse(execution.run().isComplete());
+    assertEquals(RepositoryStatus.NOT_ELIGIBLE, execution.repositoryStatus());
     assertFalse(repositoryOpened.get());
   }
 
@@ -74,15 +75,18 @@ class AnalysisApplicationServiceTest {
   }
 
   @Test
-  void givenCompletedSourceAndRepositoryRequest_whenAnalysisExecutes_thenCompletedRunIsSaved()
+  void givenDiagnosedSourceAndRepositoryRequest_whenAnalysisExecutes_thenRepositoryIsNotOpened()
       throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
     var persistedRun = new AtomicReference<AnalysisRun>();
+    var repositoryOpened = new AtomicBoolean();
     var repositoryClosed = new AtomicBoolean();
     var service =
         service(
-            () ->
+            () -> {
+              repositoryOpened.set(true);
+              return
                 new AnalysisRunRepository() {
                   @Override
                   public void save(AnalysisRun run) {
@@ -93,7 +97,8 @@ class AnalysisApplicationServiceTest {
                   public void close() {
                     repositoryClosed.set(true);
                   }
-                });
+                };
+            });
 
     // Act
     var execution =
@@ -101,48 +106,98 @@ class AnalysisApplicationServiceTest {
             RepositorySavePolicy.SAVE_COMPLETED));
 
     // Assert
-    assertTrue(execution.run().isComplete());
+    assertFalse(execution.run().isComplete());
+    assertEquals(RepositoryStatus.NOT_ELIGIBLE, execution.repositoryStatus());
+    assertNull(persistedRun.get());
+    assertFalse(repositoryOpened.get());
+    assertFalse(repositoryClosed.get());
+  }
+
+  @Test
+  void givenCompletedRunAndNoRepositoryRequest_whenAnalysisExecutes_thenRepositoryIsNotOpened() {
+    // Arrange
+    var requestConfiguration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+    var completedRun = TestAnalysisRuns.completed(temporaryDirectory, requestConfiguration);
+    var repositoryOpened = new AtomicBoolean();
+    var service = new AnalysisApplicationService((sourceRoot, configuration) -> completedRun, () -> {
+      repositoryOpened.set(true);
+      throw new AssertionError("Repository must not be opened");
+    });
+
+    // Act
+    var execution = service.execute(new AnalysisRequest(temporaryDirectory, requestConfiguration, RepositorySavePolicy.DO_NOT_SAVE));
+
+    // Assert
+    assertSame(completedRun, execution.run());
+    assertEquals(RepositoryStatus.NOT_REQUESTED, execution.repositoryStatus());
+    assertFalse(repositoryOpened.get());
+  }
+
+  @Test
+  void givenCompletedRunAndRepositoryRequest_whenAnalysisExecutes_thenRunIsSavedAndRepositoryIsClosed() {
+    // Arrange
+    var requestConfiguration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+    var completedRun = TestAnalysisRuns.completed(temporaryDirectory, requestConfiguration);
+    var persistedRun = new AtomicReference<AnalysisRun>();
+    var repositoryClosed = new AtomicBoolean();
+    var service = new AnalysisApplicationService((sourceRoot, configuration) -> completedRun,
+        () -> repository(persistedRun, repositoryClosed));
+
+    // Act
+    var execution = service.execute(new AnalysisRequest(temporaryDirectory, requestConfiguration, RepositorySavePolicy.SAVE_COMPLETED));
+
+    // Assert
+    assertSame(completedRun, execution.run());
+    assertSame(completedRun, persistedRun.get());
     assertEquals(RepositoryStatus.SAVED, execution.repositoryStatus());
-    assertSame(execution.run(), persistedRun.get());
     assertTrue(repositoryClosed.get());
   }
 
   @Test
-  void givenRepositoryFailure_whenAnalysisExecutes_thenFailureRetainsCompletedRunAndCause()
-      throws IOException {
+  void givenCompletedRunAndFailingRepository_whenAnalysisExecutes_thenFailureRetainsRunAndClosesRepository() {
     // Arrange
-    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
+    var requestConfiguration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+    var completedRun = TestAnalysisRuns.completed(temporaryDirectory, requestConfiguration);
+    var repositoryFailure = new RepositoryException("database unavailable", new IllegalStateException("connection refused"));
     var repositoryClosed = new AtomicBoolean();
-    var service =
-        service(
-            () ->
-                new AnalysisRunRepository() {
-                  @Override
-                  public void save(AnalysisRun run) {
-                    throw new RepositoryException("database unavailable", new IllegalStateException("connection refused"));
-                  }
+    var service = new AnalysisApplicationService((sourceRoot, configuration) -> completedRun, () -> new AnalysisRunRepository() {
+      @Override
+      public void save(AnalysisRun run) {
+        throw repositoryFailure;
+      }
 
-                  @Override
-                  public void close() {
-                    repositoryClosed.set(true);
-                  }
-                });
+      @Override
+      public void close() {
+        repositoryClosed.set(true);
+      }
+    });
 
     // Act
-    var exception =
-        assertThrows(
-            AnalysisRepositoryException.class,
-            () -> service.execute(new AnalysisRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-                RepositorySavePolicy.SAVE_COMPLETED)));
+    var exception = assertThrows(AnalysisRepositoryException.class,
+        () -> service.execute(new AnalysisRequest(temporaryDirectory, requestConfiguration, RepositorySavePolicy.SAVE_COMPLETED)));
 
     // Assert
-    assertTrue(exception.analysisRun().isComplete());
-    assertEquals("database unavailable", exception.getCause().getMessage());
+    assertSame(completedRun, exception.analysisRun());
+    assertSame(repositoryFailure, exception.repositoryFailure());
     assertTrue(repositoryClosed.get());
   }
 
+  private static AnalysisRunRepository repository(AtomicReference<AnalysisRun> persistedRun, AtomicBoolean repositoryClosed) {
+    return new AnalysisRunRepository() {
+      @Override
+      public void save(AnalysisRun run) {
+        persistedRun.set(run);
+      }
+
+      @Override
+      public void close() {
+        repositoryClosed.set(true);
+      }
+    };
+  }
+
   private static AnalysisApplicationService service(AnalysisRunRepositoryFactory repositoryFactory) {
-    return new AnalysisApplicationService(
-        new JavaFrontend(new JavaSourceLoader()), new AnalysisEngine(), repositoryFactory);
+    var analysisRunner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), new AnalysisEngine());
+    return new AnalysisApplicationService(analysisRunner, repositoryFactory);
   }
 }

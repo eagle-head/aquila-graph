@@ -8,6 +8,7 @@ import java.util.stream.Collectors;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
 import org.aquilagraph.model.AnalysisDiagnostic;
+import org.aquilagraph.model.AnalysisOutcomeKind;
 import org.aquilagraph.model.DiagnosticSeverity;
 import org.aquilagraph.model.DiagnosticStage;
 import org.aquilagraph.model.SourceSpan;
@@ -36,7 +37,10 @@ final class CompilerDiagnosticTranslator {
     var code = diagnostic.getCode() == null ? "javac.unknown" : diagnostic.getCode();
     var key = StableId.sha256("diagnostic", code, severity.name(), message,
         origins.stream().map(Object::toString).collect(Collectors.joining("|")));
-    return new AnalysisDiagnostic(key, code, DiagnosticStage.FRONTEND, severity, message, origins);
+    var outcomeKind = diagnostic.getKind() == Diagnostic.Kind.ERROR
+        ? AnalysisOutcomeKind.COMPILER_ERROR
+        : AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR;
+    return new AnalysisDiagnostic(key, code, DiagnosticStage.FRONTEND, severity, message, origins, outcomeKind);
   }
 
   private List<SourceSpan> origins(Diagnostic<? extends JavaFileObject> diagnostic) {

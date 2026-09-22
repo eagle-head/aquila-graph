@@ -7,6 +7,7 @@ import java.util.Set;
 import org.aquilagraph.application.RepositorySavePolicy;
 import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.AnalysisDiagnostic;
+import org.aquilagraph.model.AnalysisOutcomeKind;
 import org.aquilagraph.model.AnalysisEnvironmentSnapshot;
 import org.aquilagraph.model.AnalysisRun;
 import org.aquilagraph.model.CfgEdge;
@@ -107,6 +108,6 @@ final class CliTestFixtures {
 
   private static AnalysisDiagnostic diagnostic(String code, DiagnosticSeverity severity, String message) {
     return new AnalysisDiagnostic(StableId.sha256("diagnostic", code, message), code, DiagnosticStage.FRONTEND, severity, message,
-        List.of());
+        List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
   }
 }

@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -47,7 +48,8 @@ class JavaFrontendTest {
     var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
-    assertEquals(List.of("frontend.unsupported-package-declaration"),
+    assertEquals(List.of("frontend.unsupported-tree-kind.compilation-unit", "frontend.unsupported-tree-kind.package",
+        "frontend.unsupported-tree-kind.primitive-type", "frontend.unsupported-package-declaration"),
         result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
     assertEquals("sample.Resolved", result.program().types().getFirst().qualifiedName());
     var method =
@@ -80,7 +82,7 @@ class JavaFrontendTest {
     var result = frontend.analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
-    assertTrue(result.diagnostics().isEmpty());
+    assertCompilerKindDiagnostics(result, 1);
     assertTrue(
         result.methodSyntax().stream().flatMap(body -> body.root().descendantsAndSelf().stream())
             .anyMatch(node -> node.syntaxKind() == SyntaxKind.LITERAL
@@ -146,7 +148,7 @@ class JavaFrontendTest {
     var second = frontend.analyze(snapshot, configuration);
 
     // Assert
-    assertTrue(first.diagnostics().isEmpty());
+    assertCompilerKindDiagnostics(first, 4);
     var firstBody = methodBody(first, "evaluate");
     var secondBody = methodBody(second, "evaluate");
     assertEquals(SyntaxReadiness.LOWERABLE, firstBody.readiness());
@@ -178,7 +180,7 @@ class JavaFrontendTest {
     var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
-    assertTrue(result.diagnostics().isEmpty());
+    assertCompilerKindDiagnostics(result, 2);
     var nodes = methodBody(result, "evaluate").root().descendantsAndSelf();
     var binary = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.BINARY).findFirst().orElseThrow();
     var conditional = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.CONDITIONAL_EXPRESSION).findFirst().orElseThrow();
@@ -209,7 +211,7 @@ class JavaFrontendTest {
 
     // Assert
     var body = methodBody(result, "classify");
-    assertTrue(result.diagnostics().isEmpty());
+    assertCompilerKindDiagnostics(result, 2);
     assertEquals(SyntaxReadiness.LOWERABLE, body.readiness());
     var cases = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.CASE).toList();
     assertEquals(2, cases.size());
@@ -244,9 +246,10 @@ class JavaFrontendTest {
 
     // Assert
     var body = methodBody(result, "classify");
-    assertEquals(Set.of("frontend.unsupported-enum-constant-initialization", "frontend.unsupported-variable-initializer",
-        "frontend.unsupported-enclosed-declarations"),
-        result.diagnostics().stream().map(diagnostic -> diagnostic.code()).collect(Collectors.toSet()));
+    assertEquals(List.of("frontend.unsupported-tree-kind.compilation-unit", "frontend.unsupported-tree-kind.primitive-type",
+        "frontend.unsupported-variable-initializer", "frontend.unsupported-enum-constant-initialization",
+        "frontend.unsupported-variable-initializer", "frontend.unsupported-enum-constant-initialization",
+        "frontend.unsupported-enclosed-declarations"), result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
     assertEquals(SyntaxReadiness.LOWERABLE, body.readiness());
     var labels = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.CASE)
         .flatMap(node -> node.children(SyntaxRole.LABEL).stream()).toList();
@@ -534,8 +537,8 @@ class JavaFrontendTest {
     var second = frontend.analyze(sourceRoot, configuration);
 
     // Assert
-    assertTrue(first.diagnostics().isEmpty());
-    assertTrue(second.diagnostics().isEmpty());
+    assertCompilerKindDiagnostics(first, 1);
+    assertCompilerKindDiagnostics(second, 1);
     assertEquals(first.program(), second.program());
     assertNotEquals(first.environmentSnapshot().environmentDigest(), second.environmentSnapshot().environmentDigest());
   }
@@ -543,5 +546,14 @@ class JavaFrontendTest {
   private static MethodSyntax methodBody(SyntaxAnalysisInput result, String methodName) {
     var method = result.program().methods().stream().filter(candidate -> candidate.name().equals(methodName)).findFirst().orElseThrow();
     return result.methodSyntax(method.methodKey()).orElseThrow();
+  }
+
+  private static void assertCompilerKindDiagnostics(SyntaxAnalysisInput result, int primitiveTypeCount) {
+    var expected = new ArrayList<String>();
+    expected.add("frontend.unsupported-tree-kind.compilation-unit");
+    for (var occurrence = 0; occurrence < primitiveTypeCount; occurrence++) {
+      expected.add("frontend.unsupported-tree-kind.primitive-type");
+    }
+    assertEquals(expected, result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
   }
 }

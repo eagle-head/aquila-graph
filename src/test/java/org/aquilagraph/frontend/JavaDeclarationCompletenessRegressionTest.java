@@ -90,10 +90,10 @@ class JavaDeclarationCompletenessRegressionTest {
 
     // Assert
     assertNotEquals(AnalysisCompletion.COMPLETED, run.completion());
+    assertEquals(2, run.diagnostics().stream()
+        .filter(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS_DIAGNOSTIC)).count());
     assertTrue(run.diagnostics().stream()
-        .anyMatch(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS_DIAGNOSTIC)));
-    assertTrue(run.diagnostics().stream()
-        .anyMatch(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC)));
+        .noneMatch(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC)));
     assertTrue(run.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
   }
 
@@ -128,7 +128,8 @@ class JavaDeclarationCompletenessRegressionTest {
     var result = frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION);
 
     // Assert
-    assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+    assertEquals(List.of("frontend.unsupported-tree-kind.compilation-unit", "frontend.unsupported-tree-kind.primitive-type"),
+        result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
     var method = result.program().methods().stream().filter(candidate -> candidate.name().equals("run")).findFirst().orElseThrow();
     assertEquals(Set.of("abstract", "public"), method.modifiers());
   }
@@ -201,7 +202,7 @@ class JavaDeclarationCompletenessRegressionTest {
               void plain(int input) { }
               @First @Second void annotated(@First int input) { }
             }
-            """, JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC, 6),
+            """, JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC, 4),
         source("annotation defaults", "Configuration.java", """
             @interface Configuration {
               int required();

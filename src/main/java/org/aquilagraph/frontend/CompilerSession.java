@@ -40,15 +40,21 @@ final class CompilerSession implements AutoCloseable {
     }
   }
 
-  JavaCompilation analyze() throws IOException {
+  ParsedJavaSource parse() throws IOException {
     var units = new ArrayList<CompilationUnitTree>();
     task.parse().forEach(units::add);
+    var trees = Trees.instance(task);
+    return new ParsedJavaSource(units, new JavaSourceEvidence(trees.getSourcePositions()));
+  }
+
+  JavaCompilation analyze(ParsedJavaSource parsedSource) throws IOException {
+    Objects.requireNonNull(parsedSource, "parsedSource");
     task.analyze();
     var trees = Trees.instance(task);
     var types = task.getTypes();
     var identities = new DeclarationIdentityRegistry(trees, types);
-    return new JavaCompilation(units, new SemanticResolver(trees, types, task.getElements(), identities),
-        new JavaSourceEvidence(trees.getSourcePositions()), diagnostics.getDiagnostics());
+    return new JavaCompilation(parsedSource.units(), new SemanticResolver(trees, types, task.getElements(), identities),
+        parsedSource.sourceEvidence(), diagnostics.getDiagnostics());
   }
 
   @Override

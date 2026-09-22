@@ -1,32 +1,26 @@
 package org.aquilagraph.application;
 
 import java.util.Objects;
+import org.aquilagraph.application.port.AnalysisRunAnalyzer;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
 import org.aquilagraph.application.port.AnalysisUseCase;
 import org.aquilagraph.application.port.RepositoryException;
-import org.aquilagraph.application.port.SourceAnalyzer;
-import org.aquilagraph.core.AnalysisEngine;
 
 /** Coordinates source discovery, analysis, and optional repository storage. */
 public final class AnalysisApplicationService implements AnalysisUseCase {
-  private final SourceAnalyzer sourceAnalyzer;
-  private final AnalysisEngine analysisEngine;
+  private final AnalysisRunAnalyzer analysisRunAnalyzer;
   private final AnalysisRunRepositoryFactory repositoryFactory;
 
   /**
    * Creates the application service from its analysis and repository collaborators.
    *
-   * @param sourceAnalyzer
-   *          source-analysis port
-   * @param analysisEngine
-   *          control-flow analysis engine
+   * @param analysisRunAnalyzer
+   *          complete analysis-run operation
    * @param repositoryFactory
    *          repository factory
    */
-  public AnalysisApplicationService(SourceAnalyzer sourceAnalyzer, AnalysisEngine analysisEngine,
-      AnalysisRunRepositoryFactory repositoryFactory) {
-    this.sourceAnalyzer = Objects.requireNonNull(sourceAnalyzer, "sourceAnalyzer");
-    this.analysisEngine = Objects.requireNonNull(analysisEngine, "analysisEngine");
+  public AnalysisApplicationService(AnalysisRunAnalyzer analysisRunAnalyzer, AnalysisRunRepositoryFactory repositoryFactory) {
+    this.analysisRunAnalyzer = Objects.requireNonNull(analysisRunAnalyzer, "analysisRunAnalyzer");
     this.repositoryFactory = Objects.requireNonNull(repositoryFactory, "repositoryFactory");
   }
 
@@ -42,8 +36,7 @@ public final class AnalysisApplicationService implements AnalysisUseCase {
   @Override
   public AnalysisExecution execute(AnalysisRequest request) {
     Objects.requireNonNull(request, "request");
-    var frontendResult = sourceAnalyzer.analyze(request.sourceRoot(), request.compilerConfiguration());
-    var run = analysisEngine.analyze(frontendResult);
+    var run = analysisRunAnalyzer.analyze(request.sourceRoot(), request.compilerConfiguration());
     if (!run.isComplete()) {
       return AnalysisExecution.notEligibleForRepository(run, request.repositorySavePolicy());
     }

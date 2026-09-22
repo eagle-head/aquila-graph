@@ -23,6 +23,27 @@ import org.aquilagraph.model.LanguageFeatureCoverage;
 
 /** Defines and verifies the closed declaration-property coverage contract for Java 25. */
 final class JavaDeclarationPropertyCoverage {
+  static final String COMPILATION_UNIT_IMPORTS = "CompilationUnitTree::CompilationUnitTree#getImports()";
+  static final String COMPILATION_UNIT_MODULE = "CompilationUnitTree::CompilationUnitTree#getModule()";
+  static final String COMPILATION_UNIT_PACKAGE = "CompilationUnitTree::CompilationUnitTree#getPackage()";
+  static final String COMPILATION_UNIT_PACKAGE_ANNOTATIONS = "CompilationUnitTree::CompilationUnitTree#getPackageAnnotations()";
+  static final String COMPILATION_UNIT_PACKAGE_NAME = "CompilationUnitTree::CompilationUnitTree#getPackageName()";
+  static final String METHOD_DEFAULT_VALUE = "MethodTree::MethodTree#getDefaultValue()";
+  static final String METHOD_RECEIVER_PARAMETER = "MethodTree::MethodTree#getReceiverParameter()";
+  static final String METHOD_THROWS = "MethodTree::MethodTree#getThrows()";
+  static final String METHOD_TYPE_PARAMETERS = "MethodTree::MethodTree#getTypeParameters()";
+  static final String VARIABLE_INITIALIZER = "VariableTree::VariableTree#getInitializer()";
+  static final String VARIABLE_MODIFIERS = "VariableTree::VariableTree#getModifiers()";
+  static final String VARIABLE_NAME_EXPRESSION = "VariableTree::VariableTree#getNameExpression()";
+  static final String TYPE_ELEMENT_ANNOTATION_MIRRORS = "TypeElement::Element#getAnnotationMirrors()";
+  static final String TYPE_ELEMENT_ENCLOSED_ELEMENTS = "TypeElement::TypeElement#getEnclosedElements()";
+  static final String TYPE_ELEMENT_RECORD_COMPONENTS = "TypeElement::TypeElement#getRecordComponents()";
+  static final String EXECUTABLE_ELEMENT_ANNOTATION_MIRRORS = "ExecutableElement::Element#getAnnotationMirrors()";
+  static final String EXECUTABLE_ELEMENT_DEFAULT_VALUE = "ExecutableElement::ExecutableElement#getDefaultValue()";
+  static final String EXECUTABLE_ELEMENT_RECEIVER_TYPE = "ExecutableElement::ExecutableElement#getReceiverType()";
+  static final String EXECUTABLE_ELEMENT_THROWN_TYPES = "ExecutableElement::ExecutableElement#getThrownTypes()";
+  static final String EXECUTABLE_ELEMENT_TYPE_PARAMETERS = "ExecutableElement::ExecutableElement#getTypeParameters()";
+  static final String EXECUTABLE_ELEMENT_VARARGS = "ExecutableElement::ExecutableElement#isVarArgs()";
   static final String METHOD_TYPE_PARAMETERS_DIAGNOSTIC = "frontend.unsupported-method-type-parameters";
   static final String THROWN_TYPES_DIAGNOSTIC = "frontend.unsupported-thrown-types";
   static final String RECEIVER_PARAMETER_DIAGNOSTIC = "frontend.unsupported-receiver-parameter";
@@ -112,15 +133,15 @@ final class JavaDeclarationPropertyCoverage {
     return List.of(
         irrelevant("CompilationUnitTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
             TREE_ACCEPT_SOURCE),
-        diagnosed("CompilationUnitTree::CompilationUnitTree#getImports()", IMPORT_DECLARATION_DIAGNOSTIC),
+        diagnosed(COMPILATION_UNIT_IMPORTS, IMPORT_DECLARATION_DIAGNOSTIC),
         represented("CompilationUnitTree::Tree#getKind()", "JavaCompilerKindCoverage exact tree-kind contract"),
         irrelevant("CompilationUnitTree::CompilationUnitTree#getLineMap()",
             "SourceFile content and SourceSpan offsets own source evidence; line-number conversion is presentation metadata",
             TREE_API + "CompilationUnitTree.html#getLineMap()"),
-        diagnosed("CompilationUnitTree::CompilationUnitTree#getModule()", MODULE_DECLARATION_DIAGNOSTIC),
-        diagnosed("CompilationUnitTree::CompilationUnitTree#getPackage()", PACKAGE_DECLARATION_DIAGNOSTIC),
-        diagnosed("CompilationUnitTree::CompilationUnitTree#getPackageAnnotations()", DECLARATION_ANNOTATIONS_DIAGNOSTIC),
-        diagnosed("CompilationUnitTree::CompilationUnitTree#getPackageName()", PACKAGE_DECLARATION_DIAGNOSTIC),
+        diagnosed(COMPILATION_UNIT_MODULE, MODULE_DECLARATION_DIAGNOSTIC),
+        diagnosed(COMPILATION_UNIT_PACKAGE, PACKAGE_DECLARATION_DIAGNOSTIC),
+        diagnosed(COMPILATION_UNIT_PACKAGE_ANNOTATIONS, DECLARATION_ANNOTATIONS_DIAGNOSTIC),
+        diagnosed(COMPILATION_UNIT_PACKAGE_NAME, PACKAGE_DECLARATION_DIAGNOSTIC),
         represented("CompilationUnitTree::CompilationUnitTree#getSourceFile()", "SourceFile input snapshot"),
         represented("CompilationUnitTree::CompilationUnitTree#getTypeDecls()", "JavaProgram top-level type declarations"));
   }
@@ -142,25 +163,24 @@ final class JavaDeclarationPropertyCoverage {
     return List.of(
         irrelevant("MethodTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
         represented("MethodTree::MethodTree#getBody()", "MethodSyntax body occurrence and JavaMethod body-presence flag"),
-        diagnosed("MethodTree::MethodTree#getDefaultValue()", ANNOTATION_DEFAULT_DIAGNOSTIC),
+        diagnosed(METHOD_DEFAULT_VALUE, ANNOTATION_DEFAULT_DIAGNOSTIC),
         represented("MethodTree::Tree#getKind()", "JavaMethod declaration aggregate"),
         represented("MethodTree::MethodTree#getModifiers()", "JavaMethod modifier set and declaration-annotation diagnostics"),
         represented("MethodTree::MethodTree#getName()", "JavaMethod name and declaration identity"),
         represented("MethodTree::MethodTree#getParameters()", "JavaMethod ordered JavaParameter aggregates"),
-        diagnosed("MethodTree::MethodTree#getReceiverParameter()", RECEIVER_PARAMETER_DIAGNOSTIC),
-        represented("MethodTree::MethodTree#getReturnType()", "JavaMethod return type"),
-        diagnosed("MethodTree::MethodTree#getThrows()", THROWN_TYPES_DIAGNOSTIC),
-        diagnosed("MethodTree::MethodTree#getTypeParameters()", METHOD_TYPE_PARAMETERS_DIAGNOSTIC));
+        diagnosed(METHOD_RECEIVER_PARAMETER, RECEIVER_PARAMETER_DIAGNOSTIC),
+        represented("MethodTree::MethodTree#getReturnType()", "JavaMethod return type"), diagnosed(METHOD_THROWS, THROWN_TYPES_DIAGNOSTIC),
+        diagnosed(METHOD_TYPE_PARAMETERS, METHOD_TYPE_PARAMETERS_DIAGNOSTIC));
   }
 
   private static List<LanguageFeatureClassification> variableClassifications() {
     return List.of(
         irrelevant("VariableTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
-        diagnosed("VariableTree::VariableTree#getInitializer()", VARIABLE_INITIALIZER_DIAGNOSTIC),
+        diagnosed(VARIABLE_INITIALIZER, VARIABLE_INITIALIZER_DIAGNOSTIC),
         represented("VariableTree::Tree#getKind()", "JavaField, JavaParameter, or MethodSyntax declaration aggregate"),
-        diagnosed("VariableTree::VariableTree#getModifiers()", VARIABLE_MODIFIERS_DIAGNOSTIC),
+        diagnosed(VARIABLE_MODIFIERS, VARIABLE_MODIFIERS_DIAGNOSTIC),
         represented("VariableTree::VariableTree#getName()", "JavaField or JavaParameter name"),
-        diagnosed("VariableTree::VariableTree#getNameExpression()", VARIABLE_NAME_EXPRESSION_DIAGNOSTIC),
+        diagnosed(VARIABLE_NAME_EXPRESSION, VARIABLE_NAME_EXPRESSION_DIAGNOSTIC),
         represented("VariableTree::VariableTree#getType()", "JavaField or JavaParameter type identity"));
   }
 
@@ -175,10 +195,10 @@ final class JavaDeclarationPropertyCoverage {
             ELEMENT_API + "Element.html#equals(java.lang.Object)"),
         irrelevant("TypeElement::Element#getAnnotation(java.lang.Class)", ANNOTATION_PROXY_REASON,
             ANNOTATED_CONSTRUCT_API + "#getAnnotation(java.lang.Class)"),
-        diagnosed("TypeElement::Element#getAnnotationMirrors()", DECLARATION_ANNOTATIONS_DIAGNOSTIC),
+        diagnosed(TYPE_ELEMENT_ANNOTATION_MIRRORS, DECLARATION_ANNOTATIONS_DIAGNOSTIC),
         irrelevant("TypeElement::Element#getAnnotationsByType(java.lang.Class)", ANNOTATION_PROXY_REASON,
             ANNOTATED_CONSTRUCT_API + "#getAnnotationsByType(java.lang.Class)"),
-        diagnosed("TypeElement::TypeElement#getEnclosedElements()", ENCLOSED_DECLARATIONS_DIAGNOSTIC),
+        diagnosed(TYPE_ELEMENT_ENCLOSED_ELEMENTS, ENCLOSED_DECLARATIONS_DIAGNOSTIC),
         represented("TypeElement::TypeElement#getEnclosingElement()", "JavaType enclosing-type reference"),
         represented("TypeElement::TypeElement#getInterfaces()", "JavaType direct interface references"),
         represented("TypeElement::Element#getKind()", "JavaType declaration kind"),
@@ -186,7 +206,7 @@ final class JavaDeclarationPropertyCoverage {
         represented("TypeElement::TypeElement#getNestingKind()", "JavaType enclosing-type reference and qualified identity"),
         represented("TypeElement::TypeElement#getPermittedSubclasses()", "JavaType permitted-subclass references"),
         represented("TypeElement::TypeElement#getQualifiedName()", "JavaType qualified name"),
-        diagnosed("TypeElement::TypeElement#getRecordComponents()", RECORD_COMPONENTS_DIAGNOSTIC),
+        diagnosed(TYPE_ELEMENT_RECORD_COMPONENTS, RECORD_COMPONENTS_DIAGNOSTIC),
         represented("TypeElement::TypeElement#getSimpleName()", "JavaType qualified name and declaration identity"),
         represented("TypeElement::TypeElement#getSuperclass()", "JavaType direct superclass reference"),
         represented("TypeElement::TypeElement#getTypeParameters()", "JavaType type-parameter aggregates"),
@@ -206,10 +226,10 @@ final class JavaDeclarationPropertyCoverage {
             ELEMENT_API + "Element.html#equals(java.lang.Object)"),
         irrelevant("ExecutableElement::Element#getAnnotation(java.lang.Class)", ANNOTATION_PROXY_REASON,
             ANNOTATED_CONSTRUCT_API + "#getAnnotation(java.lang.Class)"),
-        diagnosed("ExecutableElement::Element#getAnnotationMirrors()", DECLARATION_ANNOTATIONS_DIAGNOSTIC),
+        diagnosed(EXECUTABLE_ELEMENT_ANNOTATION_MIRRORS, DECLARATION_ANNOTATIONS_DIAGNOSTIC),
         irrelevant("ExecutableElement::Element#getAnnotationsByType(java.lang.Class)", ANNOTATION_PROXY_REASON,
             ANNOTATED_CONSTRUCT_API + "#getAnnotationsByType(java.lang.Class)"),
-        diagnosed("ExecutableElement::ExecutableElement#getDefaultValue()", ANNOTATION_DEFAULT_DIAGNOSTIC),
+        diagnosed(EXECUTABLE_ELEMENT_DEFAULT_VALUE, ANNOTATION_DEFAULT_DIAGNOSTIC),
         irrelevant("ExecutableElement::Element#getEnclosedElements()",
             "Executable elements do not contribute separately queryable enclosed declarations to the current semantic graph",
             ELEMENT_API + "ExecutableElement.html"),
@@ -217,16 +237,16 @@ final class JavaDeclarationPropertyCoverage {
         represented("ExecutableElement::Element#getKind()", "JavaMethod constructor flag"),
         represented("ExecutableElement::Element#getModifiers()", "JavaMethod modifier set"),
         represented("ExecutableElement::ExecutableElement#getParameters()", "JavaMethod ordered JavaParameter aggregates"),
-        diagnosed("ExecutableElement::ExecutableElement#getReceiverType()", RECEIVER_PARAMETER_DIAGNOSTIC),
+        diagnosed(EXECUTABLE_ELEMENT_RECEIVER_TYPE, RECEIVER_PARAMETER_DIAGNOSTIC),
         represented("ExecutableElement::ExecutableElement#getReturnType()", "JavaMethod return type"),
         represented("ExecutableElement::ExecutableElement#getSimpleName()", "JavaMethod name and declaration identity"),
-        diagnosed("ExecutableElement::ExecutableElement#getThrownTypes()", THROWN_TYPES_DIAGNOSTIC),
-        diagnosed("ExecutableElement::ExecutableElement#getTypeParameters()", METHOD_TYPE_PARAMETERS_DIAGNOSTIC),
+        diagnosed(EXECUTABLE_ELEMENT_THROWN_TYPES, THROWN_TYPES_DIAGNOSTIC),
+        diagnosed(EXECUTABLE_ELEMENT_TYPE_PARAMETERS, METHOD_TYPE_PARAMETERS_DIAGNOSTIC),
         irrelevant("ExecutableElement::Element#hashCode()",
             "Element object hashing is a compiler-model protocol; Aquila Graph uses stable declaration keys",
             ELEMENT_API + "Element.html#hashCode()"),
         represented("ExecutableElement::ExecutableElement#isDefault()", "JavaMethod modifier set"),
-        diagnosed("ExecutableElement::ExecutableElement#isVarArgs()", VARARGS_DIAGNOSTIC));
+        diagnosed(EXECUTABLE_ELEMENT_VARARGS, VARARGS_DIAGNOSTIC));
   }
 
   private static Set<String> accessorIdentifiers() {

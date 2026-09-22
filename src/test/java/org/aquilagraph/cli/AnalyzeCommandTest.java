@@ -11,13 +11,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.aquilagraph.application.AnalysisApplicationService;
-import org.aquilagraph.application.port.AnalysisRunRepository;
+import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
-import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
-import org.aquilagraph.model.AnalysisRun;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -25,7 +23,7 @@ class AnalyzeCommandTest {
   @TempDir Path temporaryDirectory;
 
   @Test
-  void givenJavaSourceRoot_whenCommandRuns_thenCompletedSummaryIsPrinted() throws IOException {
+  void givenDiagnosedJavaSourceRoot_whenCommandRuns_thenIncompleteSummaryIsPrinted() throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
     var capturedOutput = new ByteArrayOutputStream();
@@ -40,12 +38,13 @@ class AnalyzeCommandTest {
             new PrintStream(capturedError, true, StandardCharsets.UTF_8));
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_COMPLETED, exitCode);
-    assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Completion: COMPLETED"));
+    assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
+    assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Completion: INCOMPLETE"));
     assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Java release: 25"));
     assertTrue(
-        capturedOutput.toString(StandardCharsets.UTF_8).contains("Repository: NOT_REQUESTED"));
-    assertEquals("", capturedError.toString(StandardCharsets.UTF_8));
+        capturedOutput.toString(StandardCharsets.UTF_8).contains("Repository: NOT_ELIGIBLE"));
+    assertTrue(capturedError.toString(StandardCharsets.UTF_8)
+        .contains("frontend.unsupported-tree-kind.compilation-unit"));
   }
 
   @Test
@@ -64,9 +63,10 @@ class AnalyzeCommandTest {
             new PrintStream(capturedError, true, StandardCharsets.UTF_8));
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_COMPLETED, exitCode);
+    assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
     assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Java release: 25"));
-    assertEquals("", capturedError.toString(StandardCharsets.UTF_8));
+    assertTrue(capturedError.toString(StandardCharsets.UTF_8)
+        .contains("frontend.unsupported-tree-kind.compilation-unit"));
   }
 
   @Test
@@ -207,24 +207,13 @@ class AnalyzeCommandTest {
   }
 
   @Test
-  void givenCompletedAnalysisAndUnavailableRepository_whenSaveRuns_thenCompletionRemainsSeparate()
+  void givenIncompleteAnalysisAndRepositoryRequest_whenSaveRuns_thenRepositoryIsNotOpened()
       throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
     var capturedOutput = new ByteArrayOutputStream();
     var capturedError = new ByteArrayOutputStream();
-    var command =
-        command(
-            () ->
-                new AnalysisRunRepository() {
-                  @Override
-                  public void save(AnalysisRun run) {
-                    throw new RepositoryException("database unavailable", new IllegalStateException("connection refused"));
-                  }
-
-                  @Override
-                  public void close() {}
-                });
+    var command = command(repositoryMustNotOpen());
 
     // Act
     var exitCode =
@@ -234,19 +223,16 @@ class AnalyzeCommandTest {
             new PrintStream(capturedError, true, StandardCharsets.UTF_8));
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_REPOSITORY_FAILED, exitCode);
-    assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Completion: COMPLETED"));
-    assertTrue(
-        capturedError.toString(StandardCharsets.UTF_8)
-            .contains("Repository save failed: database unavailable"));
+    assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
+    assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Completion: INCOMPLETE"));
+    assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Repository: NOT_ELIGIBLE"));
+    assertTrue(capturedError.toString(StandardCharsets.UTF_8)
+        .contains("frontend.unsupported-tree-kind.compilation-unit"));
   }
 
   private static AnalyzeCommand command(AnalysisRunRepositoryFactory repositoryFactory) {
-    return new AnalyzeCommand(
-        new AnalysisApplicationService(
-            new JavaFrontend(new JavaSourceLoader()),
-            new AnalysisEngine(),
-            repositoryFactory));
+    var analysisRunner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), new AnalysisEngine());
+    return new AnalyzeCommand(new AnalysisApplicationService(analysisRunner, repositoryFactory));
   }
 
   private static AnalysisRunRepositoryFactory repositoryMustNotOpen() {

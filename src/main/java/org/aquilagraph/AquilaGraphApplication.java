@@ -2,6 +2,7 @@ package org.aquilagraph;
 
 import java.util.Map;
 import org.aquilagraph.application.AnalysisApplicationService;
+import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.application.port.AnalysisRunRepository;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.cli.AnalyzeCommand;
@@ -25,8 +26,8 @@ public final class AquilaGraphApplication {
    */
   public static void main(String[] arguments) {
     var environment = System.getenv();
-    var analysisService = new AnalysisApplicationService(new JavaFrontend(new JavaSourceLoader()), new AnalysisEngine(),
-        () -> openNeo4jRepository(environment));
+    var analysisRunner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), new AnalysisEngine());
+    var analysisService = new AnalysisApplicationService(analysisRunner, () -> openNeo4jRepository(environment));
     var command = new AnalyzeCommand(analysisService, JavaRelease.JAVA_25);
     var exitCode = command.run(arguments, System.out, System.err);
     if (exitCode != AnalyzeCommand.EXIT_COMPLETED) {

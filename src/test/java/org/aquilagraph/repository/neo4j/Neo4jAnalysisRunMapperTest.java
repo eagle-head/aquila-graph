@@ -20,6 +20,8 @@ import java.util.stream.Collectors;
 import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.model.AnalysisCompletion;
+import org.aquilagraph.model.AnalysisRun;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
 import org.junit.jupiter.api.Test;
@@ -37,7 +39,7 @@ class Neo4jAnalysisRunMapperTest {
     var secondDependency = Files.createDirectory(temporaryDirectory.resolve("second-dependency"));
     Files.writeString(firstDependency.resolve("marker.txt"), "first");
     Files.writeString(secondDependency.resolve("marker.txt"), "second");
-    var firstRun =
+    var firstRun = completedMapperFixture(
         new AnalysisEngine()
             .analyze(
                 new JavaFrontend(new JavaSourceLoader())
@@ -47,8 +49,8 @@ class Neo4jAnalysisRunMapperTest {
                             JavaRelease.JAVA_25,
                             List.of(firstDependency),
                             List.of(),
-                            List.of())));
-    var secondRun =
+                            List.of()))));
+    var secondRun = completedMapperFixture(
         new AnalysisEngine()
             .analyze(
                 new JavaFrontend(new JavaSourceLoader())
@@ -58,7 +60,7 @@ class Neo4jAnalysisRunMapperTest {
                             JavaRelease.JAVA_25,
                             List.of(secondDependency),
                             List.of(),
-                            List.of())));
+                            List.of()))));
     var mapper = new Neo4jAnalysisRunMapper();
     var runs = List.of(firstRun, secondRun);
     var expectedProjections =
@@ -107,14 +109,14 @@ class Neo4jAnalysisRunMapperTest {
     // Arrange
     var sourceRoot = completedSourceRoot("mapped-source");
     var dependency = Files.createDirectory(temporaryDirectory.resolve("dependency"));
-    var run =
+    var run = completedMapperFixture(
         new AnalysisEngine()
             .analyze(
                 new JavaFrontend(new JavaSourceLoader())
                     .analyze(
                         sourceRoot,
                         new CompilerConfiguration(
-                            JavaRelease.JAVA_25, List.of(dependency), List.of(), List.of())));
+                            JavaRelease.JAVA_25, List.of(dependency), List.of(), List.of()))));
 
     // Act
     var projection = new Neo4jAnalysisRunMapper().map(run);
@@ -207,8 +209,8 @@ class Neo4jAnalysisRunMapperTest {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("FieldOwner.java"),
         "final class FieldOwner { private String value; String read() { return value; } }");
-    var run = new AnalysisEngine().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory,
-        CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
+    var run = completedMapperFixture(new AnalysisEngine().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory,
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25))));
 
     // Act
     var projection = new Neo4jAnalysisRunMapper().map(run);
@@ -237,7 +239,7 @@ class Neo4jAnalysisRunMapperTest {
         """);
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot,
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-    var run = new AnalysisEngine().analyze(input);
+    var run = completedMapperFixture(new AnalysisEngine().analyze(input));
 
     // Act
     var projection = new Neo4jAnalysisRunMapper().map(run);
@@ -293,5 +295,10 @@ class Neo4jAnalysisRunMapperTest {
         }
         """);
     return sourceRoot;
+  }
+
+  private static AnalysisRun completedMapperFixture(AnalysisRun analyzedRun) {
+    return new AnalysisRun(analyzedRun.runId(), analyzedRun.inputSnapshot(), analyzedRun.environmentSnapshot(),
+        analyzedRun.representation(), List.of(), AnalysisCompletion.COMPLETED, analyzedRun.analyzerVersion(), analyzedRun.modelVersion());
   }
 }

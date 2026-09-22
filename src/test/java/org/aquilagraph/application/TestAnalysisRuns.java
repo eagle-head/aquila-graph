@@ -22,11 +22,14 @@ final class TestAnalysisRuns {
   }
 
   static AnalysisRun completed() {
+    return completed(Path.of(".").toAbsolutePath().normalize(), CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+  }
+
+  static AnalysisRun completed(Path sourceRoot, CompilerConfiguration configuration) {
     var sourceFile = new SourceFile(StableId.sha256("source", "Example.java", "class Example {}"), Path.of("Example.java"),
         StableId.sha256("source-content", "class Example {}"), "class Example {}");
-    var inputSnapshot = new InputSnapshot(Path.of(".").toAbsolutePath().normalize(), "SHA-256",
+    var inputSnapshot = new InputSnapshot(sourceRoot.toAbsolutePath().normalize(), "SHA-256",
         StableId.sha256("snapshot", sourceFile.sourceFileKey()), List.of(sourceFile));
-    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var environmentSnapshot = new AnalysisEnvironmentSnapshot(configuration, "test-compiler", "test-vendor", "25-test",
         List.of("--release", "25"), List.of(), List.of());
     var type = new JavaType(StableId.sha256("type", "Example"), "Example", JavaTypeKind.CLASS, Set.of(), Optional.empty(),

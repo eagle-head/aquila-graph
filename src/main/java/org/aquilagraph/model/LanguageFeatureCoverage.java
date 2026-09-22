@@ -9,6 +9,7 @@ import java.util.Optional;
 
 /** Immutable, release-versioned language-feature coverage contract. */
 public final class LanguageFeatureCoverage {
+  private static final String ABSENT_POLICY_VALUE = "<absent>";
   private static final Comparator<LanguageFeatureClassification> CLASSIFICATION_ORDER = Comparator
       .comparing((LanguageFeatureClassification classification) -> classification.feature().category())
       .thenComparing(classification -> classification.feature().identifier());
@@ -59,6 +60,26 @@ public final class LanguageFeatureCoverage {
    */
   public List<LanguageFeatureClassification> classifications() {
     return List.copyOf(featureClassifications);
+  }
+
+  /**
+   * Returns a deterministic identity for the release, exact feature set, policies, and policy evidence.
+   *
+   * @return versioned coverage-contract identity
+   */
+  public String contractIdentity() {
+    var components = new ArrayList<String>();
+    components.add(contractRelease.name());
+    for (var classification : featureClassifications) {
+      components.add(classification.feature().category().name());
+      components.add(classification.feature().identifier());
+      components.add(classification.policy().name());
+      components.add(classification.representationBoundary().orElse(ABSENT_POLICY_VALUE));
+      components.add(classification.irrelevanceRationale().orElse(ABSENT_POLICY_VALUE));
+      components.add(classification.sourceLocator().orElse(ABSENT_POLICY_VALUE));
+      components.add(classification.diagnosticCode().orElse(ABSENT_POLICY_VALUE));
+    }
+    return StableId.sha256("java-language-feature-coverage", components.toArray(String[]::new));
   }
 
   /**

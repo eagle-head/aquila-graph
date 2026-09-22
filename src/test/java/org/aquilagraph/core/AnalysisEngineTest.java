@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisCompletion;
+import org.aquilagraph.model.AnalysisOutcomeKind;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.OperationKind;
@@ -47,7 +48,9 @@ class AnalysisEngineTest {
         engine.analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
 
     // Assert
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion());
+    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+    assertTrue(run.diagnostics().stream()
+        .anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-tree-kind.compilation-unit")));
     var methodAnalysis =
         run.representation().orElseThrow().methodAnalyses().stream()
             .filter(analysis -> analysis.sourceMethod().name().equals("choose"))
@@ -116,7 +119,8 @@ class AnalysisEngineTest {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("BrokenSemantics.java"), """
         class BrokenSemantics {
-          MissingType evaluate(MissingType value) { return missingName; }
+          MissingType field;
+          MissingType evaluate(MissingType value) { return field; }
         }
         """);
     var frontend = new JavaFrontend(new JavaSourceLoader());
@@ -128,10 +132,15 @@ class AnalysisEngineTest {
     // Assert
     assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
     var codes = run.diagnostics().stream().map(diagnostic -> diagnostic.code()).collect(Collectors.toSet());
+    assertTrue(codes.contains("frontend.error-field-type"));
     assertTrue(codes.contains("frontend.error-parameter-type"));
     assertTrue(codes.contains("frontend.error-type"));
-    assertTrue(codes.contains("frontend.unresolved-reference"));
+    assertTrue(codes.contains("frontend.error-reference"));
     assertTrue(codes.contains("control-flow.erroneous-semantics"));
+    assertTrue(run.diagnostics().stream().filter(diagnostic -> diagnostic.code().startsWith("frontend.error-"))
+        .allMatch(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE));
+    assertTrue(run.diagnostics().stream().filter(diagnostic -> diagnostic.code().equals("control-flow.erroneous-semantics"))
+        .allMatch(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE));
   }
 
   @Test

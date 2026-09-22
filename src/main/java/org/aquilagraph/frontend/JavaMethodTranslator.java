@@ -17,6 +17,8 @@ import org.aquilagraph.model.JavaMethod;
 import org.aquilagraph.model.JavaParameter;
 import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.JavaTypeIdentity;
+import org.aquilagraph.model.LanguageFeatureObservation;
+import org.aquilagraph.model.LanguageFeatureOccurrence;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.model.StableId;
@@ -27,11 +29,14 @@ import org.jspecify.annotations.Nullable;
 final class JavaMethodTranslator {
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
+  private final JavaDeclarationPropertyObserver propertyObserver;
   private final JavaMethodBodyTranslator bodyTranslator;
 
-  JavaMethodTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, JavaMethodBodyTranslator bodyTranslator) {
+  JavaMethodTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, JavaDeclarationPropertyObserver propertyObserver,
+      JavaMethodBodyTranslator bodyTranslator) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
+    this.propertyObserver = Objects.requireNonNull(propertyObserver, "propertyObserver");
     this.bodyTranslator = Objects.requireNonNull(bodyTranslator, "bodyTranslator");
   }
 
@@ -55,26 +60,35 @@ final class JavaMethodTranslator {
                 .orElseGet(() -> StableId.sha256("unresolved-executable", ownerTypeKey, name))
         : semantics.declarationKey(executable).orElseThrow();
     var diagnostics = new ArrayList<AnalysisDiagnostic>();
+    var occurrences = new ArrayList<LanguageFeatureOccurrence>();
+    var observations = new ArrayList<LanguageFeatureObservation>();
     if (executable == null) {
-      diagnostics.add(diagnostic(methodKey, "frontend.unresolved-method", "A method declaration element is unavailable", origin));
+      diagnostics.add(FrontendDiagnosticFactory.otherError(methodKey, "frontend.unresolved-method",
+          "A method declaration element is unavailable", origin));
     }
-    diagnoseUnsupportedDeclarationProperties(unit, sourceFile, methodKey, methodTree, executable, diagnostics);
+    diagnoseUnsupportedDeclarationProperties(unit, sourceFile, methodKey, methodTree, executable, diagnostics, occurrences, observations);
     var parameterTranslation = parameters(unit, sourceFile, methodKey, methodPath, methodTree, executable);
     diagnostics.addAll(parameterTranslation.diagnostics());
+    occurrences.addAll(parameterTranslation.featureOccurrences());
+    observations.addAll(parameterTranslation.featureObservations());
     var semanticModifiers = executable == null ? methodTree.getModifiers().getFlags() : executable.getModifiers();
     var modifiers = semanticModifiers.stream().map(modifier -> modifier.name().toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
     var bodyTranslation = translateBody(unit, sourceFile, methodKey, methodPath, methodTree);
     diagnostics.addAll(bodyTranslation.diagnostics());
+    occurrences.addAll(bodyTranslation.featureOccurrences());
+    observations.addAll(bodyTranslation.featureObservations());
     var returnType = constructor ? "void" : executable == null ? "unresolved" : executable.getReturnType().toString();
     var method = new JavaMethod(methodKey, ownerTypeKey, name, signature, returnType, parameterTranslation.parameters(), modifiers,
         constructor, origin.isPresent(), bodyTranslation.value().isPresent(), origin.stream().toList());
-    return new TranslationResult<>(new TranslatedMethod(method, bodyTranslation.value()), diagnostics);
+    return new TranslationResult<>(new TranslatedMethod(method, bodyTranslation.value()), diagnostics, occurrences, observations);
   }
 
   private ParameterTranslation parameters(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, TreePath methodPath,
       MethodTree methodTree, @Nullable ExecutableElement executable) {
     var parameters = new ArrayList<JavaParameter>();
     var diagnostics = new ArrayList<AnalysisDiagnostic>();
+    var occurrences = new ArrayList<LanguageFeatureOccurrence>();
+    var observations = new ArrayList<LanguageFeatureObservation>();
     for (var index = 0; index < methodTree.getParameters().size(); index++) {
       var parameterTree = methodTree.getParameters().get(index);
       var parameterPath = parameterPath(methodPath, parameterTree);
@@ -84,79 +98,112 @@ final class JavaMethodTranslator {
           : executable.getParameters().get(index);
       var parameterKey = methodKey + ":parameter:" + index;
       if (parameterElement == null || semantics.declarationKey(parameterElement).filter(parameterKey::equals).isEmpty()) {
-        diagnostics.add(diagnostic(parameterKey, "frontend.unresolved-parameter",
+        diagnostics.add(FrontendDiagnosticFactory.otherError(parameterKey, "frontend.unresolved-parameter",
             "A parameter declaration identity is unavailable or inconsistent", origin));
       }
-      diagnoseUnsupportedVariableProperties(unit, sourceFile, parameterKey, "Parameter", parameterTree, diagnostics);
+      diagnoseUnsupportedVariableProperties(unit, sourceFile, parameterKey, "Parameter", parameterTree, diagnostics, occurrences,
+          observations);
       var type = parameterType(semantics.type(parameterPath));
       if (type.category() == JavaTypeCategory.ERROR) {
-        diagnostics.add(diagnostic(parameterKey, "frontend.error-parameter-type", "javac reported an error type for a parameter", origin));
+        diagnostics.add(FrontendDiagnosticFactory.erroneousCompilerState(parameterKey, "frontend.error-parameter-type",
+            "javac reported an error type for a parameter", origin));
       } else if (type.category() == JavaTypeCategory.OTHER) {
-        diagnostics.add(diagnostic(parameterKey, "frontend.unresolved-parameter-type", "A parameter type is unavailable", origin));
+        diagnostics.add(FrontendDiagnosticFactory.otherError(parameterKey, "frontend.unresolved-parameter-type",
+            "A parameter type is unavailable", origin));
       }
       parameters.add(new JavaParameter(parameterKey, parameterTree.getName().toString(), type, origin.stream().toList()));
     }
-    return new ParameterTranslation(parameters, diagnostics);
+    return new ParameterTranslation(parameters, diagnostics, occurrences, observations);
   }
 
   private void diagnoseUnsupportedDeclarationProperties(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,
-      MethodTree methodTree, @Nullable ExecutableElement executable, List<AnalysisDiagnostic> diagnostics) {
+      MethodTree methodTree, @Nullable ExecutableElement executable, List<AnalysisDiagnostic> diagnostics,
+      List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
     if (!methodTree.getTypeParameters().isEmpty()) {
-      diagnostics.add(diagnostic(methodKey, JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS_DIAGNOSTIC,
+      observeMethodAndExecutableProperty(diagnostics, occurrences, observations, sourceFile, methodKey,
+          JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS_DIAGNOSTIC,
           "Method type parameters are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, methodTree.getTypeParameters().getFirst())));
+          sourceEvidence.origin(unit, sourceFile, methodTree.getTypeParameters().getFirst()), executable,
+          JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS, JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_TYPE_PARAMETERS);
     }
     if (!methodTree.getThrows().isEmpty()) {
-      diagnostics.add(diagnostic(methodKey, JavaDeclarationPropertyCoverage.THROWN_TYPES_DIAGNOSTIC,
-          "Declared thrown types are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, methodTree.getThrows().getFirst())));
+      observeMethodAndExecutableProperty(diagnostics, occurrences, observations, sourceFile, methodKey,
+          JavaDeclarationPropertyCoverage.THROWN_TYPES_DIAGNOSTIC, "Declared thrown types are outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, methodTree.getThrows().getFirst()), executable,
+          JavaDeclarationPropertyCoverage.METHOD_THROWS, JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_THROWN_TYPES);
     }
     if (methodTree.getReceiverParameter() != null) {
-      diagnostics.add(diagnostic(methodKey, JavaDeclarationPropertyCoverage.RECEIVER_PARAMETER_DIAGNOSTIC,
+      observeMethodAndExecutableProperty(diagnostics, occurrences, observations, sourceFile, methodKey,
+          JavaDeclarationPropertyCoverage.RECEIVER_PARAMETER_DIAGNOSTIC,
           "Receiver parameters are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, methodTree.getReceiverParameter())));
+          sourceEvidence.origin(unit, sourceFile, methodTree.getReceiverParameter()), executable,
+          JavaDeclarationPropertyCoverage.METHOD_RECEIVER_PARAMETER, JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_RECEIVER_TYPE);
       diagnoseUnsupportedVariableProperties(unit, sourceFile, methodKey + ":receiver", "Receiver parameter",
-          methodTree.getReceiverParameter(), diagnostics);
+          methodTree.getReceiverParameter(), diagnostics, occurrences, observations);
     }
     if (executable != null && executable.isVarArgs()) {
       var varargsTree = methodTree.getParameters().getLast();
-      diagnostics.add(diagnostic(methodKey, JavaDeclarationPropertyCoverage.VARARGS_DIAGNOSTIC,
+      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, methodKey,
+          JavaDeclarationPropertyCoverage.VARARGS_DIAGNOSTIC,
           "Variable-arity declarations are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, varargsTree)));
+          sourceEvidence.origin(unit, sourceFile, varargsTree), JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_VARARGS);
     }
-    for (var annotation : methodTree.getModifiers().getAnnotations()) {
-      diagnostics.add(diagnostic(methodKey, JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC,
-          "Method and constructor declaration annotations are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, annotation)));
+    if (executable != null) {
+      for (var annotation : methodTree.getModifiers().getAnnotations()) {
+        propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, methodKey,
+            JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC,
+            "Method and constructor declaration annotations are outside the supported semantic graph profile",
+            sourceEvidence.origin(unit, sourceFile, annotation), JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_ANNOTATION_MIRRORS);
+      }
     }
     if (methodTree.getDefaultValue() != null) {
-      diagnostics.add(diagnostic(methodKey, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC,
+      observeMethodAndExecutableProperty(diagnostics, occurrences, observations, sourceFile, methodKey,
+          JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC,
           "Annotation element defaults are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, methodTree.getDefaultValue())));
+          sourceEvidence.origin(unit, sourceFile, methodTree.getDefaultValue()), executable,
+          JavaDeclarationPropertyCoverage.METHOD_DEFAULT_VALUE, JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_DEFAULT_VALUE);
     }
   }
 
   private void diagnoseUnsupportedVariableProperties(CompilationUnitTree unit, SourceFile sourceFile, String context,
-      String declarationKind, VariableTree variableTree, List<AnalysisDiagnostic> diagnostics) {
+      String declarationKind, VariableTree variableTree, List<AnalysisDiagnostic> diagnostics, List<LanguageFeatureOccurrence> occurrences,
+      List<LanguageFeatureObservation> observations) {
     var origin = sourceEvidence.origin(unit, sourceFile, variableTree);
     if (!variableTree.getModifiers().getFlags().isEmpty()) {
-      diagnostics.add(diagnostic(context, JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS_DIAGNOSTIC,
-          declarationKind + " modifiers are outside the supported semantic graph profile", origin));
+      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, context,
+          JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS_DIAGNOSTIC,
+          declarationKind + " modifiers are outside the supported semantic graph profile", origin,
+          JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS);
     }
     for (var annotation : variableTree.getModifiers().getAnnotations()) {
-      diagnostics.add(diagnostic(context, JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC,
+      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, context,
+          JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS_DIAGNOSTIC,
           declarationKind + " annotations are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, annotation)));
+          sourceEvidence.origin(unit, sourceFile, annotation), JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS);
     }
     if (variableTree.getNameExpression() != null) {
-      diagnostics.add(diagnostic(context, JavaDeclarationPropertyCoverage.VARIABLE_NAME_EXPRESSION_DIAGNOSTIC,
+      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, context,
+          JavaDeclarationPropertyCoverage.VARIABLE_NAME_EXPRESSION_DIAGNOSTIC,
           declarationKind + " name expressions are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, variableTree.getNameExpression())));
+          sourceEvidence.origin(unit, sourceFile, variableTree.getNameExpression()),
+          JavaDeclarationPropertyCoverage.VARIABLE_NAME_EXPRESSION);
     }
     if (variableTree.getInitializer() != null) {
-      diagnostics.add(diagnostic(context, JavaDeclarationPropertyCoverage.VARIABLE_INITIALIZER_DIAGNOSTIC,
+      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, context,
+          JavaDeclarationPropertyCoverage.VARIABLE_INITIALIZER_DIAGNOSTIC,
           declarationKind + " initializers are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, variableTree.getInitializer())));
+          sourceEvidence.origin(unit, sourceFile, variableTree.getInitializer()), JavaDeclarationPropertyCoverage.VARIABLE_INITIALIZER);
+    }
+  }
+
+  private void observeMethodAndExecutableProperty(List<AnalysisDiagnostic> diagnostics, List<LanguageFeatureOccurrence> occurrences,
+      List<LanguageFeatureObservation> observations, SourceFile sourceFile, String context, String code, String message,
+      Optional<SourceSpan> origin, @Nullable ExecutableElement executable, String methodFeature, String executableFeature) {
+    if (executable == null) {
+      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, context, code, message, origin, methodFeature);
+    } else {
+      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, context, code, message, origin, methodFeature,
+          executableFeature);
     }
   }
 
@@ -176,21 +223,21 @@ final class JavaMethodTranslator {
   private TranslationResult<Optional<MethodSyntax>> translateBody(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,
       TreePath methodPath, MethodTree methodTree) {
     if (methodTree.getBody() == null) {
-      return new TranslationResult<>(Optional.empty(), List.of());
+      return new TranslationResult<>(Optional.empty(), List.of(), List.of(), List.of());
     }
     var bodyPath = new TreePath(methodPath, methodTree.getBody());
     var translation = bodyTranslator.translate(unit, sourceFile, methodKey, methodTree.getBody(), bodyPath);
-    return new TranslationResult<>(Optional.of(translation.value()), translation.diagnostics());
+    return new TranslationResult<>(Optional.of(translation.value()), translation.diagnostics(), translation.featureOccurrences(),
+        translation.featureObservations());
   }
 
-  private static AnalysisDiagnostic diagnostic(String context, String code, String message, Optional<SourceSpan> origin) {
-    return FrontendDiagnosticFactory.error(context, code, message, origin);
-  }
-
-  private record ParameterTranslation(List<JavaParameter> parameters, List<AnalysisDiagnostic> diagnostics) {
+  private record ParameterTranslation(List<JavaParameter> parameters, List<AnalysisDiagnostic> diagnostics,
+      List<LanguageFeatureOccurrence> featureOccurrences, List<LanguageFeatureObservation> featureObservations) {
     private ParameterTranslation {
       parameters = List.copyOf(Objects.requireNonNull(parameters, "parameters"));
       diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics"));
+      featureOccurrences = List.copyOf(Objects.requireNonNull(featureOccurrences, "featureOccurrences"));
+      featureObservations = List.copyOf(Objects.requireNonNull(featureObservations, "featureObservations"));
     }
   }
 }

@@ -27,20 +27,31 @@ final class JavaAnalysisPipeline {
     var compiler = systemCompiler(configuration);
     var invocation = JavaCompilerInvocation.from(configuration);
     var environment = environmentCapture.capture(compiler, configuration, invocation.analysisOptions());
+    var languageFeatureCoverage = JavaLanguageFeatureCoverage.fromConfiguration(configuration);
     if (snapshot.sourceFiles().isEmpty()) {
-      return new SyntaxAnalysisInput(snapshot, environment, new JavaProgram(List.of()), List.of(), List.of());
+      var coverageResult = JavaLanguageFeatureCoverage.result(languageFeatureCoverage, List.of(), List.of(), List.of());
+      return new SyntaxAnalysisInput(snapshot, environment, new JavaProgram(List.of()), List.of(), List.of(), coverageResult);
     }
 
     var sources = new SnapshotSourceCatalog(snapshot);
     SyntaxAnalysisInput result;
     try (var session = openCompilerSession(compiler, invocation, sources)) {
-      var compilation = session.analyze();
-      var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence())
+      var parsedSource = session.parse();
+      var kindEvidence = new JavaCompilerKindDiagnostics(sources, parsedSource.sourceEvidence(), languageFeatureCoverage)
+          .observe(parsedSource.units());
+      var compilation = session.analyze(parsedSource);
+      var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(), languageFeatureCoverage)
           .translate(compilation.units());
-      var diagnostics = combineDiagnostics(new CompilerDiagnosticTranslator(sources).translate(compilation.diagnostics()),
+      var occurrences = new ArrayList<>(kindEvidence.occurrences());
+      occurrences.addAll(translation.featureOccurrences());
+      var observations = new ArrayList<>(kindEvidence.observations());
+      observations.addAll(translation.featureObservations());
+      var kindDiagnostics = kindEvidence.observations().stream().flatMap(observation -> observation.diagnostic().stream()).toList();
+      var diagnostics = combineDiagnostics(new CompilerDiagnosticTranslator(sources).translate(compilation.diagnostics()), kindDiagnostics,
           translation.diagnostics());
+      var coverageResult = JavaLanguageFeatureCoverage.result(languageFeatureCoverage, occurrences, observations, diagnostics);
       result = new SyntaxAnalysisInput(snapshot, environment, translation.value().program(), translation.value().methodSyntax(),
-          diagnostics);
+          diagnostics, coverageResult);
     }
 
     environmentCapture.verifyUnchanged(compiler, configuration, invocation.analysisOptions(), environment);
@@ -70,11 +81,12 @@ final class JavaAnalysisPipeline {
     return compiler;
   }
 
-  private static List<AnalysisDiagnostic> combineDiagnostics(List<AnalysisDiagnostic> compilerDiagnostics,
-      List<AnalysisDiagnostic> translationDiagnostics) {
-    var diagnostics = new ArrayList<AnalysisDiagnostic>(compilerDiagnostics.size() + translationDiagnostics.size());
-    diagnostics.addAll(compilerDiagnostics);
-    diagnostics.addAll(translationDiagnostics);
+  @SafeVarargs
+  private static List<AnalysisDiagnostic> combineDiagnostics(List<AnalysisDiagnostic>... diagnosticGroups) {
+    var diagnostics = new ArrayList<AnalysisDiagnostic>();
+    for (var diagnosticGroup : diagnosticGroups) {
+      diagnostics.addAll(diagnosticGroup);
+    }
     return List.copyOf(diagnostics);
   }
 }
