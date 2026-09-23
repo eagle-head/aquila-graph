@@ -14,6 +14,16 @@ public sealed interface SyntaxValue {
     INSTANCE
   }
 
+  /** Source form of a parsed compilation unit. */
+  enum CompilationUnitForm {
+    /** A compilation unit that may contain package, import, and type declarations. */
+    ORDINARY,
+    /** A compilation unit whose written class members belong to an implicit class. */
+    COMPACT,
+    /** A compilation unit containing a module declaration. */
+    MODULAR
+  }
+
   /**
    * Declared local name; declaration identity is carried by the node's semantic reference.
    *
@@ -27,16 +37,196 @@ public sealed interface SyntaxValue {
     }
   }
 
-  /**
-   * Local, parameter, or assignable-variable source name.
-   *
-   * @param name
-   *          source name
-   */
-  record Symbol(String name) implements SyntaxValue {
-    /** Validates the source name. */
-    public Symbol {
+  /** Shared source-name value boundary for typed syntax facts. */
+  abstract sealed class Symbol implements SyntaxValue permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration {
+    enum Form {
+      SYMBOL, COMPILATION_UNIT, PACKAGE_DECLARATION, IMPORT_DECLARATION
+    }
+
+    private final String sourceName;
+    private final Form valueForm;
+    private final Object valueDetails;
+
+    Symbol(String name, Form valueForm, Object valueDetails) {
+      this.sourceName = name;
+      this.valueForm = valueForm;
+      this.valueDetails = valueDetails;
+    }
+
+    /**
+     * Returns the retained source name.
+     *
+     * @return the source name
+     */
+    public String name() {
+      return sourceName;
+    }
+
+    @Override
+    public final boolean equals(Object other) {
+      if (this == other) {
+        return true;
+      }
+      return other instanceof Symbol that && valueForm == that.valueForm && sourceName.equals(that.sourceName)
+          && valueDetails.equals(that.valueDetails);
+    }
+
+    @Override
+    public final int hashCode() {
+      return Objects.hash(valueForm, sourceName, valueDetails);
+    }
+
+    @Override
+    public String toString() {
+      return getClass().getSimpleName() + "[name=" + sourceName + ']';
+    }
+  }
+
+  /** Local, parameter, or assignable-variable source name. */
+  final class SourceSymbol extends Symbol {
+    /**
+     * Validates the source name.
+     *
+     * @param name
+     *          the source name
+     */
+    public SourceSymbol(String name) {
+      super(name, Form.SYMBOL, None.INSTANCE);
       SyntaxValueSupport.requireName(name);
+    }
+
+    @Override
+    public String toString() {
+      return "Symbol[name=" + name() + ']';
+    }
+  }
+
+  /** Parsed compilation-unit form, independent of its filename and children. */
+  final class CompilationUnit extends Symbol {
+    private final CompilationUnitForm sourceForm;
+
+    /**
+     * Creates a typed compilation-unit value.
+     *
+     * @param form
+     *          the parsed unit form
+     */
+    public CompilationUnit(CompilationUnitForm form) {
+      super("compilation-unit", Form.COMPILATION_UNIT, Objects.requireNonNull(form, "compilation unit form"));
+      this.sourceForm = form;
+    }
+
+    /**
+     * Returns the parsed unit form.
+     *
+     * @return the parsed unit form
+     */
+    public CompilationUnitForm form() {
+      return sourceForm;
+    }
+
+    @Override
+    public String toString() {
+      return "CompilationUnit[form=" + sourceForm + ']';
+    }
+  }
+
+  /** Qualified name written in a package declaration. */
+  final class PackageDeclaration extends Symbol {
+    /**
+     * Creates a qualified package name value.
+     *
+     * @param qualifiedName
+     *          the written package name
+     */
+    public PackageDeclaration(String qualifiedName) {
+      super(qualifiedName, Form.PACKAGE_DECLARATION, None.INSTANCE);
+      SyntaxValueSupport.requireName(qualifiedName);
+    }
+
+    /**
+     * Returns the written qualified package name.
+     *
+     * @return the qualified package name
+     */
+    public String qualifiedName() {
+      return name();
+    }
+
+  }
+
+  /** Written import target and source form. */
+  final class ImportDeclaration extends Symbol {
+    private record ImportForm(boolean staticImport, boolean moduleImport, boolean onDemand) {
+    }
+
+    private final boolean isStaticImport;
+    private final boolean isModuleImport;
+    private final boolean isOnDemand;
+
+    /**
+     * Creates an import with its qualified target and exact source form.
+     *
+     * @param qualifiedName
+     *          the imported target
+     * @param staticImport
+     *          whether the declaration is static
+     * @param moduleImport
+     *          whether the declaration imports a module
+     * @param onDemand
+     *          whether the declaration ends in a star
+     */
+    public ImportDeclaration(String qualifiedName, boolean staticImport, boolean moduleImport, boolean onDemand) {
+      super(qualifiedName, Form.IMPORT_DECLARATION, new ImportForm(staticImport, moduleImport, onDemand));
+      SyntaxValueSupport.requireName(qualifiedName);
+      if (moduleImport && (staticImport || onDemand)) {
+        throw new IllegalArgumentException("A module import cannot be static or on demand");
+      }
+      this.isStaticImport = staticImport;
+      this.isModuleImport = moduleImport;
+      this.isOnDemand = onDemand;
+    }
+
+    /**
+     * Returns the imported target without an on-demand star.
+     *
+     * @return the qualified imported target
+     */
+    public String qualifiedName() {
+      return name();
+    }
+
+    /**
+     * Returns whether the declaration uses static import.
+     *
+     * @return true for a static import
+     */
+    public boolean staticImport() {
+      return isStaticImport;
+    }
+
+    /**
+     * Returns whether the declaration imports a module.
+     *
+     * @return true for a module import
+     */
+    public boolean moduleImport() {
+      return isModuleImport;
+    }
+
+    /**
+     * Returns whether the declaration ends in an on-demand star.
+     *
+     * @return true for an on-demand import
+     */
+    public boolean onDemand() {
+      return isOnDemand;
+    }
+
+    @Override
+    public String toString() {
+      return "ImportDeclaration[qualifiedName=" + qualifiedName() + ", staticImport=" + isStaticImport + ", moduleImport=" + isModuleImport
+          + ", onDemand=" + isOnDemand + ']';
     }
   }
 

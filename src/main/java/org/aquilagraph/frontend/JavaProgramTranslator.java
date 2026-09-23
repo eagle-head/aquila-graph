@@ -95,25 +95,6 @@ final class JavaProgramTranslator {
 
   private void diagnoseCompilationUnitProperties(CompilationUnitTree unit, SourceFile sourceFile, List<AnalysisDiagnostic> diagnostics,
       List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
-    for (var importTree : unit.getImports()) {
-      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, sourceFile.sourceFileKey(),
-          JavaDeclarationPropertyCoverage.IMPORT_DECLARATION_DIAGNOSTIC,
-          "Import declarations are outside the supported semantic graph profile", sourceEvidence.origin(unit, sourceFile, importTree),
-          JavaDeclarationPropertyCoverage.COMPILATION_UNIT_IMPORTS);
-    }
-    if (unit.getPackage() != null) {
-      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, sourceFile.sourceFileKey(),
-          JavaDeclarationPropertyCoverage.PACKAGE_DECLARATION_DIAGNOSTIC,
-          "Package declarations are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, unit.getPackage()), JavaDeclarationPropertyCoverage.COMPILATION_UNIT_PACKAGE,
-          JavaDeclarationPropertyCoverage.COMPILATION_UNIT_PACKAGE_NAME);
-    }
-    for (var annotation : unit.getPackageAnnotations()) {
-      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, sourceFile.sourceFileKey(),
-          JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC,
-          "Package declaration annotations are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, annotation), JavaDeclarationPropertyCoverage.COMPILATION_UNIT_PACKAGE_ANNOTATIONS);
-    }
     if (unit.getModule() != null) {
       propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, sourceFile.sourceFileKey(),
           JavaDeclarationPropertyCoverage.MODULE_DECLARATION_DIAGNOSTIC,

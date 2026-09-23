@@ -146,6 +146,7 @@ final class JavaAstAggregateBuilder {
   private static void validateRoot(SyntaxSourceContribution contribution) {
     var root = contribution.root();
     if (!root.sourceFileKey().equals(contribution.sourceFileKey()) || root.sourceKind() != JavaSourceKind.COMPILATION_UNIT
+        || root.syntaxKind() != SyntaxKind.COMPILATION_UNIT || !(root.value() instanceof SyntaxValue.CompilationUnit)
         || !root.structuralPath().equals(SyntaxStructuralPath.sourceFileRoot())) {
       throw new IllegalArgumentException(
           "AST source root must be a compilation unit for source " + contribution.sourceFileKey() + ": " + root.nodeId());

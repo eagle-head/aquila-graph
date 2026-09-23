@@ -56,7 +56,18 @@ the exact source-owned accessor occurrences represented by that diagnostic.
 `JavaProgram`, `JavaType`, and `JavaMethod` retain declaration facts only,
 including exact type ownership and whether a method body exists;
 `JavaAstContributionTranslator` assembles one source-rooted contribution per
-captured compilation unit while attribution is available. `JavaProgramTranslator`
+captured compilation unit while attribution is available. Each root retains its
+ordinary, compact, or modular form from attributed compiler-tree structure and
+source positions. Ordinary roots own a written package declaration when present;
+all three forms own ordered import occurrences. Compact roots own written class
+members directly, without presenting the implicitly declared wrapper class as a
+written type. A compact root spans the complete captured source because javac
+does not provide an end position for its implicit class or compilation unit.
+Package declarations own ordered annotation attachments. Package and import
+names come from compiler-tree name components, while import values separately
+retain static, module, and on-demand form. Annotation value structure remains
+outside this increment and continues to produce its own capability diagnostic.
+`JavaProgramTranslator`
 seals those contributions in snapshot order as one `JavaAstAggregate`.
 `ParsedTreeInventory` captures tree identity immediately after parse and before
 attribution. The body and contribution translators use that identity to
@@ -170,17 +181,19 @@ every non-static public accessor inherited or declared by `CompilationUnitTree`,
 JDK 25 APIs and compares it in both directions with the explicit catalog, so missing,
 duplicate, unrecognized, extra, catch-all, and policyless entries cannot silently
 enter the contract. Inherited visitor, element-identity, annotation-proxy lookup,
-and line-map protocols are explicitly irrelevant with direct API locators. Import
-declarations are diagnosed because javac uses them for attribution while the current
-semantic graph does not retain their provenance.[23][24][25]
+and line-map protocols are explicitly irrelevant with direct API locators. Package
+and import declarations are represented as source-owned AST occurrences, including
+the package name, annotation attachment order, import order, imported name, and
+source form. Module declarations remain diagnosed until their structure is
+represented.[23][24][25]
 
 The declaration-property catalog's diagnosed policies for method type parameters,
 thrown types, receiver parameters, variable arity, declaration annotations,
-annotation defaults, record components, package declarations, and module declarations
+annotation defaults, record components, and module declarations
 are connected to source-located frontend errors. Those errors flow through the
 existing completion projection and therefore prevent `COMPLETED` without using CFG
-construction as the declaration-coverage oracle. Unsupported import provenance,
-qualified receiver names, variable modifiers or initializers that lack a current
+construction as the declaration-coverage oracle. Qualified receiver names,
+variable modifiers or initializers that lack a current
 representation boundary, local declaration annotations, and compiler-mandated
 enclosed declarations also produce source-located capability errors. The catalog
 therefore classifies `VariableTree.getModifiers()` and
@@ -232,9 +245,12 @@ to `INCOMPLETE`, but no generic completion status replaces their typed diagnosti
 policy evidence.[8][23][24][25][26][27]
 
 `COMPILATION_UNIT` is represented by one validated aggregate root for each
-captured source. This kind classification does not represent compilation-unit
-accessors such as packages, imports, or modules; their contextual capability
-diagnostics remain in force. Coverage values and AST occurrences are not yet
+captured source, including an empty source. The root has an explicit ordinary,
+compact, or modular form. Package and import accessors are represented by source-owned
+occurrences and ordered structural edges; module structure still has a contextual
+capability diagnostic. Package annotations have source-owned attachment nodes,
+while their type and value details retain the separate annotation capability
+diagnostic. Coverage values and AST occurrences are not yet
 persisted, compiler API types remain confined to `frontend`, and no Neo4j schema
 change is required. The focused class, sequence, and component views show the
 coverage scanner, contextual declaration-property observation, source aggregate
@@ -288,14 +304,14 @@ errors: `frontend.unsupported-method-type-parameters`,
 `frontend.unsupported-thrown-types`, `frontend.unsupported-receiver-parameter`,
 `frontend.unsupported-varargs`, `frontend.unsupported-declaration-annotations`,
 `frontend.unsupported-annotation-default`, `frontend.unsupported-record-components`,
-`frontend.unsupported-package-declaration`, `frontend.unsupported-module-declaration`,
-`frontend.unsupported-import-declaration`, `frontend.unsupported-variable-modifiers`,
+`frontend.unsupported-module-declaration`, `frontend.unsupported-variable-modifiers`,
 `frontend.unsupported-variable-initializer`,
 `frontend.unsupported-variable-name-expression`, and
 `frontend.unsupported-enclosed-declarations`. The declaration-property regression
 suite uses valid Java 25 sources and verifies both the expected diagnostic and a
 non-completed analysis outcome for every named fact, plus the contextual variable,
-import, implicit-modifier, and compiler-mandated-member boundaries.[2][25]
+implicit-modifier, and compiler-mandated-member boundaries. Package and import
+structure instead have positive aggregate tuple tests.[2][25]
 
 ## Graph-Native Semantic Lowering and Control Flow
 

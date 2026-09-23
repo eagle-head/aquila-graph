@@ -41,6 +41,7 @@ import org.aquilagraph.model.StableId;
 import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.syntax.MethodBodyOrigin;
 import org.aquilagraph.syntax.SyntaxKind;
+import org.aquilagraph.syntax.SyntaxRole;
 import org.aquilagraph.syntax.SyntaxAnalysisInput;
 import org.aquilagraph.core.AnalysisEngine;
 import org.junit.jupiter.api.Test;
@@ -256,10 +257,109 @@ class JavaAstSourcePositionTest {
     });
   }
 
+  @Test
+  void givenMissingFirstPackageAnnotationRange_whenTranslated_thenLaterAttachmentKeepsItsPublishedPosition() throws IOException {
+    // Arrange
+    withCompiledSource("@Deprecated @SuppressWarnings(\"unused\") package sample;", "package-info.java", fixture -> {
+      var annotations = fixture.unit().getPackage().getAnnotations();
+      var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(annotations.getFirst())));
+
+      // Act
+      var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
+          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+      var root = result.contribution().orElseThrow().root();
+      var packageNode = root.requiredChild(SyntaxRole.PACKAGE_DECLARATION);
+      var retained = packageNode.children(SyntaxRole.ANNOTATION);
+
+      // Assert
+      assertEquals(1, retained.size());
+      assertEquals(0, packageNode.children().getFirst().position());
+      assertEquals(packageNode.structuralPath().child(SyntaxRole.ANNOTATION, 0), retained.getFirst().structuralPath());
+      assertEquals(List.of("frontend.missing-source-position"), result.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+      assertEquals(AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR, result.diagnostics().getFirst().outcomeKind());
+    });
+  }
+
+  @Test
+  void givenMissingPackageAndImportRanges_whenTranslated_thenBothFactsAreDiagnosedWithoutPublication() throws IOException {
+    // Arrange
+    withCompiledSource("package sample; import java.util.List; class Example { }", fixture -> {
+      var missing = List.of(fixture.unit().getPackage(), fixture.unit().getImports().getFirst());
+      var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), missing));
+
+      // Act
+      var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
+          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+      var root = result.contribution().orElseThrow().root();
+
+      // Assert
+      assertEquals(List.of(), root.children(SyntaxRole.PACKAGE_DECLARATION));
+      assertEquals(List.of(), root.children(SyntaxRole.IMPORT_DECLARATION));
+      assertEquals(List.of("frontend.missing-source-position", "frontend.missing-source-position"),
+          result.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+      assertNotEquals(result.diagnostics().get(0).diagnosticKey(), result.diagnostics().get(1).diagnosticKey());
+      assertTrue(result.diagnostics().stream().allMatch(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
+    });
+  }
+
+  @Test
+  void givenTwoMissingImportRanges_whenTranslated_thenDiagnosticsRetainSourceOrdinals() throws IOException {
+    // Arrange
+    withCompiledSource("import java.util.List; import java.util.Map; class Example { }", fixture -> {
+      var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), fixture.unit().getImports()));
+
+      // Act
+      var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
+          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+
+      // Assert
+      assertEquals(List.of(), result.contribution().orElseThrow().root().children(SyntaxRole.IMPORT_DECLARATION));
+      assertEquals(List.of("frontend.missing-source-position", "frontend.missing-source-position"),
+          result.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+      assertNotEquals(result.diagnostics().get(0).diagnosticKey(), result.diagnostics().get(1).diagnosticKey());
+      assertNotEquals(result.diagnostics().get(0).message(), result.diagnostics().get(1).message());
+    });
+  }
+
+  @Test
+  void givenMissingCompactMethodRange_whenTranslated_thenInvalidRootIsNotPublished() throws IOException {
+    // Arrange
+    withCompiledSource("void main() { }", fixture -> {
+      var wrapper = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var method = wrapper.getMembers().stream().filter(MethodTree.class::isInstance).map(MethodTree.class::cast)
+          .filter(member -> member.getName().contentEquals("main")).findFirst().orElseThrow();
+      var positions = new SourcePositions() {
+        @Override
+        public long getStartPosition(CompilationUnitTree unit, Tree tree) {
+          return fixture.positions().getStartPosition(unit, tree);
+        }
+
+        @Override
+        public long getEndPosition(CompilationUnitTree unit, Tree tree) {
+          return tree == method ? Diagnostic.NOPOS : fixture.positions().getEndPosition(unit, tree);
+        }
+      };
+      var evidence = new JavaSourceEvidence(positions);
+
+      // Act
+      var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
+          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+
+      // Assert
+      assertTrue(result.contribution().isEmpty());
+      assertEquals(List.of("frontend.missing-source-position", "frontend.unavailable-compact-method"),
+          result.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+    });
+  }
+
   private static void withCompiledSource(String content, Consumer<CompiledSource> assertion) throws IOException {
+    withCompiledSource(content, "Example.java", assertion);
+  }
+
+  private static void withCompiledSource(String content, String filename, Consumer<CompiledSource> assertion) throws IOException {
     var compiler = ToolProvider.getSystemJavaCompiler();
-    var sourceFile = new SourceFile("source", Path.of("Example.java"), "fixture-content", content);
-    var source = new SimpleJavaFileObject(URI.create("string:///Example.java"), JavaFileObject.Kind.SOURCE) {
+    var sourceFile = new SourceFile("source", Path.of(filename), "fixture-content", content);
+    var source = new SimpleJavaFileObject(URI.create("string:///" + filename), JavaFileObject.Kind.SOURCE) {
       @Override
       public CharSequence getCharContent(boolean ignoreEncodingErrors) {
         return content;

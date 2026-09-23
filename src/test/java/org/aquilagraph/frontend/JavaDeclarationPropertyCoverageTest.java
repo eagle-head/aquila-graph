@@ -115,11 +115,7 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::Element#getEnclosedElements()",
       "ExecutableElement::Element#hashCode()");
   private static final Set<String> EXPECTED_DIAGNOSED_PROPERTIES = Set.of(
-      "CompilationUnitTree::CompilationUnitTree#getImports()",
       "CompilationUnitTree::CompilationUnitTree#getModule()",
-      "CompilationUnitTree::CompilationUnitTree#getPackage()",
-      "CompilationUnitTree::CompilationUnitTree#getPackageAnnotations()",
-      "CompilationUnitTree::CompilationUnitTree#getPackageName()",
       "MethodTree::MethodTree#getDefaultValue()",
       "MethodTree::MethodTree#getReceiverParameter()",
       "MethodTree::MethodTree#getThrows()",
@@ -169,6 +165,14 @@ class JavaDeclarationPropertyCoverageTest {
     // Assert
     assertEquals(EXPECTED_IRRELEVANT_PROPERTIES, irrelevantProperties);
     assertEquals(EXPECTED_DIAGNOSED_PROPERTIES, diagnosedProperties);
+    assertEquals(LanguageFeaturePolicy.REPRESENTED,
+        policyOf(coverage, JavaDeclarationPropertyCoverage.COMPILATION_UNIT_IMPORTS));
+    assertEquals(LanguageFeaturePolicy.REPRESENTED,
+        policyOf(coverage, JavaDeclarationPropertyCoverage.COMPILATION_UNIT_PACKAGE));
+    assertEquals(LanguageFeaturePolicy.REPRESENTED,
+        policyOf(coverage, JavaDeclarationPropertyCoverage.COMPILATION_UNIT_PACKAGE_NAME));
+    assertEquals(LanguageFeaturePolicy.REPRESENTED,
+        policyOf(coverage, JavaDeclarationPropertyCoverage.COMPILATION_UNIT_PACKAGE_ANNOTATIONS));
     assertTrue(coverage.classifications().stream()
         .filter(classification -> classification.policy() == LanguageFeaturePolicy.REPRESENTED)
         .allMatch(classification -> classification.representationBoundary().isPresent()));

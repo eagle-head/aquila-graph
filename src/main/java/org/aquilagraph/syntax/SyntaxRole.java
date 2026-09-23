@@ -4,6 +4,14 @@ package org.aquilagraph.syntax;
 public enum SyntaxRole {
   /** Captured source file that owns a compilation-unit occurrence tree. */
   SOURCE_FILE_ROOT("source-file-root"),
+  /** Written package declaration within an ordinary compilation unit. */
+  PACKAGE_DECLARATION("package-declaration"),
+  /** Written import declaration within a compilation unit. */
+  IMPORT_DECLARATION("import-declaration"),
+  /** Written class member in a compact compilation unit. */
+  COMPACT_MEMBER("compact-member"),
+  /** Written annotation attached to a package declaration. */
+  ANNOTATION("annotation"),
   /** Top-level type declaration within a compilation unit. */
   TYPE_DECLARATION("type-declaration"),
   /** Member declaration within a type. */

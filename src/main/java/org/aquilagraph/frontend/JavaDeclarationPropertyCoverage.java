@@ -51,18 +51,15 @@ final class JavaDeclarationPropertyCoverage {
   static final String DECLARATION_ANNOTATIONS_DIAGNOSTIC = "frontend.unsupported-declaration-annotations";
   static final String ANNOTATION_DEFAULT_DIAGNOSTIC = "frontend.unsupported-annotation-default";
   static final String RECORD_COMPONENTS_DIAGNOSTIC = "frontend.unsupported-record-components";
-  static final String PACKAGE_DECLARATION_DIAGNOSTIC = "frontend.unsupported-package-declaration";
   static final String MODULE_DECLARATION_DIAGNOSTIC = "frontend.unsupported-module-declaration";
-  static final String IMPORT_DECLARATION_DIAGNOSTIC = "frontend.unsupported-import-declaration";
   static final String ENCLOSED_DECLARATIONS_DIAGNOSTIC = "frontend.unsupported-enclosed-declarations";
   static final String VARIABLE_MODIFIERS_DIAGNOSTIC = "frontend.unsupported-variable-modifiers";
   static final String VARIABLE_INITIALIZER_DIAGNOSTIC = "frontend.unsupported-variable-initializer";
   static final String VARIABLE_NAME_EXPRESSION_DIAGNOSTIC = "frontend.unsupported-variable-name-expression";
   private static final Set<String> DECLARATION_PROPERTY_DIAGNOSTICS = Set.of(METHOD_TYPE_PARAMETERS_DIAGNOSTIC, THROWN_TYPES_DIAGNOSTIC,
       RECEIVER_PARAMETER_DIAGNOSTIC, VARARGS_DIAGNOSTIC, DECLARATION_ANNOTATIONS_DIAGNOSTIC, ANNOTATION_DEFAULT_DIAGNOSTIC,
-      RECORD_COMPONENTS_DIAGNOSTIC, PACKAGE_DECLARATION_DIAGNOSTIC, MODULE_DECLARATION_DIAGNOSTIC, IMPORT_DECLARATION_DIAGNOSTIC,
-      ENCLOSED_DECLARATIONS_DIAGNOSTIC, VARIABLE_MODIFIERS_DIAGNOSTIC, VARIABLE_INITIALIZER_DIAGNOSTIC,
-      VARIABLE_NAME_EXPRESSION_DIAGNOSTIC);
+      RECORD_COMPONENTS_DIAGNOSTIC, MODULE_DECLARATION_DIAGNOSTIC, ENCLOSED_DECLARATIONS_DIAGNOSTIC, VARIABLE_MODIFIERS_DIAGNOSTIC,
+      VARIABLE_INITIALIZER_DIAGNOSTIC, VARIABLE_NAME_EXPRESSION_DIAGNOSTIC);
 
   private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
       VariableTree.class, TypeElement.class, ExecutableElement.class);
@@ -133,15 +130,15 @@ final class JavaDeclarationPropertyCoverage {
     return List.of(
         irrelevant("CompilationUnitTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
             TREE_ACCEPT_SOURCE),
-        diagnosed(COMPILATION_UNIT_IMPORTS, IMPORT_DECLARATION_DIAGNOSTIC),
+        represented(COMPILATION_UNIT_IMPORTS, "JavaAstAggregate ordered import declarations"),
         represented("CompilationUnitTree::Tree#getKind()", "JavaCompilerKindCoverage exact tree-kind contract"),
         irrelevant("CompilationUnitTree::CompilationUnitTree#getLineMap()",
             "SourceFile content and SourceSpan offsets own source evidence; line-number conversion is presentation metadata",
             TREE_API + "CompilationUnitTree.html#getLineMap()"),
         diagnosed(COMPILATION_UNIT_MODULE, MODULE_DECLARATION_DIAGNOSTIC),
-        diagnosed(COMPILATION_UNIT_PACKAGE, PACKAGE_DECLARATION_DIAGNOSTIC),
-        diagnosed(COMPILATION_UNIT_PACKAGE_ANNOTATIONS, DECLARATION_ANNOTATIONS_DIAGNOSTIC),
-        diagnosed(COMPILATION_UNIT_PACKAGE_NAME, PACKAGE_DECLARATION_DIAGNOSTIC),
+        represented(COMPILATION_UNIT_PACKAGE, "JavaAstAggregate source-owned package declaration"),
+        represented(COMPILATION_UNIT_PACKAGE_ANNOTATIONS, "JavaAstAggregate ordered package annotation attachments"),
+        represented(COMPILATION_UNIT_PACKAGE_NAME, "JavaAstAggregate package qualified name"),
         represented("CompilationUnitTree::CompilationUnitTree#getSourceFile()", "SourceFile input snapshot"),
         represented("CompilationUnitTree::CompilationUnitTree#getTypeDecls()", "JavaProgram top-level type declarations"));
   }

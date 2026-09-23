@@ -17,7 +17,8 @@ public final class MethodSyntaxFixture {
     var sourceFile = new SourceFile("source", Path.of("Source.java"), "fixture-content", "x");
     var snapshot = new InputSnapshot(Path.of("."), "fixture-digest", "fixture-snapshot", List.of(sourceFile));
     var sourceRoot = SyntaxNode.source("source", SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.COMPILATION_UNIT,
-        SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(),
+        SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), List.of(), Optional.empty(),
         new SourceSpan("source", 0, 1));
     var contribution = new SyntaxSourceContribution("source", sourceRoot, List.of(sourceRoot), List.of(), List.of());
     return JavaAstAggregate.builder(snapshot).add(contribution)

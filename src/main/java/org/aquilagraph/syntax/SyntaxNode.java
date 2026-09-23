@@ -47,7 +47,7 @@ public final class SyntaxNode {
     validateType(syntaxKind, type);
     validateReference(syntaxKind, semanticReference);
     validateChildPositions(childNodes);
-    validateShape(syntaxKind, value, childNodes);
+    validateShape(syntaxKind, sourceKind, value, childNodes);
   }
 
   /**
@@ -435,10 +435,17 @@ public final class SyntaxNode {
     }
   }
 
-  private static void validateShape(SyntaxKind kind, SyntaxValue value, List<SyntaxChild> children) {
+  private static void validateShape(SyntaxKind kind, JavaSourceKind sourceKind, SyntaxValue value, List<SyntaxChild> children) {
     var expectedValue = switch (kind) {
+      case COMPILATION_UNIT -> switch (sourceKind) {
+        case COMPILATION_UNIT -> SyntaxValue.CompilationUnit.class;
+        case PACKAGE -> SyntaxValue.PackageDeclaration.class;
+        case IMPORT -> SyntaxValue.ImportDeclaration.class;
+        case ANNOTATION -> SyntaxValue.None.class;
+        default -> throw new IllegalStateException("Unexpected compilation-unit source kind");
+      };
       case LOCAL_DECLARATION -> SyntaxValue.LocalDeclaration.class;
-      case VARIABLE_ACCESS, VARIABLE_LOCATION, ARRAY_LENGTH -> SyntaxValue.Symbol.class;
+      case VARIABLE_ACCESS, VARIABLE_LOCATION, ARRAY_LENGTH -> SyntaxValue.SourceSymbol.class;
       case FIELD_ACCESS, FIELD_LOCATION -> SyntaxValue.FieldAccess.class;
       case INVOCATION, OBJECT_CREATION -> SyntaxValue.Invocation.class;
       case RECEIVER -> SyntaxValue.Receiver.class;
@@ -454,7 +461,49 @@ public final class SyntaxNode {
     }
 
     switch (kind) {
-      case COMPILATION_UNIT -> requireShape(children, Set.of(SyntaxRole.TYPE_DECLARATION));
+      case COMPILATION_UNIT -> {
+        switch (sourceKind) {
+          case COMPILATION_UNIT -> {
+            var form = SyntaxValue.CompilationUnit.class.cast(value).form();
+            var roles = switch (form) {
+              case ORDINARY -> Set.of(SyntaxRole.PACKAGE_DECLARATION, SyntaxRole.IMPORT_DECLARATION, SyntaxRole.TYPE_DECLARATION);
+              case COMPACT -> Set.of(SyntaxRole.IMPORT_DECLARATION, SyntaxRole.COMPACT_MEMBER);
+              case MODULAR -> Set.of(SyntaxRole.IMPORT_DECLARATION);
+            };
+            requireShape(children, roles);
+            if (form == SyntaxValue.CompilationUnitForm.ORDINARY) {
+              requireCount(children, SyntaxRole.PACKAGE_DECLARATION, 0, 1);
+            } else if (form == SyntaxValue.CompilationUnitForm.COMPACT && children.stream().noneMatch(
+                child -> child.role() == SyntaxRole.COMPACT_MEMBER && child.node().syntaxKind() == SyntaxKind.METHOD_DECLARATION)) {
+              throw new IllegalArgumentException("A compact compilation unit requires a written method member");
+            }
+            for (var child : children) {
+              var valid = switch (child.role()) {
+                case PACKAGE_DECLARATION ->
+                  child.node().sourceKind() == JavaSourceKind.PACKAGE && child.node().syntaxKind() == SyntaxKind.COMPILATION_UNIT;
+                case IMPORT_DECLARATION ->
+                  child.node().sourceKind() == JavaSourceKind.IMPORT && child.node().syntaxKind() == SyntaxKind.COMPILATION_UNIT;
+                case TYPE_DECLARATION -> child.node().syntaxKind() == SyntaxKind.TYPE_DECLARATION;
+                case COMPACT_MEMBER -> Set.of(SyntaxKind.TYPE_DECLARATION, SyntaxKind.METHOD_DECLARATION, SyntaxKind.FIELD_DECLARATION)
+                    .contains(child.node().syntaxKind());
+                default -> throw new IllegalStateException("Unexpected compilation-unit child role");
+              };
+              if (!valid) {
+                throw new IllegalArgumentException("Compilation-unit child kind does not match its role");
+              }
+            }
+          }
+          case PACKAGE -> {
+            requireShape(children, Set.of(SyntaxRole.ANNOTATION));
+            if (children.stream().anyMatch(child -> child.node().sourceKind() != JavaSourceKind.ANNOTATION
+                || child.node().syntaxKind() != SyntaxKind.COMPILATION_UNIT)) {
+              throw new IllegalArgumentException("A package annotation child requires an annotation attachment");
+            }
+          }
+          case IMPORT, ANNOTATION -> requireShape(children, Set.of());
+          default -> throw new IllegalStateException("Unexpected compilation-unit source kind");
+        }
+      }
       case TYPE_DECLARATION -> requireShape(children, Set.of(SyntaxRole.MEMBER));
       case METHOD_DECLARATION -> requireShape(children, Set.of(SyntaxRole.BODY), SyntaxRole.BODY, 0, 1);
       case BLOCK -> requireShape(children, Set.of(SyntaxRole.STATEMENT));

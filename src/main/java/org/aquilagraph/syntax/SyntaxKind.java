@@ -2,7 +2,7 @@ package org.aquilagraph.syntax;
 
 /** Derived Java syntax categories used by current semantic-graph consumers. */
 public enum SyntaxKind {
-  /** Captured compilation-unit source root. */
+  /** Compilation-unit source structure outside method-body lowering. */
   COMPILATION_UNIT,
   /** Source type declaration occurrence. */
   TYPE_DECLARATION,
@@ -90,7 +90,10 @@ public enum SyntaxKind {
       return sourceKind.identifiesSourceSyntax();
     }
     return switch (this) {
-      case COMPILATION_UNIT -> sourceKind == JavaSourceKind.COMPILATION_UNIT;
+      case COMPILATION_UNIT -> switch (sourceKind) {
+        case COMPILATION_UNIT, PACKAGE, IMPORT, ANNOTATION -> true;
+        default -> false;
+      };
       case TYPE_DECLARATION -> switch (sourceKind) {
         case CLASS, INTERFACE, ENUM, RECORD, ANNOTATION_TYPE -> true;
         default -> false;

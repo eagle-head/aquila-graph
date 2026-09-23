@@ -265,7 +265,7 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     if (semantics.isArrayLength(selection, context.treePath())) {
       var children = new ChildMappings(context);
       children.add(SyntaxRole.QUALIFIER, selection.getExpression());
-      return accepted(SyntaxKind.ARRAY_LENGTH, new SyntaxValue.Symbol(selection.getIdentifier().toString()), children);
+      return accepted(SyntaxKind.ARRAY_LENGTH, new SyntaxValue.SourceSymbol(selection.getIdentifier().toString()), children);
     }
     if (selection.getIdentifier().contentEquals(THIS_NAME) || selection.getIdentifier().contentEquals(SUPER_NAME)) {
       var receiver = selection.getIdentifier().contentEquals(THIS_NAME)
@@ -396,7 +396,7 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     }
     var kind = context.use() == SyntaxUse.ASSIGNMENT_LOCATION ? SyntaxKind.VARIABLE_LOCATION : SyntaxKind.VARIABLE_ACCESS;
     var referenceKind = element != null && element.getKind() == ElementKind.PARAMETER ? ReferenceKind.PARAMETER : ReferenceKind.LOCAL;
-    return accepted(kind, new SyntaxValue.Symbol(identifier.getName().toString()), List.of(),
+    return accepted(kind, new SyntaxValue.SourceSymbol(identifier.getName().toString()), List.of(),
         semantics.reference(context.treePath(), referenceKind));
   }
 

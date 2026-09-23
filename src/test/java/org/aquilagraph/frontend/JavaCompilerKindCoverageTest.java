@@ -61,6 +61,7 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.GREATER_THAN_EQUAL,
       Tree.Kind.IDENTIFIER,
       Tree.Kind.IF,
+      Tree.Kind.IMPORT,
       Tree.Kind.INT_LITERAL,
       Tree.Kind.INTERFACE,
       Tree.Kind.LEFT_SHIFT,
@@ -78,6 +79,7 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.NOT_EQUAL_TO,
       Tree.Kind.NULL_LITERAL,
       Tree.Kind.OR,
+      Tree.Kind.PACKAGE,
       Tree.Kind.PARENTHESIZED,
       Tree.Kind.PLUS,
       Tree.Kind.RECORD,
@@ -148,6 +150,8 @@ class JavaCompilerKindCoverageTest {
   void givenRepresentedKinds_whenCompositeSourceIsAnalyzed_thenEachKindHasRetainingEvidence() throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("KindEvidence.java"), """
+        package sample;
+        import java.util.List;
         @interface Marker { }
         interface Contract { }
         enum Choice { ONE }
@@ -345,8 +349,8 @@ class JavaCompilerKindCoverageTest {
 
   private static EnumSet<Tree.Kind> retainedKindsIn(SyntaxAnalysisInput result) {
     var retainedKinds = EnumSet.noneOf(Tree.Kind.class);
-    result.aggregate().orElseThrow().roots()
-        .forEach(root -> retainedKinds.add(Tree.Kind.valueOf(root.sourceKind().name())));
+    result.aggregate().orElseThrow().nodes()
+        .forEach(node -> retainedKinds.add(Tree.Kind.valueOf(node.sourceKind().name())));
     for (var type : result.program().types()) {
       retainedKinds.add(switch (type.kind()) {
         case ANNOTATION -> Tree.Kind.ANNOTATION_TYPE;

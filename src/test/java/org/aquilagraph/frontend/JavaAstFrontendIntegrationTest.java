@@ -14,6 +14,7 @@ import java.util.Collections;
 import java.util.List;
 import javax.tools.ToolProvider;
 import org.aquilagraph.core.AnalysisEngine;
+import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.syntax.JavaSourceKind;
@@ -22,6 +23,7 @@ import org.aquilagraph.syntax.SyntaxKind;
 import org.aquilagraph.syntax.SyntaxRole;
 import org.aquilagraph.syntax.SyntaxSemanticRelation;
 import org.aquilagraph.syntax.SyntaxSemanticTarget;
+import org.aquilagraph.syntax.SyntaxValue;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -31,10 +33,251 @@ class JavaAstFrontendIntegrationTest {
   @TempDir Path sourceRoot;
 
   @Test
+  void givenEmptyAndNamedPackageSources_whenAnalyzed_thenEachRootRetainsItsWrittenUnitFacts() throws IOException {
+    // Arrange
+    Files.writeString(sourceRoot.resolve("Empty.java"), "");
+    var packageDirectory = Files.createDirectory(sourceRoot.resolve("sample"));
+    var source = "package sample; class Named { }";
+    Files.writeString(packageDirectory.resolve("Named.java"), source);
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    var aggregate = result.aggregate().orElseThrow();
+    var empty = aggregate.roots().getFirst();
+    var named = aggregate.roots().get(1);
+    var packageNode = named.requiredChild(SyntaxRole.PACKAGE_DECLARATION);
+    var range = packageNode.origin().orElseThrow();
+
+    // Assert
+    assertEquals(2, aggregate.roots().size());
+    assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), empty.value());
+    assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), named.value());
+    assertTrue(empty.children().isEmpty());
+    assertEquals(new SyntaxValue.PackageDeclaration("sample"), packageNode.value());
+    assertEquals(named.sourceFileKey(), packageNode.sourceFileKey());
+    assertEquals("package sample;", source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive())));
+    assertEquals(List.of(), named.children(SyntaxRole.IMPORT_DECLARATION));
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals(
+        "frontend.unsupported-package-declaration")
+        || diagnostic.code().equals("frontend.unsupported-tree-kind.package")));
+  }
+
+  @Test
+  void givenOrderedImportForms_whenAnalyzed_thenNamesFlagsOrderAndRangesAreRetained() throws IOException {
+    // Arrange
+    var source = """
+        import java.util.List;
+        import java.util.*;
+        import static java.util.Collections.emptyList;
+        import static java.util.Collections.*;
+        import module java.base;
+        class Imports { }
+        """;
+    Files.writeString(sourceRoot.resolve("Imports.java"), source);
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    var repeated = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    var root = result.aggregate().orElseThrow().roots().getFirst();
+    var imports = root.children(SyntaxRole.IMPORT_DECLARATION);
+
+    // Assert
+    assertEquals(List.of(
+        new SyntaxValue.ImportDeclaration("java.util.List", false, false, false),
+        new SyntaxValue.ImportDeclaration("java.util", false, false, true),
+        new SyntaxValue.ImportDeclaration("java.util.Collections.emptyList", true, false, false),
+        new SyntaxValue.ImportDeclaration("java.util.Collections", true, false, true),
+        new SyntaxValue.ImportDeclaration("java.base", false, true, false)),
+        imports.stream().map(node -> node.value()).toList());
+    assertEquals(List.of(0, 1, 2, 3, 4), root.children().stream()
+        .filter(child -> child.role() == SyntaxRole.IMPORT_DECLARATION).map(child -> child.position()).toList());
+    assertEquals(source.lines().filter(line -> line.startsWith("import ")).toList(), imports.stream()
+        .map(node -> {
+          var range = node.origin().orElseThrow();
+          return source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive()));
+        }).toList());
+    assertTrue(imports.stream().allMatch(node -> node.sourceFileKey().equals(root.sourceFileKey())));
+    assertEquals(result.aggregate().orElseThrow(), repeated.aggregate().orElseThrow());
+    assertEquals(result.diagnostics(), repeated.diagnostics());
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals(
+        "frontend.unsupported-import-declaration")
+        || diagnostic.code().equals("frontend.unsupported-tree-kind.import")
+        || diagnostic.code().startsWith("compiler.err.")), () -> result.diagnostics().toString());
+  }
+
+  @Test
+  void givenModularUnitWithImport_whenAnalyzed_thenImportRemainsOwnedByModularRoot() throws IOException {
+    // Arrange
+    var source = "import java.lang.Deprecated; module sample.module { }";
+    Files.writeString(sourceRoot.resolve("module-info.java"), source);
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    assertTrue(result.aggregate().isPresent(), () -> result.diagnostics().toString());
+    var root = result.aggregate().orElseThrow().roots().getFirst();
+    var imported = root.requiredChild(SyntaxRole.IMPORT_DECLARATION);
+
+    // Assert
+    assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR), root.value());
+    assertEquals(new SyntaxValue.ImportDeclaration("java.lang.Deprecated", false, false, false), imported.value());
+    assertEquals(root.sourceFileKey(), imported.sourceFileKey());
+    var range = imported.origin().orElseThrow();
+    assertEquals("import java.lang.Deprecated;",
+        source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive())));
+    assertEquals(List.of(), root.children(SyntaxRole.TYPE_DECLARATION));
+    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-module-declaration")));
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-import-declaration")
+        || diagnostic.code().startsWith("compiler.err.")), () -> result.diagnostics().toString());
+  }
+
+  @Test
+  void givenCompactUnitWithImport_whenAnalyzed_thenWrittenMembersBelongToCompactRoot() throws IOException {
+    // Arrange
+    var source = "import java.util.List; int count; void main() { System.out.println(count); }";
+    Files.writeString(sourceRoot.resolve("Compact.java"), source);
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    assertTrue(result.aggregate().isPresent(), () -> result.diagnostics().toString());
+    var root = result.aggregate().orElseThrow().roots().getFirst();
+    var members = root.children(SyntaxRole.COMPACT_MEMBER);
+    var fieldRange = members.getFirst().origin().orElseThrow();
+    var methodRange = members.get(1).origin().orElseThrow();
+
+    // Assert
+    assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.COMPACT), root.value());
+    assertEquals(new SyntaxValue.ImportDeclaration("java.util.List", false, false, false),
+        root.requiredChild(SyntaxRole.IMPORT_DECLARATION).value());
+    assertEquals(List.of(SyntaxKind.FIELD_DECLARATION, SyntaxKind.METHOD_DECLARATION),
+        members.stream().map(node -> node.syntaxKind()).toList());
+    assertTrue(members.stream().allMatch(member -> member.sourceFileKey().equals(root.sourceFileKey())));
+    assertEquals("int count;", source.substring(Math.toIntExact(fieldRange.startOffset()), Math.toIntExact(fieldRange.endOffsetExclusive())));
+    assertEquals("void main() { System.out.println(count); }",
+        source.substring(Math.toIntExact(methodRange.startOffset()), Math.toIntExact(methodRange.endOffsetExclusive())));
+    assertEquals(source, source.substring(Math.toIntExact(root.origin().orElseThrow().startOffset()),
+        Math.toIntExact(root.origin().orElseThrow().endOffsetExclusive())));
+    assertEquals(List.of(), root.children(SyntaxRole.TYPE_DECLARATION));
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")),
+        () -> result.diagnostics().toString());
+  }
+
+  @Test
+  void givenMalformedImport_whenAnalyzed_thenCompilerErrorPreventsCompletionWithoutImportFact() throws IOException {
+    // Arrange
+    Files.writeString(sourceRoot.resolve("Broken.java"), "import ; class Broken { }");
+
+    // Act
+    var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    var run = new AnalysisEngine().analyze(input);
+
+    // Assert
+    assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
+    var imports = input.aggregate().stream().flatMap(aggregate -> aggregate.roots().stream())
+        .flatMap(root -> root.children(SyntaxRole.IMPORT_DECLARATION).stream()).toList();
+    assertTrue(imports.isEmpty(), () -> imports + " diagnostics=" + input.diagnostics());
+    assertFalse(run.completion() == AnalysisCompletion.COMPLETED);
+  }
+
+  @Test
+  void givenMalformedPackage_whenAnalyzed_thenCompilerErrorPreventsCompletionWithoutPackageFact() throws IOException {
+    // Arrange
+    Files.writeString(sourceRoot.resolve("Broken.java"), "package ; class Broken { }");
+
+    // Act
+    var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    var run = new AnalysisEngine().analyze(input);
+
+    // Assert
+    assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
+    assertTrue(input.aggregate().stream().flatMap(aggregate -> aggregate.roots().stream())
+        .noneMatch(root -> !root.children(SyntaxRole.PACKAGE_DECLARATION).isEmpty()));
+    assertFalse(run.completion() == AnalysisCompletion.COMPLETED);
+  }
+
+  @Test
+  void givenImportWithoutSemicolon_whenAnalyzed_thenRecoveredNameIsNotPublished() throws IOException {
+    // Arrange
+    Files.writeString(sourceRoot.resolve("Broken.java"), "import java.util.List");
+
+    // Act
+    var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    var run = new AnalysisEngine().analyze(input);
+
+    // Assert
+    assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
+    assertTrue(input.aggregate().orElseThrow().roots().getFirst().children(SyntaxRole.IMPORT_DECLARATION).isEmpty());
+    assertFalse(run.completion() == AnalysisCompletion.COMPLETED);
+  }
+
+  @Test
+  void givenPackageWithoutSemicolon_whenAnalyzed_thenRecoveredNameIsNotPublished() throws IOException {
+    // Arrange
+    Files.writeString(sourceRoot.resolve("Broken.java"), "package sample");
+
+    // Act
+    var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    var run = new AnalysisEngine().analyze(input);
+
+    // Assert
+    assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
+    assertTrue(input.aggregate().orElseThrow().roots().getFirst().children(SyntaxRole.PACKAGE_DECLARATION).isEmpty());
+    assertFalse(run.completion() == AnalysisCompletion.COMPLETED);
+  }
+
+  @Test
+  void givenUnicodeEscapedSemicolons_whenAnalyzed_thenDeclarationsRemainRepresented() throws IOException {
+    // Arrange
+    var unicodeSemicolon = "\\" + "u003b";
+    Files.writeString(sourceRoot.resolve("Example.java"),
+        "package sample" + unicodeSemicolon + " import java.util.List" + unicodeSemicolon + " class Example { }");
+
+    // Act
+    var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    var root = input.aggregate().orElseThrow().roots().getFirst();
+
+    // Assert
+    assertEquals(1, root.children(SyntaxRole.PACKAGE_DECLARATION).size());
+    assertEquals(1, root.children(SyntaxRole.IMPORT_DECLARATION).size());
+    assertTrue(input.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")),
+        () -> input.diagnostics().toString());
+  }
+
+  @Test
+  void givenAnnotatedPackageInfo_whenAnalyzed_thenAnnotationAttachmentRetainsOwnerAndRange() throws IOException {
+    // Arrange
+    var directory = Files.createDirectory(sourceRoot.resolve("sample"));
+    var source = "@Deprecated @SuppressWarnings(\"unused\") package sample;";
+    Files.writeString(directory.resolve("package-info.java"), source);
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    var root = result.aggregate().orElseThrow().roots().getFirst();
+    var packageNode = root.requiredChild(SyntaxRole.PACKAGE_DECLARATION);
+    var annotations = packageNode.children(SyntaxRole.ANNOTATION);
+    var firstRange = annotations.getFirst().origin().orElseThrow();
+    var secondRange = annotations.get(1).origin().orElseThrow();
+
+    // Assert
+    assertEquals(1, result.aggregate().orElseThrow().roots().size());
+    assertEquals(List.of(0, 1), packageNode.children().stream().map(child -> child.position()).toList());
+    assertTrue(annotations.stream().allMatch(annotation -> annotation.sourceKind() == JavaSourceKind.ANNOTATION
+        && annotation.sourceFileKey().equals(packageNode.sourceFileKey())));
+    assertEquals("@Deprecated", source.substring(Math.toIntExact(firstRange.startOffset()),
+        Math.toIntExact(firstRange.endOffsetExclusive())));
+    assertEquals("@SuppressWarnings(\"unused\")", source.substring(Math.toIntExact(secondRange.startOffset()),
+        Math.toIntExact(secondRange.endOffsetExclusive())));
+    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(
+        "frontend.unsupported-tree-kind.annotation")));
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals(
+        "frontend.unsupported-package-declaration")));
+  }
+
+  @Test
   void givenTwoCapturedSources_whenAnalyzedTwice_thenExactAstTuplesAndDiagnosticsRepeat() throws IOException {
     // Arrange
-    Files.writeString(sourceRoot.resolve("Zeta.java"), "class Zeta { }");
-    Files.writeString(sourceRoot.resolve("Alpha.java"), "class Alpha { Alpha() { super(); } int value() { return 1; } }");
+    Files.writeString(sourceRoot.resolve("Zeta.java"), "import java.util.List; class Zeta { }");
+    Files.writeString(sourceRoot.resolve("Alpha.java"),
+        "import static java.util.Collections.emptyList; class Alpha { Alpha() { super(); } int value() { return 1; } }");
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var snapshot = new JavaSourceLoader().discover(sourceRoot);
 
@@ -70,8 +313,9 @@ class JavaAstFrontendIntegrationTest {
 
   @Test
   void givenCompilerUnitsInReverseOrder_whenTranslated_thenAggregateFollowsSnapshotOrder() throws IOException {
-    Files.writeString(sourceRoot.resolve("Zeta.java"), "class Zeta { }");
-    Files.writeString(sourceRoot.resolve("Alpha.java"), "class Alpha { int value() { return 1; } }");
+    // Arrange
+    Files.writeString(sourceRoot.resolve("Zeta.java"), "import java.util.List; class Zeta { }");
+    Files.writeString(sourceRoot.resolve("Alpha.java"), "import static java.util.Collections.emptyList; class Alpha { int value() { return 1; } }");
     var snapshot = new JavaSourceLoader().discover(sourceRoot);
     var sources = new SnapshotSourceCatalog(snapshot);
     var invocation = JavaCompilerInvocation.from(JAVA_25);
@@ -84,16 +328,24 @@ class JavaAstFrontendIntegrationTest {
       assertFalse(sources.find(reversed.getFirst()).orElseThrow().sourceFileKey()
           .equals(snapshot.sourceFiles().getFirst().sourceFileKey()));
 
+      // Act
+      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(JAVA_25);
+      var forward = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
+          compilation.treeInventory(), coverage).translate(snapshot, compilation.units());
       var translated = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
-          compilation.treeInventory(), JavaLanguageFeatureCoverage.fromConfiguration(JAVA_25)).translate(snapshot, reversed);
+          compilation.treeInventory(), coverage).translate(snapshot, reversed);
       var aggregate = translated.value().aggregate().orElseThrow();
       var normal = new JavaFrontend(new JavaSourceLoader()).analyze(snapshot, JAVA_25).aggregate().orElseThrow();
 
+      // Assert
       assertEquals(snapshot.sourceFiles().stream().map(source -> source.sourceFileKey()).toList(),
           aggregate.roots().stream().map(root -> root.sourceFileKey()).toList());
       assertEquals(normal.nodeTuples(), aggregate.nodeTuples());
+      assertEquals(normal.rangeTuples(), aggregate.rangeTuples());
       assertEquals(normal.structuralEdges(), aggregate.structuralEdges());
       assertEquals(normal.semanticEdges(), aggregate.semanticEdges());
+      assertEquals(forward.value().aggregate(), translated.value().aggregate());
+      assertEquals(forward.diagnostics(), translated.diagnostics());
     }
   }
 

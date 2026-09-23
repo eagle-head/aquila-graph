@@ -173,7 +173,7 @@ class SyntaxNodeTest {
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> source("variable", SyntaxKind.VARIABLE_ACCESS, new SyntaxType.Resolved(INT_TYPE), new SyntaxValue.Symbol("value"),
+        () -> source("variable", SyntaxKind.VARIABLE_ACCESS, new SyntaxType.Resolved(INT_TYPE), new SyntaxValue.SourceSymbol("value"),
             List.of(), fieldReference));
 
     // Assert

@@ -48,8 +48,7 @@ class JavaFrontendTest {
     var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
-    assertEquals(List.of("frontend.unsupported-tree-kind.package",
-        "frontend.unsupported-tree-kind.primitive-type", "frontend.unsupported-package-declaration"),
+    assertEquals(List.of("frontend.unsupported-tree-kind.primitive-type"),
         result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
     assertEquals("sample.Resolved", result.program().types().getFirst().qualifiedName());
     var method =

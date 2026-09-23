@@ -18,6 +18,8 @@ import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.LanguageFeature;
 import org.aquilagraph.model.LanguageFeatureCategory;
 import org.aquilagraph.model.LanguageFeaturePolicy;
+import org.aquilagraph.syntax.SyntaxRole;
+import org.aquilagraph.syntax.SyntaxValue;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
@@ -51,27 +53,30 @@ class JavaDeclarationCompletenessRegressionTest {
   }
 
   @Test
-  void givenImportDeclarations_whenAnalysisRuns_thenImportPolicyDiagnosesAbsentProvenance() throws IOException {
+  void givenImportDeclarations_whenFrontendRuns_thenImportPolicyMatchesRetainedSourceFacts() throws IOException {
     // Arrange
-    writeSource(new SourceCase("imports", "Imported.java", """
+    Files.writeString(temporaryDirectory.resolve("Imported.java"), """
         import java.util.List;
         import java.util.Map;
         final class Imported { List<String> values() { return List.of(); } }
-        """, JavaDeclarationPropertyCoverage.IMPORT_DECLARATION_DIAGNOSTIC, 2));
+        """);
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var run = new AnalysisEngine().analyze(frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION));
+    var result = frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION);
     var coverage = JavaDeclarationPropertyCoverage.fromConfiguration(JAVA_25_CONFIGURATION);
+    var imports = result.aggregate().orElseThrow().roots().getFirst().children(SyntaxRole.IMPORT_DECLARATION);
 
     // Assert
-    assertEquals(LanguageFeaturePolicy.DIAGNOSED,
+    assertEquals(LanguageFeaturePolicy.REPRESENTED,
         coverage.classificationOf(new LanguageFeature(LanguageFeatureCategory.DECLARATION_PROPERTY,
             "CompilationUnitTree::CompilationUnitTree#getImports()")).orElseThrow().policy());
-    assertNotEquals(AnalysisCompletion.COMPLETED, run.completion());
-    assertEquals(2, run.diagnostics().stream()
-        .filter(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.IMPORT_DECLARATION_DIAGNOSTIC)).count());
-    assertTrue(run.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
+    assertEquals(List.of(new SyntaxValue.ImportDeclaration("java.util.List", false, false, false),
+        new SyntaxValue.ImportDeclaration("java.util.Map", false, false, false)),
+        imports.stream().map(node -> node.value()).toList());
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals(
+        "frontend.unsupported-import-declaration")));
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
   }
 
   @Test
@@ -212,10 +217,6 @@ class JavaDeclarationCompletenessRegressionTest {
             """, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC, 2),
         source("record components", "Pair.java", "record Empty() { } record Pair(int left, int right) { }",
             JavaDeclarationPropertyCoverage.RECORD_COMPONENTS_DIAGNOSTIC),
-        source("package declaration", "sample/Packaged.java", """
-            package sample;
-            public final class Packaged { }
-            """, JavaDeclarationPropertyCoverage.PACKAGE_DECLARATION_DIAGNOSTIC),
         source("module declaration", "module-info.java", "module sample.module { }",
             JavaDeclarationPropertyCoverage.MODULE_DECLARATION_DIAGNOSTIC));
   }

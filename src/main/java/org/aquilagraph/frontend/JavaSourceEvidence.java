@@ -44,6 +44,10 @@ final class JavaSourceEvidence {
     return new Position.Available(new SourceSpan(sourceFile.sourceFileKey(), start, end));
   }
 
+  long rawStart(CompilationUnitTree unit, Tree tree) {
+    return positions.getStartPosition(Objects.requireNonNull(unit, "unit"), Objects.requireNonNull(tree, "tree"));
+  }
+
   sealed interface Position {
     record Available(SourceSpan span) implements Position {
     }

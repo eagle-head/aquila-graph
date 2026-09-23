@@ -24,6 +24,86 @@ class JavaAstAggregateTest {
   private static final String CONTENT = "0123456789";
 
   @Test
+  void givenUntypedCompilationUnitRoot_whenAggregateIsSealed_thenRootIsRejected() {
+    // Arrange
+    var untyped = SyntaxNode.source("a", SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.COMPILATION_UNIT,
+        SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("COMPILATION_UNIT"), List.of(),
+        Optional.empty(), new SourceSpan("a", 0, CONTENT.length()));
+
+    // Act
+    var error = failure(snapshot("a"), contribution(untyped));
+
+    // Assert
+    assertTrue(error.getMessage().contains("AST source root must be a compilation unit"));
+  }
+
+  @Test
+  void givenCompactUnitWithoutMethod_whenConstructed_thenRootIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot();
+    var field = SyntaxNode.source("a", path.child(SyntaxRole.COMPACT_MEMBER, 0), JavaSourceKind.VARIABLE,
+        SyntaxKind.FIELD_DECLARATION, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(),
+        Optional.empty(), new SourceSpan("a", 1, 2));
+
+    // Act
+    var empty = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
+        JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.COMPACT), List.of(), Optional.empty(),
+        new SourceSpan("a", 0, CONTENT.length())));
+    var fieldOnly = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
+        JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.COMPACT),
+        List.of(new SyntaxChild(SyntaxRole.COMPACT_MEMBER, 0, field)), Optional.empty(),
+        new SourceSpan("a", 0, CONTENT.length())));
+
+    // Assert
+    assertTrue(empty.getMessage().contains("written method member"));
+    assertTrue(fieldOnly.getMessage().contains("written method member"));
+  }
+
+  @Test
+  void givenTwoWrittenPackages_whenCompilationUnitIsConstructed_thenCardinalityIsRejected() {
+    // Arrange
+    var rootPath = SyntaxStructuralPath.sourceFileRoot();
+    var first = SyntaxNode.source("a", rootPath.child(SyntaxRole.PACKAGE_DECLARATION, 0), JavaSourceKind.PACKAGE,
+        SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.PackageDeclaration("first"),
+        List.of(), Optional.empty(), new SourceSpan("a", 0, 1));
+    var second = SyntaxNode.source("a", rootPath.child(SyntaxRole.PACKAGE_DECLARATION, 1), JavaSourceKind.PACKAGE,
+        SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.PackageDeclaration("second"),
+        List.of(), Optional.empty(), new SourceSpan("a", 1, 2));
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", rootPath,
+        JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY),
+        List.of(new SyntaxChild(SyntaxRole.PACKAGE_DECLARATION, 0, first),
+            new SyntaxChild(SyntaxRole.PACKAGE_DECLARATION, 1, second)),
+        Optional.empty(), new SourceSpan("a", 0, CONTENT.length())));
+
+    // Assert
+    assertTrue(error.getMessage().contains("PACKAGE_DECLARATION"));
+  }
+
+  @Test
+  void givenPackageNodeInImportRole_whenCompilationUnitIsConstructed_thenRoleKindMismatchIsRejected() {
+    // Arrange
+    var rootPath = SyntaxStructuralPath.sourceFileRoot();
+    var packageNode = SyntaxNode.source("a", rootPath.child(SyntaxRole.IMPORT_DECLARATION, 0), JavaSourceKind.PACKAGE,
+        SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.PackageDeclaration("sample"),
+        List.of(), Optional.empty(), new SourceSpan("a", 0, 1));
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", rootPath,
+        JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY),
+        List.of(new SyntaxChild(SyntaxRole.IMPORT_DECLARATION, 0, packageNode)), Optional.empty(),
+        new SourceSpan("a", 0, CONTENT.length())));
+
+    // Assert
+    assertEquals("Compilation-unit child kind does not match its role", error.getMessage());
+  }
+
+  @Test
   void givenAggregateConstructionBoundary_whenConstructorsAreInspected_thenPublicationIsPrivate() {
     // Arrange
     var aggregateConstructors = JavaAstAggregate.class.getDeclaredConstructors();
@@ -79,10 +159,10 @@ class JavaAstAggregateTest {
     // Arrange
     var snapshot = snapshot("a", "b");
     var path = SyntaxStructuralPath.sourceFileRoot();
-    var statement = leaf("a", path.child(SyntaxRole.STATEMENT, 0));
-    var member = leaf("a", path.child(SyntaxRole.MEMBER, 0));
-    var root = root("a", List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, statement),
-        new SyntaxChild(SyntaxRole.MEMBER, 0, member)));
+    var statement = type("a", path.child(SyntaxRole.TYPE_DECLARATION, 1));
+    var member = type("a", path.child(SyntaxRole.TYPE_DECLARATION, 0));
+    var root = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, member),
+        new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 1, statement)));
     var secondRoot = root("b", List.of());
     var sourceTarget = new SyntaxSemanticEdge(root.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.SourceOccurrence(member.nodeId()));
@@ -107,8 +187,9 @@ class JavaAstAggregateTest {
     assertEquals(List.of(root.nodeTuple(), member.nodeTuple(), statement.nodeTuple(), secondRoot.nodeTuple()), left.nodeTuples());
     assertEquals(List.of(root.rangeTuple().orElseThrow(), member.rangeTuple().orElseThrow(), statement.rangeTuple().orElseThrow(),
         secondRoot.rangeTuple().orElseThrow()), left.rangeTuples());
-    assertEquals(List.of(root.structuralEdges().get(1), root.structuralEdges().get(0)), left.structuralEdges());
-    assertEquals(List.of(sourceTarget, declarationTarget, childTarget), left.semanticEdges());
+    assertEquals(root.structuralEdges(), left.structuralEdges());
+    assertEquals(3, left.semanticEdges().size());
+    assertTrue(left.semanticEdges().containsAll(List.of(sourceTarget, declarationTarget, childTarget)));
     assertEquals(left.nodeTuples(), right.nodeTuples());
     assertEquals(left.rangeTuples(), right.rangeTuples());
     assertEquals(left.structuralEdges(), right.structuralEdges());
@@ -121,8 +202,8 @@ class JavaAstAggregateTest {
   void givenExplicitSemanticTargets_whenEdgesAreAdded_thenStructuralTuplesRemainIdentical() {
     // Arrange
     var snapshot = snapshot("a");
-    var child = leaf("a", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.STATEMENT, 0));
-    var root = root("a", List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, child)));
+    var child = type("a", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0));
+    var root = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, child)));
     var basic = contribution(root);
     var local = new SyntaxSemanticEdge(root.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.SourceOccurrence(child.nodeId()));
@@ -147,8 +228,8 @@ class JavaAstAggregateTest {
     // Arrange
     var sourceFiles = new ArrayList<>(List.of(new SourceFile("a", Path.of("a.java"), "digest-a", CONTENT)));
     var snapshot = new InputSnapshot(Path.of("sources"), "SHA-256", "snapshot", sourceFiles);
-    var child = leaf("a", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.STATEMENT, 0));
-    var children = new ArrayList<>(List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, child)));
+    var child = type("a", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0));
+    var children = new ArrayList<>(List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, child)));
     var root = root("a", children);
     var structuralEdge = root.structuralEdges().getFirst();
     var semanticEdge = new SyntaxSemanticEdge(root.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
@@ -157,8 +238,8 @@ class JavaAstAggregateTest {
     var structural = new ArrayList<>(List.of(structuralEdge));
     var semantic = new ArrayList<>(List.of(semanticEdge));
     var contribution = new SyntaxSourceContribution("a", root, nodes, structural, semantic);
-    var expectedChild = leaf("a", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.STATEMENT, 0));
-    var expectedRoot = root("a", List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, expectedChild)));
+    var expectedChild = type("a", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0));
+    var expectedRoot = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, expectedChild)));
     var expected = JavaAstAggregate.builder(snapshot("a")).add(new SyntaxSourceContribution("a", expectedRoot,
         List.of(expectedRoot, expectedChild), expectedRoot.structuralEdges(), List.of(semanticEdge))).seal();
 
@@ -168,7 +249,7 @@ class JavaAstAggregateTest {
     children.clear();
     nodes.clear();
     structural.clear();
-    structural.add(new SyntaxStructuralEdge(root.nodeId(), SyntaxRole.STATEMENT, 0, "absent"));
+    structural.add(new SyntaxStructuralEdge(root.nodeId(), SyntaxRole.TYPE_DECLARATION, 0, "absent"));
     semantic.clear();
     semantic.add(new SyntaxSemanticEdge(root.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.SourceOccurrence("absent")));
@@ -258,10 +339,10 @@ class JavaAstAggregateTest {
   void givenTwoStructuralParents_whenAggregateIsSealed_thenChildIsRejected() {
     // Arrange
     var path = SyntaxStructuralPath.sourceFileRoot();
-    var first = leaf("a", path.child(SyntaxRole.STATEMENT, 0));
-    var second = leaf("a", path.child(SyntaxRole.STATEMENT, 1));
-    var root = root("a", List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, first),
-        new SyntaxChild(SyntaxRole.STATEMENT, 1, second)));
+    var first = type("a", path.child(SyntaxRole.TYPE_DECLARATION, 0));
+    var second = type("a", path.child(SyntaxRole.TYPE_DECLARATION, 1));
+    var root = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, first),
+        new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 1, second)));
     var edges = new ArrayList<>(root.structuralEdges());
     edges.add(new SyntaxStructuralEdge(second.nodeId(), SyntaxRole.BODY, 0, first.nodeId()));
 
@@ -429,8 +510,8 @@ class JavaAstAggregateTest {
   void givenStructuralEdgeFiledUnderAnotherSource_whenAggregateIsSealed_thenContributionIsRejected() {
     // Arrange
     var first = root("a", List.of());
-    var child = leaf("b", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.STATEMENT, 0));
-    var second = root("b", List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, child)));
+    var child = type("b", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0));
+    var second = root("b", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, child)));
     var edge = second.structuralEdges().getFirst();
     var misfiled = new SyntaxSourceContribution("a", first, List.of(first), List.of(edge), List.of());
     var missing = new SyntaxSourceContribution("b", second, List.of(second, child), List.of(), List.of());
@@ -482,7 +563,8 @@ class JavaAstAggregateTest {
   void givenRangeEndBeyondContent_whenAggregateIsSealed_thenNodeAndOffsetsAreReported() {
     // Arrange
     var root = SyntaxNode.source("a", SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.COMPILATION_UNIT,
-        SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("COMPILATION_UNIT"), List.of(),
+        SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), List.of(),
         Optional.empty(), new SourceSpan("a", 0, CONTENT.length() + 1));
 
     // Act
@@ -576,10 +658,10 @@ class JavaAstAggregateTest {
   @Test
   void givenChildWithEqualKeyButDifferentInstance_whenAggregateIsSealed_thenUnownedInstanceIsRejected() {
     // Arrange
-    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.STATEMENT, 0);
-    var embedded = leaf("a", path);
-    var registered = leaf("a", path);
-    var root = root("a", List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, embedded)));
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var embedded = type("a", path);
+    var registered = type("a", path);
+    var root = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, embedded)));
     var contribution = new SyntaxSourceContribution("a", root, List.of(root, registered), root.structuralEdges(), List.of());
 
     // Act
@@ -593,15 +675,28 @@ class JavaAstAggregateTest {
   void givenDifferentEmbeddedReference_whenAggregatesAreCompared_thenNodeFactsRemainDistinct() {
     // Arrange
     var snapshot = snapshot("a");
-    var plain = root("a", List.of());
+    var typePath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var memberPath = typePath.child(SyntaxRole.MEMBER, 0);
     var reference = reference("external");
-    var linked = SyntaxNode.source("a", SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.COMPILATION_UNIT,
-        SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("COMPILATION_UNIT"), List.of(),
-        Optional.of(reference), new SourceSpan("a", 0, CONTENT.length()));
-    var edge = linked.semanticEdges().getFirst();
+    var plainMember = SyntaxNode.source("a", memberPath, JavaSourceKind.METHOD, SyntaxKind.UNSUPPORTED,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("METHOD"), List.of(), Optional.empty(),
+        new SourceSpan("a", 1, 2));
+    var linkedMember = SyntaxNode.source("a", memberPath, JavaSourceKind.METHOD, SyntaxKind.UNSUPPORTED,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("METHOD"), List.of(), Optional.of(reference),
+        new SourceSpan("a", 1, 2));
+    var plainType = SyntaxNode.source("a", typePath, JavaSourceKind.CLASS, SyntaxKind.TYPE_DECLARATION,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, plainMember)), Optional.empty(), new SourceSpan("a", 1, 2));
+    var linkedType = SyntaxNode.source("a", typePath, JavaSourceKind.CLASS, SyntaxKind.TYPE_DECLARATION,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, linkedMember)), Optional.empty(), new SourceSpan("a", 1, 2));
+    var plain = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, plainType)));
+    var linked = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, linkedType)));
+    var edge = linkedMember.semanticEdges().getFirst();
 
     // Act
-    var left = JavaAstAggregate.builder(snapshot).add(contribution(plain, List.of(), List.of(edge))).seal();
+    var left = JavaAstAggregate.builder(snapshot).add(new SyntaxSourceContribution("a", plain, plain.descendantsAndSelf(),
+        plain.descendantsAndSelf().stream().flatMap(node -> node.structuralEdges().stream()).toList(), List.of(edge))).seal();
     var right = JavaAstAggregate.builder(snapshot).add(contribution(linked)).seal();
 
     // Assert
@@ -612,8 +707,16 @@ class JavaAstAggregateTest {
   @Test
   void givenSourceBody_whenRegistered_thenMethodViewResolvesIdenticalOwnedOccurrence() {
     // Arrange
-    var body = block("a", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.STATEMENT, 0));
-    var root = root("a", List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, body)));
+    var typePath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var methodPath = typePath.child(SyntaxRole.MEMBER, 0);
+    var body = block("a", methodPath.child(SyntaxRole.BODY, 0));
+    var method = SyntaxNode.source("a", methodPath, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.BODY, 0, body)),
+        Optional.empty(), new SourceSpan("a", 1, 2));
+    var type = SyntaxNode.source("a", typePath, JavaSourceKind.CLASS, SyntaxKind.TYPE_DECLARATION,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, method)),
+        Optional.empty(), new SourceSpan("a", 1, 2));
+    var root = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, type)));
 
     // Act
     var aggregate = JavaAstAggregate.builder(snapshot("a")).add(contribution(root))
@@ -670,12 +773,19 @@ class JavaAstAggregateTest {
 
   private static SyntaxNode root(String sourceKey, List<SyntaxChild> children) {
     return SyntaxNode.source(sourceKey, SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.COMPILATION_UNIT,
-        SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("COMPILATION_UNIT"), children,
+        SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), children,
         Optional.empty(), new SourceSpan(sourceKey, 0, CONTENT.length()));
   }
 
   private static SyntaxNode leaf(String sourceKey, SyntaxStructuralPath path) {
     return SyntaxNode.source(sourceKey, path, JavaSourceKind.EMPTY_STATEMENT, SyntaxKind.EMPTY,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(),
+        new SourceSpan(sourceKey, 1, 2));
+  }
+
+  private static SyntaxNode type(String sourceKey, SyntaxStructuralPath path) {
+    return SyntaxNode.source(sourceKey, path, JavaSourceKind.CLASS, SyntaxKind.TYPE_DECLARATION,
         SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(),
         new SourceSpan(sourceKey, 1, 2));
   }
