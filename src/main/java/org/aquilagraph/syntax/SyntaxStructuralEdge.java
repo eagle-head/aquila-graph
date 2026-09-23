@@ -20,7 +20,8 @@ public record SyntaxStructuralEdge(String parentKey, SyntaxRole role, int positi
     requireText(parentKey, "Structural parent key");
     Objects.requireNonNull(role, "role");
     if (position < 0) {
-      throw new IllegalArgumentException("A structural edge position cannot be negative");
+      throw new IllegalArgumentException(
+          "AST structural edge position cannot be negative for parent " + parentKey + " and role " + role + ": " + position);
     }
     requireText(childKey, "Structural child key");
   }

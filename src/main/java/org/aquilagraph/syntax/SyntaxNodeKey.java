@@ -49,7 +49,7 @@ public final class SyntaxNodeKey {
 
   @Override
   public boolean equals(Object other) {
-    return this == other || other instanceof SyntaxNodeKey that && identity.equals(that.identity);
+    return this == other || (other instanceof SyntaxNodeKey that && identity.equals(that.identity));
   }
 
   @Override
