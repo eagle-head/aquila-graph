@@ -44,7 +44,7 @@ final class CompilerSession implements AutoCloseable {
     var units = new ArrayList<CompilationUnitTree>();
     task.parse().forEach(units::add);
     var trees = Trees.instance(task);
-    return new ParsedJavaSource(units, new JavaSourceEvidence(trees.getSourcePositions()));
+    return new ParsedJavaSource(units, new JavaSourceEvidence(trees.getSourcePositions()), ParsedTreeInventory.capture(units));
   }
 
   JavaCompilation analyze(ParsedJavaSource parsedSource) throws IOException {
@@ -54,7 +54,7 @@ final class CompilerSession implements AutoCloseable {
     var types = task.getTypes();
     var identities = new DeclarationIdentityRegistry(trees, types);
     return new JavaCompilation(parsedSource.units(), new SemanticResolver(trees, types, task.getElements(), identities),
-        parsedSource.sourceEvidence(), diagnostics.getDiagnostics());
+        parsedSource.sourceEvidence(), parsedSource.treeInventory(), diagnostics.getDiagnostics());
   }
 
   @Override

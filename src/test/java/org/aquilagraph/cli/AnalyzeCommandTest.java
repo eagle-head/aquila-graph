@@ -25,7 +25,7 @@ class AnalyzeCommandTest {
   @Test
   void givenDiagnosedJavaSourceRoot_whenCommandRuns_thenIncompleteSummaryIsPrinted() throws IOException {
     // Arrange
-    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
+    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example { void run() { while (true) { } } }");
     var capturedOutput = new ByteArrayOutputStream();
     var capturedError = new ByteArrayOutputStream();
     var command = command(repositoryMustNotOpen());
@@ -44,13 +44,13 @@ class AnalyzeCommandTest {
     assertTrue(
         capturedOutput.toString(StandardCharsets.UTF_8).contains("Repository: NOT_ELIGIBLE"));
     assertTrue(capturedError.toString(StandardCharsets.UTF_8)
-        .contains("frontend.unsupported-tree-kind.compilation-unit"));
+        .contains("frontend.unsupported-tree-kind.while-loop"));
   }
 
   @Test
   void givenExplicitSupportedRelease_whenCommandRuns_thenSelectedReleaseIsUsed() throws IOException {
     // Arrange
-    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
+    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example { void run() { while (true) { } } }");
     var capturedOutput = new ByteArrayOutputStream();
     var capturedError = new ByteArrayOutputStream();
     var command = command(repositoryMustNotOpen());
@@ -66,7 +66,7 @@ class AnalyzeCommandTest {
     assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
     assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Java release: 25"));
     assertTrue(capturedError.toString(StandardCharsets.UTF_8)
-        .contains("frontend.unsupported-tree-kind.compilation-unit"));
+        .contains("frontend.unsupported-tree-kind.while-loop"));
   }
 
   @Test
@@ -210,7 +210,7 @@ class AnalyzeCommandTest {
   void givenIncompleteAnalysisAndRepositoryRequest_whenSaveRuns_thenRepositoryIsNotOpened()
       throws IOException {
     // Arrange
-    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
+    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example { void run() { while (true) { } } }");
     var capturedOutput = new ByteArrayOutputStream();
     var capturedError = new ByteArrayOutputStream();
     var command = command(repositoryMustNotOpen());
@@ -227,7 +227,7 @@ class AnalyzeCommandTest {
     assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Completion: INCOMPLETE"));
     assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Repository: NOT_ELIGIBLE"));
     assertTrue(capturedError.toString(StandardCharsets.UTF_8)
-        .contains("frontend.unsupported-tree-kind.compilation-unit"));
+        .contains("frontend.unsupported-tree-kind.while-loop"));
   }
 
   private static AnalyzeCommand command(AnalysisRunRepositoryFactory repositoryFactory) {

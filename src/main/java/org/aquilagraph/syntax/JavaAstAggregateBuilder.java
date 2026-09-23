@@ -27,6 +27,7 @@ final class JavaAstAggregateBuilder {
   private final InputSnapshot snapshot;
   private final Map<String, SourceFile> sources = new HashMap<>();
   private final Map<String, SyntaxSourceContribution> contributions = new HashMap<>();
+  private final Map<String, BodyRegistration> methodBodies = new HashMap<>();
   private boolean sealed;
 
   JavaAstAggregateBuilder(InputSnapshot inputSnapshot) {
@@ -45,6 +46,24 @@ final class JavaAstAggregateBuilder {
     }
     if (contributions.putIfAbsent(contribution.sourceFileKey(), contribution) != null) {
       throw new IllegalArgumentException("Duplicate AST source contribution: " + contribution.sourceFileKey());
+    }
+    return this;
+  }
+
+  JavaAstAggregateBuilder addMethodBody(String methodKey, SyntaxNode root, MethodBodyOrigin origin) {
+    requireOpen();
+    Objects.requireNonNull(methodKey, "methodKey");
+    if (methodKey.isBlank()) {
+      throw new IllegalArgumentException("Method body identity cannot be blank");
+    }
+    Objects.requireNonNull(root, "root");
+    Objects.requireNonNull(origin, "origin");
+    if (root.syntaxKind() != SyntaxKind.BLOCK) {
+      throw new IllegalArgumentException("A method body root must be a block");
+    }
+    root.descendantsAndSelf();
+    if (methodBodies.putIfAbsent(methodKey, new BodyRegistration(root, origin)) != null) {
+      throw new IllegalArgumentException("Duplicate method body identity: " + methodKey);
     }
     return this;
   }
@@ -77,18 +96,36 @@ final class JavaAstAggregateBuilder {
     var orderedNodes = orderNodes(roots, nodes, outgoing);
     validateEmbeddedChildren(nodes, outgoing);
     validateSemanticEdges(semantic, nodes);
+    validateMethodBodies(nodes);
     var orderedStructural = new ArrayList<SyntaxStructuralEdge>();
     for (var node : orderedNodes) {
       orderedStructural.addAll(outgoing.getOrDefault(node.nodeId(), List.of()));
     }
     semantic.sort(SEMANTIC_ORDER);
     sealed = true;
-    return new ValidatedAggregate(snapshot, roots, orderedNodes, nodes, orderedStructural, semantic);
+    return new ValidatedAggregate(snapshot, roots, orderedNodes, nodes, orderedStructural, semantic, methodBodies);
+  }
+
+  private void validateMethodBodies(Map<String, SyntaxNode> nodes) {
+    var sourceInstances = ownedInstances(nodes);
+    for (var entry : methodBodies.entrySet()) {
+      var registration = entry.getValue();
+      var root = registration.root();
+      if (!sources.containsKey(root.sourceFileKey())) {
+        throw new IllegalArgumentException("Method body source is not in the captured snapshot: " + entry.getKey());
+      }
+      if (registration.origin() == MethodBodyOrigin.SOURCE_AST && !sourceInstances.contains(root)) {
+        throw new IllegalArgumentException("Source method body must be the identical aggregate occurrence: " + entry.getKey());
+      }
+      if (registration.origin() != MethodBodyOrigin.SOURCE_AST && sourceInstances.contains(root)) {
+        throw new IllegalArgumentException("Auxiliary execution body cannot also be a source AST occurrence: " + entry.getKey());
+      }
+    }
   }
 
   private void validateContributionEdgeOwners(Map<String, SyntaxNode> nodes) {
     for (var capturedSource : snapshot.sourceFiles()) {
-      var contribution = contributions.get(capturedSource.sourceFileKey());
+      var contribution = Objects.requireNonNull(contributions.get(capturedSource.sourceFileKey()), "source contribution");
       for (var edge : contribution.structuralEdges()) {
         var parent = nodes.get(edge.parentKey());
         if (parent != null && !parent.sourceFileKey().equals(contribution.sourceFileKey())) {
@@ -196,8 +233,8 @@ final class JavaAstAggregateBuilder {
       }
     }
     for (var edge : edges) {
-      var parent = nodes.get(edge.parentKey());
-      var child = nodes.get(edge.childKey());
+      var parent = Objects.requireNonNull(nodes.get(edge.parentKey()), "structural parent");
+      var child = Objects.requireNonNull(nodes.get(edge.childKey()), "structural child");
       if (!child.structuralPath().equals(parent.structuralPath().child(edge.role(), edge.position()))) {
         throw new IllegalArgumentException("AST structural path disagrees with parent edge for node " + child.nodeId());
       }
@@ -362,6 +399,9 @@ final class JavaAstAggregateBuilder {
   }
 
   record ValidatedAggregate(InputSnapshot snapshot, List<SyntaxNode> roots, List<SyntaxNode> nodes, Map<String, SyntaxNode> ownedNodes,
-      List<SyntaxStructuralEdge> structuralEdges, List<SyntaxSemanticEdge> semanticEdges) {
+      List<SyntaxStructuralEdge> structuralEdges, List<SyntaxSemanticEdge> semanticEdges, Map<String, BodyRegistration> methodBodies) {
+  }
+
+  record BodyRegistration(SyntaxNode root, MethodBodyOrigin origin) {
   }
 }

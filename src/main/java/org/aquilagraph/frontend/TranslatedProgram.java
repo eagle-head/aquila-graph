@@ -1,13 +1,13 @@
 package org.aquilagraph.frontend;
 
-import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.syntax.MethodSyntax;
+import org.aquilagraph.syntax.JavaAstAggregate;
 
-record TranslatedProgram(JavaProgram program, List<MethodSyntax> methodSyntax) {
+record TranslatedProgram(JavaProgram program, Optional<JavaAstAggregate> aggregate) {
   TranslatedProgram {
     Objects.requireNonNull(program, "program");
-    methodSyntax = List.copyOf(Objects.requireNonNull(methodSyntax, "methodSyntax"));
+    Objects.requireNonNull(aggregate, "aggregate");
   }
 }

@@ -163,7 +163,7 @@ class JavaAstBoundaryRegressionTest {
     var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
-    assertEquals(List.of("frontend.unsupported-tree-kind.compilation-unit", "frontend.unsupported-tree-kind.primitive-type",
+    assertEquals(List.of("frontend.unsupported-tree-kind.primitive-type",
         "frontend.unsupported-tree-kind.primitive-type", "frontend.unsupported-tree-kind.primitive-type",
         "frontend.unsupported-tree-kind.primitive-type", "frontend.unsupported-tree-kind.primitive-type"),
         result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
@@ -199,7 +199,7 @@ class JavaAstBoundaryRegressionTest {
     var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
-    assertEquals(List.of("frontend.unsupported-tree-kind.compilation-unit", "frontend.unsupported-tree-kind.primitive-type"),
+    assertEquals(List.of("frontend.unsupported-tree-kind.primitive-type"),
         result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
     var child = result.program().types().stream().filter(type -> type.qualifiedName().equals("Owner.Child")).findFirst().orElseThrow();
     var constructor = child.methods().stream().filter(method -> method.constructor()).findFirst().orElseThrow();
@@ -237,7 +237,7 @@ class JavaAstBoundaryRegressionTest {
     var second = frontend.analyze(snapshot, configuration);
 
     // Assert
-    assertEquals(List.of("frontend.unsupported-tree-kind.compilation-unit", "frontend.unsupported-tree-kind.primitive-type",
+    assertEquals(List.of("frontend.unsupported-tree-kind.primitive-type",
         "frontend.unsupported-tree-kind.primitive-type", "frontend.unsupported-tree-kind.primitive-type",
         "frontend.unsupported-tree-kind.primitive-type", "frontend.unsupported-tree-kind.primitive-type",
         "frontend.unsupported-tree-kind.primitive-type", "frontend.unsupported-tree-kind.primitive-type"),
@@ -323,7 +323,7 @@ class JavaAstBoundaryRegressionTest {
     var second = frontend.analyze(snapshot, configuration);
 
     // Assert
-    assertEquals(List.of("frontend.unsupported-tree-kind.compilation-unit", "frontend.unsupported-tree-kind.parameterized-type",
+    assertEquals(List.of("frontend.unsupported-tree-kind.parameterized-type",
         "frontend.unsupported-tree-kind.parameterized-type", "frontend.unsupported-tree-kind.parameterized-type",
         "frontend.unsupported-tree-kind.primitive-type"),
         first.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());

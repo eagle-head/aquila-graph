@@ -3,9 +3,9 @@ package org.aquilagraph.frontend;
 import java.util.Objects;
 import java.util.Optional;
 import org.aquilagraph.model.JavaMethod;
-import org.aquilagraph.syntax.MethodSyntax;
+import org.aquilagraph.syntax.SyntaxNode;
 
-record TranslatedMethod(JavaMethod method, Optional<MethodSyntax> syntax) {
+record TranslatedMethod(JavaMethod method, Optional<SyntaxNode> syntax) {
   TranslatedMethod {
     Objects.requireNonNull(method, "method");
     Objects.requireNonNull(syntax, "syntax");
@@ -13,9 +13,7 @@ record TranslatedMethod(JavaMethod method, Optional<MethodSyntax> syntax) {
       throw new IllegalArgumentException("Method declaration and syntax body presence must agree");
     }
     syntax.ifPresent(value -> {
-      if (!value.methodKey().equals(method.methodKey())) {
-        throw new IllegalArgumentException("Method declaration and syntax must share an identity");
-      }
+      value.descendantsAndSelf();
     });
   }
 }

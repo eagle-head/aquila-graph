@@ -50,8 +50,6 @@ class AnalysisEngineTest {
 
     // Assert
     assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
-    assertTrue(run.diagnostics().stream()
-        .anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-tree-kind.compilation-unit")));
     var methodAnalysis =
         run.representation().orElseThrow().methodAnalyses().stream()
             .filter(analysis -> analysis.sourceMethod().name().equals("choose"))

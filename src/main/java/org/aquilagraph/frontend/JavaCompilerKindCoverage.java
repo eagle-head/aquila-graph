@@ -78,10 +78,11 @@ final class JavaCompilerKindCoverage {
 
   private static List<LanguageFeatureClassification> unitAndDeclarationClassifications() {
     return List.of(represented("ANNOTATION_TYPE", TYPE_DECLARATION_BOUNDARY), represented("CLASS", TYPE_DECLARATION_BOUNDARY),
-        diagnosed("COMPILATION_UNIT"), represented("ENUM", TYPE_DECLARATION_BOUNDARY), diagnosed("EXPORTS"), diagnosed("IMPORT"),
-        represented("INTERFACE", TYPE_DECLARATION_BOUNDARY), represented("METHOD", "JavaMethod declaration aggregate"),
-        represented("MODIFIERS", "Java declaration modifier sets"), diagnosed("MODULE"), diagnosed("OPENS"), diagnosed("PACKAGE"),
-        diagnosed("PROVIDES"), represented("RECORD", TYPE_DECLARATION_BOUNDARY), diagnosed("REQUIRES"),
+        represented("COMPILATION_UNIT", "JavaAstAggregate source root"), represented("ENUM", TYPE_DECLARATION_BOUNDARY),
+        diagnosed("EXPORTS"), diagnosed("IMPORT"), represented("INTERFACE", TYPE_DECLARATION_BOUNDARY),
+        represented("METHOD", "JavaMethod declaration aggregate"), represented("MODIFIERS", "Java declaration modifier sets"),
+        diagnosed("MODULE"), diagnosed("OPENS"), diagnosed("PACKAGE"), diagnosed("PROVIDES"),
+        represented("RECORD", TYPE_DECLARATION_BOUNDARY), diagnosed("REQUIRES"),
         represented("TYPE_PARAMETER", "JavaType type-parameter aggregate"), diagnosed("USES"),
         represented("VARIABLE", "JavaField, JavaParameter, or MethodSyntax declaration aggregate"));
   }

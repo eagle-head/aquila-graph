@@ -24,6 +24,7 @@ import org.aquilagraph.model.TransferKind;
 import org.aquilagraph.model.ValueKind;
 import org.aquilagraph.syntax.JavaSourceKind;
 import org.aquilagraph.syntax.MethodSyntax;
+import org.aquilagraph.syntax.MethodSyntaxFixture;
 import org.aquilagraph.syntax.SyntaxChild;
 import org.aquilagraph.syntax.SyntaxKind;
 import org.aquilagraph.syntax.SyntaxNode;
@@ -165,7 +166,7 @@ class ControlFlowGraphBuilderTest {
             true,
             true,
             List.of());
-    var syntax = new MethodSyntax(declaration.methodKey(), root);
+    var syntax = MethodSyntaxFixture.view(declaration.methodKey(), root);
 
     // Act
     var graph = new ControlFlowGraphBuilder().build(declaration, syntax).graph().orElseThrow();
@@ -494,7 +495,7 @@ class ControlFlowGraphBuilderTest {
         SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, returnNode)), Optional.empty());
     var declaration = new JavaMethod("type:Synthetic#value()", "type:Synthetic", "value", "value()", "int", List.of(), Set.of(),
         false, true, true, List.of());
-    return new MethodInput(declaration, new MethodSyntax(declaration.methodKey(), root));
+    return new MethodInput(declaration, MethodSyntaxFixture.view(declaration.methodKey(), root));
   }
 
   private static SyntaxNode syntaxNode(String identity, JavaSourceKind sourceKind, SyntaxKind kind, SyntaxType type,

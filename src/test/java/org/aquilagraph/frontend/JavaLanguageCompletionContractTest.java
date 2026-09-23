@@ -39,7 +39,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 class JavaLanguageCompletionContractTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
-  private static final String COMPILATION_UNIT_DIAGNOSTIC = "frontend.unsupported-tree-kind.compilation-unit";
   private static final String WHILE_DIAGNOSTIC = "frontend.unsupported-tree-kind.while-loop";
 
   @TempDir Path temporaryDirectory;
@@ -78,7 +77,7 @@ class JavaLanguageCompletionContractTest {
     var augmentedCoverage = LanguageFeatureCoverage.forRelease(JavaRelease.JAVA_25, augmentedClassifications);
     var reclassifiedClassifications = authoritativeCoverage.classifications().stream()
         .map(classification -> classification.feature().equals(compilationUnit)
-            ? LanguageFeatureClassification.represented(compilationUnit, "synthetic-boundary")
+            ? LanguageFeatureClassification.diagnosed(compilationUnit, "frontend.reclassified-compilation-unit")
             : classification)
         .toList();
     var reclassifiedCoverage = LanguageFeatureCoverage.forRelease(JavaRelease.JAVA_25, reclassifiedClassifications);
@@ -138,7 +137,9 @@ class JavaLanguageCompletionContractTest {
     var input = analyze();
 
     // Assert
-    assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(COMPILATION_UNIT_DIAGNOSTIC)));
+    assertEquals(LanguageFeaturePolicy.REPRESENTED,
+        classification(input, LanguageFeatureCategory.COMPILER_TREE_KIND, "COMPILATION_UNIT").policy());
+    assertEquals(1, input.aggregate().orElseThrow().roots().size());
     assertFalse(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(WHILE_DIAGNOSTIC)));
   }
 
@@ -384,12 +385,12 @@ class JavaLanguageCompletionContractTest {
   @Test
   void givenDiagnosedCoverageOutcome_whenItsDiagnosticIsRemoved_thenSyntaxBoundaryRejectsTheInput() throws IOException {
     // Arrange
-    writeSource("Example.java", "final class Example { }");
+    writeSource("Example.java", "final class Example { void run() { while (false) { } } }");
     var input = analyze();
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), input.methodSyntax(), List.of(),
+        () -> new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), input.aggregate(), List.of(),
             input.languageFeatureCoverageResult()));
 
     // Assert
@@ -405,17 +406,13 @@ class JavaLanguageCompletionContractTest {
         .filter(observation -> !observation.classification().feature().identifier().equals("COMPILATION_UNIT")).toList();
     var occurrences = input.languageFeatureCoverageResult().occurrences().stream()
         .filter(occurrence -> !occurrence.classification().feature().identifier().equals("COMPILATION_UNIT")).toList();
-    var capabilityDiagnostics = input.languageFeatureCoverageResult().capabilityDiagnostics().stream()
-        .filter(diagnostic -> !diagnostic.code().equals(COMPILATION_UNIT_DIAGNOSTIC)).toList();
-    var frontendDiagnostics = input.diagnostics().stream()
-        .filter(diagnostic -> !diagnostic.code().equals(COMPILATION_UNIT_DIAGNOSTIC)).toList();
     var incompleteResult = new LanguageFeatureCoverageResult(input.languageFeatureCoverage(), occurrences, observations,
-        capabilityDiagnostics);
+        input.languageFeatureCoverageResult().capabilityDiagnostics());
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), input.methodSyntax(),
-            frontendDiagnostics, incompleteResult));
+        () -> new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), input.aggregate(),
+            input.diagnostics(), incompleteResult));
 
     // Assert
     assertEquals("Every source file requires exactly one COMPILATION_UNIT coverage observation", exception.getMessage());
@@ -436,7 +433,7 @@ class JavaLanguageCompletionContractTest {
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), input.methodSyntax(),
+        () -> new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), input.aggregate(),
             input.diagnostics(), result));
 
     // Assert
@@ -448,7 +445,7 @@ class JavaLanguageCompletionContractTest {
     // Arrange
     writeSource("Example.java", "final class Example { }");
     var input = analyze();
-    var classification = classification(input, LanguageFeatureCategory.COMPILER_TREE_KIND, "COMPILATION_UNIT");
+    var classification = classification(input, LanguageFeatureCategory.COMPILER_TREE_KIND, "WHILE_LOOP");
     var origin = new SourceSpan("foreign-source", 0, 1);
     var code = classification.diagnosticCode().orElseThrow();
     var diagnostic = new AnalysisDiagnostic(StableId.sha256("diagnostic", "foreign-source", code), code, DiagnosticStage.FRONTEND,
@@ -465,7 +462,7 @@ class JavaLanguageCompletionContractTest {
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), input.methodSyntax(),
+        () -> new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), input.aggregate(),
             frontendDiagnostics, result));
 
     // Assert

@@ -26,10 +26,12 @@ which makes publication idempotent at the run boundary.[1][2]
 `MethodAnalysis`, `ControlFlowGraph`, `FlowValue`,
 `EntryNode`, `OperationNode`, `ExitNode`, `Diagnostic`, and `SourceOrigin`.[1]
 
-The durable project-owned source-occurrence tree is deliberately absent from
-this schema until the AST projection is introduced. It is retained in memory by
-the syntax analysis boundary while constructing the CFG, but it is not part of
-the current Neo4j projection. `JavaMethod.hasBody` records whether the
+The sealed, project-owned `JavaAstAggregate` retains validated source occurrences
+and aggregate-owned method bodies in `SyntaxAnalysisInput`. It is deliberately
+absent from this schema and from `ProgramRepresentation` and `AnalysisRun`; AST
+projection and publication are deferred to AST-E08. Aggregate-derived
+`MethodSyntax` views supply the current CFG construction. `JavaMethod.hasBody`
+records whether the
 declaration has a body without retaining that body. Semantic references and
 source spans needed after lowering are copied to their owning `OperationNode`
 entities and persisted through `HAS_REFERENCE` and `HAS_ORIGIN`.[2][9]

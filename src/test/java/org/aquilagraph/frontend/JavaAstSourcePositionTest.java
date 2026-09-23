@@ -1,0 +1,320 @@
+package org.aquilagraph.frontend;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.Tree;
+import com.sun.source.tree.VariableTree;
+import com.sun.source.util.JavacTask;
+import com.sun.source.util.SourcePositions;
+import com.sun.source.util.TreePath;
+import com.sun.source.util.Trees;
+import java.io.IOException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.function.Consumer;
+import javax.tools.Diagnostic;
+import javax.tools.JavaFileObject;
+import javax.tools.SimpleJavaFileObject;
+import javax.tools.ToolProvider;
+import org.aquilagraph.model.AnalysisDiagnostic;
+import org.aquilagraph.model.AnalysisCompletion;
+import org.aquilagraph.model.AnalysisOutcomeKind;
+import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.model.DiagnosticSeverity;
+import org.aquilagraph.model.DiagnosticStage;
+import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.model.SourceFile;
+import org.aquilagraph.model.StableId;
+import org.aquilagraph.model.SourceSpan;
+import org.aquilagraph.syntax.MethodBodyOrigin;
+import org.aquilagraph.syntax.SyntaxKind;
+import org.aquilagraph.syntax.SyntaxAnalysisInput;
+import org.aquilagraph.core.AnalysisEngine;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class JavaAstSourcePositionTest {
+  private static final String CONTENT = "class Example { }";
+  @TempDir Path sourceRoot;
+
+  @Test
+  void givenUnavailableAndInvalidRootPositions_whenContributionIsTranslated_thenSpecificBlockingDiagnosticsAreReturned()
+      throws IOException {
+    // Arrange
+    var compiler = ToolProvider.getSystemJavaCompiler();
+    var sourceFile = new SourceFile("source", Path.of("Example.java"), "fixture-content", CONTENT);
+    var source = new SimpleJavaFileObject(URI.create("string:///Example.java"), JavaFileObject.Kind.SOURCE) {
+      @Override
+      public CharSequence getCharContent(boolean ignoreEncodingErrors) {
+        return CONTENT;
+      }
+    };
+    try (var fileManager = compiler.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8)) {
+      var task = (JavacTask) compiler.getTask(null, fileManager, null, List.of("-proc:none", "--release", "25"), null,
+          List.of(source));
+      var unit = task.parse().iterator().next();
+      var inventory = ParsedTreeInventory.capture(List.of(unit));
+      task.analyze();
+      var trees = Trees.instance(task);
+      var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(),
+          new DeclarationIdentityRegistry(trees, task.getTypes()));
+      var cases = List.of(new PositionCase(Diagnostic.NOPOS, 0, "frontend.missing-source-position"),
+          new PositionCase(0, Diagnostic.NOPOS, "frontend.missing-source-position"),
+          new PositionCase(-2, 1, "frontend.invalid-source-range"),
+          new PositionCase(5, 4, "frontend.invalid-source-range"),
+          new PositionCase(0, CONTENT.length() + 1L, "frontend.invalid-source-range"));
+
+      // Act
+      for (var position : cases) {
+        var evidence = new JavaSourceEvidence(new FixedPositions(position.start(), position.end()));
+        var translation = new JavaAstContributionTranslator(semantics, evidence, inventory).translate(unit, sourceFile, List.of());
+
+        // Assert
+        assertTrue(translation.contribution().isEmpty());
+        assertEquals(1, translation.diagnostics().size());
+        var diagnostic = translation.diagnostics().getFirst();
+        assertEquals(position.code(), diagnostic.code());
+        assertEquals(DiagnosticStage.FRONTEND, diagnostic.stage());
+        assertEquals(DiagnosticSeverity.ERROR, diagnostic.severity());
+        assertEquals(AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR, diagnostic.outcomeKind());
+        assertTrue(diagnostic.origins().isEmpty());
+        var message = position.code().equals("frontend.missing-source-position")
+            ? "A required source occurrence has no compiler position"
+            : "A required source occurrence has an invalid compiler range";
+        message += " in Example.java at source-file-root:0";
+        var expected = new AnalysisDiagnostic(
+            StableId.sha256("diagnostic", "source:source-file-root:0", position.code(), "no-direct-source"), position.code(),
+            DiagnosticStage.FRONTEND, DiagnosticSeverity.ERROR, message, List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+        assertEquals(expected, diagnostic);
+        assertTrue(evidence.origin(unit, sourceFile, unit).isEmpty());
+      }
+    }
+  }
+
+  @Test
+  void givenExactContentBoundary_whenPositionIsRead_thenHalfOpenRangeIsRetained() throws IOException {
+    // Arrange
+    var sourceFile = new SourceFile("source", Path.of("Example.java"), "fixture-content", CONTENT);
+    var compiler = ToolProvider.getSystemJavaCompiler();
+    var source = new SimpleJavaFileObject(URI.create("string:///Example.java"), JavaFileObject.Kind.SOURCE) {
+      @Override
+      public CharSequence getCharContent(boolean ignoreEncodingErrors) {
+        return CONTENT;
+      }
+    };
+    try (var fileManager = compiler.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8)) {
+      var task = (JavacTask) compiler.getTask(null, fileManager, null, List.of("-proc:none", "--release", "25"), null,
+          List.of(source));
+      var unit = task.parse().iterator().next();
+      var evidence = new JavaSourceEvidence(new FixedPositions(0, CONTENT.length()));
+
+      // Act
+      var position = evidence.position(unit, sourceFile, unit);
+
+      // Assert
+      assertEquals(new JavaSourceEvidence.Position.Available(new SourceSpan("source", 0, CONTENT.length())), position);
+    }
+  }
+
+  @Test
+  void givenRealJdkPositions_whenRead_thenRootNestedAndEmptyRangesMatchCapturedContent() throws IOException {
+    var content = "class Example { int value() { return 1; } }";
+    withCompiledSource(content, fixture -> {
+      var evidence = new JavaSourceEvidence(fixture.positions());
+      var unit = fixture.unit();
+      var type = (ClassTree) unit.getTypeDecls().getFirst();
+      var method = (MethodTree) type.getMembers().stream().filter(member -> member instanceof MethodTree candidate
+          && candidate.getName().contentEquals("value")).findFirst().orElseThrow();
+
+      assertEquals(new JavaSourceEvidence.Position.Available(new SourceSpan("source", 0, content.length())),
+          evidence.position(unit, fixture.sourceFile(), unit));
+      var nested = evidence.position(unit, fixture.sourceFile(), method.getBody());
+      assertTrue(nested instanceof JavaSourceEvidence.Position.Available);
+      var range = ((JavaSourceEvidence.Position.Available) nested).span();
+      assertTrue(range.startOffset() > 0);
+      assertTrue(range.endOffsetExclusive() > range.startOffset());
+      assertTrue(range.endOffsetExclusive() <= content.length());
+    });
+    withCompiledSource("", fixture -> {
+      var evidence = new JavaSourceEvidence(fixture.positions());
+      assertEquals(new JavaSourceEvidence.Position.Available(new SourceSpan("source", 0, 0)),
+          evidence.position(fixture.unit(), fixture.sourceFile(), fixture.unit()));
+    });
+  }
+
+  @Test
+  void givenInjectedRootPositionFault_whenPublicEngineAnalyzes_thenCompletionIsBlocked() throws IOException {
+    Files.writeString(sourceRoot.resolve("Example.java"), CONTENT);
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+    var loader = new JavaSourceLoader();
+    var snapshot = loader.discover(sourceRoot);
+    var baseline = new JavaFrontend(loader).analyze(snapshot, configuration);
+    var sources = new SnapshotSourceCatalog(snapshot);
+    var cases = List.of(new PositionCase(Diagnostic.NOPOS, 0, "frontend.missing-source-position"),
+        new PositionCase(0, Diagnostic.NOPOS, "frontend.missing-source-position"),
+        new PositionCase(-2, 1, "frontend.invalid-source-range"),
+        new PositionCase(5, 4, "frontend.invalid-source-range"),
+        new PositionCase(0, CONTENT.length() + 1L, "frontend.invalid-source-range"));
+    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
+      var parsed = session.parse();
+      var compilation = session.analyze(parsed);
+      for (var position : cases) {
+        var evidence = new JavaSourceEvidence(new FixedPositions(position.start(), position.end()));
+        var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
+            baseline.languageFeatureCoverage()).translate(snapshot, compilation.units());
+        var input = new SyntaxAnalysisInput(snapshot, baseline.environmentSnapshot(), translated.value().program(),
+            translated.value().aggregate(), translated.diagnostics(), baseline.languageFeatureCoverageResult());
+        var run = new AnalysisEngine().analyze(input);
+
+        assertTrue(input.aggregate().isEmpty());
+        assertTrue(input.program().types().isEmpty());
+        assertTrue(run.completion() != AnalysisCompletion.COMPLETED);
+        assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(position.code())
+            && diagnostic.message().contains("Example.java at source-file-root:0")));
+      }
+    }
+  }
+
+  @Test
+  void givenWrittenSuperCallWithoutPosition_whenTranslated_thenMissingPositionBlocksItsSourceBody() throws IOException {
+    withCompiledSource("class Example { Example() { super(); } }", fixture -> {
+      var type = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var constructor = (MethodTree) type.getMembers().stream().filter(member -> member instanceof MethodTree).findFirst()
+          .orElseThrow();
+      var statement = constructor.getBody().getStatements().getFirst();
+      assertTrue(fixture.inventory().isWritten(statement));
+      var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(statement)));
+      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+      var propertyObserver = new JavaDeclarationPropertyObserver(coverage);
+      var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory(), propertyObserver);
+      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, propertyObserver, bodyTranslator);
+      var method = methodTranslator.translate(fixture.unit(), new TreePath(new TreePath(fixture.unit()), type), fixture.sourceFile(),
+          "type:Example", constructor);
+      var body = new TranslatedMethodBody(method.value().method().methodKey(), method.value().syntax().orElseThrow());
+      var contribution = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
+          .translate(fixture.unit(), fixture.sourceFile(), List.of(body));
+
+      var missing = method.diagnostics().stream().filter(diagnostic -> diagnostic.code().equals("frontend.missing-source-position"))
+          .toList();
+      assertEquals(1, missing.size());
+      assertEquals(DiagnosticStage.FRONTEND, missing.getFirst().stage());
+      assertEquals(DiagnosticSeverity.ERROR, missing.getFirst().severity());
+      assertEquals(AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR, missing.getFirst().outcomeKind());
+      assertTrue(missing.getFirst().origins().isEmpty());
+      assertTrue(missing.getFirst().message().contains("Example.java at source-file-root:0"));
+      assertTrue(contribution.contribution().isPresent());
+      assertTrue(contribution.contribution().orElseThrow().nodes().stream().noneMatch(node -> node.syntaxKind() == SyntaxKind.BLOCK));
+      assertEquals(MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION, contribution.bodies().getFirst().origin());
+    });
+  }
+
+  @Test
+  void givenTwoMissingSiblingDeclarations_whenTranslated_thenDiagnosticsHaveDistinctOccurrenceKeys() throws IOException {
+    withCompiledSource("class First { } class Second { }", fixture -> {
+      var first = fixture.unit().getTypeDecls().get(0);
+      var second = fixture.unit().getTypeDecls().get(1);
+      var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(first, second)));
+      var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
+          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+
+      assertEquals(2, result.diagnostics().size());
+      assertNotEquals(result.diagnostics().get(0).diagnosticKey(), result.diagnostics().get(1).diagnosticKey());
+      assertNotEquals(result.diagnostics().get(0).message(), result.diagnostics().get(1).message());
+      assertEquals(List.of("frontend.missing-source-position", "frontend.missing-source-position"),
+          result.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+      assertTrue(result.contribution().orElseThrow().root().children().isEmpty());
+    });
+    withCompiledSource("class Example { int first; int second; }", fixture -> {
+      var type = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var fields = new ArrayList<Tree>();
+      for (var member : type.getMembers()) {
+        if (member instanceof VariableTree) {
+          fields.add(member);
+        }
+      }
+      var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), fields));
+      var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
+          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+
+      assertEquals(2, result.diagnostics().size());
+      assertNotEquals(result.diagnostics().get(0).diagnosticKey(), result.diagnostics().get(1).diagnosticKey());
+      assertTrue(result.contribution().orElseThrow().root().descendantsAndSelf().stream()
+          .noneMatch(node -> node.syntaxKind() == SyntaxKind.FIELD_DECLARATION));
+    });
+  }
+
+  private static void withCompiledSource(String content, Consumer<CompiledSource> assertion) throws IOException {
+    var compiler = ToolProvider.getSystemJavaCompiler();
+    var sourceFile = new SourceFile("source", Path.of("Example.java"), "fixture-content", content);
+    var source = new SimpleJavaFileObject(URI.create("string:///Example.java"), JavaFileObject.Kind.SOURCE) {
+      @Override
+      public CharSequence getCharContent(boolean ignoreEncodingErrors) {
+        return content;
+      }
+    };
+    try (var fileManager = compiler.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8)) {
+      var task = (JavacTask) compiler.getTask(null, fileManager, null, List.of("-proc:none", "--release", "25"), null,
+          List.of(source));
+      var unit = task.parse().iterator().next();
+      var inventory = ParsedTreeInventory.capture(List.of(unit));
+      task.analyze();
+      var trees = Trees.instance(task);
+      var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(),
+          new DeclarationIdentityRegistry(trees, task.getTypes()));
+      assertion.accept(new CompiledSource(unit, sourceFile, semantics, trees.getSourcePositions(), inventory));
+    }
+  }
+
+  private record CompiledSource(CompilationUnitTree unit, SourceFile sourceFile, SemanticResolver semantics,
+      SourcePositions positions, ParsedTreeInventory inventory) {
+  }
+
+  private static final class MissingPositions implements SourcePositions {
+    private final SourcePositions delegate;
+    private final Set<Tree> missing;
+
+    private MissingPositions(SourcePositions delegate, List<? extends Tree> missingTrees) {
+      this.delegate = delegate;
+      missing = Collections.newSetFromMap(new IdentityHashMap<Tree, Boolean>());
+      missing.addAll(missingTrees);
+    }
+
+    @Override
+    public long getStartPosition(CompilationUnitTree unit, Tree tree) {
+      return missing.contains(tree) ? Diagnostic.NOPOS : delegate.getStartPosition(unit, tree);
+    }
+
+    @Override
+    public long getEndPosition(CompilationUnitTree unit, Tree tree) {
+      return missing.contains(tree) ? Diagnostic.NOPOS : delegate.getEndPosition(unit, tree);
+    }
+  }
+
+  private record PositionCase(long start, long end, String code) {
+  }
+
+  private record FixedPositions(long start, long end) implements SourcePositions {
+    @Override
+    public long getStartPosition(CompilationUnitTree unit, Tree tree) {
+      return start;
+    }
+
+    @Override
+    public long getEndPosition(CompilationUnitTree unit, Tree tree) {
+      return end;
+    }
+  }
+}

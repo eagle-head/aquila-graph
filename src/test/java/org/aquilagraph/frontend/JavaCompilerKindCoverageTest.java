@@ -39,6 +39,7 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.ASSIGNMENT,
       Tree.Kind.BITWISE_COMPLEMENT,
       Tree.Kind.BLOCK,
+      Tree.Kind.COMPILATION_UNIT,
       Tree.Kind.BOOLEAN_LITERAL,
       Tree.Kind.CASE,
       Tree.Kind.CATCH,
@@ -344,6 +345,8 @@ class JavaCompilerKindCoverageTest {
 
   private static EnumSet<Tree.Kind> retainedKindsIn(SyntaxAnalysisInput result) {
     var retainedKinds = EnumSet.noneOf(Tree.Kind.class);
+    result.aggregate().orElseThrow().roots()
+        .forEach(root -> retainedKinds.add(Tree.Kind.valueOf(root.sourceKind().name())));
     for (var type : result.program().types()) {
       retainedKinds.add(switch (type.kind()) {
         case ANNOTATION -> Tree.Kind.ANNOTATION_TYPE;

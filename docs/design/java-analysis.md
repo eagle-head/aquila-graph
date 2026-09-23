@@ -39,7 +39,7 @@ therefore produces a deterministic, source-located unsupported diagnostic
 instead of being discarded. `DeclarationIdentityRegistry` assigns canonical keys
 to declarations, including owner-and-ordinal type-parameter keys, while compiler
 elements remain available. `JavaMethodBodyTranslator` recursively
-converts one method body into durable project-owned `MethodSyntax` values held by the current in-memory analysis boundary; and
+converts one method body into project-owned `SyntaxNode` values; and
 `MethodBodySyntaxProfile` maps each compiler-tree form through visitor dispatch
 to a typed `SyntaxKind`, typed `SyntaxValue`, role-bearing `SyntaxChild` values,
 stable structural paths, and contextual value or assignment-location use.
@@ -55,8 +55,29 @@ immutable mappings without retaining per-method state.
 the exact source-owned accessor occurrences represented by that diagnostic.
 `JavaProgram`, `JavaType`, and `JavaMethod` retain declaration facts only,
 including exact type ownership and whether a method body exists;
-`SyntaxAnalysisInput` carries the corresponding syntax trees and the per-input,
-release-bound `LanguageFeatureCoverageResult` across the frontend-to-core boundary.
+`JavaAstContributionTranslator` assembles one source-rooted contribution per
+captured compilation unit while attribution is available. `JavaProgramTranslator`
+seals those contributions in snapshot order as one `JavaAstAggregate`.
+`ParsedTreeInventory` captures tree identity immediately after parse and before
+attribution. The body and contribution translators use that identity to
+distinguish written constructor calls from compiler-inserted calls independently
+of source positions. Missing positions on written calls therefore retain their
+blocking diagnostics. Diagnostic identity for omitted declarations uses the
+original sibling ordinal, while published child positions remain contiguous.
+Position diagnostics include the captured relative source path and the typed
+occurrence path even when no source range can be attached.
+`SyntaxAnalysisInput` owns that aggregate and carries the per-input, release-bound
+`LanguageFeatureCoverageResult` across the frontend-to-core boundary. Its
+`MethodSyntax` accessors derive views from aggregate-owned method bodies; no
+independent method tree is retained. Written source occurrences have validated
+source ranges and belong to the ordered source AST. Compiler-inserted default
+constructors and implicit `super()` calls are excluded from that source graph.
+Their core-facing body trees remain aggregate-owned execution projections when
+needed to preserve the existing CFG input. A body identical to its source AST
+occurrence is reused by identity. Missing or invalid positions on required
+written occurrences emit blocking, specific frontend diagnostics. If a required
+compilation-unit root cannot be published, the input retains diagnostics but
+exposes neither a partial aggregate nor program declarations.
 All compiler-owned objects remain
 package-internal and are translated into project-owned records before the facade
 returns. Target source files are not reopened after snapshot discovery. Source
@@ -131,7 +152,8 @@ identity against the running Java 25 enum and compares the resulting set in both
 directions with `EnumSet.allOf(Tree.Kind.class)`. Missing, duplicate, unrecognized,
 catch-all, or policyless entries are rejected before the catalog can be used. The
 catalog has no wildcard, default, or future-kind fallback. `REPRESENTED` entries name
-the current `JavaProgram` or `MethodSyntax` boundary retaining the fact;
+the current `JavaProgram`, `JavaAstAggregate`, or aggregate-derived `MethodSyntax`
+boundary retaining the fact;
 `DIAGNOSED` entries carry deterministic kind-specific diagnostic codes for later
 encounter accounting; and the implementation-reserved `OTHER` kind is the sole
 `IRRELEVANT` entry, with an official API locator and semantic-scope rationale.[23][24]
@@ -209,17 +231,14 @@ represented and irrelevant outcomes without an error. These distinctions may all
 to `INCOMPLETE`, but no generic completion status replaces their typed diagnostic or
 policy evidence.[8][23][24][25][26][27]
 
-`COMPILATION_UNIT` is currently a diagnosed kind, so every nonempty Java input
-truthfully reports at least `frontend.unsupported-tree-kind.compilation-unit` and
-cannot be `COMPLETED`. Later representation work may change an entry from
-`DIAGNOSED` to `REPRESENTED` only when the corresponding project-owned boundary and
-tests retain that fact. This contract intentionally exposes the present gap instead
-of treating successful parsing or CFG construction as AST completeness. Coverage
-values are not persisted, compiler API types remain confined to `frontend`, and no
-Neo4j schema change is required. The focused class, sequence, and component views show
-the coverage scanner, contextual declaration-property observation, authoritative
-contract/result construction, transient syntax-input association, and application
-analysis-run collaboration.[2][8][9][23][24][26]
+`COMPILATION_UNIT` is represented by one validated aggregate root for each
+captured source. This kind classification does not represent compilation-unit
+accessors such as packages, imports, or modules; their contextual capability
+diagnostics remain in force. Coverage values and AST occurrences are not yet
+persisted, compiler API types remain confined to `frontend`, and no Neo4j schema
+change is required. The focused class, sequence, and component views show the
+coverage scanner, contextual declaration-property observation, source aggregate
+construction, and application analysis-run collaboration.[2][8][9][23][24][26]
 
 ## Accepted Source Profile
 
@@ -281,9 +300,9 @@ import, implicit-modifier, and compiler-mandated-member boundaries.[2][25]
 ## Graph-Native Semantic Lowering and Control Flow
 
 The core is Java-specific: it consumes a declaration-only `JavaMethod` together
-with its transient `MethodSyntax`, while remaining independent of compiler-owned
-`javac` objects. The syntax tree is source-structure evidence at this boundary,
-not the analysis IR or a member of `ProgramRepresentation`. `SyntaxNode` keeps
+with an aggregate-derived `MethodSyntax` view, while remaining independent of
+compiler-owned `javac` objects. The source AST is an in-memory aggregate at this
+boundary, not the analysis IR or a member of `ProgramRepresentation`. `SyntaxNode` keeps
 stable node IDs, zero-or-one direct source origin, typed structural values, and
 zero-or-one semantic declaration reference only where symbol identity is
 relevant. Independently, every value-bearing node records a `SyntaxType`
@@ -498,6 +517,7 @@ implements its bounded model and has no runtime dependency on
    [SnapshotSourceCatalog](../../src/main/java/org/aquilagraph/frontend/SnapshotSourceCatalog.java), captured-source correlation;
    [CompilerDiagnosticTranslator](../../src/main/java/org/aquilagraph/frontend/CompilerDiagnosticTranslator.java), compiler diagnostics;
    [JavaProgramTranslator](../../src/main/java/org/aquilagraph/frontend/JavaProgramTranslator.java), declaration translation;
+   [JavaAstContributionTranslator](../../src/main/java/org/aquilagraph/frontend/JavaAstContributionTranslator.java), per-source AST construction;
    [JavaTypeTranslator](../../src/main/java/org/aquilagraph/frontend/JavaTypeTranslator.java), exhaustive class-member classification;
    [DeclarationIdentityRegistry](../../src/main/java/org/aquilagraph/frontend/DeclarationIdentityRegistry.java), canonical declaration keys;
    [JavaMethodBodyTranslator](../../src/main/java/org/aquilagraph/frontend/JavaMethodBodyTranslator.java), method-body traversal;
@@ -505,6 +525,7 @@ implements its bounded model and has no runtime dependency on
    [SemanticResolver](../../src/main/java/org/aquilagraph/frontend/SemanticResolver.java), compiler semantic queries;
    [JavaSourceEvidence](../../src/main/java/org/aquilagraph/frontend/JavaSourceEvidence.java), source-position projection;
    [SyntaxAnalysisInput](../../src/main/java/org/aquilagraph/syntax/SyntaxAnalysisInput.java), durable in-memory frontend-to-core boundary; and
+   [JavaAstAggregate](../../src/main/java/org/aquilagraph/syntax/JavaAstAggregate.java), sealed source occurrences and aggregate-owned method bodies; and
    [syntax package](../../src/main/java/org/aquilagraph/syntax), typed syntax evidence contracts.
 3. [InputSnapshot](../../src/main/java/org/aquilagraph/model/InputSnapshot.java), record invariants.
 4. [StableId](../../src/main/java/org/aquilagraph/model/StableId.java), `sha256`.

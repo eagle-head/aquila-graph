@@ -2,6 +2,14 @@ package org.aquilagraph.syntax;
 
 /** Derived Java syntax categories used by current semantic-graph consumers. */
 public enum SyntaxKind {
+  /** Captured compilation-unit source root. */
+  COMPILATION_UNIT,
+  /** Source type declaration occurrence. */
+  TYPE_DECLARATION,
+  /** Source method or constructor declaration occurrence. */
+  METHOD_DECLARATION,
+  /** Source field declaration occurrence. */
+  FIELD_DECLARATION,
   /** Statement block. */
   BLOCK,
   /** Local variable declaration. */
@@ -82,8 +90,14 @@ public enum SyntaxKind {
       return sourceKind.identifiesSourceSyntax();
     }
     return switch (this) {
+      case COMPILATION_UNIT -> sourceKind == JavaSourceKind.COMPILATION_UNIT;
+      case TYPE_DECLARATION -> switch (sourceKind) {
+        case CLASS, INTERFACE, ENUM, RECORD, ANNOTATION_TYPE -> true;
+        default -> false;
+      };
+      case METHOD_DECLARATION -> sourceKind == JavaSourceKind.METHOD;
       case BLOCK -> sourceKind == JavaSourceKind.BLOCK;
-      case LOCAL_DECLARATION -> sourceKind == JavaSourceKind.VARIABLE;
+      case FIELD_DECLARATION, LOCAL_DECLARATION -> sourceKind == JavaSourceKind.VARIABLE;
       case EXPRESSION_STATEMENT -> sourceKind == JavaSourceKind.EXPRESSION_STATEMENT;
       case RETURN -> sourceKind == JavaSourceKind.RETURN;
       case THROW -> sourceKind == JavaSourceKind.THROW;

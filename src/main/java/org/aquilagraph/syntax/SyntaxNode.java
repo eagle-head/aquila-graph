@@ -454,6 +454,9 @@ public final class SyntaxNode {
     }
 
     switch (kind) {
+      case COMPILATION_UNIT -> requireShape(children, Set.of(SyntaxRole.TYPE_DECLARATION));
+      case TYPE_DECLARATION -> requireShape(children, Set.of(SyntaxRole.MEMBER));
+      case METHOD_DECLARATION -> requireShape(children, Set.of(SyntaxRole.BODY), SyntaxRole.BODY, 0, 1);
       case BLOCK -> requireShape(children, Set.of(SyntaxRole.STATEMENT));
       case LOCAL_DECLARATION -> requireShape(children, Set.of(SyntaxRole.INITIALIZER), SyntaxRole.INITIALIZER, 0, 1);
       case EXPRESSION_STATEMENT, THROW, PARENTHESIZED, TYPE_CAST ->
@@ -507,7 +510,7 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.TRUE_EXPRESSION, 1, 1);
         requireCount(children, SyntaxRole.FALSE_EXPRESSION, 1, 1);
       }
-      case VARIABLE_ACCESS, VARIABLE_LOCATION, RECEIVER, LITERAL, EMPTY -> requireShape(children, Set.of());
+      case FIELD_DECLARATION, VARIABLE_ACCESS, VARIABLE_LOCATION, RECEIVER, LITERAL, EMPTY -> requireShape(children, Set.of());
       case UNSUPPORTED -> {
       }
     }

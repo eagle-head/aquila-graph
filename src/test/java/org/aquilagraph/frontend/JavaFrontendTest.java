@@ -48,7 +48,7 @@ class JavaFrontendTest {
     var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
-    assertEquals(List.of("frontend.unsupported-tree-kind.compilation-unit", "frontend.unsupported-tree-kind.package",
+    assertEquals(List.of("frontend.unsupported-tree-kind.package",
         "frontend.unsupported-tree-kind.primitive-type", "frontend.unsupported-package-declaration"),
         result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
     assertEquals("sample.Resolved", result.program().types().getFirst().qualifiedName());
@@ -246,7 +246,7 @@ class JavaFrontendTest {
 
     // Assert
     var body = methodBody(result, "classify");
-    assertEquals(List.of("frontend.unsupported-tree-kind.compilation-unit", "frontend.unsupported-tree-kind.primitive-type",
+    assertEquals(List.of("frontend.unsupported-tree-kind.primitive-type",
         "frontend.unsupported-variable-initializer", "frontend.unsupported-enum-constant-initialization",
         "frontend.unsupported-variable-initializer", "frontend.unsupported-enum-constant-initialization",
         "frontend.unsupported-enclosed-declarations"), result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
@@ -550,7 +550,6 @@ class JavaFrontendTest {
 
   private static void assertCompilerKindDiagnostics(SyntaxAnalysisInput result, int primitiveTypeCount) {
     var expected = new ArrayList<String>();
-    expected.add("frontend.unsupported-tree-kind.compilation-unit");
     for (var occurrence = 0; occurrence < primitiveTypeCount; occurrence++) {
       expected.add("frontend.unsupported-tree-kind.primitive-type");
     }

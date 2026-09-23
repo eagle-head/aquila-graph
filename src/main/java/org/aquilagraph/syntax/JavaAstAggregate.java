@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.model.SourceSpan;
@@ -19,10 +20,11 @@ public final class JavaAstAggregate {
   private final List<SyntaxStructuralEdge> orderedStructuralRelations;
   private final List<SyntaxSemanticEdge> orderedSemanticRelations;
   private final List<NodeFacts> orderedFacts;
+  private final Map<String, JavaAstAggregateBuilder.BodyRegistration> methodBodies;
 
   private JavaAstAggregate(InputSnapshot inputSnapshot, List<SyntaxNode> sourceRoots, List<SyntaxNode> orderedNodes,
-      Map<String, SyntaxNode> ownedNodes, List<SyntaxStructuralEdge> orderedStructuralEdges,
-      List<SyntaxSemanticEdge> orderedSemanticEdges) {
+      Map<String, SyntaxNode> ownedNodes, List<SyntaxStructuralEdge> orderedStructuralEdges, List<SyntaxSemanticEdge> orderedSemanticEdges,
+      Map<String, JavaAstAggregateBuilder.BodyRegistration> bodies) {
     capturedInput = Objects.requireNonNull(inputSnapshot, "inputSnapshot");
     this.sourceRoots = List.copyOf(sourceRoots);
     orderedOccurrences = List.copyOf(orderedNodes);
@@ -32,6 +34,7 @@ public final class JavaAstAggregate {
     orderedIdentities = List.copyOf(orderedOccurrences.stream().map(SyntaxNode::nodeTuple).toList());
     orderedRanges = List.copyOf(orderedOccurrences.stream().map(node -> node.rangeTuple().orElseThrow()).toList());
     orderedFacts = orderedOccurrences.stream().map(NodeFacts::from).toList();
+    methodBodies = Map.copyOf(bodies);
   }
 
   /**
@@ -66,6 +69,23 @@ public final class JavaAstAggregate {
     }
 
     /**
+     * Registers the core-facing body retained for one method. Source bodies must be identical to owned AST occurrences; compiler-added or
+     * position-unavailable bodies remain outside the source occurrence graph.
+     *
+     * @param methodKey
+     *          canonical method identity
+     * @param root
+     *          translated body root
+     * @param origin
+     *          relationship to captured source occurrences
+     * @return this builder
+     */
+    public Builder addMethodBody(String methodKey, SyntaxNode root, MethodBodyOrigin origin) {
+      validator.addMethodBody(methodKey, root, origin);
+      return this;
+    }
+
+    /**
      * Validates all source, graph, identity, and ordering invariants before publication.
      *
      * @return immutable aggregate with canonical queries
@@ -75,7 +95,7 @@ public final class JavaAstAggregate {
     public JavaAstAggregate seal() {
       var validated = validator.validate();
       return new JavaAstAggregate(validated.snapshot(), validated.roots(), validated.nodes(), validated.ownedNodes(),
-          validated.structuralEdges(), validated.semanticEdges());
+          validated.structuralEdges(), validated.semanticEdges(), validated.methodBodies());
     }
   }
 
@@ -162,16 +182,53 @@ public final class JavaAstAggregate {
     return Optional.ofNullable(occurrencesByKey.get(Objects.requireNonNull(key, "key")));
   }
 
+  /**
+   * Returns a view over a body owned by this aggregate.
+   *
+   * @param methodKey
+   *          canonical method identity
+   * @return the core-facing body view, when registered
+   */
+  public Optional<MethodSyntax> methodSyntax(String methodKey) {
+    Objects.requireNonNull(methodKey, "methodKey");
+    return methodBodies.containsKey(methodKey) ? Optional.of(new MethodSyntax(this, methodKey)) : Optional.empty();
+  }
+
+  SyntaxNode methodBodyRoot(String methodKey) {
+    return Objects.requireNonNull(methodBodies.get(methodKey), "method body").root();
+  }
+
+  /**
+   * Returns how a retained executable body relates to written source.
+   *
+   * @param methodKey
+   *          canonical method identity
+   * @return source occurrence or auxiliary execution classification
+   */
+  public Optional<MethodBodyOrigin> methodBodyOrigin(String methodKey) {
+    Objects.requireNonNull(methodKey, "methodKey");
+    return Optional.ofNullable(methodBodies.get(methodKey)).map(JavaAstAggregateBuilder.BodyRegistration::origin);
+  }
+
+  /**
+   * Returns the exact method identities for retained executable bodies.
+   *
+   * @return immutable method identity set
+   */
+  public Set<String> methodBodyKeys() {
+    return methodBodies.keySet();
+  }
+
   @Override
   public boolean equals(Object other) {
     return this == other || (other instanceof JavaAstAggregate that && capturedInput.equals(that.capturedInput)
         && orderedFacts.equals(that.orderedFacts) && orderedStructuralRelations.equals(that.orderedStructuralRelations)
-        && orderedSemanticRelations.equals(that.orderedSemanticRelations));
+        && orderedSemanticRelations.equals(that.orderedSemanticRelations) && methodBodies.equals(that.methodBodies));
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(capturedInput, orderedFacts, orderedStructuralRelations, orderedSemanticRelations);
+    return Objects.hash(capturedInput, orderedFacts, orderedStructuralRelations, orderedSemanticRelations, methodBodies);
   }
 
   private record NodeFacts(SyntaxNodeTuple identity, SourceSpan range, SyntaxKind syntaxKind, SyntaxType type, SyntaxValue value,

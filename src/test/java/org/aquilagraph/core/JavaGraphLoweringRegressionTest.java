@@ -247,8 +247,6 @@ class JavaGraphLoweringRegressionTest {
 
     // Assert
     assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
-    assertTrue(run.diagnostics().stream()
-        .anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-tree-kind.compilation-unit")));
     assertTrue(operations.stream().filter(node -> node.kind() == OperationKind.INVOKE || node.kind() == OperationKind.NEW_OBJECT)
         .allMatch(node -> node.invocationSemantics().isPresent()));
     assertTrue(operations.stream().filter(node -> node.kind() != OperationKind.INVOKE && node.kind() != OperationKind.NEW_OBJECT)

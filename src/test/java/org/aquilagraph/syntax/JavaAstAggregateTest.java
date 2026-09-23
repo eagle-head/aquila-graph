@@ -609,6 +609,53 @@ class JavaAstAggregateTest {
     assertNotEquals(left, right);
   }
 
+  @Test
+  void givenSourceBody_whenRegistered_thenMethodViewResolvesIdenticalOwnedOccurrence() {
+    // Arrange
+    var body = block("a", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.STATEMENT, 0));
+    var root = root("a", List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, body)));
+
+    // Act
+    var aggregate = JavaAstAggregate.builder(snapshot("a")).add(contribution(root))
+        .addMethodBody("method", body, MethodBodyOrigin.SOURCE_AST).seal();
+
+    // Assert
+    assertSame(body, aggregate.methodSyntax("method").orElseThrow().root());
+    assertSame(body, aggregate.node(body.nodeId()).orElseThrow());
+    assertEquals(MethodBodyOrigin.SOURCE_AST, aggregate.methodBodyOrigin("method").orElseThrow());
+  }
+
+  @Test
+  void givenAuxiliaryBody_whenRegistered_thenSourceAstQueriesExcludeItsNodes() {
+    // Arrange
+    var root = root("a", List.of());
+    var body = block("a", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.STATEMENT, 0));
+
+    // Act
+    var aggregate = JavaAstAggregate.builder(snapshot("a")).add(contribution(root))
+        .addMethodBody("method", body, MethodBodyOrigin.EXECUTION_PROJECTION).seal();
+
+    // Assert
+    assertSame(body, aggregate.methodSyntax("method").orElseThrow().root());
+    assertTrue(aggregate.node(body.nodeId()).isEmpty());
+    assertEquals(List.of(root), aggregate.nodes());
+    assertEquals(MethodBodyOrigin.EXECUTION_PROJECTION, aggregate.methodBodyOrigin("method").orElseThrow());
+  }
+
+  @Test
+  void givenUnownedSourceBody_whenRegisteredAsSource_thenSealRejectsIt() {
+    // Arrange
+    var root = root("a", List.of());
+    var body = block("a", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.STATEMENT, 0));
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> JavaAstAggregate.builder(snapshot("a"))
+        .add(contribution(root)).addMethodBody("method", body, MethodBodyOrigin.SOURCE_AST).seal());
+
+    // Assert
+    assertTrue(error.getMessage().contains("identical aggregate occurrence: method"));
+  }
+
   private static IllegalArgumentException failure(InputSnapshot snapshot, SyntaxSourceContribution contribution) {
     return assertThrows(IllegalArgumentException.class, () -> JavaAstAggregate.builder(snapshot).add(contribution).seal());
   }
@@ -629,6 +676,12 @@ class JavaAstAggregateTest {
 
   private static SyntaxNode leaf(String sourceKey, SyntaxStructuralPath path) {
     return SyntaxNode.source(sourceKey, path, JavaSourceKind.EMPTY_STATEMENT, SyntaxKind.EMPTY,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(),
+        new SourceSpan(sourceKey, 1, 2));
+  }
+
+  private static SyntaxNode block(String sourceKey, SyntaxStructuralPath path) {
+    return SyntaxNode.source(sourceKey, path, JavaSourceKind.BLOCK, SyntaxKind.BLOCK,
         SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(),
         new SourceSpan(sourceKey, 1, 2));
   }

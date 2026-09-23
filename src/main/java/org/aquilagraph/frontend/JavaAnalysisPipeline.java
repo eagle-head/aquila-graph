@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
 import org.aquilagraph.application.port.AnalysisEnvironmentException;
@@ -13,6 +14,7 @@ import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.JavaProgram;
 import org.aquilagraph.syntax.SyntaxAnalysisInput;
+import org.aquilagraph.syntax.JavaAstAggregate;
 
 final class JavaAnalysisPipeline {
   private final AnalysisEnvironmentCapture environmentCapture;
@@ -30,7 +32,8 @@ final class JavaAnalysisPipeline {
     var languageFeatureCoverage = JavaLanguageFeatureCoverage.fromConfiguration(configuration);
     if (snapshot.sourceFiles().isEmpty()) {
       var coverageResult = JavaLanguageFeatureCoverage.result(languageFeatureCoverage, List.of(), List.of(), List.of());
-      return new SyntaxAnalysisInput(snapshot, environment, new JavaProgram(List.of()), List.of(), List.of(), coverageResult);
+      return new SyntaxAnalysisInput(snapshot, environment, new JavaProgram(List.of()),
+          Optional.of(JavaAstAggregate.builder(snapshot).seal()), List.of(), coverageResult);
     }
 
     var sources = new SnapshotSourceCatalog(snapshot);
@@ -40,8 +43,8 @@ final class JavaAnalysisPipeline {
       var kindEvidence = new JavaCompilerKindDiagnostics(sources, parsedSource.sourceEvidence(), languageFeatureCoverage)
           .observe(parsedSource.units());
       var compilation = session.analyze(parsedSource);
-      var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(), languageFeatureCoverage)
-          .translate(compilation.units());
+      var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
+          compilation.treeInventory(), languageFeatureCoverage).translate(snapshot, compilation.units());
       var occurrences = new ArrayList<>(kindEvidence.occurrences());
       occurrences.addAll(translation.featureOccurrences());
       var observations = new ArrayList<>(kindEvidence.observations());
@@ -50,8 +53,8 @@ final class JavaAnalysisPipeline {
       var diagnostics = combineDiagnostics(new CompilerDiagnosticTranslator(sources).translate(compilation.diagnostics()), kindDiagnostics,
           translation.diagnostics());
       var coverageResult = JavaLanguageFeatureCoverage.result(languageFeatureCoverage, occurrences, observations, diagnostics);
-      result = new SyntaxAnalysisInput(snapshot, environment, translation.value().program(), translation.value().methodSyntax(),
-          diagnostics, coverageResult);
+      result = new SyntaxAnalysisInput(snapshot, environment, translation.value().program(), translation.value().aggregate(), diagnostics,
+          coverageResult);
     }
 
     environmentCapture.verifyUnchanged(compiler, configuration, invocation.analysisOptions(), environment);

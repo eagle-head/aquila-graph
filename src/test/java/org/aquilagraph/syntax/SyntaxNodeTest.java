@@ -114,7 +114,7 @@ class SyntaxNodeTest {
         new SyntaxValue.Unsupported("WHILE_LOOP"), List.of(), Optional.empty());
     var root = source("root", SyntaxKind.BLOCK, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
         List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, unsupported)), Optional.empty());
-    var methodSyntax = new MethodSyntax("type:Example#run()", root);
+    var methodSyntax = MethodSyntaxFixture.view("type:Example#run()", root);
 
     // Act
     var readiness = methodSyntax.readiness();
@@ -189,7 +189,7 @@ class SyntaxNodeTest {
         Optional.empty());
 
     // Act
-    var exception = assertThrows(IllegalArgumentException.class, () -> new MethodSyntax("type:Example#run()", root));
+    var exception = assertThrows(IllegalArgumentException.class, () -> MethodSyntaxFixture.view("type:Example#run()", root));
 
     // Assert
     assertTrue(exception.getMessage().contains("one parent"));

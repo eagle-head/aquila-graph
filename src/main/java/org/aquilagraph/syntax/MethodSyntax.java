@@ -3,29 +3,35 @@ package org.aquilagraph.syntax;
 import java.util.Objects;
 import org.aquilagraph.model.ResolutionStatus;
 
-/**
- * Current method-level owner of durable in-memory source occurrences for one method body.
- *
- * <p>
- * Aggregate ownership is introduced by the later foundation tasks; this record currently supplies the existing zero-copy semantic lowering
- * view.
- *
- * @param methodKey
- *          stable identity of the method whose body was translated
- * @param root
- *          root block of the retained syntax tree
- */
-public record MethodSyntax(String methodKey, SyntaxNode root) {
-  /** Validates method identity and tree ownership. */
-  public MethodSyntax {
-    Objects.requireNonNull(methodKey, "methodKey");
-    if (methodKey.isBlank()) {
+/** Core-facing view of one body owned by a sealed Java AST aggregate. */
+public final class MethodSyntax {
+  private final JavaAstAggregate aggregate;
+  private final String key;
+
+  MethodSyntax(JavaAstAggregate owner, String key) {
+    aggregate = Objects.requireNonNull(owner, "owner");
+    this.key = Objects.requireNonNull(key, "methodKey");
+    if (this.key.isBlank()) {
       throw new IllegalArgumentException("Method syntax identity cannot be blank");
     }
-    Objects.requireNonNull(root, "root").descendantsAndSelf();
-    if (root.syntaxKind() != SyntaxKind.BLOCK) {
-      throw new IllegalArgumentException("A method syntax root must be a block");
-    }
+  }
+
+  /**
+   * Returns the canonical method identity.
+   *
+   * @return canonical method key
+   */
+  public String methodKey() {
+    return key;
+  }
+
+  /**
+   * Returns the identical body root retained by the aggregate.
+   *
+   * @return owned body root
+   */
+  public SyntaxNode root() {
+    return aggregate.methodBodyRoot(key);
   }
 
   /**
@@ -34,7 +40,7 @@ public record MethodSyntax(String methodKey, SyntaxNode root) {
    * @return derived readiness for direct graph lowering
    */
   public SyntaxReadiness readiness() {
-    var nodes = root.descendantsAndSelf();
+    var nodes = root().descendantsAndSelf();
     if (nodes.stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED)) {
       return SyntaxReadiness.UNSUPPORTED;
     }
@@ -45,6 +51,21 @@ public record MethodSyntax(String methodKey, SyntaxNode root) {
       return SyntaxReadiness.UNRESOLVED_SEMANTICS;
     }
     return SyntaxReadiness.LOWERABLE;
+  }
+
+  @Override
+  public boolean equals(Object other) {
+    return this == other || (other instanceof MethodSyntax that && key.equals(that.key) && root().equals(that.root()));
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(key, root());
+  }
+
+  @Override
+  public String toString() {
+    return "MethodSyntax[methodKey=" + key + ", root=" + root() + ']';
   }
 
   private static boolean hasErroneousSemantics(SyntaxNode node) {

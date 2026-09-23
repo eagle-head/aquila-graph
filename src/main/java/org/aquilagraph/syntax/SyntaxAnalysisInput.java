@@ -22,8 +22,7 @@ import org.aquilagraph.model.LanguageFeatureCoverageResult;
  * Frontend boundary input passed to semantic analysis.
  *
  * <p>
- * This boundary container is transient. Its method syntax contains durable compiler-neutral in-memory occurrence values; aggregate
- * ownership is introduced by later foundation tasks.
+ * This boundary container is transient. Its sealed aggregate owns source occurrences and core-facing method bodies.
  *
  * @param snapshot
  *          analyzed source snapshot
@@ -31,15 +30,16 @@ import org.aquilagraph.model.LanguageFeatureCoverageResult;
  *          captured compiler environment
  * @param program
  *          declaration-only Java program
- * @param methodSyntax
- *          syntax evidence for methods that declare bodies
+ * @param aggregate
+ *          sealed source AST, absent only when a required source root could not be published
  * @param diagnostics
  *          frontend diagnostics
  * @param languageFeatureCoverageResult
  *          release-bound contract and source-owned outcomes produced by the frontend
  */
 public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSnapshot environmentSnapshot, JavaProgram program,
-    List<MethodSyntax> methodSyntax, List<AnalysisDiagnostic> diagnostics, LanguageFeatureCoverageResult languageFeatureCoverageResult) {
+    Optional<JavaAstAggregate> aggregate, List<AnalysisDiagnostic> diagnostics,
+    LanguageFeatureCoverageResult languageFeatureCoverageResult) {
   private static final long EXPECTED_COMPILATION_UNIT_OBSERVATIONS = 1L;
 
   /** Validates and defensively copies boundary data. */
@@ -47,14 +47,20 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(environmentSnapshot, "environmentSnapshot");
     Objects.requireNonNull(program, "program");
-    methodSyntax = List.copyOf(Objects.requireNonNull(methodSyntax, "methodSyntax"));
+    Objects.requireNonNull(aggregate, "aggregate");
+    if (aggregate.isPresent() && !aggregate.orElseThrow().snapshot().equals(snapshot)) {
+      throw new IllegalArgumentException("AST aggregate must belong to the analyzed input snapshot");
+    }
+    if (aggregate.isEmpty() && !program.types().isEmpty()) {
+      throw new IllegalArgumentException("Input without a source AST cannot expose program declarations");
+    }
     diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics"));
     Objects.requireNonNull(languageFeatureCoverageResult, "languageFeatureCoverageResult");
     if (languageFeatureCoverageResult.coverage().release() != environmentSnapshot.compilerConfiguration().release()) {
       throw new IllegalArgumentException("Language-feature coverage release must match the compiler configuration release");
     }
     validateCoverageResult(snapshot, diagnostics, languageFeatureCoverageResult);
-    validateMethodSyntax(program, methodSyntax);
+    aggregate.ifPresent(value -> validateMethodSyntax(program, value));
   }
 
   /**
@@ -84,21 +90,23 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
    */
   public Optional<MethodSyntax> methodSyntax(String methodKey) {
     Objects.requireNonNull(methodKey, "methodKey");
-    return methodSyntax.stream().filter(syntax -> syntax.methodKey().equals(methodKey)).findFirst();
+    return aggregate.flatMap(value -> value.methodSyntax(methodKey));
   }
 
-  private static void validateMethodSyntax(JavaProgram program, List<MethodSyntax> methodSyntax) {
+  /**
+   * Returns core-facing method views in program declaration order.
+   *
+   * @return derived method views
+   */
+  public List<MethodSyntax> methodSyntax() {
+    return program.methods().stream().filter(JavaMethod::hasBody).map(method -> methodSyntax(method.methodKey()).orElseThrow()).toList();
+  }
+
+  private static void validateMethodSyntax(JavaProgram program, JavaAstAggregate aggregate) {
     Map<String, JavaMethod> methods = program.methods().stream()
         .collect(Collectors.toUnmodifiableMap(JavaMethod::methodKey, Function.identity()));
-    var syntaxMethodKeys = new HashSet<String>();
-    for (var syntax : methodSyntax) {
-      var method = methods.get(Objects.requireNonNull(syntax, "methodSyntax entry").methodKey());
-      if (method == null || !method.hasBody() || !syntaxMethodKeys.add(syntax.methodKey())) {
-        throw new IllegalArgumentException("Method syntax must uniquely describe a program method body");
-      }
-    }
     var declaredBodyKeys = methods.values().stream().filter(JavaMethod::hasBody).map(JavaMethod::methodKey).collect(Collectors.toSet());
-    if (!syntaxMethodKeys.equals(declaredBodyKeys)) {
+    if (!aggregate.methodBodyKeys().equals(declaredBodyKeys)) {
       throw new IllegalArgumentException("Every declared method body requires syntax evidence");
     }
   }

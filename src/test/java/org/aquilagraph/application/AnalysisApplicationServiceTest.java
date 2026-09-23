@@ -31,7 +31,7 @@ class AnalysisApplicationServiceTest {
   void givenDiagnosedSourceAndNoRepositoryRequest_whenAnalysisExecutes_thenRunIsNotEligible()
       throws IOException {
     // Arrange
-    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
+    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example { void run() { while (true) { } } }");
     var repositoryOpened = new AtomicBoolean();
     var service =
         service(
@@ -78,7 +78,7 @@ class AnalysisApplicationServiceTest {
   void givenDiagnosedSourceAndRepositoryRequest_whenAnalysisExecutes_thenRepositoryIsNotOpened()
       throws IOException {
     // Arrange
-    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example {}");
+    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example { void run() { while (true) { } } }");
     var persistedRun = new AtomicReference<AnalysisRun>();
     var repositoryOpened = new AtomicBoolean();
     var repositoryClosed = new AtomicBoolean();

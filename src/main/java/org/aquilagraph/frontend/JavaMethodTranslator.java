@@ -22,7 +22,7 @@ import org.aquilagraph.model.LanguageFeatureOccurrence;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.model.StableId;
-import org.aquilagraph.syntax.MethodSyntax;
+import org.aquilagraph.syntax.SyntaxNode;
 import org.aquilagraph.syntax.SyntaxType;
 import org.jspecify.annotations.Nullable;
 
@@ -73,7 +73,8 @@ final class JavaMethodTranslator {
     observations.addAll(parameterTranslation.featureObservations());
     var semanticModifiers = executable == null ? methodTree.getModifiers().getFlags() : executable.getModifiers();
     var modifiers = semanticModifiers.stream().map(modifier -> modifier.name().toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
-    var bodyTranslation = translateBody(unit, sourceFile, methodKey, methodPath, methodTree);
+    var bodyTranslation = translateBody(unit, sourceFile, methodKey, methodPath, methodTree, constructor,
+        semantics.isImplicitDeclaration(methodPath));
     diagnostics.addAll(bodyTranslation.diagnostics());
     occurrences.addAll(bodyTranslation.featureOccurrences());
     observations.addAll(bodyTranslation.featureObservations());
@@ -220,13 +221,14 @@ final class JavaMethodTranslator {
         : new JavaTypeIdentity(JavaTypeCategory.OTHER, "unresolved", "unresolved");
   }
 
-  private TranslationResult<Optional<MethodSyntax>> translateBody(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,
-      TreePath methodPath, MethodTree methodTree) {
+  private TranslationResult<Optional<SyntaxNode>> translateBody(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,
+      TreePath methodPath, MethodTree methodTree, boolean constructor, boolean implicitDeclaration) {
     if (methodTree.getBody() == null) {
       return new TranslationResult<>(Optional.empty(), List.of(), List.of(), List.of());
     }
     var bodyPath = new TreePath(methodPath, methodTree.getBody());
-    var translation = bodyTranslator.translate(unit, sourceFile, methodKey, methodTree.getBody(), bodyPath);
+    var translation = bodyTranslator.translate(unit, sourceFile, methodKey, methodTree.getBody(), bodyPath, constructor,
+        implicitDeclaration);
     return new TranslationResult<>(Optional.of(translation.value()), translation.diagnostics(), translation.featureOccurrences(),
         translation.featureObservations());
   }

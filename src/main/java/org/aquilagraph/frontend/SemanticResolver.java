@@ -54,6 +54,11 @@ final class SemanticResolver {
     return trees.getElement(Objects.requireNonNull(path, PATH_ARGUMENT));
   }
 
+  boolean isImplicitDeclaration(TreePath path) {
+    var declaration = element(path);
+    return declaration != null && elements.getOrigin(declaration) != Elements.Origin.EXPLICIT;
+  }
+
   Optional<String> declarationKey(Element element) {
     return identities.keyOf(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
   }

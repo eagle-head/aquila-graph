@@ -18,7 +18,6 @@ import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.StableId;
 import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.MethodSyntax;
 import org.aquilagraph.syntax.SyntaxChild;
 import org.aquilagraph.syntax.SyntaxKind;
 import org.aquilagraph.syntax.SyntaxNode;
@@ -30,33 +29,36 @@ final class JavaMethodBodyTranslator {
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
   private final JavaDeclarationPropertyObserver propertyObserver;
+  private final ParsedTreeInventory treeInventory;
   private final MethodBodySyntaxProfile syntaxProfile;
 
-  JavaMethodBodyTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
+  JavaMethodBodyTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
       JavaDeclarationPropertyObserver propertyObserver) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
+    this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
     this.propertyObserver = Objects.requireNonNull(propertyObserver, "propertyObserver");
     syntaxProfile = new MethodBodySyntaxProfile(semantics);
   }
 
-  TranslationResult<MethodSyntax> translate(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, BlockTree body,
-      TreePath bodyPath) {
+  TranslationResult<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, BlockTree body,
+      TreePath bodyPath, boolean constructor, boolean implicitDeclaration) {
     Objects.requireNonNull(unit, "unit");
     Objects.requireNonNull(sourceFile, "sourceFile");
     Objects.requireNonNull(methodKey, "methodKey");
     Objects.requireNonNull(body, "body");
     Objects.requireNonNull(bodyPath, "bodyPath");
     var translation = translateTree(unit, sourceFile, methodKey, body, bodyPath, JavaSyntaxStructuralPath.methodBody(bodyPath),
-        SyntaxUse.VALUE);
-    return new TranslationResult<>(new MethodSyntax(methodKey, translation.node()), translation.diagnostics(),
-        translation.featureOccurrences(), translation.featureObservations());
+        SyntaxUse.VALUE, constructor, implicitDeclaration);
+    return new TranslationResult<>(translation.node(), translation.diagnostics(), translation.featureOccurrences(),
+        translation.featureObservations());
   }
 
   private SyntaxTreeTranslation translateTree(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, Tree tree, TreePath path,
-      SyntaxStructuralPath structuralPath, SyntaxUse use) {
+      SyntaxStructuralPath structuralPath, SyntaxUse use, boolean constructor, boolean compilerGenerated) {
+    var generated = compilerGenerated || (constructor && treeInventory.isCompilerInsertedSuperCall(path));
     var mapping = syntaxProfile.describe(tree, path, structuralPath, use);
-    var children = translateChildren(unit, sourceFile, methodKey, mapping.children());
+    var children = translateChildren(unit, sourceFile, methodKey, mapping.children(), constructor, generated);
     var origin = sourceEvidence.origin(unit, sourceFile, tree);
     var sourceKind = JavaSourceKind.valueOf(tree.getKind().name());
     var childNodes = new ArrayList<SyntaxChild>(children.size());
@@ -70,6 +72,16 @@ final class JavaMethodBodyTranslator {
         .orElseGet(() -> SyntaxNode.withoutDirectSource(sourceFile.sourceFileKey(), structuralPath, sourceKind, mapping.kind(),
             semantics.type(path), mapping.value(), childNodes, mapping.semanticReference()));
     var diagnostics = new ArrayList<>(diagnostics(methodKey, node, children));
+    if (!generated) {
+      switch (sourceEvidence.position(unit, sourceFile, tree)) {
+        case JavaSourceEvidence.Position.Missing ignored -> diagnostics.add(FrontendDiagnosticFactory.sourcePositionError(sourceFile,
+            node.structuralPath(), "frontend.missing-source-position", "A required source occurrence has no compiler position"));
+        case JavaSourceEvidence.Position.Invalid ignored -> diagnostics.add(FrontendDiagnosticFactory.sourcePositionError(sourceFile,
+            node.structuralPath(), "frontend.invalid-source-range", "A required source occurrence has an invalid compiler range"));
+        case JavaSourceEvidence.Position.Available ignored -> {
+        }
+      }
+    }
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
     children.forEach(child -> occurrences.addAll(child.featureOccurrences()));
@@ -106,10 +118,11 @@ final class JavaMethodBodyTranslator {
   }
 
   private List<SyntaxTreeTranslation> translateChildren(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,
-      List<SyntaxChildMapping> children) {
+      List<SyntaxChildMapping> children, boolean constructor, boolean compilerGenerated) {
     var translations = new ArrayList<SyntaxTreeTranslation>(children.size());
     for (var child : children) {
-      translations.add(translateTree(unit, sourceFile, methodKey, child.tree(), child.treePath(), child.structuralPath(), child.use()));
+      translations.add(translateTree(unit, sourceFile, methodKey, child.tree(), child.treePath(), child.structuralPath(), child.use(),
+          constructor, compilerGenerated));
     }
     return List.copyOf(translations);
   }

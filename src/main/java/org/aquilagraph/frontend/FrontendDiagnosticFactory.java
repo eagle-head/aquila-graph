@@ -7,7 +7,9 @@ import org.aquilagraph.model.AnalysisOutcomeKind;
 import org.aquilagraph.model.DiagnosticSeverity;
 import org.aquilagraph.model.DiagnosticStage;
 import org.aquilagraph.model.SourceSpan;
+import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.StableId;
+import org.aquilagraph.syntax.SyntaxStructuralPath;
 
 /** Creates source-located frontend diagnostics with occurrence-stable identities. */
 final class FrontendDiagnosticFactory {
@@ -37,5 +39,14 @@ final class FrontendDiagnosticFactory {
 
   static AnalysisDiagnostic otherError(String context, String code, String message, Optional<SourceSpan> origin) {
     return error(context, code, message, origin, AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+  }
+
+  static AnalysisDiagnostic sourcePositionError(SourceFile sourceFile, SyntaxStructuralPath path, String code, String message) {
+    Objects.requireNonNull(sourceFile, "sourceFile");
+    Objects.requireNonNull(path, "path");
+    var occurrence = String.join(":", path.identityComponents());
+    var context = sourceFile.sourceFileKey() + ':' + occurrence;
+    var locatedMessage = message + " in " + sourceFile.relativePath() + " at " + occurrence;
+    return otherError(context, code, locatedMessage, Optional.empty());
   }
 }

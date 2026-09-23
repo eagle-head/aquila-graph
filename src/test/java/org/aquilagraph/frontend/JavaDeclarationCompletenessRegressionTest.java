@@ -128,7 +128,7 @@ class JavaDeclarationCompletenessRegressionTest {
     var result = frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION);
 
     // Assert
-    assertEquals(List.of("frontend.unsupported-tree-kind.compilation-unit", "frontend.unsupported-tree-kind.primitive-type"),
+    assertEquals(List.of("frontend.unsupported-tree-kind.primitive-type"),
         result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
     var method = result.program().methods().stream().filter(candidate -> candidate.name().equals("run")).findFirst().orElseThrow();
     assertEquals(Set.of("abstract", "public"), method.modifiers());

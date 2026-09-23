@@ -42,7 +42,6 @@ import org.aquilagraph.model.LanguageFeatureOccurrence;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.model.StableId;
-import org.aquilagraph.syntax.MethodSyntax;
 import org.aquilagraph.syntax.SyntaxType;
 import org.jspecify.annotations.Nullable;
 
@@ -76,7 +75,7 @@ final class JavaTypeTranslator {
         : semantics.declarationKey(typeElement).orElseThrow();
     var fields = new ArrayList<JavaField>();
     var methods = new ArrayList<JavaMethod>();
-    var methodSyntax = new ArrayList<MethodSyntax>();
+    var methodBodies = new ArrayList<TranslatedMethodBody>();
     var nestedTypes = new ArrayList<JavaType>();
     var diagnostics = new ArrayList<AnalysisDiagnostic>();
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
@@ -103,7 +102,7 @@ final class JavaTypeTranslator {
     var typeParameters = translateTypeParameters(unit, sourceFile, typeKey, classTree.getTypeParameters(), typeElement, diagnostics);
 
     for (var member : classTree.getMembers()) {
-      classifyMember(unit, classPath, sourceFile, typeKey, member, fields, methods, methodSyntax, nestedTypes, diagnostics, occurrences,
+      classifyMember(unit, classPath, sourceFile, typeKey, member, fields, methods, methodBodies, nestedTypes, diagnostics, occurrences,
           observations);
     }
     diagnoseUnrepresentedEnclosedDeclarations(typeElement, sourceFile, typeKey, origin, fields, methods, nestedTypes, diagnostics,
@@ -113,7 +112,7 @@ final class JavaTypeTranslator {
     var types = new ArrayList<JavaType>();
     types.add(type);
     types.addAll(nestedTypes);
-    return new TranslationResult<>(new TranslatedType(types, methodSyntax), diagnostics, occurrences, observations);
+    return new TranslationResult<>(new TranslatedType(types, methodBodies), diagnostics, occurrences, observations);
   }
 
   private void diagnoseUnrepresentedEnclosedDeclarations(@Nullable TypeElement typeElement, SourceFile sourceFile, String typeKey,
@@ -151,13 +150,14 @@ final class JavaTypeTranslator {
   }
 
   private void classifyMember(CompilationUnitTree unit, TreePath classPath, SourceFile sourceFile, String typeKey, Tree member,
-      List<JavaField> fields, List<JavaMethod> methods, List<MethodSyntax> methodSyntax, List<JavaType> nestedTypes,
+      List<JavaField> fields, List<JavaMethod> methods, List<TranslatedMethodBody> methodBodies, List<JavaType> nestedTypes,
       List<AnalysisDiagnostic> diagnostics, List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
     switch (member) {
       case MethodTree methodTree -> {
         var translation = methodTranslator.translate(unit, classPath, sourceFile, typeKey, methodTree);
         methods.add(translation.value().method());
-        translation.value().syntax().ifPresent(methodSyntax::add);
+        translation.value().syntax()
+            .ifPresent(root -> methodBodies.add(new TranslatedMethodBody(translation.value().method().methodKey(), root)));
         diagnostics.addAll(translation.diagnostics());
         occurrences.addAll(translation.featureOccurrences());
         observations.addAll(translation.featureObservations());
@@ -172,7 +172,7 @@ final class JavaTypeTranslator {
       case ClassTree nestedClass -> {
         var translation = translate(unit, classPath, sourceFile, nestedClass);
         nestedTypes.addAll(translation.value().types());
-        methodSyntax.addAll(translation.value().methodSyntax());
+        methodBodies.addAll(translation.value().methodBodies());
         diagnostics.addAll(translation.diagnostics());
         occurrences.addAll(translation.featureOccurrences());
         observations.addAll(translation.featureObservations());
