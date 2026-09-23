@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import javax.tools.ToolProvider;
 import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.model.AnalysisCompletion;
@@ -106,16 +107,16 @@ class JavaAstFrontendIntegrationTest {
   }
 
   @Test
-  void givenModularUnitWithImport_whenAnalyzed_thenImportRemainsOwnedByModularRoot() throws IOException {
+  void givenModularUnitWithImport_whenAnalyzed_thenModuleAndImportRemainOwnedByRoot() throws IOException {
     // Arrange
     var source = "import java.lang.Deprecated; module sample.module { }";
     Files.writeString(sourceRoot.resolve("module-info.java"), source);
 
     // Act
     var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
-    assertTrue(result.aggregate().isPresent(), () -> result.diagnostics().toString());
     var root = result.aggregate().orElseThrow().roots().getFirst();
     var imported = root.requiredChild(SyntaxRole.IMPORT_DECLARATION);
+    var module = root.requiredChild(SyntaxRole.MODULE_DECLARATION);
 
     // Assert
     assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR), root.value());
@@ -125,9 +126,120 @@ class JavaAstFrontendIntegrationTest {
     assertEquals("import java.lang.Deprecated;",
         source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive())));
     assertEquals(List.of(), root.children(SyntaxRole.TYPE_DECLARATION));
-    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-module-declaration")));
+    assertEquals(JavaSourceKind.MODULE, module.sourceKind());
+    assertEquals(new SyntaxValue.ModuleDeclaration(name("sample", "module"), false), module.value());
+    assertEquals(List.of(), module.children(SyntaxRole.MODULE_DIRECTIVE));
+    assertEquals("module sample.module { }", source.substring(Math.toIntExact(module.origin().orElseThrow().startOffset()),
+        Math.toIntExact(module.origin().orElseThrow().endOffsetExclusive())));
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-module-declaration")));
     assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-import-declaration")
         || diagnostic.code().startsWith("compiler.err.")), () -> result.diagnostics().toString());
+  }
+
+  @Test
+  void givenOrderedModuleDirectives_whenAnalyzed_thenEveryTypedOperandAndRangeIsRetained() throws IOException {
+    // Arrange
+    var moduleSource = """
+        module sample.module {
+          requires static transitive java.sql;
+          exports sample.api;
+          exports sample.impl to java.sql, java.logging;
+          opens sample.impl;
+          opens sample.api to java.sql, java.logging;
+          uses sample.api.Service;
+          provides sample.api.Service with sample.impl.First, sample.impl.Second;
+        }
+        """;
+    Files.writeString(sourceRoot.resolve("module-info.java"), moduleSource);
+    var api = Files.createDirectories(sourceRoot.resolve("sample/api"));
+    var implementation = Files.createDirectories(sourceRoot.resolve("sample/impl"));
+    Files.writeString(api.resolve("Service.java"), "package sample.api; public interface Service { }");
+    Files.writeString(implementation.resolve("First.java"),
+        "package sample.impl; public final class First implements sample.api.Service { }");
+    Files.writeString(implementation.resolve("Second.java"),
+        "package sample.impl; public final class Second implements sample.api.Service { }");
+
+    // Act
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+    var first = frontend.analyze(sourceRoot, JAVA_25);
+    var second = frontend.analyze(sourceRoot, JAVA_25);
+    var module = first.aggregate().orElseThrow().roots().stream()
+        .filter(root -> root.value().equals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR)))
+        .findFirst().orElseThrow().requiredChild(SyntaxRole.MODULE_DECLARATION);
+    var directives = module.children(SyntaxRole.MODULE_DIRECTIVE);
+
+    // Assert
+    assertEquals(new SyntaxValue.ModuleDeclaration(name("sample", "module"), false), module.value());
+    assertEquals(List.of(JavaSourceKind.REQUIRES, JavaSourceKind.EXPORTS, JavaSourceKind.EXPORTS, JavaSourceKind.OPENS,
+        JavaSourceKind.OPENS, JavaSourceKind.USES, JavaSourceKind.PROVIDES),
+        directives.stream().map(node -> node.sourceKind()).toList());
+    assertEquals(List.of(
+        new SyntaxValue.Requires(name("java", "sql"), true, true),
+        new SyntaxValue.Exports(name("sample", "api"), Optional.empty()),
+        new SyntaxValue.Exports(name("sample", "impl"), Optional.of(List.of(name("java", "sql"), name("java", "logging")))),
+        new SyntaxValue.Opens(name("sample", "impl"), Optional.empty()),
+        new SyntaxValue.Opens(name("sample", "api"), Optional.of(List.of(name("java", "sql"), name("java", "logging")))),
+        new SyntaxValue.Uses(name("sample", "api", "Service")),
+        new SyntaxValue.Provides(name("sample", "api", "Service"),
+            List.of(name("sample", "impl", "First"), name("sample", "impl", "Second")))),
+        directives.stream().map(node -> node.value()).toList());
+    assertEquals(List.of(0, 1, 2, 3, 4, 5, 6), module.children().stream()
+        .filter(child -> child.role() == SyntaxRole.MODULE_DIRECTIVE).map(child -> child.position()).toList());
+    assertEquals(moduleSource.lines().filter(line -> line.stripLeading().startsWith("requires ")
+        || line.stripLeading().startsWith("exports ") || line.stripLeading().startsWith("opens ")
+        || line.stripLeading().startsWith("uses ") || line.stripLeading().startsWith("provides "))
+        .map(String::strip).toList(), directives.stream().map(node -> {
+          var range = node.origin().orElseThrow();
+          return moduleSource.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive()));
+        }).toList());
+    assertTrue(directives.stream().allMatch(node -> node.sourceFileKey().equals(module.sourceFileKey())));
+    assertEquals(first.aggregate(), second.aggregate());
+    assertEquals(first.diagnostics(), second.diagnostics());
+    assertTrue(first.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")
+        || diagnostic.code().equals("frontend.unsupported-module-declaration")
+        || diagnostic.code().startsWith("frontend.unsupported-tree-kind.requires")
+        || diagnostic.code().startsWith("frontend.unsupported-tree-kind.exports")
+        || diagnostic.code().startsWith("frontend.unsupported-tree-kind.opens")
+        || diagnostic.code().startsWith("frontend.unsupported-tree-kind.uses")
+        || diagnostic.code().startsWith("frontend.unsupported-tree-kind.provides")), () -> first.diagnostics().toString());
+  }
+
+  @Test
+  void givenAnnotatedOpenModule_whenAnalyzed_thenOpenStateAndAnnotationAttachmentAreRetained() throws IOException {
+    // Arrange
+    var source = "@Deprecated open module sample.access { }";
+    Files.writeString(sourceRoot.resolve("module-info.java"), source);
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    var module = result.aggregate().orElseThrow().roots().getFirst().requiredChild(SyntaxRole.MODULE_DECLARATION);
+    var annotation = module.requiredChild(SyntaxRole.ANNOTATION);
+
+    // Assert
+    assertEquals(new SyntaxValue.ModuleDeclaration(name("sample", "access"), true), module.value());
+    assertEquals(JavaSourceKind.ANNOTATION, annotation.sourceKind());
+    assertEquals("@Deprecated", source.substring(Math.toIntExact(annotation.origin().orElseThrow().startOffset()),
+        Math.toIntExact(annotation.origin().orElseThrow().endOffsetExclusive())));
+    assertEquals(List.of(), module.children(SyntaxRole.MODULE_DIRECTIVE));
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")
+        || diagnostic.code().equals("frontend.unsupported-module-declaration")), () -> result.diagnostics().toString());
+  }
+
+  @Test
+  void givenMalformedModuleDirective_whenAnalyzed_thenCompilerErrorDoesNotPublishAnEmptyDirective() throws IOException {
+    // Arrange
+    Files.writeString(sourceRoot.resolve("module-info.java"), "module sample.module { requires ; }");
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    var run = new AnalysisEngine().analyze(result);
+
+    // Assert
+    assertFalse(run.completion() == AnalysisCompletion.COMPLETED);
+    assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
+    assertTrue(result.aggregate().stream().flatMap(aggregate -> aggregate.roots().stream())
+        .flatMap(root -> root.children(SyntaxRole.MODULE_DECLARATION).stream())
+        .flatMap(module -> module.children(SyntaxRole.MODULE_DIRECTIVE).stream()).noneMatch(node -> node.value() instanceof SyntaxValue.Requires));
   }
 
   @Test
@@ -394,5 +506,9 @@ class JavaAstFrontendIntegrationTest {
     assertNotSame(sourceBody, writtenBody);
     assertEquals(List.of(plain.methodKey(), written.methodKey()), run.representation().orElseThrow().methodAnalyses().stream()
         .map(analysis -> analysis.sourceMethod().methodKey()).toList());
+  }
+
+  private static SyntaxValue.QualifiedName name(String... components) {
+    return new SyntaxValue.QualifiedName(List.of(components));
   }
 }

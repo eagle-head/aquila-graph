@@ -352,6 +352,74 @@ class JavaAstSourcePositionTest {
     });
   }
 
+  @Test
+  void givenMissingModuleOrLaterDirectiveRange_whenAnalyzed_thenFrontendErrorBlocksCompletion() throws IOException {
+    // Arrange
+    Files.writeString(sourceRoot.resolve("module-info.java"), """
+        module sample.module {
+          requires java.sql;
+          requires java.logging;
+        }
+        """);
+    Files.createDirectory(sourceRoot.resolve("sample"));
+    Files.writeString(sourceRoot.resolve("sample/Example.java"),
+        "package sample; public class Example { public Example() { } }");
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+    var loader = new JavaSourceLoader();
+    var snapshot = loader.discover(sourceRoot);
+    var baseline = new JavaFrontend(loader).analyze(snapshot, configuration);
+    var sources = new SnapshotSourceCatalog(snapshot);
+    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(baseline).completion());
+    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
+      var parsed = session.parse();
+      var compilation = session.analyze(parsed);
+      var unit = compilation.units().stream().filter(candidate -> candidate.getModule() != null).findFirst().orElseThrow();
+      var module = unit.getModule();
+      var writtenDirectives = module.getDirectives().stream().filter(compilation.treeInventory()::isWritten).toList();
+      assertEquals(2, writtenDirectives.size());
+      var actualPositions = new SourcePositions() {
+        @Override
+        public long getStartPosition(CompilationUnitTree currentUnit, Tree tree) {
+          return compilation.sourceEvidence().origin(currentUnit, sources.find(currentUnit).orElseThrow(), tree)
+              .map(SourceSpan::startOffset).orElse(Diagnostic.NOPOS);
+        }
+
+        @Override
+        public long getEndPosition(CompilationUnitTree currentUnit, Tree tree) {
+          return compilation.sourceEvidence().origin(currentUnit, sources.find(currentUnit).orElseThrow(), tree)
+              .map(SourceSpan::endOffsetExclusive).orElse(Diagnostic.NOPOS);
+        }
+      };
+      var cases = List.of(
+          new MissingModulePosition(module, "source-file-root:0:module-declaration:0"),
+          new MissingModulePosition(writtenDirectives.get(1),
+              "source-file-root:0:module-declaration:0:module-directive:1"));
+
+      // Act
+      for (var position : cases) {
+        var evidence = new JavaSourceEvidence(new MissingPositions(actualPositions, List.of(position.tree())));
+        var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
+            baseline.languageFeatureCoverage()).translate(snapshot, compilation.units());
+        var input = new SyntaxAnalysisInput(snapshot, baseline.environmentSnapshot(), translated.value().program(),
+            translated.value().aggregate(), translated.diagnostics(), baseline.languageFeatureCoverageResult());
+        var run = new AnalysisEngine().analyze(input);
+
+        // Assert
+        assertTrue(input.aggregate().isEmpty());
+        assertTrue(input.program().types().isEmpty());
+        assertTrue(run.completion() != AnalysisCompletion.COMPLETED);
+        assertEquals(1, translated.diagnostics().size());
+        var diagnostic = translated.diagnostics().getFirst();
+        assertEquals("frontend.missing-source-position", diagnostic.code());
+        assertEquals(DiagnosticStage.FRONTEND, diagnostic.stage());
+        assertEquals(DiagnosticSeverity.ERROR, diagnostic.severity());
+        assertEquals(AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR, diagnostic.outcomeKind());
+        assertTrue(diagnostic.origins().isEmpty());
+        assertTrue(diagnostic.message().contains("module-info.java at " + position.path()));
+      }
+    }
+  }
+
   private static void withCompiledSource(String content, Consumer<CompiledSource> assertion) throws IOException {
     withCompiledSource(content, "Example.java", assertion);
   }
@@ -404,6 +472,9 @@ class JavaAstSourcePositionTest {
   }
 
   private record PositionCase(long start, long end, String code) {
+  }
+
+  private record MissingModulePosition(Tree tree, String path) {
   }
 
   private record FixedPositions(long start, long end) implements SourcePositions {

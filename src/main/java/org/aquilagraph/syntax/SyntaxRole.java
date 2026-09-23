@@ -8,6 +8,10 @@ public enum SyntaxRole {
   PACKAGE_DECLARATION("package-declaration"),
   /** Written import declaration within a compilation unit. */
   IMPORT_DECLARATION("import-declaration"),
+  /** Written module declaration within a modular compilation unit. */
+  MODULE_DECLARATION("module-declaration"),
+  /** Directive written in a module declaration. */
+  MODULE_DIRECTIVE("module-directive"),
   /** Written class member in a compact compilation unit. */
   COMPACT_MEMBER("compact-member"),
   /** Written annotation attached to a package declaration. */

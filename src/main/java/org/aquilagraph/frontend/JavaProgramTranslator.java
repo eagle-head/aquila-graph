@@ -20,7 +20,6 @@ import org.aquilagraph.syntax.JavaAstAggregate;
 
 final class JavaProgramTranslator {
   private final SnapshotSourceCatalog sources;
-  private final JavaSourceEvidence sourceEvidence;
   private final JavaDeclarationPropertyObserver propertyObserver;
   private final JavaTypeTranslator typeTranslator;
   private final JavaAstContributionTranslator astTranslator;
@@ -29,7 +28,7 @@ final class JavaProgramTranslator {
       ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage) {
     this.sources = Objects.requireNonNull(sources, "sources");
     Objects.requireNonNull(semantics, "semantics");
-    this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
+    Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     propertyObserver = new JavaDeclarationPropertyObserver(coverage);
     var bodyTranslator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory, propertyObserver);
     var methodTranslator = new JavaMethodTranslator(semantics, sourceEvidence, propertyObserver, bodyTranslator);
@@ -76,7 +75,6 @@ final class JavaProgramTranslator {
       List<AnalysisDiagnostic> diagnostics, List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
     var sourceFile = sourceFor(unit);
     var unitPath = new TreePath(unit);
-    diagnoseCompilationUnitProperties(unit, sourceFile, diagnostics, occurrences, observations);
     for (var declaration : unit.getTypeDecls()) {
       if (declaration instanceof ClassTree classTree) {
         var translation = typeTranslator.translate(unit, unitPath, sourceFile, classTree);
@@ -93,13 +91,4 @@ final class JavaProgramTranslator {
     return sources.find(unit).orElseThrow(() -> new IllegalStateException("Compilation unit is not owned by the input snapshot"));
   }
 
-  private void diagnoseCompilationUnitProperties(CompilationUnitTree unit, SourceFile sourceFile, List<AnalysisDiagnostic> diagnostics,
-      List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
-    if (unit.getModule() != null) {
-      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, sourceFile.sourceFileKey(),
-          JavaDeclarationPropertyCoverage.MODULE_DECLARATION_DIAGNOSTIC,
-          "Module declarations are outside the supported semantic graph profile", sourceEvidence.origin(unit, sourceFile, unit.getModule()),
-          JavaDeclarationPropertyCoverage.COMPILATION_UNIT_MODULE);
-    }
-  }
 }

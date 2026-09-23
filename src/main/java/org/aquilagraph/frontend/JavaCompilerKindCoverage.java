@@ -76,15 +76,18 @@ final class JavaCompilerKindCoverage {
     return List.copyOf(classifications);
   }
 
+  private static final String MODULE_DIRECTIVE_BOUNDARY = "JavaAstAggregate module directive";
+
   private static List<LanguageFeatureClassification> unitAndDeclarationClassifications() {
     return List.of(represented("ANNOTATION_TYPE", TYPE_DECLARATION_BOUNDARY), represented("CLASS", TYPE_DECLARATION_BOUNDARY),
         represented("COMPILATION_UNIT", "JavaAstAggregate source root"), represented("ENUM", TYPE_DECLARATION_BOUNDARY),
-        diagnosed("EXPORTS"), represented("IMPORT", "JavaAstAggregate ordered import declaration"),
+        represented("EXPORTS", MODULE_DIRECTIVE_BOUNDARY), represented("IMPORT", "JavaAstAggregate ordered import declaration"),
         represented("INTERFACE", TYPE_DECLARATION_BOUNDARY), represented("METHOD", "JavaMethod declaration aggregate"),
-        represented("MODIFIERS", "Java declaration modifier sets"), diagnosed("MODULE"), diagnosed("OPENS"),
-        represented("PACKAGE", "JavaAstAggregate package declaration"), diagnosed("PROVIDES"),
-        represented("RECORD", TYPE_DECLARATION_BOUNDARY), diagnosed("REQUIRES"),
-        represented("TYPE_PARAMETER", "JavaType type-parameter aggregate"), diagnosed("USES"),
+        represented("MODIFIERS", "Java declaration modifier sets"), represented("MODULE", "JavaAstAggregate module declaration"),
+        represented("OPENS", MODULE_DIRECTIVE_BOUNDARY), represented("PACKAGE", "JavaAstAggregate package declaration"),
+        represented("PROVIDES", MODULE_DIRECTIVE_BOUNDARY), represented("RECORD", TYPE_DECLARATION_BOUNDARY),
+        represented("REQUIRES", MODULE_DIRECTIVE_BOUNDARY), represented("TYPE_PARAMETER", "JavaType type-parameter aggregate"),
+        represented("USES", MODULE_DIRECTIVE_BOUNDARY),
         represented("VARIABLE", "JavaField, JavaParameter, or MethodSyntax declaration aggregate"));
   }
 

@@ -67,6 +67,12 @@ Package declarations own ordered annotation attachments. Package and import
 names come from compiler-tree name components, while import values separately
 retain static, module, and on-demand form. Annotation value structure remains
 outside this increment and continues to produce its own capability diagnostic.
+Modular roots own exactly one written module declaration with its qualified name,
+open state, annotation attachments, and ordered directive occurrences. The five
+directive values retain qualified operands, `requires` flags, optional ordered
+`exports` and `opens` targets, and ordered `provides` implementations. Written
+module and directive ranges are required; malformed or unavailable facts emit
+source-located diagnostics and prevent a complete source aggregate.[2][25]
 `JavaProgramTranslator`
 seals those contributions in snapshot order as one `JavaAstAggregate`.
 `ParsedTreeInventory` captures tree identity immediately after parse and before
@@ -184,12 +190,13 @@ enter the contract. Inherited visitor, element-identity, annotation-proxy lookup
 and line-map protocols are explicitly irrelevant with direct API locators. Package
 and import declarations are represented as source-owned AST occurrences, including
 the package name, annotation attachment order, import order, imported name, and
-source form. Module declarations remain diagnosed until their structure is
-represented.[23][24][25]
+source form. Modular roots and their directive children represent
+`CompilationUnitTree.getModule()`; annotation value content retains its separate
+diagnosed policy.[23][24][25]
 
 The declaration-property catalog's diagnosed policies for method type parameters,
 thrown types, receiver parameters, variable arity, declaration annotations,
-annotation defaults, record components, and module declarations
+annotation defaults, and record components
 are connected to source-located frontend errors. Those errors flow through the
 existing completion projection and therefore prevent `COMPLETED` without using CFG
 construction as the declaration-coverage oracle. Qualified receiver names,
@@ -247,8 +254,9 @@ policy evidence.[8][23][24][25][26][27]
 `COMPILATION_UNIT` is represented by one validated aggregate root for each
 captured source, including an empty source. The root has an explicit ordinary,
 compact, or modular form. Package and import accessors are represented by source-owned
-occurrences and ordered structural edges; module structure still has a contextual
-capability diagnostic. Package annotations have source-owned attachment nodes,
+occurrences and ordered structural edges. Modular roots own one typed module
+declaration and its ordered typed directives. Package and module annotations
+have source-owned attachment nodes,
 while their type and value details retain the separate annotation capability
 diagnostic. Coverage values and AST occurrences are not yet
 persisted, compiler API types remain confined to `frontend`, and no Neo4j schema
@@ -304,14 +312,14 @@ errors: `frontend.unsupported-method-type-parameters`,
 `frontend.unsupported-thrown-types`, `frontend.unsupported-receiver-parameter`,
 `frontend.unsupported-varargs`, `frontend.unsupported-declaration-annotations`,
 `frontend.unsupported-annotation-default`, `frontend.unsupported-record-components`,
-`frontend.unsupported-module-declaration`, `frontend.unsupported-variable-modifiers`,
+`frontend.unsupported-variable-modifiers`,
 `frontend.unsupported-variable-initializer`,
 `frontend.unsupported-variable-name-expression`, and
 `frontend.unsupported-enclosed-declarations`. The declaration-property regression
 suite uses valid Java 25 sources and verifies both the expected diagnostic and a
 non-completed analysis outcome for every named fact, plus the contextual variable,
-implicit-modifier, and compiler-mandated-member boundaries. Package and import
-structure instead have positive aggregate tuple tests.[2][25]
+implicit-modifier, and compiler-mandated-member boundaries. Package, import,
+and module structure instead have positive aggregate tuple tests.[2][25]
 
 ## Graph-Native Semantic Lowering and Control Flow
 
@@ -534,6 +542,7 @@ implements its bounded model and has no runtime dependency on
    [CompilerDiagnosticTranslator](../../src/main/java/org/aquilagraph/frontend/CompilerDiagnosticTranslator.java), compiler diagnostics;
    [JavaProgramTranslator](../../src/main/java/org/aquilagraph/frontend/JavaProgramTranslator.java), declaration translation;
    [JavaAstContributionTranslator](../../src/main/java/org/aquilagraph/frontend/JavaAstContributionTranslator.java), per-source AST construction;
+   [JavaModuleTranslator](../../src/main/java/org/aquilagraph/frontend/JavaModuleTranslator.java), written module and directive occurrences;
    [JavaTypeTranslator](../../src/main/java/org/aquilagraph/frontend/JavaTypeTranslator.java), exhaustive class-member classification;
    [DeclarationIdentityRegistry](../../src/main/java/org/aquilagraph/frontend/DeclarationIdentityRegistry.java), canonical declaration keys;
    [JavaMethodBodyTranslator](../../src/main/java/org/aquilagraph/frontend/JavaMethodBodyTranslator.java), method-body traversal;

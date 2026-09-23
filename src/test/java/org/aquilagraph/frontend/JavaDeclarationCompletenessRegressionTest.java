@@ -80,6 +80,26 @@ class JavaDeclarationCompletenessRegressionTest {
   }
 
   @Test
+  void givenModuleSyntax_whenCoverageIsLoaded_thenModuleAndDirectivePoliciesAreRepresented() {
+    // Arrange
+    var property = JavaDeclarationPropertyCoverage.fromConfiguration(JAVA_25_CONFIGURATION);
+    var kinds = JavaCompilerKindCoverage.fromConfiguration(JAVA_25_CONFIGURATION);
+
+    // Act
+    var moduleProperty = property.classificationOf(new LanguageFeature(LanguageFeatureCategory.DECLARATION_PROPERTY,
+        JavaDeclarationPropertyCoverage.COMPILATION_UNIT_MODULE)).orElseThrow().policy();
+    var directivePolicies = List.of("MODULE", "REQUIRES", "EXPORTS", "OPENS", "USES", "PROVIDES").stream()
+        .map(identifier -> kinds.classificationOf(new LanguageFeature(LanguageFeatureCategory.COMPILER_TREE_KIND, identifier))
+            .orElseThrow().policy()).toList();
+
+    // Assert
+    assertEquals(LanguageFeaturePolicy.REPRESENTED, moduleProperty);
+    assertEquals(List.of(LanguageFeaturePolicy.REPRESENTED, LanguageFeaturePolicy.REPRESENTED,
+        LanguageFeaturePolicy.REPRESENTED, LanguageFeaturePolicy.REPRESENTED, LanguageFeaturePolicy.REPRESENTED,
+        LanguageFeaturePolicy.REPRESENTED), directivePolicies);
+  }
+
+  @Test
   void givenLocalVariableModifierAndAnnotation_whenAnalysisRuns_thenBothAbsentFactsAreDiagnosed() throws IOException {
     // Arrange
     writeSource(new SourceCase("local properties", "LocalProperties.java", """
@@ -216,9 +236,7 @@ class JavaDeclarationCompletenessRegressionTest {
             }
             """, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC, 2),
         source("record components", "Pair.java", "record Empty() { } record Pair(int left, int right) { }",
-            JavaDeclarationPropertyCoverage.RECORD_COMPONENTS_DIAGNOSTIC),
-        source("module declaration", "module-info.java", "module sample.module { }",
-            JavaDeclarationPropertyCoverage.MODULE_DECLARATION_DIAGNOSTIC));
+            JavaDeclarationPropertyCoverage.RECORD_COMPONENTS_DIAGNOSTIC));
   }
 
   private static SourceCase source(

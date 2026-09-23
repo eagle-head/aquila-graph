@@ -104,6 +104,87 @@ class JavaAstAggregateTest {
   }
 
   @Test
+  void givenModularRootWithoutModule_whenConstructed_thenRequiredModuleIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot();
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
+        JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR), List.of(), Optional.empty(),
+        new SourceSpan("a", 0, CONTENT.length())));
+
+    // Assert
+    assertTrue(error.getMessage().contains("MODULE_DECLARATION"));
+  }
+
+  @Test
+  void givenTwoModuleChildren_whenConstructed_thenModuleCardinalityIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot();
+    var first = module("a", path.child(SyntaxRole.MODULE_DECLARATION, 0), List.of());
+    var second = module("a", path.child(SyntaxRole.MODULE_DECLARATION, 1), List.of());
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
+        JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR),
+        List.of(new SyntaxChild(SyntaxRole.MODULE_DECLARATION, 0, first),
+            new SyntaxChild(SyntaxRole.MODULE_DECLARATION, 1, second)), Optional.empty(),
+        new SourceSpan("a", 0, CONTENT.length())));
+
+    // Assert
+    assertTrue(error.getMessage().contains("MODULE_DECLARATION"));
+  }
+
+  @Test
+  void givenDuplicateModuleDirectivePosition_whenConstructed_thenPositionIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.MODULE_DECLARATION, 0);
+    var first = requires("a", path.child(SyntaxRole.MODULE_DIRECTIVE, 0));
+    var second = requires("a", path.child(SyntaxRole.MODULE_DIRECTIVE, 1));
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> module("a", path,
+        List.of(new SyntaxChild(SyntaxRole.MODULE_DIRECTIVE, 0, first),
+            new SyntaxChild(SyntaxRole.MODULE_DIRECTIVE, 0, second))));
+
+    // Assert
+    assertTrue(error.getMessage().contains("contiguous"));
+  }
+
+  @Test
+  void givenCrossSourceModuleDirective_whenAggregateIsSealed_thenOwnershipIsRejected() {
+    // Arrange
+    var rootPath = SyntaxStructuralPath.sourceFileRoot();
+    var modulePath = rootPath.child(SyntaxRole.MODULE_DECLARATION, 0);
+    var foreign = requires("b", modulePath.child(SyntaxRole.MODULE_DIRECTIVE, 0));
+    var declaredModule = module("a", modulePath, List.of(new SyntaxChild(SyntaxRole.MODULE_DIRECTIVE, 0, foreign)));
+    var root = SyntaxNode.source("a", rootPath, JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR),
+        List.of(new SyntaxChild(SyntaxRole.MODULE_DECLARATION, 0, declaredModule)), Optional.empty(),
+        new SourceSpan("a", 0, CONTENT.length()));
+
+    // Act
+    var error = failure(snapshot("a", "b"), contribution(root));
+
+    // Assert
+    assertTrue(error.getMessage().contains("not owned by contribution"));
+  }
+
+  @Test
+  void givenQualifiedExportWithoutTargets_whenConstructed_thenInvalidDirectiveIsRejected() {
+    // Arrange
+    var packageName = new SyntaxValue.QualifiedName(List.of("sample", "api"));
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> new SyntaxValue.Exports(packageName, Optional.of(List.of())));
+
+    // Assert
+    assertTrue(error.getMessage().contains("at least one target"));
+  }
+
+  @Test
   void givenAggregateConstructionBoundary_whenConstructorsAreInspected_thenPublicationIsPrivate() {
     // Arrange
     var aggregateConstructors = JavaAstAggregate.class.getDeclaredConstructors();
@@ -776,6 +857,18 @@ class JavaAstAggregateTest {
         SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), children,
         Optional.empty(), new SourceSpan(sourceKey, 0, CONTENT.length()));
+  }
+
+  private static SyntaxNode module(String sourceKey, SyntaxStructuralPath path, List<SyntaxChild> children) {
+    return SyntaxNode.source(sourceKey, path, JavaSourceKind.MODULE, SyntaxKind.COMPILATION_UNIT,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.ModuleDeclaration(new SyntaxValue.QualifiedName(List.of("sample")), false),
+        children, Optional.empty(), new SourceSpan(sourceKey, 1, 9));
+  }
+
+  private static SyntaxNode requires(String sourceKey, SyntaxStructuralPath path) {
+    return SyntaxNode.source(sourceKey, path, JavaSourceKind.REQUIRES, SyntaxKind.COMPILATION_UNIT,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Requires(new SyntaxValue.QualifiedName(List.of("java", "base")), false, false),
+        List.of(), Optional.empty(), new SourceSpan(sourceKey, 2, 8));
   }
 
   private static SyntaxNode leaf(String sourceKey, SyntaxStructuralPath path) {

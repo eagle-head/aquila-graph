@@ -115,7 +115,6 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::Element#getEnclosedElements()",
       "ExecutableElement::Element#hashCode()");
   private static final Set<String> EXPECTED_DIAGNOSED_PROPERTIES = Set.of(
-      "CompilationUnitTree::CompilationUnitTree#getModule()",
       "MethodTree::MethodTree#getDefaultValue()",
       "MethodTree::MethodTree#getReceiverParameter()",
       "MethodTree::MethodTree#getThrows()",
@@ -167,6 +166,8 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(EXPECTED_DIAGNOSED_PROPERTIES, diagnosedProperties);
     assertEquals(LanguageFeaturePolicy.REPRESENTED,
         policyOf(coverage, JavaDeclarationPropertyCoverage.COMPILATION_UNIT_IMPORTS));
+    assertEquals(LanguageFeaturePolicy.REPRESENTED,
+        policyOf(coverage, JavaDeclarationPropertyCoverage.COMPILATION_UNIT_MODULE));
     assertEquals(LanguageFeaturePolicy.REPRESENTED,
         policyOf(coverage, JavaDeclarationPropertyCoverage.COMPILATION_UNIT_PACKAGE));
     assertEquals(LanguageFeaturePolicy.REPRESENTED,

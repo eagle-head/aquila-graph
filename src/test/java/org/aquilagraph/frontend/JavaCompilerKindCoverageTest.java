@@ -55,6 +55,7 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.EMPTY_STATEMENT,
       Tree.Kind.ENUM,
       Tree.Kind.EQUAL_TO,
+      Tree.Kind.EXPORTS,
       Tree.Kind.EXPRESSION_STATEMENT,
       Tree.Kind.FLOAT_LITERAL,
       Tree.Kind.GREATER_THAN,
@@ -74,16 +75,20 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.METHOD_INVOCATION,
       Tree.Kind.MINUS,
       Tree.Kind.MODIFIERS,
+      Tree.Kind.MODULE,
       Tree.Kind.MULTIPLY,
       Tree.Kind.NEW_CLASS,
       Tree.Kind.NOT_EQUAL_TO,
       Tree.Kind.NULL_LITERAL,
+      Tree.Kind.OPENS,
       Tree.Kind.OR,
       Tree.Kind.PACKAGE,
       Tree.Kind.PARENTHESIZED,
       Tree.Kind.PLUS,
+      Tree.Kind.PROVIDES,
       Tree.Kind.RECORD,
       Tree.Kind.REMAINDER,
+      Tree.Kind.REQUIRES,
       Tree.Kind.RETURN,
       Tree.Kind.RIGHT_SHIFT,
       Tree.Kind.STRING_LITERAL,
@@ -95,6 +100,7 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.UNARY_MINUS,
       Tree.Kind.UNARY_PLUS,
       Tree.Kind.UNSIGNED_RIGHT_SHIFT,
+      Tree.Kind.USES,
       Tree.Kind.VARIABLE,
       Tree.Kind.XOR,
       Tree.Kind.YIELD);
@@ -147,9 +153,10 @@ class JavaCompilerKindCoverageTest {
   }
 
   @Test
-  void givenRepresentedKinds_whenCompositeSourceIsAnalyzed_thenEachKindHasRetainingEvidence() throws IOException {
+  void givenRepresentedKinds_whenOrdinaryAndModularSourcesAreAnalyzed_thenEachKindHasRetainingEvidence() throws IOException {
     // Arrange
-    Files.writeString(temporaryDirectory.resolve("KindEvidence.java"), """
+    var ordinaryRoot = Files.createDirectory(temporaryDirectory.resolve("ordinary"));
+    Files.writeString(ordinaryRoot.resolve("KindEvidence.java"), """
         package sample;
         import java.util.List;
         @interface Marker { }
@@ -192,15 +199,37 @@ class JavaCompilerKindCoverageTest {
           }
         }
         """);
+    var modularRoot = Files.createDirectory(temporaryDirectory.resolve("modular"));
+    Files.createDirectory(modularRoot.resolve("sample"));
+    Files.writeString(modularRoot.resolve("module-info.java"), """
+        module sample.module {
+          requires static transitive java.sql;
+          exports sample;
+          opens sample;
+          uses java.lang.Runnable;
+          provides java.lang.Runnable with sample.Service;
+        }
+        """);
+    Files.writeString(modularRoot.resolve("sample/Service.java"), """
+        package sample;
+        public class Service implements Runnable {
+          public void run() { }
+        }
+        """);
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var result = frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION);
+    var result = frontend.analyze(ordinaryRoot, JAVA_25_CONFIGURATION);
+    var modularResult = frontend.analyze(modularRoot, JAVA_25_CONFIGURATION);
     var retainedKinds = retainedKindsIn(result);
+    retainedKinds.addAll(retainedKindsIn(modularResult));
 
     // Assert
     assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")),
         () -> result.diagnostics().toString());
+    assertTrue(modularResult.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")
+        || diagnostic.code().equals("frontend.unsupported-module-declaration")),
+        () -> modularResult.diagnostics().toString());
     assertTrue(result.methodSyntax().stream().flatMap(syntax -> syntax.root().descendantsAndSelf().stream())
         .noneMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
     assertTrue(retainedKinds.containsAll(REPRESENTED_KINDS),
@@ -236,7 +265,7 @@ class JavaCompilerKindCoverageTest {
         LanguageFeaturePolicy.REPRESENTED,
         LanguageFeaturePolicy.REPRESENTED,
         LanguageFeaturePolicy.DIAGNOSED,
-        LanguageFeaturePolicy.DIAGNOSED), policies);
+        LanguageFeaturePolicy.REPRESENTED), policies);
   }
 
   @Test

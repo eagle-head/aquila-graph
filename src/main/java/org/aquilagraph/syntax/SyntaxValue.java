@@ -25,6 +25,295 @@ public sealed interface SyntaxValue {
   }
 
   /**
+   * Ordered identifier components supplied by a source-name tree.
+   *
+   * @param components
+   *          ordered source identifiers
+   */
+  record QualifiedName(List<String> components) {
+    /** Validates and retains the ordered components. */
+    public QualifiedName {
+      components = List.copyOf(Objects.requireNonNull(components, "components"));
+      if (components.isEmpty()) {
+        throw new IllegalArgumentException("A qualified name requires an identifier");
+      }
+      for (var component : components) {
+        SyntaxValueSupport.requireName(component);
+        if (component.indexOf('.') >= 0) {
+          throw new IllegalArgumentException("A qualified-name component cannot contain a dot");
+        }
+      }
+    }
+
+    /**
+     * Returns the source name assembled from its components.
+     *
+     * @return qualified source name
+     */
+    public String dottedName() {
+      return String.join(".", components);
+    }
+  }
+
+  /** Written module header. */
+  final class ModuleDeclaration extends Symbol {
+    private record Header(QualifiedName name, boolean open) {
+    }
+
+    private final Header header;
+
+    /**
+     * Creates a written module header.
+     *
+     * @param name
+     *          ordered module-name components
+     * @param open
+     *          whether the declaration uses {@code open module}
+     */
+    public ModuleDeclaration(QualifiedName name, boolean open) {
+      this(new Header(Objects.requireNonNull(name, "name"), open));
+    }
+
+    private ModuleDeclaration(Header header) {
+      super(header.name().dottedName(), Form.MODULE_DECLARATION, header);
+      this.header = header;
+    }
+
+    /**
+     * Returns ordered module-name components.
+     *
+     * @return qualified module name
+     */
+    public QualifiedName qualifiedName() {
+      return header.name();
+    }
+
+    /**
+     * Returns whether the source uses {@code open module}.
+     *
+     * @return {@code true} for an open module
+     */
+    public boolean open() {
+      return header.open();
+    }
+  }
+
+  /** Closed family of source module directives. */
+  abstract sealed class ModuleDirective extends Symbol permits Requires, Exports, Opens, Uses, Provides {
+    ModuleDirective(String name, Form form, Object details) {
+      super(name, form, details);
+    }
+  }
+
+  /** Required module and written modifiers. */
+  final class Requires extends ModuleDirective {
+    private record RequiresDetails(QualifiedName module, boolean staticPhase, boolean transitive) {
+    }
+
+    private final RequiresDetails details;
+
+    /**
+     * Creates a written requires directive.
+     *
+     * @param module
+     *          required module name
+     * @param staticPhase
+     *          whether {@code static} was written
+     * @param transitive
+     *          whether {@code transitive} was written
+     */
+    public Requires(QualifiedName module, boolean staticPhase, boolean transitive) {
+      this(new RequiresDetails(Objects.requireNonNull(module, "module"), staticPhase, transitive));
+    }
+
+    private Requires(RequiresDetails details) {
+      super(details.module().dottedName(), Form.REQUIRES, details);
+      this.details = details;
+    }
+
+    /**
+     * Returns the required module name.
+     *
+     * @return qualified module name
+     */
+    public QualifiedName module() {
+      return details.module();
+    }
+
+    /**
+     * Returns whether {@code static} was written.
+     *
+     * @return {@code true} when static was written
+     */
+    public boolean staticPhase() {
+      return details.staticPhase();
+    }
+
+    /**
+     * Returns whether {@code transitive} was written.
+     *
+     * @return {@code true} when transitive was written
+     */
+    public boolean transitive() {
+      return details.transitive();
+    }
+  }
+
+  /** Exported package and optional ordered target modules. */
+  final class Exports extends ModuleDirective {
+    private record ExportDetails(QualifiedName packageName, Optional<List<QualifiedName>> targets) {
+    }
+
+    private final ExportDetails details;
+
+    /**
+     * Creates a written exports directive.
+     *
+     * @param packageName
+     *          exported package name
+     * @param targets
+     *          absent for an unqualified export, otherwise a nonempty ordered list
+     */
+    public Exports(QualifiedName packageName, Optional<List<QualifiedName>> targets) {
+      this(new ExportDetails(Objects.requireNonNull(packageName, "packageName"), SyntaxValueSupport.copyTargets(targets)));
+    }
+
+    private Exports(ExportDetails details) {
+      super(details.packageName().dottedName(), Form.EXPORTS, details);
+      this.details = details;
+    }
+
+    /**
+     * Returns the exported package name.
+     *
+     * @return qualified package name
+     */
+    public QualifiedName packageName() {
+      return details.packageName();
+    }
+
+    /**
+     * Returns ordered targets, or absence for an unqualified export.
+     *
+     * @return optional ordered target modules
+     */
+    public Optional<List<QualifiedName>> targets() {
+      return details.targets();
+    }
+  }
+
+  /** Opened package and optional ordered target modules. */
+  final class Opens extends ModuleDirective {
+    private record OpenDetails(QualifiedName packageName, Optional<List<QualifiedName>> targets) {
+    }
+
+    private final OpenDetails details;
+
+    /**
+     * Creates a written opens directive.
+     *
+     * @param packageName
+     *          opened package name
+     * @param targets
+     *          absent for an unqualified open, otherwise a nonempty ordered list
+     */
+    public Opens(QualifiedName packageName, Optional<List<QualifiedName>> targets) {
+      this(new OpenDetails(Objects.requireNonNull(packageName, "packageName"), SyntaxValueSupport.copyTargets(targets)));
+    }
+
+    private Opens(OpenDetails details) {
+      super(details.packageName().dottedName(), Form.OPENS, details);
+      this.details = details;
+    }
+
+    /**
+     * Returns the opened package name.
+     *
+     * @return qualified package name
+     */
+    public QualifiedName packageName() {
+      return details.packageName();
+    }
+
+    /**
+     * Returns ordered targets, or absence for an unqualified open.
+     *
+     * @return optional ordered target modules
+     */
+    public Optional<List<QualifiedName>> targets() {
+      return details.targets();
+    }
+  }
+
+  /** Consumed service type. */
+  final class Uses extends ModuleDirective {
+    private final QualifiedName serviceName;
+
+    /**
+     * Creates a written uses directive.
+     *
+     * @param service
+     *          source service name
+     */
+    public Uses(QualifiedName service) {
+      super(Objects.requireNonNull(service, "service").dottedName(), Form.USES, service);
+      serviceName = service;
+    }
+
+    /**
+     * Returns the consumed service name.
+     *
+     * @return qualified service name
+     */
+    public QualifiedName service() {
+      return serviceName;
+    }
+  }
+
+  /** Provided service type and ordered implementation types. */
+  final class Provides extends ModuleDirective {
+    private record ProvidesDetails(QualifiedName service, List<QualifiedName> providers) {
+    }
+
+    private final ProvidesDetails details;
+
+    /**
+     * Creates a written provides directive.
+     *
+     * @param service
+     *          source service name
+     * @param providers
+     *          source provider names in declaration order
+     */
+    public Provides(QualifiedName service, List<QualifiedName> providers) {
+      this(new ProvidesDetails(Objects.requireNonNull(service, "service"), SyntaxValueSupport.copyProviders(providers)));
+    }
+
+    private Provides(ProvidesDetails details) {
+      super(details.service().dottedName(), Form.PROVIDES, details);
+      this.details = details;
+    }
+
+    /**
+     * Returns the provided service name.
+     *
+     * @return qualified service name
+     */
+    public QualifiedName service() {
+      return details.service();
+    }
+
+    /**
+     * Returns provider names in source order.
+     *
+     * @return ordered provider names
+     */
+    public List<QualifiedName> providers() {
+      return details.providers();
+    }
+  }
+
+  /**
    * Declared local name; declaration identity is carried by the node's semantic reference.
    *
    * @param name
@@ -38,9 +327,10 @@ public sealed interface SyntaxValue {
   }
 
   /** Shared source-name value boundary for typed syntax facts. */
-  abstract sealed class Symbol implements SyntaxValue permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration {
+  abstract sealed class Symbol implements SyntaxValue
+      permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration, ModuleDeclaration, ModuleDirective {
     enum Form {
-      SYMBOL, COMPILATION_UNIT, PACKAGE_DECLARATION, IMPORT_DECLARATION
+      SYMBOL, COMPILATION_UNIT, PACKAGE_DECLARATION, IMPORT_DECLARATION, MODULE_DECLARATION, REQUIRES, EXPORTS, OPENS, USES, PROVIDES
     }
 
     private final String sourceName;

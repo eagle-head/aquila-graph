@@ -47,11 +47,13 @@ final class JavaAstContributionTranslator {
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
+  private final JavaModuleTranslator moduleTranslator;
 
   JavaAstContributionTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
+    moduleTranslator = new JavaModuleTranslator(sourceEvidence, treeInventory);
   }
 
   UnitTranslation translate(CompilationUnitTree unit, SourceFile sourceFile, List<TranslatedMethodBody> bodies) {
@@ -92,6 +94,13 @@ final class JavaAstContributionTranslator {
           .ifPresent(node -> imports.add(new SyntaxChild(SyntaxRole.IMPORT_DECLARATION, position, node)));
     }
     children.addAll(imports);
+    if (unit.getModule() != null) {
+      var module = moduleTranslator.translate(unit, sourceFile, unit.getModule(), rootPath, diagnostics);
+      if (module.isEmpty()) {
+        return new UnitTranslation(Optional.empty(), List.of(), diagnostics);
+      }
+      children.add(new SyntaxChild(SyntaxRole.MODULE_DECLARATION, 0, module.orElseThrow()));
+    }
     if (compactClass.isPresent()) {
       var declaration = compactClass.orElseThrow();
       var classPath = new TreePath(unitPath, declaration);
