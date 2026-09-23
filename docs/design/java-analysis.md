@@ -73,6 +73,32 @@ directive values retain qualified operands, `requires` flags, optional ordered
 `exports` and `opens` targets, and ordered `provides` implementations. Written
 module and directive ranges are required; malformed or unavailable facts emit
 source-located diagnostics and prevent a complete source aggregate.[2][25]
+Written top-level and member type occurrences retain one of the five exact
+declaration kinds, a simple name, separate source-written and attributed modifier
+sets, and ordered annotation, type-parameter, superclass, interface, permitted
+subclass, and body-member attachment roles. Each attachment has its own source
+range and structural owner. Type parameters are named
+`TYPE_PARAMETER_DECLARATION` occurrences, and header type uses are `TYPE_USE`
+occurrences with their exact compiler-tree source kinds. Their declaration
+details and recursive type content belong to later AST increments. Static and
+instance initializer blocks are distinct `STATIC_INITIALIZER_BLOCK` and
+`INSTANCE_INITIALIZER_BLOCK` member occurrences with written source ranges; their statement content
+remains diagnosed until initialization ownership is completed. Empty class-body
+semicolons are semantically inert. The frontend
+uses the pre-attribution written-tree inventory and the attributed declaration
+origin together so compiler-inserted constructors and members do not become
+source children. A record component that javac also exposes as a field-shaped
+`ClassTree.getMembers()` tree belongs to the record header, so it is not a body
+member child; the existing record-component capability diagnostic remains until
+that header is modeled. Member edges and source-body registrations are published
+only after the complete enclosing type is retained. A missing required header
+range or a mismatch between a written type and its attributed declaration
+withholds that type and emits a blocking frontend error. The canonical `JavaType`
+declaration and its hierarchy references remain separate from these source
+occurrences; this increment changes no Neo4j AST projection.[2][28]
+`MethodSyntax` derives CFG readiness from an explicit set of method-body syntax
+categories. A source-only occurrence cannot become lowerable merely because it
+has a typed AST category; unresolved or unsupported body content remains blocked.
 `JavaProgramTranslator`
 seals those contributions in snapshot order as one `JavaAstAggregate`.
 `ParsedTreeInventory` captures tree identity immediately after parse and before
@@ -287,8 +313,10 @@ required semantics:
   conditional expressions, `&&`, `||`, unary `+`, unary `-`, `!`, `~`, and the
   represented binary operators.
 
-Unsupported syntax is retained as `SyntaxKind.UNSUPPORTED`, emits a frontend
-error, marks the containing body unsupported, and prevents a completed run.
+Unsupported method-body syntax is retained as `SyntaxKind.UNSUPPORTED`, emits a
+frontend error, marks the containing body unsupported, and prevents a completed
+run. A typed source-only occurrence in a method-body view also blocks CFG
+readiness until that view has an explicit lowering contract.
 Notably unsupported are loops, switch statements, labeled control, `break`,
 `continue`, `assert`, synchronized statements, lambdas, method references,
 compound assignment, increment/decrement, try-with-resources, `finally`, and
@@ -637,3 +665,16 @@ implements its bounded model and has no runtime dependency on
     [AnalysisDiagnostic](../../src/main/java/org/aquilagraph/model/AnalysisDiagnostic.java), stable diagnostics and typed outcome projection;
     Oracle, Java SE 25 [`Diagnostic`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/tools/Diagnostic.html),
     diagnostic kind and implementation-dependent optional code.
+28. [SyntaxValue.TypeDeclaration and TypeParameterDeclaration](../../src/main/java/org/aquilagraph/syntax/SyntaxValue.java),
+    written and attributed type facts and a distinct written type-parameter name;
+    [SyntaxKind](../../src/main/java/org/aquilagraph/syntax/SyntaxKind.java), distinct source-only categories;
+    [SyntaxNode](../../src/main/java/org/aquilagraph/syntax/SyntaxNode.java), type-header child invariants;
+    [MethodSyntax](../../src/main/java/org/aquilagraph/syntax/MethodSyntax.java), explicit CFG-readiness category boundary;
+    [JavaTypeDeclarationAstTest](../../src/test/java/org/aquilagraph/frontend/JavaTypeDeclarationAstTest.java), five-kind and
+    ordered-header observations; Oracle, Java SE 25
+     [ClassTree](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/ClassTree.html),
+     declaration header and member accessors, and
+     [JLS 25, §8.10.1](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.10.1),
+     record components in declaration headers, and
+    [Elements.getOrigin](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/util/Elements.html#getOrigin(javax.lang.model.element.Element)),
+    compiler declaration provenance.
