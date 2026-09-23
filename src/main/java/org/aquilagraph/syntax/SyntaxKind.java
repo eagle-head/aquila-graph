@@ -6,10 +6,18 @@ public enum SyntaxKind {
   COMPILATION_UNIT,
   /** Source type declaration occurrence. */
   TYPE_DECLARATION,
+  /** Source type parameter declaration occurrence. */
+  TYPE_PARAMETER_DECLARATION,
+  /** Source type-use occurrence. */
+  TYPE_USE,
   /** Source method or constructor declaration occurrence. */
   METHOD_DECLARATION,
   /** Source field declaration occurrence. */
   FIELD_DECLARATION,
+  /** Static initializer block owned by a source type. */
+  STATIC_INITIALIZER_BLOCK,
+  /** Instance initializer block owned by a source type. */
+  INSTANCE_INITIALIZER_BLOCK,
   /** Statement block. */
   BLOCK,
   /** Local variable declaration. */
@@ -85,6 +93,17 @@ public enum SyntaxKind {
     };
   }
 
+  boolean isMethodBodySyntax() {
+    return switch (this) {
+      case BLOCK, LOCAL_DECLARATION, EXPRESSION_STATEMENT, RETURN, THROW, IF, TRY, CATCH, SWITCH_EXPRESSION, CASE, YIELD, INVOCATION,
+          OBJECT_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT,
+          VARIABLE_LOCATION, FIELD_LOCATION, ARRAY_LOCATION, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST, CONDITIONAL_EXPRESSION,
+          EMPTY ->
+        true;
+      default -> false;
+    };
+  }
+
   boolean supports(JavaSourceKind sourceKind) {
     if (this == UNSUPPORTED) {
       return sourceKind.identifiesSourceSyntax();
@@ -98,8 +117,10 @@ public enum SyntaxKind {
         case CLASS, INTERFACE, ENUM, RECORD, ANNOTATION_TYPE -> true;
         default -> false;
       };
+      case TYPE_PARAMETER_DECLARATION -> sourceKind == JavaSourceKind.TYPE_PARAMETER;
+      case TYPE_USE -> sourceKind.identifiesTypeUseSyntax();
       case METHOD_DECLARATION -> sourceKind == JavaSourceKind.METHOD;
-      case BLOCK -> sourceKind == JavaSourceKind.BLOCK;
+      case STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, BLOCK -> sourceKind == JavaSourceKind.BLOCK;
       case FIELD_DECLARATION, LOCAL_DECLARATION -> sourceKind == JavaSourceKind.VARIABLE;
       case EXPRESSION_STATEMENT -> sourceKind == JavaSourceKind.EXPRESSION_STATEMENT;
       case RETURN -> sourceKind == JavaSourceKind.RETURN;

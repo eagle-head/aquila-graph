@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.ResolutionStatus;
@@ -35,6 +36,27 @@ class JavaAstAggregateTest {
 
     // Assert
     assertTrue(error.getMessage().contains("AST source root must be a compilation unit"));
+  }
+
+  @Test
+  void givenSynthesizedTypeOnSourceChildEdge_whenAggregateIsSealed_thenMissingSourceRangeIsRejected() {
+    // Arrange
+    var rootPath = SyntaxStructuralPath.sourceFileRoot();
+    var type = SyntaxNode.withoutDirectSource("a", rootPath.child(SyntaxRole.TYPE_DECLARATION, 0), JavaSourceKind.CLASS,
+        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.TypeDeclaration("Generated", Set.of(), Set.of(),
+            new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0)),
+        List.of(), Optional.empty());
+    var root = SyntaxNode.source("a", rootPath, JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY),
+        List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, type)), Optional.empty(),
+        new SourceSpan("a", 0, CONTENT.length()));
+
+    // Act
+    var error = failure(snapshot("a"), contribution(root));
+
+    // Assert
+    assertTrue(error.getMessage().contains("AST node lacks a required source range"));
   }
 
   @Test
@@ -758,22 +780,36 @@ class JavaAstAggregateTest {
     var snapshot = snapshot("a");
     var typePath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
     var memberPath = typePath.child(SyntaxRole.MEMBER, 0);
+    var bodyPath = memberPath.child(SyntaxRole.BODY, 0);
+    var statementPath = bodyPath.child(SyntaxRole.STATEMENT, 0);
     var reference = reference("external");
-    var plainMember = SyntaxNode.source("a", memberPath, JavaSourceKind.METHOD, SyntaxKind.UNSUPPORTED,
-        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("METHOD"), List.of(), Optional.empty(),
+    var plainStatement = SyntaxNode.source("a", statementPath, JavaSourceKind.WHILE_LOOP, SyntaxKind.UNSUPPORTED,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("WHILE_LOOP"), List.of(), Optional.empty(),
         new SourceSpan("a", 1, 2));
-    var linkedMember = SyntaxNode.source("a", memberPath, JavaSourceKind.METHOD, SyntaxKind.UNSUPPORTED,
-        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("METHOD"), List.of(), Optional.of(reference),
+    var linkedStatement = SyntaxNode.source("a", statementPath, JavaSourceKind.WHILE_LOOP, SyntaxKind.UNSUPPORTED,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("WHILE_LOOP"), List.of(), Optional.of(reference),
         new SourceSpan("a", 1, 2));
-    var plainType = SyntaxNode.source("a", typePath, JavaSourceKind.CLASS, SyntaxKind.TYPE_DECLARATION,
+    var plainBody = SyntaxNode.source("a", bodyPath, JavaSourceKind.BLOCK, SyntaxKind.BLOCK,
         SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, plainStatement)), Optional.empty(), new SourceSpan("a", 1, 2));
+    var linkedBody = SyntaxNode.source("a", bodyPath, JavaSourceKind.BLOCK, SyntaxKind.BLOCK,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, linkedStatement)), Optional.empty(), new SourceSpan("a", 1, 2));
+    var plainMember = SyntaxNode.source("a", memberPath, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.BODY, 0, plainBody)), Optional.empty(), new SourceSpan("a", 1, 2));
+    var linkedMember = SyntaxNode.source("a", memberPath, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.BODY, 0, linkedBody)), Optional.empty(), new SourceSpan("a", 1, 2));
+    var plainType = SyntaxNode.source("a", typePath, JavaSourceKind.CLASS, SyntaxKind.TYPE_DECLARATION,
+        SyntaxType.NotApplicable.INSTANCE, typeValue(1),
         List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, plainMember)), Optional.empty(), new SourceSpan("a", 1, 2));
     var linkedType = SyntaxNode.source("a", typePath, JavaSourceKind.CLASS, SyntaxKind.TYPE_DECLARATION,
-        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        SyntaxType.NotApplicable.INSTANCE, typeValue(1),
         List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, linkedMember)), Optional.empty(), new SourceSpan("a", 1, 2));
     var plain = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, plainType)));
     var linked = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, linkedType)));
-    var edge = linkedMember.semanticEdges().getFirst();
+    var edge = linkedStatement.semanticEdges().getFirst();
 
     // Act
     var left = JavaAstAggregate.builder(snapshot).add(new SyntaxSourceContribution("a", plain, plain.descendantsAndSelf(),
@@ -795,7 +831,7 @@ class JavaAstAggregateTest {
         SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.BODY, 0, body)),
         Optional.empty(), new SourceSpan("a", 1, 2));
     var type = SyntaxNode.source("a", typePath, JavaSourceKind.CLASS, SyntaxKind.TYPE_DECLARATION,
-        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, method)),
+        SyntaxType.NotApplicable.INSTANCE, typeValue(1), List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, method)),
         Optional.empty(), new SourceSpan("a", 1, 2));
     var root = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, type)));
 
@@ -879,8 +915,13 @@ class JavaAstAggregateTest {
 
   private static SyntaxNode type(String sourceKey, SyntaxStructuralPath path) {
     return SyntaxNode.source(sourceKey, path, JavaSourceKind.CLASS, SyntaxKind.TYPE_DECLARATION,
-        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(),
+        SyntaxType.NotApplicable.INSTANCE, typeValue(0), List.of(), Optional.empty(),
         new SourceSpan(sourceKey, 1, 2));
+  }
+
+  private static SyntaxValue.TypeDeclaration typeValue(int members) {
+    return new SyntaxValue.TypeDeclaration("Type", Set.of(), Set.of(),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, members));
   }
 
   private static SyntaxNode block(String sourceKey, SyntaxStructuralPath path) {

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.JavaTypeIdentity;
 import org.aquilagraph.model.ReferenceKind;
@@ -17,6 +18,111 @@ import org.junit.jupiter.api.Test;
 class SyntaxNodeTest {
   private static final SourceSpan ORIGIN = new SourceSpan("source", 0, 1);
   private static final JavaTypeIdentity INT_TYPE = new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int");
+
+  @Test
+  void givenTypeHeaderShapeWithoutSuperclass_whenCreated_thenMissingAttachmentIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var value = new SyntaxValue.TypeDeclaration("Example", Set.of(), Set.of(),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
+        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value, List.of(), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("SUPERCLASS"));
+  }
+
+  @Test
+  void givenTypeHeaderRoleWithAnnotationChild_whenCreated_thenWrongAttachmentKindIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var annotation = SyntaxNode.source("source", path.child(SyntaxRole.INTERFACE, 0), JavaSourceKind.ANNOTATION,
+        SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+    var value = new SyntaxValue.TypeDeclaration("Example", Set.of(), Set.of(),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 1, 0, 0));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
+        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value,
+        List.of(new SyntaxChild(SyntaxRole.INTERFACE, 0, annotation)), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("child kind"));
+  }
+
+  @Test
+  void givenTypeHeaderRoleWithBlockBoundary_whenCreated_thenNonTypeAttachmentIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var block = SyntaxNode.source("source", path.child(SyntaxRole.SUPERCLASS, 0), JavaSourceKind.BLOCK,
+        SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported(JavaSourceKind.BLOCK.stableId()),
+        List.of(), Optional.empty(), ORIGIN);
+    var value = new SyntaxValue.TypeDeclaration("Example", Set.of(), Set.of(),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
+        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value,
+        List.of(new SyntaxChild(SyntaxRole.SUPERCLASS, 0, block)), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("child kind"));
+  }
+
+  @Test
+  void givenGenericUnsupportedTypeUse_whenAttachedToTypeHeader_thenAttachmentIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var superclass = SyntaxNode.source("source", path.child(SyntaxRole.SUPERCLASS, 0), JavaSourceKind.IDENTIFIER,
+        SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("IDENTIFIER"), List.of(),
+        Optional.empty(), ORIGIN);
+    var value = new SyntaxValue.TypeDeclaration("Example", Set.of(), Set.of(),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
+        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value,
+        List.of(new SyntaxChild(SyntaxRole.SUPERCLASS, 0, superclass)), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("child kind"));
+  }
+
+  @Test
+  void givenGenericSourceSymbolForTypeParameter_whenCreated_thenDeclarationValueIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.TYPE_PARAMETER, 0);
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.TYPE_PARAMETER, SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.SourceSymbol("T"), List.of(), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("TypeParameterDeclaration"));
+  }
+
+  @Test
+  void givenGenericUnsupportedInitializer_whenAttachedToTypeMember_thenMemberIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var initializer = SyntaxNode.source("source", path.child(SyntaxRole.MEMBER, 0), JavaSourceKind.BLOCK,
+        SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("BLOCK"), List.of(),
+        Optional.empty(), ORIGIN);
+    var value = new SyntaxValue.TypeDeclaration("Example", Set.of(), Set.of(),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
+        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value,
+        List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, initializer)), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("child kind"));
+  }
 
   @Test
   void givenIfNodeWithTypedRoles_whenQueried_thenStructureDoesNotDependOnChildPosition() {
@@ -114,6 +220,23 @@ class SyntaxNodeTest {
         new SyntaxValue.Unsupported("WHILE_LOOP"), List.of(), Optional.empty());
     var root = source("root", SyntaxKind.BLOCK, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
         List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, unsupported)), Optional.empty());
+    var methodSyntax = MethodSyntaxFixture.view("type:Example#run()", root);
+
+    // Act
+    var readiness = methodSyntax.readiness();
+
+    // Assert
+    assertEquals(SyntaxReadiness.UNSUPPORTED, readiness);
+  }
+
+  @Test
+  void givenSourceOnlyOccurrenceInMethodBody_whenReadinessIsQueried_thenBodyIsNotLowerable() {
+    // Arrange
+    var initializer = SyntaxNode.source("source", path("initializer"), JavaSourceKind.BLOCK,
+        SyntaxKind.INSTANCE_INITIALIZER_BLOCK, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(),
+        Optional.empty(), ORIGIN);
+    var root = source("root", SyntaxKind.BLOCK, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, initializer)), Optional.empty());
     var methodSyntax = MethodSyntaxFixture.view("type:Example#run()", root);
 
     // Act

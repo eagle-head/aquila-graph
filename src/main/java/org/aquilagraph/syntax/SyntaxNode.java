@@ -450,6 +450,8 @@ public final class SyntaxNode {
         case PROVIDES -> SyntaxValue.Provides.class;
         default -> throw new IllegalStateException("Unexpected compilation-unit source kind");
       };
+      case TYPE_DECLARATION -> SyntaxValue.TypeDeclaration.class;
+      case TYPE_PARAMETER_DECLARATION -> SyntaxValue.TypeParameterDeclaration.class;
       case LOCAL_DECLARATION -> SyntaxValue.LocalDeclaration.class;
       case VARIABLE_ACCESS, VARIABLE_LOCATION, ARRAY_LENGTH -> SyntaxValue.SourceSymbol.class;
       case FIELD_ACCESS, FIELD_LOCATION -> SyntaxValue.FieldAccess.class;
@@ -530,7 +532,7 @@ public final class SyntaxNode {
           default -> throw new IllegalStateException("Unexpected compilation-unit source kind");
         }
       }
-      case TYPE_DECLARATION -> requireShape(children, Set.of(SyntaxRole.MEMBER));
+      case TYPE_DECLARATION -> validateTypeDeclaration(SyntaxValue.TypeDeclaration.class.cast(value), children);
       case METHOD_DECLARATION -> requireShape(children, Set.of(SyntaxRole.BODY), SyntaxRole.BODY, 0, 1);
       case BLOCK -> requireShape(children, Set.of(SyntaxRole.STATEMENT));
       case LOCAL_DECLARATION -> requireShape(children, Set.of(SyntaxRole.INITIALIZER), SyntaxRole.INITIALIZER, 0, 1);
@@ -585,8 +587,40 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.TRUE_EXPRESSION, 1, 1);
         requireCount(children, SyntaxRole.FALSE_EXPRESSION, 1, 1);
       }
-      case FIELD_DECLARATION, VARIABLE_ACCESS, VARIABLE_LOCATION, RECEIVER, LITERAL, EMPTY -> requireShape(children, Set.of());
+      case TYPE_PARAMETER_DECLARATION, TYPE_USE, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, FIELD_DECLARATION, VARIABLE_ACCESS,
+          VARIABLE_LOCATION, RECEIVER, LITERAL, EMPTY ->
+        requireShape(children, Set.of());
       case UNSUPPORTED -> {
+      }
+    }
+  }
+
+  private static void validateTypeDeclaration(SyntaxValue.TypeDeclaration declaration, List<SyntaxChild> children) {
+    requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.TYPE_PARAMETER, SyntaxRole.SUPERCLASS, SyntaxRole.INTERFACE,
+        SyntaxRole.PERMITTED_SUBCLASS, SyntaxRole.MEMBER));
+    var shape = declaration.shape();
+    requireCount(children, SyntaxRole.ANNOTATION, shape.annotations(), shape.annotations());
+    requireCount(children, SyntaxRole.TYPE_PARAMETER, shape.typeParameters(), shape.typeParameters());
+    requireCount(children, SyntaxRole.SUPERCLASS, shape.superclass() ? 1 : 0, shape.superclass() ? 1 : 0);
+    requireCount(children, SyntaxRole.INTERFACE, shape.interfaces(), shape.interfaces());
+    requireCount(children, SyntaxRole.PERMITTED_SUBCLASS, shape.permittedSubclasses(), shape.permittedSubclasses());
+    requireCount(children, SyntaxRole.MEMBER, shape.members(), shape.members());
+    for (var child : children) {
+      var node = child.node();
+      var valid = switch (child.role()) {
+        case ANNOTATION -> node.sourceKind() == JavaSourceKind.ANNOTATION && node.syntaxKind() == SyntaxKind.COMPILATION_UNIT;
+        case TYPE_PARAMETER ->
+          node.sourceKind() == JavaSourceKind.TYPE_PARAMETER && node.syntaxKind() == SyntaxKind.TYPE_PARAMETER_DECLARATION;
+        case SUPERCLASS, INTERFACE, PERMITTED_SUBCLASS ->
+          node.syntaxKind() == SyntaxKind.TYPE_USE && node.sourceKind().identifiesTypeUseSyntax();
+        case MEMBER -> switch (node.syntaxKind()) {
+          case TYPE_DECLARATION, METHOD_DECLARATION, FIELD_DECLARATION, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK -> true;
+          default -> false;
+        };
+        default -> throw new IllegalStateException("Unexpected type declaration child role");
+      };
+      if (!valid) {
+        throw new IllegalArgumentException("Type declaration child kind does not match its role");
       }
     }
   }

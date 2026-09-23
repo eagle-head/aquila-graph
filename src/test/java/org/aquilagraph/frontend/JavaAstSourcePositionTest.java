@@ -25,6 +25,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Consumer;
+import javax.lang.model.element.TypeElement;
+import javax.lang.model.util.Elements;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
 import javax.tools.SimpleJavaFileObject;
@@ -40,8 +42,11 @@ import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.StableId;
 import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.syntax.MethodBodyOrigin;
+import org.aquilagraph.syntax.JavaSourceKind;
 import org.aquilagraph.syntax.SyntaxKind;
+import org.aquilagraph.syntax.SyntaxNode;
 import org.aquilagraph.syntax.SyntaxRole;
+import org.aquilagraph.syntax.SyntaxValue;
 import org.aquilagraph.syntax.SyntaxAnalysisInput;
 import org.aquilagraph.core.AnalysisEngine;
 import org.junit.jupiter.api.Test;
@@ -258,6 +263,148 @@ class JavaAstSourcePositionTest {
   }
 
   @Test
+  void givenMissingTypeHeaderRanges_whenTranslated_thenTypeIsWithheldAndDistinctErrorsAreReturned() throws IOException {
+    // Arrange
+    withCompiledSource("class Example implements First, Second {} interface First {} interface Second {}", fixture -> {
+      var type = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), type.getImplementsClause()));
+
+      // Act
+      var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
+          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+      var root = result.contribution().orElseThrow().root();
+
+      // Assert
+      assertEquals(2, root.children(SyntaxRole.TYPE_DECLARATION).size());
+      assertTrue(root.children(SyntaxRole.TYPE_DECLARATION).stream()
+          .noneMatch(node -> node.value(SyntaxValue.TypeDeclaration.class).name().equals("Example")));
+      assertEquals(List.of("frontend.missing-source-position", "frontend.missing-source-position"),
+          result.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+      assertNotEquals(result.diagnostics().get(0).diagnosticKey(), result.diagnostics().get(1).diagnosticKey());
+      assertTrue(result.diagnostics().stream().allMatch(diagnostic -> diagnostic.severity() == DiagnosticSeverity.ERROR
+          && diagnostic.outcomeKind() == AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
+    });
+  }
+
+  @Test
+  void givenMissingTypeHeaderWithWrittenMembers_whenProgramIsTranslated_thenAggregateSealsWithoutOrphanEdges() throws IOException {
+    // Arrange
+    Files.writeString(sourceRoot.resolve("Example.java"),
+        "class Example implements First { int value; void action() {} } interface First {}");
+    var loader = new JavaSourceLoader();
+    var snapshot = loader.discover(sourceRoot);
+    var baseline = new JavaFrontend(loader).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var sources = new SnapshotSourceCatalog(snapshot);
+    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(),
+        JavaCompilerInvocation.from(CompilerConfiguration.forRelease(JavaRelease.JAVA_25)), sources)) {
+      var parsed = session.parse();
+      var compilation = session.analyze(parsed);
+      var unit = compilation.units().getFirst();
+      var declaration = (ClassTree) unit.getTypeDecls().getFirst();
+      var positions = new SourcePositions() {
+        @Override
+        public long getStartPosition(CompilationUnitTree currentUnit, Tree tree) {
+          return compilation.sourceEvidence().origin(currentUnit, sources.find(currentUnit).orElseThrow(), tree)
+              .map(SourceSpan::startOffset).orElse(Diagnostic.NOPOS);
+        }
+
+        @Override
+        public long getEndPosition(CompilationUnitTree currentUnit, Tree tree) {
+          return compilation.sourceEvidence().origin(currentUnit, sources.find(currentUnit).orElseThrow(), tree)
+              .map(SourceSpan::endOffsetExclusive).orElse(Diagnostic.NOPOS);
+        }
+      };
+      var evidence = new JavaSourceEvidence(new MissingPositions(positions, List.of(declaration.getImplementsClause().getFirst())));
+
+      // Act
+      var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
+          baseline.languageFeatureCoverage()).translate(snapshot, compilation.units());
+      var aggregate = translated.value().aggregate().orElseThrow();
+      var diagnostics = new ArrayList<>(baseline.diagnostics());
+      diagnostics.addAll(translated.diagnostics());
+      var input = new SyntaxAnalysisInput(snapshot, baseline.environmentSnapshot(), translated.value().program(),
+          translated.value().aggregate(), diagnostics, baseline.languageFeatureCoverageResult());
+      var run = new AnalysisEngine().analyze(input);
+
+      // Assert
+      assertTrue(aggregate.roots().getFirst().children(SyntaxRole.TYPE_DECLARATION).stream()
+          .noneMatch(type -> type.value(SyntaxValue.TypeDeclaration.class).name().equals("Example")));
+      assertTrue(aggregate.semanticEdges().stream().allMatch(edge -> aggregate.node(edge.sourceKey()).isPresent()));
+      var action = translated.value().program().types().stream().filter(type -> type.qualifiedName().equals("Example"))
+          .flatMap(type -> type.methods().stream()).filter(method -> method.name().equals("action")).findFirst().orElseThrow();
+      assertEquals(MethodBodyOrigin.EXECUTION_PROJECTION, aggregate.methodBodyOrigin(action.methodKey()).orElseThrow());
+      assertTrue(translated.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.missing-source-position")
+          && diagnostic.severity() == DiagnosticSeverity.ERROR));
+      assertTrue(run.completion() != AnalysisCompletion.COMPLETED);
+    }
+  }
+
+  @Test
+  void givenAttributedTypeMembers_whenComparedWithParsedInventory_thenOnlyWrittenBodyMembersHaveSourceEdges() throws IOException {
+    // Arrange
+    var source = """
+        interface Example { int field = 1; void action(); class Nested {} }
+        enum Shade { RED }
+        record Pair(int left) {}
+        """;
+    withCompiledSource(source, fixture -> {
+      var unitPath = new TreePath(fixture.unit());
+      var contributor = new JavaAstContributionTranslator(fixture.semantics(), new JavaSourceEvidence(fixture.positions()),
+          fixture.inventory());
+
+      // Act
+      var root = contributor.translate(fixture.unit(), fixture.sourceFile(), List.of()).contribution().orElseThrow().root();
+      var types = root.children(SyntaxRole.TYPE_DECLARATION);
+      var generatedCount = 0;
+      var nonExplicitGeneratedCount = 0;
+      var recordComponentCount = 0;
+      for (var ordinal = 0; ordinal < types.size(); ordinal++) {
+        var declaration = (ClassTree) fixture.unit().getTypeDecls().get(ordinal);
+        var classPath = new TreePath(unitPath, declaration);
+        var typeElement = (TypeElement) fixture.semantics().element(classPath);
+        var expected = new ArrayList<String>();
+        for (var member : declaration.getMembers()) {
+          if (!fixture.inventory().isWritten(member)) {
+            generatedCount++;
+            var generatedElement = fixture.semantics().element(new TreePath(classPath, member));
+            if (generatedElement != null && fixture.elements().getOrigin(generatedElement) != Elements.Origin.EXPLICIT) {
+              nonExplicitGeneratedCount++;
+            }
+            continue;
+          }
+          var memberPath = new TreePath(classPath, member);
+          var origin = fixture.elements().getOrigin(fixture.semantics().element(memberPath));
+          if (declaration.getKind() == Tree.Kind.RECORD && member instanceof VariableTree variable
+              && typeElement.getRecordComponents().stream()
+                  .anyMatch(component -> component.getSimpleName().contentEquals(variable.getName()))) {
+            assertEquals(Elements.Origin.EXPLICIT, origin);
+            recordComponentCount++;
+            continue;
+          }
+          assertEquals(Elements.Origin.EXPLICIT, origin);
+          var syntaxKind = switch (member) {
+            case MethodTree ignored -> SyntaxKind.METHOD_DECLARATION;
+            case VariableTree ignored -> SyntaxKind.FIELD_DECLARATION;
+            case ClassTree ignored -> SyntaxKind.TYPE_DECLARATION;
+            default -> throw new IllegalStateException("Unexpected source member kind: " + member.getKind());
+          };
+          var start = fixture.positions().getStartPosition(fixture.unit(), member);
+          var end = fixture.positions().getEndPosition(fixture.unit(), member);
+          expected.add(syntaxKind + "|" + JavaSourceKind.valueOf(member.getKind().name()) + "|"
+              + source.substring(Math.toIntExact(start), Math.toIntExact(end)));
+        }
+        var actual = types.get(ordinal).children(SyntaxRole.MEMBER).stream().map(node -> memberTuple(source, node)).toList();
+
+        // Assert
+        assertEquals(expected, actual);
+      }
+      assertTrue(generatedCount > 0);
+      assertTrue(nonExplicitGeneratedCount > 0);
+      assertEquals(1, recordComponentCount);
+    });
+  }
+
+  @Test
   void givenMissingFirstPackageAnnotationRange_whenTranslated_thenLaterAttachmentKeepsItsPublishedPosition() throws IOException {
     // Arrange
     withCompiledSource("@Deprecated @SuppressWarnings(\"unused\") package sample;", "package-info.java", fixture -> {
@@ -424,6 +571,12 @@ class JavaAstSourcePositionTest {
     withCompiledSource(content, "Example.java", assertion);
   }
 
+  private static String memberTuple(String source, SyntaxNode node) {
+    var range = node.origin().orElseThrow();
+    return node.syntaxKind() + "|" + node.sourceKind() + "|"
+        + source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive()));
+  }
+
   private static void withCompiledSource(String content, String filename, Consumer<CompiledSource> assertion) throws IOException {
     var compiler = ToolProvider.getSystemJavaCompiler();
     var sourceFile = new SourceFile("source", Path.of(filename), "fixture-content", content);
@@ -442,12 +595,12 @@ class JavaAstSourcePositionTest {
       var trees = Trees.instance(task);
       var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(),
           new DeclarationIdentityRegistry(trees, task.getTypes()));
-      assertion.accept(new CompiledSource(unit, sourceFile, semantics, trees.getSourcePositions(), inventory));
+      assertion.accept(new CompiledSource(unit, sourceFile, semantics, trees.getSourcePositions(), inventory, task.getElements()));
     }
   }
 
   private record CompiledSource(CompilationUnitTree unit, SourceFile sourceFile, SemanticResolver semantics,
-      SourcePositions positions, ParsedTreeInventory inventory) {
+      SourcePositions positions, ParsedTreeInventory inventory, Elements elements) {
   }
 
   private static final class MissingPositions implements SourcePositions {

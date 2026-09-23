@@ -391,7 +391,7 @@ final class JavaTypeTranslator {
     }
   }
 
-  private static Set<JavaTypeModifier> typeModifiers(Set<Modifier> modifiers) {
+  static Set<JavaTypeModifier> typeModifiers(Set<Modifier> modifiers) {
     return modifiers.stream().map(modifier -> JavaTypeModifier.valueOf(modifier.name())).collect(Collectors.toUnmodifiableSet());
   }
 

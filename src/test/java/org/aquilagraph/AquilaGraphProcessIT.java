@@ -1,6 +1,7 @@
 package org.aquilagraph;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -32,7 +33,7 @@ class AquilaGraphProcessIT {
     assertTrue(result.completed(), "The packaged analyzer process did not finish within 30 seconds: " + result.output());
     assertEquals(1, result.exitCode(), result.output());
     assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
-    assertTrue(result.output().contains("frontend.unsupported-tree-kind.compilation-unit"), result.output());
+    assertFalse(result.output().contains("frontend.unsupported-tree-kind.compilation-unit"), result.output());
     assertTrue(result.output().contains("frontend.unsupported-tree-kind.primitive-type"), result.output());
     assertTrue(result.output().contains("Java release: 25"), result.output());
     assertTrue(result.output().contains("Java source files: 1"), result.output());

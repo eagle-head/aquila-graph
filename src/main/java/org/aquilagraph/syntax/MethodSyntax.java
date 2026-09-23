@@ -41,7 +41,7 @@ public final class MethodSyntax {
    */
   public SyntaxReadiness readiness() {
     var nodes = root().descendantsAndSelf();
-    if (nodes.stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED)) {
+    if (nodes.stream().anyMatch(node -> !node.syntaxKind().isMethodBodySyntax())) {
       return SyntaxReadiness.UNSUPPORTED;
     }
     if (nodes.stream().anyMatch(MethodSyntax::hasErroneousSemantics)) {

@@ -1,14 +1,17 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.AnnotationTree;
+import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.EmptyStatementTree;
 import com.sun.source.tree.IdentifierTree;
 import com.sun.source.tree.ImportTree;
 import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.PackageTree;
 import com.sun.source.tree.Tree;
+import com.sun.source.tree.TypeParameterTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
@@ -21,6 +24,7 @@ import java.util.Objects;
 import java.util.Optional;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.TypeElement;
 import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.ResolutionStatus;
@@ -305,24 +309,121 @@ final class JavaAstContributionTranslator {
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, Map<SyntaxStructuralPath, TranslatedMethodBody> bodies,
       Map<String, SyntaxNode> publishedBodies, List<String> unavailableBodies, List<SyntaxSemanticEdge> semanticEdges,
       List<AnalysisDiagnostic> diagnostics) {
-    if (semantics.isImplicitDeclaration(classPath)) {
+    if (!treeInventory.isWritten(declaration)) {
       return Optional.empty();
     }
     var range = requiredRange(unit, sourceFile, declaration, occurrencePath, diagnostics);
     if (range.isEmpty()) {
       return Optional.empty();
     }
+    var element = semantics.element(classPath);
+    if (!(element instanceof TypeElement typeElement) || semantics.declarationKey(typeElement).isEmpty()
+        || !typeElement.getKind().name().equals(declaration.getKind().name()) || semantics.isImplicitDeclaration(classPath)) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-source-type-declaration",
+          "A written type has no matching explicit declaration element and stable key", range));
+      return Optional.empty();
+    }
+    var name = declaration.getSimpleName().toString();
+    if (!SourceVersion.isIdentifier(name)) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.missing-type-name",
+          "A written type declaration has no valid simple name", range));
+      return Optional.empty();
+    }
+    var children = new ArrayList<SyntaxChild>();
+    var stagedBodies = new HashMap<String, SyntaxNode>();
+    var stagedUnavailableBodies = new ArrayList<String>();
+    var stagedEdges = new ArrayList<SyntaxSemanticEdge>();
+    var complete = true;
+    var annotations = declaration.getModifiers().getAnnotations();
+    for (var ordinal = 0; ordinal < annotations.size(); ordinal++) {
+      var position = ordinal;
+      var role = SyntaxRole.ANNOTATION;
+      var annotation = annotations.get(ordinal);
+      var attachment = annotationAttachment(unit, sourceFile, annotation, path.child(role, position), occurrencePath.child(role, ordinal),
+          diagnostics);
+      attachment.ifPresent(node -> children.add(new SyntaxChild(role, position, node)));
+      complete &= attachment.isPresent();
+    }
+    for (var ordinal = 0; ordinal < declaration.getTypeParameters().size(); ordinal++) {
+      complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getTypeParameters().get(ordinal), path, occurrencePath,
+          SyntaxRole.TYPE_PARAMETER, ordinal, children, diagnostics);
+    }
+    if (declaration.getExtendsClause() != null) {
+      complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getExtendsClause(), path, occurrencePath, SyntaxRole.SUPERCLASS,
+          0, children, diagnostics);
+    }
+    for (var ordinal = 0; ordinal < declaration.getImplementsClause().size(); ordinal++) {
+      complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getImplementsClause().get(ordinal), path, occurrencePath,
+          SyntaxRole.INTERFACE, ordinal, children, diagnostics);
+    }
+    for (var ordinal = 0; ordinal < declaration.getPermitsClause().size(); ordinal++) {
+      complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getPermitsClause().get(ordinal), path, occurrencePath,
+          SyntaxRole.PERMITTED_SUBCLASS, ordinal, children, diagnostics);
+    }
     var members = new ArrayList<SyntaxChild>();
     for (var sourceOrdinal = 0; sourceOrdinal < declaration.getMembers().size(); sourceOrdinal++) {
       var member = declaration.getMembers().get(sourceOrdinal);
+      if (!treeInventory.isWritten(member) || member instanceof EmptyStatementTree) {
+        continue;
+      }
+      if (declaration.getKind() == Tree.Kind.RECORD && member instanceof VariableTree field
+          && typeElement.getRecordComponents().stream().anyMatch(component -> component.getSimpleName().contentEquals(field.getName()))) {
+        continue;
+      }
+      var before = members.size();
       appendMember(unit, sourceFile, classPath, member, path, occurrencePath, sourceOrdinal, SyntaxRole.MEMBER, members, bodies,
-          publishedBodies, unavailableBodies, semanticEdges, diagnostics);
+          stagedBodies, stagedUnavailableBodies, stagedEdges, diagnostics);
+      complete &= members.size() == before + 1;
     }
+    if (!complete) {
+      return Optional.empty();
+    }
+    children.addAll(members);
+    var shape = new SyntaxValue.TypeDeclaration.Shape(annotations.size(), declaration.getTypeParameters().size(),
+        declaration.getExtendsClause() != null, declaration.getImplementsClause().size(), declaration.getPermitsClause().size(),
+        members.size());
+    var value = new SyntaxValue.TypeDeclaration(name, JavaTypeTranslator.typeModifiers(declaration.getModifiers().getFlags()),
+        JavaTypeTranslator.typeModifiers(typeElement.getModifiers()), shape);
     var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.valueOf(declaration.getKind().name()),
-        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, members, Optional.empty(),
-        range.orElseThrow());
-    declarationEdge(classPath, node, semanticEdges);
+        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), range.orElseThrow());
+    declarationEdge(classPath, node, stagedEdges);
+    publishedBodies.putAll(stagedBodies);
+    unavailableBodies.addAll(stagedUnavailableBodies);
+    semanticEdges.addAll(stagedEdges);
     return Optional.of(node);
+  }
+
+  private boolean appendTypeHeaderAttachment(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath parentPath,
+      SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal, List<SyntaxChild> children,
+      List<AnalysisDiagnostic> diagnostics) {
+    var path = parentPath.child(role, ordinal);
+    var occurrencePath = parentOccurrencePath.child(role, ordinal);
+    var range = requiredRange(unit, sourceFile, tree, occurrencePath, diagnostics);
+    if (range.isEmpty()) {
+      return false;
+    }
+    var kind = JavaSourceKind.valueOf(tree.getKind().name());
+    if (role == SyntaxRole.TYPE_PARAMETER) {
+      if (!(tree instanceof TypeParameterTree parameter) || !SourceVersion.isIdentifier(parameter.getName())) {
+        diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.invalid-type-parameter-attachment",
+            "A type-parameter attachment has no written declaration name", range));
+        return false;
+      }
+      var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, kind, SyntaxKind.TYPE_PARAMETER_DECLARATION,
+          SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.TypeParameterDeclaration(parameter.getName().toString()), List.of(),
+          Optional.empty(), range.orElseThrow());
+      children.add(new SyntaxChild(role, ordinal, node));
+      return true;
+    }
+    if (!kind.identifiesTypeUseSyntax()) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.invalid-type-header-attachment",
+          "A type header attachment does not contain type-use syntax", range));
+      return false;
+    }
+    var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, kind, SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE,
+        SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range.orElseThrow());
+    children.add(new SyntaxChild(role, ordinal, node));
+    return true;
   }
 
   private void appendMember(CompilationUnitTree unit, SourceFile sourceFile, TreePath classPath, Tree member, SyntaxStructuralPath typePath,
@@ -330,7 +431,12 @@ final class JavaAstContributionTranslator {
       Map<SyntaxStructuralPath, TranslatedMethodBody> bodies, Map<String, SyntaxNode> publishedBodies, List<String> unavailableBodies,
       List<SyntaxSemanticEdge> semanticEdges, List<AnalysisDiagnostic> diagnostics) {
     var memberTreePath = new TreePath(classPath, member);
-    if (member instanceof MethodTree && semantics.isImplicitDeclaration(memberTreePath)) {
+    if (!treeInventory.isWritten(member)) {
+      return;
+    }
+    if (semantics.isImplicitDeclaration(memberTreePath)) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.inconsistent-member-origin",
+          "A written member has a compiler-generated declaration origin", sourceEvidence.origin(unit, sourceFile, member)));
       return;
     }
     var position = members.size();
@@ -343,7 +449,16 @@ final class JavaAstContributionTranslator {
         field(unit, sourceFile, memberTreePath, field, memberPath, memberOccurrencePath, semanticEdges, diagnostics);
       case ClassTree nested -> type(unit, sourceFile, memberTreePath, nested, memberPath, memberOccurrencePath, bodies, publishedBodies,
           unavailableBodies, semanticEdges, diagnostics);
-      default -> Optional.empty();
+      case BlockTree initializer -> requiredRange(unit, sourceFile, initializer, memberOccurrencePath, diagnostics)
+          .map(range -> SyntaxNode.source(sourceFile.sourceFileKey(), memberPath, JavaSourceKind.BLOCK,
+              initializer.isStatic() ? SyntaxKind.STATIC_INITIALIZER_BLOCK : SyntaxKind.INSTANCE_INITIALIZER_BLOCK,
+              SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range));
+      case EmptyStatementTree ignored -> Optional.empty();
+      default -> {
+        diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unclassified-type-member",
+            "A written type member has no source AST declaration form", sourceEvidence.origin(unit, sourceFile, member)));
+        yield Optional.empty();
+      }
     };
     translated.ifPresent(node -> members.add(new SyntaxChild(role, position, node)));
   }

@@ -3,6 +3,8 @@ package org.aquilagraph.syntax;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import org.aquilagraph.model.JavaTypeModifier;
 import org.aquilagraph.model.InvocationForm;
 import org.aquilagraph.model.InvocationSemantics;
 
@@ -327,10 +329,11 @@ public sealed interface SyntaxValue {
   }
 
   /** Shared source-name value boundary for typed syntax facts. */
-  abstract sealed class Symbol implements SyntaxValue
-      permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration, ModuleDeclaration, ModuleDirective {
+  abstract sealed class Symbol implements SyntaxValue permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration,
+      ModuleDeclaration, ModuleDirective, TypeDeclaration, TypeParameterDeclaration {
     enum Form {
-      SYMBOL, COMPILATION_UNIT, PACKAGE_DECLARATION, IMPORT_DECLARATION, MODULE_DECLARATION, REQUIRES, EXPORTS, OPENS, USES, PROVIDES
+      SYMBOL, COMPILATION_UNIT, PACKAGE_DECLARATION, IMPORT_DECLARATION, MODULE_DECLARATION, REQUIRES, EXPORTS, OPENS, USES, PROVIDES,
+      TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION
     }
 
     private final String sourceName;
@@ -369,6 +372,107 @@ public sealed interface SyntaxValue {
     @Override
     public String toString() {
       return getClass().getSimpleName() + "[name=" + sourceName + ']';
+    }
+  }
+
+  /** Written type declaration facts and the required shape of its direct source children. */
+  final class TypeDeclaration extends Symbol {
+    /**
+     * Expected direct attachments and semantic members.
+     *
+     * @param annotations
+     *          number of written declaration annotations
+     * @param typeParameters
+     *          number of written type parameters
+     * @param superclass
+     *          whether a written superclass is present
+     * @param interfaces
+     *          number of written interface attachments
+     * @param permittedSubclasses
+     *          number of written permitted subclass attachments
+     * @param members
+     *          number of written body members
+     */
+    public record Shape(int annotations, int typeParameters, boolean superclass, int interfaces, int permittedSubclasses, int members) {
+      /** Rejects negative cardinalities. */
+      public Shape {
+        if (annotations < 0 || typeParameters < 0 || interfaces < 0 || permittedSubclasses < 0 || members < 0) {
+          throw new IllegalArgumentException("Type declaration child counts cannot be negative");
+        }
+      }
+    }
+
+    private record Details(Set<JavaTypeModifier> writtenModifiers, Set<JavaTypeModifier> effectiveModifiers, Shape shape) {
+      private Details {
+        writtenModifiers = Set.copyOf(Objects.requireNonNull(writtenModifiers, "writtenModifiers"));
+        effectiveModifiers = Set.copyOf(Objects.requireNonNull(effectiveModifiers, "effectiveModifiers"));
+        Objects.requireNonNull(shape, "shape");
+      }
+    }
+
+    private final Details details;
+
+    /**
+     * Creates a source type declaration without conflating written and attributed modifiers.
+     *
+     * @param name
+     *          written simple name
+     * @param writtenModifiers
+     *          modifiers on the source tree
+     * @param effectiveModifiers
+     *          modifiers reported by the declaration element
+     * @param shape
+     *          required direct child shape
+     */
+    public TypeDeclaration(String name, Set<JavaTypeModifier> writtenModifiers, Set<JavaTypeModifier> effectiveModifiers, Shape shape) {
+      this(name, new Details(writtenModifiers, effectiveModifiers, shape));
+    }
+
+    private TypeDeclaration(String name, Details details) {
+      super(name, Form.TYPE_DECLARATION, details);
+      SyntaxValueSupport.requireName(name);
+      this.details = details;
+    }
+
+    /**
+     * Returns modifiers present on the source tree.
+     *
+     * @return source-written modifiers
+     */
+    public Set<JavaTypeModifier> writtenModifiers() {
+      return details.writtenModifiers();
+    }
+
+    /**
+     * Returns modifiers reported by the attributed declaration.
+     *
+     * @return attributed modifiers
+     */
+    public Set<JavaTypeModifier> effectiveModifiers() {
+      return details.effectiveModifiers();
+    }
+
+    /**
+     * Returns the required direct child shape.
+     *
+     * @return required direct child shape
+     */
+    public Shape shape() {
+      return details.shape();
+    }
+  }
+
+  /** Written name of a type parameter declaration. */
+  final class TypeParameterDeclaration extends Symbol {
+    /**
+     * Creates a type parameter name distinct from other source symbols.
+     *
+     * @param name
+     *          written simple name
+     */
+    public TypeParameterDeclaration(String name) {
+      super(name, Form.TYPE_PARAMETER_DECLARATION, None.INSTANCE);
+      SyntaxValueSupport.requireName(name);
     }
   }
 

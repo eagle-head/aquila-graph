@@ -254,4 +254,18 @@ public enum JavaSourceKind {
   public boolean identifiesSourceSyntax() {
     return this != OTHER;
   }
+
+  /**
+   * Indicates whether this source kind can identify a type-use tree in a declaration header.
+   *
+   * @return {@code true} for type-use syntax, including erroneous source type uses
+   */
+  public boolean identifiesTypeUseSyntax() {
+    return switch (this) {
+      case ANNOTATED_TYPE, ARRAY_TYPE, IDENTIFIER, MEMBER_SELECT, PARAMETERIZED_TYPE, PRIMITIVE_TYPE, UNION_TYPE, INTERSECTION_TYPE,
+          UNBOUNDED_WILDCARD, EXTENDS_WILDCARD, SUPER_WILDCARD, ERRONEOUS ->
+        true;
+      default -> false;
+    };
+  }
 }

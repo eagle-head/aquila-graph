@@ -20,6 +20,14 @@ public enum SyntaxRole {
   TYPE_DECLARATION("type-declaration"),
   /** Member declaration within a type. */
   MEMBER("member"),
+  /** Type parameter written in a type declaration header. */
+  TYPE_PARAMETER("type-parameter"),
+  /** Written direct superclass type attachment. */
+  SUPERCLASS("superclass"),
+  /** Written implemented or extended interface type attachment. */
+  INTERFACE("interface"),
+  /** Written permitted subclass type attachment. */
+  PERMITTED_SUBCLASS("permitted-subclass"),
   /** Statement within an ordered statement sequence. */
   STATEMENT("statement"),
   /** Initializer belonging to a declaration. */
