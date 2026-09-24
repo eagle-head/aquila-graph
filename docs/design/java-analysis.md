@@ -90,13 +90,42 @@ uses the pre-attribution written-tree inventory and the attributed declaration
 origin together so compiler-inserted constructors and members do not become
 source children. A record component that javac also exposes as a field-shaped
 `ClassTree.getMembers()` tree belongs to the record header, so it is not a body
-member child; the existing record-component capability diagnostic remains until
-that header is modeled. Member edges and source-body registrations are published
+member child. Each written component is a `RECORD_COMPONENT_DECLARATION` child
+with an owner-and-ordinal key, ordered annotation and type attachments, attributed
+type, varargs state, and source range. `JavaType.recordComponents` retains the
+same declaration identities with explicit accessor, backing-field, and canonical
+parameter correlations. Ordinary fields and enum constants have separate typed
+source kinds and retain their written modifiers, declared type, initializer
+presence, and enum argument-list, argument-count, or constant-body presence.
+An explicit empty enum argument list remains distinct from an omitted list. Full initializer and
+annotation content remains at its later feature boundary. The direct
+`TypeElement.getEnclosedElements()` inventory is reconciled with detailed member
+aggregates; remaining compiler-exposed declarations become stable-keyed
+`JavaSynthesizedDeclaration` facts outside source AST edges. Member edges and source-body registrations are published
 only after the complete enclosing type is retained. A missing required header
 range or a mismatch between a written type and its attributed declaration
 withholds that type and emits a blocking frontend error. The canonical `JavaType`
 declaration and its hierarchy references remain separate from these source
 occurrences; this increment changes no Neo4j AST projection.[2][28][29]
+Direct compiler member keys must equal the union of detailed member keys and
+typed synthesized keys. An unmatched key emits a blocking frontend error;
+synthesized declarations are ordered by canonical key because compiler order
+for implicit members is unspecified. A record source contribution requires its
+correlated semantic component inventory, including when translated directly.
+An unmatched `EXPLICIT` non-method member blocks publication even when its
+source tree is unavailable. Method provenance uses the pre-attribution
+written-tree inventory: each written method must resolve to a direct compiler
+element and canonical key. An unmatched compiler method reported `EXPLICIT`
+with no source tree enters the synthesized inventory only when that
+written-method inventory is complete and its key is absent from it.
+Incomplete correlation emits a blocking diagnostic. This source-first rule
+also handles javac's `EXPLICIT` origin for implicit enum and record methods.[30]
+Duplicate translated type or member keys block the aggregate and retain compiler
+errors as diagnostics. Enum delimiter evidence follows Java's Unicode-escape
+eligibility before scanning comments and punctuation.[30]
+`JavaMethod` and `JavaParameter` retain written provenance only when a pre-attribution
+tree and an explicit compiler declaration agree; implicit canonical formals
+retain stable keys without source origins or source AST children.[2][29]
 `MethodSyntax` derives CFG readiness from an explicit set of method-body syntax
 categories. A source-only occurrence cannot become lowerable merely because it
 has a typed AST category; unresolved or unsupported body content remains blocked.
@@ -223,24 +252,25 @@ diagnosed policy.[23][24][25]
 
 The declaration-property catalog represents method type parameters, written and attributed thrown types,
 receiver syntax, attributed receiver types, and variable arity in source-owned
-executable headers. Formal parameters carry compiler-correlated declaration keys;
+executable headers. Formal parameters carry compiler-correlated declaration keys
+and written versus compiler-derived provenance;
 explicit receivers carry an executable owner key because they do not declare
 variables. The attributed receiver-type outcome remains separate from optional
 written receiver syntax. A resolved receiver identifies its declaring type for an
 instance method or its immediately enclosing type for an inner constructor.
 Ordered attributed thrown types correspond one-to-one with written `throws`
 attachments; an unavailable attribution prevents publication of the declaration.
-Declaration annotations, annotation defaults, and record components remain connected
-to source-located frontend errors. Those errors flow through the existing completion
+Unrepresented annotation content and defaults remain connected to source-located
+frontend errors. Those errors flow through the existing completion
 projection and therefore prevent `COMPLETED` without using CFG construction as the
 declaration-coverage oracle. Written receiver names and qualifiers are distinct from
-formal parameters. Variable modifiers or initializers that lack a current
-representation boundary, local declaration annotations, and compiler-mandated
-enclosed declarations also produce source-located capability errors. The catalog
-therefore classifies `VariableTree.getModifiers()` and
-`VariableTree.getInitializer()` conservatively as diagnosed: field modifiers and
-local initializer syntax remain retained where supported, while any context that
-would discard either fact must emit the catalog's diagnostic. Written and attributed
+formal parameters. Local declaration modifiers and annotation content outside
+their later feature boundary also produce source-located capability errors. The
+catalog classifies `VariableTree.getModifiers()` and
+`VariableTree.getInitializer()` as represented for written declaration
+attachments and initializer presence. Parameter annotation content, local
+declaration modifiers, and initializer expression content retain specific
+diagnostics until their later owners represent them. Written and attributed
 executable modifiers remain distinct in the source AST; attributed modifiers, including
 implicit interface method modifiers, are also retained in `JavaMethod`. Compiler errors
 retain their distinct `compiler.err.*` codes.[2][23][25][29]
@@ -374,16 +404,14 @@ their full CFG semantics can be represented without discarding source
 information. Unrestricted nested exception handling is likewise not part of
 this profile.[2][5]
 
-Declaration facts outside this profile report stable capability-specific frontend
-errors: `frontend.unsupported-declaration-annotations`,
-`frontend.unsupported-annotation-default`, `frontend.unsupported-record-components`,
-`frontend.unsupported-variable-modifiers`,
-`frontend.unsupported-variable-initializer`, and
-`frontend.unsupported-enclosed-declarations`. The declaration-property regression
-suite uses valid Java 25 sources and verifies both the expected diagnostic and a
-non-completed analysis outcome for every named fact, plus the contextual variable,
-implicit-modifier, and compiler-mandated-member boundaries. Package, import,
-module, executable, and type-parameter headers have positive aggregate tuple tests.
+Declaration content outside this profile reports stable capability-specific frontend
+errors for annotation values, defaults, local variable modifiers, and initializer
+subtrees. `TypeElement.getRecordComponents()` and `getEnclosedElements()` now have
+represented policies, backed by ordered components and reconciled direct member
+inventory. The declaration-property regression suite verifies the remaining
+diagnostics and represented policies. Package, import, module, type, executable,
+type-parameter, field, enum-constant, and record-component headers have positive
+aggregate tuple tests.
 Type-use and annotation-value content retain their own diagnostic boundaries.[2][25][29]
 
 ## Graph-Native Semantic Lowering and Control Flow
@@ -737,3 +765,14 @@ implements its bounded model and has no runtime dependency on
     [§8.8](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.8), and
     [§9.6.2](https://docs.oracle.com/javase/specs/jls/se25/html/jls-9.html#jls-9.6.2),
     kind-specific method result, constructor body, and annotation default rules.
+30. [JavaEnumConstantSourceEvidence](../../src/main/java/org/aquilagraph/frontend/JavaEnumConstantSourceEvidence.java),
+    Unicode-aware enum delimiter evidence;
+    [JavaTypeTranslator](../../src/main/java/org/aquilagraph/frontend/JavaTypeTranslator.java),
+    direct declaration reconciliation;
+    [JavaVariableDeclarationAstTest](../../src/test/java/org/aquilagraph/frontend/JavaVariableDeclarationAstTest.java),
+    enum, record, duplicate-type, and compiler inventory observations;
+    [JLS 25 §3.3](https://docs.oracle.com/javase/specs/jls/se25/html/jls-3.html#jls-3.3),
+    Unicode-escape eligibility;
+    [§8.9.3](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.9.3) and
+    [§8.10.3](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.10.3),
+    implicit enum and record methods.

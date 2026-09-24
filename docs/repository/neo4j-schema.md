@@ -21,7 +21,8 @@ which makes publication idempotent at the run boundary.[1][2]
 
 `AnalysisRun`, `InputSnapshot`, `AnalysisEnvironmentSnapshot`,
 `CompilerConfiguration`, `DependencySnapshot`, `SourceFile`, `Program`,
-`JavaType`, `JavaTypeParameter`, `JavaTypeReference`, `JavaField`, `JavaMethod`,
+`JavaType`, `JavaTypeParameter`, `JavaTypeReference`, `JavaField`,
+`JavaRecordComponent`, `JavaSynthesizedDeclaration`, `JavaMethod`,
 `JavaParameter`, `SemanticReference`,
 `MethodAnalysis`, `ControlFlowGraph`, `FlowValue`,
 `EntryNode`, `OperationNode`, `ExitNode`, `Diagnostic`, and `SourceOrigin`.[1]
@@ -62,6 +63,23 @@ nominal erasure, and compiler-independent category without persisting the syntax
 tree or relying on a semantic reference to recover an expression type.
 `JavaField` additionally stores its name, sorted modifiers, enum-constant flag,
 source-declaration flag, owning type key, and available declaration origins.[2][9]
+`JavaParameter` also stores `sourceDeclared`: written formals retain source origins,
+while implicit canonical record formals retain their canonical parameter keys
+without source origins.[2][9]
+
+`JavaRecordComponent` has an independent owner-and-ordinal key, name, position,
+varargs state, sorted written and attributed modifiers, and the same four typed
+`staticType` properties as `JavaField`. Available `accessorKey`, `backingFieldKey`,
+and `canonicalParameterKey` properties identify compiler-derived counterparts.
+`DECLARES_RECORD_COMPONENT` retains header order, and `HAS_ORIGIN` points to the
+written header range. `JavaSynthesizedDeclaration` stores a stable canonical key,
+compiler declaration kind, and `sourceDeclared=false`; ordered
+`DECLARES_SYNTHESIZED` connects it to its declaring type in canonical-key order
+without presenting it as
+source AST syntax. Detailed compiler-derived fields and methods remain in their
+existing typed node families.[2][9]
+Declaration keys are disjoint across type, type-parameter, field, component,
+method, and synthesized node families before projection.[2][9]
 
 Every `INVOKE` and `NEW_OBJECT` `OperationNode` stores `invocationMode`,
 `invocationForm`, and qualifying-type identity properties
@@ -94,7 +112,8 @@ Ownership and traceability use `HAS_INPUT`, `HAS_ENVIRONMENT`,
 `HAS_SOURCE`, `HAS_PROGRAM`, `HAS_DIAGNOSTIC`, `DECLARES_TYPE`,
 `ENCLOSED_BY`, `HAS_DIRECT_SUPERCLASS`, `HAS_DIRECT_INTERFACE`,
 `PERMITS_SUBCLASS`, `DECLARES_TYPE_PARAMETER`, `HAS_TYPE_BOUND`,
-`DECLARES_FIELD`, `DECLARES_METHOD`, `DECLARES_PARAMETER`, `HAS_REFERENCE`, `HAS_ORIGIN`,
+`DECLARES_FIELD`, `DECLARES_RECORD_COMPONENT`, `DECLARES_SYNTHESIZED`,
+`DECLARES_METHOD`, `DECLARES_PARAMETER`, `HAS_REFERENCE`, `HAS_ORIGIN`,
 `IN_SOURCE`, `HAS_METHOD_ANALYSIS`,
 `ANALYZES_METHOD`, `HAS_CFG`, `HAS_VALUE`, `HAS_NODE`, `USES_VALUE`, and
 `DEFINES_VALUE`.[2]
