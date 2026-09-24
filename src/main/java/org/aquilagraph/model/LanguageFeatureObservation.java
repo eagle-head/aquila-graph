@@ -70,8 +70,10 @@ public record LanguageFeatureObservation(String sourceFileKey, LanguageFeatureCl
   }
 
   static AnalysisOutcomeKind expectedOutcomeKind(LanguageFeatureClassification classification) {
-    var erroneousCompilerTree = classification.feature().category() == LanguageFeatureCategory.COMPILER_TREE_KIND
-        && "ERRONEOUS".equals(classification.feature().identifier());
-    return erroneousCompilerTree ? AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE : AnalysisOutcomeKind.UNSUPPORTED_LANGUAGE_FEATURE;
+    var feature = classification.feature();
+    var erroneousCompilerState = (feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND
+        && "ERRONEOUS".equals(feature.identifier()))
+        || (feature.category() == LanguageFeatureCategory.COMPILER_TYPE_KIND && "ERROR".equals(feature.identifier()));
+    return erroneousCompilerState ? AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE : AnalysisOutcomeKind.UNSUPPORTED_LANGUAGE_FEATURE;
   }
 }

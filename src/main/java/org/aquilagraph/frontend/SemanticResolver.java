@@ -114,7 +114,8 @@ final class SemanticResolver {
       return SyntaxType.NotApplicable.INSTANCE;
     }
     var type = compilerType(path);
-    if (type == null || type.getKind() == TypeKind.NONE || type.getKind() == TypeKind.PACKAGE || type.getKind() == TypeKind.MODULE) {
+    if (type == null || type.getKind() == TypeKind.NONE || type.getKind() == TypeKind.PACKAGE || type.getKind() == TypeKind.MODULE
+        || type.getKind() == TypeKind.OTHER) {
       return SyntaxType.Unresolved.INSTANCE;
     }
     if (type.getKind() == TypeKind.ERROR) {
@@ -131,7 +132,8 @@ final class SemanticResolver {
   SyntaxType explicitType(TreePath path) {
     Objects.requireNonNull(path, PATH_ARGUMENT);
     var type = compilerType(path);
-    if (type == null || type.getKind() == TypeKind.NONE || type.getKind() == TypeKind.PACKAGE || type.getKind() == TypeKind.MODULE) {
+    if (type == null || type.getKind() == TypeKind.NONE || type.getKind() == TypeKind.PACKAGE || type.getKind() == TypeKind.MODULE
+        || type.getKind() == TypeKind.OTHER) {
       return SyntaxType.Unresolved.INSTANCE;
     }
     if (type.getKind() == TypeKind.ERROR) {
@@ -183,6 +185,11 @@ final class SemanticResolver {
 
   Optional<JavaTypeReference> typeReference(TypeMirror type) {
     return projectTypeReference(type, false);
+  }
+
+  JavaTypeAttribution attributedType(TreePath path) {
+    var type = compilerType(Objects.requireNonNull(path, PATH_ARGUMENT));
+    return JavaTypeAttribution.fromKind(type == null ? null : type.getKind());
   }
 
   Optional<InvocationSemantics> invocationSemantics(TreePath invocationPath, ExecutableElement executable, InvocationForm form) {
@@ -301,7 +308,8 @@ final class SemanticResolver {
   }
 
   private Optional<JavaTypeReference> projectTypeReference(TypeMirror type, boolean erase) {
-    if (type == null || type.getKind() == TypeKind.NONE || type.getKind() == TypeKind.PACKAGE || type.getKind() == TypeKind.MODULE) {
+    if (type == null || type.getKind() == TypeKind.NONE || type.getKind() == TypeKind.PACKAGE || type.getKind() == TypeKind.MODULE
+        || type.getKind() == TypeKind.OTHER) {
       return Optional.empty();
     }
     var identityType = erase ? types.erasure(type) : type;
@@ -377,7 +385,7 @@ final class SemanticResolver {
       case EXECUTABLE -> JavaTypeCategory.EXECUTABLE;
       case UNION -> JavaTypeCategory.UNION;
       case INTERSECTION -> JavaTypeCategory.INTERSECTION;
-      case NONE, PACKAGE, MODULE, OTHER -> JavaTypeCategory.OTHER;
+      case NONE, PACKAGE, MODULE, OTHER -> throw new IllegalArgumentException("A non-type compiler outcome has no type identity: " + kind);
     };
   }
 

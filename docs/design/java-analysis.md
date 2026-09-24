@@ -204,8 +204,8 @@ the same configuration instance that `JavaCompilerInvocation` uses to derive the
 compiler's `--release` option; the coverage contract does not probe the runtime or
 carry an independent release literal.[2][15][23]
 
-Each exact `LanguageFeature` belongs to either the compiler-tree-kind or
-declaration-property category and has one `LanguageFeaturePolicy`:
+Each exact `LanguageFeature` belongs to the compiler-tree-kind, compiler-type-kind,
+or declaration-property category and has one `LanguageFeaturePolicy`:
 
 - `REPRESENTED` names the project-owned aggregate boundary that retains the fact;
 - `IRRELEVANT` carries a nonblank semantic-scope rationale and direct source
@@ -234,6 +234,27 @@ These policies classify the compiler-kind identity itself. They do not claim tha
 every accessor or source form sharing that kind is already modeled: existing
 occurrence-specific diagnostics still reject unsupported forms, while the separate
 declaration-property catalog owns accessor completeness.[23][24]
+
+`JavaTypeKindCoverage` owns a separate Java 25 catalog for every attributed
+`TypeKind`. Its exact identifiers are checked against the configured JDK enum in
+both directions; duplicate, missing, unknown, catch-all, and policyless entries
+are rejected. Primitive, void, null, declared, array, type-variable, wildcard,
+intersection, union, and executable outcomes are represented as exact
+source-owned kind observations. `ERROR`, `NONE`, `PACKAGE`, `MODULE`, and `OTHER`
+retain distinct completion-blocking policies when encountered as required
+declaration-header types. `ERROR` retains an erroneous-compiler-state outcome;
+the other four use unsupported-type outcomes. `SemanticResolver` returns a closed
+`JavaTypeAttribution` state: resolved kind, no-type kind, erroneous,
+unsupported, or unavailable. A no-type or reserved kind cannot construct a
+resolved state or a successful `JavaTypeIdentity` fallback.
+`JavaTypeKindObserver` queries attribution for written declaration-header type
+trees after `analyze()`, records
+the exact kind and source span in the same occurrence/observation manifest, and
+emits an error with the nearest available source span when required attribution is absent. Source-tree
+kind and attributed type kind remain separate feature categories. The current
+header type-use nodes remain leaf boundaries, and valid E04 tree forms still
+retain their existing kind diagnostics until recursive translation is implemented.
+The catalog does not claim recursive type-use completeness.[23][26][31]
 
 `JavaDeclarationPropertyCoverage` owns the Java 25 declaration-property catalog.
 Its exact identities include the declaring interface and raw parameter types for
@@ -305,7 +326,7 @@ source body, and canonical key. Their implicitly declared semantic parameters re
 declarations remain assigned to the record-header increment. Type declarations carry
 their canonical key so their type-parameter children must match owner and ordinal.[28][29]
 
-`JavaLanguageFeatureCoverage` validates both closed ledgers and combines them into
+`JavaLanguageFeatureCoverage` validates all three closed ledgers and combines them into
 one deterministic contract for the configured release. The contract identity hashes
 the release, exact feature set, policies, and policy evidence; the per-input result
 rejects any reduced, augmented, or reclassified substitute. `JavaCompilerKindDiagnostics`
@@ -776,3 +797,11 @@ implements its bounded model and has no runtime dependency on
     [§8.9.3](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.9.3) and
     [§8.10.3](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.10.3),
     implicit enum and record methods.
+31. [JavaTypeKindCoverage](../../src/main/java/org/aquilagraph/frontend/JavaTypeKindCoverage.java), closed attributed-kind catalog;
+    [JavaTypeAttribution](../../src/main/java/org/aquilagraph/frontend/JavaTypeAttribution.java), closed compiler outcome states;
+    [JavaTypeKindObserver](../../src/main/java/org/aquilagraph/frontend/JavaTypeKindObserver.java), written-header attribution observations;
+    [JavaTypeKindCoverageTest](../../src/test/java/org/aquilagraph/frontend/JavaTypeKindCoverageTest.java), exact-set, rejection,
+    and public-frontend evidence; Oracle, Java SE 25
+    [`TypeKind`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/type/TypeKind.html)
+    and [`TypeMirror`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/type/TypeMirror.html),
+    exact kind inventory and attribution boundary.

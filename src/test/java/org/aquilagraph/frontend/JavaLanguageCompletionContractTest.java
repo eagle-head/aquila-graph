@@ -49,6 +49,7 @@ class JavaLanguageCompletionContractTest {
     writeSource("Example.java", "final class Example { int value() { return 1; } }");
     var expectedClassifications = new ArrayList<LanguageFeatureClassification>();
     expectedClassifications.addAll(JavaCompilerKindCoverage.fromConfiguration(JAVA_25_CONFIGURATION).classifications());
+    expectedClassifications.addAll(JavaTypeKindCoverage.fromConfiguration(JAVA_25_CONFIGURATION).classifications());
     expectedClassifications.addAll(JavaDeclarationPropertyCoverage.fromConfiguration(JAVA_25_CONFIGURATION).classifications());
 
     // Act

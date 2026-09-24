@@ -22,8 +22,9 @@ public record LanguageFeature(LanguageFeatureCategory category, String identifie
     if (!identifier.equals(identifier.strip())) {
       throw new IllegalArgumentException("Language feature identifiers must not have surrounding whitespace: " + identifier);
     }
-    if (category == LanguageFeatureCategory.COMPILER_TREE_KIND && !identifier.equals(identifier.toUpperCase(Locale.ROOT))) {
-      throw new IllegalArgumentException("Compiler tree kind features must use exact enum-style identifiers: " + identifier);
+    if ((category == LanguageFeatureCategory.COMPILER_TREE_KIND || category == LanguageFeatureCategory.COMPILER_TYPE_KIND)
+        && !identifier.equals(identifier.toUpperCase(Locale.ROOT))) {
+      throw new IllegalArgumentException("Compiler kind features must use exact enum-style identifiers: " + identifier);
     }
     var normalizedIdentifier = identifier.toUpperCase(Locale.ROOT);
     if ("*".equals(identifier) || "DEFAULT".equals(normalizedIdentifier) || "UNKNOWN".equals(normalizedIdentifier)) {

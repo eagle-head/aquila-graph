@@ -43,15 +43,19 @@ final class JavaAnalysisPipeline {
       var kindEvidence = new JavaCompilerKindDiagnostics(sources, parsedSource.sourceEvidence(), languageFeatureCoverage)
           .observe(parsedSource.units());
       var compilation = session.analyze(parsedSource);
+      var typeEvidence = new JavaTypeKindObserver(sources, compilation.semantics(), compilation.sourceEvidence(),
+          compilation.treeInventory(), languageFeatureCoverage).observe(compilation.units());
       var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
           compilation.treeInventory(), languageFeatureCoverage).translate(snapshot, compilation.units());
       var occurrences = new ArrayList<>(kindEvidence.occurrences());
+      occurrences.addAll(typeEvidence.occurrences());
       occurrences.addAll(translation.featureOccurrences());
       var observations = new ArrayList<>(kindEvidence.observations());
+      observations.addAll(typeEvidence.observations());
       observations.addAll(translation.featureObservations());
       var kindDiagnostics = kindEvidence.observations().stream().flatMap(observation -> observation.diagnostic().stream()).toList();
       var diagnostics = combineDiagnostics(new CompilerDiagnosticTranslator(sources).translate(compilation.diagnostics()), kindDiagnostics,
-          translation.diagnostics());
+          typeEvidence.diagnostics(), translation.diagnostics());
       var coverageResult = JavaLanguageFeatureCoverage.result(languageFeatureCoverage, occurrences, observations, diagnostics);
       result = new SyntaxAnalysisInput(snapshot, environment, translation.value().program(), translation.value().aggregate(), diagnostics,
           coverageResult);

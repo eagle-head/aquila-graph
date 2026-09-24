@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
 public record LanguageFeatureCoverageResult(LanguageFeatureCoverage coverage, List<LanguageFeatureOccurrence> occurrences,
     List<LanguageFeatureObservation> observations, List<AnalysisDiagnostic> capabilityDiagnostics) {
   private static final Map<JavaRelease, String> AUTHORITATIVE_CONTRACT_IDENTITIES = Map.of(JavaRelease.JAVA_25,
-      "java-language-feature-coverage:d92084976fd00e781987239ea43981f45892d593b61276c5fdcb3d84dae31c95");
+      "java-language-feature-coverage:a25c92e01edc77ae5f5cde75658f03851744f4ab21a27582c18817713523c0ee");
 
   /** Validates exact contract membership and diagnostic ownership. */
   public LanguageFeatureCoverageResult {

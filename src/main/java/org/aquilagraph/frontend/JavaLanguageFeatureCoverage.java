@@ -20,8 +20,10 @@ final class JavaLanguageFeatureCoverage {
   static LanguageFeatureCoverage fromConfiguration(CompilerConfiguration configuration) {
     Objects.requireNonNull(configuration, "configuration");
     var compilerKinds = JavaCompilerKindCoverage.fromConfiguration(configuration);
+    var typeKinds = JavaTypeKindCoverage.fromConfiguration(configuration);
     var declarationProperties = JavaDeclarationPropertyCoverage.fromConfiguration(configuration);
     var classifications = new ArrayList<>(compilerKinds.classifications());
+    classifications.addAll(typeKinds.classifications());
     classifications.addAll(declarationProperties.classifications());
     return LanguageFeatureCoverageFactory.fromConfiguration(configuration, classifications);
   }
