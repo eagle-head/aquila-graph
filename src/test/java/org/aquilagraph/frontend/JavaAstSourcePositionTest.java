@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.ParameterizedTypeTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.JavacTask;
@@ -287,6 +288,62 @@ class JavaAstSourcePositionTest {
       assertTrue(result.diagnostics().stream().allMatch(diagnostic -> diagnostic.severity() == DiagnosticSeverity.ERROR
           && diagnostic.outcomeKind() == AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
     });
+  }
+
+  @Test
+  void givenMissingWrittenTypeArgumentRange_whenTranslated_thenOwningDeclarationIsWithheld() throws IOException {
+    // Arrange
+    withCompiledSource("class Example { java.util.List<String> values; }", fixture -> {
+      var type = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var field = (VariableTree) type.getMembers().stream().filter(VariableTree.class::isInstance).findFirst().orElseThrow();
+      var argument = ((ParameterizedTypeTree) field.getType()).getTypeArguments().getFirst();
+      var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(argument)));
+
+      // Act
+      var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
+          .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
+
+      // Assert
+      assertEquals(List.of(), result.contribution().orElseThrow().root().children(SyntaxRole.TYPE_DECLARATION));
+      assertEquals(List.of("frontend.missing-source-position"),
+          result.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+      assertEquals(DiagnosticSeverity.ERROR, result.diagnostics().getFirst().severity());
+    });
+  }
+
+  @Test
+  void givenMissingArgumentsInTwoTypes_whenTranslated_thenRecursiveDiagnosticsRetainOriginalTypeOrdinals() throws IOException {
+    // Arrange
+    withCompiledSource("class First { java.util.List<String> names; } class Second { java.util.List<Integer> counts; }",
+        fixture -> {
+          var first = (ClassTree) fixture.unit().getTypeDecls().get(0);
+          var second = (ClassTree) fixture.unit().getTypeDecls().get(1);
+          var firstField = (VariableTree) first.getMembers().stream().filter(VariableTree.class::isInstance)
+              .findFirst().orElseThrow();
+          var secondField = (VariableTree) second.getMembers().stream().filter(VariableTree.class::isInstance)
+              .findFirst().orElseThrow();
+          var firstArgument = ((ParameterizedTypeTree) firstField.getType()).getTypeArguments().getFirst();
+          var secondArgument = ((ParameterizedTypeTree) secondField.getType()).getTypeArguments().getFirst();
+          var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(firstArgument, secondArgument)));
+
+          // Act
+          var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
+              .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
+
+          // Assert
+          assertEquals(List.of(), result.contribution().orElseThrow().root().children(SyntaxRole.TYPE_DECLARATION));
+          assertEquals(List.of("frontend.missing-source-position", "frontend.missing-source-position"),
+              result.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+          var sourceKey = fixture.sourceFile().sourceFileKey();
+          for (var ordinal = 0; ordinal < 2; ordinal++) {
+            var occurrence = "source-file-root:0:type-declaration:" + ordinal
+                + ":member:1:declared-type:0:type-argument:0";
+            var diagnostic = result.diagnostics().get(ordinal);
+            assertTrue(diagnostic.message().contains("Example.java at " + occurrence), diagnostic::message);
+            assertEquals(StableId.sha256("diagnostic", sourceKey + ':' + occurrence,
+                "frontend.missing-source-position", "no-direct-source"), diagnostic.diagnosticKey());
+          }
+        });
   }
 
   @Test

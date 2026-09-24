@@ -4,6 +4,8 @@ package org.aquilagraph.model;
 public enum ReferenceKind {
   /** Type reference. */
   TYPE,
+  /** Type parameter declaration referenced by a type-variable use. */
+  TYPE_PARAMETER,
   /** Constructor reference. */
   CONSTRUCTOR,
   /** Method reference. */

@@ -80,8 +80,22 @@ subclass, and body-member attachment roles. Each attachment has its own source
 range and structural owner. Type parameters are named
 `TYPE_PARAMETER_DECLARATION` occurrences with owner-and-ordinal identities,
 written annotations, and ordered bound attachments. Header type uses are
-`TYPE_USE` occurrences with their exact compiler-tree source kinds; their
-recursive content belongs to AST-E04. Static and
+`TYPE_USE` occurrences with their exact compiler-tree source kinds. Primitive,
+declared, parameterized, type-variable, array, and annotated-wrapper forms
+retain recursive written children with separate source identities and ranges.
+Compiler-derived type structure records primitive kind, selected declaration,
+the lexical declaration owner of a member type, its enclosing instance type
+when present, ordered arguments, and array components where applicable;
+compiler-only components do not acquire invented source children. A written
+qualifier may name a subclass that inherits the selected member type, or a
+type parameter whose bound supplies that member. It remains a separate source
+occurrence from the selected type's lexical owner. For a type-qualified member
+selection, `SemanticResolver` checks the compiler-selected element against
+the written qualifier through `Types.asMemberOf`; a type parameter is checked
+through its upper bound. An invalid or unavailable relation blocks the type-use
+node with a source-located diagnostic.[32]
+Wildcard, intersection, and union type forms, along with annotation content, remain later
+AST-E04/E05 work.[32] Static and
 instance initializer blocks are distinct `STATIC_INITIALIZER_BLOCK` and
 `INSTANCE_INITIALIZER_BLOCK` member occurrences with written source ranges; their statement content
 remains diagnosed until initialization ownership is completed. Empty class-body
@@ -251,10 +265,11 @@ resolved state or a successful `JavaTypeIdentity` fallback.
 trees after `analyze()`, records
 the exact kind and source span in the same occurrence/observation manifest, and
 emits an error with the nearest available source span when required attribution is absent. Source-tree
-kind and attributed type kind remain separate feature categories. The current
-header type-use nodes remain leaf boundaries, and valid E04 tree forms still
-retain their existing kind diagnostics until recursive translation is implemented.
-The catalog does not claim recursive type-use completeness.[23][26][31]
+kind and attributed type kind remain separate feature categories. Implemented
+nominal and array header type uses carry recursive source and compiler-derived
+component facts. Remaining E04 forms retain their kind diagnostics until their
+recursive translation and policy transition. The catalog does not claim complete
+E04 type-use coverage.[23][26][31][32]
 
 `JavaDeclarationPropertyCoverage` owns the Java 25 declaration-property catalog.
 Its exact identities include the declaring interface and raw parameter types for
@@ -805,3 +820,13 @@ implements its bounded model and has no runtime dependency on
     [`TypeKind`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/type/TypeKind.html)
     and [`TypeMirror`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/type/TypeMirror.html),
     exact kind inventory and attribution boundary.
+32. [JavaTypeUseTranslator](../../src/main/java/org/aquilagraph/frontend/JavaTypeUseTranslator.java), recursive written type-use
+    construction; [JavaTypeStructure](../../src/main/java/org/aquilagraph/syntax/JavaTypeStructure.java), typed compiler-derived
+    components; [SemanticResolver](../../src/main/java/org/aquilagraph/frontend/SemanticResolver.java), compiler attribution and
+    selected declaration keys; [JavaTypeUseAstTest](../../src/test/java/org/aquilagraph/frontend/JavaTypeUseAstTest.java),
+    public-frontend examples; [JavaTypeMemberSelectionTest](../../src/test/java/org/aquilagraph/frontend/JavaTypeMemberSelectionTest.java),
+    compiler membership rejection; [JLS 25 §6.5.5.2](https://docs.oracle.com/javase/specs/jls/se25/html/jls-6.html#jls-6.5.5.2),
+    qualified type names through classes, interfaces, and type parameters; [JLS 25 §6.7, Example 6.7-2](https://docs.oracle.com/javase/specs/jls/se25/html/jls-6.html#jls-6.7),
+    inherited member type names through a subclass; Oracle, Java SE 25
+    [`Types.asMemberOf`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/util/Types.html#asMemberOf(javax.lang.model.type.DeclaredType,javax.lang.model.element.Element)),
+    compiler member-view validation.

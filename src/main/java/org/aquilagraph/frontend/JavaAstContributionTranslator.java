@@ -65,12 +65,14 @@ final class JavaAstContributionTranslator {
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
   private final JavaModuleTranslator moduleTranslator;
+  private final JavaTypeUseTranslator typeUseTranslator;
 
   JavaAstContributionTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
     moduleTranslator = new JavaModuleTranslator(sourceEvidence, treeInventory);
+    typeUseTranslator = new JavaTypeUseTranslator(semantics, sourceEvidence);
   }
 
   UnitTranslation translate(CompilationUnitTree unit, SourceFile sourceFile, List<TranslatedMethodBody> bodies,
@@ -455,21 +457,9 @@ final class JavaAstContributionTranslator {
       SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal, List<SyntaxChild> children,
       List<AnalysisDiagnostic> diagnostics) {
     var path = parentPath.child(role, ordinal);
-    var occurrencePath = parentOccurrencePath.child(role, ordinal);
-    var range = requiredRange(unit, sourceFile, tree, occurrencePath, diagnostics);
-    if (range.isEmpty()) {
-      return false;
-    }
-    var kind = JavaSourceKind.valueOf(tree.getKind().name());
-    if (!kind.identifiesTypeUseSyntax()) {
-      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.invalid-type-header-attachment",
-          "A type header attachment does not contain type-use syntax", range));
-      return false;
-    }
-    var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, kind, SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE,
-        SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range.orElseThrow());
-    children.add(new SyntaxChild(role, ordinal, node));
-    return true;
+    var node = typeUseTranslator.translate(unit, sourceFile, tree, path, parentOccurrencePath.child(role, ordinal), diagnostics);
+    node.ifPresent(value -> children.add(new SyntaxChild(role, ordinal, value)));
+    return node.isPresent();
   }
 
   private Optional<SyntaxNode> recordComponent(CompilationUnitTree unit, SourceFile sourceFile, ClassTree declaration,
@@ -982,19 +972,7 @@ final class JavaAstContributionTranslator {
 
   private Optional<SourceSpan> requiredRange(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
       List<AnalysisDiagnostic> diagnostics) {
-    return switch (sourceEvidence.position(unit, sourceFile, tree)) {
-      case JavaSourceEvidence.Position.Available available -> Optional.of(available.span());
-      case JavaSourceEvidence.Position.Missing ignored -> {
-        diagnostics.add(FrontendDiagnosticFactory.sourcePositionError(sourceFile, path, "frontend.missing-source-position",
-            "A required source occurrence has no compiler position"));
-        yield Optional.empty();
-      }
-      case JavaSourceEvidence.Position.Invalid ignored -> {
-        diagnostics.add(FrontendDiagnosticFactory.sourcePositionError(sourceFile, path, "frontend.invalid-source-range",
-            "A required source occurrence has an invalid compiler range"));
-        yield Optional.empty();
-      }
-    };
+    return sourceEvidence.requiredRange(unit, sourceFile, tree, path, diagnostics);
   }
 
   private void declarationEdge(TreePath path, SyntaxNode node, List<SyntaxSemanticEdge> edges) {

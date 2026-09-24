@@ -18,6 +18,300 @@ import org.junit.jupiter.api.Test;
 class SyntaxNodeTest {
   private static final SourceSpan ORIGIN = new SourceSpan("source", 0, 1);
   private static final JavaTypeIdentity INT_TYPE = new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int");
+  private static final JavaTypeIdentity DECLARED_TYPE = new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Example", "Example");
+
+  @Test
+  void givenResolvedPrimitiveWithoutRecursiveFacts_whenCreated_thenLeafTypeUseIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.PRIMITIVE_TYPE, SyntaxKind.TYPE_USE, new SyntaxType.Resolved(INT_TYPE),
+        new SyntaxValue.PrimitiveType(JavaTypeCategory.INT), List.of(), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("recursive attributed structure"));
+  }
+
+  @Test
+  void givenArrayChildWithDifferentAttributedComponent_whenCreated_thenMismatchIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var component = SyntaxNode.source("source", path.child(SyntaxRole.COMPONENT_TYPE, 0), JavaSourceKind.PRIMITIVE_TYPE,
+        SyntaxKind.TYPE_USE, new SyntaxType.Resolved(INT_TYPE, new JavaTypeStructure.Primitive(JavaTypeCategory.INT)),
+        new SyntaxValue.PrimitiveType(JavaTypeCategory.INT), List.of(), Optional.empty(), ORIGIN);
+    var attributedArray = new JavaTypeIdentity(JavaTypeCategory.ARRAY, "long[]", "long[]");
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.ARRAY_TYPE, SyntaxKind.TYPE_USE,
+        new SyntaxType.Resolved(attributedArray, new JavaTypeStructure.Array(new JavaTypeStructure.Primitive(JavaTypeCategory.LONG))),
+        SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.COMPONENT_TYPE, 0, component)), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("component conflicts"));
+  }
+
+  @Test
+  void givenParameterizedArgumentsInWrongAttributedOrder_whenCreated_thenMismatchIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var name = declaredUse(path.child(SyntaxRole.TYPE_NAME, 0), "Map", "type:java.util.Map");
+    var first = declaredUse(path.child(SyntaxRole.TYPE_ARGUMENT, 0), "String", "type:java.lang.String");
+    var second = declaredUse(path.child(SyntaxRole.TYPE_ARGUMENT, 1), "Integer", "type:java.lang.Integer");
+    var firstStructure = new JavaTypeStructure.Declared("type:java.lang.String", Optional.empty(), List.of());
+    var secondStructure = new JavaTypeStructure.Declared("type:java.lang.Integer", Optional.empty(), List.of());
+    var wrongOrder = new JavaTypeStructure.Declared("type:java.util.Map", Optional.empty(),
+        List.of(secondStructure, firstStructure));
+    var children = List.of(new SyntaxChild(SyntaxRole.TYPE_NAME, 0, name),
+        new SyntaxChild(SyntaxRole.TYPE_ARGUMENT, 0, first), new SyntaxChild(SyntaxRole.TYPE_ARGUMENT, 1, second));
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.PARAMETERIZED_TYPE, SyntaxKind.TYPE_USE,
+        new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Map<String, Integer>", "Map"), wrongOrder),
+        SyntaxValue.None.INSTANCE, children, Optional.of(reference(ReferenceKind.TYPE, "type:java.util.Map")), ORIGIN));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("arguments conflict"));
+  }
+
+  @Test
+  void givenRawIdentifierWithAttributedTypeArgument_whenCreated_thenFabricatedArgumentIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var key = "type:java.util.List";
+    var argument = new JavaTypeStructure.Declared("type:java.lang.String", Optional.empty(), List.of());
+    var type = new SyntaxType.Resolved(DECLARED_TYPE,
+        new JavaTypeStructure.Declared(key, Optional.empty(), List.of(argument)));
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE, type, new SyntaxValue.SourceSymbol("List"), List.of(),
+        Optional.of(reference(ReferenceKind.TYPE, key)), ORIGIN));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("raw type name"));
+  }
+
+  @Test
+  void givenRawMemberSelectWithAttributedTypeArgument_whenCreated_thenFabricatedArgumentIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var qualifier = SyntaxNode.source("source", path.child(SyntaxRole.TYPE_QUALIFIER, 0), JavaSourceKind.IDENTIFIER,
+        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.PackageQualifier("pkg"), List.of(),
+        Optional.empty(), ORIGIN);
+    var key = "type:pkg.List";
+    var argument = new JavaTypeStructure.Declared("type:java.lang.String", Optional.empty(), List.of());
+    var type = new SyntaxType.Resolved(DECLARED_TYPE,
+        new JavaTypeStructure.Declared(key, Optional.empty(), List.of(argument)));
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.MEMBER_SELECT, SyntaxKind.TYPE_USE, type, new SyntaxValue.SourceSymbol("List"),
+        List.of(new SyntaxChild(SyntaxRole.TYPE_QUALIFIER, 0, qualifier)), Optional.of(reference(ReferenceKind.TYPE, key)), ORIGIN));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("raw type name"));
+  }
+
+  @Test
+  void givenPackageQualifiedTypeWithAttributedEnclosingInstance_whenCreated_thenFabricatedOwnerIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var qualifier = SyntaxNode.source("source", path.child(SyntaxRole.TYPE_QUALIFIER, 0), JavaSourceKind.IDENTIFIER,
+        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.PackageQualifier("pkg"), List.of(),
+        Optional.empty(), ORIGIN);
+    var key = "type:pkg.List";
+    var enclosing = new JavaTypeStructure.Declared("type:Outer", Optional.empty(), List.of());
+    var type = new SyntaxType.Resolved(DECLARED_TYPE,
+        new JavaTypeStructure.Declared(key, Optional.of(enclosing), List.of()));
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.MEMBER_SELECT, SyntaxKind.TYPE_USE, type, new SyntaxValue.SourceSymbol("List"),
+        List.of(new SyntaxChild(SyntaxRole.TYPE_QUALIFIER, 0, qualifier)), Optional.of(reference(ReferenceKind.TYPE, key)), ORIGIN));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("package-qualified type"));
+  }
+
+  @Test
+  void givenPackageQualifierInFieldTypeSlot_whenCreated_thenUnattributedLeafIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.PackageQualifier("pkg"), List.of(), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("only a type qualifier"));
+  }
+
+  @Test
+  void givenInheritedMemberUse_whenCreated_thenWrittenQualifierAndDeclaringOwnerRemainDistinct() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var qualifier = declaredUse(path.child(SyntaxRole.TYPE_QUALIFIER, 0), "Derived", "type:Derived");
+    var key = "type:Base.Member";
+    var structure = new JavaTypeStructure.Declared(key, Optional.of("type:Base"), Optional.empty(), List.of());
+    var type = new SyntaxType.Resolved(DECLARED_TYPE, structure);
+
+    // Act
+    var member = SyntaxNode.source("source", path, JavaSourceKind.MEMBER_SELECT, SyntaxKind.TYPE_USE, type,
+        new SyntaxValue.SourceSymbol("Member"), List.of(new SyntaxChild(SyntaxRole.TYPE_QUALIFIER, 0, qualifier)),
+        Optional.of(reference(ReferenceKind.TYPE, key)), ORIGIN);
+
+    // Assert
+    assertEquals(Optional.of("type:Base"), ((JavaTypeStructure.Declared) ((SyntaxType.Resolved) member.type()).structure()
+        .orElseThrow()).lexicalOwnerKey());
+    assertEquals(Optional.of("type:Derived"), member.requiredChild(SyntaxRole.TYPE_QUALIFIER).requiredReference().symbolKey());
+  }
+
+  @Test
+  void givenMemberSelectionAttributedToTypeVariable_whenCreated_thenNonMemberTargetIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var qualifier = declaredUse(path.child(SyntaxRole.TYPE_QUALIFIER, 0), "Owner", "type:Owner");
+    var parameterKey = "type:Owner#type-parameter:0";
+    var variableType = new JavaTypeIdentity(JavaTypeCategory.TYPE_VARIABLE, "T", "T");
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.MEMBER_SELECT, SyntaxKind.TYPE_USE,
+        new SyntaxType.Resolved(variableType, new JavaTypeStructure.Variable(parameterKey)),
+        new SyntaxValue.SourceSymbol("T"), List.of(new SyntaxChild(SyntaxRole.TYPE_QUALIFIER, 0, qualifier)),
+        Optional.of(reference(ReferenceKind.TYPE_PARAMETER, parameterKey)), ORIGIN));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("kind conflicts"));
+  }
+
+  @Test
+  void givenNestedParameterizedNameWithDifferentAttributedEnclosingArguments_whenCreated_thenMismatchIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var outerKey = "type:Outer";
+    var innerKey = "type:Outer.Inner";
+    var stringKey = "type:java.lang.String";
+    var integerKey = "type:java.lang.Integer";
+    var numberKey = "type:java.lang.Number";
+    var stringType = new JavaTypeStructure.Declared(stringKey, Optional.empty(), List.of());
+    var integerType = new JavaTypeStructure.Declared(integerKey, Optional.empty(), List.of());
+    var outerName = declaredUse(path.child(SyntaxRole.TYPE_NAME, 0).child(SyntaxRole.TYPE_QUALIFIER, 0)
+        .child(SyntaxRole.TYPE_NAME, 0), "Outer", outerKey);
+    var outerArgument = declaredUse(path.child(SyntaxRole.TYPE_NAME, 0).child(SyntaxRole.TYPE_QUALIFIER, 0)
+        .child(SyntaxRole.TYPE_ARGUMENT, 0), "String", stringKey);
+    var outerPath = path.child(SyntaxRole.TYPE_NAME, 0).child(SyntaxRole.TYPE_QUALIFIER, 0);
+    var writtenOuter = SyntaxNode.source("source", outerPath, JavaSourceKind.PARAMETERIZED_TYPE, SyntaxKind.TYPE_USE,
+        new SyntaxType.Resolved(DECLARED_TYPE, new JavaTypeStructure.Declared(outerKey, Optional.empty(), List.of(stringType))),
+        SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.TYPE_NAME, 0, outerName),
+            new SyntaxChild(SyntaxRole.TYPE_ARGUMENT, 0, outerArgument)), Optional.of(reference(ReferenceKind.TYPE, outerKey)), ORIGIN);
+    var selectedName = SyntaxNode.source("source", path.child(SyntaxRole.TYPE_NAME, 0), JavaSourceKind.MEMBER_SELECT,
+        SyntaxKind.TYPE_USE, new SyntaxType.Resolved(DECLARED_TYPE,
+            new JavaTypeStructure.Declared(innerKey,
+                Optional.of(new JavaTypeStructure.Declared(outerKey, Optional.empty(), List.of())), List.of())),
+        new SyntaxValue.SourceSymbol("Inner"), List.of(new SyntaxChild(SyntaxRole.TYPE_QUALIFIER, 0, writtenOuter)),
+        Optional.of(reference(ReferenceKind.TYPE, innerKey)), ORIGIN);
+    var innerArgument = declaredUse(path.child(SyntaxRole.TYPE_ARGUMENT, 0), "Integer", integerKey);
+    var conflicting = new JavaTypeStructure.Declared(innerKey,
+        Optional.of(new JavaTypeStructure.Declared(outerKey, Optional.empty(),
+            List.of(new JavaTypeStructure.Declared(numberKey, Optional.empty(), List.of())))), List.of(integerType));
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.PARAMETERIZED_TYPE, SyntaxKind.TYPE_USE, new SyntaxType.Resolved(DECLARED_TYPE, conflicting),
+        SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.TYPE_NAME, 0, selectedName),
+            new SyntaxChild(SyntaxRole.TYPE_ARGUMENT, 0, innerArgument)), Optional.of(reference(ReferenceKind.TYPE, innerKey)), ORIGIN));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("qualifier conflicts"));
+  }
+
+  @Test
+  void givenUnresolvedReferenceWithMatchingDeclarationKey_whenCreated_thenTargetIsRejected() {
+    // Arrange
+    var status = ResolutionStatus.UNRESOLVED;
+
+    // Act
+    var failure = matchingKeyWithInvalidStatusFailure(status);
+
+    // Assert
+    assertTrue(failure.getMessage().contains("compiler-selected declaration target"));
+  }
+
+  @Test
+  void givenErroneousReferenceWithMatchingDeclarationKey_whenCreated_thenTargetIsRejected() {
+    // Arrange
+    var status = ResolutionStatus.ERROR;
+
+    // Act
+    var failure = matchingKeyWithInvalidStatusFailure(status);
+
+    // Assert
+    assertTrue(failure.getMessage().contains("compiler-selected declaration target"));
+  }
+
+  private static IllegalArgumentException matchingKeyWithInvalidStatusFailure(ResolutionStatus status) {
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var key = "type:Example";
+    var type = new SyntaxType.Resolved(DECLARED_TYPE, new JavaTypeStructure.Declared(key, Optional.empty(), List.of()));
+    var target = new SemanticReference(ReferenceKind.TYPE, status, Optional.of(key), Optional.empty(), List.of(), List.of());
+
+    return assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE, type, new SyntaxValue.SourceSymbol("Example"), List.of(),
+        Optional.of(target), ORIGIN));
+  }
+
+  @Test
+  void givenTypeVariableWithAnotherParameterTarget_whenCreated_thenWrongOwnerIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.TYPE_PARAMETER, 0).child(SyntaxRole.TYPE_BOUND, 0);
+    var type = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.TYPE_VARIABLE, "T", "java.lang.Object"),
+        new JavaTypeStructure.Variable("parameter:T"));
+    var wrongReference = new SemanticReference(ReferenceKind.TYPE_PARAMETER, ResolutionStatus.RESOLVED,
+        Optional.of("parameter:U"), Optional.empty(), List.of(), List.of());
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE, type, new SyntaxValue.SourceSymbol("T"), List.of(),
+        Optional.of(wrongReference), ORIGIN));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("compiler-selected declaration target"));
+  }
+
+  @Test
+  void givenDeclaredUseWithAnotherDeclarationTarget_whenCreated_thenWrongKeyIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var type = new SyntaxType.Resolved(DECLARED_TYPE,
+        new JavaTypeStructure.Declared("type:Example", Optional.empty(), List.of()));
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE, type, new SyntaxValue.SourceSymbol("Example"), List.of(),
+        Optional.of(reference(ReferenceKind.TYPE, "type:Other")), ORIGIN));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("compiler-selected declaration target"));
+  }
 
   @Test
   void givenTypeHeaderShapeWithoutSuperclass_whenCreated_thenMissingAttachmentIsRejected() {
@@ -152,7 +446,7 @@ class SyntaxNodeTest {
     // Arrange
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0);
     var returnType = SyntaxNode.source("source", path.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.IDENTIFIER,
-        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+        SyntaxKind.TYPE_USE, SyntaxType.Unresolved.INSTANCE, new SyntaxValue.SourceSymbol("Example"), List.of(), Optional.empty(), ORIGIN);
     var value = new SyntaxValue.ExecutableDeclaration("Example", "owner", "owner#Example()",
         SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR, Set.of(), Set.of(),
         new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false, false),
@@ -260,7 +554,7 @@ class SyntaxNodeTest {
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
     var memberPath = path.child(SyntaxRole.MEMBER, 0);
     var returnType = SyntaxNode.source("source", memberPath.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.IDENTIFIER,
-        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+        SyntaxKind.TYPE_USE, SyntaxType.Unresolved.INSTANCE, new SyntaxValue.SourceSymbol("Example"), List.of(), Optional.empty(), ORIGIN);
     var executable = SyntaxNode.source("source", memberPath, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
         SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.ExecutableDeclaration("value", "owner", "owner#value()",
@@ -301,7 +595,7 @@ class SyntaxNodeTest {
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
     var memberPath = path.child(SyntaxRole.MEMBER, 0);
     var returnType = SyntaxNode.source("source", memberPath.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.PRIMITIVE_TYPE,
-        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+        SyntaxKind.TYPE_USE, SyntaxType.Unresolved.INSTANCE, new SyntaxValue.PrimitiveType(JavaTypeCategory.INT), List.of(), Optional.empty(), ORIGIN);
     var method = SyntaxNode.source("source", memberPath, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
         SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.ExecutableDeclaration("run", "type:Second", "type:Second#run()",
@@ -346,7 +640,7 @@ class SyntaxNodeTest {
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0)
         .child(SyntaxRole.RECEIVER_PARAMETER, 0);
     var type = SyntaxNode.source("source", path.child(SyntaxRole.DECLARED_TYPE, 0), JavaSourceKind.IDENTIFIER,
-        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+        SyntaxKind.TYPE_USE, SyntaxType.Unresolved.INSTANCE, new SyntaxValue.SourceSymbol("Example"), List.of(), Optional.empty(), ORIGIN);
     var receiver = new SyntaxValue.ReceiverParameter("owner#method()", Set.of(), Set.of(), 0);
 
     // Act
@@ -542,7 +836,7 @@ class SyntaxNodeTest {
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0);
     var receiverPath = path.child(SyntaxRole.RECEIVER_PARAMETER, 0);
     var receiverType = SyntaxNode.source("source", receiverPath.child(SyntaxRole.DECLARED_TYPE, 0),
-        JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE, SyntaxType.Unresolved.INSTANCE, new SyntaxValue.SourceSymbol("Example"),
         List.of(), Optional.empty(), ORIGIN);
     var receiverName = SyntaxNode.source("source", receiverPath.child(SyntaxRole.QUALIFIER, 0),
         JavaSourceKind.IDENTIFIER, SyntaxKind.RECEIVER_NAME, SyntaxType.NotApplicable.INSTANCE,
@@ -552,7 +846,7 @@ class SyntaxNodeTest {
         List.of(new SyntaxChild(SyntaxRole.DECLARED_TYPE, 0, receiverType),
             new SyntaxChild(SyntaxRole.QUALIFIER, 0, receiverName)), Optional.empty(), ORIGIN);
     var returnType = SyntaxNode.source("source", path.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.PRIMITIVE_TYPE,
-        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+        SyntaxKind.TYPE_USE, SyntaxType.Unresolved.INSTANCE, new SyntaxValue.PrimitiveType(JavaTypeCategory.INT), List.of(), Optional.empty(), ORIGIN);
     var value = new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
         SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(),
         new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, true, 0, false, false, false),
@@ -576,7 +870,7 @@ class SyntaxNodeTest {
         .child(SyntaxRole.MEMBER, 0);
     var receiverPath = path.child(SyntaxRole.RECEIVER_PARAMETER, 0);
     var declaredType = SyntaxNode.source("source", receiverPath.child(SyntaxRole.DECLARED_TYPE, 0),
-        JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE, SyntaxType.Unresolved.INSTANCE, new SyntaxValue.SourceSymbol("Example"),
         List.of(), Optional.empty(), ORIGIN);
     var qualifier = SyntaxNode.source("source", receiverPath.child(SyntaxRole.QUALIFIER, 0),
         JavaSourceKind.MEMBER_SELECT, SyntaxKind.RECEIVER_NAME, SyntaxType.NotApplicable.INSTANCE,
@@ -648,7 +942,7 @@ class SyntaxNodeTest {
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0);
     var parameterPath = path.child(SyntaxRole.PARAMETER, 0);
     var type = SyntaxNode.source("source", parameterPath.child(SyntaxRole.DECLARED_TYPE, 0), JavaSourceKind.IDENTIFIER,
-        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+        SyntaxKind.TYPE_USE, SyntaxType.Unresolved.INSTANCE, new SyntaxValue.SourceSymbol("Example"), List.of(), Optional.empty(), ORIGIN);
     var receiver = SyntaxNode.source("source", parameterPath, JavaSourceKind.VARIABLE, SyntaxKind.RECEIVER_PARAMETER,
         SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.ReceiverParameter("owner#method()", Set.of(), Set.of(), 0),
@@ -663,7 +957,7 @@ class SyntaxNodeTest {
         new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 1, true, 0, false, false, false),
         SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of()));
     var returnType = SyntaxNode.source("source", path.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.PRIMITIVE_TYPE,
-        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+        SyntaxKind.TYPE_USE, SyntaxType.Unresolved.INSTANCE, new SyntaxValue.PrimitiveType(JavaTypeCategory.INT), List.of(), Optional.empty(), ORIGIN);
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.METHOD,
@@ -891,6 +1185,13 @@ class SyntaxNodeTest {
   private static SyntaxNode leaf(String id, SyntaxKind kind, SyntaxValue value) {
     var type = kind.requiresType() ? new SyntaxType.Resolved(INT_TYPE) : SyntaxType.NotApplicable.INSTANCE;
     return source(id, kind, type, value, List.of(), Optional.empty());
+  }
+
+  private static SyntaxNode declaredUse(SyntaxStructuralPath path, String name, String key) {
+    return SyntaxNode.source("source", path, JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE,
+        new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, name, name),
+            new JavaTypeStructure.Declared(key, Optional.empty(), List.of())),
+        new SyntaxValue.SourceSymbol(name), List.of(), Optional.of(reference(ReferenceKind.TYPE, key)), ORIGIN);
   }
 
   private static SyntaxNode source(String id, SyntaxKind kind, SyntaxType type, SyntaxValue value, List<SyntaxChild> children,

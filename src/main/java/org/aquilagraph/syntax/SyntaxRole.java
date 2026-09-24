@@ -26,6 +26,16 @@ public enum SyntaxRole {
   RECORD_COMPONENT("record-component"),
   /** Written upper bound of a type parameter. */
   TYPE_BOUND("type-bound"),
+  /** Written nominal name of a parameterized type. */
+  TYPE_NAME("type-name"),
+  /** Written type argument in source order. */
+  TYPE_ARGUMENT("type-argument"),
+  /** Written qualifier of a selected type name. */
+  TYPE_QUALIFIER("type-qualifier"),
+  /** Written component type beneath one array dimension. */
+  COMPONENT_TYPE("component-type"),
+  /** Underlying written type beneath a type-use annotation wrapper. */
+  UNDERLYING_TYPE("underlying-type"),
   /** Written type attachment of a parameter declaration. */
   DECLARED_TYPE("declared-type"),
   /** Explicit receiver parameter of an executable. */

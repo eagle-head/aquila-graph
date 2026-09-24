@@ -18,6 +18,49 @@ public sealed interface SyntaxValue {
     INSTANCE
   }
 
+  /** Primitive kind written in a source type use, including the distinct {@code void} pseudo-type. */
+  final class PrimitiveType extends Symbol {
+    private final JavaTypeCategory writtenKind;
+
+    /**
+     * Validates and retains the written kind.
+     *
+     * @param kind
+     *          written primitive or void kind
+     */
+    public PrimitiveType(JavaTypeCategory kind) {
+      super(Objects.requireNonNull(kind, "writtenKind").name(), Form.PRIMITIVE_TYPE, kind);
+      if (!Set.of(JavaTypeCategory.BOOLEAN, JavaTypeCategory.BYTE, JavaTypeCategory.SHORT, JavaTypeCategory.INT, JavaTypeCategory.LONG,
+          JavaTypeCategory.CHAR, JavaTypeCategory.FLOAT, JavaTypeCategory.DOUBLE, JavaTypeCategory.VOID).contains(kind)) {
+        throw new IllegalArgumentException("A primitive source type requires a primitive or void kind");
+      }
+      writtenKind = kind;
+    }
+
+    /**
+     * Returns the written primitive or void kind.
+     *
+     * @return exact written category
+     */
+    public JavaTypeCategory kind() {
+      return writtenKind;
+    }
+  }
+
+  /** A written package-name segment qualifying a type use. */
+  final class PackageQualifier extends Symbol {
+    /**
+     * Validates and retains the package-name segment.
+     *
+     * @param name
+     *          written package-name segment
+     */
+    public PackageQualifier(String name) {
+      super(name, Form.PACKAGE_QUALIFIER, None.INSTANCE);
+      SyntaxValueSupport.requireName(name);
+    }
+  }
+
   /** Source form of a parsed compilation unit. */
   enum CompilationUnitForm {
     /** A compilation unit that may contain package, import, and type declarations. */
@@ -331,13 +374,13 @@ public sealed interface SyntaxValue {
   }
 
   /** Shared source-name value boundary for typed syntax facts. */
-  abstract sealed class Symbol implements SyntaxValue
-      permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration, ModuleDeclaration, ModuleDirective, TypeDeclaration,
-      TypeParameterDeclaration, ExecutableDeclaration, ParameterHeader, VariableDeclaration, RecordComponentDeclaration {
+  abstract sealed class Symbol implements SyntaxValue permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration,
+      ModuleDeclaration, ModuleDirective, TypeDeclaration, TypeParameterDeclaration, ExecutableDeclaration, ParameterHeader,
+      VariableDeclaration, RecordComponentDeclaration, PrimitiveType, PackageQualifier {
     enum Form {
       SYMBOL, COMPILATION_UNIT, PACKAGE_DECLARATION, IMPORT_DECLARATION, MODULE_DECLARATION, REQUIRES, EXPORTS, OPENS, USES, PROVIDES,
       TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, EXECUTABLE_DECLARATION, PARAMETER_DECLARATION, RECEIVER_PARAMETER, VARIABLE_DECLARATION,
-      RECORD_COMPONENT_DECLARATION
+      RECORD_COMPONENT_DECLARATION, PRIMITIVE_TYPE, PACKAGE_QUALIFIER
     }
 
     private final String sourceName;

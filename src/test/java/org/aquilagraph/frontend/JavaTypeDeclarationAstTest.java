@@ -21,6 +21,7 @@ import org.aquilagraph.syntax.SyntaxNode;
 import org.aquilagraph.syntax.SyntaxRole;
 import org.aquilagraph.syntax.SyntaxSemanticRelation;
 import org.aquilagraph.syntax.SyntaxSemanticTarget;
+import org.aquilagraph.syntax.SyntaxType;
 import org.aquilagraph.syntax.SyntaxValue;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -201,6 +202,9 @@ class JavaTypeDeclarationAstTest {
     // Assert
     assertEquals("Missing", excerpts(source, List.of(superclass)).getFirst());
     assertEquals(JavaSourceKind.IDENTIFIER, superclass.sourceKind());
+    assertTrue(superclass.type() == SyntaxType.Erroneous.INSTANCE || superclass.type() == SyntaxType.Unresolved.INSTANCE);
+    assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.erroneous-type-use")
+        || diagnostic.code().equals("frontend.unavailable-type-use-attribution")));
     assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     assertFalse(run.completion() == AnalysisCompletion.COMPLETED);
   }

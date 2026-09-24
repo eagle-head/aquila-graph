@@ -10,6 +10,7 @@ import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.Trees;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -20,9 +21,11 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.IntersectionType;
+import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
+import javax.lang.model.type.TypeVariable;
 import javax.lang.model.type.UnionType;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
@@ -36,6 +39,7 @@ import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.syntax.SyntaxType;
+import org.aquilagraph.syntax.JavaTypeStructure;
 import org.jspecify.annotations.Nullable;
 
 final class SemanticResolver {
@@ -139,7 +143,51 @@ final class SemanticResolver {
     if (type.getKind() == TypeKind.ERROR) {
       return SyntaxType.Erroneous.INSTANCE;
     }
-    return new SyntaxType.Resolved(typeIdentity(type));
+    var structure = structuredType(type);
+    return structure.<SyntaxType>map(value -> new SyntaxType.Resolved(typeIdentity(type), value))
+        .orElseGet(() -> new SyntaxType.Resolved(typeIdentity(type)));
+  }
+
+  private Optional<JavaTypeStructure> structuredType(TypeMirror type) {
+    return switch (type.getKind()) {
+      case BOOLEAN, BYTE, SHORT, INT, LONG, CHAR, FLOAT, DOUBLE, VOID ->
+        Optional.of(new JavaTypeStructure.Primitive(typeKind(type.getKind())));
+      case ARRAY -> structuredType(((ArrayType) type).getComponentType()).map(JavaTypeStructure.Array::new);
+      case TYPEVAR -> identities.keyOf(((TypeVariable) type).asElement()).map(JavaTypeStructure.Variable::new);
+      case DECLARED -> structuredDeclaredType((DeclaredType) type);
+      default -> Optional.empty();
+    };
+  }
+
+  private Optional<JavaTypeStructure> structuredDeclaredType(DeclaredType type) {
+    var key = identities.keyOf(type.asElement());
+    if (key.isEmpty()) {
+      return Optional.empty();
+    }
+    Optional<String> lexicalOwner = Optional.empty();
+    if (type.asElement().getEnclosingElement() instanceof TypeElement owner) {
+      lexicalOwner = identities.keyOf(owner);
+      if (lexicalOwner.isEmpty()) {
+        return Optional.empty();
+      }
+    }
+    Optional<JavaTypeStructure> enclosing = Optional.empty();
+    var enclosingMirror = type.getEnclosingType();
+    if (enclosingMirror.getKind() != TypeKind.NONE) {
+      enclosing = structuredType(enclosingMirror);
+      if (enclosing.isEmpty()) {
+        return Optional.empty();
+      }
+    }
+    var arguments = new ArrayList<JavaTypeStructure>();
+    for (var argument : type.getTypeArguments()) {
+      var component = structuredType(argument);
+      if (component.isEmpty()) {
+        return Optional.empty();
+      }
+      arguments.add(component.orElseThrow());
+    }
+    return Optional.of(new JavaTypeStructure.Declared(key.orElseThrow(), lexicalOwner, enclosing, arguments));
   }
 
   SyntaxType receiverType(ExecutableElement executable) {
@@ -181,6 +229,48 @@ final class SemanticResolver {
     Objects.requireNonNull(path, PATH_ARGUMENT);
     var element = trees.getElement(path);
     return element == null ? Optional.empty() : reference(path, ReferenceKind.TYPE);
+  }
+
+  Optional<SemanticReference> typeUseReference(TreePath path) {
+    var type = compilerType(Objects.requireNonNull(path, PATH_ARGUMENT));
+    if (type == null || (type.getKind() != TypeKind.DECLARED && type.getKind() != TypeKind.TYPEVAR)) {
+      return Optional.empty();
+    }
+    var element = types.asElement(type);
+    if (element == null) {
+      return Optional.empty();
+    }
+    var kind = element.getKind() == ElementKind.TYPE_PARAMETER ? ReferenceKind.TYPE_PARAMETER : ReferenceKind.TYPE;
+    return identities.keyOf(element)
+        .map(key -> new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of()));
+  }
+
+  boolean selectsTypeMember(TreePath memberPath, TreePath qualifierPath) {
+    Objects.requireNonNull(memberPath, "memberPath");
+    Objects.requireNonNull(qualifierPath, "qualifierPath");
+    var selectedType = compilerType(memberPath);
+    var selected = trees.getElement(memberPath);
+    if (!(selectedType instanceof DeclaredType) || !(selected instanceof TypeElement member)
+        || !selected.equals(types.asElement(selectedType))) {
+      return false;
+    }
+    var qualifierType = compilerType(qualifierPath);
+    return qualifierType != null && isTypeMemberOf(qualifierType, member);
+  }
+
+  private boolean isTypeMemberOf(TypeMirror qualifierType, TypeElement member) {
+    return switch (qualifierType) {
+      case DeclaredType declared -> {
+        try {
+          yield member.equals(types.asElement(types.asMemberOf(declared, member)));
+        } catch (IllegalArgumentException invalidMember) {
+          yield false;
+        }
+      }
+      case TypeVariable variable -> isTypeMemberOf(variable.getUpperBound(), member);
+      case IntersectionType intersection -> intersection.getBounds().stream().anyMatch(bound -> isTypeMemberOf(bound, member));
+      default -> false;
+    };
   }
 
   Optional<JavaTypeReference> typeReference(TypeMirror type) {
@@ -418,6 +508,7 @@ final class SemanticResolver {
   private static Optional<ReferenceKind> referenceKind(ElementKind kind) {
     return switch (kind) {
       case CLASS, INTERFACE, ENUM, RECORD, ANNOTATION_TYPE -> Optional.of(ReferenceKind.TYPE);
+      case TYPE_PARAMETER -> Optional.of(ReferenceKind.TYPE_PARAMETER);
       case CONSTRUCTOR -> Optional.of(ReferenceKind.CONSTRUCTOR);
       case METHOD -> Optional.of(ReferenceKind.METHOD);
       case FIELD -> Optional.of(ReferenceKind.FIELD);

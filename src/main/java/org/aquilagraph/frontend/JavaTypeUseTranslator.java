@@ -1,0 +1,236 @@
+package org.aquilagraph.frontend;
+
+import com.sun.source.tree.AnnotatedTypeTree;
+import com.sun.source.tree.AnnotationTree;
+import com.sun.source.tree.ArrayTypeTree;
+import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.IdentifierTree;
+import com.sun.source.tree.MemberSelectTree;
+import com.sun.source.tree.ParameterizedTypeTree;
+import com.sun.source.tree.PrimitiveTypeTree;
+import com.sun.source.tree.Tree;
+import com.sun.source.util.TreePath;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import javax.lang.model.type.TypeKind;
+import org.aquilagraph.model.AnalysisDiagnostic;
+import org.aquilagraph.model.AnalysisOutcomeKind;
+import org.aquilagraph.model.JavaTypeCategory;
+import org.aquilagraph.model.ResolutionStatus;
+import org.aquilagraph.model.SourceFile;
+import org.aquilagraph.model.SourceSpan;
+import org.aquilagraph.syntax.JavaSourceKind;
+import org.aquilagraph.syntax.SyntaxChild;
+import org.aquilagraph.syntax.SyntaxKind;
+import org.aquilagraph.syntax.SyntaxNode;
+import org.aquilagraph.syntax.SyntaxRole;
+import org.aquilagraph.syntax.SyntaxStructuralPath;
+import org.aquilagraph.syntax.SyntaxType;
+import org.aquilagraph.syntax.SyntaxValue;
+
+/** Projects written declaration-header type trees while compiler attribution is available. */
+final class JavaTypeUseTranslator {
+  private final SemanticResolver semantics;
+  private final JavaSourceEvidence sourceEvidence;
+
+  JavaTypeUseTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence) {
+    this.semantics = Objects.requireNonNull(semantics, "semantics");
+    this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
+  }
+
+  Optional<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
+      SyntaxStructuralPath occurrencePath, List<AnalysisDiagnostic> diagnostics) {
+    Objects.requireNonNull(unit, "unit");
+    Objects.requireNonNull(sourceFile, "sourceFile");
+    Objects.requireNonNull(tree, "tree");
+    Objects.requireNonNull(path, "path");
+    Objects.requireNonNull(occurrencePath, "occurrencePath");
+    Objects.requireNonNull(diagnostics, "diagnostics");
+    var treePath = TreePath.getPath(unit, tree);
+    if (treePath == null) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-type-tree-path",
+          "A written type has no compiler tree path", sourceEvidence.origin(unit, sourceFile, tree)));
+      return Optional.empty();
+    }
+    return translate(unit, sourceFile, tree, treePath, path, occurrencePath, diagnostics);
+  }
+
+  private Optional<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, List<AnalysisDiagnostic> diagnostics) {
+    var range = requiredRange(unit, sourceFile, tree, occurrencePath, diagnostics);
+    if (range.isEmpty()) {
+      return Optional.empty();
+    }
+    var sourceKind = JavaSourceKind.valueOf(tree.getKind().name());
+    if (!sourceKind.identifiesTypeUseSyntax()) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.invalid-type-header-attachment",
+          "A type header attachment does not contain type-use syntax", range));
+      return Optional.empty();
+    }
+    var type = semantics.explicitType(treePath);
+    if (type == SyntaxType.Unresolved.INSTANCE) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-type-use-attribution",
+          "A written type use has no compiler attribution", range));
+    } else if (type == SyntaxType.Erroneous.INSTANCE) {
+      diagnostics.add(FrontendDiagnosticFactory.error(sourceFile.sourceFileKey(), "frontend.erroneous-type-use",
+          "The compiler reported an erroneous written type use", range, AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE));
+    } else if (type instanceof SyntaxType.Resolved resolved && resolved.structure().isEmpty()) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-type-use-structure",
+          "A written type use has no complete compiler-derived structure", range));
+      return Optional.empty();
+    }
+    var children = new ArrayList<SyntaxChild>();
+    SyntaxValue value = SyntaxValue.None.INSTANCE;
+    var complete = true;
+    switch (tree) {
+      case PrimitiveTypeTree primitive -> value = new SyntaxValue.PrimitiveType(primitiveKind(primitive.getPrimitiveTypeKind()));
+      case IdentifierTree identifier -> value = new SyntaxValue.SourceSymbol(identifier.getName().toString());
+      case MemberSelectTree selection -> {
+        value = new SyntaxValue.SourceSymbol(selection.getIdentifier().toString());
+        complete = appendQualifier(unit, sourceFile, selection.getExpression(), new TreePath(treePath, selection.getExpression()), path,
+            occurrencePath, children, diagnostics);
+      }
+      case ParameterizedTypeTree parameterized -> {
+        complete = appendTypeChild(unit, sourceFile, parameterized.getType(), new TreePath(treePath, parameterized.getType()), path,
+            occurrencePath, SyntaxRole.TYPE_NAME, 0, children, diagnostics);
+        for (var ordinal = 0; ordinal < parameterized.getTypeArguments().size(); ordinal++) {
+          var argument = parameterized.getTypeArguments().get(ordinal);
+          complete &= appendTypeArgument(unit, sourceFile, argument, treePath, path, occurrencePath, ordinal, children, diagnostics);
+        }
+      }
+      case ArrayTypeTree array -> complete = appendTypeChild(unit, sourceFile, array.getType(), new TreePath(treePath, array.getType()),
+          path, occurrencePath, SyntaxRole.COMPONENT_TYPE, 0, children, diagnostics);
+      case AnnotatedTypeTree annotated -> {
+        for (var ordinal = 0; ordinal < annotated.getAnnotations().size(); ordinal++) {
+          var annotation = annotated.getAnnotations().get(ordinal);
+          complete &= appendAnnotation(unit, sourceFile, annotation, path, occurrencePath, ordinal, children, diagnostics);
+        }
+        complete &= appendTypeChild(unit, sourceFile, annotated.getUnderlyingType(), new TreePath(treePath, annotated.getUnderlyingType()),
+            path, occurrencePath, SyntaxRole.UNDERLYING_TYPE, 0, children, diagnostics);
+      }
+      default -> {
+        // Bounds, alternatives, and erroneous forms retain their existing diagnosed boundary.
+      }
+    }
+    if (!complete) {
+      return Optional.empty();
+    }
+    if (tree instanceof MemberSelectTree selection && type instanceof SyntaxType.Resolved resolved
+        && resolved.identity().category() == JavaTypeCategory.DECLARED
+        && !(children.getFirst().node().value() instanceof SyntaxValue.PackageQualifier)
+        && !semantics.selectsTypeMember(treePath, new TreePath(treePath, selection.getExpression()))) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.inconsistent-type-member-selection",
+          "The selected type declaration is not a member of the written qualifier", range));
+      return Optional.empty();
+    }
+    var reference = semantics.typeUseReference(treePath);
+    if (type instanceof SyntaxType.Resolved resolved
+        && (resolved.identity().category() == JavaTypeCategory.DECLARED || resolved.identity().category() == JavaTypeCategory.TYPE_VARIABLE)
+        && (reference.isEmpty() || reference.orElseThrow().status() != ResolutionStatus.RESOLVED)) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-type-declaration-reference",
+          "A written nominal or type-variable use has no selected declaration", range));
+      return Optional.empty();
+    }
+    if (sourceKind == JavaSourceKind.PRIMITIVE_TYPE && type instanceof SyntaxType.Resolved resolved
+        && resolved.identity().category() != ((SyntaxValue.PrimitiveType) value).kind()) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.inconsistent-primitive-type",
+          "Written and attributed primitive kinds disagree", range));
+      return Optional.empty();
+    }
+    return Optional.of(SyntaxNode.source(sourceFile.sourceFileKey(), path, sourceKind, SyntaxKind.TYPE_USE, type, value, children,
+        reference, range.orElseThrow()));
+  }
+
+  private boolean appendTypeChild(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
+      SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal, List<SyntaxChild> children,
+      List<AnalysisDiagnostic> diagnostics) {
+    var childPath = parentPath.child(role, ordinal);
+    var childOccurrencePath = parentOccurrencePath.child(role, ordinal);
+    var child = translate(unit, sourceFile, tree, treePath, childPath, childOccurrencePath, diagnostics);
+    child.ifPresent(node -> children.add(new SyntaxChild(role, ordinal, node)));
+    return child.isPresent();
+  }
+
+  private boolean appendTypeArgument(CompilationUnitTree unit, SourceFile sourceFile, Tree argument, TreePath parentTreePath,
+      SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, int ordinal, List<SyntaxChild> children,
+      List<AnalysisDiagnostic> diagnostics) {
+    return appendTypeChild(unit, sourceFile, argument, new TreePath(parentTreePath, argument), parentPath, parentOccurrencePath,
+        SyntaxRole.TYPE_ARGUMENT, ordinal, children, diagnostics);
+  }
+
+  private boolean appendQualifier(CompilationUnitTree unit, SourceFile sourceFile, Tree qualifier, TreePath qualifierPath,
+      SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, List<SyntaxChild> children,
+      List<AnalysisDiagnostic> diagnostics) {
+    var path = parentPath.child(SyntaxRole.TYPE_QUALIFIER, 0);
+    var occurrencePath = parentOccurrencePath.child(SyntaxRole.TYPE_QUALIFIER, 0);
+    var state = semantics.attributedType(qualifierPath);
+    var child = state instanceof JavaTypeAttribution.NoType noType && noType.kind() == TypeKind.PACKAGE
+        ? packageQualifier(unit, sourceFile, qualifier, qualifierPath, path, occurrencePath, diagnostics)
+        : translate(unit, sourceFile, qualifier, qualifierPath, path, occurrencePath, diagnostics);
+    child.ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.TYPE_QUALIFIER, 0, node)));
+    return child.isPresent();
+  }
+
+  private Optional<SyntaxNode> packageQualifier(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, List<AnalysisDiagnostic> diagnostics) {
+    var range = requiredRange(unit, sourceFile, tree, occurrencePath, diagnostics);
+    if (range.isEmpty()) {
+      return Optional.empty();
+    }
+    var children = new ArrayList<SyntaxChild>();
+    String name;
+    if (tree instanceof IdentifierTree identifier) {
+      name = identifier.getName().toString();
+    } else if (tree instanceof MemberSelectTree selection) {
+      name = selection.getIdentifier().toString();
+      if (!appendQualifier(unit, sourceFile, selection.getExpression(), new TreePath(treePath, selection.getExpression()), path,
+          occurrencePath, children, diagnostics)) {
+        return Optional.empty();
+      }
+    } else {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.invalid-type-name-qualifier",
+          "A package qualifier has no supported written name", range));
+      return Optional.empty();
+    }
+    return Optional
+        .of(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.valueOf(tree.getKind().name()), SyntaxKind.TYPE_USE,
+            SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.PackageQualifier(name), children, Optional.empty(), range.orElseThrow()));
+  }
+
+  private boolean appendAnnotation(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
+      SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, int ordinal, List<SyntaxChild> children,
+      List<AnalysisDiagnostic> diagnostics) {
+    var path = parentPath.child(SyntaxRole.ANNOTATION, ordinal);
+    var occurrencePath = parentOccurrencePath.child(SyntaxRole.ANNOTATION, ordinal);
+    var range = requiredRange(unit, sourceFile, annotation, occurrencePath, diagnostics);
+    if (range.isEmpty()) {
+      return false;
+    }
+    var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range.orElseThrow());
+    children.add(new SyntaxChild(SyntaxRole.ANNOTATION, ordinal, node));
+    return true;
+  }
+
+  private Optional<SourceSpan> requiredRange(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
+      List<AnalysisDiagnostic> diagnostics) {
+    return sourceEvidence.requiredRange(unit, sourceFile, tree, path, diagnostics);
+  }
+
+  private static JavaTypeCategory primitiveKind(TypeKind kind) {
+    return switch (kind) {
+      case BOOLEAN -> JavaTypeCategory.BOOLEAN;
+      case BYTE -> JavaTypeCategory.BYTE;
+      case SHORT -> JavaTypeCategory.SHORT;
+      case INT -> JavaTypeCategory.INT;
+      case LONG -> JavaTypeCategory.LONG;
+      case CHAR -> JavaTypeCategory.CHAR;
+      case FLOAT -> JavaTypeCategory.FLOAT;
+      case DOUBLE -> JavaTypeCategory.DOUBLE;
+      case VOID -> JavaTypeCategory.VOID;
+      default -> throw new IllegalArgumentException("A primitive source tree has no primitive kind: " + kind);
+    };
+  }
+}

@@ -7,8 +7,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import javax.tools.Diagnostic;
+import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.SourceSpan;
+import org.aquilagraph.syntax.SyntaxStructuralPath;
 
 final class JavaSourceEvidence {
   private final SourcePositions positions;
@@ -42,6 +44,23 @@ final class JavaSourceEvidence {
       return new Position.Invalid(start, end);
     }
     return new Position.Available(new SourceSpan(sourceFile.sourceFileKey(), start, end));
+  }
+
+  Optional<SourceSpan> requiredRange(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
+      List<AnalysisDiagnostic> diagnostics) {
+    return switch (position(unit, sourceFile, tree)) {
+      case Position.Available available -> Optional.of(available.span());
+      case Position.Missing ignored -> {
+        diagnostics.add(FrontendDiagnosticFactory.sourcePositionError(sourceFile, path, "frontend.missing-source-position",
+            "A required source occurrence has no compiler position"));
+        yield Optional.empty();
+      }
+      case Position.Invalid ignored -> {
+        diagnostics.add(FrontendDiagnosticFactory.sourcePositionError(sourceFile, path, "frontend.invalid-source-range",
+            "A required source occurrence has an invalid compiler range"));
+        yield Optional.empty();
+      }
+    };
   }
 
   long rawStart(CompilationUnitTree unit, Tree tree) {

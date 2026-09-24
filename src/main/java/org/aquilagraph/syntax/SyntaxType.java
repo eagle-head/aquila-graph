@@ -1,6 +1,7 @@
 package org.aquilagraph.syntax;
 
 import java.util.Objects;
+import java.util.Optional;
 import org.aquilagraph.model.JavaTypeIdentity;
 
 /** Compiler type outcome projected onto a durable source occurrence. */
@@ -27,12 +28,37 @@ public sealed interface SyntaxType {
    * Compiler-resolved type identity.
    *
    * @param identity
-   *          resolved Java type
+   *          resolved Java type presentation and category
+   * @param structure
+   *          recursive compiler-derived components when projected for a source type use
    */
-  record Resolved(JavaTypeIdentity identity) implements SyntaxType {
+  record Resolved(JavaTypeIdentity identity, Optional<JavaTypeStructure> structure) implements SyntaxType {
     /** Validates the resolved identity. */
     public Resolved {
       Objects.requireNonNull(identity, "identity");
+      Objects.requireNonNull(structure, "structure");
+    }
+
+    /**
+     * Creates a resolved type before recursive source-type projection applies.
+     *
+     * @param identity
+     *          resolved Java type identity
+     */
+    public Resolved(JavaTypeIdentity identity) {
+      this(identity, Optional.empty());
+    }
+
+    /**
+     * Creates a resolved type with compiler-derived recursive components.
+     *
+     * @param identity
+     *          resolved Java type identity
+     * @param structure
+     *          recursive compiler-derived components
+     */
+    public Resolved(JavaTypeIdentity identity, JavaTypeStructure structure) {
+      this(identity, Optional.of(Objects.requireNonNull(structure, "structure")));
     }
   }
 }
