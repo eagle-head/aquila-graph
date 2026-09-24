@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.JavaTypeModifier;
 import org.aquilagraph.model.InvocationForm;
 import org.aquilagraph.model.InvocationSemantics;
@@ -330,10 +331,10 @@ public sealed interface SyntaxValue {
 
   /** Shared source-name value boundary for typed syntax facts. */
   abstract sealed class Symbol implements SyntaxValue permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration,
-      ModuleDeclaration, ModuleDirective, TypeDeclaration, TypeParameterDeclaration {
+      ModuleDeclaration, ModuleDirective, TypeDeclaration, TypeParameterDeclaration, ExecutableDeclaration, ParameterHeader {
     enum Form {
       SYMBOL, COMPILATION_UNIT, PACKAGE_DECLARATION, IMPORT_DECLARATION, MODULE_DECLARATION, REQUIRES, EXPORTS, OPENS, USES, PROVIDES,
-      TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION
+      TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, EXECUTABLE_DECLARATION, PARAMETER_DECLARATION, RECEIVER_PARAMETER
     }
 
     private final String sourceName;
@@ -402,10 +403,12 @@ public sealed interface SyntaxValue {
       }
     }
 
-    private record Details(Set<JavaTypeModifier> writtenModifiers, Set<JavaTypeModifier> effectiveModifiers, Shape shape) {
+    private record Details(String declarationKey, Set<JavaTypeModifier> writtenModifiers, Set<JavaTypeModifier> effectiveModifiers,
+        Shape shape) {
       private Details {
-        writtenModifiers = Set.copyOf(Objects.requireNonNull(writtenModifiers, "writtenModifiers"));
-        effectiveModifiers = Set.copyOf(Objects.requireNonNull(effectiveModifiers, "effectiveModifiers"));
+        SyntaxValueSupport.requireText(declarationKey, "declarationKey");
+        writtenModifiers = Set.copyOf(Objects.requireNonNull(writtenModifiers, SyntaxValueSupport.WRITTEN_MODIFIERS_ARGUMENT));
+        effectiveModifiers = Set.copyOf(Objects.requireNonNull(effectiveModifiers, SyntaxValueSupport.EFFECTIVE_MODIFIERS_ARGUMENT));
         Objects.requireNonNull(shape, "shape");
       }
     }
@@ -417,6 +420,8 @@ public sealed interface SyntaxValue {
      *
      * @param name
      *          written simple name
+     * @param declarationKey
+     *          canonical declaration identity
      * @param writtenModifiers
      *          modifiers on the source tree
      * @param effectiveModifiers
@@ -424,8 +429,18 @@ public sealed interface SyntaxValue {
      * @param shape
      *          required direct child shape
      */
-    public TypeDeclaration(String name, Set<JavaTypeModifier> writtenModifiers, Set<JavaTypeModifier> effectiveModifiers, Shape shape) {
-      this(name, new Details(writtenModifiers, effectiveModifiers, shape));
+    public TypeDeclaration(String name, String declarationKey, Set<JavaTypeModifier> writtenModifiers,
+        Set<JavaTypeModifier> effectiveModifiers, Shape shape) {
+      this(name, new Details(declarationKey, writtenModifiers, effectiveModifiers, shape));
+    }
+
+    /**
+     * Returns the canonical declaration identity.
+     *
+     * @return canonical declaration key
+     */
+    public String declarationKey() {
+      return details.declarationKey();
     }
 
     private TypeDeclaration(String name, Details details) {
@@ -462,17 +477,567 @@ public sealed interface SyntaxValue {
     }
   }
 
-  /** Written name of a type parameter declaration. */
+  /** Written type parameter, its canonical identity, and its direct source attachments. */
   final class TypeParameterDeclaration extends Symbol {
+    private record TypeParameterDetails(String ownerKey, int ordinal, int annotations, int bounds) {
+      private TypeParameterDetails {
+        SyntaxValueSupport.requireText(ownerKey, "ownerKey");
+        if (ordinal < 0 || annotations < 0 || bounds < 0) {
+          throw new IllegalArgumentException("Type parameter child counts cannot be negative");
+        }
+      }
+    }
+
+    private final TypeParameterDetails details;
+
     /**
-     * Creates a type parameter name distinct from other source symbols.
+     * Creates a source type parameter with its owner-and-ordinal declaration key.
      *
      * @param name
      *          written simple name
+     * @param ownerKey
+     *          canonical owner identity
+     * @param ordinal
+     *          declaration position within that owner
+     * @param annotations
+     *          written annotation attachment count
+     * @param bounds
+     *          written bound attachment count
      */
-    public TypeParameterDeclaration(String name) {
-      super(name, Form.TYPE_PARAMETER_DECLARATION, None.INSTANCE);
+    public TypeParameterDeclaration(String name, String ownerKey, int ordinal, int annotations, int bounds) {
+      this(name, new TypeParameterDetails(ownerKey, ordinal, annotations, bounds));
+    }
+
+    private TypeParameterDeclaration(String name, TypeParameterDetails details) {
+      super(name, Form.TYPE_PARAMETER_DECLARATION, details);
       SyntaxValueSupport.requireName(name);
+      this.details = details;
+    }
+
+    /**
+     * Returns the canonical declaration key.
+     *
+     * @return canonical declaration key
+     */
+    public String declarationKey() {
+      return details.ownerKey() + "#type-parameter:" + details.ordinal();
+    }
+
+    /**
+     * Returns the canonical owner key.
+     *
+     * @return canonical owner key
+     */
+    public String ownerKey() {
+      return details.ownerKey();
+    }
+
+    /**
+     * Returns the owner-local declaration position.
+     *
+     * @return owner-local declaration position
+     */
+    public int ordinal() {
+      return details.ordinal();
+    }
+
+    /**
+     * Returns the written annotation count.
+     *
+     * @return number of written annotation attachments
+     */
+    public int annotations() {
+      return details.annotations();
+    }
+
+    /**
+     * Returns the written bound count.
+     *
+     * @return number of written bound attachments
+     */
+    public int bounds() {
+      return details.bounds();
+    }
+  }
+
+  /** Written method, constructor, or annotation-interface element and its direct header shape. */
+  final class ExecutableDeclaration extends Symbol {
+    /** Source executable form. */
+    public enum ExecutableKind {
+      /** Ordinary method. */
+      METHOD,
+      /** Constructor written in the source type. */
+      CONSTRUCTOR,
+      /** Compact canonical constructor written in a record. */
+      COMPACT_CONSTRUCTOR,
+      /** Annotation-interface element. */
+      ANNOTATION_ELEMENT
+    }
+
+    /**
+     * Required direct source attachments.
+     *
+     * @param annotations
+     *          written declaration annotations
+     * @param typeParameters
+     *          written type parameters
+     * @param receiver
+     *          explicit receiver presence
+     * @param parameters
+     *          written formal parameters
+     * @param returnType
+     *          written return type presence
+     * @param thrownTypes
+     *          written throws attachments
+     * @param body
+     *          written body presence
+     * @param defaultValue
+     *          written annotation default presence
+     * @param varArgs
+     *          attributed variable-arity state
+     */
+    public record HeaderShape(int annotations, int typeParameters, boolean receiver, int parameters, boolean returnType, int thrownTypes,
+        boolean body, boolean defaultValue, boolean varArgs) {
+      /** Rejects impossible cardinalities. */
+      public HeaderShape {
+        if (annotations < 0 || typeParameters < 0 || parameters < 0 || thrownTypes < 0) {
+          throw new IllegalArgumentException("Executable declaration child counts cannot be negative");
+        }
+        if (body && defaultValue) {
+          throw new IllegalArgumentException("An executable cannot have both a body and an annotation default");
+        }
+      }
+    }
+
+    /**
+     * Compiler-attributed header facts kept separate from written source attachments.
+     *
+     * @param receiverType
+     *          attributed receiver type or no receiver type
+     * @param receiverOwnerKey
+     *          canonical type owner of a resolved receiver
+     * @param thrownTypes
+     *          attributed thrown types in declaration order
+     */
+    public record AttributedHeader(SyntaxType receiverType, Optional<String> receiverOwnerKey, List<SyntaxType> thrownTypes) {
+      /** Validates the attributed receiver identity and ordered thrown types. */
+      public AttributedHeader {
+        Objects.requireNonNull(receiverType, "receiverType");
+        Objects.requireNonNull(receiverOwnerKey, "receiverOwnerKey");
+        thrownTypes = List.copyOf(Objects.requireNonNull(thrownTypes, "thrownTypes"));
+        receiverOwnerKey.ifPresent(key -> SyntaxValueSupport.requireText(key, "receiverOwnerKey"));
+        if ((receiverType != SyntaxType.NotApplicable.INSTANCE && !(receiverType instanceof SyntaxType.Resolved))
+            || (receiverType instanceof SyntaxType.Resolved) != receiverOwnerKey.isPresent()) {
+          throw new IllegalArgumentException("An executable requires a correlated attributed receiver type and owner");
+        }
+        if (receiverType instanceof SyntaxType.Resolved resolved) {
+          if (resolved.identity().category() != JavaTypeCategory.DECLARED) {
+            throw new IllegalArgumentException("An executable receiver requires a declared type");
+          }
+          var key = receiverOwnerKey.orElseThrow();
+          if (key.startsWith("type:") && !key.contains("#") && !key.substring("type:".length()).equals(resolved.identity().erasedName())) {
+            throw new IllegalArgumentException("An executable receiver type must identify its attributed owner");
+          }
+        }
+        for (var thrownType : thrownTypes) {
+          if (!(thrownType instanceof SyntaxType.Resolved resolved) || (resolved.identity().category() != JavaTypeCategory.DECLARED
+              && resolved.identity().category() != JavaTypeCategory.TYPE_VARIABLE)) {
+            throw new IllegalArgumentException("An executable thrown type requires a resolved declared or type-variable outcome");
+          }
+        }
+      }
+
+      /**
+       * Creates an attributed header without a receiver type.
+       *
+       * @param thrownTypes
+       *          attributed thrown types in declaration order
+       * @return attributed header
+       */
+      public static AttributedHeader withoutReceiver(List<SyntaxType> thrownTypes) {
+        return new AttributedHeader(SyntaxType.NotApplicable.INSTANCE, Optional.empty(), thrownTypes);
+      }
+
+      /**
+       * Creates an attributed header with a resolved receiver and its canonical type owner.
+       *
+       * @param receiverType
+       *          resolved receiver type
+       * @param receiverOwnerKey
+       *          canonical receiver type owner
+       * @param thrownTypes
+       *          attributed thrown types in declaration order
+       * @return attributed header
+       */
+      public static AttributedHeader withReceiver(SyntaxType receiverType, String receiverOwnerKey, List<SyntaxType> thrownTypes) {
+        return new AttributedHeader(receiverType, Optional.of(receiverOwnerKey), thrownTypes);
+      }
+    }
+
+    private record ExecutableDetails(String ownerKey, String declarationKey, ExecutableKind kind,
+        Set<JavaDeclarationModifier> writtenModifiers, Set<JavaDeclarationModifier> effectiveModifiers, HeaderShape shape,
+        AttributedHeader attributed) {
+      private ExecutableDetails {
+        SyntaxValueSupport.requireText(ownerKey, "ownerKey");
+        SyntaxValueSupport.requireText(declarationKey, "declarationKey");
+        if (!declarationKey.startsWith(ownerKey + "#") || declarationKey.length() <= ownerKey.length() + 1) {
+          throw new IllegalArgumentException("An executable declaration key must belong to its type owner");
+        }
+        Objects.requireNonNull(kind, "kind");
+        writtenModifiers = Set.copyOf(Objects.requireNonNull(writtenModifiers, SyntaxValueSupport.WRITTEN_MODIFIERS_ARGUMENT));
+        effectiveModifiers = Set.copyOf(Objects.requireNonNull(effectiveModifiers, SyntaxValueSupport.EFFECTIVE_MODIFIERS_ARGUMENT));
+        Objects.requireNonNull(shape, "shape");
+        Objects.requireNonNull(attributed, "attributed");
+        if (shape.receiver() && !(attributed.receiverType() instanceof SyntaxType.Resolved)) {
+          throw new IllegalArgumentException("An executable requires an available attributed receiver-type outcome");
+        }
+        if (shape.thrownTypes() != attributed.thrownTypes().size()) {
+          throw new IllegalArgumentException("Written and attributed thrown-type counts must agree");
+        }
+        if ((writtenModifiers.contains(JavaDeclarationModifier.STATIC) || effectiveModifiers.contains(JavaDeclarationModifier.STATIC))
+            && (shape.receiver() || attributed.receiverType() != SyntaxType.NotApplicable.INSTANCE)) {
+          throw new IllegalArgumentException("A static executable cannot have a receiver parameter or receiver type");
+        }
+        if (attributed.receiverType() instanceof SyntaxType.Resolved) {
+          var receiverOwnerKey = attributed.receiverOwnerKey().orElseThrow();
+          if (kind == ExecutableKind.METHOD && !ownerKey.equals(receiverOwnerKey)) {
+            throw new IllegalArgumentException("A method receiver must identify its declaring type");
+          }
+          if (kind == ExecutableKind.CONSTRUCTOR && !receiverMatchesConstructorOwner(ownerKey, receiverOwnerKey)) {
+            throw new IllegalArgumentException("A constructor receiver must identify its immediately enclosing type");
+          }
+          if (kind == ExecutableKind.COMPACT_CONSTRUCTOR || kind == ExecutableKind.ANNOTATION_ELEMENT) {
+            throw new IllegalArgumentException("This executable kind cannot have a receiver type");
+          }
+        }
+        if ((kind == ExecutableKind.CONSTRUCTOR || kind == ExecutableKind.COMPACT_CONSTRUCTOR) && shape.returnType()) {
+          throw new IllegalArgumentException("A constructor cannot own a return-type occurrence");
+        }
+        if (kind == ExecutableKind.METHOD && !shape.returnType()) {
+          throw new IllegalArgumentException("A method requires a return-type occurrence");
+        }
+        if (kind == ExecutableKind.CONSTRUCTOR && !shape.body()) {
+          throw new IllegalArgumentException("A constructor requires a body");
+        }
+        if (kind != ExecutableKind.ANNOTATION_ELEMENT && shape.defaultValue()) {
+          throw new IllegalArgumentException("Only an annotation element can own a default value");
+        }
+        if (kind == ExecutableKind.COMPACT_CONSTRUCTOR && (shape.parameters() != 0 || !shape.body() || shape.receiver()
+            || shape.typeParameters() != 0 || shape.thrownTypes() != 0 || shape.defaultValue())) {
+          throw new IllegalArgumentException("A compact constructor has an invalid source header");
+        }
+        if (kind != ExecutableKind.COMPACT_CONSTRUCTOR && shape.varArgs() && shape.parameters() == 0) {
+          throw new IllegalArgumentException("A variable-arity executable requires a written formal parameter");
+        }
+        if (kind == ExecutableKind.ANNOTATION_ELEMENT && (shape.receiver() || shape.parameters() != 0 || shape.typeParameters() != 0
+            || shape.thrownTypes() != 0 || shape.body() || shape.varArgs() || !shape.returnType())) {
+          throw new IllegalArgumentException("An annotation element has an invalid executable shape");
+        }
+      }
+
+      private static boolean receiverMatchesConstructorOwner(String ownerKey, String receiverOwnerKey) {
+        var memberPrefix = receiverOwnerKey + ".";
+        var memberOwner = ownerKey.startsWith(memberPrefix) && !ownerKey.substring(memberPrefix.length()).contains(".");
+        var localOwner = ownerKey.startsWith(receiverOwnerKey + "#") && ownerKey.contains(":type:");
+        return memberOwner || localOwner;
+      }
+    }
+
+    private final ExecutableDetails details;
+
+    /**
+     * Creates an executable declaration with separate written and attributed modifiers.
+     *
+     * @param name
+     *          written source name
+     * @param ownerKey
+     *          canonical type owner identity
+     * @param declarationKey
+     *          canonical declaration identity
+     * @param kind
+     *          source executable form
+     * @param writtenModifiers
+     *          modifiers written on the source tree
+     * @param effectiveModifiers
+     *          compiler-attributed modifiers
+     * @param shape
+     *          required child shape
+     * @param attributed
+     *          compiler-attributed receiver and thrown-type outcomes
+     */
+    public ExecutableDeclaration(String name, String ownerKey, String declarationKey, ExecutableKind kind,
+        Set<JavaDeclarationModifier> writtenModifiers, Set<JavaDeclarationModifier> effectiveModifiers, HeaderShape shape,
+        AttributedHeader attributed) {
+      this(name, new ExecutableDetails(ownerKey, declarationKey, kind, writtenModifiers, effectiveModifiers, shape, attributed));
+    }
+
+    private ExecutableDeclaration(String name, ExecutableDetails details) {
+      super(name, Form.EXECUTABLE_DECLARATION, details);
+      SyntaxValueSupport.requireName(name);
+      this.details = details;
+    }
+
+    /**
+     * Returns the canonical declaration key.
+     *
+     * @return canonical declaration key
+     */
+    public String declarationKey() {
+      return details.declarationKey();
+    }
+
+    /**
+     * Returns the canonical type owner key.
+     *
+     * @return canonical type owner key
+     */
+    public String ownerKey() {
+      return details.ownerKey();
+    }
+
+    /**
+     * Returns the source executable form.
+     *
+     * @return source executable form
+     */
+    public ExecutableKind kind() {
+      return details.kind();
+    }
+
+    /**
+     * Returns source-written modifiers.
+     *
+     * @return source-written modifiers
+     */
+    public Set<JavaDeclarationModifier> writtenModifiers() {
+      return details.writtenModifiers();
+    }
+
+    /**
+     * Returns compiler-attributed modifiers.
+     *
+     * @return compiler-attributed modifiers
+     */
+    public Set<JavaDeclarationModifier> effectiveModifiers() {
+      return details.effectiveModifiers();
+    }
+
+    /**
+     * Returns the required direct child shape.
+     *
+     * @return required direct child shape
+     */
+    public HeaderShape shape() {
+      return details.shape();
+    }
+
+    /**
+     * Returns the compiler-attributed receiver-type outcome independently of written receiver syntax.
+     *
+     * @return resolved receiver type or no receiver type
+     */
+    public SyntaxType receiverType() {
+      return details.attributed().receiverType();
+    }
+
+    /**
+     * Returns the canonical owner of a resolved receiver type when one is available.
+     *
+     * @return canonical receiver type owner, if present
+     */
+    public Optional<String> receiverOwnerKey() {
+      return details.attributed().receiverOwnerKey();
+    }
+
+    /**
+     * Returns the compiler-attributed thrown types in source declaration order.
+     *
+     * @return ordered attributed thrown types
+     */
+    public List<SyntaxType> thrownTypes() {
+      return details.attributed().thrownTypes();
+    }
+  }
+
+  /** Closed boundary for formal declarations and explicit receiver syntax. */
+  abstract sealed class ParameterHeader extends Symbol permits ParameterDeclaration, ReceiverParameter {
+    ParameterHeader(String name, Form form, Object details) {
+      super(name, form, details);
+    }
+  }
+
+  /** Source formal parameter declaration with a compiler-correlated identity. */
+  final class ParameterDeclaration extends ParameterHeader {
+    private record ParameterDetails(String declarationKey, Set<JavaDeclarationModifier> writtenModifiers,
+        Set<JavaDeclarationModifier> effectiveModifiers, int annotations, boolean type, boolean varArgs) {
+      private ParameterDetails {
+        SyntaxValueSupport.requireText(declarationKey, "declarationKey");
+        writtenModifiers = Set.copyOf(Objects.requireNonNull(writtenModifiers, SyntaxValueSupport.WRITTEN_MODIFIERS_ARGUMENT));
+        effectiveModifiers = Set.copyOf(Objects.requireNonNull(effectiveModifiers, SyntaxValueSupport.EFFECTIVE_MODIFIERS_ARGUMENT));
+        if (annotations < 0 || !type) {
+          throw new IllegalArgumentException("Invalid formal parameter declaration shape");
+        }
+      }
+    }
+
+    private final ParameterDetails details;
+
+    /**
+     * Creates a source parameter with its declared header facts.
+     *
+     * @param declarationKey
+     *          canonical declaration identity
+     * @param name
+     *          written source name
+     * @param writtenModifiers
+     *          source-written modifiers
+     * @param effectiveModifiers
+     *          compiler-attributed modifiers
+     * @param annotations
+     *          written annotation count
+     * @param type
+     *          declared type attachment state
+     * @param varArgs
+     *          attributed variable-arity state
+     */
+    public ParameterDeclaration(String declarationKey, String name, Set<JavaDeclarationModifier> writtenModifiers,
+        Set<JavaDeclarationModifier> effectiveModifiers, int annotations, boolean type, boolean varArgs) {
+      this(name, new ParameterDetails(declarationKey, writtenModifiers, effectiveModifiers, annotations, type, varArgs));
+    }
+
+    private ParameterDeclaration(String name, ParameterDetails details) {
+      super(name, Form.PARAMETER_DECLARATION, details);
+      SyntaxValueSupport.requireName(name);
+      this.details = details;
+    }
+
+    /**
+     * Returns the canonical declaration key.
+     *
+     * @return canonical declaration key
+     */
+    public String declarationKey() {
+      return details.declarationKey();
+    }
+
+    /**
+     * Returns source-written modifiers.
+     *
+     * @return source-written modifiers
+     */
+    public Set<JavaDeclarationModifier> writtenModifiers() {
+      return details.writtenModifiers();
+    }
+
+    /**
+     * Returns compiler-attributed modifiers.
+     *
+     * @return compiler-attributed modifiers
+     */
+    public Set<JavaDeclarationModifier> effectiveModifiers() {
+      return details.effectiveModifiers();
+    }
+
+    /**
+     * Returns the written annotation count.
+     *
+     * @return written annotation count
+     */
+    public int annotations() {
+      return details.annotations();
+    }
+
+    /**
+     * Returns the type-attachment state.
+     *
+     * @return true when a type is attached
+     */
+    public boolean type() {
+      return details.type();
+    }
+
+    /**
+     * Returns the variable-arity state.
+     *
+     * @return true for a variable-arity formal
+     */
+    public boolean varArgs() {
+      return details.varArgs();
+    }
+  }
+
+  /** Explicit receiver syntax owned by an executable; it does not declare a variable. */
+  final class ReceiverParameter extends ParameterHeader {
+    private record ReceiverDetails(String ownerKey, Set<JavaDeclarationModifier> writtenModifiers,
+        Set<JavaDeclarationModifier> effectiveModifiers, int annotations) {
+      private ReceiverDetails {
+        SyntaxValueSupport.requireText(ownerKey, "ownerKey");
+        writtenModifiers = Set.copyOf(Objects.requireNonNull(writtenModifiers, SyntaxValueSupport.WRITTEN_MODIFIERS_ARGUMENT));
+        effectiveModifiers = Set.copyOf(Objects.requireNonNull(effectiveModifiers, SyntaxValueSupport.EFFECTIVE_MODIFIERS_ARGUMENT));
+        if (annotations < 0) {
+          throw new IllegalArgumentException("Receiver annotation count cannot be negative");
+        }
+      }
+    }
+
+    private final ReceiverDetails details;
+
+    /**
+     * Creates explicit receiver syntax with its owning executable and written attachments.
+     *
+     * @param ownerKey
+     *          canonical owner executable identity
+     * @param writtenModifiers
+     *          source-written modifiers
+     * @param effectiveModifiers
+     *          compiler-attributed modifiers
+     * @param annotations
+     *          written annotation count
+     */
+    public ReceiverParameter(String ownerKey, Set<JavaDeclarationModifier> writtenModifiers,
+        Set<JavaDeclarationModifier> effectiveModifiers, int annotations) {
+      this(new ReceiverDetails(ownerKey, writtenModifiers, effectiveModifiers, annotations));
+    }
+
+    private ReceiverParameter(ReceiverDetails details) {
+      super("this", Form.RECEIVER_PARAMETER, details);
+      this.details = details;
+    }
+
+    /**
+     * Returns the canonical owner executable identity.
+     *
+     * @return owner executable key
+     */
+    public String ownerKey() {
+      return details.ownerKey();
+    }
+
+    /**
+     * Returns source-written modifiers.
+     *
+     * @return source-written modifiers
+     */
+    public Set<JavaDeclarationModifier> writtenModifiers() {
+      return details.writtenModifiers();
+    }
+
+    /**
+     * Returns compiler-attributed modifiers.
+     *
+     * @return compiler-attributed modifiers
+     */
+    public Set<JavaDeclarationModifier> effectiveModifiers() {
+      return details.effectiveModifiers();
+    }
+
+    /**
+     * Returns the written annotation count.
+     *
+     * @return number of written annotation attachments
+     */
+    public int annotations() {
+      return details.annotations();
     }
   }
 

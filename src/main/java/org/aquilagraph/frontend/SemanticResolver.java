@@ -19,6 +19,7 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.IntersectionType;
+import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.UnionType;
@@ -38,6 +39,7 @@ import org.aquilagraph.syntax.SyntaxType;
 final class SemanticResolver {
   private static final String PATH_ARGUMENT = "path";
   private static final String ELEMENT_ARGUMENT = "element";
+  private static final String EXECUTABLE_ARGUMENT = "executable";
   private final Trees trees;
   private final Types types;
   private final Elements elements;
@@ -57,6 +59,10 @@ final class SemanticResolver {
   boolean isImplicitDeclaration(TreePath path) {
     var declaration = element(path);
     return declaration != null && elements.getOrigin(declaration) != Elements.Origin.EXPLICIT;
+  }
+
+  boolean isCompactConstructor(ExecutableElement element) {
+    return elements.isCompactConstructor(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
   }
 
   Optional<String> declarationKey(Element element) {
@@ -119,6 +125,41 @@ final class SemanticResolver {
     return new SyntaxType.Resolved(typeIdentity(type));
   }
 
+  SyntaxType receiverType(ExecutableElement executable) {
+    var type = Objects.requireNonNull(executable, EXECUTABLE_ARGUMENT).getReceiverType();
+    if (type == null) {
+      return SyntaxType.Unresolved.INSTANCE;
+    }
+    return switch (type.getKind()) {
+      case NONE -> SyntaxType.NotApplicable.INSTANCE;
+      case ERROR -> SyntaxType.Erroneous.INSTANCE;
+      case DECLARED -> new SyntaxType.Resolved(typeIdentity(type));
+      default -> SyntaxType.Unresolved.INSTANCE;
+    };
+  }
+
+  Optional<String> receiverOwnerKey(ExecutableElement executable) {
+    var type = Objects.requireNonNull(executable, EXECUTABLE_ARGUMENT).getReceiverType();
+    return type instanceof DeclaredType declared && declared.asElement() instanceof TypeElement owner
+        ? identities.keyOf(owner)
+        : Optional.empty();
+  }
+
+  List<SyntaxType> thrownTypes(ExecutableElement executable) {
+    return Objects.requireNonNull(executable, EXECUTABLE_ARGUMENT).getThrownTypes().stream().map(type -> {
+      if (type == null) {
+        return (SyntaxType) SyntaxType.Unresolved.INSTANCE;
+      }
+      if (type.getKind() == TypeKind.ERROR) {
+        return (SyntaxType) SyntaxType.Erroneous.INSTANCE;
+      }
+      if (type.getKind() != TypeKind.DECLARED && type.getKind() != TypeKind.TYPEVAR) {
+        return (SyntaxType) SyntaxType.Unresolved.INSTANCE;
+      }
+      return new SyntaxType.Resolved(typeIdentity(type));
+    }).toList();
+  }
+
   Optional<SemanticReference> typeReference(TreePath path) {
     Objects.requireNonNull(path, PATH_ARGUMENT);
     var element = trees.getElement(path);
@@ -131,7 +172,7 @@ final class SemanticResolver {
 
   Optional<InvocationSemantics> invocationSemantics(TreePath invocationPath, ExecutableElement executable, InvocationForm form) {
     Objects.requireNonNull(invocationPath, "invocationPath");
-    Objects.requireNonNull(executable, "executable");
+    Objects.requireNonNull(executable, EXECUTABLE_ARGUMENT);
     Objects.requireNonNull(form, "form");
     var qualification = qualifyingType(invocationPath, executable, form);
     if (qualification.isEmpty()) {

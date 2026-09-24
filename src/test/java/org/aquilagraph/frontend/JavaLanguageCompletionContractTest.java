@@ -216,22 +216,22 @@ class JavaLanguageCompletionContractTest {
   void givenDeclarationPropertyCapability_whenAnalysisRuns_thenExactDiagnosticParticipatesInTheCombinedContract()
       throws IOException {
     // Arrange
-    writeSource("GenericMethod.java", "final class GenericMethod { <T> T identity(T value) { return value; } }");
+    writeSource("Settings.java", "@interface Settings { int count() default 1; }");
 
     // Act
     var input = analyze();
     var run = new AnalysisEngine().analyze(input);
     var classification = classification(input, LanguageFeatureCategory.DECLARATION_PROPERTY,
-        "MethodTree::MethodTree#getTypeParameters()");
+        "MethodTree::MethodTree#getDefaultValue()");
 
     // Assert
     assertEquals(LanguageFeaturePolicy.DIAGNOSED, classification.policy());
-    assertEquals(JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS_DIAGNOSTIC,
+    assertEquals(JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC,
         classification.diagnosticCode().orElseThrow());
     assertTrue(input.diagnostics().stream()
-        .anyMatch(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS_DIAGNOSTIC)));
+        .anyMatch(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC)));
     assertTrue(input.diagnostics().stream()
-        .filter(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS_DIAGNOSTIC))
+        .filter(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC))
         .allMatch(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.UNSUPPORTED_LANGUAGE_FEATURE));
     assertNotEquals(AnalysisCompletion.COMPLETED, run.completion());
   }
@@ -240,17 +240,17 @@ class JavaLanguageCompletionContractTest {
   void givenDiagnosedDeclarationProperty_whenFrontendRuns_thenContextualOccurrencesOwnTheExactDiagnostic()
       throws IOException {
     // Arrange
-    writeSource("GenericMethod.java", "final class GenericMethod { <T> T identity(T value) { return value; } }");
+    writeSource("Settings.java", "@interface Settings { int count() default 1; }");
 
     // Act
     var input = analyze();
-    var diagnostic = diagnostic(input, JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC);
     var propertyObservations = input.languageFeatureCoverageResult().observations().stream()
         .filter(observation -> observation.diagnostic().filter(diagnostic::equals).isPresent()).toList();
 
     // Assert
-    assertEquals(List.of("ExecutableElement::ExecutableElement#getTypeParameters()",
-        "MethodTree::MethodTree#getTypeParameters()"), propertyObservations.stream()
+    assertEquals(List.of("ExecutableElement::ExecutableElement#getDefaultValue()",
+        "MethodTree::MethodTree#getDefaultValue()"), propertyObservations.stream()
             .map(observation -> observation.classification().feature().identifier()).sorted().toList());
     assertTrue(propertyObservations.stream()
         .allMatch(observation -> observation.sourceFileKey().equals(diagnostic.origins().getFirst().sourceFileKey())));
@@ -260,9 +260,9 @@ class JavaLanguageCompletionContractTest {
   void givenContextualPropertyOccurrence_whenItsDiagnosticIsRemoved_thenCoverageResultRejectsTheDetachment()
       throws IOException {
     // Arrange
-    writeSource("GenericMethod.java", "final class GenericMethod { <T> T identity(T value) { return value; } }");
+    writeSource("Settings.java", "@interface Settings { int count() default 1; }");
     var input = analyze();
-    var diagnostic = diagnostic(input, JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC);
     var capabilityDiagnostics = input.languageFeatureCoverageResult().capabilityDiagnostics().stream()
         .filter(candidate -> !candidate.equals(diagnostic)).toList();
 
@@ -280,12 +280,12 @@ class JavaLanguageCompletionContractTest {
   void givenSharedPropertyDiagnostic_whenOneContextualOccurrenceIsRemoved_thenCoverageResultRejectsThePartialInventory()
       throws IOException {
     // Arrange
-    writeSource("GenericMethod.java", "final class GenericMethod { <T> T identity(T value) { return value; } }");
+    writeSource("Settings.java", "@interface Settings { int count() default 1; }");
     var input = analyze();
-    var diagnostic = diagnostic(input, JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC);
     var observations = input.languageFeatureCoverageResult().observations().stream()
         .filter(observation -> !observation.classification().feature().identifier()
-            .equals("MethodTree::MethodTree#getTypeParameters()"))
+            .equals("MethodTree::MethodTree#getDefaultValue()"))
         .toList();
 
     // Act
@@ -304,9 +304,9 @@ class JavaLanguageCompletionContractTest {
   void givenContextualPropertyOccurrence_whenItsWholeOutcomeBundleIsRemoved_thenCoverageResultRejectsTheMissingFact()
       throws IOException {
     // Arrange
-    writeSource("GenericMethod.java", "final class GenericMethod { <T> T identity(T value) { return value; } }");
+    writeSource("Settings.java", "@interface Settings { int count() default 1; }");
     var input = analyze();
-    var diagnostic = diagnostic(input, JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC);
     var observations = input.languageFeatureCoverageResult().observations().stream()
         .filter(observation -> observation.diagnostic().filter(diagnostic::equals).isEmpty()).toList();
     var capabilityDiagnostics = input.languageFeatureCoverageResult().capabilityDiagnostics().stream()
@@ -364,9 +364,9 @@ class JavaLanguageCompletionContractTest {
   @Test
   void givenPropertyDiagnosticWithErroneousOutcome_whenCoverageResultIsBuilt_thenOutcomeMismatchIsRejected() throws IOException {
     // Arrange
-    writeSource("GenericMethod.java", "final class GenericMethod { <T> T identity(T value) { return value; } }");
+    writeSource("Settings.java", "@interface Settings { int count() default 1; }");
     var input = analyze();
-    var original = diagnostic(input, JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS_DIAGNOSTIC);
+    var original = diagnostic(input, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC);
     var mismatched = new AnalysisDiagnostic(StableId.sha256("diagnostic", original.diagnosticKey(), "mismatched-outcome"),
         original.code(), original.stage(), original.severity(), original.message(), original.origins(),
         AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE);

@@ -23,7 +23,7 @@ class SyntaxNodeTest {
   void givenTypeHeaderShapeWithoutSuperclass_whenCreated_thenMissingAttachmentIsRejected() {
     // Arrange
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
-    var value = new SyntaxValue.TypeDeclaration("Example", Set.of(), Set.of(),
+    var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0));
 
     // Act
@@ -40,7 +40,7 @@ class SyntaxNodeTest {
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
     var annotation = SyntaxNode.source("source", path.child(SyntaxRole.INTERFACE, 0), JavaSourceKind.ANNOTATION,
         SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
-    var value = new SyntaxValue.TypeDeclaration("Example", Set.of(), Set.of(),
+    var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 1, 0, 0));
 
     // Act
@@ -59,7 +59,7 @@ class SyntaxNodeTest {
     var block = SyntaxNode.source("source", path.child(SyntaxRole.SUPERCLASS, 0), JavaSourceKind.BLOCK,
         SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported(JavaSourceKind.BLOCK.stableId()),
         List.of(), Optional.empty(), ORIGIN);
-    var value = new SyntaxValue.TypeDeclaration("Example", Set.of(), Set.of(),
+    var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0));
 
     // Act
@@ -78,7 +78,7 @@ class SyntaxNodeTest {
     var superclass = SyntaxNode.source("source", path.child(SyntaxRole.SUPERCLASS, 0), JavaSourceKind.IDENTIFIER,
         SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("IDENTIFIER"), List.of(),
         Optional.empty(), ORIGIN);
-    var value = new SyntaxValue.TypeDeclaration("Example", Set.of(), Set.of(),
+    var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0));
 
     // Act
@@ -106,13 +106,583 @@ class SyntaxNodeTest {
   }
 
   @Test
+  void givenDuplicateTypeParameterOrdinal_whenAttachedToType_thenOwnerRejectsSecondPosition() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var first = SyntaxNode.source("source", path.child(SyntaxRole.TYPE_PARAMETER, 0), JavaSourceKind.TYPE_PARAMETER,
+        SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.TypeParameterDeclaration("T", "owner", 0, 0, 0), List.of(), Optional.empty(), ORIGIN);
+    var second = SyntaxNode.source("source", path.child(SyntaxRole.TYPE_PARAMETER, 1), JavaSourceKind.TYPE_PARAMETER,
+        SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.TypeParameterDeclaration("U", "owner", 0, 0, 0), List.of(), Optional.empty(), ORIGIN);
+    var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
+        new SyntaxValue.TypeDeclaration.Shape(0, 2, false, 0, 0, 0));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
+        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value,
+        List.of(new SyntaxChild(SyntaxRole.TYPE_PARAMETER, 0, first), new SyntaxChild(SyntaxRole.TYPE_PARAMETER, 1, second)),
+        Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("child kind"));
+  }
+
+  @Test
+  void givenTypeParameterWithDifferentOwner_whenAttachedToType_thenOwnerMismatchIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var parameter = SyntaxNode.source("source", path.child(SyntaxRole.TYPE_PARAMETER, 0), JavaSourceKind.TYPE_PARAMETER,
+        SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.TypeParameterDeclaration("T", "other", 0, 0, 0), List.of(), Optional.empty(), ORIGIN);
+    var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
+        new SyntaxValue.TypeDeclaration.Shape(0, 1, false, 0, 0, 0));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
+        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value,
+        List.of(new SyntaxChild(SyntaxRole.TYPE_PARAMETER, 0, parameter)), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("child kind"));
+  }
+
+  @Test
+  void givenConstructorWithReturnAttachment_whenCreated_thenInvalidHeaderIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0);
+    var returnType = SyntaxNode.source("source", path.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.IDENTIFIER,
+        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+    var value = new SyntaxValue.ExecutableDeclaration("Example", "owner", "owner#Example()",
+        SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR, Set.of(), Set.of(),
+        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false, false),
+        SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of()));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.METHOD,
+        SyntaxKind.METHOD_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value,
+        List.of(new SyntaxChild(SyntaxRole.RETURN_TYPE, 0, returnType)), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("RETURN_TYPE"));
+  }
+
+  @Test
+  void givenMethodWithoutReturnType_whenCreatingDeclarationValue_thenInvalidHeaderIsRejected() {
+    // Arrange
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false, false);
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(), shape,
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("return-type"));
+  }
+
+  @Test
+  void givenConstructorWithoutBody_whenCreatingDeclarationValue_thenInvalidHeaderIsRejected() {
+    // Arrange
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, false, false, false);
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxValue.ExecutableDeclaration("Example", "owner", "owner#Example()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR, Set.of(), Set.of(), shape,
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("requires a body"));
+  }
+
+  @Test
+  void givenOrdinaryMethodWithAnnotationDefault_whenCreatingDeclarationValue_thenInvalidHeaderIsRejected() {
+    // Arrange
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, true, false);
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(), shape,
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("annotation element"));
+  }
+
+  @Test
+  void givenCompactConstructorWithThrows_whenCreatingDeclarationValue_thenInvalidHeaderIsRejected() {
+    // Arrange
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 1, true, false, false);
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxValue.ExecutableDeclaration("Record", "owner", "owner#Record()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.COMPACT_CONSTRUCTOR, Set.of(), Set.of(), shape,
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(
+                new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Exception", "Exception"))))));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("compact constructor"));
+  }
+
+  @Test
+  void givenCompactConstructorUnderClass_whenCreated_thenOwnerRejectsExecutableForm() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var memberPath = path.child(SyntaxRole.MEMBER, 0);
+    var body = SyntaxNode.source("source", memberPath.child(SyntaxRole.BODY, 0), JavaSourceKind.BLOCK, SyntaxKind.BLOCK,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+    var executable = SyntaxNode.source("source", memberPath, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
+        SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.ExecutableDeclaration("Example", "owner", "owner#Example()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.COMPACT_CONSTRUCTOR, Set.of(), Set.of(),
+            new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false, false),
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())),
+        List.of(new SyntaxChild(SyntaxRole.BODY, 0, body)), Optional.empty(), ORIGIN);
+    var owner = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
+        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, owner,
+        List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, executable)), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("child kind"));
+  }
+
+  @Test
+  void givenAnnotationElementUnderClass_whenCreated_thenOwnerRejectsExecutableForm() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var memberPath = path.child(SyntaxRole.MEMBER, 0);
+    var returnType = SyntaxNode.source("source", memberPath.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.IDENTIFIER,
+        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+    var executable = SyntaxNode.source("source", memberPath, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
+        SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.ExecutableDeclaration("value", "owner", "owner#value()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.ANNOTATION_ELEMENT, Set.of(), Set.of(),
+            new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, false, false),
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())),
+        List.of(new SyntaxChild(SyntaxRole.RETURN_TYPE, 0, returnType)), Optional.empty(), ORIGIN);
+    var owner = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
+        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, owner,
+        List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, executable)), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("child kind"));
+  }
+
+  @Test
+  void givenExecutableKeyOutsideDeclaredOwner_whenCreatingValue_thenCanonicalOwnerIsRejected() {
+    // Arrange
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, false, false);
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxValue.ExecutableDeclaration("run", "type:First", "type:Second#run()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(), shape,
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("type owner"));
+  }
+
+  @Test
+  void givenMethodOwnedByAnotherType_whenAttachedToType_thenParentRejectsExecutable() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var memberPath = path.child(SyntaxRole.MEMBER, 0);
+    var returnType = SyntaxNode.source("source", memberPath.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.PRIMITIVE_TYPE,
+        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+    var method = SyntaxNode.source("source", memberPath, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
+        SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.ExecutableDeclaration("run", "type:Second", "type:Second#run()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(),
+            new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, false, false),
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())),
+        List.of(new SyntaxChild(SyntaxRole.RETURN_TYPE, 0, returnType)), Optional.empty(), ORIGIN);
+    var owner = new SyntaxValue.TypeDeclaration("First", "type:First", Set.of(), Set.of(),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
+        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, owner,
+        List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, method)), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("child kind"));
+  }
+
+  @Test
+  void givenTypeParameterOnEnumOrAnnotation_whenCreated_thenOwnerRejectsHeader() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var parameter = SyntaxNode.source("source", path.child(SyntaxRole.TYPE_PARAMETER, 0), JavaSourceKind.TYPE_PARAMETER,
+        SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.TypeParameterDeclaration("T", "owner", 0, 0, 0), List.of(), Optional.empty(), ORIGIN);
+    var owner = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
+        new SyntaxValue.TypeDeclaration.Shape(0, 1, false, 0, 0, 0));
+
+    // Act and assert
+    for (var sourceKind : List.of(JavaSourceKind.ENUM, JavaSourceKind.ANNOTATION_TYPE)) {
+      var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, sourceKind,
+          SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, owner,
+          List.of(new SyntaxChild(SyntaxRole.TYPE_PARAMETER, 0, parameter)), Optional.empty(), ORIGIN));
+      assertTrue(exception.getMessage().contains("type parameters"));
+    }
+  }
+
+  @Test
+  void givenReceiverWithoutNameExpression_whenCreatingNode_thenMissingAttachmentIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0)
+        .child(SyntaxRole.RECEIVER_PARAMETER, 0);
+    var type = SyntaxNode.source("source", path.child(SyntaxRole.DECLARED_TYPE, 0), JavaSourceKind.IDENTIFIER,
+        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+    var receiver = new SyntaxValue.ReceiverParameter("owner#method()", Set.of(), Set.of(), 0);
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.VARIABLE,
+        SyntaxKind.RECEIVER_PARAMETER, SyntaxType.NotApplicable.INSTANCE, receiver,
+        List.of(new SyntaxChild(SyntaxRole.DECLARED_TYPE, 0, type)), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("QUALIFIER"));
+  }
+
+  @Test
+  void givenHeaderCategoryAndValueMismatch_whenCreatingNodes_thenConstructionIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0)
+        .child(SyntaxRole.PARAMETER, 0);
+    var formal = new SyntaxValue.ParameterDeclaration("owner#method():parameter:0", "value", Set.of(), Set.of(), 0, true, false);
+    var receiver = new SyntaxValue.ReceiverParameter("owner#method()", Set.of(), Set.of(), 0);
+
+    // Act
+    var genericCategory = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.VARIABLE, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE, formal, List.of(), Optional.empty(),
+        ORIGIN));
+    var wrongValue = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.VARIABLE, SyntaxKind.PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE, receiver, List.of(),
+        Optional.empty(), ORIGIN));
+    var wrongSourceKind = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.VARIABLE, SyntaxKind.RECEIVER_NAME, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.SourceSymbol("this"), List.of(), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(genericCategory.getMessage().contains("cannot represent Java source kind VARIABLE"));
+    assertTrue(wrongValue.getMessage().contains("requires syntax value ParameterDeclaration"));
+    assertTrue(wrongSourceKind.getMessage().contains("cannot represent Java source kind VARIABLE"));
+  }
+
+  @Test
+  void givenReceiverWithBlankOwner_whenCreatingValue_thenOwnerIsRejected() {
+    // Arrange
+    var ownerKey = " ";
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxValue.ReceiverParameter(ownerKey, Set.of(), Set.of(), 0));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("ownerKey"));
+  }
+
+  @Test
+  void givenExplicitReceiverWithoutAttributedType_whenCreatingExecutableValue_thenTypeIsRejected() {
+    // Arrange
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, true, 0, true, false, false);
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(), shape,
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("receiver-type"));
+  }
+
+  @Test
+  void givenPrimitiveAttributedReceiverType_whenCreatingExecutableValue_thenTypeIsRejected() {
+    // Arrange
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, true, 0, true, false, false);
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(), shape,
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(new SyntaxType.Resolved(INT_TYPE), "owner", List.of())));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("declared type"));
+  }
+
+  @Test
+  void givenStaticMethodWithAttributedReceiverType_whenCreatingExecutableValue_thenReceiverIsRejected() {
+    // Arrange
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, true, false, false);
+    var receiverType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Owner", "Owner"));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(JavaDeclarationModifier.STATIC), shape,
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(receiverType, "owner", List.of())));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("static executable"));
+  }
+
+  @Test
+  void givenWrittenStaticMethodWithReceiverParameter_whenCreatingExecutableValue_thenReceiverIsRejected() {
+    // Arrange
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, true, 0, true, false, false);
+    var receiverType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Owner", "Owner"));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(JavaDeclarationModifier.STATIC), Set.of(), shape,
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(receiverType, "owner", List.of())));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("static executable"));
+  }
+
+  @Test
+  void givenMethodReceiverOfAnotherType_whenCreatingExecutableValue_thenOwnerIsRejected() {
+    // Arrange
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, true, false, false);
+    var receiver = SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(
+        new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Unrelated", "Unrelated")),
+        "type:Unrelated", List.of());
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxValue.ExecutableDeclaration("run", "type:Host", "type:Host#run()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(), shape, receiver));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("method receiver"));
+  }
+
+  @Test
+  void givenReceiverTypeContradictingItsCanonicalOwner_whenCreatingAttributedHeader_thenIdentityIsRejected() {
+    // Arrange
+    var receiverType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Unrelated", "Unrelated"));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(receiverType, "type:Host", List.of()));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("attributed owner"));
+  }
+
+  @Test
+  void givenTopLevelConstructorWithReceiver_whenCreatingExecutableValue_thenEnclosingOwnerIsRejected() {
+    // Arrange
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false, false);
+    var receiver = SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(
+        new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Unrelated", "Unrelated")),
+        "type:Unrelated", List.of());
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxValue.ExecutableDeclaration("Host", "type:Host", "type:Host#Host()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR, Set.of(), Set.of(), shape, receiver));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("immediately enclosing"));
+  }
+
+  @Test
+  void givenLocalInnerConstructorWithEnclosingReceiver_whenCreatingExecutableValue_thenOwnerIsAccepted() {
+    // Arrange
+    var localKey = "type:Outer#method():type:10:30";
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, false, 0, true, false, false);
+    var receiver = SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(
+        new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Outer", "Outer")), "type:Outer", List.of());
+
+    // Act
+    var value = new SyntaxValue.ExecutableDeclaration("Local", localKey, localKey + "#Local()",
+        SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR, Set.of(), Set.of(), shape, receiver);
+
+    // Assert
+    assertEquals("type:Outer", value.receiverOwnerKey().orElseThrow());
+  }
+
+  @Test
+  void givenThrownAttachmentWithoutAttributedType_whenCreatingExecutableValue_thenCountIsRejected() {
+    // Arrange
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 1, true, false, false);
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxValue.ExecutableDeclaration("run", "type:Host", "type:Host#run()",
+            SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(), shape,
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("thrown-type counts"));
+  }
+
+  @Test
+  void givenReceiverOwnedByAnotherExecutable_whenAttached_thenOwnerIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0);
+    var receiverPath = path.child(SyntaxRole.RECEIVER_PARAMETER, 0);
+    var receiverType = SyntaxNode.source("source", receiverPath.child(SyntaxRole.DECLARED_TYPE, 0),
+        JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        List.of(), Optional.empty(), ORIGIN);
+    var receiverName = SyntaxNode.source("source", receiverPath.child(SyntaxRole.QUALIFIER, 0),
+        JavaSourceKind.IDENTIFIER, SyntaxKind.RECEIVER_NAME, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.SourceSymbol("this"), List.of(), Optional.empty(), ORIGIN);
+    var receiver = SyntaxNode.source("source", receiverPath, JavaSourceKind.VARIABLE, SyntaxKind.RECEIVER_PARAMETER,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.ReceiverParameter("owner#other()", Set.of(), Set.of(), 0),
+        List.of(new SyntaxChild(SyntaxRole.DECLARED_TYPE, 0, receiverType),
+            new SyntaxChild(SyntaxRole.QUALIFIER, 0, receiverName)), Optional.empty(), ORIGIN);
+    var returnType = SyntaxNode.source("source", path.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.PRIMITIVE_TYPE,
+        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+    var value = new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
+        SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(),
+        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, true, 0, false, false, false),
+        SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(
+            new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Owner", "Owner")), "owner", List.of()));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value,
+        List.of(new SyntaxChild(SyntaxRole.RECEIVER_PARAMETER, 0, receiver),
+            new SyntaxChild(SyntaxRole.RETURN_TYPE, 0, returnType)), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("child kind"));
+  }
+
+  @Test
+  void givenInnerConstructorWithWrongReceiverQualifier_whenAttached_thenQualifierIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0)
+        .child(SyntaxRole.MEMBER, 0);
+    var receiverPath = path.child(SyntaxRole.RECEIVER_PARAMETER, 0);
+    var declaredType = SyntaxNode.source("source", receiverPath.child(SyntaxRole.DECLARED_TYPE, 0),
+        JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        List.of(), Optional.empty(), ORIGIN);
+    var qualifier = SyntaxNode.source("source", receiverPath.child(SyntaxRole.QUALIFIER, 0),
+        JavaSourceKind.MEMBER_SELECT, SyntaxKind.RECEIVER_NAME, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.SourceSymbol("Wrong.this"), List.of(), Optional.empty(), ORIGIN);
+    var receiver = SyntaxNode.source("source", receiverPath, JavaSourceKind.VARIABLE, SyntaxKind.RECEIVER_PARAMETER,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.ReceiverParameter("type:Outer.Inner#Inner()", Set.of(), Set.of(), 0),
+        List.of(new SyntaxChild(SyntaxRole.DECLARED_TYPE, 0, declaredType), new SyntaxChild(SyntaxRole.QUALIFIER, 0, qualifier)),
+        Optional.empty(), ORIGIN);
+    var body = SyntaxNode.source("source", path.child(SyntaxRole.BODY, 0), JavaSourceKind.BLOCK, SyntaxKind.BLOCK,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+    var value = new SyntaxValue.ExecutableDeclaration("Inner", "type:Outer.Inner", "type:Outer.Inner#Inner()",
+        SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR, Set.of(), Set.of(),
+        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, false, 0, true, false, false),
+        SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(
+            new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Outer", "Outer")),
+            "type:Outer", List.of()));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value,
+        List.of(new SyntaxChild(SyntaxRole.RECEIVER_PARAMETER, 0, receiver), new SyntaxChild(SyntaxRole.BODY, 0, body)),
+        Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("child kind"));
+  }
+
+  @Test
+  void givenReceiverNameWithMismatchedSourceForm_whenCreatedThenInvalidNameIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0)
+        .child(SyntaxRole.RECEIVER_PARAMETER, 0).child(SyntaxRole.QUALIFIER, 0);
+
+    // Act
+    var unrelatedIdentifier = assertThrows(IllegalArgumentException.class,
+        () -> SyntaxNode.source("source", path, JavaSourceKind.IDENTIFIER, SyntaxKind.RECEIVER_NAME,
+            SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol("other"), List.of(), Optional.empty(), ORIGIN));
+    var unqualifiedMemberSelect = assertThrows(IllegalArgumentException.class,
+        () -> SyntaxNode.source("source", path, JavaSourceKind.MEMBER_SELECT, SyntaxKind.RECEIVER_NAME,
+            SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol("this"), List.of(), Optional.empty(), ORIGIN));
+    var invalidQualifier = assertThrows(IllegalArgumentException.class,
+        () -> SyntaxNode.source("source", path, JavaSourceKind.MEMBER_SELECT, SyntaxKind.RECEIVER_NAME,
+            SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol("not a name.this"), List.of(), Optional.empty(), ORIGIN));
+    var reservedQualifier = assertThrows(IllegalArgumentException.class,
+        () -> SyntaxNode.source("source", path, JavaSourceKind.MEMBER_SELECT, SyntaxKind.RECEIVER_NAME,
+            SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol("class.this"), List.of(), Optional.empty(), ORIGIN));
+    var literalQualifier = assertThrows(IllegalArgumentException.class,
+        () -> SyntaxNode.source("source", path, JavaSourceKind.MEMBER_SELECT, SyntaxKind.RECEIVER_NAME,
+            SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol("null.this"), List.of(), Optional.empty(), ORIGIN));
+    var restrictedTypeQualifier = assertThrows(IllegalArgumentException.class,
+        () -> SyntaxNode.source("source", path, JavaSourceKind.MEMBER_SELECT, SyntaxKind.RECEIVER_NAME,
+            SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol("record.this"), List.of(), Optional.empty(), ORIGIN));
+    var contextualQualifier = SyntaxNode.source("source", path, JavaSourceKind.MEMBER_SELECT, SyntaxKind.RECEIVER_NAME,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol("module.this"), List.of(), Optional.empty(), ORIGIN);
+
+    // Assert
+    assertTrue(unrelatedIdentifier.getMessage().contains("Receiver name"));
+    assertTrue(unqualifiedMemberSelect.getMessage().contains("Receiver name"));
+    assertTrue(invalidQualifier.getMessage().contains("Receiver name"));
+    assertTrue(reservedQualifier.getMessage().contains("Receiver name"));
+    assertTrue(literalQualifier.getMessage().contains("Receiver name"));
+    assertTrue(restrictedTypeQualifier.getMessage().contains("Receiver name"));
+    assertEquals("module.this", contextualQualifier.value(SyntaxValue.SourceSymbol.class).name());
+  }
+
+  @Test
+  void givenReceiverInFormalRole_whenCreated_thenExecutableRejectsReceiverSyntax() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0);
+    var parameterPath = path.child(SyntaxRole.PARAMETER, 0);
+    var type = SyntaxNode.source("source", parameterPath.child(SyntaxRole.DECLARED_TYPE, 0), JavaSourceKind.IDENTIFIER,
+        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+    var receiver = SyntaxNode.source("source", parameterPath, JavaSourceKind.VARIABLE, SyntaxKind.RECEIVER_PARAMETER,
+        SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.ReceiverParameter("owner#method()", Set.of(), Set.of(), 0),
+        List.of(new SyntaxChild(SyntaxRole.DECLARED_TYPE, 0, type),
+            new SyntaxChild(SyntaxRole.QUALIFIER, 0,
+                SyntaxNode.source("source", parameterPath.child(SyntaxRole.QUALIFIER, 0), JavaSourceKind.IDENTIFIER,
+                    SyntaxKind.RECEIVER_NAME, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol("this"), List.of(),
+                    Optional.empty(), ORIGIN))),
+        Optional.empty(), ORIGIN);
+    var value = new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
+        SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(),
+        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 1, true, 0, false, false, false),
+        SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of()));
+    var returnType = SyntaxNode.source("source", path.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.PRIMITIVE_TYPE,
+        SyntaxKind.TYPE_USE, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.METHOD,
+        SyntaxKind.METHOD_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value,
+        List.of(new SyntaxChild(SyntaxRole.PARAMETER, 0, receiver), new SyntaxChild(SyntaxRole.RETURN_TYPE, 0, returnType)),
+        Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(exception.getMessage().contains("child kind"));
+  }
+
+  @Test
   void givenGenericUnsupportedInitializer_whenAttachedToTypeMember_thenMemberIsRejected() {
     // Arrange
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
     var initializer = SyntaxNode.source("source", path.child(SyntaxRole.MEMBER, 0), JavaSourceKind.BLOCK,
         SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("BLOCK"), List.of(),
         Optional.empty(), ORIGIN);
-    var value = new SyntaxValue.TypeDeclaration("Example", Set.of(), Set.of(),
+    var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1));
 
     // Act

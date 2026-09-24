@@ -287,6 +287,55 @@ class JavaAstSourcePositionTest {
   }
 
   @Test
+  void givenMissingExecutableHeaderRanges_whenTranslated_thenIncompleteMethodsAreWithheld() throws IOException {
+    // Arrange
+    var source = "interface Contract { <T extends Number> T run(T value) throws java.io.IOException; }";
+    withCompiledSource(source, fixture -> {
+      var type = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var method = (MethodTree) type.getMembers().stream().filter(MethodTree.class::isInstance)
+          .filter(member -> ((MethodTree) member).getName().contentEquals("run")).findFirst().orElseThrow();
+      var missingHeaders = List.<Tree>of(method.getTypeParameters().getFirst().getBounds().getFirst(),
+          method.getParameters().getFirst().getType(), method.getThrows().getFirst());
+
+      // Act
+      for (var missing : missingHeaders) {
+        var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(missing)));
+        var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
+            .translate(fixture.unit(), fixture.sourceFile(), List.of());
+        var retainedTypes = result.contribution().orElseThrow().root().children(SyntaxRole.TYPE_DECLARATION);
+
+        // Assert
+        assertEquals(List.of(), retainedTypes);
+        assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.missing-source-position")
+            && diagnostic.severity() == DiagnosticSeverity.ERROR));
+      }
+    });
+  }
+
+  @Test
+  void givenMissingReceiverNameRange_whenTranslated_thenExecutableIsWithheld() throws IOException {
+    // Arrange
+    withCompiledSource("abstract class Receiver { abstract void run(Receiver this); }", fixture -> {
+      var type = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var method = (MethodTree) type.getMembers().stream().filter(MethodTree.class::isInstance)
+          .filter(member -> ((MethodTree) member).getName().contentEquals("run")).findFirst().orElseThrow();
+      var receiverName = method.getReceiverParameter().getNameExpression();
+      var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(receiverName)));
+
+      // Act
+      var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
+          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+
+      // Assert
+      assertEquals(List.of(), result.contribution().orElseThrow().root().children(SyntaxRole.TYPE_DECLARATION));
+      assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.missing-source-position")
+          && diagnostic.severity() == DiagnosticSeverity.ERROR));
+      assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unavailable-receiver-name")
+          && diagnostic.severity() == DiagnosticSeverity.ERROR));
+    });
+  }
+
+  @Test
   void givenMissingTypeHeaderWithWrittenMembers_whenProgramIsTranslated_thenAggregateSealsWithoutOrphanEdges() throws IOException {
     // Arrange
     Files.writeString(sourceRoot.resolve("Example.java"),

@@ -20,8 +20,20 @@ public enum SyntaxRole {
   TYPE_DECLARATION("type-declaration"),
   /** Member declaration within a type. */
   MEMBER("member"),
-  /** Type parameter written in a type declaration header. */
+  /** Type parameter written in a type or executable declaration header. */
   TYPE_PARAMETER("type-parameter"),
+  /** Written upper bound of a type parameter. */
+  TYPE_BOUND("type-bound"),
+  /** Written type attachment of a parameter declaration. */
+  DECLARED_TYPE("declared-type"),
+  /** Explicit receiver parameter of an executable. */
+  RECEIVER_PARAMETER("receiver-parameter"),
+  /** Written return type of a method or annotation element. */
+  RETURN_TYPE("return-type"),
+  /** Written type in a throws clause. */
+  THROWN_TYPE("thrown-type"),
+  /** Written annotation-interface element default value. */
+  DEFAULT_VALUE("default-value"),
   /** Written direct superclass type attachment. */
   SUPERCLASS("superclass"),
   /** Written implemented or extended interface type attachment. */

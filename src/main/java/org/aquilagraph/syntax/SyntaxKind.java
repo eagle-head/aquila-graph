@@ -2,12 +2,18 @@ package org.aquilagraph.syntax;
 
 /** Derived Java syntax categories used by current semantic-graph consumers. */
 public enum SyntaxKind {
-  /** Compilation-unit source structure outside method-body lowering. */
+  /** Source-only compilation-unit and module structure outside method-body lowering. */
   COMPILATION_UNIT,
   /** Source type declaration occurrence. */
   TYPE_DECLARATION,
   /** Source type parameter declaration occurrence. */
   TYPE_PARAMETER_DECLARATION,
+  /** Written formal parameter declaration in an executable header. */
+  PARAMETER_DECLARATION,
+  /** Explicit receiver parameter in an executable header. */
+  RECEIVER_PARAMETER,
+  /** Written receiver name expression. */
+  RECEIVER_NAME,
   /** Source type-use occurrence. */
   TYPE_USE,
   /** Source method or constructor declaration occurrence. */
@@ -121,7 +127,7 @@ public enum SyntaxKind {
       case TYPE_USE -> sourceKind.identifiesTypeUseSyntax();
       case METHOD_DECLARATION -> sourceKind == JavaSourceKind.METHOD;
       case STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, BLOCK -> sourceKind == JavaSourceKind.BLOCK;
-      case FIELD_DECLARATION, LOCAL_DECLARATION -> sourceKind == JavaSourceKind.VARIABLE;
+      case FIELD_DECLARATION, LOCAL_DECLARATION, PARAMETER_DECLARATION, RECEIVER_PARAMETER -> sourceKind == JavaSourceKind.VARIABLE;
       case EXPRESSION_STATEMENT -> sourceKind == JavaSourceKind.EXPRESSION_STATEMENT;
       case RETURN -> sourceKind == JavaSourceKind.RETURN;
       case THROW -> sourceKind == JavaSourceKind.THROW;
@@ -133,7 +139,8 @@ public enum SyntaxKind {
       case YIELD -> sourceKind == JavaSourceKind.YIELD;
       case INVOCATION -> sourceKind == JavaSourceKind.METHOD_INVOCATION;
       case OBJECT_CREATION -> sourceKind == JavaSourceKind.NEW_CLASS;
-      case FIELD_ACCESS, FIELD_LOCATION, RECEIVER -> sourceKind == JavaSourceKind.IDENTIFIER || sourceKind == JavaSourceKind.MEMBER_SELECT;
+      case FIELD_ACCESS, FIELD_LOCATION, RECEIVER, RECEIVER_NAME ->
+        sourceKind == JavaSourceKind.IDENTIFIER || sourceKind == JavaSourceKind.MEMBER_SELECT;
       case VARIABLE_ACCESS, VARIABLE_LOCATION -> sourceKind == JavaSourceKind.IDENTIFIER;
       case LITERAL -> switch (sourceKind) {
         case INT_LITERAL, LONG_LITERAL, FLOAT_LITERAL, DOUBLE_LITERAL, BOOLEAN_LITERAL, CHAR_LITERAL, STRING_LITERAL, NULL_LITERAL -> true;

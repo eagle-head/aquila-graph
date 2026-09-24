@@ -44,21 +44,15 @@ final class JavaDeclarationPropertyCoverage {
   static final String EXECUTABLE_ELEMENT_THROWN_TYPES = "ExecutableElement::ExecutableElement#getThrownTypes()";
   static final String EXECUTABLE_ELEMENT_TYPE_PARAMETERS = "ExecutableElement::ExecutableElement#getTypeParameters()";
   static final String EXECUTABLE_ELEMENT_VARARGS = "ExecutableElement::ExecutableElement#isVarArgs()";
-  static final String METHOD_TYPE_PARAMETERS_DIAGNOSTIC = "frontend.unsupported-method-type-parameters";
-  static final String THROWN_TYPES_DIAGNOSTIC = "frontend.unsupported-thrown-types";
-  static final String RECEIVER_PARAMETER_DIAGNOSTIC = "frontend.unsupported-receiver-parameter";
-  static final String VARARGS_DIAGNOSTIC = "frontend.unsupported-varargs";
   static final String DECLARATION_ANNOTATIONS_DIAGNOSTIC = "frontend.unsupported-declaration-annotations";
   static final String ANNOTATION_DEFAULT_DIAGNOSTIC = "frontend.unsupported-annotation-default";
   static final String RECORD_COMPONENTS_DIAGNOSTIC = "frontend.unsupported-record-components";
   static final String ENCLOSED_DECLARATIONS_DIAGNOSTIC = "frontend.unsupported-enclosed-declarations";
   static final String VARIABLE_MODIFIERS_DIAGNOSTIC = "frontend.unsupported-variable-modifiers";
   static final String VARIABLE_INITIALIZER_DIAGNOSTIC = "frontend.unsupported-variable-initializer";
-  static final String VARIABLE_NAME_EXPRESSION_DIAGNOSTIC = "frontend.unsupported-variable-name-expression";
-  private static final Set<String> DECLARATION_PROPERTY_DIAGNOSTICS = Set.of(METHOD_TYPE_PARAMETERS_DIAGNOSTIC, THROWN_TYPES_DIAGNOSTIC,
-      RECEIVER_PARAMETER_DIAGNOSTIC, VARARGS_DIAGNOSTIC, DECLARATION_ANNOTATIONS_DIAGNOSTIC, ANNOTATION_DEFAULT_DIAGNOSTIC,
-      RECORD_COMPONENTS_DIAGNOSTIC, ENCLOSED_DECLARATIONS_DIAGNOSTIC, VARIABLE_MODIFIERS_DIAGNOSTIC, VARIABLE_INITIALIZER_DIAGNOSTIC,
-      VARIABLE_NAME_EXPRESSION_DIAGNOSTIC);
+  private static final Set<String> DECLARATION_PROPERTY_DIAGNOSTICS = Set.of(DECLARATION_ANNOTATIONS_DIAGNOSTIC,
+      ANNOTATION_DEFAULT_DIAGNOSTIC, RECORD_COMPONENTS_DIAGNOSTIC, ENCLOSED_DECLARATIONS_DIAGNOSTIC, VARIABLE_MODIFIERS_DIAGNOSTIC,
+      VARIABLE_INITIALIZER_DIAGNOSTIC);
 
   private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
       VariableTree.class, TypeElement.class, ExecutableElement.class);
@@ -164,9 +158,10 @@ final class JavaDeclarationPropertyCoverage {
         represented("MethodTree::MethodTree#getModifiers()", "JavaMethod modifier set and declaration-annotation diagnostics"),
         represented("MethodTree::MethodTree#getName()", "JavaMethod name and declaration identity"),
         represented("MethodTree::MethodTree#getParameters()", "JavaMethod ordered JavaParameter aggregates"),
-        diagnosed(METHOD_RECEIVER_PARAMETER, RECEIVER_PARAMETER_DIAGNOSTIC),
-        represented("MethodTree::MethodTree#getReturnType()", "JavaMethod return type"), diagnosed(METHOD_THROWS, THROWN_TYPES_DIAGNOSTIC),
-        diagnosed(METHOD_TYPE_PARAMETERS, METHOD_TYPE_PARAMETERS_DIAGNOSTIC));
+        represented(METHOD_RECEIVER_PARAMETER, "JavaAstAggregate explicit receiver syntax occurrence"),
+        represented("MethodTree::MethodTree#getReturnType()", "JavaAstAggregate written return-type attachment"),
+        represented(METHOD_THROWS, "JavaAstAggregate ordered thrown-type attachments"),
+        represented(METHOD_TYPE_PARAMETERS, "JavaAstAggregate ordered executable type-parameter declarations"));
   }
 
   private static List<LanguageFeatureClassification> variableClassifications() {
@@ -176,7 +171,7 @@ final class JavaDeclarationPropertyCoverage {
         represented("VariableTree::Tree#getKind()", "JavaField, JavaParameter, or MethodSyntax declaration aggregate"),
         diagnosed(VARIABLE_MODIFIERS, VARIABLE_MODIFIERS_DIAGNOSTIC),
         represented("VariableTree::VariableTree#getName()", "JavaField or JavaParameter name"),
-        diagnosed(VARIABLE_NAME_EXPRESSION, VARIABLE_NAME_EXPRESSION_DIAGNOSTIC),
+        represented(VARIABLE_NAME_EXPRESSION, "JavaAstAggregate receiver qualifier source occurrence"),
         represented("VariableTree::VariableTree#getType()", "JavaField or JavaParameter type identity"));
   }
 
@@ -233,16 +228,16 @@ final class JavaDeclarationPropertyCoverage {
         represented("ExecutableElement::Element#getKind()", "JavaMethod constructor flag"),
         represented("ExecutableElement::Element#getModifiers()", "JavaMethod modifier set"),
         represented("ExecutableElement::ExecutableElement#getParameters()", "JavaMethod ordered JavaParameter aggregates"),
-        diagnosed(EXECUTABLE_ELEMENT_RECEIVER_TYPE, RECEIVER_PARAMETER_DIAGNOSTIC),
+        represented(EXECUTABLE_ELEMENT_RECEIVER_TYPE, "JavaAstAggregate compiler-attributed receiver-type outcome"),
         represented("ExecutableElement::ExecutableElement#getReturnType()", "JavaMethod return type"),
         represented("ExecutableElement::ExecutableElement#getSimpleName()", "JavaMethod name and declaration identity"),
-        diagnosed(EXECUTABLE_ELEMENT_THROWN_TYPES, THROWN_TYPES_DIAGNOSTIC),
-        diagnosed(EXECUTABLE_ELEMENT_TYPE_PARAMETERS, METHOD_TYPE_PARAMETERS_DIAGNOSTIC),
+        represented(EXECUTABLE_ELEMENT_THROWN_TYPES, "JavaAstAggregate ordered written attachments and attributed thrown types"),
+        represented(EXECUTABLE_ELEMENT_TYPE_PARAMETERS, "JavaAstAggregate ordered executable type parameters"),
         irrelevant("ExecutableElement::Element#hashCode()",
             "Element object hashing is a compiler-model protocol; Aquila Graph uses stable declaration keys",
             ELEMENT_API + "Element.html#hashCode()"),
         represented("ExecutableElement::ExecutableElement#isDefault()", "JavaMethod modifier set"),
-        diagnosed(EXECUTABLE_ELEMENT_VARARGS, VARARGS_DIAGNOSTIC));
+        represented(EXECUTABLE_ELEMENT_VARARGS, "JavaAstAggregate executable and final formal-parameter arity facts"));
   }
 
   private static Set<String> accessorIdentifiers() {

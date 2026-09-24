@@ -44,7 +44,7 @@ class JavaAstAggregateTest {
     var rootPath = SyntaxStructuralPath.sourceFileRoot();
     var type = SyntaxNode.withoutDirectSource("a", rootPath.child(SyntaxRole.TYPE_DECLARATION, 0), JavaSourceKind.CLASS,
         SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.TypeDeclaration("Generated", Set.of(), Set.of(),
+        new SyntaxValue.TypeDeclaration("Generated", "type:Generated", Set.of(), Set.of(),
             new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0)),
         List.of(), Optional.empty());
     var root = SyntaxNode.source("a", rootPath, JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT,
@@ -796,10 +796,10 @@ class JavaAstAggregateTest {
         SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
         List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, linkedStatement)), Optional.empty(), new SourceSpan("a", 1, 2));
     var plainMember = SyntaxNode.source("a", memberPath, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
-        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        SyntaxType.NotApplicable.INSTANCE, constructorValue(),
         List.of(new SyntaxChild(SyntaxRole.BODY, 0, plainBody)), Optional.empty(), new SourceSpan("a", 1, 2));
     var linkedMember = SyntaxNode.source("a", memberPath, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
-        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        SyntaxType.NotApplicable.INSTANCE, constructorValue(),
         List.of(new SyntaxChild(SyntaxRole.BODY, 0, linkedBody)), Optional.empty(), new SourceSpan("a", 1, 2));
     var plainType = SyntaxNode.source("a", typePath, JavaSourceKind.CLASS, SyntaxKind.TYPE_DECLARATION,
         SyntaxType.NotApplicable.INSTANCE, typeValue(1),
@@ -828,7 +828,7 @@ class JavaAstAggregateTest {
     var methodPath = typePath.child(SyntaxRole.MEMBER, 0);
     var body = block("a", methodPath.child(SyntaxRole.BODY, 0));
     var method = SyntaxNode.source("a", methodPath, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
-        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.BODY, 0, body)),
+        SyntaxType.NotApplicable.INSTANCE, constructorValue(), List.of(new SyntaxChild(SyntaxRole.BODY, 0, body)),
         Optional.empty(), new SourceSpan("a", 1, 2));
     var type = SyntaxNode.source("a", typePath, JavaSourceKind.CLASS, SyntaxKind.TYPE_DECLARATION,
         SyntaxType.NotApplicable.INSTANCE, typeValue(1), List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, method)),
@@ -920,8 +920,15 @@ class JavaAstAggregateTest {
   }
 
   private static SyntaxValue.TypeDeclaration typeValue(int members) {
-    return new SyntaxValue.TypeDeclaration("Type", Set.of(), Set.of(),
+    return new SyntaxValue.TypeDeclaration("Type", "type:Type", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, members));
+  }
+
+  private static SyntaxValue.ExecutableDeclaration constructorValue() {
+    return new SyntaxValue.ExecutableDeclaration("Type", "type:Type", "type:Type#Type()",
+        SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR,
+        Set.of(), Set.of(), new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false, false),
+        SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of()));
   }
 
   private static SyntaxNode block(String sourceKey, SyntaxStructuralPath path) {

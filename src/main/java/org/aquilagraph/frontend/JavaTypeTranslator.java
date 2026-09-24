@@ -211,11 +211,9 @@ final class JavaTypeTranslator {
           sourceEvidence.origin(unit, sourceFile, annotation), JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS);
     }
     if (variableTree.getNameExpression() != null) {
-      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, fieldKey,
-          JavaDeclarationPropertyCoverage.VARIABLE_NAME_EXPRESSION_DIAGNOSTIC,
-          "Variable name expressions are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, variableTree.getNameExpression()),
-          JavaDeclarationPropertyCoverage.VARIABLE_NAME_EXPRESSION);
+      diagnostics.add(FrontendDiagnosticFactory.otherError(fieldKey, "frontend.invalid-field-name-expression",
+          "A field declaration cannot have a receiver name expression",
+          sourceEvidence.origin(unit, sourceFile, variableTree.getNameExpression())));
     }
     var staticType = declarationType(semantics.type(path));
     if (staticType.category() == JavaTypeCategory.ERROR) {

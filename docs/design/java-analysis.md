@@ -78,9 +78,10 @@ declaration kinds, a simple name, separate source-written and attributed modifie
 sets, and ordered annotation, type-parameter, superclass, interface, permitted
 subclass, and body-member attachment roles. Each attachment has its own source
 range and structural owner. Type parameters are named
-`TYPE_PARAMETER_DECLARATION` occurrences, and header type uses are `TYPE_USE`
-occurrences with their exact compiler-tree source kinds. Their declaration
-details and recursive type content belong to later AST increments. Static and
+`TYPE_PARAMETER_DECLARATION` occurrences with owner-and-ordinal identities,
+written annotations, and ordered bound attachments. Header type uses are
+`TYPE_USE` occurrences with their exact compiler-tree source kinds; their
+recursive content belongs to AST-E04. Static and
 instance initializer blocks are distinct `STATIC_INITIALIZER_BLOCK` and
 `INSTANCE_INITIALIZER_BLOCK` member occurrences with written source ranges; their statement content
 remains diagnosed until initialization ownership is completed. Empty class-body
@@ -95,7 +96,7 @@ only after the complete enclosing type is retained. A missing required header
 range or a mismatch between a written type and its attributed declaration
 withholds that type and emits a blocking frontend error. The canonical `JavaType`
 declaration and its hierarchy references remain separate from these source
-occurrences; this increment changes no Neo4j AST projection.[2][28]
+occurrences; this increment changes no Neo4j AST projection.[2][28][29]
 `MethodSyntax` derives CFG readiness from an explicit set of method-body syntax
 categories. A source-only occurrence cannot become lowerable merely because it
 has a typed AST category; unresolved or unsupported body content remains blocked.
@@ -220,21 +221,59 @@ source form. Modular roots and their directive children represent
 `CompilationUnitTree.getModule()`; annotation value content retains its separate
 diagnosed policy.[23][24][25]
 
-The declaration-property catalog's diagnosed policies for method type parameters,
-thrown types, receiver parameters, variable arity, declaration annotations,
-annotation defaults, and record components
-are connected to source-located frontend errors. Those errors flow through the
-existing completion projection and therefore prevent `COMPLETED` without using CFG
-construction as the declaration-coverage oracle. Qualified receiver names,
-variable modifiers or initializers that lack a current
+The declaration-property catalog represents method type parameters, written and attributed thrown types,
+receiver syntax, attributed receiver types, and variable arity in source-owned
+executable headers. Formal parameters carry compiler-correlated declaration keys;
+explicit receivers carry an executable owner key because they do not declare
+variables. The attributed receiver-type outcome remains separate from optional
+written receiver syntax. A resolved receiver identifies its declaring type for an
+instance method or its immediately enclosing type for an inner constructor.
+Ordered attributed thrown types correspond one-to-one with written `throws`
+attachments; an unavailable attribution prevents publication of the declaration.
+Declaration annotations, annotation defaults, and record components remain connected
+to source-located frontend errors. Those errors flow through the existing completion
+projection and therefore prevent `COMPLETED` without using CFG construction as the
+declaration-coverage oracle. Written receiver names and qualifiers are distinct from
+formal parameters. Variable modifiers or initializers that lack a current
 representation boundary, local declaration annotations, and compiler-mandated
 enclosed declarations also produce source-located capability errors. The catalog
 therefore classifies `VariableTree.getModifiers()` and
 `VariableTree.getInitializer()` conservatively as diagnosed: field modifiers and
 local initializer syntax remain retained where supported, while any context that
-would discard either fact must emit the catalog's diagnostic. Attributed executable
-modifiers, including implicit interface method modifiers, are retained in
-`JavaMethod`. Compiler errors retain their distinct `compiler.err.*` codes.[2][23][25]
+would discard either fact must emit the catalog's diagnostic. Written and attributed
+executable modifiers remain distinct in the source AST; attributed modifiers, including
+implicit interface method modifiers, are also retained in `JavaMethod`. Compiler errors
+retain their distinct `compiler.err.*` codes.[2][23][25][29]
+
+The executable value boundary requires a return-type attachment for ordinary methods,
+a body and no return type for constructors, and limits default-value presence to
+annotation-interface elements. These kind-specific constraints apply even when an
+AST value is constructed outside the frontend. Type owners accept compact constructors
+only on records, annotation elements only on annotation interfaces, and type
+parameters only on classes, interfaces, and records. Every explicit receiver owns a
+written name-expression child, including unqualified `this`; missing evidence
+withholds its executable declaration with a source-located error. Invalid compiler
+headers are likewise diagnosed rather than published as impossible AST values.
+Executable values carry the canonical type owner separately from the executable key;
+the aggregate checks both owner identity and source form. Receiver values use the
+written name `this`, with an unqualified name expression for methods and a
+single-name `.this` expression for inner constructors.[29]
+
+Formal declarations, explicit receivers, and written receiver names have distinct
+source-only `SyntaxKind` categories: `PARAMETER_DECLARATION`, `RECEIVER_PARAMETER`,
+and `RECEIVER_NAME`. Their exact `JavaSourceKind`, typed value, structural role,
+and source range remain separate facts. `COMPILATION_UNIT` is reserved for unit,
+package, import, annotation-attachment, module, and directive structure. These
+header categories are outside the positive method-body lowering set. A
+`RECEIVER_NAME` node itself requires either the identifier `this` or one
+Java 25 type identifier followed by `.this`; its parent cannot repair an
+invalid standalone name.[29]
+
+Compiler-identified compact record constructors retain a distinct source executable form,
+source body, and canonical key. Their implicitly declared semantic parameters remain in
+`JavaMethod` but have no fabricated source `PARAMETER` children; record-component
+declarations remain assigned to the record-header increment. Type declarations carry
+their canonical key so their type-parameter children must match owner and ordinal.[28][29]
 
 `JavaLanguageFeatureCoverage` validates both closed ledgers and combines them into
 one deterministic contract for the configured release. The contract identity hashes
@@ -336,18 +375,16 @@ information. Unrestricted nested exception handling is likewise not part of
 this profile.[2][5]
 
 Declaration facts outside this profile report stable capability-specific frontend
-errors: `frontend.unsupported-method-type-parameters`,
-`frontend.unsupported-thrown-types`, `frontend.unsupported-receiver-parameter`,
-`frontend.unsupported-varargs`, `frontend.unsupported-declaration-annotations`,
+errors: `frontend.unsupported-declaration-annotations`,
 `frontend.unsupported-annotation-default`, `frontend.unsupported-record-components`,
 `frontend.unsupported-variable-modifiers`,
-`frontend.unsupported-variable-initializer`,
-`frontend.unsupported-variable-name-expression`, and
+`frontend.unsupported-variable-initializer`, and
 `frontend.unsupported-enclosed-declarations`. The declaration-property regression
 suite uses valid Java 25 sources and verifies both the expected diagnostic and a
 non-completed analysis outcome for every named fact, plus the contextual variable,
 implicit-modifier, and compiler-mandated-member boundaries. Package, import,
-and module structure instead have positive aggregate tuple tests.[2][25]
+module, executable, and type-parameter headers have positive aggregate tuple tests.
+Type-use and annotation-value content retain their own diagnostic boundaries.[2][25][29]
 
 ## Graph-Native Semantic Lowering and Control Flow
 
@@ -666,7 +703,7 @@ implements its bounded model and has no runtime dependency on
     Oracle, Java SE 25 [`Diagnostic`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/tools/Diagnostic.html),
     diagnostic kind and implementation-dependent optional code.
 28. [SyntaxValue.TypeDeclaration and TypeParameterDeclaration](../../src/main/java/org/aquilagraph/syntax/SyntaxValue.java),
-    written and attributed type facts and a distinct written type-parameter name;
+    written and attributed type facts and owner-keyed type-parameter attachments;
     [SyntaxKind](../../src/main/java/org/aquilagraph/syntax/SyntaxKind.java), distinct source-only categories;
     [SyntaxNode](../../src/main/java/org/aquilagraph/syntax/SyntaxNode.java), type-header child invariants;
     [MethodSyntax](../../src/main/java/org/aquilagraph/syntax/MethodSyntax.java), explicit CFG-readiness category boundary;
@@ -678,3 +715,25 @@ implements its bounded model and has no runtime dependency on
      record components in declaration headers, and
     [Elements.getOrigin](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/util/Elements.html#getOrigin(javax.lang.model.element.Element)),
     compiler declaration provenance.
+29. [SyntaxValue.ExecutableDeclaration, ParameterDeclaration, and ReceiverParameter](../../src/main/java/org/aquilagraph/syntax/SyntaxValue.java),
+    distinct source executable, formal-declaration, and receiver-occurrence forms
+    with exact header cardinalities, a separately attributed receiver type, and
+    ordered attributed thrown types;
+    [SyntaxNode](../../src/main/java/org/aquilagraph/syntax/SyntaxNode.java) and
+    [SyntaxValueSupport](../../src/main/java/org/aquilagraph/syntax/SyntaxValueSupport.java),
+    standalone receiver-name and Java 25 type-identifier validation;
+    [SyntaxNodeTest](../../src/test/java/org/aquilagraph/syntax/SyntaxNodeTest.java),
+    public-construction cases for identifier, keyword, literal, and type-identifier forms;
+    [JavaAstContributionTranslator](../../src/main/java/org/aquilagraph/frontend/JavaAstContributionTranslator.java),
+    compiler-correlated header construction;
+    [JavaExecutableDeclarationAstTest](../../src/test/java/org/aquilagraph/frontend/JavaExecutableDeclarationAstTest.java),
+    ordered header and identity observations; Oracle, Java SE 25
+    [MethodTree](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/MethodTree.html) and
+    [ExecutableElement.getReceiverType](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/ExecutableElement.html#getReceiverType()) and
+    [getThrownTypes](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/ExecutableElement.html#getThrownTypes()),
+    written source headers and attributed receiver and thrown-type facts;
+    [JLS 25 §§3.8–3.9](https://docs.oracle.com/javase/specs/jls/se25/html/jls-3.html#jls-3.8),
+    Java identifiers and keywords; [JLS 25 §8.4](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.4),
+    [§8.8](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.8), and
+    [§9.6.2](https://docs.oracle.com/javase/specs/jls/se25/html/jls-9.html#jls-9.6.2),
+    kind-specific method result, constructor body, and annotation default rules.

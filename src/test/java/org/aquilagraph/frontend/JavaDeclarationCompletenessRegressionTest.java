@@ -30,8 +30,8 @@ class JavaDeclarationCompletenessRegressionTest {
   @TempDir Path temporaryDirectory;
 
   @TestFactory
-  Stream<DynamicTest> givenRequiredDeclarationFacts_whenAnalysisRuns_thenStableDiagnosticsPreventCompletion() {
-    return requiredDeclarationFacts().stream().map(sourceCase -> DynamicTest.dynamicTest(sourceCase.description(), () -> {
+  Stream<DynamicTest> givenUnrepresentedDeclarationFacts_whenAnalysisRuns_thenStableDiagnosticsPreventCompletion() {
+    return unrepresentedDeclarationFacts().stream().map(sourceCase -> DynamicTest.dynamicTest(sourceCase.description(), () -> {
       // Arrange
       var caseDirectory = temporaryDirectory.resolve(sourceCase.description().replace(' ', '-'));
       writeSource(caseDirectory, sourceCase);
@@ -123,7 +123,7 @@ class JavaDeclarationCompletenessRegressionTest {
   }
 
   @Test
-  void givenQualifiedReceiver_whenAnalysisRuns_thenReceiverAndNameExpressionAreDiagnosed() throws IOException {
+  void givenQualifiedReceiver_whenFrontendRuns_thenReceiverAndNameExpressionAreRetained() throws IOException {
     // Arrange
     writeSource(new SourceCase("qualified receiver", "Outer.java", """
         class Outer {
@@ -133,14 +133,17 @@ class JavaDeclarationCompletenessRegressionTest {
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var run = new AnalysisEngine().analyze(frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION));
+    var result = frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION);
+    var receiver = result.aggregate().orElseThrow().roots().getFirst().requiredChild(SyntaxRole.TYPE_DECLARATION)
+        .requiredChild(SyntaxRole.MEMBER).requiredChild(SyntaxRole.MEMBER).requiredChild(SyntaxRole.RECEIVER_PARAMETER);
 
     // Assert
-    assertTrue(run.diagnostics().stream()
-        .anyMatch(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.RECEIVER_PARAMETER_DIAGNOSTIC)));
-    assertTrue(run.diagnostics().stream()
-        .anyMatch(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.VARIABLE_NAME_EXPRESSION_DIAGNOSTIC)));
-    assertTrue(run.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
+    assertEquals("this", receiver.value(SyntaxValue.ReceiverParameter.class).name());
+    assertEquals("Outer.this", receiver.requiredChild(SyntaxRole.QUALIFIER).value(SyntaxValue.SourceSymbol.class).name());
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals(
+        "frontend.unsupported-receiver-parameter")
+        || diagnostic.code().equals("frontend.unsupported-variable-name-expression")));
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
   }
 
   @Test
@@ -192,32 +195,8 @@ class JavaDeclarationCompletenessRegressionTest {
         .noneMatch(diagnostic -> JavaDeclarationPropertyCoverage.isDeclarationPropertyDiagnostic(diagnostic.code())));
   }
 
-  private static List<SourceCase> requiredDeclarationFacts() {
+  private static List<SourceCase> unrepresentedDeclarationFacts() {
     return List.of(
-        source("method type parameters", "GenericMethod.java", """
-            final class GenericMethod {
-              int plain(int value) { return value; }
-              <T> T identity(T value) { return value; }
-              <T extends Number, U> T convert(T value, U ignored) { return value; }
-            }
-            """, JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS_DIAGNOSTIC, 2),
-        source("thrown types", "Throwing.java", """
-            final class Throwing {
-              void plain() { }
-              void one() throws java.io.IOException { }
-              void multiple() throws java.io.IOException, ReflectiveOperationException { }
-            }
-            """, JavaDeclarationPropertyCoverage.THROWN_TYPES_DIAGNOSTIC, 2),
-        source("receiver parameter", "Receiver.java", """
-            final class Receiver {
-              void run(Receiver this) { }
-            }
-            """, JavaDeclarationPropertyCoverage.RECEIVER_PARAMETER_DIAGNOSTIC),
-        source("variable arity", "VariableArity.java", """
-            final class VariableArity {
-              void run(String... values) { }
-            }
-            """, JavaDeclarationPropertyCoverage.VARARGS_DIAGNOSTIC),
         source("declaration annotations", "AnnotatedDeclarations.java", """
             @interface First { }
             @interface Second { }

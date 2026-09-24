@@ -116,21 +116,13 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::Element#hashCode()");
   private static final Set<String> EXPECTED_DIAGNOSED_PROPERTIES = Set.of(
       "MethodTree::MethodTree#getDefaultValue()",
-      "MethodTree::MethodTree#getReceiverParameter()",
-      "MethodTree::MethodTree#getThrows()",
-      "MethodTree::MethodTree#getTypeParameters()",
       "VariableTree::VariableTree#getInitializer()",
       "VariableTree::VariableTree#getModifiers()",
-      "VariableTree::VariableTree#getNameExpression()",
       "TypeElement::Element#getAnnotationMirrors()",
       "TypeElement::TypeElement#getEnclosedElements()",
       "TypeElement::TypeElement#getRecordComponents()",
       "ExecutableElement::Element#getAnnotationMirrors()",
-      "ExecutableElement::ExecutableElement#getDefaultValue()",
-      "ExecutableElement::ExecutableElement#getReceiverType()",
-      "ExecutableElement::ExecutableElement#getThrownTypes()",
-      "ExecutableElement::ExecutableElement#getTypeParameters()",
-      "ExecutableElement::ExecutableElement#isVarArgs()");
+      "ExecutableElement::ExecutableElement#getDefaultValue()");
 
   @Test
   void givenJava25DeclarationApis_whenPropertyCoverageIsCreated_thenEveryAccessorHasExactlyOnePolicy() {
@@ -174,6 +166,15 @@ class JavaDeclarationPropertyCoverageTest {
         policyOf(coverage, JavaDeclarationPropertyCoverage.COMPILATION_UNIT_PACKAGE_NAME));
     assertEquals(LanguageFeaturePolicy.REPRESENTED,
         policyOf(coverage, JavaDeclarationPropertyCoverage.COMPILATION_UNIT_PACKAGE_ANNOTATIONS));
+    assertEquals(LanguageFeaturePolicy.REPRESENTED,
+        policyOf(coverage, JavaDeclarationPropertyCoverage.VARIABLE_NAME_EXPRESSION));
+    for (var represented : Set.of(JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS, JavaDeclarationPropertyCoverage.METHOD_THROWS,
+        JavaDeclarationPropertyCoverage.METHOD_RECEIVER_PARAMETER, JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_TYPE_PARAMETERS,
+        JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_THROWN_TYPES,
+        JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_RECEIVER_TYPE,
+        JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_VARARGS)) {
+      assertEquals(LanguageFeaturePolicy.REPRESENTED, policyOf(coverage, represented));
+    }
     assertTrue(coverage.classifications().stream()
         .filter(classification -> classification.policy() == LanguageFeaturePolicy.REPRESENTED)
         .allMatch(classification -> classification.representationBoundary().isPresent()));
@@ -183,7 +184,7 @@ class JavaDeclarationPropertyCoverageTest {
             && classification.sourceLocator().isPresent()));
     assertTrue(diagnosed.stream().allMatch(classification -> classification.blocksCompletion()
         && classification.diagnosticCode().orElseThrow().startsWith("frontend.unsupported-")));
-    assertEquals(LanguageFeaturePolicy.DIAGNOSED,
+    assertEquals(LanguageFeaturePolicy.REPRESENTED,
         policyOf(coverage, "MethodTree::MethodTree#getTypeParameters()"));
     assertEquals(LanguageFeaturePolicy.DIAGNOSED,
         policyOf(coverage, "TypeElement::TypeElement#getRecordComponents()"));

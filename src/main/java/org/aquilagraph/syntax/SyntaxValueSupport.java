@@ -3,9 +3,18 @@ package org.aquilagraph.syntax;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /** Shared validation for scalar syntax evidence. */
 final class SyntaxValueSupport {
+  static final String WRITTEN_MODIFIERS_ARGUMENT = "writtenModifiers";
+  static final String EFFECTIVE_MODIFIERS_ARGUMENT = "effectiveModifiers";
+  private static final Set<String> RESERVED_TYPE_IDENTIFIERS = Set.of("abstract", "assert", "boolean", "break", "byte", "case", "catch",
+      "char", "class", "const", "continue", "default", "do", "double", "else", "enum", "extends", "final", "finally", "float", "for",
+      "goto", "if", "implements", "import", "instanceof", "int", "interface", "long", "native", "new", "package", "private", "protected",
+      "public", "return", "short", "static", "strictfp", "super", "switch", "synchronized", "this", "throw", "throws", "transient", "try",
+      "void", "volatile", "while", "_", "true", "false", "null", "permits", "record", "sealed", "var", "yield");
+
   private SyntaxValueSupport() {
   }
 
@@ -18,6 +27,11 @@ final class SyntaxValueSupport {
 
   static void requireName(String value) {
     requireText(value, "name");
+  }
+
+  static boolean isTypeIdentifier(String value) {
+    return !value.isEmpty() && !RESERVED_TYPE_IDENTIFIERS.contains(value) && Character.isJavaIdentifierStart(value.codePointAt(0))
+        && value.codePoints().allMatch(Character::isJavaIdentifierPart);
   }
 
   static List<SyntaxValue.QualifiedName> copyProviders(List<SyntaxValue.QualifiedName> providers) {

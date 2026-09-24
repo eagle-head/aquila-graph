@@ -452,6 +452,10 @@ public final class SyntaxNode {
       };
       case TYPE_DECLARATION -> SyntaxValue.TypeDeclaration.class;
       case TYPE_PARAMETER_DECLARATION -> SyntaxValue.TypeParameterDeclaration.class;
+      case PARAMETER_DECLARATION -> SyntaxValue.ParameterDeclaration.class;
+      case RECEIVER_PARAMETER -> SyntaxValue.ReceiverParameter.class;
+      case RECEIVER_NAME -> SyntaxValue.SourceSymbol.class;
+      case METHOD_DECLARATION -> SyntaxValue.ExecutableDeclaration.class;
       case LOCAL_DECLARATION -> SyntaxValue.LocalDeclaration.class;
       case VARIABLE_ACCESS, VARIABLE_LOCATION, ARRAY_LENGTH -> SyntaxValue.SourceSymbol.class;
       case FIELD_ACCESS, FIELD_LOCATION -> SyntaxValue.FieldAccess.class;
@@ -532,8 +536,10 @@ public final class SyntaxNode {
           default -> throw new IllegalStateException("Unexpected compilation-unit source kind");
         }
       }
-      case TYPE_DECLARATION -> validateTypeDeclaration(SyntaxValue.TypeDeclaration.class.cast(value), children);
-      case METHOD_DECLARATION -> requireShape(children, Set.of(SyntaxRole.BODY), SyntaxRole.BODY, 0, 1);
+      case PARAMETER_DECLARATION -> validateParameterDeclaration(SyntaxValue.ParameterDeclaration.class.cast(value), children);
+      case RECEIVER_PARAMETER -> validateReceiverParameter(SyntaxValue.ReceiverParameter.class.cast(value), children);
+      case TYPE_DECLARATION -> validateTypeDeclaration(sourceKind, SyntaxValue.TypeDeclaration.class.cast(value), children);
+      case METHOD_DECLARATION -> validateExecutableDeclaration(SyntaxValue.ExecutableDeclaration.class.cast(value), children);
       case BLOCK -> requireShape(children, Set.of(SyntaxRole.STATEMENT));
       case LOCAL_DECLARATION -> requireShape(children, Set.of(SyntaxRole.INITIALIZER), SyntaxRole.INITIALIZER, 0, 1);
       case EXPRESSION_STATEMENT, THROW, PARENTHESIZED, TYPE_CAST ->
@@ -587,18 +593,27 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.TRUE_EXPRESSION, 1, 1);
         requireCount(children, SyntaxRole.FALSE_EXPRESSION, 1, 1);
       }
-      case TYPE_PARAMETER_DECLARATION, TYPE_USE, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, FIELD_DECLARATION, VARIABLE_ACCESS,
-          VARIABLE_LOCATION, RECEIVER, LITERAL, EMPTY ->
+      case TYPE_USE, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, FIELD_DECLARATION, VARIABLE_ACCESS, VARIABLE_LOCATION, RECEIVER,
+          LITERAL, EMPTY ->
         requireShape(children, Set.of());
+      case RECEIVER_NAME -> {
+        requireShape(children, Set.of());
+        validateReceiverName(sourceKind, SyntaxValue.SourceSymbol.class.cast(value));
+      }
+      case TYPE_PARAMETER_DECLARATION -> validateTypeParameterDeclaration(SyntaxValue.TypeParameterDeclaration.class.cast(value), children);
       case UNSUPPORTED -> {
       }
     }
   }
 
-  private static void validateTypeDeclaration(SyntaxValue.TypeDeclaration declaration, List<SyntaxChild> children) {
+  private static void validateTypeDeclaration(JavaSourceKind sourceKind, SyntaxValue.TypeDeclaration declaration,
+      List<SyntaxChild> children) {
     requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.TYPE_PARAMETER, SyntaxRole.SUPERCLASS, SyntaxRole.INTERFACE,
         SyntaxRole.PERMITTED_SUBCLASS, SyntaxRole.MEMBER));
     var shape = declaration.shape();
+    if ((sourceKind == JavaSourceKind.ENUM || sourceKind == JavaSourceKind.ANNOTATION_TYPE) && shape.typeParameters() != 0) {
+      throw new IllegalArgumentException("This type form cannot own type parameters");
+    }
     requireCount(children, SyntaxRole.ANNOTATION, shape.annotations(), shape.annotations());
     requireCount(children, SyntaxRole.TYPE_PARAMETER, shape.typeParameters(), shape.typeParameters());
     requireCount(children, SyntaxRole.SUPERCLASS, shape.superclass() ? 1 : 0, shape.superclass() ? 1 : 0);
@@ -610,11 +625,15 @@ public final class SyntaxNode {
       var valid = switch (child.role()) {
         case ANNOTATION -> node.sourceKind() == JavaSourceKind.ANNOTATION && node.syntaxKind() == SyntaxKind.COMPILATION_UNIT;
         case TYPE_PARAMETER ->
-          node.sourceKind() == JavaSourceKind.TYPE_PARAMETER && node.syntaxKind() == SyntaxKind.TYPE_PARAMETER_DECLARATION;
+          node.sourceKind() == JavaSourceKind.TYPE_PARAMETER && node.syntaxKind() == SyntaxKind.TYPE_PARAMETER_DECLARATION
+              && node.value(SyntaxValue.TypeParameterDeclaration.class).ownerKey().equals(declaration.declarationKey())
+              && node.value(SyntaxValue.TypeParameterDeclaration.class).ordinal() == child.position();
         case SUPERCLASS, INTERFACE, PERMITTED_SUBCLASS ->
           node.syntaxKind() == SyntaxKind.TYPE_USE && node.sourceKind().identifiesTypeUseSyntax();
         case MEMBER -> switch (node.syntaxKind()) {
-          case TYPE_DECLARATION, METHOD_DECLARATION, FIELD_DECLARATION, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK -> true;
+          case TYPE_DECLARATION, FIELD_DECLARATION, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK -> true;
+          case METHOD_DECLARATION -> executableOwnerAllows(sourceKind, declaration.name(), declaration.declarationKey(),
+              node.value(SyntaxValue.ExecutableDeclaration.class));
           default -> false;
         };
         default -> throw new IllegalStateException("Unexpected type declaration child role");
@@ -622,6 +641,133 @@ public final class SyntaxNode {
       if (!valid) {
         throw new IllegalArgumentException("Type declaration child kind does not match its role");
       }
+    }
+  }
+
+  private static boolean executableOwnerAllows(JavaSourceKind sourceKind, String ownerName, String ownerKey,
+      SyntaxValue.ExecutableDeclaration executable) {
+    if (!executable.ownerKey().equals(ownerKey)) {
+      return false;
+    }
+    return switch (executable.kind()) {
+      case METHOD -> sourceKind != JavaSourceKind.ANNOTATION_TYPE;
+      case ANNOTATION_ELEMENT -> sourceKind == JavaSourceKind.ANNOTATION_TYPE;
+      case CONSTRUCTOR -> Set.of(JavaSourceKind.CLASS, JavaSourceKind.ENUM, JavaSourceKind.RECORD).contains(sourceKind)
+          && executable.name().equals(ownerName);
+      case COMPACT_CONSTRUCTOR -> sourceKind == JavaSourceKind.RECORD && executable.name().equals(ownerName);
+    };
+  }
+
+  private static void validateTypeParameterDeclaration(SyntaxValue.TypeParameterDeclaration declaration, List<SyntaxChild> children) {
+    requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.TYPE_BOUND));
+    requireCount(children, SyntaxRole.ANNOTATION, declaration.annotations(), declaration.annotations());
+    requireCount(children, SyntaxRole.TYPE_BOUND, declaration.bounds(), declaration.bounds());
+    for (var child : children) {
+      var node = child.node();
+      var valid = switch (child.role()) {
+        case ANNOTATION -> node.sourceKind() == JavaSourceKind.ANNOTATION && node.syntaxKind() == SyntaxKind.COMPILATION_UNIT;
+        case TYPE_BOUND -> node.syntaxKind() == SyntaxKind.TYPE_USE && node.sourceKind().identifiesTypeUseSyntax();
+        default -> false;
+      };
+      if (!valid) {
+        throw new IllegalArgumentException("Type parameter child kind does not match its role");
+      }
+    }
+  }
+
+  private static void validateExecutableDeclaration(SyntaxValue.ExecutableDeclaration declaration, List<SyntaxChild> children) {
+    requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.TYPE_PARAMETER, SyntaxRole.RECEIVER_PARAMETER, SyntaxRole.PARAMETER,
+        SyntaxRole.RETURN_TYPE, SyntaxRole.THROWN_TYPE, SyntaxRole.BODY, SyntaxRole.DEFAULT_VALUE));
+    var shape = declaration.shape();
+    requireCount(children, SyntaxRole.ANNOTATION, shape.annotations(), shape.annotations());
+    requireCount(children, SyntaxRole.TYPE_PARAMETER, shape.typeParameters(), shape.typeParameters());
+    requireCount(children, SyntaxRole.RECEIVER_PARAMETER, shape.receiver() ? 1 : 0, shape.receiver() ? 1 : 0);
+    requireCount(children, SyntaxRole.PARAMETER, shape.parameters(), shape.parameters());
+    requireCount(children, SyntaxRole.RETURN_TYPE, shape.returnType() ? 1 : 0, shape.returnType() ? 1 : 0);
+    requireCount(children, SyntaxRole.THROWN_TYPE, shape.thrownTypes(), shape.thrownTypes());
+    requireCount(children, SyntaxRole.BODY, shape.body() ? 1 : 0, shape.body() ? 1 : 0);
+    requireCount(children, SyntaxRole.DEFAULT_VALUE, shape.defaultValue() ? 1 : 0, shape.defaultValue() ? 1 : 0);
+    for (var child : children) {
+      var node = child.node();
+      var valid = switch (child.role()) {
+        case ANNOTATION -> node.sourceKind() == JavaSourceKind.ANNOTATION && node.syntaxKind() == SyntaxKind.COMPILATION_UNIT;
+        case TYPE_PARAMETER -> node.syntaxKind() == SyntaxKind.TYPE_PARAMETER_DECLARATION
+            && node.value(SyntaxValue.TypeParameterDeclaration.class).ownerKey().equals(declaration.declarationKey())
+            && node.value(SyntaxValue.TypeParameterDeclaration.class).ordinal() == child.position();
+        case RECEIVER_PARAMETER -> node.sourceKind() == JavaSourceKind.VARIABLE && node.syntaxKind() == SyntaxKind.RECEIVER_PARAMETER
+            && node.value() instanceof SyntaxValue.ReceiverParameter receiver && receiver.ownerKey().equals(declaration.declarationKey())
+            && receiverMatchesExecutable(declaration, node.requiredChild(SyntaxRole.QUALIFIER));
+        case PARAMETER -> node.sourceKind() == JavaSourceKind.VARIABLE && node.syntaxKind() == SyntaxKind.PARAMETER_DECLARATION
+            && node.value() instanceof SyntaxValue.ParameterDeclaration parameter
+            && parameter.declarationKey().equals(declaration.declarationKey() + ":parameter:" + child.position())
+            && parameter.varArgs() == (shape.varArgs() && child.position() == shape.parameters() - 1);
+        case RETURN_TYPE, THROWN_TYPE -> node.syntaxKind() == SyntaxKind.TYPE_USE && node.sourceKind().identifiesTypeUseSyntax();
+        case BODY -> node.syntaxKind() == SyntaxKind.BLOCK;
+        case DEFAULT_VALUE -> node.syntaxKind() == SyntaxKind.UNSUPPORTED;
+        default -> false;
+      };
+      if (!valid) {
+        throw new IllegalArgumentException("Executable declaration child kind does not match its role");
+      }
+    }
+  }
+
+  private static boolean receiverMatchesExecutable(SyntaxValue.ExecutableDeclaration declaration, SyntaxNode nameExpression) {
+    return switch (declaration.kind()) {
+      case METHOD -> nameExpression.sourceKind() == JavaSourceKind.IDENTIFIER;
+      case CONSTRUCTOR -> nameExpression.sourceKind() == JavaSourceKind.MEMBER_SELECT
+          && declaration.receiverType() instanceof SyntaxType.Resolved resolved && nameExpression.value(SyntaxValue.SourceSymbol.class)
+              .name().equals(resolved.identity().erasedName().substring(resolved.identity().erasedName().lastIndexOf('.') + 1) + ".this");
+      case COMPACT_CONSTRUCTOR, ANNOTATION_ELEMENT -> false;
+    };
+  }
+
+  private static void validateParameterDeclaration(SyntaxValue.ParameterDeclaration declaration, List<SyntaxChild> children) {
+    requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.DECLARED_TYPE));
+    requireCount(children, SyntaxRole.ANNOTATION, declaration.annotations(), declaration.annotations());
+    requireCount(children, SyntaxRole.DECLARED_TYPE, declaration.type() ? 1 : 0, declaration.type() ? 1 : 0);
+    for (var child : children) {
+      var node = child.node();
+      var valid = switch (child.role()) {
+        case ANNOTATION -> node.sourceKind() == JavaSourceKind.ANNOTATION && node.syntaxKind() == SyntaxKind.COMPILATION_UNIT;
+        case DECLARED_TYPE -> node.syntaxKind() == SyntaxKind.TYPE_USE && node.sourceKind().identifiesTypeUseSyntax();
+        default -> false;
+      };
+      if (!valid) {
+        throw new IllegalArgumentException("Parameter declaration child kind does not match its role");
+      }
+    }
+  }
+
+  private static void validateReceiverParameter(SyntaxValue.ReceiverParameter receiver, List<SyntaxChild> children) {
+    requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.DECLARED_TYPE, SyntaxRole.QUALIFIER));
+    requireCount(children, SyntaxRole.ANNOTATION, receiver.annotations(), receiver.annotations());
+    requireCount(children, SyntaxRole.DECLARED_TYPE, 1, 1);
+    requireCount(children, SyntaxRole.QUALIFIER, 1, 1);
+    for (var child : children) {
+      var node = child.node();
+      var valid = switch (child.role()) {
+        case ANNOTATION -> node.sourceKind() == JavaSourceKind.ANNOTATION && node.syntaxKind() == SyntaxKind.COMPILATION_UNIT;
+        case DECLARED_TYPE -> node.syntaxKind() == SyntaxKind.TYPE_USE && node.sourceKind().identifiesTypeUseSyntax();
+        case QUALIFIER -> node.syntaxKind() == SyntaxKind.RECEIVER_NAME;
+        default -> false;
+      };
+      if (!valid) {
+        throw new IllegalArgumentException("Receiver parameter child kind does not match its role");
+      }
+    }
+  }
+
+  private static void validateReceiverName(JavaSourceKind sourceKind, SyntaxValue.SourceSymbol symbol) {
+    var name = symbol.name();
+    var valid = switch (sourceKind) {
+      case IDENTIFIER -> "this".equals(name);
+      case MEMBER_SELECT ->
+        name.endsWith(".this") && SyntaxValueSupport.isTypeIdentifier(name.substring(0, name.length() - ".this".length()));
+      default -> false;
+    };
+    if (!valid) {
+      throw new IllegalArgumentException("Receiver name does not match Java source kind " + sourceKind);
     }
   }
 
