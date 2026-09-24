@@ -130,6 +130,15 @@ final class JavaMethodBodyTranslator {
       } else if (node.type() == SyntaxType.Unresolved.INSTANCE) {
         diagnostics.add(semanticDiagnostic(methodKey, node, "frontend.unresolved-type",
             "A compiler type required for graph lowering is unavailable", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
+      } else if (node.type() instanceof SyntaxType.NoType noType) {
+        diagnostics.add(semanticDiagnostic(methodKey, node, "frontend.no-type-in-required-syntax",
+            "A required syntax type resolved to compiler pseudo-type " + noType.kind(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
+      } else if (node.type() == SyntaxType.Unsupported.INSTANCE) {
+        diagnostics.add(semanticDiagnostic(methodKey, node, "frontend.unsupported-attributed-type",
+            "A required syntax type has an implementation-reserved compiler kind", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
+      } else if (node.type() instanceof SyntaxType.StructureUnavailable) {
+        diagnostics.add(semanticDiagnostic(methodKey, node, "frontend.unavailable-type-structure",
+            "A required syntax type has no complete compiler-derived structure", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
       }
       if (node.semanticReference().isPresent() && node.semanticReference().orElseThrow().status() == ResolutionStatus.ERROR) {
         diagnostics.add(semanticDiagnostic(methodKey, node, "frontend.error-reference",

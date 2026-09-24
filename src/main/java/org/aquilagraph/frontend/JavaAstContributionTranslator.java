@@ -523,8 +523,14 @@ final class JavaAstContributionTranslator {
     if (!complete) {
       return Optional.empty();
     }
+    var upperBound = semantics.typeParameterUpperBound(parameterElement);
+    if (upperBound.isEmpty()) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(expectedKey, "frontend.unavailable-type-parameter-bound",
+          "The attributed type parameter has no complete upper-bound structure", range));
+      return Optional.empty();
+    }
     var value = new SyntaxValue.TypeParameterDeclaration(declaration.getName().toString(), ownerKey, ordinal,
-        declaration.getAnnotations().size(), declaration.getBounds().size());
+        declaration.getAnnotations().size(), declaration.getBounds().size(), upperBound.orElseThrow());
     return Optional.of(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.TYPE_PARAMETER,
         SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), range.orElseThrow()));
   }
@@ -668,6 +674,14 @@ final class JavaAstContributionTranslator {
       diagnostics.add(FrontendDiagnosticFactory.erroneousCompilerState(methodKey, "frontend.error-receiver-type",
           "javac reported an error type for the executable receiver", range));
       complete = false;
+    } else if (receiverType instanceof SyntaxType.NoType noType) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(methodKey, "frontend.invalid-receiver-no-type",
+          "The executable receiver resolved to compiler pseudo-type " + noType.kind(), range));
+      complete = false;
+    } else if (receiverType == SyntaxType.Unsupported.INSTANCE) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(methodKey, "frontend.unsupported-receiver-type",
+          "The executable receiver has an implementation-reserved compiler type", range));
+      complete = false;
     } else if (receiverType == SyntaxType.Unresolved.INSTANCE
         || (receiverTree != null && receiverType == SyntaxType.NotApplicable.INSTANCE)) {
       diagnostics.add(FrontendDiagnosticFactory.otherError(methodKey, "frontend.unavailable-receiver-type",
@@ -731,8 +745,12 @@ final class JavaAstContributionTranslator {
       complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getThrows().get(index), path, occurrencePath,
           SyntaxRole.THROWN_TYPE, index, children, diagnostics);
       if (index < thrownTypes.size() && !(thrownTypes.get(index) instanceof SyntaxType.Resolved)) {
-        diagnostics.add(FrontendDiagnosticFactory.otherError(methodKey, "frontend.unavailable-thrown-type",
-            "A written thrown type has no resolved attributed outcome", range));
+        var thrownType = thrownTypes.get(index);
+        var code = thrownType instanceof SyntaxType.NoType
+            ? "frontend.invalid-thrown-no-type"
+            : thrownType == SyntaxType.Unsupported.INSTANCE ? "frontend.unsupported-thrown-type" : "frontend.unavailable-thrown-type";
+        diagnostics.add(FrontendDiagnosticFactory.otherError(methodKey, code, "A written thrown type has no resolved attributed outcome",
+            sourceEvidence.origin(unit, sourceFile, declaration.getThrows().get(index))));
         complete = false;
       }
     }

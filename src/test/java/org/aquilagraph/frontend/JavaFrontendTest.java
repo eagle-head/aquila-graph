@@ -2,6 +2,7 @@ package org.aquilagraph.frontend;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -10,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.aquilagraph.model.CompilerConfiguration;
@@ -18,11 +20,13 @@ import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.syntax.MethodSyntax;
+import org.aquilagraph.syntax.JavaTypeStructure;
 import org.aquilagraph.syntax.SyntaxAnalysisInput;
 import org.aquilagraph.syntax.SyntaxChild;
 import org.aquilagraph.syntax.SyntaxKind;
 import org.aquilagraph.syntax.SyntaxReadiness;
 import org.aquilagraph.syntax.SyntaxRole;
+import org.aquilagraph.syntax.SyntaxType;
 import org.aquilagraph.syntax.SyntaxValue;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -381,6 +385,131 @@ class JavaFrontendTest {
     assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED
         && node.value(SyntaxValue.Unsupported.class).compilerKind().equals("NEW_CLASS")));
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
+    var creation = body.root().descendantsAndSelf().stream()
+        .filter(node -> node.value() instanceof SyntaxValue.Unsupported unsupported && unsupported.compilerKind().equals("NEW_CLASS"))
+        .findFirst().orElseThrow();
+    var resolved = assertInstanceOf(SyntaxType.Resolved.class, creation.type());
+    var local = assertInstanceOf(JavaTypeStructure.LocalDeclared.class, resolved.structure().orElseThrow());
+    assertEquals(JavaTypeStructure.LocalDeclared.Kind.ANONYMOUS, local.kind());
+    assertEquals("type:AnonymousCreation#create()", local.lexicalOwnerKey());
+    assertEquals(Optional.of(new JavaTypeStructure.Declared("type:AnonymousCreation", Optional.empty(), List.of())),
+        local.enclosingType());
+  }
+
+  @Test
+  void givenLocalClassCreation_whenFrontendRuns_thenAttributedTypeRetainsLocalOwnership() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("LocalCreation.java"), """
+        final class LocalCreation {
+          Object create() {
+            class Local { }
+            return new Local();
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var body = methodBody(result, "create");
+    var creation = body.root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION).findFirst().orElseThrow();
+    var resolved = assertInstanceOf(SyntaxType.Resolved.class, creation.type());
+    var local = assertInstanceOf(JavaTypeStructure.LocalDeclared.class, resolved.structure().orElseThrow());
+
+    // Assert
+    assertEquals(JavaTypeStructure.LocalDeclared.Kind.LOCAL, local.kind());
+    assertEquals("type:LocalCreation#create()", local.lexicalOwnerKey());
+    assertTrue(local.declarationKey().startsWith("type:LocalCreation#create():type:"), local.declarationKey());
+    assertEquals(Optional.of(new JavaTypeStructure.Declared("type:LocalCreation", Optional.empty(), List.of())),
+        local.enclosingType());
+  }
+
+  @Test
+  void givenMemberOfLocalClass_whenFrontendRuns_thenEnclosingInstanceRetainsLocalStructure() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("LocalMemberCreation.java"), """
+        final class LocalMemberCreation {
+          Object create() {
+            class Local { class Member { } }
+            return new Local().new Member();
+          }
+          Object createAgain() {
+            class Local { class Member { } }
+            return new Local().new Member();
+          }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var firstRun = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var secondRun = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var member = localMemberCreationType(firstRun, "create");
+    var enclosing = assertInstanceOf(JavaTypeStructure.LocalDeclared.class, member.enclosingType().orElseThrow());
+    var anotherMember = localMemberCreationType(firstRun, "createAgain");
+
+    // Assert
+    assertEquals(Optional.of(enclosing.declarationKey()), member.lexicalOwnerKey());
+    assertTrue(member.declarationKey().startsWith(enclosing.declarationKey() + ":type:"));
+    assertEquals(JavaTypeStructure.LocalDeclared.Kind.LOCAL, enclosing.kind());
+    assertEquals("type:LocalMemberCreation#create()", enclosing.lexicalOwnerKey());
+    assertEquals(Optional.of(new JavaTypeStructure.Declared("type:LocalMemberCreation", Optional.empty(), List.of())),
+        enclosing.enclosingType());
+    assertNotEquals(member.declarationKey(), anotherMember.declarationKey());
+    assertEquals(member, localMemberCreationType(secondRun, "create"));
+    assertEquals(anotherMember, localMemberCreationType(secondRun, "createAgain"));
+    assertTrue(firstRun.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unavailable-type-structure")));
+  }
+
+  @Test
+  void givenSameNamedLocalClassesInDifferentMethods_whenAnalyzedTwice_thenDeclarationKeysStayDistinctAndStable()
+      throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("LocalOwners.java"), """
+        final class LocalOwners {
+          Object first() { class Local { } return new Local(); }
+          Object second() { class Local { } return new Local(); }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var firstRun = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var secondRun = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var firstKey = localCreationType(firstRun, "first").declarationKey();
+    var secondKey = localCreationType(firstRun, "second").declarationKey();
+
+    // Assert
+    assertTrue(firstKey.startsWith("type:LocalOwners#first():type:"));
+    assertTrue(secondKey.startsWith("type:LocalOwners#second():type:"));
+    assertNotEquals(firstKey, secondKey);
+    assertEquals(firstKey, localCreationType(secondRun, "first").declarationKey());
+    assertEquals(secondKey, localCreationType(secondRun, "second").declarationKey());
+  }
+
+  @Test
+  void givenNullLiteral_whenFrontendRuns_thenExactTypeOutcomeHasNoRecursiveComponents() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("NullValue.java"), """
+        final class NullValue {
+          Object value() { return null; }
+        }
+        """);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var body = methodBody(result, "value");
+    var literal = body.root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.LITERAL).findFirst().orElseThrow();
+    var resolved = assertInstanceOf(SyntaxType.Resolved.class, literal.type());
+
+    // Assert
+    assertEquals(JavaTypeCategory.NULL, resolved.identity().category());
+    assertTrue(resolved.structure().isEmpty());
+    assertEquals(SyntaxReadiness.LOWERABLE, body.readiness());
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unavailable-type-structure")));
   }
 
   @Test
@@ -544,6 +673,20 @@ class JavaFrontendTest {
   private static MethodSyntax methodBody(SyntaxAnalysisInput result, String methodName) {
     var method = result.program().methods().stream().filter(candidate -> candidate.name().equals(methodName)).findFirst().orElseThrow();
     return result.methodSyntax(method.methodKey()).orElseThrow();
+  }
+
+  private static JavaTypeStructure.LocalDeclared localCreationType(SyntaxAnalysisInput result, String methodName) {
+    var creation = methodBody(result, methodName).root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION).findFirst().orElseThrow();
+    var resolved = assertInstanceOf(SyntaxType.Resolved.class, creation.type());
+    return assertInstanceOf(JavaTypeStructure.LocalDeclared.class, resolved.structure().orElseThrow());
+  }
+
+  private static JavaTypeStructure.Declared localMemberCreationType(SyntaxAnalysisInput result, String methodName) {
+    return methodBody(result, methodName).root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION)
+        .map(node -> assertInstanceOf(SyntaxType.Resolved.class, node.type()).structure().orElseThrow())
+        .filter(JavaTypeStructure.Declared.class::isInstance).map(JavaTypeStructure.Declared.class::cast).findFirst().orElseThrow();
   }
 
   private static void assertCompilerKindDiagnostics(SyntaxAnalysisInput result, int primitiveTypeCount) {

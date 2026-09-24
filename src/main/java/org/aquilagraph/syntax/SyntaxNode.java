@@ -18,6 +18,8 @@ import org.aquilagraph.model.SourceSpan;
 /** Immutable, compiler-neutral facts for one durable Java source occurrence. */
 public final class SyntaxNode {
   private static final int SINGLE_CHILD_COUNT = 1;
+  private static final JavaTypeStructure IMPLICIT_OBJECT_BOUND = new JavaTypeStructure.Declared("type:java.lang.Object", Optional.empty(),
+      List.of());
 
   private final SyntaxNodeKey key;
   private final String sourceOwner;
@@ -49,6 +51,7 @@ public final class SyntaxNode {
     validateReference(syntaxKind, semanticReference);
     validateChildPositions(childNodes);
     validateShape(syntaxKind, sourceKind, value, childNodes);
+    validateBoundSourceRanges(syntaxKind, sourceKind, sourceOrigin, childNodes);
     if (syntaxKind == SyntaxKind.TYPE_USE) {
       validateTypeUseAttribution(path, sourceKind, type, value, semanticReference, childNodes);
     }
@@ -384,6 +387,45 @@ public final class SyntaxNode {
     }
   }
 
+  private static void validateBoundSourceRanges(SyntaxKind kind, JavaSourceKind sourceKind, Optional<SourceSpan> parentOrigin,
+      List<SyntaxChild> children) {
+    if (kind == SyntaxKind.TYPE_PARAMETER_DECLARATION) {
+      validateWrittenComponentRanges(parentOrigin, children, SyntaxRole.TYPE_BOUND);
+    } else if (kind == SyntaxKind.TYPE_USE) {
+      switch (sourceKind) {
+        case EXTENDS_WILDCARD -> validateWrittenComponentRanges(parentOrigin, children, SyntaxRole.UPPER_BOUND);
+        case SUPER_WILDCARD -> validateWrittenComponentRanges(parentOrigin, children, SyntaxRole.LOWER_BOUND);
+        case INTERSECTION_TYPE -> validateWrittenComponentRanges(parentOrigin, children, SyntaxRole.INTERSECTION_BOUND);
+        case UNION_TYPE -> validateWrittenComponentRanges(parentOrigin, children, SyntaxRole.UNION_ALTERNATIVE);
+        default -> {
+        }
+      }
+    }
+  }
+
+  private static void validateWrittenComponentRanges(Optional<SourceSpan> parentOrigin, List<SyntaxChild> children, SyntaxRole role) {
+    if (parentOrigin.isEmpty()) {
+      return;
+    }
+    var parent = parentOrigin.orElseThrow();
+    var previousEnd = parent.startOffset();
+    for (var child : children) {
+      if (child.role() != role) {
+        continue;
+      }
+      var range = requiredWrittenComponentRange(child.node());
+      if (!range.sourceFileKey().equals(parent.sourceFileKey()) || range.startOffset() < previousEnd
+          || range.endOffsetExclusive() > parent.endOffsetExclusive() || range.length() == 0) {
+        throw new IllegalArgumentException("Written type component ranges must be contained and ordered");
+      }
+      previousEnd = range.endOffsetExclusive();
+    }
+  }
+
+  private static SourceSpan requiredWrittenComponentRange(SyntaxNode node) {
+    return node.origin().orElseThrow(() -> new IllegalArgumentException("A written type component requires a source range"));
+  }
+
   private static void validateSourceKind(SyntaxKind syntaxKind, JavaSourceKind sourceKind) {
     if (!syntaxKind.supports(sourceKind)) {
       throw new IllegalArgumentException(syntaxKind + " cannot represent Java source kind " + sourceKind);
@@ -637,7 +679,7 @@ public final class SyntaxNode {
       throw new IllegalArgumentException("A written type name requires a source symbol or package qualifier");
     }
     switch (sourceKind) {
-      case PRIMITIVE_TYPE, IDENTIFIER -> requireShape(children, Set.of());
+      case PRIMITIVE_TYPE, IDENTIFIER, UNBOUNDED_WILDCARD -> requireShape(children, Set.of());
       case MEMBER_SELECT -> requireShape(children, Set.of(SyntaxRole.TYPE_QUALIFIER), SyntaxRole.TYPE_QUALIFIER, 1, 1);
       case PARAMETERIZED_TYPE -> {
         requireShape(children, Set.of(SyntaxRole.TYPE_NAME, SyntaxRole.TYPE_ARGUMENT));
@@ -645,6 +687,11 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.TYPE_ARGUMENT, 1, Integer.MAX_VALUE);
       }
       case ARRAY_TYPE -> requireShape(children, Set.of(SyntaxRole.COMPONENT_TYPE), SyntaxRole.COMPONENT_TYPE, 1, 1);
+      case EXTENDS_WILDCARD -> requireShape(children, Set.of(SyntaxRole.UPPER_BOUND), SyntaxRole.UPPER_BOUND, 1, 1);
+      case SUPER_WILDCARD -> requireShape(children, Set.of(SyntaxRole.LOWER_BOUND), SyntaxRole.LOWER_BOUND, 1, 1);
+      case INTERSECTION_TYPE ->
+        requireShape(children, Set.of(SyntaxRole.INTERSECTION_BOUND), SyntaxRole.INTERSECTION_BOUND, 2, Integer.MAX_VALUE);
+      case UNION_TYPE -> requireShape(children, Set.of(SyntaxRole.UNION_ALTERNATIVE), SyntaxRole.UNION_ALTERNATIVE, 2, Integer.MAX_VALUE);
       case ANNOTATED_TYPE -> {
         requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.UNDERLYING_TYPE));
         requireCount(children, SyntaxRole.ANNOTATION, 1, Integer.MAX_VALUE);
@@ -654,7 +701,9 @@ public final class SyntaxNode {
     }
     for (var child : children) {
       var valid = switch (child.role()) {
-        case TYPE_NAME, TYPE_ARGUMENT, TYPE_QUALIFIER, COMPONENT_TYPE, UNDERLYING_TYPE -> child.node().syntaxKind() == SyntaxKind.TYPE_USE;
+        case TYPE_NAME, TYPE_ARGUMENT, TYPE_QUALIFIER, COMPONENT_TYPE, UNDERLYING_TYPE, UPPER_BOUND, LOWER_BOUND, INTERSECTION_BOUND,
+            UNION_ALTERNATIVE ->
+          child.node().syntaxKind() == SyntaxKind.TYPE_USE;
         case ANNOTATION ->
           child.node().sourceKind() == JavaSourceKind.ANNOTATION && child.node().syntaxKind() == SyntaxKind.COMPILATION_UNIT;
         default -> false;
@@ -679,21 +728,20 @@ public final class SyntaxNode {
     }
     var structure = resolved.structure()
         .orElseThrow(() -> new IllegalArgumentException("A resolved type use requires recursive attributed structure"));
-    var matchingCategory = switch (structure) {
-      case JavaTypeStructure.Primitive primitive -> resolved.identity().category() == primitive.kind();
-      case JavaTypeStructure.Declared ignored -> resolved.identity().category() == JavaTypeCategory.DECLARED;
-      case JavaTypeStructure.Variable ignored -> resolved.identity().category() == JavaTypeCategory.TYPE_VARIABLE;
-      case JavaTypeStructure.Array ignored -> resolved.identity().category() == JavaTypeCategory.ARRAY;
-    };
-    if (!matchingCategory) {
-      throw new IllegalArgumentException("Attributed type category conflicts with recursive structure");
-    }
     var matchingSource = switch (sourceKind) {
       case PRIMITIVE_TYPE ->
         structure instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == ((SyntaxValue.PrimitiveType) value).kind();
       case ARRAY_TYPE -> structure instanceof JavaTypeStructure.Array;
       case PARAMETERIZED_TYPE, MEMBER_SELECT -> structure instanceof JavaTypeStructure.Declared;
       case IDENTIFIER -> structure instanceof JavaTypeStructure.Declared || structure instanceof JavaTypeStructure.Variable;
+      case UNBOUNDED_WILDCARD ->
+        structure instanceof JavaTypeStructure.Wildcard wildcard && wildcard.kind() == JavaTypeStructure.Wildcard.BoundKind.UNBOUNDED;
+      case EXTENDS_WILDCARD ->
+        structure instanceof JavaTypeStructure.Wildcard wildcard && wildcard.kind() == JavaTypeStructure.Wildcard.BoundKind.EXTENDS;
+      case SUPER_WILDCARD ->
+        structure instanceof JavaTypeStructure.Wildcard wildcard && wildcard.kind() == JavaTypeStructure.Wildcard.BoundKind.SUPER;
+      case INTERSECTION_TYPE -> structure instanceof JavaTypeStructure.Intersection;
+      case UNION_TYPE -> structure instanceof JavaTypeStructure.Union;
       default -> true;
     };
     if (!matchingSource) {
@@ -706,6 +754,30 @@ public final class SyntaxNode {
     if (sourceKind == JavaSourceKind.ARRAY_TYPE
         && !structure.equals(new JavaTypeStructure.Array(requiredTypeUseStructure(children, SyntaxRole.COMPONENT_TYPE, 0)))) {
       throw new IllegalArgumentException("Array source component conflicts with attributed component");
+    }
+    if (structure instanceof JavaTypeStructure.Wildcard wildcard) {
+      var role = switch (wildcard.kind()) {
+        case UNBOUNDED -> null;
+        case EXTENDS -> SyntaxRole.UPPER_BOUND;
+        case SUPER -> SyntaxRole.LOWER_BOUND;
+      };
+      if (role != null && !wildcard.bound().equals(Optional.of(requiredTypeUseStructure(children, role, 0)))) {
+        throw new IllegalArgumentException("Written wildcard bound conflicts with attributed bound");
+      }
+    }
+    if (sourceKind == JavaSourceKind.INTERSECTION_TYPE && structure instanceof JavaTypeStructure.Intersection intersection) {
+      var written = children.stream().map(child -> requiredTypeUseStructure(children, SyntaxRole.INTERSECTION_BOUND, child.position()))
+          .toList();
+      if (!written.equals(intersection.bounds())) {
+        throw new IllegalArgumentException("Written intersection bounds conflict with attributed bounds");
+      }
+    }
+    if (sourceKind == JavaSourceKind.UNION_TYPE && structure instanceof JavaTypeStructure.Union union) {
+      var written = children.stream().map(child -> requiredTypeUseStructure(children, SyntaxRole.UNION_ALTERNATIVE, child.position()))
+          .toList();
+      if (!written.equals(union.alternatives())) {
+        throw new IllegalArgumentException("Written union alternatives conflict with attributed alternatives");
+      }
     }
     if (sourceKind == JavaSourceKind.ANNOTATED_TYPE
         && !structure.equals(requiredTypeUseStructure(children, SyntaxRole.UNDERLYING_TYPE, 0))) {
@@ -884,6 +956,17 @@ public final class SyntaxNode {
     requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.TYPE_BOUND));
     requireCount(children, SyntaxRole.ANNOTATION, declaration.annotations(), declaration.annotations());
     requireCount(children, SyntaxRole.TYPE_BOUND, declaration.bounds(), declaration.bounds());
+    var writtenBounds = children.stream().filter(child -> child.role() == SyntaxRole.TYPE_BOUND)
+        .map(child -> requiredTypeUseStructure(children, SyntaxRole.TYPE_BOUND, child.position())).toList();
+    if (writtenBounds.isEmpty() && !declaration.upperBound().equals(IMPLICIT_OBJECT_BOUND)) {
+      throw new IllegalArgumentException("An unwritten type-parameter bound must be implicit Object");
+    }
+    if (writtenBounds.size() == 1 && !declaration.upperBound().equals(writtenBounds.getFirst())) {
+      throw new IllegalArgumentException("The attributed type-parameter bound conflicts with its written bound");
+    }
+    if (writtenBounds.size() > 1 && !declaration.upperBound().equals(new JavaTypeStructure.Intersection(writtenBounds))) {
+      throw new IllegalArgumentException("The attributed intersection conflicts with ordered written bounds");
+    }
     for (var child : children) {
       var node = child.node();
       var valid = switch (child.role()) {

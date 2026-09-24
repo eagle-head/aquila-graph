@@ -5,10 +5,13 @@ import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.ArrayTypeTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.IdentifierTree;
+import com.sun.source.tree.IntersectionTypeTree;
 import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.ParameterizedTypeTree;
 import com.sun.source.tree.PrimitiveTypeTree;
 import com.sun.source.tree.Tree;
+import com.sun.source.tree.UnionTypeTree;
+import com.sun.source.tree.WildcardTree;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.List;
@@ -59,6 +62,12 @@ final class JavaTypeUseTranslator {
 
   private Optional<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, List<AnalysisDiagnostic> diagnostics) {
+    return translateAttributed(unit, sourceFile, tree, treePath, path, occurrencePath, semantics.explicitType(treePath), diagnostics);
+  }
+
+  Optional<SyntaxNode> translateAttributed(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, SyntaxType type, List<AnalysisDiagnostic> diagnostics) {
+    Objects.requireNonNull(type, "type");
     var range = requiredRange(unit, sourceFile, tree, occurrencePath, diagnostics);
     if (range.isEmpty()) {
       return Optional.empty();
@@ -69,16 +78,9 @@ final class JavaTypeUseTranslator {
           "A type header attachment does not contain type-use syntax", range));
       return Optional.empty();
     }
-    var type = semantics.explicitType(treePath);
-    if (type == SyntaxType.Unresolved.INSTANCE) {
-      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-type-use-attribution",
-          "A written type use has no compiler attribution", range));
-    } else if (type == SyntaxType.Erroneous.INSTANCE) {
-      diagnostics.add(FrontendDiagnosticFactory.error(sourceFile.sourceFileKey(), "frontend.erroneous-type-use",
-          "The compiler reported an erroneous written type use", range, AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE));
-    } else if (type instanceof SyntaxType.Resolved resolved && resolved.structure().isEmpty()) {
-      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-type-use-structure",
-          "A written type use has no complete compiler-derived structure", range));
+    requiredTypeOutcomeDiagnostic(sourceFile.sourceFileKey(), type, range).ifPresent(diagnostics::add);
+    if (type instanceof SyntaxType.StructureUnavailable
+        || (type instanceof SyntaxType.Resolved resolved && resolved.structure().isEmpty())) {
       return Optional.empty();
     }
     var children = new ArrayList<SyntaxChild>();
@@ -110,8 +112,43 @@ final class JavaTypeUseTranslator {
         complete &= appendTypeChild(unit, sourceFile, annotated.getUnderlyingType(), new TreePath(treePath, annotated.getUnderlyingType()),
             path, occurrencePath, SyntaxRole.UNDERLYING_TYPE, 0, children, diagnostics);
       }
+      case WildcardTree wildcard -> {
+        if (wildcard.getKind() != Tree.Kind.UNBOUNDED_WILDCARD && wildcard.getBound() == null) {
+          diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.missing-wildcard-bound",
+              "A bounded wildcard has no written bound", range));
+          return Optional.empty();
+        }
+        if (wildcard.getKind() == Tree.Kind.UNBOUNDED_WILDCARD && wildcard.getBound() != null) {
+          diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unexpected-wildcard-bound",
+              "An unbounded wildcard has a written bound", range));
+          return Optional.empty();
+        }
+        if (wildcard.getBound() != null) {
+          var role = switch (wildcard.getKind()) {
+            case EXTENDS_WILDCARD -> SyntaxRole.UPPER_BOUND;
+            case SUPER_WILDCARD -> SyntaxRole.LOWER_BOUND;
+            default -> throw new IllegalArgumentException("A bounded wildcard requires an extends or super source kind");
+          };
+          complete = appendTypeChild(unit, sourceFile, wildcard.getBound(), new TreePath(treePath, wildcard.getBound()), path,
+              occurrencePath, role, 0, children, diagnostics);
+        }
+      }
+      case IntersectionTypeTree intersection -> {
+        for (var ordinal = 0; ordinal < intersection.getBounds().size(); ordinal++) {
+          var bound = intersection.getBounds().get(ordinal);
+          complete &= appendTypeChildFromParent(unit, sourceFile, bound, treePath, path, occurrencePath, SyntaxRole.INTERSECTION_BOUND,
+              ordinal, children, diagnostics);
+        }
+      }
+      case UnionTypeTree union -> {
+        for (var ordinal = 0; ordinal < union.getTypeAlternatives().size(); ordinal++) {
+          var alternative = union.getTypeAlternatives().get(ordinal);
+          complete &= appendTypeChildFromParent(unit, sourceFile, alternative, treePath, path, occurrencePath, SyntaxRole.UNION_ALTERNATIVE,
+              ordinal, children, diagnostics);
+        }
+      }
       default -> {
-        // Bounds, alternatives, and erroneous forms retain their existing diagnosed boundary.
+        // Erroneous forms retain their exact source occurrence and blocking compiler outcome.
       }
     }
     if (!complete) {
@@ -143,6 +180,34 @@ final class JavaTypeUseTranslator {
         reference, range.orElseThrow()));
   }
 
+  static Optional<AnalysisDiagnostic> requiredTypeOutcomeDiagnostic(String sourceFileKey, SyntaxType type, Optional<SourceSpan> range) {
+    Objects.requireNonNull(sourceFileKey, "sourceFileKey");
+    Objects.requireNonNull(type, "type");
+    Objects.requireNonNull(range, "range");
+    if (type == SyntaxType.Unresolved.INSTANCE) {
+      return Optional.of(FrontendDiagnosticFactory.otherError(sourceFileKey, "frontend.unavailable-type-use-attribution",
+          "A written type use has no compiler attribution", range));
+    }
+    if (type == SyntaxType.Erroneous.INSTANCE) {
+      return Optional.of(FrontendDiagnosticFactory.error(sourceFileKey, "frontend.erroneous-type-use",
+          "The compiler reported an erroneous written type use", range, AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE));
+    }
+    if (type instanceof SyntaxType.NoType noType) {
+      return Optional.of(FrontendDiagnosticFactory.otherError(sourceFileKey, "frontend.no-type-in-required-type-use",
+          "A written type use resolved to compiler pseudo-type " + noType.kind(), range));
+    }
+    if (type == SyntaxType.Unsupported.INSTANCE) {
+      return Optional.of(FrontendDiagnosticFactory.otherError(sourceFileKey, "frontend.unsupported-attributed-type-use",
+          "A written type use has an implementation-reserved compiler type", range));
+    }
+    if (type instanceof SyntaxType.StructureUnavailable
+        || (type instanceof SyntaxType.Resolved resolved && resolved.structure().isEmpty())) {
+      return Optional.of(FrontendDiagnosticFactory.otherError(sourceFileKey, "frontend.unavailable-type-use-structure",
+          "A written type use has no complete compiler-derived structure", range));
+    }
+    return Optional.empty();
+  }
+
   private boolean appendTypeChild(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
       SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal, List<SyntaxChild> children,
       List<AnalysisDiagnostic> diagnostics) {
@@ -156,8 +221,15 @@ final class JavaTypeUseTranslator {
   private boolean appendTypeArgument(CompilationUnitTree unit, SourceFile sourceFile, Tree argument, TreePath parentTreePath,
       SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, int ordinal, List<SyntaxChild> children,
       List<AnalysisDiagnostic> diagnostics) {
-    return appendTypeChild(unit, sourceFile, argument, new TreePath(parentTreePath, argument), parentPath, parentOccurrencePath,
-        SyntaxRole.TYPE_ARGUMENT, ordinal, children, diagnostics);
+    return appendTypeChildFromParent(unit, sourceFile, argument, parentTreePath, parentPath, parentOccurrencePath, SyntaxRole.TYPE_ARGUMENT,
+        ordinal, children, diagnostics);
+  }
+
+  private boolean appendTypeChildFromParent(CompilationUnitTree unit, SourceFile sourceFile, Tree childTree, TreePath parentTreePath,
+      SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal, List<SyntaxChild> children,
+      List<AnalysisDiagnostic> diagnostics) {
+    return appendTypeChild(unit, sourceFile, childTree, new TreePath(parentTreePath, childTree), parentPath, parentOccurrencePath, role,
+        ordinal, children, diagnostics);
   }
 
   private boolean appendQualifier(CompilationUnitTree unit, SourceFile sourceFile, Tree qualifier, TreePath qualifierPath,

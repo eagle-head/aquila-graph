@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.aquilagraph.model.InputSnapshot;
+import org.aquilagraph.model.JavaTypeCategory;
+import org.aquilagraph.model.JavaTypeIdentity;
 import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SemanticReference;
@@ -845,6 +847,38 @@ class JavaAstAggregateTest {
     assertSame(body, aggregate.methodSyntax("method").orElseThrow().root());
     assertSame(body, aggregate.node(body.nodeId()).orElseThrow());
     assertEquals(MethodBodyOrigin.SOURCE_AST, aggregate.methodBodyOrigin("method").orElseThrow());
+  }
+
+  @Test
+  void givenMethodBodyWithUnavailableCompositeStructure_whenReadinessIsDerived_thenBodyIsUnresolved() {
+    // Arrange
+    var typePath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var methodPath = typePath.child(SyntaxRole.MEMBER, 0);
+    var bodyPath = methodPath.child(SyntaxRole.BODY, 0);
+    var localPath = bodyPath.child(SyntaxRole.STATEMENT, 0);
+    var localReference = new SemanticReference(ReferenceKind.LOCAL, ResolutionStatus.RESOLVED,
+        Optional.of("method#local:problem"), Optional.empty(), List.of(), List.of());
+    var local = SyntaxNode.source("a", localPath, JavaSourceKind.VARIABLE, SyntaxKind.LOCAL_DECLARATION,
+        new SyntaxType.StructureUnavailable(new JavaTypeIdentity(JavaTypeCategory.UNION, "First | Second", "First")),
+        new SyntaxValue.LocalDeclaration("problem"), List.of(), Optional.of(localReference), new SourceSpan("a", 1, 2));
+    var body = SyntaxNode.source("a", bodyPath, JavaSourceKind.BLOCK, SyntaxKind.BLOCK,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, local)), Optional.empty(), new SourceSpan("a", 1, 2));
+    var method = SyntaxNode.source("a", methodPath, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
+        SyntaxType.NotApplicable.INSTANCE, constructorValue(), List.of(new SyntaxChild(SyntaxRole.BODY, 0, body)),
+        Optional.empty(), new SourceSpan("a", 1, 2));
+    var owner = SyntaxNode.source("a", typePath, JavaSourceKind.CLASS, SyntaxKind.TYPE_DECLARATION,
+        SyntaxType.NotApplicable.INSTANCE, typeValue(1), List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, method)),
+        Optional.empty(), new SourceSpan("a", 1, 2));
+    var root = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, owner)));
+    var aggregate = JavaAstAggregate.builder(snapshot("a")).add(contribution(root))
+        .addMethodBody("method", body, MethodBodyOrigin.SOURCE_AST).seal();
+
+    // Act
+    var readiness = aggregate.methodSyntax("method").orElseThrow().readiness();
+
+    // Assert
+    assertEquals(SyntaxReadiness.UNRESOLVED_SEMANTICS, readiness);
   }
 
   @Test

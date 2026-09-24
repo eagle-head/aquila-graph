@@ -834,9 +834,10 @@ public sealed interface SyntaxValue {
 
   /** Written type parameter, its canonical identity, and its direct source attachments. */
   final class TypeParameterDeclaration extends Symbol {
-    private record TypeParameterDetails(String ownerKey, int ordinal, int annotations, int bounds) {
+    private record TypeParameterDetails(String ownerKey, int ordinal, int annotations, int bounds, JavaTypeStructure upperBound) {
       private TypeParameterDetails {
         SyntaxValueSupport.requireText(ownerKey, SyntaxValueSupport.OWNER_KEY_ARGUMENT);
+        Objects.requireNonNull(upperBound, "upperBound");
         if (ordinal < 0 || annotations < 0 || bounds < 0) {
           throw new IllegalArgumentException("Type parameter child counts cannot be negative");
         }
@@ -858,9 +859,11 @@ public sealed interface SyntaxValue {
      *          written annotation attachment count
      * @param bounds
      *          written bound attachment count
+     * @param upperBound
+     *          compiler-derived upper bound, including implicit or intersection components
      */
-    public TypeParameterDeclaration(String name, String ownerKey, int ordinal, int annotations, int bounds) {
-      this(name, new TypeParameterDetails(ownerKey, ordinal, annotations, bounds));
+    public TypeParameterDeclaration(String name, String ownerKey, int ordinal, int annotations, int bounds, JavaTypeStructure upperBound) {
+      this(name, new TypeParameterDetails(ownerKey, ordinal, annotations, bounds, upperBound));
     }
 
     private TypeParameterDeclaration(String name, TypeParameterDetails details) {
@@ -912,6 +915,15 @@ public sealed interface SyntaxValue {
      */
     public int bounds() {
       return details.bounds();
+    }
+
+    /**
+     * Returns the compiler-derived upper bound, which may contain an unwritten implicit component.
+     *
+     * @return recursive attributed upper bound
+     */
+    public JavaTypeStructure upperBound() {
+      return details.upperBound();
     }
   }
 

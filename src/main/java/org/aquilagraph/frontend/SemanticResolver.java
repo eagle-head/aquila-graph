@@ -19,7 +19,9 @@ import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
+import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.type.IntersectionType;
 import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
@@ -27,6 +29,7 @@ import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.TypeVariable;
 import javax.lang.model.type.UnionType;
+import javax.lang.model.type.WildcardType;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import org.aquilagraph.model.InvocationForm;
@@ -46,6 +49,7 @@ final class SemanticResolver {
   private static final String PATH_ARGUMENT = "path";
   private static final String ELEMENT_ARGUMENT = "element";
   private static final String EXECUTABLE_ARGUMENT = "executable";
+  private static final int MIN_COMPOSITE_COMPONENTS = 2;
   private final Trees trees;
   private final Types types;
   private final Elements elements;
@@ -88,6 +92,11 @@ final class SemanticResolver {
     return identities.keyOf(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
   }
 
+  Optional<JavaTypeStructure> typeParameterUpperBound(TypeParameterElement parameter) {
+    var mirror = Objects.requireNonNull(parameter, "parameter").asType();
+    return mirror instanceof TypeVariable variable ? structuredType(variable.getUpperBound()) : Optional.empty();
+  }
+
   String executableSignature(ExecutableElement element) {
     return identities.signatureOf(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
   }
@@ -117,15 +126,7 @@ final class SemanticResolver {
     if (!(path.getLeaf() instanceof ExpressionTree) && !(path.getLeaf() instanceof VariableTree)) {
       return SyntaxType.NotApplicable.INSTANCE;
     }
-    var type = compilerType(path);
-    if (type == null || type.getKind() == TypeKind.NONE || type.getKind() == TypeKind.PACKAGE || type.getKind() == TypeKind.MODULE
-        || type.getKind() == TypeKind.OTHER) {
-      return SyntaxType.Unresolved.INSTANCE;
-    }
-    if (type.getKind() == TypeKind.ERROR) {
-      return SyntaxType.Erroneous.INSTANCE;
-    }
-    return new SyntaxType.Resolved(typeIdentity(type));
+    return projectType(compilerType(path), true);
   }
 
   Optional<JavaTypeIdentity> resolvedType(TreePath path) {
@@ -135,17 +136,25 @@ final class SemanticResolver {
 
   SyntaxType explicitType(TreePath path) {
     Objects.requireNonNull(path, PATH_ARGUMENT);
-    var type = compilerType(path);
-    if (type == null || type.getKind() == TypeKind.NONE || type.getKind() == TypeKind.PACKAGE || type.getKind() == TypeKind.MODULE
-        || type.getKind() == TypeKind.OTHER) {
+    return projectType(compilerType(path), true);
+  }
+
+  private SyntaxType projectType(@Nullable TypeMirror type, boolean includeStructure) {
+    if (type == null) {
       return SyntaxType.Unresolved.INSTANCE;
     }
-    if (type.getKind() == TypeKind.ERROR) {
-      return SyntaxType.Erroneous.INSTANCE;
-    }
-    var structure = structuredType(type);
-    return structure.<SyntaxType>map(value -> new SyntaxType.Resolved(typeIdentity(type), value))
-        .orElseGet(() -> new SyntaxType.Resolved(typeIdentity(type)));
+    return switch (type.getKind()) {
+      case NONE -> new SyntaxType.NoType(SyntaxType.NoType.Kind.NONE);
+      case PACKAGE -> new SyntaxType.NoType(SyntaxType.NoType.Kind.PACKAGE);
+      case MODULE -> new SyntaxType.NoType(SyntaxType.NoType.Kind.MODULE);
+      case ERROR -> SyntaxType.Erroneous.INSTANCE;
+      case OTHER -> SyntaxType.Unsupported.INSTANCE;
+      case NULL, EXECUTABLE -> new SyntaxType.Resolved(typeIdentity(type));
+      default -> includeStructure
+          ? structuredType(type).<SyntaxType>map(value -> new SyntaxType.Resolved(typeIdentity(type), value))
+              .orElseGet(() -> new SyntaxType.StructureUnavailable(typeIdentity(type)))
+          : new SyntaxType.Resolved(typeIdentity(type));
+    };
   }
 
   private Optional<JavaTypeStructure> structuredType(TypeMirror type) {
@@ -155,17 +164,58 @@ final class SemanticResolver {
       case ARRAY -> structuredType(((ArrayType) type).getComponentType()).map(JavaTypeStructure.Array::new);
       case TYPEVAR -> identities.keyOf(((TypeVariable) type).asElement()).map(JavaTypeStructure.Variable::new);
       case DECLARED -> structuredDeclaredType((DeclaredType) type);
+      case WILDCARD -> structuredWildcardType((WildcardType) type);
+      case INTERSECTION -> structuredComponents(((IntersectionType) type).getBounds(), true);
+      case UNION -> structuredComponents(((UnionType) type).getAlternatives(), false);
       default -> Optional.empty();
     };
   }
 
+  private Optional<JavaTypeStructure> structuredWildcardType(WildcardType type) {
+    var upper = type.getExtendsBound();
+    var lower = type.getSuperBound();
+    if (upper != null && lower != null) {
+      return Optional.empty();
+    }
+    if (upper != null) {
+      return structuredType(upper)
+          .map(bound -> new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.EXTENDS, Optional.of(bound)));
+    }
+    if (lower != null) {
+      return structuredType(lower)
+          .map(bound -> new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.SUPER, Optional.of(bound)));
+    }
+    return Optional.of(new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.UNBOUNDED, Optional.empty()));
+  }
+
+  private Optional<JavaTypeStructure> structuredComponents(List<? extends TypeMirror> mirrors, boolean intersection) {
+    var components = new ArrayList<JavaTypeStructure>();
+    for (var mirror : mirrors) {
+      var component = structuredType(mirror);
+      if (component.isEmpty()) {
+        return Optional.empty();
+      }
+      components.add(component.orElseThrow());
+    }
+    if (components.size() < MIN_COMPOSITE_COMPONENTS) {
+      return Optional.empty();
+    }
+    return Optional.of(intersection ? new JavaTypeStructure.Intersection(components) : new JavaTypeStructure.Union(components));
+  }
+
   private Optional<JavaTypeStructure> structuredDeclaredType(DeclaredType type) {
-    var key = identities.keyOf(type.asElement());
+    var element = (TypeElement) type.asElement();
+    var key = identities.keyOf(element);
     if (key.isEmpty()) {
       return Optional.empty();
     }
     Optional<String> lexicalOwner = Optional.empty();
-    if (type.asElement().getEnclosingElement() instanceof TypeElement owner) {
+    var nesting = element.getNestingKind();
+    if (nesting != NestingKind.TOP_LEVEL) {
+      var owner = element.getEnclosingElement();
+      if (owner == null || (nesting == NestingKind.MEMBER && !(owner instanceof TypeElement))) {
+        return Optional.empty();
+      }
       lexicalOwner = identities.keyOf(owner);
       if (lexicalOwner.isEmpty()) {
         return Optional.empty();
@@ -187,6 +237,10 @@ final class SemanticResolver {
       }
       arguments.add(component.orElseThrow());
     }
+    if (nesting == NestingKind.LOCAL || nesting == NestingKind.ANONYMOUS) {
+      var kind = nesting == NestingKind.LOCAL ? JavaTypeStructure.LocalDeclared.Kind.LOCAL : JavaTypeStructure.LocalDeclared.Kind.ANONYMOUS;
+      return Optional.of(new JavaTypeStructure.LocalDeclared(key.orElseThrow(), lexicalOwner.orElseThrow(), kind, enclosing, arguments));
+    }
     return Optional.of(new JavaTypeStructure.Declared(key.orElseThrow(), lexicalOwner, enclosing, arguments));
   }
 
@@ -199,6 +253,9 @@ final class SemanticResolver {
       case NONE -> SyntaxType.NotApplicable.INSTANCE;
       case ERROR -> SyntaxType.Erroneous.INSTANCE;
       case DECLARED -> new SyntaxType.Resolved(typeIdentity(type));
+      case PACKAGE -> new SyntaxType.NoType(SyntaxType.NoType.Kind.PACKAGE);
+      case MODULE -> new SyntaxType.NoType(SyntaxType.NoType.Kind.MODULE);
+      case OTHER -> SyntaxType.Unsupported.INSTANCE;
       default -> SyntaxType.Unresolved.INSTANCE;
     };
   }
@@ -219,7 +276,7 @@ final class SemanticResolver {
         return (SyntaxType) SyntaxType.Erroneous.INSTANCE;
       }
       if (type.getKind() != TypeKind.DECLARED && type.getKind() != TypeKind.TYPEVAR) {
-        return (SyntaxType) SyntaxType.Unresolved.INSTANCE;
+        return projectType(type, false);
       }
       return new SyntaxType.Resolved(typeIdentity(type));
     }).toList();

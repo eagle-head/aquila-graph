@@ -87,11 +87,21 @@ final class DeclarationIdentityRegistry {
   }
 
   private Optional<String> keyOfType(TypeElement element) {
-    var qualifiedName = element.getQualifiedName().toString();
-    if (!qualifiedName.isBlank()) {
-      return Optional.of("type:" + qualifiedName);
+    if (hasCanonicalTypeName(element)) {
+      var qualifiedName = element.getQualifiedName().toString();
+      if (!qualifiedName.isBlank()) {
+        return Optional.of("type:" + qualifiedName);
+      }
     }
     return keyOfOwnedStructure(element, "type");
+  }
+
+  private static boolean hasCanonicalTypeName(TypeElement element) {
+    return switch (element.getNestingKind()) {
+      case TOP_LEVEL -> true;
+      case MEMBER -> element.getEnclosingElement() instanceof TypeElement owner && hasCanonicalTypeName(owner);
+      case LOCAL, ANONYMOUS -> false;
+    };
   }
 
   private Optional<String> keyOfExecutable(ExecutableElement element) {

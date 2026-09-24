@@ -30,6 +30,14 @@ public enum SyntaxRole {
   TYPE_NAME("type-name"),
   /** Written type argument in source order. */
   TYPE_ARGUMENT("type-argument"),
+  /** Explicit upper bound of a wildcard. */
+  UPPER_BOUND("upper-bound"),
+  /** Explicit lower bound of a wildcard. */
+  LOWER_BOUND("lower-bound"),
+  /** Ordered source bound of an intersection. */
+  INTERSECTION_BOUND("intersection-bound"),
+  /** Ordered source alternative of a union. */
+  UNION_ALTERNATIVE("union-alternative"),
   /** Written qualifier of a selected type name. */
   TYPE_QUALIFIER("type-qualifier"),
   /** Written component type beneath one array dimension. */

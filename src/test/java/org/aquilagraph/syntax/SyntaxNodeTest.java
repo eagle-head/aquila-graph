@@ -36,6 +36,191 @@ class SyntaxNodeTest {
   }
 
   @Test
+  void givenCompositeTypeWithoutRecursiveFacts_whenResolvedOutcomeIsCreated_thenConstructionIsRejected() {
+    // Arrange
+    var categories = List.of(JavaTypeCategory.WILDCARD, JavaTypeCategory.INTERSECTION, JavaTypeCategory.UNION);
+
+    // Act
+    var failures = categories.stream().map(category -> assertThrows(IllegalArgumentException.class,
+        () -> new SyntaxType.Resolved(new JavaTypeIdentity(category, "compound", "Base")))).toList();
+
+    // Assert
+    assertTrue(failures.stream().allMatch(failure -> failure.getMessage().contains("requires recursive structure")));
+  }
+
+  @Test
+  void givenResolvedTypeWithConflictingCategory_whenCreated_thenConstructionIsRejected() {
+    // Arrange
+    var identity = new JavaTypeIdentity(JavaTypeCategory.ARRAY, "Example[]", "Example[]");
+    var structure = new JavaTypeStructure.Declared("type:Example", Optional.empty(), List.of());
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> new SyntaxType.Resolved(identity, structure));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("category conflicts"));
+  }
+
+  @Test
+  void givenLocalDeclaredTypeWithoutLexicalOwner_whenCreated_thenConstructionIsRejected() {
+    // Arrange
+    var owner = "";
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class,
+        () -> new JavaTypeStructure.LocalDeclared("type:Local", owner, JavaTypeStructure.LocalDeclared.Kind.LOCAL,
+            Optional.empty(), List.of()));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("lexical owner keys"));
+  }
+
+  @Test
+  void givenWildcardBoundCardinalityConflict_whenCreated_thenInvalidStateIsRejected() {
+    // Arrange
+    var number = new JavaTypeStructure.Declared("type:java.lang.Number", Optional.empty(), List.of());
+
+    // Act
+    var missing = assertThrows(IllegalArgumentException.class,
+        () -> new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.EXTENDS, Optional.empty()));
+    var invented = assertThrows(IllegalArgumentException.class,
+        () -> new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.UNBOUNDED, Optional.of(number)));
+
+    // Assert
+    assertTrue(missing.getMessage().contains("match its written form"));
+    assertTrue(invented.getMessage().contains("match its written form"));
+  }
+
+  @Test
+  void givenWildcardWithDifferentWrittenAndAttributedBounds_whenCreated_thenMismatchIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var written = declaredUse(path.child(SyntaxRole.UPPER_BOUND, 0), "Number", "type:java.lang.Number");
+    var other = new JavaTypeStructure.Declared("type:java.lang.Integer", Optional.empty(), List.of());
+    var wildcard = new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.EXTENDS, Optional.of(other));
+    var type = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.WILDCARD, "? extends Integer", "Number"), wildcard);
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.EXTENDS_WILDCARD, SyntaxKind.TYPE_USE, type, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.UPPER_BOUND, 0, written)), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("wildcard bound conflicts"));
+  }
+
+  @Test
+  void givenWildcardBoundOutsideItsSourceRange_whenCreated_thenDisplacedOriginIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var bound = declaredUse(path.child(SyntaxRole.UPPER_BOUND, 0), "Number", "type:java.lang.Number",
+        new SourceSpan("source", 20, 26));
+    var wildcard = new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.EXTENDS,
+        Optional.of(structure(bound)));
+    var type = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.WILDCARD, "? extends Number", "Number"), wildcard);
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.EXTENDS_WILDCARD, SyntaxKind.TYPE_USE, type, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.UPPER_BOUND, 0, bound)), Optional.empty(), new SourceSpan("source", 0, 18)));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("contained and ordered"));
+  }
+
+  @Test
+  void givenIntersectionBoundsInDifferentAttributedOrder_whenCreated_thenMismatchIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var first = declaredUse(path.child(SyntaxRole.INTERSECTION_BOUND, 0), "Number", "type:java.lang.Number",
+        new SourceSpan("source", 0, 6));
+    var second = declaredUse(path.child(SyntaxRole.INTERSECTION_BOUND, 1), "Serializable", "type:java.io.Serializable",
+        new SourceSpan("source", 9, 21));
+    var attributed = new JavaTypeStructure.Intersection(List.of(structure(second), structure(first)));
+    var type = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.INTERSECTION, "Number & Serializable", "Number"),
+        attributed);
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.INTERSECTION_TYPE, SyntaxKind.TYPE_USE, type, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.INTERSECTION_BOUND, 0, first),
+            new SyntaxChild(SyntaxRole.INTERSECTION_BOUND, 1, second)), Optional.empty(), new SourceSpan("source", 0, 21)));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("intersection bounds conflict"));
+  }
+
+  @Test
+  void givenDuplicateUnionAlternatives_whenCreated_thenDuplicateIsRejected() {
+    // Arrange
+    var exception = new JavaTypeStructure.Declared("type:java.lang.IllegalArgumentException", Optional.empty(), List.of());
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> new JavaTypeStructure.Union(List.of(exception, exception)));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("distinct alternatives"));
+  }
+
+  @Test
+  void givenUnionAlternativesWithReversedSourcePositions_whenCreated_thenSourceOrderIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var first = declaredUse(path.child(SyntaxRole.UNION_ALTERNATIVE, 0), "First", "type:First",
+        new SourceSpan("source", 18, 23));
+    var second = declaredUse(path.child(SyntaxRole.UNION_ALTERNATIVE, 1), "Second", "type:Second",
+        new SourceSpan("source", 2, 8));
+    var type = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.UNION, "First | Second", "First"),
+        new JavaTypeStructure.Union(List.of(structure(first), structure(second))));
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.UNION_TYPE, SyntaxKind.TYPE_USE, type, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.UNION_ALTERNATIVE, 0, first),
+            new SyntaxChild(SyntaxRole.UNION_ALTERNATIVE, 1, second)), Optional.empty(), new SourceSpan("source", 0, 25)));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("contained and ordered"));
+  }
+
+  @Test
+  void givenTypeParameterWithoutWrittenBoundButNonObjectUpperBound_whenCreated_thenFalseImplicitBoundIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.TYPE_PARAMETER, 0);
+    var number = new JavaTypeStructure.Declared("type:java.lang.Number", Optional.empty(), List.of());
+    var value = new SyntaxValue.TypeParameterDeclaration("T", "owner", 0, 0, 0, number);
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.TYPE_PARAMETER, SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
+        value, List.of(), Optional.empty(), ORIGIN));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("implicit Object"));
+  }
+
+  @Test
+  void givenWildcardWithForeignSourceRange_whenCreated_thenOwnerIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+    var wildcard = new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.UNBOUNDED, Optional.empty());
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
+        JavaSourceKind.UNBOUNDED_WILDCARD, SyntaxKind.TYPE_USE,
+        new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.WILDCARD, "?", "java.lang.Object"), wildcard),
+        SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), new SourceSpan("other", 0, 1)));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("belong to the node's source file"));
+  }
+
+  @Test
   void givenArrayChildWithDifferentAttributedComponent_whenCreated_thenMismatchIsRejected() {
     // Arrange
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
@@ -405,10 +590,10 @@ class SyntaxNodeTest {
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
     var first = SyntaxNode.source("source", path.child(SyntaxRole.TYPE_PARAMETER, 0), JavaSourceKind.TYPE_PARAMETER,
         SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.TypeParameterDeclaration("T", "owner", 0, 0, 0), List.of(), Optional.empty(), ORIGIN);
+        new SyntaxValue.TypeParameterDeclaration("T", "owner", 0, 0, 0, implicitObjectBound()), List.of(), Optional.empty(), ORIGIN);
     var second = SyntaxNode.source("source", path.child(SyntaxRole.TYPE_PARAMETER, 1), JavaSourceKind.TYPE_PARAMETER,
         SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.TypeParameterDeclaration("U", "owner", 0, 0, 0), List.of(), Optional.empty(), ORIGIN);
+        new SyntaxValue.TypeParameterDeclaration("U", "owner", 0, 0, 0, implicitObjectBound()), List.of(), Optional.empty(), ORIGIN);
     var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 2, false, 0, 0, 0, 0));
 
@@ -428,7 +613,7 @@ class SyntaxNodeTest {
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
     var parameter = SyntaxNode.source("source", path.child(SyntaxRole.TYPE_PARAMETER, 0), JavaSourceKind.TYPE_PARAMETER,
         SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.TypeParameterDeclaration("T", "other", 0, 0, 0), List.of(), Optional.empty(), ORIGIN);
+        new SyntaxValue.TypeParameterDeclaration("T", "other", 0, 0, 0, implicitObjectBound()), List.of(), Optional.empty(), ORIGIN);
     var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 1, false, 0, 0, 0, 0));
 
@@ -621,7 +806,7 @@ class SyntaxNodeTest {
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
     var parameter = SyntaxNode.source("source", path.child(SyntaxRole.TYPE_PARAMETER, 0), JavaSourceKind.TYPE_PARAMETER,
         SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.TypeParameterDeclaration("T", "owner", 0, 0, 0), List.of(), Optional.empty(), ORIGIN);
+        new SyntaxValue.TypeParameterDeclaration("T", "owner", 0, 0, 0, implicitObjectBound()), List.of(), Optional.empty(), ORIGIN);
     var owner = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 1, false, 0, 0, 0, 0));
 
@@ -1187,11 +1372,23 @@ class SyntaxNodeTest {
     return source(id, kind, type, value, List.of(), Optional.empty());
   }
 
+  private static JavaTypeStructure implicitObjectBound() {
+    return new JavaTypeStructure.Declared("type:java.lang.Object", Optional.empty(), List.of());
+  }
+
+  private static JavaTypeStructure structure(SyntaxNode node) {
+    return ((SyntaxType.Resolved) node.type()).structure().orElseThrow();
+  }
+
   private static SyntaxNode declaredUse(SyntaxStructuralPath path, String name, String key) {
+    return declaredUse(path, name, key, ORIGIN);
+  }
+
+  private static SyntaxNode declaredUse(SyntaxStructuralPath path, String name, String key, SourceSpan origin) {
     return SyntaxNode.source("source", path, JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE,
         new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, name, name),
             new JavaTypeStructure.Declared(key, Optional.empty(), List.of())),
-        new SyntaxValue.SourceSymbol(name), List.of(), Optional.of(reference(ReferenceKind.TYPE, key)), ORIGIN);
+        new SyntaxValue.SourceSymbol(name), List.of(), Optional.of(reference(ReferenceKind.TYPE, key)), origin);
   }
 
   private static SyntaxNode source(String id, SyntaxKind kind, SyntaxType type, SyntaxValue value, List<SyntaxChild> children,

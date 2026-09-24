@@ -74,7 +74,8 @@ public final class MethodSyntax {
   }
 
   private static boolean hasUnresolvedSemantics(SyntaxNode node) {
-    return node.type() == SyntaxType.Unresolved.INSTANCE
+    return (node.type() == SyntaxType.Unresolved.INSTANCE || node.type() instanceof SyntaxType.NoType
+        || node.type() == SyntaxType.Unsupported.INSTANCE || node.type() instanceof SyntaxType.StructureUnavailable)
         || (node.semanticReference().isPresent() && node.semanticReference().orElseThrow().status() == ResolutionStatus.UNRESOLVED)
         || (node.value() instanceof SyntaxValue.Invocation invocation && invocation.semantics().isEmpty());
   }

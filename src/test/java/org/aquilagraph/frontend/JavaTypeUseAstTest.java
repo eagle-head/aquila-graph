@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.sun.source.util.TreePath;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,14 +13,22 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import javax.tools.ToolProvider;
+import org.aquilagraph.core.AnalysisEngine;
+import org.aquilagraph.model.AnalysisCompletion;
+import org.aquilagraph.model.AnalysisDiagnostic;
+import org.aquilagraph.model.AnalysisOutcomeKind;
 import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.model.DiagnosticSeverity;
 import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.JavaTypeCategory;
+import org.aquilagraph.model.JavaTypeIdentity;
 import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.syntax.SyntaxNode;
+import org.aquilagraph.syntax.SyntaxAnalysisInput;
 import org.aquilagraph.syntax.JavaAstAggregate;
 import org.aquilagraph.syntax.SyntaxKind;
 import org.aquilagraph.syntax.JavaTypeStructure;
@@ -682,11 +691,273 @@ class JavaTypeUseAstTest {
   }
 
   @Test
+  void givenThreeWildcardForms_whenAnalyzed_thenBoundsRetainExclusiveSourceAndAttributedStructure() throws IOException {
+    // Arrange
+    var source = """
+        import java.util.List;
+        class Bounds<T> {
+          List<?> any;
+          List<? extends Number> upper;
+          List<? super T> lower;
+        }
+        """;
+    Files.writeString(temporaryDirectory.resolve("Bounds.java"), source);
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory, JAVA_25);
+    var declaration = result.aggregate().orElseThrow().roots().getFirst().requiredChild(SyntaxRole.TYPE_DECLARATION);
+    var wildcards = declaration.children(SyntaxRole.MEMBER).stream()
+        .map(field -> field.requiredChild(SyntaxRole.DECLARED_TYPE).requiredChild(SyntaxRole.TYPE_ARGUMENT)).toList();
+    var parameterKey = declaration.requiredChild(SyntaxRole.TYPE_PARAMETER)
+        .value(SyntaxValue.TypeParameterDeclaration.class).declarationKey();
+
+    // Assert
+    assertEquals(List.of(JavaSourceKind.UNBOUNDED_WILDCARD, JavaSourceKind.EXTENDS_WILDCARD,
+        JavaSourceKind.SUPER_WILDCARD), wildcards.stream().map(SyntaxNode::sourceKind).toList());
+    assertEquals(List.of("?", "? extends Number", "? super T"), wildcards.stream().map(node -> excerpt(source, node)).toList());
+    assertEquals(new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.UNBOUNDED, Optional.empty()),
+        structure(wildcards.getFirst()));
+    assertTrue(wildcards.getFirst().children().isEmpty());
+    var upper = wildcards.get(1).requiredChild(SyntaxRole.UPPER_BOUND);
+    assertEquals("Number", excerpt(source, upper));
+    assertEquals(new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.EXTENDS,
+        Optional.of(new JavaTypeStructure.Declared("type:java.lang.Number", Optional.empty(), List.of()))),
+        structure(wildcards.get(1)));
+    var lower = wildcards.get(2).requiredChild(SyntaxRole.LOWER_BOUND);
+    assertEquals("T", excerpt(source, lower));
+    assertEquals(new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.SUPER,
+        Optional.of(new JavaTypeStructure.Variable(parameterKey))), structure(wildcards.get(2)));
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unavailable-type-use-structure")));
+    var owner = result.snapshot().sourceFiles().getFirst().sourceFileKey();
+    var typePath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var anyStart = source.indexOf("List<?>");
+    var upperStart = source.indexOf("List<? extends Number>");
+    var lowerStart = source.indexOf("List<? super T>");
+    var anyArgument = withStructure(expected(JavaSourceKind.UNBOUNDED_WILDCARD, anyStart + 5, 1, null),
+        new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.UNBOUNDED, Optional.empty()));
+    var upperArgument = withStructure(expected(JavaSourceKind.EXTENDS_WILDCARD, upperStart + 5,
+        "? extends Number".length(), null, child(SyntaxRole.UPPER_BOUND, 0,
+            expected(JavaSourceKind.IDENTIFIER, upperStart + "List<? extends ".length(), 6, "type:java.lang.Number"))),
+        new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.EXTENDS,
+            Optional.of(new JavaTypeStructure.Declared("type:java.lang.Number", Optional.empty(), List.of()))));
+    var lowerArgument = withStructure(expected(JavaSourceKind.SUPER_WILDCARD, lowerStart + 5,
+        "? super T".length(), null, child(SyntaxRole.LOWER_BOUND, 0,
+            expected(JavaSourceKind.IDENTIFIER, lowerStart + "List<? super ".length(), 1,
+                ReferenceKind.TYPE_PARAMETER, parameterKey))),
+        new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.SUPER,
+            Optional.of(new JavaTypeStructure.Variable(parameterKey))));
+    assertExactTypeInventory(result.aggregate().orElseThrow(), owner, List.of(
+        new ExpectedRoot(typePath.child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0),
+            expected(JavaSourceKind.PARAMETERIZED_TYPE, anyStart, "List<?>".length(), "type:java.util.List",
+                child(SyntaxRole.TYPE_NAME, 0, expected(JavaSourceKind.IDENTIFIER, anyStart, 4, "type:java.util.List")),
+                child(SyntaxRole.TYPE_ARGUMENT, 0, anyArgument))),
+        new ExpectedRoot(typePath.child(SyntaxRole.MEMBER, 1).child(SyntaxRole.DECLARED_TYPE, 0),
+            expected(JavaSourceKind.PARAMETERIZED_TYPE, upperStart, "List<? extends Number>".length(), "type:java.util.List",
+                child(SyntaxRole.TYPE_NAME, 0, expected(JavaSourceKind.IDENTIFIER, upperStart, 4, "type:java.util.List")),
+                child(SyntaxRole.TYPE_ARGUMENT, 0, upperArgument))),
+        new ExpectedRoot(typePath.child(SyntaxRole.MEMBER, 2).child(SyntaxRole.DECLARED_TYPE, 0),
+            expected(JavaSourceKind.PARAMETERIZED_TYPE, lowerStart, "List<? super T>".length(), "type:java.util.List",
+                child(SyntaxRole.TYPE_NAME, 0, expected(JavaSourceKind.IDENTIFIER, lowerStart, 4, "type:java.util.List")),
+                child(SyntaxRole.TYPE_ARGUMENT, 0, lowerArgument)))));
+  }
+
+  @Test
+  void givenMultipleTypeParameterBounds_whenAnalyzed_thenAttributedIntersectionMatchesWrittenOrder() throws IOException {
+    // Arrange
+    var source = """
+        class Bounds<T extends Number & java.io.Serializable> { T value; }
+        """;
+    Files.writeString(temporaryDirectory.resolve("Bounds.java"), source);
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory, JAVA_25);
+    var parameter = result.aggregate().orElseThrow().roots().getFirst().requiredChild(SyntaxRole.TYPE_DECLARATION)
+        .requiredChild(SyntaxRole.TYPE_PARAMETER);
+    var bounds = parameter.children(SyntaxRole.TYPE_BOUND);
+
+    // Assert
+    assertEquals(List.of("Number", "java.io.Serializable"), bounds.stream().map(node -> excerpt(source, node)).toList());
+    assertEquals(new JavaTypeStructure.Intersection(List.of(
+        new JavaTypeStructure.Declared("type:java.lang.Number", Optional.empty(), List.of()),
+        new JavaTypeStructure.Declared("type:java.io.Serializable", Optional.empty(), List.of()))),
+        parameter.value(SyntaxValue.TypeParameterDeclaration.class).upperBound());
+    assertEquals(List.of(SyntaxRole.TYPE_BOUND, SyntaxRole.TYPE_BOUND), parameter.children().stream()
+        .map(child -> child.role()).toList());
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unavailable-type-parameter-bound")));
+    var owner = result.snapshot().sourceFiles().getFirst().sourceFileKey();
+    var typePath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
+    var serializable = source.indexOf("java.io.Serializable");
+    assertExactTypeInventory(result.aggregate().orElseThrow(), owner, List.of(
+        new ExpectedRoot(typePath.child(SyntaxRole.TYPE_PARAMETER, 0).child(SyntaxRole.TYPE_BOUND, 0),
+            expected(JavaSourceKind.IDENTIFIER, source.indexOf("Number"), 6, "type:java.lang.Number")),
+        new ExpectedRoot(typePath.child(SyntaxRole.TYPE_PARAMETER, 0).child(SyntaxRole.TYPE_BOUND, 1),
+            expected(JavaSourceKind.MEMBER_SELECT, serializable, "java.io.Serializable".length(), "type:java.io.Serializable",
+                child(SyntaxRole.TYPE_QUALIFIER, 0,
+                    expected(JavaSourceKind.MEMBER_SELECT, serializable, "java.io".length(), null,
+                        child(SyntaxRole.TYPE_QUALIFIER, 0,
+                            expected(JavaSourceKind.IDENTIFIER, serializable, 4, null)))))),
+        new ExpectedRoot(typePath.child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0),
+            expected(JavaSourceKind.IDENTIFIER, source.indexOf("T value"), 1, ReferenceKind.TYPE_PARAMETER,
+                parameter.value(SyntaxValue.TypeParameterDeclaration.class).declarationKey()))));
+  }
+
+  @Test
+  void givenMultiCatchParameter_whenAnalyzed_thenAttributedUnionRetainsOrderedAlternatives() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("Catches.java"), """
+        class Catches {
+          void run() {
+            try { throw new IllegalArgumentException(); }
+            catch (IllegalArgumentException | IllegalStateException problem) { }
+          }
+        }
+        """);
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory, JAVA_25);
+    var catchParameter = result.aggregate().orElseThrow().nodes().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION)
+        .filter(node -> node.value(SyntaxValue.LocalDeclaration.class).name().equals("problem")).findFirst().orElseThrow();
+
+    // Assert
+    assertEquals(JavaSourceKind.VARIABLE, catchParameter.sourceKind());
+    assertEquals(new JavaTypeStructure.Union(List.of(
+        new JavaTypeStructure.Declared("type:java.lang.IllegalArgumentException", Optional.empty(), List.of()),
+        new JavaTypeStructure.Declared("type:java.lang.IllegalStateException", Optional.empty(), List.of()))),
+        structure(catchParameter));
+    assertEquals("IllegalArgumentException | IllegalStateException problem", excerpt(Files.readString(
+        temporaryDirectory.resolve("Catches.java")), catchParameter));
+  }
+
+  @Test
+  void givenRequiredTypeFailureStates_whenDiagnosed_thenCodesOutcomesAndSourceRangesRemainDistinct() {
+    // Arrange
+    var range = new SourceSpan("source", 11, 18);
+    var states = List.<SyntaxType>of(SyntaxType.Unresolved.INSTANCE, SyntaxType.Erroneous.INSTANCE,
+        new SyntaxType.NoType(SyntaxType.NoType.Kind.NONE), new SyntaxType.NoType(SyntaxType.NoType.Kind.PACKAGE),
+        new SyntaxType.NoType(SyntaxType.NoType.Kind.MODULE), SyntaxType.Unsupported.INSTANCE,
+        new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Missing", "Missing")),
+        new SyntaxType.StructureUnavailable(new JavaTypeIdentity(JavaTypeCategory.UNION, "First | Second", "First")));
+
+    // Act
+    var diagnostics = states.stream().map(state -> JavaTypeUseTranslator
+        .requiredTypeOutcomeDiagnostic("source", state, Optional.of(range)).orElseThrow()).toList();
+
+    // Assert
+    assertEquals(List.of("frontend.unavailable-type-use-attribution", "frontend.erroneous-type-use",
+        "frontend.no-type-in-required-type-use", "frontend.no-type-in-required-type-use",
+        "frontend.no-type-in-required-type-use", "frontend.unsupported-attributed-type-use",
+        "frontend.unavailable-type-use-structure", "frontend.unavailable-type-use-structure"),
+        diagnostics.stream().map(diagnostic -> diagnostic.code()).toList());
+    assertEquals(List.of(AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR, AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE,
+        AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR, AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR,
+        AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR, AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR,
+        AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR, AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR),
+        diagnostics.stream().map(diagnostic -> diagnostic.outcomeKind()).toList());
+    assertTrue(diagnostics.stream().allMatch(diagnostic -> diagnostic.origins().equals(List.of(range))
+        && diagnostic.severity() == DiagnosticSeverity.ERROR));
+    assertEquals(List.of(SyntaxType.NoType.Kind.NONE, SyntaxType.NoType.Kind.PACKAGE, SyntaxType.NoType.Kind.MODULE),
+        states.stream().filter(SyntaxType.NoType.class::isInstance).map(SyntaxType.NoType.class::cast)
+            .map(SyntaxType.NoType::kind).toList());
+    assertTrue(JavaTypeUseTranslator.requiredTypeOutcomeDiagnostic("source",
+        new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.VOID, "void", "void"),
+            new JavaTypeStructure.Primitive(JavaTypeCategory.VOID)), Optional.of(range)).isEmpty());
+  }
+
+  @Test
+  void givenRequiredNoTypeAndUnsupportedOutcomes_whenTranslated_thenLocatedErrorsBlockAnalysis() throws IOException {
+    // Arrange
+    var source = "package p; class States {}";
+    Files.writeString(temporaryDirectory.resolve("States.java"), source);
+    var baseline = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory, JAVA_25);
+    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(baseline).completion(),
+        () -> baseline.diagnostics().toString());
+    var sources = new SnapshotSourceCatalog(baseline.snapshot());
+    var states = List.<SyntaxType>of(new SyntaxType.NoType(SyntaxType.NoType.Kind.NONE), SyntaxType.Unsupported.INSTANCE);
+    var expectedCodes = List.of("frontend.no-type-in-required-type-use", "frontend.unsupported-attributed-type-use");
+    var expectedSpan = new SourceSpan(baseline.snapshot().sourceFiles().getFirst().sourceFileKey(), source.indexOf("p;"),
+        source.indexOf("p;") + 1);
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+
+    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(JAVA_25), sources)) {
+      var parsed = session.parse();
+      var compilation = session.analyze(parsed);
+      var unit = compilation.units().getFirst();
+      var typeTree = unit.getPackageName();
+      var translator = new JavaTypeUseTranslator(compilation.semantics(), compilation.sourceEvidence());
+
+      // Act and Assert
+      for (var index = 0; index < states.size(); index++) {
+        var diagnostics = new ArrayList<AnalysisDiagnostic>(baseline.diagnostics());
+        var baselineCount = diagnostics.size();
+        var translated = translator.translateAttributed(unit, sources.find(unit).orElseThrow(), typeTree,
+            TreePath.getPath(unit, typeTree), path, path, states.get(index), diagnostics).orElseThrow();
+        assertEquals(states.get(index), translated.type());
+        assertEquals(baselineCount + 1, diagnostics.size());
+        assertEquals(expectedCodes.get(index), diagnostics.getLast().code());
+        assertEquals(List.of(expectedSpan), diagnostics.getLast().origins());
+        assertEquals(DiagnosticSeverity.ERROR, diagnostics.getLast().severity());
+        var analysisInput = new SyntaxAnalysisInput(baseline.snapshot(), baseline.environmentSnapshot(), baseline.program(),
+            baseline.aggregate(), diagnostics, baseline.languageFeatureCoverageResult());
+        assertNotEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(analysisInput).completion());
+      }
+    }
+  }
+
+  @Test
+  void givenUnavailableRequiredStructure_whenTypeUseIsTranslated_thenLocatedErrorBlocksAnalysis() throws IOException {
+    // Arrange
+    var source = "package p; class States {}";
+    Files.writeString(temporaryDirectory.resolve("States.java"), source);
+    var baseline = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory, JAVA_25);
+    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(baseline).completion(),
+        () -> baseline.diagnostics().toString());
+    var sources = new SnapshotSourceCatalog(baseline.snapshot());
+    var type = new SyntaxType.StructureUnavailable(new JavaTypeIdentity(JavaTypeCategory.UNION, "First | Second", "First"));
+    var expectedSpan = new SourceSpan(baseline.snapshot().sourceFiles().getFirst().sourceFileKey(), source.indexOf("p;"),
+        source.indexOf("p;") + 1);
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
+
+    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(JAVA_25), sources)) {
+      var parsed = session.parse();
+      var compilation = session.analyze(parsed);
+      var unit = compilation.units().getFirst();
+      var typeTree = unit.getPackageName();
+      var translator = new JavaTypeUseTranslator(compilation.semantics(), compilation.sourceEvidence());
+      var diagnostics = new ArrayList<AnalysisDiagnostic>(baseline.diagnostics());
+
+      // Act
+      var translated = translator.translateAttributed(unit, sources.find(unit).orElseThrow(), typeTree,
+          TreePath.getPath(unit, typeTree), path, path, type, diagnostics);
+      var analysisInput = new SyntaxAnalysisInput(baseline.snapshot(), baseline.environmentSnapshot(), baseline.program(),
+          baseline.aggregate(), diagnostics, baseline.languageFeatureCoverageResult());
+      var completion = new AnalysisEngine().analyze(analysisInput).completion();
+
+      // Assert
+      assertTrue(translated.isEmpty());
+      assertEquals(baseline.diagnostics().size() + 1, diagnostics.size());
+      assertEquals("frontend.unavailable-type-use-structure", diagnostics.getLast().code());
+      assertEquals(List.of(expectedSpan), diagnostics.getLast().origins());
+      assertNotEquals(AnalysisCompletion.COMPLETED, completion);
+    }
+  }
+
+  @Test
   void givenSameCapturedTypeSource_whenAnalyzedTwice_thenTypeTuplesAndDiagnosticsAreIdentical() throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("Stable.java"), """
         import java.util.List;
-        class Stable<T> { List<String> first; List<Integer> second; T[] values; }
+        class Stable<T extends Number & java.io.Serializable> {
+          List<?> first;
+          List<? super T> second;
+          T[] values;
+          void run() {
+            try { throw new IllegalArgumentException(); }
+            catch (IllegalArgumentException | IllegalStateException problem) { }
+          }
+        }
         """);
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
@@ -701,9 +972,20 @@ class JavaTypeUseAstTest {
     assertEquals(firstAggregate.rangeTuples(), secondAggregate.rangeTuples());
     assertEquals(firstAggregate.structuralEdges(), secondAggregate.structuralEdges());
     assertEquals(firstAggregate.semanticEdges(), secondAggregate.semanticEdges());
-    assertEquals(firstAggregate.nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_USE)
-        .map(SyntaxNode::type).toList(), secondAggregate.nodes().stream()
-            .filter(node -> node.syntaxKind() == SyntaxKind.TYPE_USE).map(SyntaxNode::type).toList());
+    assertEquals(firstAggregate.nodes(), secondAggregate.nodes());
+    var parameter = firstAggregate.nodes().stream()
+        .filter(node -> node.value() instanceof SyntaxValue.TypeParameterDeclaration).findFirst().orElseThrow();
+    assertEquals(new JavaTypeStructure.Intersection(List.of(
+        new JavaTypeStructure.Declared("type:java.lang.Number", Optional.empty(), List.of()),
+        new JavaTypeStructure.Declared("type:java.io.Serializable", Optional.empty(), List.of()))),
+        parameter.value(SyntaxValue.TypeParameterDeclaration.class).upperBound());
+    var catchParameter = firstAggregate.nodes().stream()
+        .filter(node -> node.value() instanceof SyntaxValue.LocalDeclaration local && local.name().equals("problem"))
+        .findFirst().orElseThrow();
+    assertEquals(new JavaTypeStructure.Union(List.of(
+        new JavaTypeStructure.Declared("type:java.lang.IllegalArgumentException", Optional.empty(), List.of()),
+        new JavaTypeStructure.Declared("type:java.lang.IllegalStateException", Optional.empty(), List.of()))),
+        structure(catchParameter));
     assertEquals(first.diagnostics(), second.diagnostics());
   }
 
