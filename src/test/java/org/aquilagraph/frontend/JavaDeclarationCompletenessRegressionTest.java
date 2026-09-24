@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -115,8 +116,9 @@ class JavaDeclarationCompletenessRegressionTest {
 
     // Assert
     assertNotEquals(AnalysisCompletion.COMPLETED, run.completion());
-    assertEquals(2, run.diagnostics().stream()
-        .filter(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS_DIAGNOSTIC)).count());
+    assertEquals(List.of("frontend.unsupported-local-declaration-modifiers", "frontend.unsupported-local-annotation-content"),
+        run.diagnostics().stream().map(diagnostic -> diagnostic.code())
+            .filter(code -> code.startsWith("frontend.unsupported-local-")).toList());
     assertTrue(run.diagnostics().stream()
         .noneMatch(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC)));
     assertTrue(run.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
@@ -163,18 +165,21 @@ class JavaDeclarationCompletenessRegressionTest {
   }
 
   @Test
-  void givenImplicitEnumMembers_whenAnalysisRuns_thenUnrepresentedEnclosedDeclarationsAreDiagnosed() throws IOException {
+  void givenImplicitEnumMembers_whenAnalysisRuns_thenSynthesizedDeclarationsAreRetained() throws IOException {
     // Arrange
     writeSource(new SourceCase("implicit enum members", "Empty.java", "enum Empty { ; }", "unused", 1));
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var run = new AnalysisEngine().analyze(frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION));
+    var result = frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION);
+    var run = new AnalysisEngine().analyze(result);
 
     // Assert
-    assertNotEquals(AnalysisCompletion.COMPLETED, run.completion());
-    assertTrue(run.diagnostics().stream()
-        .anyMatch(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.ENCLOSED_DECLARATIONS_DIAGNOSTIC)));
+    assertEquals(AnalysisCompletion.COMPLETED, run.completion(), () -> run.diagnostics().toString());
+    assertFalse(result.program().types().getFirst().synthesizedDeclarations().isEmpty());
+    assertTrue(result.program().types().getFirst().synthesizedDeclarations().stream()
+        .allMatch(declaration -> declaration.ownerTypeKey().equals(result.program().types().getFirst().typeKey())));
+    assertTrue(run.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-enclosed-declarations")));
     assertTrue(run.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
   }
 
@@ -214,8 +219,8 @@ class JavaDeclarationCompletenessRegressionTest {
               String[] names() default {"first", "second"};
             }
             """, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC, 2),
-        source("record components", "Pair.java", "record Empty() { } record Pair(int left, int right) { }",
-            JavaDeclarationPropertyCoverage.RECORD_COMPONENTS_DIAGNOSTIC));
+        source("field initializer content", "Initialized.java", "class Initialized { int value = 1; }",
+            "frontend.unsupported-field-initializer"));
   }
 
   private static SourceCase source(

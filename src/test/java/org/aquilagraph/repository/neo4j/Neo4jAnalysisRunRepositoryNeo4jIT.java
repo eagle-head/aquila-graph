@@ -276,14 +276,15 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
     var field = new JavaField(fieldKey, typeKey, "field", intType, Set.of(), false, true,
         List.of(span(sourceFile, "int field;")));
     var parameters = List.of(
-        new JavaParameter(StableId.sha256("parameter", methodKey, "input"), "input", intType,
+        new JavaParameter(StableId.sha256("parameter", methodKey, "input"), "input", intType, true,
             List.of(span(sourceFile, "int input"))),
-        new JavaParameter(StableId.sha256("parameter", methodKey, "divisor"), "divisor", intType,
+        new JavaParameter(StableId.sha256("parameter", methodKey, "divisor"), "divisor", intType, true,
             List.of(span(sourceFile, "int divisor"))));
     var method = new JavaMethod(methodKey, typeKey, "evaluate", "evaluate(int,int)", "int", parameters, Set.of(), false, true, true,
         List.of(span(sourceFile, "int evaluate")));
     var type = new JavaType(typeKey, typeName, JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(),
-        List.of(), true, List.of(field), List.of(method), List.of(new SourceSpan(sourceFile.sourceFileKey(), 0, source.length())));
+        List.of(), true, List.of(field), List.of(), List.of(method), List.of(),
+        List.of(new SourceSpan(sourceFile.sourceFileKey(), 0, source.length())));
     var graph = controlFlowGraph(sourceFile, methodKey, fieldKey, intType);
     var representation = new ProgramRepresentation(new JavaProgram(List.of(type)),
         List.of(new MethodAnalysis(StableId.sha256("method-analysis", methodKey), method, graph)));

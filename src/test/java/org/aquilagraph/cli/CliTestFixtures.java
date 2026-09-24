@@ -93,7 +93,7 @@ final class CliTestFixtures {
     var methodKey = StableId.sha256("method", "Example", "run()");
     var method = new JavaMethod(methodKey, typeKey, "run", "run()", "void", List.of(), Set.of(), false, true, true, List.of());
     var type = new JavaType(typeKey, "Example", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(),
-        List.of(), false, List.of(), List.of(method), List.of());
+        List.of(), false, List.of(), List.of(), List.of(method), List.of(), List.of());
 
     var graphId = StableId.sha256("cfg", methodKey);
     var entry = new EntryNode(StableId.sha256("cfg-node", graphId, "entry"), graphId);

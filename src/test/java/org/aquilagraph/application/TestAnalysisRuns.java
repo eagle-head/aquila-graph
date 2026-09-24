@@ -33,7 +33,7 @@ final class TestAnalysisRuns {
     var environmentSnapshot = new AnalysisEnvironmentSnapshot(configuration, "test-compiler", "test-vendor", "25-test",
         List.of("--release", "25"), List.of(), List.of());
     var type = new JavaType(StableId.sha256("type", "Example"), "Example", JavaTypeKind.CLASS, Set.of(), Optional.empty(),
-        Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of());
+        Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of());
     var representation = new ProgramRepresentation(new JavaProgram(List.of(type)), List.of());
     return new AnalysisRun(StableId.sha256("analysis-run", "completed"), inputSnapshot, environmentSnapshot,
         Optional.of(representation), List.of(), AnalysisCompletion.COMPLETED);

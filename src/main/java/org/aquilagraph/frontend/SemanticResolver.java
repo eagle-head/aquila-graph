@@ -5,6 +5,7 @@ import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodInvocationTree;
+import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.Trees;
@@ -35,6 +36,7 @@ import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.syntax.SyntaxType;
+import org.jspecify.annotations.Nullable;
 
 final class SemanticResolver {
   private static final String PATH_ARGUMENT = "path";
@@ -59,6 +61,19 @@ final class SemanticResolver {
   boolean isImplicitDeclaration(TreePath path) {
     var declaration = element(path);
     return declaration != null && elements.getOrigin(declaration) != Elements.Origin.EXPLICIT;
+  }
+
+  @Nullable
+  Tree sourceTree(Element element) {
+    return trees.getTree(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
+  }
+
+  Elements.Origin declarationOrigin(Element element) {
+    return elements.getOrigin(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
+  }
+
+  boolean sameType(TypeMirror first, TypeMirror second) {
+    return types.isSameType(Objects.requireNonNull(first, "first"), Objects.requireNonNull(second, "second"));
   }
 
   boolean isCompactConstructor(ExecutableElement element) {
@@ -401,6 +416,7 @@ final class SemanticResolver {
       case PARAMETER -> Optional.of(ReferenceKind.PARAMETER);
       case LOCAL_VARIABLE, EXCEPTION_PARAMETER, RESOURCE_VARIABLE, BINDING_VARIABLE -> Optional.of(ReferenceKind.LOCAL);
       case ENUM_CONSTANT -> Optional.of(ReferenceKind.ENUM_CONSTANT);
+      case RECORD_COMPONENT -> Optional.of(ReferenceKind.RECORD_COMPONENT);
       case PACKAGE -> Optional.of(ReferenceKind.PACKAGE);
       default -> Optional.empty();
     };

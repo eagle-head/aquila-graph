@@ -46,13 +46,8 @@ final class JavaDeclarationPropertyCoverage {
   static final String EXECUTABLE_ELEMENT_VARARGS = "ExecutableElement::ExecutableElement#isVarArgs()";
   static final String DECLARATION_ANNOTATIONS_DIAGNOSTIC = "frontend.unsupported-declaration-annotations";
   static final String ANNOTATION_DEFAULT_DIAGNOSTIC = "frontend.unsupported-annotation-default";
-  static final String RECORD_COMPONENTS_DIAGNOSTIC = "frontend.unsupported-record-components";
-  static final String ENCLOSED_DECLARATIONS_DIAGNOSTIC = "frontend.unsupported-enclosed-declarations";
-  static final String VARIABLE_MODIFIERS_DIAGNOSTIC = "frontend.unsupported-variable-modifiers";
-  static final String VARIABLE_INITIALIZER_DIAGNOSTIC = "frontend.unsupported-variable-initializer";
   private static final Set<String> DECLARATION_PROPERTY_DIAGNOSTICS = Set.of(DECLARATION_ANNOTATIONS_DIAGNOSTIC,
-      ANNOTATION_DEFAULT_DIAGNOSTIC, RECORD_COMPONENTS_DIAGNOSTIC, ENCLOSED_DECLARATIONS_DIAGNOSTIC, VARIABLE_MODIFIERS_DIAGNOSTIC,
-      VARIABLE_INITIALIZER_DIAGNOSTIC);
+      ANNOTATION_DEFAULT_DIAGNOSTIC);
 
   private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
       VariableTree.class, TypeElement.class, ExecutableElement.class);
@@ -167,9 +162,9 @@ final class JavaDeclarationPropertyCoverage {
   private static List<LanguageFeatureClassification> variableClassifications() {
     return List.of(
         irrelevant("VariableTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
-        diagnosed(VARIABLE_INITIALIZER, VARIABLE_INITIALIZER_DIAGNOSTIC),
+        represented(VARIABLE_INITIALIZER, "JavaAstAggregate field and enum initializer presence; expression content remains diagnosed"),
         represented("VariableTree::Tree#getKind()", "JavaField, JavaParameter, or MethodSyntax declaration aggregate"),
-        diagnosed(VARIABLE_MODIFIERS, VARIABLE_MODIFIERS_DIAGNOSTIC),
+        represented(VARIABLE_MODIFIERS, "JavaAstAggregate written declaration modifiers and annotation attachment points"),
         represented("VariableTree::VariableTree#getName()", "JavaField or JavaParameter name"),
         represented(VARIABLE_NAME_EXPRESSION, "JavaAstAggregate receiver qualifier source occurrence"),
         represented("VariableTree::VariableTree#getType()", "JavaField or JavaParameter type identity"));
@@ -189,7 +184,7 @@ final class JavaDeclarationPropertyCoverage {
         diagnosed(TYPE_ELEMENT_ANNOTATION_MIRRORS, DECLARATION_ANNOTATIONS_DIAGNOSTIC),
         irrelevant("TypeElement::Element#getAnnotationsByType(java.lang.Class)", ANNOTATION_PROXY_REASON,
             ANNOTATED_CONSTRUCT_API + "#getAnnotationsByType(java.lang.Class)"),
-        diagnosed(TYPE_ELEMENT_ENCLOSED_ELEMENTS, ENCLOSED_DECLARATIONS_DIAGNOSTIC),
+        represented(TYPE_ELEMENT_ENCLOSED_ELEMENTS, "JavaType direct declaration inventory with typed synthesized counterparts"),
         represented("TypeElement::TypeElement#getEnclosingElement()", "JavaType enclosing-type reference"),
         represented("TypeElement::TypeElement#getInterfaces()", "JavaType direct interface references"),
         represented("TypeElement::Element#getKind()", "JavaType declaration kind"),
@@ -197,7 +192,7 @@ final class JavaDeclarationPropertyCoverage {
         represented("TypeElement::TypeElement#getNestingKind()", "JavaType enclosing-type reference and qualified identity"),
         represented("TypeElement::TypeElement#getPermittedSubclasses()", "JavaType permitted-subclass references"),
         represented("TypeElement::TypeElement#getQualifiedName()", "JavaType qualified name"),
-        diagnosed(TYPE_ELEMENT_RECORD_COMPONENTS, RECORD_COMPONENTS_DIAGNOSTIC),
+        represented(TYPE_ELEMENT_RECORD_COMPONENTS, "JavaType ordered JavaRecordComponent declarations"),
         represented("TypeElement::TypeElement#getSimpleName()", "JavaType qualified name and declaration identity"),
         represented("TypeElement::TypeElement#getSuperclass()", "JavaType direct superclass reference"),
         represented("TypeElement::TypeElement#getTypeParameters()", "JavaType type-parameter aggregates"),

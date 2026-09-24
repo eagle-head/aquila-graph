@@ -9,6 +9,8 @@ import java.util.Set;
 final class SyntaxValueSupport {
   static final String WRITTEN_MODIFIERS_ARGUMENT = "writtenModifiers";
   static final String EFFECTIVE_MODIFIERS_ARGUMENT = "effectiveModifiers";
+  static final String OWNER_KEY_ARGUMENT = "ownerKey";
+  static final String DECLARATION_KEY_ARGUMENT = "declarationKey";
   private static final Set<String> RESERVED_TYPE_IDENTIFIERS = Set.of("abstract", "assert", "boolean", "break", "byte", "case", "catch",
       "char", "class", "const", "continue", "default", "do", "double", "else", "enum", "extends", "final", "finally", "float", "for",
       "goto", "if", "implements", "import", "instanceof", "int", "interface", "long", "native", "new", "package", "private", "protected",

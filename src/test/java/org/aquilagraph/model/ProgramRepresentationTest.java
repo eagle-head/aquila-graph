@@ -80,7 +80,9 @@ class ProgramRepresentationTest {
                 List.of(),
                 false,
                 List.of(),
+                List.of(),
                 List.of(method),
+                List.of(),
                 List.of())));
   }
 

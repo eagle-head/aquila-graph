@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Consumer;
+import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.util.Elements;
 import javax.tools.Diagnostic;
@@ -38,6 +39,7 @@ import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.DiagnosticSeverity;
 import org.aquilagraph.model.DiagnosticStage;
 import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.model.JavaType;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.StableId;
 import org.aquilagraph.model.SourceSpan;
@@ -86,7 +88,7 @@ class JavaAstSourcePositionTest {
       // Act
       for (var position : cases) {
         var evidence = new JavaSourceEvidence(new FixedPositions(position.start(), position.end()));
-        var translation = new JavaAstContributionTranslator(semantics, evidence, inventory).translate(unit, sourceFile, List.of());
+        var translation = new JavaAstContributionTranslator(semantics, evidence, inventory).translate(unit, sourceFile, List.of(), List.of());
 
         // Assert
         assertTrue(translation.contribution().isEmpty());
@@ -205,13 +207,14 @@ class JavaAstSourcePositionTest {
       var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(statement)));
       var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
       var propertyObserver = new JavaDeclarationPropertyObserver(coverage);
-      var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory(), propertyObserver);
-      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, propertyObserver, bodyTranslator);
+      var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory());
+      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), propertyObserver,
+          bodyTranslator);
       var method = methodTranslator.translate(fixture.unit(), new TreePath(new TreePath(fixture.unit()), type), fixture.sourceFile(),
           "type:Example", constructor);
       var body = new TranslatedMethodBody(method.value().method().methodKey(), method.value().syntax().orElseThrow());
       var contribution = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
-          .translate(fixture.unit(), fixture.sourceFile(), List.of(body));
+          .translate(fixture.unit(), fixture.sourceFile(), List.of(body), List.of());
 
       var missing = method.diagnostics().stream().filter(diagnostic -> diagnostic.code().equals("frontend.missing-source-position"))
           .toList();
@@ -234,7 +237,7 @@ class JavaAstSourcePositionTest {
       var second = fixture.unit().getTypeDecls().get(1);
       var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(first, second)));
       var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
-          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+          .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
 
       assertEquals(2, result.diagnostics().size());
       assertNotEquals(result.diagnostics().get(0).diagnosticKey(), result.diagnostics().get(1).diagnosticKey());
@@ -253,7 +256,7 @@ class JavaAstSourcePositionTest {
       }
       var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), fields));
       var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
-          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+          .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
 
       assertEquals(2, result.diagnostics().size());
       assertNotEquals(result.diagnostics().get(0).diagnosticKey(), result.diagnostics().get(1).diagnosticKey());
@@ -271,7 +274,7 @@ class JavaAstSourcePositionTest {
 
       // Act
       var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
-          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+          .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
       var root = result.contribution().orElseThrow().root();
 
       // Assert
@@ -301,7 +304,7 @@ class JavaAstSourcePositionTest {
       for (var missing : missingHeaders) {
         var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(missing)));
         var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
-            .translate(fixture.unit(), fixture.sourceFile(), List.of());
+            .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
         var retainedTypes = result.contribution().orElseThrow().root().children(SyntaxRole.TYPE_DECLARATION);
 
         // Assert
@@ -324,7 +327,7 @@ class JavaAstSourcePositionTest {
 
       // Act
       var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
-          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+          .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
 
       // Assert
       assertEquals(List.of(), result.contribution().orElseThrow().root().children(SyntaxRole.TYPE_DECLARATION));
@@ -398,27 +401,35 @@ class JavaAstSourcePositionTest {
         """;
     withCompiledSource(source, fixture -> {
       var unitPath = new TreePath(fixture.unit());
-      var contributor = new JavaAstContributionTranslator(fixture.semantics(), new JavaSourceEvidence(fixture.positions()),
-          fixture.inventory());
+      var evidence = new JavaSourceEvidence(fixture.positions());
+      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+      var propertyObserver = new JavaDeclarationPropertyObserver(coverage);
+      var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory());
+      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), propertyObserver,
+          bodyTranslator);
+      var typeTranslator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), propertyObserver, methodTranslator);
+      var modeledTypes = new ArrayList<JavaType>();
+      for (var declaration : fixture.unit().getTypeDecls()) {
+        if (declaration instanceof ClassTree type) {
+          modeledTypes.addAll(typeTranslator.translate(fixture.unit(), unitPath, fixture.sourceFile(), type).value().orElseThrow().types());
+        }
+      }
+      var contributor = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory());
 
       // Act
-      var root = contributor.translate(fixture.unit(), fixture.sourceFile(), List.of()).contribution().orElseThrow().root();
+      var root = contributor.translate(fixture.unit(), fixture.sourceFile(), List.of(), modeledTypes).contribution().orElseThrow().root();
       var types = root.children(SyntaxRole.TYPE_DECLARATION);
-      var generatedCount = 0;
-      var nonExplicitGeneratedCount = 0;
+      var compilerGeneratedCount = 0L;
       var recordComponentCount = 0;
       for (var ordinal = 0; ordinal < types.size(); ordinal++) {
         var declaration = (ClassTree) fixture.unit().getTypeDecls().get(ordinal);
         var classPath = new TreePath(unitPath, declaration);
         var typeElement = (TypeElement) fixture.semantics().element(classPath);
+        compilerGeneratedCount += typeElement.getEnclosedElements().stream()
+            .filter(member -> fixture.elements().getOrigin(member) != Elements.Origin.EXPLICIT).count();
         var expected = new ArrayList<String>();
         for (var member : declaration.getMembers()) {
           if (!fixture.inventory().isWritten(member)) {
-            generatedCount++;
-            var generatedElement = fixture.semantics().element(new TreePath(classPath, member));
-            if (generatedElement != null && fixture.elements().getOrigin(generatedElement) != Elements.Origin.EXPLICIT) {
-              nonExplicitGeneratedCount++;
-            }
             continue;
           }
           var memberPath = new TreePath(classPath, member);
@@ -433,7 +444,8 @@ class JavaAstSourcePositionTest {
           assertEquals(Elements.Origin.EXPLICIT, origin);
           var syntaxKind = switch (member) {
             case MethodTree ignored -> SyntaxKind.METHOD_DECLARATION;
-            case VariableTree ignored -> SyntaxKind.FIELD_DECLARATION;
+            case VariableTree ignored -> fixture.semantics().element(memberPath).getKind() == ElementKind.ENUM_CONSTANT
+                ? SyntaxKind.ENUM_CONSTANT_DECLARATION : SyntaxKind.FIELD_DECLARATION;
             case ClassTree ignored -> SyntaxKind.TYPE_DECLARATION;
             default -> throw new IllegalStateException("Unexpected source member kind: " + member.getKind());
           };
@@ -447,9 +459,218 @@ class JavaAstSourcePositionTest {
         // Assert
         assertEquals(expected, actual);
       }
-      assertTrue(generatedCount > 0);
-      assertTrue(nonExplicitGeneratedCount > 0);
+      assertTrue(compilerGeneratedCount > 0);
       assertEquals(1, recordComponentCount);
+    });
+  }
+
+  @Test
+  void givenRecordWithoutSemanticInventory_whenTranslated_thenHeaderIsDiagnosedAndTypeIsWithheld() throws IOException {
+    // Arrange
+    withCompiledSource("record Example(int value) {}", fixture -> {
+      var contributor = new JavaAstContributionTranslator(fixture.semantics(), new JavaSourceEvidence(fixture.positions()),
+          fixture.inventory());
+
+      // Act
+      var result = contributor.translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
+
+      // Assert
+      assertTrue(result.contribution().orElseThrow().root().children(SyntaxRole.TYPE_DECLARATION).isEmpty());
+      assertEquals(List.of("frontend.unavailable-record-header"),
+          result.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+    });
+  }
+
+  @Test
+  void givenFirstOfTwoRecordComponentRangesMissing_whenTranslated_thenDiagnosticWithholdsProgramAndAggregate()
+      throws IOException {
+    // Arrange
+    Files.writeString(sourceRoot.resolve("R.java"), "record R(int first, int second) {}");
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+    var loader = new JavaSourceLoader();
+    var snapshot = loader.discover(sourceRoot);
+    var baseline = new JavaFrontend(loader).analyze(snapshot, configuration);
+    var sources = new SnapshotSourceCatalog(snapshot);
+    assertEquals(1, baseline.program().types().size());
+    assertTrue(baseline.aggregate().isPresent());
+    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
+      var parsed = session.parse();
+      var compilation = session.analyze(parsed);
+      var unit = compilation.units().getFirst();
+      var declaration = (ClassTree) unit.getTypeDecls().getFirst();
+      var owner = (TypeElement) compilation.semantics().element(new TreePath(new TreePath(unit), declaration));
+      var firstComponentTree = compilation.semantics().sourceTree(owner.getRecordComponents().getFirst());
+      var actualPositions = new SourcePositions() {
+        @Override
+        public long getStartPosition(CompilationUnitTree currentUnit, Tree tree) {
+          return compilation.sourceEvidence().origin(currentUnit, sources.find(currentUnit).orElseThrow(), tree)
+              .map(SourceSpan::startOffset).orElse(Diagnostic.NOPOS);
+        }
+
+        @Override
+        public long getEndPosition(CompilationUnitTree currentUnit, Tree tree) {
+          return compilation.sourceEvidence().origin(currentUnit, sources.find(currentUnit).orElseThrow(), tree)
+              .map(SourceSpan::endOffsetExclusive).orElse(Diagnostic.NOPOS);
+        }
+      };
+      var evidence = new JavaSourceEvidence(new MissingPositions(actualPositions, List.of(firstComponentTree)));
+
+      // Act
+      var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
+          baseline.languageFeatureCoverage()).translate(snapshot, compilation.units());
+
+      // Assert
+      assertTrue(translated.value().aggregate().isEmpty());
+      assertTrue(translated.value().program().types().isEmpty());
+      var diagnostic = translated.diagnostics().stream()
+          .filter(item -> item.code().equals("frontend.unavailable-record-component")).findFirst().orElseThrow();
+      assertEquals(List.of(evidence.origin(unit, sources.find(unit).orElseThrow(), declaration).orElseThrow()),
+          diagnostic.origins());
+      assertEquals(DiagnosticStage.FRONTEND, diagnostic.stage());
+      assertEquals(DiagnosticSeverity.ERROR, diagnostic.severity());
+      assertEquals(AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR, diagnostic.outcomeKind());
+    }
+  }
+
+  @Test
+  void givenUncorrelatableComponentTree_whenTypeIsTranslated_thenDiagnosticRetainsRecordSourceRange() throws IOException {
+    // Arrange
+    withCompiledSource("record Example(int value) {}", fixture -> {
+      var declaration = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var classPath = new TreePath(new TreePath(fixture.unit()), declaration);
+      var owner = (TypeElement) fixture.semantics().element(classPath);
+      var componentTree = fixture.semantics().sourceTree(owner.getRecordComponents().getFirst());
+      var positions = new SourcePositions() {
+        @Override
+        public long getStartPosition(CompilationUnitTree unit, Tree tree) {
+          return tree == componentTree ? Diagnostic.NOPOS : fixture.positions().getStartPosition(unit, tree);
+        }
+
+        @Override
+        public long getEndPosition(CompilationUnitTree unit, Tree tree) {
+          return fixture.positions().getEndPosition(unit, tree);
+        }
+      };
+      var evidence = new JavaSourceEvidence(positions);
+      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+      var observer = new JavaDeclarationPropertyObserver(coverage);
+      var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory());
+      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), observer, bodyTranslator);
+      var translator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), observer, methodTranslator);
+
+      // Act
+      var result = translator.translate(fixture.unit(), new TreePath(fixture.unit()), fixture.sourceFile(), declaration);
+      var diagnostic = result.diagnostics().stream().filter(item -> item.code().equals("frontend.unavailable-record-component"))
+          .findFirst().orElseThrow();
+
+      // Assert
+      assertTrue(result.value().isEmpty());
+      assertEquals(List.of(evidence.origin(fixture.unit(), fixture.sourceFile(), declaration).orElseThrow()), diagnostic.origins());
+    });
+  }
+
+  @Test
+  void givenExplicitEnclosedMemberWithoutWrittenTreeEvidence_whenReconciled_thenItIsDiagnosedRatherThanSynthesized()
+      throws IOException {
+    // Arrange
+    withCompiledSource("class Example { int value; }", fixture -> {
+      var declaration = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var classPath = new TreePath(new TreePath(fixture.unit()), declaration);
+      var owner = (TypeElement) fixture.semantics().element(classPath);
+      var field = owner.getEnclosedElements().stream().filter(member -> member.getKind() == ElementKind.FIELD)
+          .findFirst().orElseThrow();
+      var fieldKey = fixture.semantics().declarationKey(field).orElseThrow();
+      var typeKey = fixture.semantics().declarationKey(owner).orElseThrow();
+      var evidence = new JavaSourceEvidence(fixture.positions());
+      var origin = evidence.origin(fixture.unit(), fixture.sourceFile(), declaration);
+      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+      var observer = new JavaDeclarationPropertyObserver(coverage);
+      var emptyInventory = ParsedTreeInventory.capture(List.of());
+      var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, emptyInventory);
+      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, observer, bodyTranslator);
+      var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, observer, methodTranslator);
+      var diagnostics = new ArrayList<AnalysisDiagnostic>();
+
+      // Act
+      var synthesized = translator.reconcileEnclosedDeclarations(fixture.unit(), classPath, declaration, owner,
+          fixture.sourceFile(), typeKey, origin, List.of(), List.of(), List.of(), List.of(), diagnostics);
+
+      // Assert
+      assertTrue(synthesized.stream().noneMatch(member -> member.declarationKey().equals(fieldKey)));
+      var diagnostic = diagnostics.stream().filter(item -> item.code().equals("frontend.unrepresented-written-declaration"))
+          .findFirst().orElseThrow();
+      assertEquals("frontend.unrepresented-written-declaration", diagnostic.code());
+      assertEquals(List.of(evidence.origin(fixture.unit(), fixture.sourceFile(), fixture.semantics().sourceTree(field))
+          .orElseThrow()), diagnostic.origins());
+    });
+  }
+
+  @Test
+  void givenMissingParsedTypeInventory_whenReconcilingImplicitMethods_thenPublicationIsBlocked() throws IOException {
+    // Arrange
+    withCompiledSource("enum Example { ONE }", fixture -> {
+      var declaration = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var classPath = new TreePath(new TreePath(fixture.unit()), declaration);
+      var owner = (TypeElement) fixture.semantics().element(classPath);
+      var implicitMethod = owner.getEnclosedElements().stream().filter(member -> member.getKind() == ElementKind.METHOD)
+          .filter(member -> fixture.semantics().sourceTree(member) == null).findFirst().orElseThrow();
+      assertEquals(Elements.Origin.EXPLICIT, fixture.elements().getOrigin(implicitMethod));
+      var methodKey = fixture.semantics().declarationKey(implicitMethod).orElseThrow();
+      var typeKey = fixture.semantics().declarationKey(owner).orElseThrow();
+      var evidence = new JavaSourceEvidence(fixture.positions());
+      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+      var observer = new JavaDeclarationPropertyObserver(coverage);
+      var emptyInventory = ParsedTreeInventory.capture(List.of());
+      var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, emptyInventory);
+      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, observer, bodyTranslator);
+      var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, observer, methodTranslator);
+      var diagnostics = new ArrayList<AnalysisDiagnostic>();
+
+      // Act
+      var synthesized = translator.reconcileEnclosedDeclarations(fixture.unit(), classPath, declaration, owner,
+          fixture.sourceFile(), typeKey, evidence.origin(fixture.unit(), fixture.sourceFile(), declaration), List.of(), List.of(),
+          List.of(), List.of(), diagnostics);
+      var translated = translator.translate(fixture.unit(), new TreePath(fixture.unit()), fixture.sourceFile(), declaration);
+
+      // Assert
+      assertTrue(synthesized.stream().noneMatch(member -> member.declarationKey().equals(methodKey)));
+      assertTrue(translated.value().isEmpty());
+      assertTrue(diagnostics.stream().anyMatch(item -> item.code().equals("frontend.unrepresented-written-declaration")
+          && item.origins().equals(evidence.origin(fixture.unit(), fixture.sourceFile(), declaration).stream().toList())));
+    });
+  }
+
+  @Test
+  void givenWrittenOverloadOfImplicitRecordMethod_whenTranslated_thenEachElementRetainsItsProvenance() throws IOException {
+    // Arrange
+    withCompiledSource("record Example(int value) { public boolean equals(String other) { return false; } }", fixture -> {
+      var declaration = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var classPath = new TreePath(new TreePath(fixture.unit()), declaration);
+      var owner = (TypeElement) fixture.semantics().element(classPath);
+      var equalsMethods = owner.getEnclosedElements().stream().filter(member -> member.getKind() == ElementKind.METHOD)
+          .filter(member -> member.getSimpleName().contentEquals("equals")).toList();
+      assertEquals(2, equalsMethods.size());
+      var writtenMethod = equalsMethods.stream().filter(member -> fixture.semantics().sourceTree(member) != null)
+          .findFirst().orElseThrow();
+      var implicitMethod = equalsMethods.stream().filter(member -> fixture.semantics().sourceTree(member) == null)
+          .findFirst().orElseThrow();
+      var evidence = new JavaSourceEvidence(fixture.positions());
+      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+      var observer = new JavaDeclarationPropertyObserver(coverage);
+      var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory());
+      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), observer, bodyTranslator);
+      var translator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), observer, methodTranslator);
+
+      // Act
+      var result = translator.translate(fixture.unit(), new TreePath(fixture.unit()), fixture.sourceFile(), declaration);
+      var type = result.value().orElseThrow().types().getFirst();
+
+      // Assert
+      assertTrue(type.methods().stream().anyMatch(method -> method.methodKey()
+          .equals(fixture.semantics().declarationKey(writtenMethod).orElseThrow()) && method.sourceDeclared()));
+      assertTrue(type.synthesizedDeclarations().stream().anyMatch(member -> member.declarationKey()
+          .equals(fixture.semantics().declarationKey(implicitMethod).orElseThrow())));
+      assertTrue(result.diagnostics().stream().noneMatch(item -> item.code().equals("frontend.unrepresented-written-declaration")));
     });
   }
 
@@ -462,7 +683,7 @@ class JavaAstSourcePositionTest {
 
       // Act
       var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
-          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+          .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
       var root = result.contribution().orElseThrow().root();
       var packageNode = root.requiredChild(SyntaxRole.PACKAGE_DECLARATION);
       var retained = packageNode.children(SyntaxRole.ANNOTATION);
@@ -485,7 +706,7 @@ class JavaAstSourcePositionTest {
 
       // Act
       var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
-          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+          .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
       var root = result.contribution().orElseThrow().root();
 
       // Assert
@@ -506,7 +727,7 @@ class JavaAstSourcePositionTest {
 
       // Act
       var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
-          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+          .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
 
       // Assert
       assertEquals(List.of(), result.contribution().orElseThrow().root().children(SyntaxRole.IMPORT_DECLARATION));
@@ -539,7 +760,7 @@ class JavaAstSourcePositionTest {
 
       // Act
       var result = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
-          .translate(fixture.unit(), fixture.sourceFile(), List.of());
+          .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
 
       // Assert
       assertTrue(result.contribution().isEmpty());

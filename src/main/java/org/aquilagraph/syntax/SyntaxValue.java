@@ -5,6 +5,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import org.aquilagraph.model.JavaTypeCategory;
+import org.aquilagraph.model.JavaTypeIdentity;
 import org.aquilagraph.model.JavaTypeModifier;
 import org.aquilagraph.model.InvocationForm;
 import org.aquilagraph.model.InvocationSemantics;
@@ -330,11 +331,13 @@ public sealed interface SyntaxValue {
   }
 
   /** Shared source-name value boundary for typed syntax facts. */
-  abstract sealed class Symbol implements SyntaxValue permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration,
-      ModuleDeclaration, ModuleDirective, TypeDeclaration, TypeParameterDeclaration, ExecutableDeclaration, ParameterHeader {
+  abstract sealed class Symbol implements SyntaxValue
+      permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration, ModuleDeclaration, ModuleDirective, TypeDeclaration,
+      TypeParameterDeclaration, ExecutableDeclaration, ParameterHeader, VariableDeclaration, RecordComponentDeclaration {
     enum Form {
       SYMBOL, COMPILATION_UNIT, PACKAGE_DECLARATION, IMPORT_DECLARATION, MODULE_DECLARATION, REQUIRES, EXPORTS, OPENS, USES, PROVIDES,
-      TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, EXECUTABLE_DECLARATION, PARAMETER_DECLARATION, RECEIVER_PARAMETER
+      TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, EXECUTABLE_DECLARATION, PARAMETER_DECLARATION, RECEIVER_PARAMETER, VARIABLE_DECLARATION,
+      RECORD_COMPONENT_DECLARATION
     }
 
     private final String sourceName;
@@ -391,13 +394,16 @@ public sealed interface SyntaxValue {
      *          number of written interface attachments
      * @param permittedSubclasses
      *          number of written permitted subclass attachments
+     * @param recordComponents
+     *          number of written record-header components
      * @param members
      *          number of written body members
      */
-    public record Shape(int annotations, int typeParameters, boolean superclass, int interfaces, int permittedSubclasses, int members) {
+    public record Shape(int annotations, int typeParameters, boolean superclass, int interfaces, int permittedSubclasses,
+        int recordComponents, int members) {
       /** Rejects negative cardinalities. */
       public Shape {
-        if (annotations < 0 || typeParameters < 0 || interfaces < 0 || permittedSubclasses < 0 || members < 0) {
+        if (annotations < 0 || typeParameters < 0 || interfaces < 0 || permittedSubclasses < 0 || recordComponents < 0 || members < 0) {
           throw new IllegalArgumentException("Type declaration child counts cannot be negative");
         }
       }
@@ -406,7 +412,7 @@ public sealed interface SyntaxValue {
     private record Details(String declarationKey, Set<JavaTypeModifier> writtenModifiers, Set<JavaTypeModifier> effectiveModifiers,
         Shape shape) {
       private Details {
-        SyntaxValueSupport.requireText(declarationKey, "declarationKey");
+        SyntaxValueSupport.requireText(declarationKey, SyntaxValueSupport.DECLARATION_KEY_ARGUMENT);
         writtenModifiers = Set.copyOf(Objects.requireNonNull(writtenModifiers, SyntaxValueSupport.WRITTEN_MODIFIERS_ARGUMENT));
         effectiveModifiers = Set.copyOf(Objects.requireNonNull(effectiveModifiers, SyntaxValueSupport.EFFECTIVE_MODIFIERS_ARGUMENT));
         Objects.requireNonNull(shape, "shape");
@@ -477,11 +483,317 @@ public sealed interface SyntaxValue {
     }
   }
 
+  /** Written field or enum constant with its declaration header and source-only initialization shape. */
+  final class VariableDeclaration extends Symbol {
+    /** Source declaration form. */
+    public enum Kind {
+      /** Ordinary field. */
+      FIELD,
+      /** Enum constant. */
+      ENUM_CONSTANT
+    }
+
+    private record VariableDeclarationFacts(String ownerKey, String declarationKey, Kind kind,
+        Set<JavaDeclarationModifier> writtenModifiers, Set<JavaDeclarationModifier> effectiveModifiers, JavaTypeIdentity declaredType,
+        int annotations, boolean type, boolean initializer, boolean argumentList, int arguments, boolean constantBody) {
+      private VariableDeclarationFacts {
+        SyntaxValueSupport.requireText(ownerKey, SyntaxValueSupport.OWNER_KEY_ARGUMENT);
+        SyntaxValueSupport.requireText(declarationKey, SyntaxValueSupport.DECLARATION_KEY_ARGUMENT);
+        Objects.requireNonNull(kind, "kind");
+        var prefix = ownerKey + (kind == Kind.FIELD ? "#field:" : "#enum:");
+        if (!declarationKey.startsWith(prefix) || declarationKey.length() == prefix.length()) {
+          throw new IllegalArgumentException("A variable declaration key must belong to its type owner and kind");
+        }
+        writtenModifiers = Set.copyOf(Objects.requireNonNull(writtenModifiers, SyntaxValueSupport.WRITTEN_MODIFIERS_ARGUMENT));
+        effectiveModifiers = Set.copyOf(Objects.requireNonNull(effectiveModifiers, SyntaxValueSupport.EFFECTIVE_MODIFIERS_ARGUMENT));
+        Objects.requireNonNull(declaredType, "declaredType");
+        if (annotations < 0 || arguments < 0 || (kind == Kind.FIELD && (!type || argumentList || arguments != 0 || constantBody))
+            || (kind == Kind.ENUM_CONSTANT && (type || !initializer || (arguments > 0 && !argumentList)))) {
+          throw new IllegalArgumentException("A variable declaration has an invalid source shape");
+        }
+      }
+    }
+
+    private final VariableDeclarationFacts details;
+
+    /**
+     * Creates a written field or enum constant.
+     *
+     * @param name
+     *          written name
+     * @param ownerKey
+     *          canonical type owner
+     * @param declarationKey
+     *          canonical declaration identity
+     * @param kind
+     *          source declaration form
+     * @param writtenModifiers
+     *          source-written modifiers
+     * @param effectiveModifiers
+     *          attributed modifiers
+     * @param declaredType
+     *          attributed variable type
+     * @param annotations
+     *          written annotation count
+     * @param type
+     *          written type attachment presence
+     * @param initializer
+     *          written initializer presence
+     * @param argumentList
+     *          whether an enum constant has a written argument list, including an empty list
+     * @param arguments
+     *          enum constructor argument count
+     * @param constantBody
+     *          enum constant-specific body presence
+     */
+    public VariableDeclaration(String name, String ownerKey, String declarationKey, Kind kind,
+        Set<JavaDeclarationModifier> writtenModifiers, Set<JavaDeclarationModifier> effectiveModifiers, JavaTypeIdentity declaredType,
+        int annotations, boolean type, boolean initializer, boolean argumentList, int arguments, boolean constantBody) {
+      this(name, new VariableDeclarationFacts(ownerKey, declarationKey, kind, writtenModifiers, effectiveModifiers, declaredType,
+          annotations, type, initializer, argumentList, arguments, constantBody));
+    }
+
+    private VariableDeclaration(String name, VariableDeclarationFacts details) {
+      super(name, Form.VARIABLE_DECLARATION, details);
+      SyntaxValueSupport.requireName(name);
+      this.details = details;
+    }
+
+    /**
+     * Returns canonical declaration identity.
+     *
+     * @return canonical declaration identity
+     */
+    public String declarationKey() {
+      return details.declarationKey();
+    }
+
+    /**
+     * Returns canonical type owner.
+     *
+     * @return canonical type owner
+     */
+    public String ownerKey() {
+      return details.ownerKey();
+    }
+
+    /**
+     * Returns source declaration form.
+     *
+     * @return source declaration form
+     */
+    public Kind kind() {
+      return details.kind();
+    }
+
+    /**
+     * Returns source-written modifiers.
+     *
+     * @return source-written modifiers
+     */
+    public Set<JavaDeclarationModifier> writtenModifiers() {
+      return details.writtenModifiers();
+    }
+
+    /**
+     * Returns compiler-attributed modifiers.
+     *
+     * @return compiler-attributed modifiers
+     */
+    public Set<JavaDeclarationModifier> effectiveModifiers() {
+      return details.effectiveModifiers();
+    }
+
+    /**
+     * Returns compiler-attributed declared type.
+     *
+     * @return compiler-attributed declared type
+     */
+    public JavaTypeIdentity declaredType() {
+      return details.declaredType();
+    }
+
+    /**
+     * Returns number of written annotation attachments.
+     *
+     * @return number of written annotation attachments
+     */
+    public int annotations() {
+      return details.annotations();
+    }
+
+    /**
+     * Returns whether a written type attachment exists.
+     *
+     * @return whether a written type attachment exists
+     */
+    public boolean type() {
+      return details.type();
+    }
+
+    /**
+     * Returns whether a written initializer exists.
+     *
+     * @return whether a written initializer exists
+     */
+    public boolean initializer() {
+      return details.initializer();
+    }
+
+    /**
+     * Returns number of written enum constructor arguments.
+     *
+     * @return number of written enum constructor arguments
+     */
+    public int arguments() {
+      return details.arguments();
+    }
+
+    /**
+     * Returns whether the enum constant writes an argument list, including an empty list.
+     *
+     * @return written argument-list presence
+     */
+    public boolean argumentList() {
+      return details.argumentList();
+    }
+
+    /**
+     * Returns whether a constant-specific class body exists.
+     *
+     * @return whether a constant-specific class body exists
+     */
+    public boolean constantBody() {
+      return details.constantBody();
+    }
+  }
+
+  /** Written record-header component with an identity independent of generated members. */
+  final class RecordComponentDeclaration extends Symbol {
+    private record RecordComponentFacts(String ownerKey, int ordinal, Set<JavaDeclarationModifier> writtenModifiers,
+        Set<JavaDeclarationModifier> effectiveModifiers, JavaTypeIdentity declaredType, int annotations, boolean varArgs) {
+      private RecordComponentFacts {
+        SyntaxValueSupport.requireText(ownerKey, SyntaxValueSupport.OWNER_KEY_ARGUMENT);
+        if (ordinal < 0 || annotations < 0) {
+          throw new IllegalArgumentException("A record component requires non-negative ordinal and annotation count");
+        }
+        writtenModifiers = Set.copyOf(Objects.requireNonNull(writtenModifiers, SyntaxValueSupport.WRITTEN_MODIFIERS_ARGUMENT));
+        effectiveModifiers = Set.copyOf(Objects.requireNonNull(effectiveModifiers, SyntaxValueSupport.EFFECTIVE_MODIFIERS_ARGUMENT));
+        Objects.requireNonNull(declaredType, "declaredType");
+      }
+    }
+
+    private final RecordComponentFacts details;
+
+    /**
+     * Creates a written record-header component.
+     *
+     * @param name
+     *          written component name
+     * @param ownerKey
+     *          canonical record identity
+     * @param ordinal
+     *          header position
+     * @param writtenModifiers
+     *          source-written modifiers
+     * @param effectiveModifiers
+     *          attributed modifiers
+     * @param declaredType
+     *          attributed component type
+     * @param annotations
+     *          written annotation count
+     * @param varArgs
+     *          variable-arity final component state
+     */
+    public RecordComponentDeclaration(String name, String ownerKey, int ordinal, Set<JavaDeclarationModifier> writtenModifiers,
+        Set<JavaDeclarationModifier> effectiveModifiers, JavaTypeIdentity declaredType, int annotations, boolean varArgs) {
+      this(name, new RecordComponentFacts(ownerKey, ordinal, writtenModifiers, effectiveModifiers, declaredType, annotations, varArgs));
+    }
+
+    private RecordComponentDeclaration(String name, RecordComponentFacts details) {
+      super(name, Form.RECORD_COMPONENT_DECLARATION, details);
+      SyntaxValueSupport.requireName(name);
+      this.details = details;
+    }
+
+    /**
+     * Returns canonical component identity.
+     *
+     * @return canonical component identity
+     */
+    public String declarationKey() {
+      return details.ownerKey() + "#record-component:" + details.ordinal();
+    }
+
+    /**
+     * Returns canonical record owner.
+     *
+     * @return canonical record owner
+     */
+    public String ownerKey() {
+      return details.ownerKey();
+    }
+
+    /**
+     * Returns header position.
+     *
+     * @return header position
+     */
+    public int ordinal() {
+      return details.ordinal();
+    }
+
+    /**
+     * Returns source-written modifiers.
+     *
+     * @return source-written modifiers
+     */
+    public Set<JavaDeclarationModifier> writtenModifiers() {
+      return details.writtenModifiers();
+    }
+
+    /**
+     * Returns compiler-attributed modifiers.
+     *
+     * @return compiler-attributed modifiers
+     */
+    public Set<JavaDeclarationModifier> effectiveModifiers() {
+      return details.effectiveModifiers();
+    }
+
+    /**
+     * Returns compiler-attributed component type.
+     *
+     * @return compiler-attributed component type
+     */
+    public JavaTypeIdentity declaredType() {
+      return details.declaredType();
+    }
+
+    /**
+     * Returns number of written annotation attachments.
+     *
+     * @return number of written annotation attachments
+     */
+    public int annotations() {
+      return details.annotations();
+    }
+
+    /**
+     * Returns variable-arity final component state.
+     *
+     * @return variable-arity final component state
+     */
+    public boolean varArgs() {
+      return details.varArgs();
+    }
+  }
+
   /** Written type parameter, its canonical identity, and its direct source attachments. */
   final class TypeParameterDeclaration extends Symbol {
     private record TypeParameterDetails(String ownerKey, int ordinal, int annotations, int bounds) {
       private TypeParameterDetails {
-        SyntaxValueSupport.requireText(ownerKey, "ownerKey");
+        SyntaxValueSupport.requireText(ownerKey, SyntaxValueSupport.OWNER_KEY_ARGUMENT);
         if (ordinal < 0 || annotations < 0 || bounds < 0) {
           throw new IllegalArgumentException("Type parameter child counts cannot be negative");
         }
@@ -678,8 +990,8 @@ public sealed interface SyntaxValue {
         Set<JavaDeclarationModifier> writtenModifiers, Set<JavaDeclarationModifier> effectiveModifiers, HeaderShape shape,
         AttributedHeader attributed) {
       private ExecutableDetails {
-        SyntaxValueSupport.requireText(ownerKey, "ownerKey");
-        SyntaxValueSupport.requireText(declarationKey, "declarationKey");
+        SyntaxValueSupport.requireText(ownerKey, SyntaxValueSupport.OWNER_KEY_ARGUMENT);
+        SyntaxValueSupport.requireText(declarationKey, SyntaxValueSupport.DECLARATION_KEY_ARGUMENT);
         if (!declarationKey.startsWith(ownerKey + "#") || declarationKey.length() <= ownerKey.length() + 1) {
           throw new IllegalArgumentException("An executable declaration key must belong to its type owner");
         }
@@ -871,7 +1183,7 @@ public sealed interface SyntaxValue {
     private record ParameterDetails(String declarationKey, Set<JavaDeclarationModifier> writtenModifiers,
         Set<JavaDeclarationModifier> effectiveModifiers, int annotations, boolean type, boolean varArgs) {
       private ParameterDetails {
-        SyntaxValueSupport.requireText(declarationKey, "declarationKey");
+        SyntaxValueSupport.requireText(declarationKey, SyntaxValueSupport.DECLARATION_KEY_ARGUMENT);
         writtenModifiers = Set.copyOf(Objects.requireNonNull(writtenModifiers, SyntaxValueSupport.WRITTEN_MODIFIERS_ARGUMENT));
         effectiveModifiers = Set.copyOf(Objects.requireNonNull(effectiveModifiers, SyntaxValueSupport.EFFECTIVE_MODIFIERS_ARGUMENT));
         if (annotations < 0 || !type) {
@@ -971,7 +1283,7 @@ public sealed interface SyntaxValue {
     private record ReceiverDetails(String ownerKey, Set<JavaDeclarationModifier> writtenModifiers,
         Set<JavaDeclarationModifier> effectiveModifiers, int annotations) {
       private ReceiverDetails {
-        SyntaxValueSupport.requireText(ownerKey, "ownerKey");
+        SyntaxValueSupport.requireText(ownerKey, SyntaxValueSupport.OWNER_KEY_ARGUMENT);
         writtenModifiers = Set.copyOf(Objects.requireNonNull(writtenModifiers, SyntaxValueSupport.WRITTEN_MODIFIERS_ARGUMENT));
         effectiveModifiers = Set.copyOf(Objects.requireNonNull(effectiveModifiers, SyntaxValueSupport.EFFECTIVE_MODIFIERS_ARGUMENT));
         if (annotations < 0) {

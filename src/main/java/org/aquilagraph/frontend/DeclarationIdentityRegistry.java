@@ -14,6 +14,7 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.Parameterizable;
+import javax.lang.model.element.RecordComponentElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
@@ -78,6 +79,7 @@ final class DeclarationIdentityRegistry {
       case ENUM_CONSTANT -> keyOfOwnedVariable((VariableElement) element, "enum");
       case PARAMETER -> keyOfParameter((VariableElement) element);
       case TYPE_PARAMETER -> keyOfTypeParameter((TypeParameterElement) element);
+      case RECORD_COMPONENT -> keyOfRecordComponent((RecordComponentElement) element);
       case LOCAL_VARIABLE, EXCEPTION_PARAMETER, RESOURCE_VARIABLE, BINDING_VARIABLE -> keyOfLocalVariable((VariableElement) element);
       case PACKAGE -> Optional.of("package:" + ((PackageElement) element).getQualifiedName());
       default -> Optional.empty();
@@ -127,6 +129,19 @@ final class DeclarationIdentityRegistry {
       if (owner.getTypeParameters().get(index).equals(parameter)) {
         var ordinal = index;
         return keyOf((Element) owner).map(ownerKey -> ownerKey + "#type-parameter:" + ordinal);
+      }
+    }
+    return Optional.empty();
+  }
+
+  private Optional<String> keyOfRecordComponent(RecordComponentElement component) {
+    if (!(component.getEnclosingElement() instanceof TypeElement owner)) {
+      return Optional.empty();
+    }
+    for (var ordinal = 0; ordinal < owner.getRecordComponents().size(); ordinal++) {
+      if (owner.getRecordComponents().get(ordinal).equals(component)) {
+        var position = ordinal;
+        return keyOfType(owner).map(ownerKey -> ownerKey + "#record-component:" + position);
       }
     }
     return Optional.empty();

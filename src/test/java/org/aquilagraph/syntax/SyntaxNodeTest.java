@@ -24,7 +24,7 @@ class SyntaxNodeTest {
     // Arrange
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
     var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0));
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0, 0));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
@@ -41,7 +41,7 @@ class SyntaxNodeTest {
     var annotation = SyntaxNode.source("source", path.child(SyntaxRole.INTERFACE, 0), JavaSourceKind.ANNOTATION,
         SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
     var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 1, 0, 0));
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 1, 0, 0, 0));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
@@ -60,7 +60,7 @@ class SyntaxNodeTest {
         SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported(JavaSourceKind.BLOCK.stableId()),
         List.of(), Optional.empty(), ORIGIN);
     var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0));
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0, 0));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
@@ -79,7 +79,7 @@ class SyntaxNodeTest {
         SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("IDENTIFIER"), List.of(),
         Optional.empty(), ORIGIN);
     var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0));
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0, 0));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
@@ -116,7 +116,7 @@ class SyntaxNodeTest {
         SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.TypeParameterDeclaration("U", "owner", 0, 0, 0), List.of(), Optional.empty(), ORIGIN);
     var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
-        new SyntaxValue.TypeDeclaration.Shape(0, 2, false, 0, 0, 0));
+        new SyntaxValue.TypeDeclaration.Shape(0, 2, false, 0, 0, 0, 0));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
@@ -136,7 +136,7 @@ class SyntaxNodeTest {
         SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.TypeParameterDeclaration("T", "other", 0, 0, 0), List.of(), Optional.empty(), ORIGIN);
     var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
-        new SyntaxValue.TypeDeclaration.Shape(0, 1, false, 0, 0, 0));
+        new SyntaxValue.TypeDeclaration.Shape(0, 1, false, 0, 0, 0, 0));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
@@ -243,7 +243,7 @@ class SyntaxNodeTest {
             SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())),
         List.of(new SyntaxChild(SyntaxRole.BODY, 0, body)), Optional.empty(), ORIGIN);
     var owner = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1));
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 1));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
@@ -269,7 +269,7 @@ class SyntaxNodeTest {
             SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())),
         List.of(new SyntaxChild(SyntaxRole.RETURN_TYPE, 0, returnType)), Optional.empty(), ORIGIN);
     var owner = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1));
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 1));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
@@ -310,7 +310,7 @@ class SyntaxNodeTest {
             SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())),
         List.of(new SyntaxChild(SyntaxRole.RETURN_TYPE, 0, returnType)), Optional.empty(), ORIGIN);
     var owner = new SyntaxValue.TypeDeclaration("First", "type:First", Set.of(), Set.of(),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1));
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 1));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,
@@ -329,7 +329,7 @@ class SyntaxNodeTest {
         SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.TypeParameterDeclaration("T", "owner", 0, 0, 0), List.of(), Optional.empty(), ORIGIN);
     var owner = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
-        new SyntaxValue.TypeDeclaration.Shape(0, 1, false, 0, 0, 0));
+        new SyntaxValue.TypeDeclaration.Shape(0, 1, false, 0, 0, 0, 0));
 
     // Act and assert
     for (var sourceKind : List.of(JavaSourceKind.ENUM, JavaSourceKind.ANNOTATION_TYPE)) {
@@ -683,7 +683,7 @@ class SyntaxNodeTest {
         SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported("BLOCK"), List.of(),
         Optional.empty(), ORIGIN);
     var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1));
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 1));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.CLASS,

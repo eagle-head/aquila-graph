@@ -45,7 +45,7 @@ class JavaAstAggregateTest {
     var type = SyntaxNode.withoutDirectSource("a", rootPath.child(SyntaxRole.TYPE_DECLARATION, 0), JavaSourceKind.CLASS,
         SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.TypeDeclaration("Generated", "type:Generated", Set.of(), Set.of(),
-            new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0)),
+            new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 0)),
         List.of(), Optional.empty());
     var root = SyntaxNode.source("a", rootPath, JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT,
         SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY),
@@ -63,8 +63,10 @@ class JavaAstAggregateTest {
   void givenCompactUnitWithoutMethod_whenConstructed_thenRootIsRejected() {
     // Arrange
     var path = SyntaxStructuralPath.sourceFileRoot();
-    var field = SyntaxNode.source("a", path.child(SyntaxRole.COMPACT_MEMBER, 0), JavaSourceKind.VARIABLE,
-        SyntaxKind.FIELD_DECLARATION, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(),
+    var field = SyntaxNode.source("a", path.child(SyntaxRole.COMPACT_MEMBER, 0), JavaSourceKind.CLASS,
+        SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.TypeDeclaration("Example", "type:Example", Set.of(), Set.of(),
+            new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 0)), List.of(),
         Optional.empty(), new SourceSpan("a", 1, 2));
 
     // Act
@@ -921,7 +923,7 @@ class JavaAstAggregateTest {
 
   private static SyntaxValue.TypeDeclaration typeValue(int members) {
     return new SyntaxValue.TypeDeclaration("Type", "type:Type", Set.of(), Set.of(),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, members));
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, members));
   }
 
   private static SyntaxValue.ExecutableDeclaration constructorValue() {

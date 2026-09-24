@@ -15,6 +15,8 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.VariableElement;
+import javax.lang.model.util.Elements;
 import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.JavaMethod;
 import org.aquilagraph.model.JavaParameter;
@@ -30,15 +32,18 @@ import org.aquilagraph.syntax.SyntaxType;
 import org.jspecify.annotations.Nullable;
 
 final class JavaMethodTranslator {
+  private static final String UNRESOLVED_TYPE_NAME = "unresolved";
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
+  private final ParsedTreeInventory treeInventory;
   private final JavaDeclarationPropertyObserver propertyObserver;
   private final JavaMethodBodyTranslator bodyTranslator;
 
-  JavaMethodTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, JavaDeclarationPropertyObserver propertyObserver,
-      JavaMethodBodyTranslator bodyTranslator) {
+  JavaMethodTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
+      JavaDeclarationPropertyObserver propertyObserver, JavaMethodBodyTranslator bodyTranslator) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
+    this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
     this.propertyObserver = Objects.requireNonNull(propertyObserver, "propertyObserver");
     this.bodyTranslator = Objects.requireNonNull(bodyTranslator, "bodyTranslator");
   }
@@ -51,9 +56,11 @@ final class JavaMethodTranslator {
     Objects.requireNonNull(ownerTypeKey, "ownerTypeKey");
     Objects.requireNonNull(methodTree, "methodTree");
     var methodPath = new TreePath(classPath, methodTree);
-    var origin = sourceEvidence.origin(unit, sourceFile, methodTree);
     var element = semantics.element(methodPath);
     var executable = element instanceof ExecutableElement value ? value : null;
+    var written = treeInventory.isWritten(methodTree) && executable != null
+        && semantics.declarationOrigin(executable) == Elements.Origin.EXPLICIT;
+    var origin = written ? sourceEvidence.origin(unit, sourceFile, methodTree) : Optional.<SourceSpan>empty();
     var constructor = executable != null ? executable.getKind() == ElementKind.CONSTRUCTOR : methodTree.getReturnType() == null;
     var name = constructor ? "<init>" : methodTree.getName().toString();
     var signature = executable == null ? name + "(unresolved)" : semantics.executableSignature(executable);
@@ -81,9 +88,9 @@ final class JavaMethodTranslator {
     diagnostics.addAll(bodyTranslation.diagnostics());
     occurrences.addAll(bodyTranslation.featureOccurrences());
     observations.addAll(bodyTranslation.featureObservations());
-    var returnType = constructor ? "void" : executable == null ? "unresolved" : executable.getReturnType().toString();
+    var returnType = constructor ? "void" : executable == null ? UNRESOLVED_TYPE_NAME : executable.getReturnType().toString();
     var method = new JavaMethod(methodKey, ownerTypeKey, name, signature, returnType, parameterTranslation.parameters(), modifiers,
-        constructor, origin.isPresent(), bodyTranslation.value().isPresent(), origin.stream().toList());
+        constructor, written && origin.isPresent(), bodyTranslation.value().isPresent(), origin.stream().toList());
     return new TranslationResult<>(new TranslatedMethod(method, bodyTranslation.value()), diagnostics, occurrences, observations);
   }
 
@@ -93,21 +100,40 @@ final class JavaMethodTranslator {
     var diagnostics = new ArrayList<AnalysisDiagnostic>();
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
-    for (var index = 0; index < methodTree.getParameters().size(); index++) {
-      var parameterTree = methodTree.getParameters().get(index);
-      var parameterPath = parameterPath(methodPath, parameterTree);
-      var origin = sourceEvidence.origin(unit, sourceFile, parameterTree);
-      var parameterElement = executable == null || index >= executable.getParameters().size()
-          ? null
-          : executable.getParameters().get(index);
+    var parameterCount = executable == null ? methodTree.getParameters().size() : executable.getParameters().size();
+    if (executable != null && methodTree.getParameters().size() != parameterCount) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(methodKey, "frontend.parameter-inventory-mismatch",
+          "Compiler and source-tree formal parameter inventories disagree", sourceEvidence.origin(unit, sourceFile, methodTree)));
+    }
+    for (var index = 0; index < parameterCount; index++) {
+      var parameterTree = index < methodTree.getParameters().size() ? methodTree.getParameters().get(index) : null;
+      var parameterElement = executable == null ? null : executable.getParameters().get(index);
+      var written = parameterTree != null && treeInventory.isWritten(parameterTree) && parameterElement != null
+          && semantics.declarationOrigin(parameterElement) == Elements.Origin.EXPLICIT;
+      var origin = written && parameterTree != null ? sourceEvidence.origin(unit, sourceFile, parameterTree) : Optional.<SourceSpan>empty();
       var parameterKey = methodKey + ":parameter:" + index;
       if (parameterElement == null || semantics.declarationKey(parameterElement).filter(parameterKey::equals).isEmpty()) {
         diagnostics.add(FrontendDiagnosticFactory.otherError(parameterKey, "frontend.unresolved-parameter",
             "A parameter declaration identity is unavailable or inconsistent", origin));
       }
-      diagnoseUnsupportedVariableProperties(unit, sourceFile, parameterKey, "Parameter", parameterTree, diagnostics, occurrences,
-          observations);
-      var type = parameterType(semantics.type(parameterPath));
+      if (written && origin.isEmpty()) {
+        diagnostics.add(FrontendDiagnosticFactory.otherError(parameterKey, "frontend.unavailable-parameter-source",
+            "A written parameter has no source range", sourceEvidence.origin(unit, sourceFile, methodTree)));
+      }
+      if (parameterTree != null && written) {
+        diagnoseUnsupportedVariableProperties(unit, sourceFile, parameterKey, parameterTree, false, diagnostics);
+      }
+      JavaTypeIdentity type;
+      String name;
+      if (parameterElement != null && (!written || parameterTree == null)) {
+        type = parameterType(parameterElement);
+        name = parameterElement.getSimpleName().toString();
+      } else if (parameterTree != null) {
+        type = parameterType(semantics.type(parameterPath(methodPath, parameterTree)));
+        name = parameterElement == null ? parameterTree.getName().toString() : parameterElement.getSimpleName().toString();
+      } else {
+        continue;
+      }
       if (type.category() == JavaTypeCategory.ERROR) {
         diagnostics.add(FrontendDiagnosticFactory.erroneousCompilerState(parameterKey, "frontend.error-parameter-type",
             "javac reported an error type for a parameter", origin));
@@ -115,7 +141,7 @@ final class JavaMethodTranslator {
         diagnostics.add(FrontendDiagnosticFactory.otherError(parameterKey, "frontend.unresolved-parameter-type",
             "A parameter type is unavailable", origin));
       }
-      parameters.add(new JavaParameter(parameterKey, parameterTree.getName().toString(), type, origin.stream().toList()));
+      parameters.add(new JavaParameter(parameterKey, name, type, written && origin.isPresent(), origin.stream().toList()));
     }
     return new ParameterTranslation(parameters, diagnostics, occurrences, observations);
   }
@@ -132,8 +158,8 @@ final class JavaMethodTranslator {
       diagnoseTypeUseAnnotations(unit, sourceFile, methodKey, parameter.getBounds(), diagnostics);
     }
     if (methodTree.getReceiverParameter() != null) {
-      diagnoseUnsupportedVariableProperties(unit, sourceFile, methodKey + ":receiver", "Receiver parameter",
-          methodTree.getReceiverParameter(), diagnostics, occurrences, observations);
+      diagnoseUnsupportedVariableProperties(unit, sourceFile, methodKey + ":receiver", methodTree.getReceiverParameter(), true,
+          diagnostics);
       if (methodTree.getReceiverParameter().getType() != null) {
         diagnoseTypeUseAnnotations(unit, sourceFile, methodKey, List.of(methodTree.getReceiverParameter().getType()), diagnostics);
       }
@@ -165,19 +191,19 @@ final class JavaMethodTranslator {
   }
 
   private void diagnoseUnsupportedVariableProperties(CompilationUnitTree unit, SourceFile sourceFile, String context,
-      String declarationKind, VariableTree variableTree, List<AnalysisDiagnostic> diagnostics, List<LanguageFeatureOccurrence> occurrences,
-      List<LanguageFeatureObservation> observations) {
+      VariableTree variableTree, boolean receiver, List<AnalysisDiagnostic> diagnostics) {
     for (var annotation : variableTree.getModifiers().getAnnotations()) {
-      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, context,
-          JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS_DIAGNOSTIC,
-          declarationKind + " annotations are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, annotation), JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS);
+      diagnostics.add(FrontendDiagnosticFactory.capabilityError(context,
+          receiver ? "frontend.unsupported-receiver-annotation-content" : "frontend.unsupported-parameter-annotation-content",
+          receiver
+              ? "Receiver annotation content is outside the supported declaration profile"
+              : "Parameter annotation content is outside the supported declaration profile",
+          sourceEvidence.origin(unit, sourceFile, annotation)));
     }
     if (variableTree.getInitializer() != null) {
-      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, context,
-          JavaDeclarationPropertyCoverage.VARIABLE_INITIALIZER_DIAGNOSTIC,
-          declarationKind + " initializers are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, variableTree.getInitializer()), JavaDeclarationPropertyCoverage.VARIABLE_INITIALIZER);
+      diagnostics.add(FrontendDiagnosticFactory.otherError(context,
+          receiver ? "frontend.invalid-receiver-initializer" : "frontend.invalid-parameter-initializer",
+          "A parameter cannot have an initializer", sourceEvidence.origin(unit, sourceFile, variableTree.getInitializer())));
     }
   }
 
@@ -216,7 +242,12 @@ final class JavaMethodTranslator {
     }
     return type == SyntaxType.Erroneous.INSTANCE
         ? new JavaTypeIdentity(JavaTypeCategory.ERROR, "error", "error")
-        : new JavaTypeIdentity(JavaTypeCategory.OTHER, "unresolved", "unresolved");
+        : new JavaTypeIdentity(JavaTypeCategory.OTHER, UNRESOLVED_TYPE_NAME, UNRESOLVED_TYPE_NAME);
+  }
+
+  private JavaTypeIdentity parameterType(VariableElement parameter) {
+    return semantics.typeReference(parameter.asType()).map(reference -> reference.identity())
+        .orElseGet(() -> new JavaTypeIdentity(JavaTypeCategory.OTHER, UNRESOLVED_TYPE_NAME, UNRESOLVED_TYPE_NAME));
   }
 
   private TranslationResult<Optional<SyntaxNode>> translateBody(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,

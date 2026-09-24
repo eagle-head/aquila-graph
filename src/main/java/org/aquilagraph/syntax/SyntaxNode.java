@@ -451,6 +451,8 @@ public final class SyntaxNode {
         default -> throw new IllegalStateException("Unexpected compilation-unit source kind");
       };
       case TYPE_DECLARATION -> SyntaxValue.TypeDeclaration.class;
+      case FIELD_DECLARATION, ENUM_CONSTANT_DECLARATION -> SyntaxValue.VariableDeclaration.class;
+      case RECORD_COMPONENT_DECLARATION -> SyntaxValue.RecordComponentDeclaration.class;
       case TYPE_PARAMETER_DECLARATION -> SyntaxValue.TypeParameterDeclaration.class;
       case PARAMETER_DECLARATION -> SyntaxValue.ParameterDeclaration.class;
       case RECEIVER_PARAMETER -> SyntaxValue.ReceiverParameter.class;
@@ -539,6 +541,10 @@ public final class SyntaxNode {
       case PARAMETER_DECLARATION -> validateParameterDeclaration(SyntaxValue.ParameterDeclaration.class.cast(value), children);
       case RECEIVER_PARAMETER -> validateReceiverParameter(SyntaxValue.ReceiverParameter.class.cast(value), children);
       case TYPE_DECLARATION -> validateTypeDeclaration(sourceKind, SyntaxValue.TypeDeclaration.class.cast(value), children);
+      case FIELD_DECLARATION, ENUM_CONSTANT_DECLARATION ->
+        validateVariableDeclaration(kind, SyntaxValue.VariableDeclaration.class.cast(value), children);
+      case RECORD_COMPONENT_DECLARATION ->
+        validateRecordComponentDeclaration(SyntaxValue.RecordComponentDeclaration.class.cast(value), children);
       case METHOD_DECLARATION -> validateExecutableDeclaration(SyntaxValue.ExecutableDeclaration.class.cast(value), children);
       case BLOCK -> requireShape(children, Set.of(SyntaxRole.STATEMENT));
       case LOCAL_DECLARATION -> requireShape(children, Set.of(SyntaxRole.INITIALIZER), SyntaxRole.INITIALIZER, 0, 1);
@@ -593,8 +599,7 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.TRUE_EXPRESSION, 1, 1);
         requireCount(children, SyntaxRole.FALSE_EXPRESSION, 1, 1);
       }
-      case TYPE_USE, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, FIELD_DECLARATION, VARIABLE_ACCESS, VARIABLE_LOCATION, RECEIVER,
-          LITERAL, EMPTY ->
+      case TYPE_USE, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, VARIABLE_ACCESS, VARIABLE_LOCATION, RECEIVER, LITERAL, EMPTY ->
         requireShape(children, Set.of());
       case RECEIVER_NAME -> {
         requireShape(children, Set.of());
@@ -609,16 +614,20 @@ public final class SyntaxNode {
   private static void validateTypeDeclaration(JavaSourceKind sourceKind, SyntaxValue.TypeDeclaration declaration,
       List<SyntaxChild> children) {
     requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.TYPE_PARAMETER, SyntaxRole.SUPERCLASS, SyntaxRole.INTERFACE,
-        SyntaxRole.PERMITTED_SUBCLASS, SyntaxRole.MEMBER));
+        SyntaxRole.PERMITTED_SUBCLASS, SyntaxRole.RECORD_COMPONENT, SyntaxRole.MEMBER));
     var shape = declaration.shape();
     if ((sourceKind == JavaSourceKind.ENUM || sourceKind == JavaSourceKind.ANNOTATION_TYPE) && shape.typeParameters() != 0) {
       throw new IllegalArgumentException("This type form cannot own type parameters");
+    }
+    if (sourceKind != JavaSourceKind.RECORD && shape.recordComponents() != 0) {
+      throw new IllegalArgumentException("Only a record can own record-header components");
     }
     requireCount(children, SyntaxRole.ANNOTATION, shape.annotations(), shape.annotations());
     requireCount(children, SyntaxRole.TYPE_PARAMETER, shape.typeParameters(), shape.typeParameters());
     requireCount(children, SyntaxRole.SUPERCLASS, shape.superclass() ? 1 : 0, shape.superclass() ? 1 : 0);
     requireCount(children, SyntaxRole.INTERFACE, shape.interfaces(), shape.interfaces());
     requireCount(children, SyntaxRole.PERMITTED_SUBCLASS, shape.permittedSubclasses(), shape.permittedSubclasses());
+    requireCount(children, SyntaxRole.RECORD_COMPONENT, shape.recordComponents(), shape.recordComponents());
     requireCount(children, SyntaxRole.MEMBER, shape.members(), shape.members());
     for (var child : children) {
       var node = child.node();
@@ -630,8 +639,17 @@ public final class SyntaxNode {
               && node.value(SyntaxValue.TypeParameterDeclaration.class).ordinal() == child.position();
         case SUPERCLASS, INTERFACE, PERMITTED_SUBCLASS ->
           node.syntaxKind() == SyntaxKind.TYPE_USE && node.sourceKind().identifiesTypeUseSyntax();
+        case RECORD_COMPONENT ->
+          node.syntaxKind() == SyntaxKind.RECORD_COMPONENT_DECLARATION && node.sourceKind() == JavaSourceKind.VARIABLE
+              && node.value(SyntaxValue.RecordComponentDeclaration.class).ownerKey().equals(declaration.declarationKey())
+              && node.value(SyntaxValue.RecordComponentDeclaration.class).ordinal() == child.position();
         case MEMBER -> switch (node.syntaxKind()) {
-          case TYPE_DECLARATION, FIELD_DECLARATION, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK -> true;
+          case TYPE_DECLARATION, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK -> true;
+          case FIELD_DECLARATION -> node.value(SyntaxValue.VariableDeclaration.class).kind() == SyntaxValue.VariableDeclaration.Kind.FIELD
+              && node.value(SyntaxValue.VariableDeclaration.class).ownerKey().equals(declaration.declarationKey());
+          case ENUM_CONSTANT_DECLARATION -> sourceKind == JavaSourceKind.ENUM
+              && node.value(SyntaxValue.VariableDeclaration.class).kind() == SyntaxValue.VariableDeclaration.Kind.ENUM_CONSTANT
+              && node.value(SyntaxValue.VariableDeclaration.class).ownerKey().equals(declaration.declarationKey());
           case METHOD_DECLARATION -> executableOwnerAllows(sourceKind, declaration.name(), declaration.declarationKey(),
               node.value(SyntaxValue.ExecutableDeclaration.class));
           default -> false;
@@ -640,6 +658,42 @@ public final class SyntaxNode {
       };
       if (!valid) {
         throw new IllegalArgumentException("Type declaration child kind does not match its role");
+      }
+    }
+  }
+
+  private static void validateVariableDeclaration(SyntaxKind kind, SyntaxValue.VariableDeclaration declaration,
+      List<SyntaxChild> children) {
+    if ((kind == SyntaxKind.FIELD_DECLARATION) != (declaration.kind() == SyntaxValue.VariableDeclaration.Kind.FIELD)) {
+      throw new IllegalArgumentException("Variable declaration form does not match its syntax kind");
+    }
+    requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.DECLARED_TYPE));
+    requireCount(children, SyntaxRole.ANNOTATION, declaration.annotations(), declaration.annotations());
+    requireCount(children, SyntaxRole.DECLARED_TYPE, declaration.type() ? 1 : 0, declaration.type() ? 1 : 0);
+    for (var child : children) {
+      if (child.role() == SyntaxRole.ANNOTATION
+          && (child.node().sourceKind() != JavaSourceKind.ANNOTATION || child.node().syntaxKind() != SyntaxKind.COMPILATION_UNIT)) {
+        throw new IllegalArgumentException("A variable annotation requires a written annotation attachment");
+      }
+      if (child.role() == SyntaxRole.DECLARED_TYPE
+          && (child.node().syntaxKind() != SyntaxKind.TYPE_USE || !child.node().sourceKind().identifiesTypeUseSyntax())) {
+        throw new IllegalArgumentException("A field type requires a written type-use attachment");
+      }
+    }
+  }
+
+  private static void validateRecordComponentDeclaration(SyntaxValue.RecordComponentDeclaration declaration, List<SyntaxChild> children) {
+    requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.DECLARED_TYPE));
+    requireCount(children, SyntaxRole.ANNOTATION, declaration.annotations(), declaration.annotations());
+    requireCount(children, SyntaxRole.DECLARED_TYPE, 1, 1);
+    for (var child : children) {
+      if (child.role() == SyntaxRole.ANNOTATION
+          && (child.node().sourceKind() != JavaSourceKind.ANNOTATION || child.node().syntaxKind() != SyntaxKind.COMPILATION_UNIT)) {
+        throw new IllegalArgumentException("A record component annotation requires a written annotation attachment");
+      }
+      if (child.role() == SyntaxRole.DECLARED_TYPE
+          && (child.node().syntaxKind() != SyntaxKind.TYPE_USE || !child.node().sourceKind().identifiesTypeUseSyntax())) {
+        throw new IllegalArgumentException("A record component requires a written type-use attachment");
       }
     }
   }

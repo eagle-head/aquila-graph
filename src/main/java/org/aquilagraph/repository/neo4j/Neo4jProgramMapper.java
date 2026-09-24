@@ -48,6 +48,27 @@ final class Neo4jProgramMapper {
             Neo4jSchema.POSITION_PROPERTY, fieldPosition);
         evidenceMapper.mapOrigins(field.fieldKey(), field.origins(), projection);
       }
+      for (var component : type.recordComponents()) {
+        var properties = Neo4jProjectionBuilder.properties(NAME_PROPERTY, component.name(), Neo4jSchema.POSITION_PROPERTY,
+            component.ordinal(), "varArgs", component.varArgs(), "writtenModifiers",
+            component.writtenModifiers().stream().map(Enum::name).sorted().toList(), "effectiveModifiers",
+            component.effectiveModifiers().stream().map(Enum::name).sorted().toList());
+        Neo4jTypeProperties.put(properties, "staticType", component.staticType());
+        component.accessorKey().ifPresent(key -> properties.put("accessorKey", key));
+        component.backingFieldKey().ifPresent(key -> properties.put("backingFieldKey", key));
+        component.canonicalParameterKey().ifPresent(key -> properties.put("canonicalParameterKey", key));
+        projection.node("JavaRecordComponent", component.componentKey(), properties);
+        projection.relate("DECLARES_RECORD_COMPONENT", type.typeKey(), component.componentKey(), Integer.toString(component.ordinal()),
+            Neo4jSchema.POSITION_PROPERTY, component.ordinal());
+        evidenceMapper.mapOrigins(component.componentKey(), component.origins(), projection);
+      }
+      for (var position = 0; position < type.synthesizedDeclarations().size(); position++) {
+        var declaration = type.synthesizedDeclarations().get(position);
+        projection.node("JavaSynthesizedDeclaration", declaration.declarationKey(), Neo4jSchema.KIND_PROPERTY, declaration.kind().name(),
+            SOURCE_DECLARED_PROPERTY, false);
+        projection.relate("DECLARES_SYNTHESIZED", type.typeKey(), declaration.declarationKey(), Integer.toString(position),
+            Neo4jSchema.POSITION_PROPERTY, position);
+      }
       for (var methodPosition = 0; methodPosition < type.methods().size(); methodPosition++) {
         var method = type.methods().get(methodPosition);
         projection.node("JavaMethod", method.methodKey(), NAME_PROPERTY, method.name(), "signature", method.signature(), "returnType",
@@ -96,7 +117,8 @@ final class Neo4jProgramMapper {
   private void mapParameters(JavaMethod method, Neo4jProjectionBuilder projection) {
     for (var position = 0; position < method.parameters().size(); position++) {
       var parameter = method.parameters().get(position);
-      var properties = Neo4jProjectionBuilder.properties(NAME_PROPERTY, parameter.name(), Neo4jSchema.POSITION_PROPERTY, position);
+      var properties = Neo4jProjectionBuilder.properties(NAME_PROPERTY, parameter.name(), Neo4jSchema.POSITION_PROPERTY, position,
+          SOURCE_DECLARED_PROPERTY, parameter.sourceDeclared());
       Neo4jTypeProperties.put(properties, "staticType", parameter.staticType());
       projection.node("JavaParameter", parameter.parameterKey(), properties);
       projection.relate("DECLARES_PARAMETER", method.methodKey(), parameter.parameterKey(), Integer.toString(position),

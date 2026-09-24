@@ -20,6 +20,10 @@ public enum SyntaxKind {
   METHOD_DECLARATION,
   /** Source field declaration occurrence. */
   FIELD_DECLARATION,
+  /** Enum constant written in an enum body. */
+  ENUM_CONSTANT_DECLARATION,
+  /** Record component written in a record header. */
+  RECORD_COMPONENT_DECLARATION,
   /** Static initializer block owned by a source type. */
   STATIC_INITIALIZER_BLOCK,
   /** Instance initializer block owned by a source type. */
@@ -127,7 +131,9 @@ public enum SyntaxKind {
       case TYPE_USE -> sourceKind.identifiesTypeUseSyntax();
       case METHOD_DECLARATION -> sourceKind == JavaSourceKind.METHOD;
       case STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, BLOCK -> sourceKind == JavaSourceKind.BLOCK;
-      case FIELD_DECLARATION, LOCAL_DECLARATION, PARAMETER_DECLARATION, RECEIVER_PARAMETER -> sourceKind == JavaSourceKind.VARIABLE;
+      case FIELD_DECLARATION, ENUM_CONSTANT_DECLARATION, RECORD_COMPONENT_DECLARATION, LOCAL_DECLARATION, PARAMETER_DECLARATION,
+          RECEIVER_PARAMETER ->
+        sourceKind == JavaSourceKind.VARIABLE;
       case EXPRESSION_STATEMENT -> sourceKind == JavaSourceKind.EXPRESSION_STATEMENT;
       case RETURN -> sourceKind == JavaSourceKind.RETURN;
       case THROW -> sourceKind == JavaSourceKind.THROW;

@@ -33,15 +33,20 @@ import java.util.Set;
  *          whether the declaration has a source origin
  * @param fields
  *          declared fields and enum constants
+ * @param recordComponents
+ *          written record-header components in declaration order
  * @param methods
  *          declared methods
+ * @param synthesizedDeclarations
+ *          compiler-exposed direct members without a written declaration or detailed member aggregate
  * @param origins
  *          declaration source locations
  */
 public record JavaType(String typeKey, String qualifiedName, JavaTypeKind kind, Set<JavaTypeModifier> modifiers,
     Optional<JavaTypeReference> enclosingType, Optional<JavaTypeReference> directSuperclass, List<JavaTypeReference> directInterfaces,
     List<JavaTypeReference> permittedSubclasses, List<JavaTypeParameter> typeParameters, boolean sourceDeclared, List<JavaField> fields,
-    List<JavaMethod> methods, List<SourceSpan> origins) {
+    List<JavaRecordComponent> recordComponents, List<JavaMethod> methods, List<JavaSynthesizedDeclaration> synthesizedDeclarations,
+    List<SourceSpan> origins) {
   /** Validates and defensively copies type data. */
   public JavaType {
     requireText(typeKey, "typeKey");
@@ -58,7 +63,9 @@ public record JavaType(String typeKey, String qualifiedName, JavaTypeKind kind, 
     permittedSubclasses.forEach(reference -> Objects.requireNonNull(reference, "permittedSubclasses entry"));
     typeParameters = List.copyOf(Objects.requireNonNull(typeParameters, "typeParameters"));
     fields = List.copyOf(Objects.requireNonNull(fields, "fields"));
+    recordComponents = List.copyOf(Objects.requireNonNull(recordComponents, "recordComponents"));
     methods = List.copyOf(Objects.requireNonNull(methods, "methods"));
+    synthesizedDeclarations = List.copyOf(Objects.requireNonNull(synthesizedDeclarations, "synthesizedDeclarations"));
     origins = List.copyOf(Objects.requireNonNull(origins, "origins"));
     if (sourceDeclared != !origins.isEmpty()) {
       throw new IllegalArgumentException("Type source declaration state must match its source origin");
@@ -69,16 +76,28 @@ public record JavaType(String typeKey, String qualifiedName, JavaTypeKind kind, 
         throw new IllegalArgumentException("Type parameters must be uniquely owned by their declaring type");
       }
     }
-    keys.clear();
     for (var field : fields) {
       if (!field.ownerTypeKey().equals(typeKey) || !keys.add(field.fieldKey())) {
         throw new IllegalArgumentException("Fields must be uniquely owned by their declaring type");
       }
     }
-    keys.clear();
+    if (kind != JavaTypeKind.RECORD && !recordComponents.isEmpty()) {
+      throw new IllegalArgumentException("Only a record can declare record components");
+    }
+    for (var position = 0; position < recordComponents.size(); position++) {
+      var component = recordComponents.get(position);
+      if (!component.ownerTypeKey().equals(typeKey) || component.ordinal() != position || !keys.add(component.componentKey())) {
+        throw new IllegalArgumentException("Record components must be ordered and uniquely owned by their record");
+      }
+    }
     for (var method : methods) {
       if (!method.ownerTypeKey().equals(typeKey) || !keys.add(method.methodKey())) {
         throw new IllegalArgumentException("Methods must be uniquely owned by their declaring type");
+      }
+    }
+    for (var declaration : synthesizedDeclarations) {
+      if (!declaration.ownerTypeKey().equals(typeKey) || !keys.add(declaration.declarationKey())) {
+        throw new IllegalArgumentException("Synthesized declarations must be uniquely owned outside detailed members");
       }
     }
   }

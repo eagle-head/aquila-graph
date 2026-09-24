@@ -28,16 +28,13 @@ import org.aquilagraph.syntax.SyntaxValue;
 final class JavaMethodBodyTranslator {
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
-  private final JavaDeclarationPropertyObserver propertyObserver;
   private final ParsedTreeInventory treeInventory;
   private final MethodBodySyntaxProfile syntaxProfile;
 
-  JavaMethodBodyTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
-      JavaDeclarationPropertyObserver propertyObserver) {
+  JavaMethodBodyTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
-    this.propertyObserver = Objects.requireNonNull(propertyObserver, "propertyObserver");
     syntaxProfile = new MethodBodySyntaxProfile(semantics);
   }
 
@@ -86,27 +83,24 @@ final class JavaMethodBodyTranslator {
     var observations = new ArrayList<LanguageFeatureObservation>();
     children.forEach(child -> occurrences.addAll(child.featureOccurrences()));
     children.forEach(child -> observations.addAll(child.featureObservations()));
-    observeDeclarationProperties(unit, sourceFile, methodKey, tree, diagnostics, occurrences, observations);
+    observeDeclarationProperties(unit, sourceFile, methodKey, tree, diagnostics);
     return new SyntaxTreeTranslation(node, diagnostics, occurrences, observations);
   }
 
   private void observeDeclarationProperties(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, Tree tree,
-      List<AnalysisDiagnostic> diagnostics, List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
+      List<AnalysisDiagnostic> diagnostics) {
     if (!(tree instanceof VariableTree variableTree)) {
       return;
     }
     var origin = sourceEvidence.origin(unit, sourceFile, variableTree);
     if (!variableTree.getModifiers().getFlags().isEmpty()) {
-      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, methodKey,
-          JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS_DIAGNOSTIC,
-          "Local declaration modifiers are outside the supported semantic graph profile", origin,
-          JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS);
+      diagnostics.add(FrontendDiagnosticFactory.capabilityError(methodKey, "frontend.unsupported-local-declaration-modifiers",
+          "Local declaration modifiers are outside the supported semantic graph profile", origin));
     }
     for (var annotation : variableTree.getModifiers().getAnnotations()) {
-      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, methodKey,
-          JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS_DIAGNOSTIC,
-          "Local declaration annotations are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, annotation), JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS);
+      diagnostics.add(FrontendDiagnosticFactory.capabilityError(methodKey, "frontend.unsupported-local-annotation-content",
+          "Local declaration annotation content is outside the supported semantic graph profile",
+          sourceEvidence.origin(unit, sourceFile, annotation)));
     }
     if (variableTree.getNameExpression() != null) {
       diagnostics.add(FrontendDiagnosticFactory.otherError(methodKey, "frontend.invalid-local-name-expression",

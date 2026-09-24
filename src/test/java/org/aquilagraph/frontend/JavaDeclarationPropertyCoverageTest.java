@@ -116,11 +116,7 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::Element#hashCode()");
   private static final Set<String> EXPECTED_DIAGNOSED_PROPERTIES = Set.of(
       "MethodTree::MethodTree#getDefaultValue()",
-      "VariableTree::VariableTree#getInitializer()",
-      "VariableTree::VariableTree#getModifiers()",
       "TypeElement::Element#getAnnotationMirrors()",
-      "TypeElement::TypeElement#getEnclosedElements()",
-      "TypeElement::TypeElement#getRecordComponents()",
       "ExecutableElement::Element#getAnnotationMirrors()",
       "ExecutableElement::ExecutableElement#getDefaultValue()");
 
@@ -186,12 +182,14 @@ class JavaDeclarationPropertyCoverageTest {
         && classification.diagnosticCode().orElseThrow().startsWith("frontend.unsupported-")));
     assertEquals(LanguageFeaturePolicy.REPRESENTED,
         policyOf(coverage, "MethodTree::MethodTree#getTypeParameters()"));
-    assertEquals(LanguageFeaturePolicy.DIAGNOSED,
+    assertEquals(LanguageFeaturePolicy.REPRESENTED,
         policyOf(coverage, "TypeElement::TypeElement#getRecordComponents()"));
-    assertEquals(Optional.of(JavaDeclarationPropertyCoverage.VARIABLE_INITIALIZER_DIAGNOSTIC),
-        classificationOf(coverage, "VariableTree::VariableTree#getInitializer()").diagnosticCode());
-    assertEquals(Optional.of(JavaDeclarationPropertyCoverage.VARIABLE_MODIFIERS_DIAGNOSTIC),
-        classificationOf(coverage, "VariableTree::VariableTree#getModifiers()").diagnosticCode());
+    assertEquals(LanguageFeaturePolicy.REPRESENTED,
+        policyOf(coverage, "TypeElement::TypeElement#getEnclosedElements()"));
+    assertEquals(LanguageFeaturePolicy.REPRESENTED, policyOf(coverage, "VariableTree::VariableTree#getInitializer()"));
+    assertEquals(LanguageFeaturePolicy.REPRESENTED, policyOf(coverage, "VariableTree::VariableTree#getModifiers()"));
+    assertEquals(Optional.empty(), classificationOf(coverage, "VariableTree::VariableTree#getInitializer()").diagnosticCode());
+    assertEquals(Optional.empty(), classificationOf(coverage, "VariableTree::VariableTree#getModifiers()").diagnosticCode());
     assertEquals(LanguageFeaturePolicy.REPRESENTED,
         policyOf(coverage, "ExecutableElement::ExecutableElement#getParameters()"));
   }
@@ -294,6 +292,8 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
+    assertEquals("java-language-feature-coverage:d92084976fd00e781987239ea43981f45892d593b61276c5fdcb3d84dae31c95",
+        JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 
   private static ArrayList<LanguageFeatureClassification> mutableClassifications() {

@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Immutable collection of translated top-level and nested Java types.
@@ -20,29 +21,54 @@ public record JavaProgram(List<JavaType> types) {
     Map<String, JavaType> typesByKey = new HashMap<>();
     var typeParameterKeys = new HashSet<String>();
     var fieldKeys = new HashSet<String>();
+    var componentKeys = new HashSet<String>();
     var methodKeys = new HashSet<String>();
+    var synthesizedKeys = new HashSet<String>();
+    var declarationKeys = new HashSet<String>();
     for (var type : types) {
       if (!typeKeys.add(Objects.requireNonNull(type, "type").typeKey())) {
         throw new IllegalArgumentException("Java type keys must be unique");
       }
       typesByKey.put(type.typeKey(), type);
+      requireUniqueDeclarationKey(declarationKeys, type.typeKey());
       for (var typeParameter : type.typeParameters()) {
         if (!typeParameterKeys.add(typeParameter.typeParameterKey())) {
           throw new IllegalArgumentException("Java type parameter keys must be unique across the program");
         }
+        requireUniqueDeclarationKey(declarationKeys, typeParameter.typeParameterKey());
       }
       for (var field : type.fields()) {
         if (!fieldKeys.add(field.fieldKey())) {
           throw new IllegalArgumentException("Java field keys must be unique across the program");
         }
+        requireUniqueDeclarationKey(declarationKeys, field.fieldKey());
+      }
+      for (var component : type.recordComponents()) {
+        if (!componentKeys.add(component.componentKey())) {
+          throw new IllegalArgumentException("Java record component keys must be unique across the program");
+        }
+        requireUniqueDeclarationKey(declarationKeys, component.componentKey());
       }
       for (var method : type.methods()) {
         if (!methodKeys.add(method.methodKey())) {
           throw new IllegalArgumentException("Java method keys must be unique across the program");
         }
+        requireUniqueDeclarationKey(declarationKeys, method.methodKey());
+      }
+      for (var declaration : type.synthesizedDeclarations()) {
+        if (!synthesizedKeys.add(declaration.declarationKey())) {
+          throw new IllegalArgumentException("Java synthesized declaration keys must be unique across the program");
+        }
+        requireUniqueDeclarationKey(declarationKeys, declaration.declarationKey());
       }
     }
     validateEnclosingTypes(types, typesByKey);
+  }
+
+  private static void requireUniqueDeclarationKey(Set<String> keys, String key) {
+    if (!keys.add(key)) {
+      throw new IllegalArgumentException("Java declaration keys must be unique across kinds and types");
+    }
   }
 
   /**

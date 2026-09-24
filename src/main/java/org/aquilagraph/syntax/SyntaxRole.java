@@ -22,6 +22,8 @@ public enum SyntaxRole {
   MEMBER("member"),
   /** Type parameter written in a type or executable declaration header. */
   TYPE_PARAMETER("type-parameter"),
+  /** Record component written in a record header. */
+  RECORD_COMPONENT("record-component"),
   /** Written upper bound of a type parameter. */
   TYPE_BOUND("type-bound"),
   /** Written type attachment of a parameter declaration. */

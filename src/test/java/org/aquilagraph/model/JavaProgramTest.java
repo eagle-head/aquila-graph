@@ -79,7 +79,7 @@ class JavaProgramTest {
     var ownerReference = new JavaTypeReference(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Missing", "Missing"),
         Optional.of("type:Missing"));
     var nested = new JavaType("type:Nested", "Nested", JavaTypeKind.CLASS, Set.of(), Optional.of(ownerReference), Optional.empty(),
-        List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of());
+        List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of());
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> new JavaProgram(List.of(nested)));
@@ -99,10 +99,65 @@ class JavaProgramTest {
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
         () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(),
-            List.of(parameter), false, List.of(), List.of(), List.of()));
+            List.of(parameter), false, List.of(), List.of(), List.of(), List.of(), List.of()));
 
     // Assert
     assertEquals("Type parameters must be uniquely owned by their declaring type", exception.getMessage());
+  }
+
+  @Test
+  void givenDuplicateOrMisownedRecordComponents_whenTypeIsCreated_thenInputIsRejected() {
+    // Arrange
+    var component = component("type:Record", 0);
+    var foreign = component("type:Other", 0);
+
+    // Act and assert
+    assertEquals("Record components must be ordered and uniquely owned by their record",
+        assertThrows(IllegalArgumentException.class, () -> recordType(List.of(component, component))).getMessage());
+    assertEquals("Record components must be ordered and uniquely owned by their record",
+        assertThrows(IllegalArgumentException.class, () -> recordType(List.of(foreign))).getMessage());
+  }
+
+  @Test
+  void givenMissingRecordComponentRange_whenComponentIsCreated_thenInputIsRejected() {
+    // Arrange and act
+    var exception = assertThrows(NullPointerException.class,
+        () -> new JavaRecordComponent("type:Record#record-component:0", "type:Record", 0, "value",
+            new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"), Set.of(), Set.of(), false, Optional.empty(),
+            Optional.empty(), Optional.empty(), null));
+
+    // Assert
+    assertEquals("origin", exception.getMessage());
+  }
+
+  @Test
+  void givenFieldAndComponentShareKey_whenTypeOrProgramIsCreated_thenCollisionIsRejected() {
+    // Arrange
+    var component = component("type:Record", 0);
+    var collidingField = field(component.componentKey(), "type:Record");
+    var otherOwnerField = field(component.componentKey(), "type:Other");
+    var otherType = type("type:Other", "Other", List.of(otherOwnerField), List.of());
+
+    // Act and assert
+    assertEquals("Record components must be ordered and uniquely owned by their record",
+        assertThrows(IllegalArgumentException.class,
+            () -> new JavaType("type:Record", "Record", JavaTypeKind.RECORD, Set.of(), Optional.empty(), Optional.empty(),
+                List.of(), List.of(), List.of(), false, List.of(collidingField), List.of(component), List.of(), List.of(), List.of()))
+            .getMessage());
+    assertEquals("Java declaration keys must be unique across kinds and types",
+        assertThrows(IllegalArgumentException.class, () -> new JavaProgram(List.of(otherType, recordType(List.of(component)))))
+            .getMessage());
+  }
+
+  private static JavaType recordType(List<JavaRecordComponent> components) {
+    return new JavaType("type:Record", "Record", JavaTypeKind.RECORD, Set.of(), Optional.empty(), Optional.empty(), List.of(),
+        List.of(), List.of(), false, List.of(), components, List.of(), List.of(), List.of());
+  }
+
+  private static JavaRecordComponent component(String owner, int ordinal) {
+    return new JavaRecordComponent(owner + "#record-component:" + ordinal, owner, ordinal, "value",
+        new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"), Set.of(), Set.of(), false, Optional.empty(), Optional.empty(),
+        Optional.empty(), new SourceSpan("source", 0, 1));
   }
 
   private static JavaMethod method(String methodKey, String ownerTypeKey) {
@@ -122,7 +177,7 @@ class JavaProgramTest {
 
   private static JavaType type(String typeKey, String name, List<JavaField> fields, List<JavaMethod> methods) {
     return new JavaType(typeKey, name, JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(),
-        false, fields, methods, List.of());
+        false, fields, List.of(), methods, List.of(), List.of());
   }
 
   private static JavaField field(String fieldKey, String ownerTypeKey) {

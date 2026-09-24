@@ -87,17 +87,17 @@ class JavaTypeDeclarationAstTest {
         Set.of(JavaTypeModifier.ABSTRACT), Set.of(JavaTypeModifier.FINAL), Set.of(JavaTypeModifier.FINAL),
         Set.of(JavaTypeModifier.FINAL), Set.of(JavaTypeModifier.ABSTRACT)),
         types.stream().map(type -> type.value(SyntaxValue.TypeDeclaration.class).effectiveModifiers()).toList());
-    assertEquals(List.of(new SyntaxValue.TypeDeclaration.Shape(1, 1, true, 1, 1, 4),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1)),
+    assertEquals(List.of(new SyntaxValue.TypeDeclaration.Shape(1, 1, true, 1, 1, 0, 4),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 0),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 0),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, true, 0, 0, 0, 0),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 1),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1, 1),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 1)),
         types.stream().map(type -> type.value(SyntaxValue.TypeDeclaration.class).shape()).toList());
     assertEquals(Set.of(JavaTypeModifier.PUBLIC, JavaTypeModifier.SEALED), value.writtenModifiers());
     assertTrue(value.effectiveModifiers().containsAll(value.writtenModifiers()));
-    assertEquals(new SyntaxValue.TypeDeclaration.Shape(1, 1, true, 1, 1, 4), value.shape());
+    assertEquals(new SyntaxValue.TypeDeclaration.Shape(1, 1, true, 1, 1, 0, 4), value.shape());
     assertEquals(List.of("@Deprecated"), excerpts(source, root.children(SyntaxRole.ANNOTATION)));
     assertEquals(List.of("T"), excerpts(source, root.children(SyntaxRole.TYPE_PARAMETER)));
     assertEquals(List.of(SyntaxKind.TYPE_PARAMETER_DECLARATION),
@@ -114,7 +114,7 @@ class JavaTypeDeclarationAstTest {
         List.of(), List.of("RED"), List.of("int twice() { return left * 2; }"), List.of("String value();")),
         types.stream().map(type -> excerpts(source, type.children(SyntaxRole.MEMBER))).toList());
     assertEquals(List.of(List.of(SyntaxKind.FIELD_DECLARATION, SyntaxKind.METHOD_DECLARATION, SyntaxKind.METHOD_DECLARATION,
-        SyntaxKind.TYPE_DECLARATION), List.of(), List.of(), List.of(), List.of(SyntaxKind.FIELD_DECLARATION),
+        SyntaxKind.TYPE_DECLARATION), List.of(), List.of(), List.of(), List.of(SyntaxKind.ENUM_CONSTANT_DECLARATION),
         List.of(SyntaxKind.METHOD_DECLARATION), List.of(SyntaxKind.METHOD_DECLARATION)),
         types.stream().map(type -> type.children(SyntaxRole.MEMBER).stream().map(SyntaxNode::syntaxKind).toList()).toList());
     assertEquals(List.of(SyntaxKind.FIELD_DECLARATION, SyntaxKind.METHOD_DECLARATION, SyntaxKind.METHOD_DECLARATION,
@@ -170,11 +170,11 @@ class JavaTypeDeclarationAstTest {
         Set.of(JavaTypeModifier.STATIC, JavaTypeModifier.FINAL), Set.of(JavaTypeModifier.STATIC, JavaTypeModifier.FINAL),
         Set.of(JavaTypeModifier.STATIC, JavaTypeModifier.ABSTRACT)),
         nested.stream().map(node -> node.value(SyntaxValue.TypeDeclaration.class).effectiveModifiers()).toList());
-    assertEquals(List.of(new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0),
-        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0)),
+    assertEquals(List.of(new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 0),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 0),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 1),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 1, 0),
+        new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 0)),
         nested.stream().map(node -> node.value(SyntaxValue.TypeDeclaration.class).shape()).toList());
     assertEquals(List.of("class NestedClass {}", "interface NestedFace {}", "enum NestedShade { BLUE }",
         "record NestedPair(int value) {}", "@interface NestedFlag {}"), excerpts(source, nested));

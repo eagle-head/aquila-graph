@@ -24,6 +24,7 @@ import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.AnalysisRun;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.model.StableId;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -225,6 +226,81 @@ class Neo4jAnalysisRunMapperTest {
         && relation.targetKey().equals(field.key())));
     assertTrue(projection.relationships().stream().anyMatch(relation -> relation.type().equals("HAS_ORIGIN")
         && relation.sourceKey().equals(field.key())));
+  }
+
+  @Test
+  void givenRecordComponentsAndImplicitEnumMembers_whenMapped_thenIndependentDeclarationFactsSurvive() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("Declarations.java"), """
+        record Name(@Deprecated String first, String... rest) {}
+        enum Empty { ; }
+        """);
+    var input = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory,
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var run = completedMapperFixture(new AnalysisEngine().analyze(input));
+    var record = input.program().types().stream().filter(type -> type.qualifiedName().equals("Name")).findFirst().orElseThrow();
+    var enumType = input.program().types().stream().filter(type -> type.qualifiedName().equals("Empty")).findFirst().orElseThrow();
+
+    // Act
+    var projection = new Neo4jAnalysisRunMapper().map(run);
+
+    // Assert
+    var componentNodes = projection.nodes().stream().filter(node -> node.label().equals("JavaRecordComponent")).toList();
+    assertEquals(record.recordComponents().stream().map(component -> component.componentKey()).toList(),
+        componentNodes.stream().map(Neo4jNode::key).toList());
+    assertEquals(List.of("first", "rest"), componentNodes.stream().map(node -> node.properties().get("name")).toList());
+    assertEquals(List.of(false, true), componentNodes.stream().map(node -> node.properties().get("varArgs")).toList());
+    for (var ordinal = 0; ordinal < componentNodes.size(); ordinal++) {
+      var component = record.recordComponents().get(ordinal);
+      var node = componentNodes.get(ordinal);
+      assertEquals(Set.of("runId", "key", "name", "position", "varArgs", "writtenModifiers", "effectiveModifiers", "staticType",
+          "staticTypeKey", "staticTypeErasure", "staticTypeCategory", "accessorKey", "backingFieldKey", "canonicalParameterKey"),
+          node.properties().keySet());
+      assertEquals(run.runId(), node.properties().get("runId"));
+      assertEquals(component.componentKey(), node.properties().get("key"));
+      assertEquals(List.of(component.name(), component.ordinal(), component.varArgs(),
+          component.writtenModifiers().stream().map(Enum::name).sorted().toList(),
+          component.effectiveModifiers().stream().map(Enum::name).sorted().toList(), component.staticType().displayName(),
+          component.staticType().typeKey(), component.staticType().erasedName(), component.staticType().category().name(),
+          component.accessorKey().orElseThrow(), component.backingFieldKey().orElseThrow(),
+          component.canonicalParameterKey().orElseThrow()),
+          List.of(node.properties().get("name"), node.properties().get("position"), node.properties().get("varArgs"),
+              node.properties().get("writtenModifiers"), node.properties().get("effectiveModifiers"),
+              node.properties().get("staticType"), node.properties().get("staticTypeKey"),
+              node.properties().get("staticTypeErasure"), node.properties().get("staticTypeCategory"),
+              node.properties().get("accessorKey"), node.properties().get("backingFieldKey"),
+              node.properties().get("canonicalParameterKey")));
+      var origin = component.origins().getFirst();
+      var originKey = StableId.sha256("source-origin", component.componentKey(), "0", origin.sourceFileKey(),
+          Long.toString(origin.startOffset()), Long.toString(origin.endOffsetExclusive()));
+      var originNode = projection.nodes().stream().filter(candidate -> candidate.key().equals(originKey)).findFirst().orElseThrow();
+      assertEquals(List.of(origin.startOffset(), origin.endOffsetExclusive(), 0),
+          List.of(originNode.properties().get("startOffset"), originNode.properties().get("endOffsetExclusive"),
+              originNode.properties().get("position")));
+      assertTrue(projection.relationships().stream().anyMatch(relation -> relation.type().equals("HAS_ORIGIN")
+          && relation.sourceKey().equals(component.componentKey()) && relation.targetKey().equals(originKey)));
+      assertTrue(projection.relationships().stream().anyMatch(relation -> relation.type().equals("IN_SOURCE")
+          && relation.sourceKey().equals(originKey) && relation.targetKey().equals(origin.sourceFileKey())));
+    }
+    assertEquals(record.recordComponents().stream().map(component -> List.of(record.typeKey(), component.componentKey(),
+        component.ordinal())).toList(), projection.relationships().stream()
+        .filter(relation -> relation.type().equals("DECLARES_RECORD_COMPONENT"))
+        .map(relation -> List.of(relation.sourceKey(), relation.targetKey(), relation.properties().get("position"))).toList());
+    assertFalse(enumType.synthesizedDeclarations().isEmpty());
+    assertEquals(input.program().types().stream().flatMap(type -> type.synthesizedDeclarations().stream())
+        .map(declaration -> declaration.declarationKey()).toList(),
+        projection.nodes().stream().filter(node -> node.label().equals("JavaSynthesizedDeclaration"))
+            .map(Neo4jNode::key).toList());
+    assertTrue(projection.relationships().stream().anyMatch(relation -> relation.type().equals("DECLARES_SYNTHESIZED")
+        && relation.sourceKey().equals(enumType.typeKey())));
+    assertTrue(projection.nodes().stream().filter(node -> node.label().equals("JavaSynthesizedDeclaration"))
+        .allMatch(node -> Boolean.FALSE.equals(node.properties().get("sourceDeclared"))));
+    var canonicalKeys = record.recordComponents().stream().map(component -> component.canonicalParameterKey().orElseThrow()).toList();
+    assertEquals(canonicalKeys, projection.nodes().stream().filter(node -> node.label().equals("JavaParameter"))
+        .map(Neo4jNode::key).filter(canonicalKeys::contains).toList());
+    assertTrue(projection.nodes().stream().filter(node -> node.label().equals("JavaParameter"))
+        .filter(node -> canonicalKeys.contains(node.key()))
+        .allMatch(node -> Boolean.FALSE.equals(node.properties().get("sourceDeclared"))));
   }
 
   @Test

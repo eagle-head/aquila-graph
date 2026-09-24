@@ -16,6 +16,8 @@ public enum ReferenceKind {
   LOCAL,
   /** Enum constant reference. */
   ENUM_CONSTANT,
+  /** Record component declaration reference. */
+  RECORD_COMPONENT,
   /** Package reference. */
   PACKAGE
 }

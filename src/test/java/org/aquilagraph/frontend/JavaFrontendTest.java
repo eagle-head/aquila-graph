@@ -246,9 +246,8 @@ class JavaFrontendTest {
     // Assert
     var body = methodBody(result, "classify");
     assertEquals(List.of("frontend.unsupported-tree-kind.primitive-type",
-        "frontend.unsupported-variable-initializer", "frontend.unsupported-enum-constant-initialization",
-        "frontend.unsupported-variable-initializer", "frontend.unsupported-enum-constant-initialization",
-        "frontend.unsupported-enclosed-declarations"), result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
+        "frontend.unsupported-enum-constant-initialization", "frontend.unsupported-enum-constant-initialization"),
+        result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
     assertEquals(SyntaxReadiness.LOWERABLE, body.readiness());
     var labels = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.CASE)
         .flatMap(node -> node.children(SyntaxRole.LABEL).stream()).toList();
