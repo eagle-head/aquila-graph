@@ -410,11 +410,11 @@ public sealed interface SyntaxValue {
   /** Shared source-name value boundary for typed syntax facts. */
   abstract sealed class Symbol implements SyntaxValue permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration,
       ModuleDeclaration, ModuleDirective, TypeDeclaration, TypeParameterDeclaration, ExecutableDeclaration, ParameterHeader,
-      VariableDeclaration, RecordComponentDeclaration, PrimitiveType, PackageQualifier, Annotation {
+      VariableDeclaration, RecordComponentDeclaration, PrimitiveType, PackageQualifier, Annotation, AnnotationArgument {
     enum Form {
       SYMBOL, COMPILATION_UNIT, PACKAGE_DECLARATION, IMPORT_DECLARATION, MODULE_DECLARATION, REQUIRES, EXPORTS, OPENS, USES, PROVIDES,
       TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, EXECUTABLE_DECLARATION, PARAMETER_DECLARATION, RECEIVER_PARAMETER, VARIABLE_DECLARATION,
-      RECORD_COMPONENT_DECLARATION, PRIMITIVE_TYPE, PACKAGE_QUALIFIER, ANNOTATION
+      RECORD_COMPONENT_DECLARATION, PRIMITIVE_TYPE, PACKAGE_QUALIFIER, ANNOTATION, ANNOTATION_ARGUMENT
     }
 
     private final String sourceName;
@@ -428,7 +428,7 @@ public sealed interface SyntaxValue {
     }
 
     /**
-     * Returns the retained source name.
+     * Returns the retained source name, or an empty string for an unnamed annotation argument.
      *
      * @return the source name
      */
@@ -456,13 +456,64 @@ public sealed interface SyntaxValue {
     }
   }
 
+  /** One written annotation pair with a compiler-selected element and scalar value. */
+  final class AnnotationArgument extends Symbol {
+    private record AnnotationArgumentDetails(Optional<String> explicitName, String selectedElementKey, AnnotationScalar scalar) {
+      private AnnotationArgumentDetails {
+        Objects.requireNonNull(explicitName, "explicitName").ifPresent(SyntaxValueSupport::requireName);
+        SyntaxValueSupport.requireText(selectedElementKey, "selectedElementKey");
+        Objects.requireNonNull(scalar, "scalar");
+      }
+    }
+
+    private final AnnotationArgumentDetails details;
+
+    /**
+     * @param explicitName
+     *          written name, if present
+     * @param selectedElementKey
+     *          selected element declaration identity
+     * @param scalar
+     *          attributed scalar value
+     */
+    public AnnotationArgument(Optional<String> explicitName, String selectedElementKey, AnnotationScalar scalar) {
+      this(new AnnotationArgumentDetails(explicitName, selectedElementKey, scalar));
+    }
+
+    private AnnotationArgument(AnnotationArgumentDetails details) {
+      super(details.explicitName().orElse(""), Form.ANNOTATION_ARGUMENT, details);
+      this.details = details;
+    }
+
+    /** @return written name, absent for shorthand syntax */
+    public Optional<String> explicitName() {
+      return details.explicitName();
+    }
+
+    /** @return selected annotation element declaration key */
+    public String selectedElementKey() {
+      return details.selectedElementKey();
+    }
+
+    /** @return attributed typed scalar value */
+    public AnnotationScalar scalar() {
+      return details.scalar();
+    }
+  }
+
   /** Exact written form and ordered argument headers of one annotation occurrence. */
   final class Annotation extends Symbol {
-    private record AnnotationDetails(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location) {
+    private record AnnotationDetails(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location,
+        Optional<String> argumentFailureCode) {
       private AnnotationDetails {
         Objects.requireNonNull(form, "form");
         Objects.requireNonNull(location, "location");
+        Objects.requireNonNull(argumentFailureCode, "argumentFailureCode")
+            .ifPresent(code -> SyntaxValueSupport.requireText(code, "argumentFailureCode"));
         arguments = List.copyOf(Objects.requireNonNull(arguments, "arguments"));
+        if (argumentFailureCode.isPresent() && arguments.isEmpty()) {
+          throw new IllegalArgumentException("An argument failure requires written arguments");
+        }
         if ((form == AnnotationForm.MARKER || form == AnnotationForm.EMPTY_NORMAL) != arguments.isEmpty()) {
           throw new IllegalArgumentException("Annotation argument count does not match its written form");
         }
@@ -488,7 +539,25 @@ public sealed interface SyntaxValue {
      *          current location outcome
      */
     public Annotation(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location) {
-      this(new AnnotationDetails(form, arguments, location));
+      this(new AnnotationDetails(form, arguments, location, Optional.empty()));
+    }
+
+    /**
+     * Creates an occurrence whose written arguments have a blocking diagnostic and no projected pairs.
+     *
+     * @param form
+     *          written annotation form
+     * @param arguments
+     *          ordered written argument headers
+     * @param location
+     *          current location outcome
+     * @param diagnosticCode
+     *          blocking source diagnostic code
+     * @return diagnosed incomplete annotation occurrence
+     */
+    public static Annotation withArgumentFailure(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location,
+        String diagnosticCode) {
+      return new Annotation(new AnnotationDetails(form, arguments, location, Optional.of(diagnosticCode)));
     }
 
     private Annotation(AnnotationDetails details) {
@@ -512,6 +581,11 @@ public sealed interface SyntaxValue {
      */
     public List<AnnotationArgumentHeader> arguments() {
       return details.arguments();
+    }
+
+    /** @return blocking diagnostic code when written arguments could not be projected */
+    public Optional<String> argumentFailureCode() {
+      return details.argumentFailureCode();
     }
 
     /**

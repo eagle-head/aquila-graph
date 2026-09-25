@@ -30,13 +30,21 @@ final class ParsedTreeInventory {
   private final Set<Tree> writtenTrees;
   private final Map<AnnotationTree, SyntaxValue.Annotation> annotations;
   private final Map<AnnotationTree, TreePath> annotationTypePaths;
+  private final Map<AnnotationTree, TreePath> annotationPaths;
+  private final Map<AnnotationTree, List<WrittenAnnotationArgument>> capturedArguments;
+  private final Map<Tree, List<AnnotationTree>> annotationsByOwner;
   private final Map<VariableTree, List<AnnotationTree>> variableAnnotationAttachments;
 
   private ParsedTreeInventory(Set<Tree> writtenTrees, Map<AnnotationTree, SyntaxValue.Annotation> annotations,
-      Map<AnnotationTree, TreePath> annotationTypePaths, Map<VariableTree, List<AnnotationTree>> variableAnnotations) {
+      Map<AnnotationTree, TreePath> annotationTypePaths, Map<AnnotationTree, TreePath> annotationPaths,
+      Map<AnnotationTree, List<WrittenAnnotationArgument>> annotationArguments, Map<Tree, List<AnnotationTree>> annotationsByOwner,
+      Map<VariableTree, List<AnnotationTree>> variableAnnotations) {
     this.writtenTrees = writtenTrees;
     this.annotations = annotations;
     this.annotationTypePaths = annotationTypePaths;
+    this.annotationPaths = annotationPaths;
+    this.capturedArguments = annotationArguments;
+    this.annotationsByOwner = annotationsByOwner;
     this.variableAnnotationAttachments = variableAnnotations;
   }
 
@@ -48,17 +56,23 @@ final class ParsedTreeInventory {
     var writtenTrees = Collections.newSetFromMap(new IdentityHashMap<Tree, Boolean>());
     var annotations = new IdentityHashMap<AnnotationTree, SyntaxValue.Annotation>();
     var annotationTypePaths = new IdentityHashMap<AnnotationTree, TreePath>();
+    var annotationPaths = new IdentityHashMap<AnnotationTree, TreePath>();
+    var annotationArguments = new IdentityHashMap<AnnotationTree, List<WrittenAnnotationArgument>>();
+    var annotationsByOwner = new IdentityHashMap<Tree, List<AnnotationTree>>();
     var variableAnnotations = new IdentityHashMap<VariableTree, List<AnnotationTree>>();
     for (var unit : units) {
-      scanUnit(unit, sources.apply(unit), evidence, writtenTrees, annotations, annotationTypePaths, variableAnnotations);
+      scanUnit(unit, sources.apply(unit), evidence, writtenTrees, annotations, annotationTypePaths, annotationPaths, annotationArguments,
+          annotationsByOwner, variableAnnotations);
     }
     return new ParsedTreeInventory(writtenTrees, Collections.unmodifiableMap(annotations), Collections.unmodifiableMap(annotationTypePaths),
-        Collections.unmodifiableMap(variableAnnotations));
+        Collections.unmodifiableMap(annotationPaths), Collections.unmodifiableMap(annotationArguments),
+        Collections.unmodifiableMap(annotationsByOwner), Collections.unmodifiableMap(variableAnnotations));
   }
 
   private static void scanUnit(CompilationUnitTree unit, Optional<SourceFile> source, JavaSourceEvidence evidence, Set<Tree> writtenTrees,
       Map<AnnotationTree, SyntaxValue.Annotation> annotations, Map<AnnotationTree, TreePath> annotationTypePaths,
-      Map<VariableTree, List<AnnotationTree>> variableAnnotations) {
+      Map<AnnotationTree, TreePath> annotationPaths, Map<AnnotationTree, List<WrittenAnnotationArgument>> annotationArguments,
+      Map<Tree, List<AnnotationTree>> annotationsByOwner, Map<VariableTree, List<AnnotationTree>> variableAnnotations) {
     var scanner = new TreePathScanner<Void, Void>() {
       @Override
       public Void scan(Tree tree, Void unused) {
@@ -70,7 +84,17 @@ final class ParsedTreeInventory {
 
       @Override
       public Void visitAnnotation(AnnotationTree annotation, Void unused) {
+        annotationPaths.put(annotation, getCurrentPath());
+        var owner = getCurrentPath().getParentPath();
+        while (owner != null && owner.getLeaf().getKind() == Tree.Kind.MODIFIERS) {
+          owner = owner.getParentPath();
+        }
+        if (owner != null) {
+          annotationsByOwner.computeIfAbsent(owner.getLeaf(), ignored -> new ArrayList<>()).add(annotation);
+        }
         annotationTypePaths.put(annotation, new TreePath(getCurrentPath(), annotation.getAnnotationType()));
+        annotationArguments.put(annotation,
+            annotation.getArguments().stream().map(argument -> writtenArgument(getCurrentPath(), argument)).toList());
         source.flatMap(file -> annotationValue(unit, file, annotation, evidence)).ifPresent(value -> annotations.put(annotation, value));
         return super.visitAnnotation(annotation, null);
       }
@@ -90,6 +114,36 @@ final class ParsedTreeInventory {
 
   Optional<TreePath> annotationTypePath(AnnotationTree tree) {
     return Optional.ofNullable(annotationTypePaths.get(Objects.requireNonNull(tree)));
+  }
+
+  Optional<TreePath> annotationPath(AnnotationTree tree) {
+    return Optional.ofNullable(annotationPaths.get(Objects.requireNonNull(tree)));
+  }
+
+  List<AnnotationTree> ownerAnnotations(Tree owner) {
+    return List.copyOf(annotationsByOwner.getOrDefault(Objects.requireNonNull(owner), List.of()));
+  }
+
+  Optional<List<WrittenAnnotationArgument>> annotationArguments(AnnotationTree tree) {
+    return Optional.ofNullable(capturedArguments.get(Objects.requireNonNull(tree)));
+  }
+
+  private static WrittenAnnotationArgument writtenArgument(TreePath annotationPath, ExpressionTree argument) {
+    var argumentPath = new TreePath(annotationPath, argument);
+    if (argument instanceof AssignmentTree assignment && assignment.getVariable() instanceof IdentifierTree name) {
+      return new WrittenAnnotationArgument(argument, assignment.getExpression(), Optional.of(name),
+          new TreePath(argumentPath, assignment.getExpression()));
+    }
+    return new WrittenAnnotationArgument(argument, argument, Optional.empty(), argumentPath);
+  }
+
+  record WrittenAnnotationArgument(ExpressionTree argument, ExpressionTree value, Optional<IdentifierTree> name, TreePath valuePath) {
+    WrittenAnnotationArgument {
+      Objects.requireNonNull(argument, "argument");
+      Objects.requireNonNull(value, "value");
+      Objects.requireNonNull(name, "name");
+      Objects.requireNonNull(valuePath, "valuePath");
+    }
   }
 
   Optional<List<AnnotationTree>> variableAnnotations(VariableTree tree) {

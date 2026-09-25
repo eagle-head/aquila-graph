@@ -16,6 +16,12 @@ public enum SyntaxRole {
   COMPACT_MEMBER("compact-member"),
   /** Written annotation attached to a package declaration. */
   ANNOTATION("annotation"),
+  /** Explicit element-value pair within a written annotation. */
+  ANNOTATION_ARGUMENT("annotation-argument"),
+  /** Written element name in a normal annotation pair. */
+  ANNOTATION_ELEMENT_NAME("annotation-element-name"),
+  /** Written type operand of a class literal or cast. */
+  TYPE_OPERAND("type-operand"),
   /** Top-level type declaration within a compilation unit. */
   TYPE_DECLARATION("type-declaration"),
   /** Member declaration within a type. */

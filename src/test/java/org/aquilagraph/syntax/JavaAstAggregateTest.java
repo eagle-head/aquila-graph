@@ -27,6 +27,286 @@ class JavaAstAggregateTest {
   private static final String CONTENT = "0123456789";
 
   @Test
+  void givenScalarPairWithForeignElement_whenAnnotationIsConstructed_thenOwnershipIsRejected() {
+    // Arrange
+    var annotationPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0);
+    var pair = scalarArgument(annotationPath, new AnnotationScalar.IntValue(7), "type:Other#value()", Optional.empty());
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
+        JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
+            List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION),
+        List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, pair)), Optional.of(reference("type:Owned")),
+        new SourceSpan("a", 0, 7)));
+
+    // Assert
+    assertTrue(error.getMessage().contains("outside its annotation type"));
+  }
+
+  @Test
+  void givenWrittenArgumentWithoutPair_whenAnnotationIsConstructed_thenMissingPairIsRejected() {
+    // Arrange
+    var annotationPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0);
+    var header = List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty()));
+
+    // Act
+    var missing = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
+        JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT, header, SyntaxValue.AnnotationLocation.DECLARATION),
+        List.of(), Optional.of(reference("type:Owned")), new SourceSpan("a", 0, 7)));
+    var diagnosed = SyntaxNode.source("a", annotationPath, JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.Annotation.withArgumentFailure(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
+            header, SyntaxValue.AnnotationLocation.DECLARATION, "frontend.unavailable-annotation-attribution"),
+        List.of(), Optional.of(reference("type:Owned")), new SourceSpan("a", 0, 7));
+
+    // Assert
+    assertTrue(missing.getMessage().contains("captured source headers"));
+    assertEquals(Optional.of("frontend.unavailable-annotation-attribution"),
+        diagnosed.value(SyntaxValue.Annotation.class).argumentFailureCode());
+  }
+
+  @Test
+  void givenUnresolvedConstantName_whenConstructed_thenReferenceIsRejected() {
+    // Arrange
+    var annotationPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0);
+    var valuePath = annotationPath.child(SyntaxRole.ANNOTATION_ARGUMENT, 0).child(SyntaxRole.VALUE, 0);
+    var intType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"),
+        new JavaTypeStructure.Primitive(JavaTypeCategory.INT));
+    var unresolved = new SemanticReference(ReferenceKind.FIELD, ResolutionStatus.UNRESOLVED, Optional.empty(),
+        Optional.empty(), List.of(), List.of());
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", valuePath,
+        JavaSourceKind.IDENTIFIER, SyntaxKind.ANNOTATION_NAME_REFERENCE, intType, new SyntaxValue.SourceSymbol("COUNT"),
+        List.of(), Optional.of(unresolved), new SourceSpan("a", 3, 8)));
+
+    // Assert
+    assertTrue(error.getMessage().contains("resolved constant-variable"));
+  }
+
+  @Test
+  void givenScalarPairOutsideAnnotationRange_whenConstructed_thenRangeIsRejected() {
+    // Arrange
+    var annotationPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0);
+    var pair = scalarArgument(annotationPath, new AnnotationScalar.IntValue(7), "type:Owned#value()", Optional.empty());
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
+        JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
+            List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION),
+        List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, pair)), Optional.of(reference("type:Owned")),
+        new SourceSpan("a", 0, 3)));
+
+    // Assert
+    assertTrue(error.getMessage().contains("range"));
+  }
+
+  @Test
+  void givenDuplicateNamedScalarPairs_whenAnnotationIsConstructed_thenSelectionIsRejected() {
+    // Arrange
+    var annotationPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0);
+    var first = namedScalarArgument(annotationPath, 0, "x", "7", 2);
+    var second = namedScalarArgument(annotationPath, 1, "x", "8", 6);
+    var headers = List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.of("x")),
+        new SyntaxValue.AnnotationArgumentHeader(Optional.of("x")));
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
+        JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.NAMED_NORMAL, headers, SyntaxValue.AnnotationLocation.DECLARATION),
+        List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, first),
+            new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 1, second)),
+        Optional.of(reference("type:Owned")), new SourceSpan("a", 0, 10)));
+
+    // Assert
+    assertTrue(error.getMessage().contains("distinct elements"));
+  }
+
+  @Test
+  void givenDeferredAnnotationWithScalarPair_whenConstructed_thenPairIsRejected() {
+    // Arrange
+    var annotationPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0);
+    var pair = scalarArgument(annotationPath, new AnnotationScalar.IntValue(7), "type:Owned#value()", Optional.empty());
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
+        JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, pair)),
+        Optional.empty(), new SourceSpan("a", 0, 7)));
+
+    // Assert
+    assertTrue(error.getMessage().contains("deferred annotation cannot publish"));
+  }
+
+  @Test
+  void givenNamedPairWithValueBeforeName_whenConstructed_thenSourceOrderIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0)
+        .child(SyntaxRole.ANNOTATION_ARGUMENT, 0);
+    var intType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"),
+        new JavaTypeStructure.Primitive(JavaTypeCategory.INT));
+    var literal = SyntaxNode.source("a", path.child(SyntaxRole.VALUE, 0), JavaSourceKind.INT_LITERAL,
+        SyntaxKind.LITERAL, intType, new SyntaxValue.Literal("7"), List.of(), Optional.empty(),
+        new SourceSpan("a", 3, 4));
+    var name = SyntaxNode.source("a", path.child(SyntaxRole.ANNOTATION_ELEMENT_NAME, 0), JavaSourceKind.IDENTIFIER,
+        SyntaxKind.ANNOTATION_ELEMENT_NAME, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol("x"),
+        List.of(), Optional.empty(), new SourceSpan("a", 5, 6));
+    var selectedKey = "type:Owned#x()";
+    var selected = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED, Optional.of(selectedKey),
+        Optional.empty(), List.of(), List.of());
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
+        JavaSourceKind.ASSIGNMENT, SyntaxKind.ANNOTATION_ARGUMENT, intType,
+        new SyntaxValue.AnnotationArgument(Optional.of("x"), selectedKey, new AnnotationScalar.IntValue(7)),
+        List.of(new SyntaxChild(SyntaxRole.VALUE, 0, literal), new SyntaxChild(SyntaxRole.ANNOTATION_ELEMENT_NAME, 0, name)),
+        Optional.of(selected), new SourceSpan("a", 2, 7)));
+
+    // Assert
+    assertTrue(error.getMessage().contains("name must precede its value"));
+  }
+
+  @Test
+  void givenAnnotationCastTypeOutsideExpression_whenConstructed_thenRangeIsRejected() {
+    // Arrange
+    var valuePath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0)
+        .child(SyntaxRole.ANNOTATION_ARGUMENT, 0).child(SyntaxRole.VALUE, 0);
+    var intType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"),
+        new JavaTypeStructure.Primitive(JavaTypeCategory.INT));
+    var operand = SyntaxNode.source("a", valuePath.child(SyntaxRole.TYPE_OPERAND, 0), JavaSourceKind.PRIMITIVE_TYPE,
+        SyntaxKind.TYPE_USE, intType, new SyntaxValue.PrimitiveType(JavaTypeCategory.INT), List.of(), Optional.empty(),
+        new SourceSpan("a", 8, 9));
+    var literal = SyntaxNode.source("a", valuePath.child(SyntaxRole.EXPRESSION, 0), JavaSourceKind.INT_LITERAL,
+        SyntaxKind.LITERAL, intType, new SyntaxValue.Literal("7"), List.of(), Optional.empty(), new SourceSpan("a", 5, 6));
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", valuePath,
+        JavaSourceKind.TYPE_CAST, SyntaxKind.ANNOTATION_CAST, intType, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.TYPE_OPERAND, 0, operand), new SyntaxChild(SyntaxRole.EXPRESSION, 0, literal)),
+        Optional.empty(), new SourceSpan("a", 3, 7)));
+
+    // Assert
+    assertTrue(error.getMessage().contains("ranges must be contained"));
+  }
+
+  @Test
+  void givenAnnotationArrayTypeComponentOutsideOperand_whenConstructed_thenRangeIsRejected() {
+    // Arrange
+    var operandPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0)
+        .child(SyntaxRole.ANNOTATION_ARGUMENT, 0).child(SyntaxRole.VALUE, 0).child(SyntaxRole.TYPE_OPERAND, 0);
+    var componentStructure = new JavaTypeStructure.Primitive(JavaTypeCategory.INT);
+    var componentType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"),
+        componentStructure);
+    var component = SyntaxNode.source("a", operandPath.child(SyntaxRole.COMPONENT_TYPE, 0), JavaSourceKind.PRIMITIVE_TYPE,
+        SyntaxKind.TYPE_USE, componentType, new SyntaxValue.PrimitiveType(JavaTypeCategory.INT), List.of(), Optional.empty(),
+        new SourceSpan("a", 8, 9));
+    var arrayType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.ARRAY, "int[]", "int[]"),
+        new JavaTypeStructure.Array(componentStructure));
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", operandPath,
+        JavaSourceKind.ARRAY_TYPE, SyntaxKind.TYPE_USE, arrayType, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.COMPONENT_TYPE, 0, component)), Optional.empty(), new SourceSpan("a", 4, 7)));
+
+    // Assert
+    assertTrue(error.getMessage().contains("ranges must be contained"));
+  }
+
+  @Test
+  void givenPairSourceKindContradictsWrittenForm_whenConstructed_thenBothFormsAreRejected() {
+    // Arrange
+    var annotationPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0);
+
+    // Act
+    var named = assertThrows(IllegalArgumentException.class, () -> scalarArgument(annotationPath,
+        new AnnotationScalar.IntValue(7), "type:Owned#value()", Optional.of("value"), JavaSourceKind.INT_LITERAL));
+    var shorthand = assertThrows(IllegalArgumentException.class, () -> scalarArgument(annotationPath,
+        new AnnotationScalar.IntValue(7), "type:Owned#value()", Optional.empty(), JavaSourceKind.ASSIGNMENT));
+
+    // Assert
+    assertTrue(named.getMessage().contains("assignment source kind"));
+    assertTrue(shorthand.getMessage().contains("shorthand annotation pair"));
+  }
+
+  @Test
+  void givenSameSnapshotWithChangedAnnotationFacts_whenAggregatesAreCompared_thenFactsDetermineEquality() {
+    // Arrange
+    var captured = snapshot("a");
+    var original = JavaAstAggregate.builder(captured)
+        .add(scalarPackageContribution(new AnnotationScalar.IntValue(7), "7")).seal();
+    var changedScalar = JavaAstAggregate.builder(captured)
+        .add(scalarPackageContribution(new AnnotationScalar.IntValue(8), "7")).seal();
+    var changedExpression = JavaAstAggregate.builder(captured)
+        .add(scalarPackageContribution(new AnnotationScalar.IntValue(7), "8")).seal();
+    var repeated = JavaAstAggregate.builder(captured)
+        .add(scalarPackageContribution(new AnnotationScalar.IntValue(7), "7")).seal();
+
+    // Act
+    var scalarEqual = original.equals(changedScalar);
+    var expressionEqual = original.equals(changedExpression);
+
+    // Assert
+    assertSame(captured, original.snapshot());
+    assertSame(captured, changedScalar.snapshot());
+    assertSame(captured, changedExpression.snapshot());
+    assertEquals(original, repeated);
+    assertTrue(!scalarEqual);
+    assertTrue(!expressionEqual);
+  }
+
+  @Test
+  void givenScalarPairWithConflictingDeclarationEdge_whenAggregateIsSealed_thenReferenceIsRejected() {
+    // Arrange
+    var base = scalarPackageContribution(new AnnotationScalar.IntValue(7), "7");
+    var pair = base.root().requiredChild(SyntaxRole.PACKAGE_DECLARATION).requiredChild(SyntaxRole.ANNOTATION)
+        .requiredChild(SyntaxRole.ANNOTATION_ARGUMENT);
+    var conflicting = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED,
+        Optional.of("type:Owned#other()"), Optional.empty(), List.of(), List.of());
+    var extra = new SyntaxSemanticEdge(pair.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
+        new SyntaxSemanticTarget.Declaration(conflicting));
+
+    // Act
+    var error = failure(snapshot("a"), contribution(base.root(), base.structuralEdges(), append(base.semanticEdges(), extra)));
+
+    // Assert
+    assertTrue(error.getMessage().contains("annotation value reference must match"));
+    assertTrue(error.getMessage().contains(pair.nodeId()));
+  }
+
+  @Test
+  void givenScalarPairWithWrongCategory_whenConstructed_thenElementTypeConflictIsRejected() {
+    // Arrange
+    var annotationPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0);
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class,
+        () -> scalarArgument(annotationPath, new AnnotationScalar.StringValue("seven"), "type:Owned#value()", Optional.empty()));
+
+    // Assert
+    assertTrue(error.getMessage().contains("scalar category conflicts"));
+  }
+
+  @Test
+  void givenNamedScalarPairWithShorthandHeader_whenAnnotationIsConstructed_thenFormMismatchIsRejected() {
+    // Arrange
+    var annotationPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0);
+    var pair = scalarArgument(annotationPath, new AnnotationScalar.IntValue(7), "type:Owned#value()", Optional.of("value"));
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
+        JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
+            List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION),
+        List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, pair)), Optional.of(reference("type:Owned")),
+        new SourceSpan("a", 0, 8)));
+
+    // Assert
+    assertTrue(error.getMessage().contains("captured source header"));
+  }
+
+  @Test
   void givenUntypedCompilationUnitRoot_whenAggregateIsSealed_thenRootIsRejected() {
     // Arrange
     var untyped = SyntaxNode.source("a", SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.COMPILATION_UNIT,
@@ -1038,6 +1318,28 @@ class JavaAstAggregateTest {
     return annotatedPackageRoot(sourceKey, List.of(new SourceSpan(sourceKey, 2, 4)), reference("type:Annotation"));
   }
 
+  private static SyntaxSourceContribution scalarPackageContribution(AnnotationScalar scalar, String literalText) {
+    var rootPath = SyntaxStructuralPath.sourceFileRoot();
+    var packagePath = rootPath.child(SyntaxRole.PACKAGE_DECLARATION, 0);
+    var annotationPath = packagePath.child(SyntaxRole.ANNOTATION, 0);
+    var pair = scalarArgument(annotationPath, scalar, "type:Owned#value()", Optional.empty(), JavaSourceKind.INT_LITERAL,
+        literalText);
+    var annotation = SyntaxNode.source("a", annotationPath, JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT,
+        SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
+            List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION),
+        List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, pair)), Optional.of(reference("type:Owned")),
+        new SourceSpan("a", 2, 5));
+    var declaration = SyntaxNode.source("a", packagePath, JavaSourceKind.PACKAGE, SyntaxKind.COMPILATION_UNIT,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.PackageDeclaration("sample"),
+        List.of(new SyntaxChild(SyntaxRole.ANNOTATION, 0, annotation)), Optional.empty(), new SourceSpan("a", 1, 9));
+    var root = root("a", List.of(new SyntaxChild(SyntaxRole.PACKAGE_DECLARATION, 0, declaration)));
+    var base = contribution(root);
+    var target = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
+        new SyntaxSemanticTarget.SourceOccurrence(declaration.nodeId()));
+    return contribution(root, base.structuralEdges(), append(base.semanticEdges(), target));
+  }
+
   private static SyntaxNode annotatedPackageRoot(String sourceKey, List<SourceSpan> ranges, SemanticReference reference) {
     var path = SyntaxStructuralPath.sourceFileRoot();
     var packagePath = path.child(SyntaxRole.PACKAGE_DECLARATION, 0);
@@ -1150,5 +1452,60 @@ class JavaAstAggregateTest {
   private static SemanticReference reference(String key) {
     return new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(),
         List.of(), List.of());
+  }
+
+  private static SyntaxNode scalarArgument(SyntaxStructuralPath annotationPath, AnnotationScalar scalar, String selectedKey,
+      Optional<String> writtenName) {
+    return scalarArgument(annotationPath, scalar, selectedKey, writtenName,
+        writtenName.isPresent() ? JavaSourceKind.ASSIGNMENT : JavaSourceKind.INT_LITERAL);
+  }
+
+  private static SyntaxNode scalarArgument(SyntaxStructuralPath annotationPath, AnnotationScalar scalar, String selectedKey,
+      Optional<String> writtenName, JavaSourceKind sourceKind) {
+    return scalarArgument(annotationPath, scalar, selectedKey, writtenName, sourceKind, "7");
+  }
+
+  private static SyntaxNode scalarArgument(SyntaxStructuralPath annotationPath, AnnotationScalar scalar, String selectedKey,
+      Optional<String> writtenName, JavaSourceKind sourceKind, String literalText) {
+    var path = annotationPath.child(SyntaxRole.ANNOTATION_ARGUMENT, 0);
+    var valuePath = path.child(SyntaxRole.VALUE, 0);
+    var intType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"),
+        new JavaTypeStructure.Primitive(JavaTypeCategory.INT));
+    var value = SyntaxNode.source("a", valuePath, JavaSourceKind.INT_LITERAL, SyntaxKind.LITERAL, intType,
+        new SyntaxValue.Literal(literalText), List.of(), Optional.empty(), new SourceSpan("a", writtenName.isPresent() ? 7 : 3,
+            writtenName.isPresent() ? 8 : 4));
+    var children = new ArrayList<SyntaxChild>();
+    writtenName.ifPresent(name -> children.add(new SyntaxChild(SyntaxRole.ANNOTATION_ELEMENT_NAME, 0,
+        SyntaxNode.source("a", path.child(SyntaxRole.ANNOTATION_ELEMENT_NAME, 0), JavaSourceKind.IDENTIFIER,
+            SyntaxKind.ANNOTATION_ELEMENT_NAME, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol(name),
+            List.of(), Optional.empty(), new SourceSpan("a", 2, 7)))));
+    children.add(new SyntaxChild(SyntaxRole.VALUE, 0, value));
+    var selected = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED, Optional.of(selectedKey),
+        Optional.empty(), List.of(), List.of());
+    return SyntaxNode.source("a", path, sourceKind,
+        SyntaxKind.ANNOTATION_ARGUMENT, intType, new SyntaxValue.AnnotationArgument(writtenName, selectedKey, scalar),
+        children, Optional.of(selected), new SourceSpan("a", writtenName.isPresent() ? 2 : 3,
+            writtenName.isPresent() ? 8 : 4));
+  }
+
+  private static SyntaxNode namedScalarArgument(SyntaxStructuralPath annotationPath, int ordinal, String name,
+      String literalText, int start) {
+    var path = annotationPath.child(SyntaxRole.ANNOTATION_ARGUMENT, ordinal);
+    var intType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"),
+        new JavaTypeStructure.Primitive(JavaTypeCategory.INT));
+    var nameNode = SyntaxNode.source("a", path.child(SyntaxRole.ANNOTATION_ELEMENT_NAME, 0), JavaSourceKind.IDENTIFIER,
+        SyntaxKind.ANNOTATION_ELEMENT_NAME, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol(name),
+        List.of(), Optional.empty(), new SourceSpan("a", start, start + 1));
+    var literal = SyntaxNode.source("a", path.child(SyntaxRole.VALUE, 0), JavaSourceKind.INT_LITERAL,
+        SyntaxKind.LITERAL, intType, new SyntaxValue.Literal(literalText), List.of(), Optional.empty(),
+        new SourceSpan("a", start + 2, start + 3));
+    var selectedKey = "type:Owned#" + name + "()";
+    var selected = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED, Optional.of(selectedKey),
+        Optional.empty(), List.of(), List.of());
+    return SyntaxNode.source("a", path, JavaSourceKind.ASSIGNMENT, SyntaxKind.ANNOTATION_ARGUMENT, intType,
+        new SyntaxValue.AnnotationArgument(Optional.of(name), selectedKey,
+            new AnnotationScalar.IntValue(Integer.parseInt(literalText))),
+        List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ELEMENT_NAME, 0, nameNode), new SyntaxChild(SyntaxRole.VALUE, 0, literal)),
+        Optional.of(selected), new SourceSpan("a", start, start + 3));
   }
 }

@@ -15,6 +15,7 @@ import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.syntax.JavaSourceKind;
+import org.aquilagraph.syntax.SyntaxChild;
 import org.aquilagraph.syntax.SyntaxKind;
 import org.aquilagraph.syntax.SyntaxNode;
 import org.aquilagraph.syntax.SyntaxStructuralPath;
@@ -26,11 +27,13 @@ final class JavaAnnotationProjector {
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory inventory;
+  private final JavaAnnotationValueProjector values;
 
   JavaAnnotationProjector(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory inventory) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.inventory = Objects.requireNonNull(inventory, "inventory");
+    values = new JavaAnnotationValueProjector(semantics, sourceEvidence, inventory);
   }
 
   Optional<SyntaxNode> declaration(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation, SyntaxStructuralPath path,
@@ -66,14 +69,29 @@ final class JavaAnnotationProjector {
       }
     }
     var parsed = written.orElseThrow();
-    var value = new SyntaxValue.Annotation(parsed.form(), parsed.arguments(),
-        declarationOnly ? SyntaxValue.AnnotationLocation.DECLARATION : SyntaxValue.AnnotationLocation.UNRESOLVED);
-    if (value.form() == SyntaxValue.AnnotationForm.SINGLE_ELEMENT || value.form() == SyntaxValue.AnnotationForm.NAMED_NORMAL) {
-      diagnostics.add(FrontendDiagnosticFactory.capabilityError(sourceFile.sourceFileKey() + ':' + occurrencePath,
-          "frontend.unsupported-annotation-value", "Annotation argument values are outside the current profile", range));
+    var location = declarationOnly ? SyntaxValue.AnnotationLocation.DECLARATION : SyntaxValue.AnnotationLocation.UNRESOLVED;
+    List<SyntaxChild> children = List.of();
+    String argumentFailureCode = null;
+    if (parsed.form() == SyntaxValue.AnnotationForm.SINGLE_ELEMENT || parsed.form() == SyntaxValue.AnnotationForm.NAMED_NORMAL) {
+      if (validType && declarationOnly) {
+        var diagnosticCount = diagnostics.size();
+        children = values.arguments(unit, sourceFile, annotation, (TypeElement) element, path, diagnostics);
+        if (children.isEmpty()) {
+          if (diagnostics.size() == diagnosticCount) {
+            diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath,
+                "frontend.unavailable-annotation-attribution", "The written annotation arguments could not be projected", range));
+          }
+          argumentFailureCode = diagnostics.get(diagnosticCount).code();
+        }
+      } else {
+        argumentFailureCode = validType ? "frontend.unresolved-annotation-location" : "frontend.unresolved-annotation-type";
+      }
     }
+    var value = argumentFailureCode == null
+        ? new SyntaxValue.Annotation(parsed.form(), parsed.arguments(), location)
+        : SyntaxValue.Annotation.withArgumentFailure(parsed.form(), parsed.arguments(), location, argumentFailureCode);
     return Optional.of(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT,
-        SyntaxType.NotApplicable.INSTANCE, value, List.of(), reference, range.orElseThrow()));
+        SyntaxType.NotApplicable.INSTANCE, value, children, reference, range.orElseThrow()));
   }
 
   private static boolean allowsTypeUse(TypeElement annotationType) {

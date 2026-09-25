@@ -18,6 +18,7 @@ import org.aquilagraph.model.SourceSpan;
 /** Immutable, compiler-neutral facts for one durable Java source occurrence. */
 public final class SyntaxNode {
   private static final int SINGLE_CHILD_COUNT = 1;
+  private static final int NAMED_ANNOTATION_CHILD_COUNT = 2;
   private static final JavaTypeStructure IMPLICIT_OBJECT_BOUND = new JavaTypeStructure.Declared("type:java.lang.Object", Optional.empty(),
       List.of());
 
@@ -48,13 +49,28 @@ public final class SyntaxNode {
     validateSourceKind(syntaxKind, sourceKind);
     validateSourceOwner(sourceOwner, sourceOrigin);
     validateType(syntaxKind, type, value);
-    validateReference(syntaxKind, sourceKind, semanticReference);
+    validateReference(syntaxKind, sourceKind, syntaxValue, semanticReference);
     validateChildPositions(childNodes);
     validateShape(syntaxKind, sourceKind, value, childNodes);
+    if (syntaxKind == SyntaxKind.ANNOTATION_ARGUMENT) {
+      validateAnnotationArgumentType((SyntaxValue.AnnotationArgument) value, type, childNodes);
+      validateAnnotationArgumentSource((SyntaxValue.AnnotationArgument) value, sourceKind, sourceOrigin, childNodes);
+    }
     if (sourceKind == JavaSourceKind.ANNOTATION && value instanceof SyntaxValue.Annotation && semanticReference.isEmpty()) {
       throw new IllegalArgumentException("A typed annotation occurrence requires a type resolution outcome");
     }
-    validateBoundSourceRanges(syntaxKind, sourceKind, sourceOrigin, childNodes);
+    if (sourceKind == JavaSourceKind.ANNOTATION && value instanceof SyntaxValue.Annotation
+        && semanticReference.flatMap(SemanticReference::symbolKey).isPresent()) {
+      var typeKey = semanticReference.flatMap(SemanticReference::symbolKey).orElseThrow();
+      for (var child : childNodes) {
+        var argument = child.node().value(SyntaxValue.AnnotationArgument.class);
+        var selectedName = argument.explicitName().orElse("value");
+        if (!argument.selectedElementKey().equals(typeKey + '#' + selectedName + "()")) {
+          throw new IllegalArgumentException("Annotation argument selects an element outside its annotation type");
+        }
+      }
+    }
+    validateBoundSourceRanges(path, syntaxKind, sourceKind, sourceOrigin, childNodes);
     if (syntaxKind == SyntaxKind.TYPE_USE) {
       validateTypeUseAttribution(path, sourceKind, type, value, semanticReference, childNodes);
     }
@@ -390,9 +406,25 @@ public final class SyntaxNode {
     }
   }
 
-  private static void validateBoundSourceRanges(SyntaxKind kind, JavaSourceKind sourceKind, Optional<SourceSpan> parentOrigin,
-      List<SyntaxChild> children) {
-    if (kind == SyntaxKind.TYPE_PARAMETER_DECLARATION) {
+  private static void validateBoundSourceRanges(SyntaxStructuralPath path, SyntaxKind kind, JavaSourceKind sourceKind,
+      Optional<SourceSpan> parentOrigin, List<SyntaxChild> children) {
+    if (sourceKind == JavaSourceKind.ANNOTATION && kind == SyntaxKind.COMPILATION_UNIT) {
+      validateWrittenComponentRanges(parentOrigin, children, SyntaxRole.ANNOTATION_ARGUMENT);
+    } else if (kind == SyntaxKind.ANNOTATION_ARGUMENT) {
+      validateWrittenComponentRanges(parentOrigin, children, SyntaxRole.ANNOTATION_ELEMENT_NAME);
+      validateWrittenComponentRanges(parentOrigin, children, SyntaxRole.VALUE);
+      if (children.size() == NAMED_ANNOTATION_CHILD_COUNT) {
+        var name = children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION_ELEMENT_NAME).findFirst().orElseThrow();
+        var value = children.stream().filter(child -> child.role() == SyntaxRole.VALUE).findFirst().orElseThrow();
+        if (name.node().origin().orElseThrow().endOffsetExclusive() > value.node().origin().orElseThrow().startOffset()) {
+          throw new IllegalArgumentException("Written annotation name must precede its value without overlap");
+        }
+      }
+    } else if (path.steps().stream().anyMatch(step -> step.role() == SyntaxRole.ANNOTATION_ARGUMENT)) {
+      for (var child : children) {
+        validateWrittenComponentRanges(parentOrigin, children, child.role());
+      }
+    } else if (kind == SyntaxKind.TYPE_PARAMETER_DECLARATION) {
       validateWrittenComponentRanges(parentOrigin, children, SyntaxRole.TYPE_BOUND);
     } else if (kind == SyntaxKind.TYPE_USE) {
       switch (sourceKind) {
@@ -456,8 +488,26 @@ public final class SyntaxNode {
     }
   }
 
-  private static void validateReference(SyntaxKind kind, JavaSourceKind sourceKind, Optional<SemanticReference> reference) {
+  private static void validateReference(SyntaxKind kind, JavaSourceKind sourceKind, SyntaxValue syntaxValue,
+      Optional<SemanticReference> reference) {
     if (kind == SyntaxKind.UNSUPPORTED) {
+      return;
+    }
+    if (kind == SyntaxKind.ANNOTATION_ARGUMENT) {
+      if (reference.isEmpty() || reference.orElseThrow().referenceKind() != ReferenceKind.METHOD
+          || reference.orElseThrow().status() != ResolutionStatus.RESOLVED || !reference.orElseThrow().symbolKey()
+              .equals(Optional.of(((SyntaxValue.AnnotationArgument) syntaxValue).selectedElementKey()))) {
+        throw new IllegalArgumentException("An annotation argument requires its selected element reference");
+      }
+      return;
+    }
+    if (kind == SyntaxKind.ANNOTATION_NAME_REFERENCE) {
+      if (reference.isEmpty()
+          || !Set.of(ReferenceKind.FIELD, ReferenceKind.LOCAL, ReferenceKind.ENUM_CONSTANT)
+              .contains(reference.orElseThrow().referenceKind())
+          || reference.orElseThrow().status() != ResolutionStatus.RESOLVED || reference.orElseThrow().symbolKey().isEmpty()) {
+        throw new IllegalArgumentException("An annotation name requires a resolved constant-variable or enum constant reference");
+      }
       return;
     }
     if (kind == SyntaxKind.COMPILATION_UNIT && sourceKind == JavaSourceKind.ANNOTATION) {
@@ -515,6 +565,9 @@ public final class SyntaxNode {
         case PROVIDES -> SyntaxValue.Provides.class;
         default -> throw new IllegalStateException("Unexpected compilation-unit source kind");
       };
+      case ANNOTATION_ARGUMENT -> SyntaxValue.AnnotationArgument.class;
+      case ANNOTATION_ELEMENT_NAME, ANNOTATION_NAME_REFERENCE -> SyntaxValue.SourceSymbol.class;
+      case ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST -> SyntaxValue.None.class;
       case TYPE_DECLARATION -> SyntaxValue.TypeDeclaration.class;
       case FIELD_DECLARATION, ENUM_CONSTANT_DECLARATION -> SyntaxValue.VariableDeclaration.class;
       case RECORD_COMPONENT_DECLARATION -> SyntaxValue.RecordComponentDeclaration.class;
@@ -589,9 +642,31 @@ public final class SyntaxNode {
           }
           case IMPORT, REQUIRES, EXPORTS, OPENS, USES, PROVIDES -> requireShape(children, Set.of());
           case ANNOTATION -> {
-            requireShape(children, Set.of());
+            requireShape(children, Set.of(SyntaxRole.ANNOTATION_ARGUMENT));
             if (!(value instanceof SyntaxValue.Annotation || value instanceof SyntaxValue.None)) {
               throw new IllegalArgumentException("An annotation requires a written form or a deferred type-use leaf");
+            }
+            if (value instanceof SyntaxValue.Annotation annotation) {
+              var arguments = children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION_ARGUMENT).toList();
+              if (annotation.argumentFailureCode().isPresent()) {
+                if (!arguments.isEmpty()) {
+                  throw new IllegalArgumentException("A diagnosed incomplete annotation cannot publish argument pairs");
+                }
+              } else if (arguments.size() != annotation.arguments().size()) {
+                throw new IllegalArgumentException("Annotation argument children must match its captured source headers");
+              }
+              var selectedElements = new HashSet<String>();
+              for (var child : arguments) {
+                if (child.node().syntaxKind() != SyntaxKind.ANNOTATION_ARGUMENT || !child.node().value(SyntaxValue.AnnotationArgument.class)
+                    .explicitName().equals(annotation.arguments().get(child.position()).explicitName())) {
+                  throw new IllegalArgumentException("Annotation argument child differs from its captured source header");
+                }
+                if (!selectedElements.add(child.node().value(SyntaxValue.AnnotationArgument.class).selectedElementKey())) {
+                  throw new IllegalArgumentException("Annotation argument pairs must select distinct elements");
+                }
+              }
+            } else if (!children.isEmpty()) {
+              throw new IllegalArgumentException("A deferred annotation cannot publish argument pairs");
             }
           }
           case MODULE -> {
@@ -610,6 +685,49 @@ public final class SyntaxNode {
             }
           }
           default -> throw new IllegalStateException("Unexpected compilation-unit source kind");
+        }
+      }
+      case ANNOTATION_ARGUMENT -> {
+        requireShape(children, Set.of(SyntaxRole.ANNOTATION_ELEMENT_NAME, SyntaxRole.VALUE));
+        requireCount(children, SyntaxRole.VALUE, 1, 1);
+        var argument = SyntaxValue.AnnotationArgument.class.cast(value);
+        requireCount(children, SyntaxRole.ANNOTATION_ELEMENT_NAME, argument.explicitName().isPresent() ? 1 : 0,
+            argument.explicitName().isPresent() ? 1 : 0);
+        if (argument.explicitName().isPresent() && !children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION_ELEMENT_NAME)
+            .findFirst().orElseThrow().node().value(SyntaxValue.SourceSymbol.class).name().equals(argument.explicitName().orElseThrow())) {
+          throw new IllegalArgumentException("Annotation argument name child differs from its written name");
+        }
+        var expression = children.stream().filter(child -> child.role() == SyntaxRole.VALUE).findFirst().orElseThrow().node();
+        if (!isAnnotationScalarExpression(expression.syntaxKind())
+            || (argument.scalar() instanceof AnnotationScalar.EnumConstant
+                && (expression.syntaxKind() != SyntaxKind.ANNOTATION_NAME_REFERENCE
+                    || expression.semanticReference().orElseThrow().referenceKind() != ReferenceKind.ENUM_CONSTANT))
+            || (argument.scalar() instanceof AnnotationScalar.ClassLiteral
+                && expression.syntaxKind() != SyntaxKind.ANNOTATION_CLASS_LITERAL)) {
+          throw new IllegalArgumentException("Annotation argument value does not match its source expression");
+        }
+      }
+      case ANNOTATION_NAME_REFERENCE -> {
+        requireShape(children, Set.of(SyntaxRole.QUALIFIER));
+        requireCount(children, SyntaxRole.QUALIFIER, sourceKind == JavaSourceKind.MEMBER_SELECT ? 1 : 0,
+            sourceKind == JavaSourceKind.MEMBER_SELECT ? 1 : 0);
+        if (children.stream().anyMatch(child -> child.node().syntaxKind() != SyntaxKind.TYPE_USE)) {
+          throw new IllegalArgumentException("A qualified annotation constant requires a structural type qualifier");
+        }
+      }
+      case ANNOTATION_CLASS_LITERAL -> {
+        requireShape(children, Set.of(SyntaxRole.TYPE_OPERAND), SyntaxRole.TYPE_OPERAND, 1, 1);
+        if (children.getFirst().node().syntaxKind() != SyntaxKind.TYPE_USE) {
+          throw new IllegalArgumentException("A class literal requires a structural type operand");
+        }
+      }
+      case ANNOTATION_CAST -> {
+        requireShape(children, Set.of(SyntaxRole.TYPE_OPERAND, SyntaxRole.EXPRESSION));
+        requireCount(children, SyntaxRole.TYPE_OPERAND, 1, 1);
+        requireCount(children, SyntaxRole.EXPRESSION, 1, 1);
+        if (children.stream().filter(child -> child.role() == SyntaxRole.TYPE_OPERAND).findFirst().orElseThrow().node()
+            .syntaxKind() != SyntaxKind.TYPE_USE) {
+          throw new IllegalArgumentException("An annotation cast requires a structural type operand");
         }
       }
       case PARAMETER_DECLARATION -> validateParameterDeclaration(SyntaxValue.ParameterDeclaration.class.cast(value), children);
@@ -674,7 +792,8 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.FALSE_EXPRESSION, 1, 1);
       }
       case TYPE_USE -> validateTypeUse(sourceKind, value, children);
-      case STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, VARIABLE_ACCESS, VARIABLE_LOCATION, RECEIVER, LITERAL, EMPTY ->
+      case ANNOTATION_ELEMENT_NAME, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, VARIABLE_ACCESS, VARIABLE_LOCATION, RECEIVER,
+          LITERAL, EMPTY ->
         requireShape(children, Set.of());
       case RECEIVER_NAME -> {
         requireShape(children, Set.of());
@@ -683,6 +802,99 @@ public final class SyntaxNode {
       case TYPE_PARAMETER_DECLARATION -> validateTypeParameterDeclaration(SyntaxValue.TypeParameterDeclaration.class.cast(value), children);
       case UNSUPPORTED -> {
       }
+    }
+  }
+
+  private static boolean isAnnotationScalarExpression(SyntaxKind kind) {
+    return switch (kind) {
+      case LITERAL, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR, PARENTHESIZED, CONDITIONAL_EXPRESSION, ANNOTATION_NAME_REFERENCE,
+          ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST ->
+        true;
+      default -> false;
+    };
+  }
+
+  private static void validateAnnotationArgumentSource(SyntaxValue.AnnotationArgument argument, JavaSourceKind sourceKind,
+      Optional<SourceSpan> origin, List<SyntaxChild> children) {
+    var expression = children.stream().filter(child -> child.role() == SyntaxRole.VALUE).findFirst().orElseThrow().node();
+    if (argument.explicitName().isPresent()) {
+      if (sourceKind != JavaSourceKind.ASSIGNMENT) {
+        throw new IllegalArgumentException("A named annotation pair requires an assignment source kind");
+      }
+    } else if (sourceKind == JavaSourceKind.ASSIGNMENT || sourceKind != expression.sourceKind() || !origin.equals(expression.origin())) {
+      throw new IllegalArgumentException("A shorthand annotation pair must match its source value expression");
+    }
+  }
+
+  private static void validateAnnotationArgumentType(SyntaxValue.AnnotationArgument argument, SyntaxType type, List<SyntaxChild> children) {
+    if (!(type instanceof SyntaxType.Resolved selected) || selected.structure().isEmpty()) {
+      throw new IllegalArgumentException("An annotation element requires a resolved structural type");
+    }
+    var category = selected.identity().category();
+    var scalar = argument.scalar();
+    var matches = switch (scalar) {
+      case AnnotationScalar.BooleanValue ignored -> category == JavaTypeCategory.BOOLEAN;
+      case AnnotationScalar.ByteValue ignored -> category == JavaTypeCategory.BYTE;
+      case AnnotationScalar.ShortValue ignored -> category == JavaTypeCategory.SHORT;
+      case AnnotationScalar.CharValue ignored -> category == JavaTypeCategory.CHAR;
+      case AnnotationScalar.IntValue ignored -> category == JavaTypeCategory.INT;
+      case AnnotationScalar.LongValue ignored -> category == JavaTypeCategory.LONG;
+      case AnnotationScalar.FloatValue ignored -> category == JavaTypeCategory.FLOAT;
+      case AnnotationScalar.DoubleValue ignored -> category == JavaTypeCategory.DOUBLE;
+      case AnnotationScalar.StringValue ignored ->
+        category == JavaTypeCategory.DECLARED && selected.structure().orElseThrow() instanceof JavaTypeStructure.Declared declared
+            && "type:java.lang.String".equals(declared.declarationKey());
+      case AnnotationScalar.EnumConstant constant ->
+        category == JavaTypeCategory.DECLARED && selected.structure().orElseThrow() instanceof JavaTypeStructure.Declared declared
+            && declared.declarationKey().equals(constant.enumTypeKey());
+      case AnnotationScalar.ClassLiteral ignored ->
+        category == JavaTypeCategory.DECLARED && selected.structure().orElseThrow() instanceof JavaTypeStructure.Declared declared
+            && "type:java.lang.Class".equals(declared.declarationKey());
+    };
+    if (!matches) {
+      throw new IllegalArgumentException("Annotation scalar category conflicts with the selected element type");
+    }
+    var expression = children.stream().filter(child -> child.role() == SyntaxRole.VALUE).findFirst().orElseThrow().node();
+    if (!(expression.type() instanceof SyntaxType.Resolved sourceType) || sourceType.structure().isEmpty()) {
+      throw new IllegalArgumentException("An annotation expression requires an independently resolved structural type");
+    }
+    if (scalar instanceof AnnotationScalar.EnumConstant constant
+        && !expression.semanticReference().flatMap(SemanticReference::symbolKey).equals(Optional.of(constant.declarationKey()))) {
+      throw new IllegalArgumentException("An enum annotation value must match its source constant reference");
+    }
+    if (scalar instanceof AnnotationScalar.ClassLiteral literal) {
+      var operand = expression.requiredChild(SyntaxRole.TYPE_OPERAND);
+      if (!(operand.type() instanceof SyntaxType.Resolved operandType)
+          || !operandType.structure().equals(Optional.of(literal.operandType()))) {
+        throw new IllegalArgumentException("A class annotation value must match its written type operand");
+      }
+    }
+    var sourceCategory = sourceType.identity().category();
+    var compatible = switch (scalar) {
+      case AnnotationScalar.BooleanValue ignored -> sourceCategory == JavaTypeCategory.BOOLEAN;
+      case AnnotationScalar.ByteValue ignored ->
+        Set.of(JavaTypeCategory.BYTE, JavaTypeCategory.SHORT, JavaTypeCategory.CHAR, JavaTypeCategory.INT).contains(sourceCategory);
+      case AnnotationScalar.ShortValue ignored ->
+        Set.of(JavaTypeCategory.BYTE, JavaTypeCategory.SHORT, JavaTypeCategory.CHAR, JavaTypeCategory.INT).contains(sourceCategory);
+      case AnnotationScalar.CharValue ignored ->
+        Set.of(JavaTypeCategory.BYTE, JavaTypeCategory.SHORT, JavaTypeCategory.CHAR, JavaTypeCategory.INT).contains(sourceCategory);
+      case AnnotationScalar.IntValue ignored ->
+        Set.of(JavaTypeCategory.BYTE, JavaTypeCategory.SHORT, JavaTypeCategory.CHAR, JavaTypeCategory.INT).contains(sourceCategory);
+      case AnnotationScalar.LongValue ignored ->
+        Set.of(JavaTypeCategory.BYTE, JavaTypeCategory.SHORT, JavaTypeCategory.CHAR, JavaTypeCategory.INT, JavaTypeCategory.LONG)
+            .contains(sourceCategory);
+      case AnnotationScalar.FloatValue ignored -> Set.of(JavaTypeCategory.BYTE, JavaTypeCategory.SHORT, JavaTypeCategory.CHAR,
+          JavaTypeCategory.INT, JavaTypeCategory.LONG, JavaTypeCategory.FLOAT).contains(sourceCategory);
+      case AnnotationScalar.DoubleValue ignored -> Set.of(JavaTypeCategory.BYTE, JavaTypeCategory.SHORT, JavaTypeCategory.CHAR,
+          JavaTypeCategory.INT, JavaTypeCategory.LONG, JavaTypeCategory.FLOAT, JavaTypeCategory.DOUBLE).contains(sourceCategory);
+      case AnnotationScalar.StringValue ignored -> "java.lang.String".equals(sourceType.identity().erasedName());
+      case AnnotationScalar.EnumConstant constant -> sourceType.structure().orElseThrow() instanceof JavaTypeStructure.Declared declared
+          && declared.declarationKey().equals(constant.enumTypeKey());
+      case AnnotationScalar.ClassLiteral ignored -> sourceType.structure().orElseThrow() instanceof JavaTypeStructure.Declared declared
+          && "type:java.lang.Class".equals(declared.declarationKey());
+    };
+    if (!compatible) {
+      throw new IllegalArgumentException("Annotation scalar conflicts with source expression type");
     }
   }
 

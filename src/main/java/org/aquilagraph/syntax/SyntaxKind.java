@@ -4,6 +4,16 @@ package org.aquilagraph.syntax;
 public enum SyntaxKind {
   /** Source-only compilation-unit and module structure outside method-body lowering. */
   COMPILATION_UNIT,
+  /** Explicit source-owned annotation element-value pair. */
+  ANNOTATION_ARGUMENT,
+  /** Written name in an explicit annotation element-value pair. */
+  ANNOTATION_ELEMENT_NAME,
+  /** Constant-variable or enum-constant name in an annotation value. */
+  ANNOTATION_NAME_REFERENCE,
+  /** Class literal in an annotation value. */
+  ANNOTATION_CLASS_LITERAL,
+  /** Source cast in an annotation constant expression. */
+  ANNOTATION_CAST,
   /** Source type declaration occurrence. */
   TYPE_DECLARATION,
   /** Source type parameter declaration occurrence. */
@@ -95,9 +105,10 @@ public enum SyntaxKind {
 
   boolean requiresType() {
     return switch (this) {
-      case TYPE_USE, LOCAL_DECLARATION, SWITCH_EXPRESSION, INVOCATION, OBJECT_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL,
-          UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT, VARIABLE_LOCATION, FIELD_LOCATION, ARRAY_LOCATION, ARRAY_ACCESS,
-          ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST, CONDITIONAL_EXPRESSION ->
+      case TYPE_USE, ANNOTATION_ARGUMENT, ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST, LOCAL_DECLARATION,
+          SWITCH_EXPRESSION, INVOCATION, OBJECT_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY, CONDITIONAL_AND,
+          CONDITIONAL_OR, ASSIGNMENT, VARIABLE_LOCATION, FIELD_LOCATION, ARRAY_LOCATION, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED,
+          TYPE_CAST, CONDITIONAL_EXPRESSION ->
         true;
       default -> false;
     };
@@ -123,6 +134,11 @@ public enum SyntaxKind {
         case COMPILATION_UNIT, PACKAGE, IMPORT, ANNOTATION, MODULE, REQUIRES, EXPORTS, OPENS, USES, PROVIDES -> true;
         default -> false;
       };
+      case ANNOTATION_ARGUMENT -> sourceKind == JavaSourceKind.ASSIGNMENT || annotationScalarSyntax(sourceKind);
+      case ANNOTATION_ELEMENT_NAME -> sourceKind == JavaSourceKind.IDENTIFIER;
+      case ANNOTATION_NAME_REFERENCE -> sourceKind == JavaSourceKind.IDENTIFIER || sourceKind == JavaSourceKind.MEMBER_SELECT;
+      case ANNOTATION_CLASS_LITERAL -> sourceKind == JavaSourceKind.MEMBER_SELECT;
+      case ANNOTATION_CAST -> sourceKind == JavaSourceKind.TYPE_CAST;
       case TYPE_DECLARATION -> switch (sourceKind) {
         case CLASS, INTERFACE, ENUM, RECORD, ANNOTATION_TYPE -> true;
         default -> false;
@@ -172,6 +188,17 @@ public enum SyntaxKind {
       case CONDITIONAL_EXPRESSION -> sourceKind == JavaSourceKind.CONDITIONAL_EXPRESSION;
       case EMPTY -> sourceKind == JavaSourceKind.EMPTY_STATEMENT;
       case UNSUPPORTED -> throw new IllegalStateException("UNSUPPORTED source-kind validation is handled separately");
+    };
+  }
+
+  private static boolean annotationScalarSyntax(JavaSourceKind sourceKind) {
+    return switch (sourceKind) {
+      case BOOLEAN_LITERAL, CHAR_LITERAL, INT_LITERAL, LONG_LITERAL, FLOAT_LITERAL, DOUBLE_LITERAL, STRING_LITERAL, IDENTIFIER,
+          MEMBER_SELECT, PARENTHESIZED, TYPE_CAST, CONDITIONAL_EXPRESSION, UNARY_PLUS, UNARY_MINUS, BITWISE_COMPLEMENT, LOGICAL_COMPLEMENT,
+          MULTIPLY, DIVIDE, REMAINDER, PLUS, MINUS, LEFT_SHIFT, RIGHT_SHIFT, UNSIGNED_RIGHT_SHIFT, LESS_THAN, GREATER_THAN, LESS_THAN_EQUAL,
+          GREATER_THAN_EQUAL, EQUAL_TO, NOT_EQUAL_TO, AND, XOR, OR, CONDITIONAL_AND, CONDITIONAL_OR ->
+        true;
+      default -> false;
     };
   }
 }

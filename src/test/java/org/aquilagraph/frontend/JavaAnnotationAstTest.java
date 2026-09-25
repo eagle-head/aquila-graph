@@ -103,8 +103,7 @@ class JavaAnnotationAstTest {
           var range = node.origin().orElseThrow();
           return source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive()));
         }).toList());
-    assertEquals(List.of("frontend.unsupported-annotation-default", "frontend.unsupported-annotation-value",
-        "frontend.unsupported-annotation-value"),
+    assertEquals(List.of("frontend.unsupported-annotation-default"),
         result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
     assertEquals(result.aggregate(), repeated.aggregate());
     assertEquals(result.diagnostics(), repeated.diagnostics());
@@ -306,8 +305,7 @@ class JavaAnnotationAstTest {
         .equals(occurrences.getFirst().semanticReference().orElseThrow().symbolKey())));
     assertEquals(2, aggregate.semanticEdges().stream().filter(edge -> edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET
         && edge.target().equals(new SyntaxSemanticTarget.SourceOccurrence(sample.nodeId()))).count());
-    assertEquals(List.of("frontend.unsupported-annotation-value"),
-        result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
+    assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
 
     Files.writeString(sourceRoot.resolve("Repeat.java"), source.replace("@Repeat @Repeat() class", "@Repeat() @Repeat class"));
     var reversed = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot,
@@ -496,8 +494,7 @@ class JavaAnnotationAstTest {
         occurrences.stream().map(node -> node.semanticReference().orElseThrow().symbolKey().orElseThrow()).toList());
     assertEquals(3, aggregate.semanticEdges().stream().filter(edge -> edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET
         && edge.target().equals(new SyntaxSemanticTarget.SourceOccurrence(sample.nodeId()))).count());
-    assertEquals(3, result.diagnostics().stream().filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-annotation-value"))
-        .count());
+    assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
   }
 
   @Test

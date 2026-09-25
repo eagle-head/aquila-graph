@@ -404,6 +404,12 @@ final class JavaAstAggregateBuilder {
     if (node.syntaxKind() == SyntaxKind.TYPE_USE && !declarationEdges.equals(node.semanticEdges())) {
       throw new IllegalArgumentException("AST type-use declaration reference must match its selected target: " + node.nodeId());
     }
+    if (switch (node.syntaxKind()) {
+      case ANNOTATION_ARGUMENT, ANNOTATION_ELEMENT_NAME, ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST -> true;
+      default -> false;
+    } && !declarationEdges.equals(node.semanticEdges())) {
+      throw new IllegalArgumentException("AST annotation value reference must match its selected target: " + node.nodeId());
+    }
     var declaration = switch (node.syntaxKind()) {
       case TYPE_DECLARATION ->
         Optional.of(declarationTarget(ReferenceKind.TYPE, node.value(SyntaxValue.TypeDeclaration.class).declarationKey()));

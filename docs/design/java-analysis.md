@@ -21,8 +21,9 @@ the analysis pipeline.[1][2][15][17][19]
 
 `CompilerSession.parse()` captures `ParsedTreeInventory` before attribution.
 For every written annotation, the inventory records marker, empty-normal,
-single-element, or named-normal form, ordered explicit-name presence, and its
-parsed annotation-type tree path. It also snapshots variable modifier
+single-element, or named-normal form, ordered explicit-name presence, original
+argument and value trees, their tree paths, and the parsed annotation-type path.
+It also snapshots variable modifier
 attachments, so record-component annotations remain available if attribution
 repurposes the variable tree as a backing field and changes its modifiers.
 Delimiter inspection uses original source offsets, decodes Unicode escapes, and
@@ -33,9 +34,17 @@ annotation type and exact range. A declaration-only occurrence receives one
 sealing checks the edge's cardinality, endpoint, resolved annotation type, and
 nonempty, contained, ordered, unique source range. Unknown or nonannotation
 types keep an unresolved type-reference outcome; dual or type-use applicability
-keeps an unresolved location and no declaration-target edge. Value-bearing
-forms retain their headers and a blocking value diagnostic for the next
-increment. Distinct written repeats remain distinct source nodes.[35][36]
+keeps an unresolved location and no declaration-target edge. For declaration-only
+scalar forms, `JavaAnnotationValueProjector` correlates an attributed mirror to
+each written occurrence, including values inside a compiler-synthesized
+repeatable container. It emits ordered `ANNOTATION_ARGUMENT` children with an
+optional written name child, one source expression child, a selected element
+reference and type, and a distinct attributed `AnnotationScalar`. Constant
+expression nodes keep their operators, operand roles, independent types,
+references, and ranges. Class literals and casts reuse recursive type uses.
+Arrays, nested annotations, defaults, and unresolved type-use locations keep
+source-located capability outcomes. Distinct written repeats remain distinct
+source nodes.[35][36][37]
 
 The application's actual compiler options and captured environment options
 both include `-proc:none`. A test artifact with a discoverable service entry
@@ -92,8 +101,9 @@ written type. A compact root spans the complete captured source because javac
 does not provide an end position for its implicit class or compilation unit.
 Package declarations own ordered typed annotation occurrences. Package and import
 names come from compiler-tree name components, while import values separately
-retain static, module, and on-demand form. Explicit annotation argument values
-remain outside this increment and continue to produce a capability diagnostic.
+retain static, module, and on-demand form. Supported scalar annotation arguments
+on declaration attachments have ordered source pairs and independently
+attributed values; unsupported value families retain capability diagnostics.
 Modular roots own exactly one written module declaration with its qualified name,
 open state, annotation attachments, and ordered directive occurrences. The five
 directive values retain qualified operands, `requires` flags, optional ordered
@@ -167,7 +177,7 @@ Selected external types remain keyed references without fabricated source bodies
 Explicit receiver validation uses compiler-selected owner and simple-name facts, while
 constructor receiver ownership uses the attributed enclosing type. None of
 these facts is recovered by parsing display or erasure strings.[33]
-Annotation content remains later AST-E05 work. Public type-use completion checks
+Annotation arrays, nested values, defaults, and exact type-use applicability remain later AST-E05 work. Public type-use completion checks
 the seven E04-valid distinct written type-tree kinds against retained source
 type-use nodes at the same source file and range; unmatched occurrences block completion.
 This also preserves the separate AST-E06 boundary for written body-local type
@@ -188,7 +198,7 @@ parameter correlations. Ordinary fields and enum constants have separate typed
 source kinds and retain their written modifiers, declared type, initializer
 presence, and enum argument-list, argument-count, or constant-body presence.
 An explicit empty enum argument list remains distinct from an omitted list. Full initializer and
-annotation content remains at its later feature boundary. The direct
+annotation arrays, nested values, and defaults remain at their later feature boundary. The direct
 `TypeElement.getEnclosedElements()` inventory is reconciled with detailed member
 aggregates; remaining compiler-exposed declarations become stable-keyed
 `JavaSynthesizedDeclaration` facts outside source AST edges. Member edges and source-body registrations are published
@@ -367,8 +377,8 @@ and line-map protocols are explicitly irrelevant with direct API locators. Packa
 and import declarations are represented as source-owned AST occurrences, including
 the package name, annotation attachment order, import order, imported name, and
 source form. Modular roots and their directive children represent
-`CompilationUnitTree.getModule()`; annotation value content retains its separate
-diagnosed policy.[23][24][25]
+`CompilationUnitTree.getModule()`; scalar annotation values follow the same
+source-owned pair contract, while unsupported value forms retain diagnostics.[23][24][25][37]
 
 The declaration-property catalog represents method type parameters, written and attributed thrown types,
 receiver syntax, attributed receiver types, and variable arity in source-owned
@@ -380,7 +390,7 @@ written receiver syntax. A resolved receiver identifies its declaring type for a
 instance method or its immediately enclosing type for an inner constructor.
 Ordered attributed thrown types correspond one-to-one with written `throws`
 attachments; an unavailable attribution prevents publication of the declaration.
-Unrepresented annotation values, type-use locations, and defaults remain connected to source-located
+Unrepresented annotation arrays, nested values, type-use locations, and defaults remain connected to source-located
 frontend errors. Those errors flow through the existing completion
 projection and therefore prevent `COMPLETED` without using CFG construction as the
 declaration-coverage oracle. Written receiver names and qualifiers are distinct from
@@ -518,9 +528,24 @@ anonymous class bodies. An ordinary field whose initializer contains an
 anonymous class reports
 `frontend.unsupported-anonymous-class-field-initializer`; an enum
 constant-specific class body reports `frontend.unsupported-enum-constant-body`.
-Declaration-only marker and empty-normal annotations on supported headers retain
-form, type resolution, origin, and one validated target. Explicit argument values
-report `frontend.unsupported-annotation-value`; unresolved type-use applicability
+Declaration-only annotations on supported headers retain form, type resolution,
+origin, and one validated target. Scalar explicit arguments additionally retain
+selected elements, source expression structure, and typed compiler values;
+shorthand pairs retain an absent written name, while a failed argument projection
+retains its blocking diagnostic code and publishes no scalar pair. Completed
+annotations require one projected pair per captured written argument;
+pair source kinds must agree with named or shorthand syntax. Completed normal
+annotations require distinct selected elements, and annotation expression type
+operands, qualifiers, and their written type components remain within their
+parent source ranges. A deferred annotation has no projected argument pairs,
+and a named pair's written name precedes its value. Aggregate sealing requires
+annotation-value declaration edges to match the node's selected reference
+exactly. Repeatable scalar occurrences correlate only through their declared containing annotation.
+Record-component annotations use the component element when its source tree
+matches the written component occurrence; same-named record parameters retain
+their own annotation mirrors. Arrays and nested values report
+`frontend.unsupported-annotation-value`.[28][37]
+Unresolved type-use applicability
 reports `frontend.unresolved-annotation-location`. Header type-use annotations
 retain `frontend.unsupported-type-use-annotation` or
 `frontend.unrepresented-source-annotation` diagnostics. Switch statement
@@ -539,7 +564,7 @@ inventory. The declaration-property regression suite verifies the remaining
 diagnostics and represented policies. Package, import, module, type, executable,
 type-parameter, field, enum-constant, and record-component headers have positive
 aggregate tuple tests.
-Type-use and annotation-value content retain their own diagnostic boundaries.[2][25][29]
+Type-use locations and deferred annotation-value families retain their own diagnostic boundaries.[2][25][29][37]
 
 ## Graph-Native Semantic Lowering and Control Flow
 
@@ -959,3 +984,12 @@ implements its bounded model and has no runtime dependency on
     [§§9.7.2–9.7.5](https://docs.oracle.com/javase/specs/jls/se25/html/jls-9.html#jls-9.7.2), annotation forms and applicability;
     [AnnotationTree.getArguments](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/AnnotationTree.html#getArguments()), source argument tree;
     [javac `-proc:none`](https://docs.oracle.com/en/java/javase/25/docs/specs/man/javac.html#option-proc), processing-disabled compiler option.
+37. [JavaAnnotationValueProjector](../../src/main/java/org/aquilagraph/frontend/JavaAnnotationValueProjector.java), attributed scalar and source expression projection;
+    [AnnotationScalar](../../src/main/java/org/aquilagraph/syntax/AnnotationScalar.java), typed values;
+    [SyntaxNode](../../src/main/java/org/aquilagraph/syntax/SyntaxNode.java), pair and expression invariants;
+    [JavaAstAggregateBuilder](../../src/main/java/org/aquilagraph/syntax/JavaAstAggregateBuilder.java), semantic-edge validation;
+    [JavaAnnotationValueAstTest](../../src/test/java/org/aquilagraph/frontend/JavaAnnotationValueAstTest.java), scalar, expression, and invalid-source observations;
+    [JavaAstAggregateTest](../../src/test/java/org/aquilagraph/syntax/JavaAstAggregateTest.java), malformed-contribution rejection;
+    Oracle, *The Java Language Specification, Java SE 25 Edition*,
+    [§9.7.1](https://docs.oracle.com/javase/specs/jls/se25/html/jls-9.html#jls-9.7.1), normal annotations and element values, and
+    [§15.29](https://docs.oracle.com/javase/specs/jls/se25/html/jls-15.html#jls-15.29), constant expressions.

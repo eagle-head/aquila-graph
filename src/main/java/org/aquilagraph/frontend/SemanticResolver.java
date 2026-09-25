@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import javax.lang.model.element.Element;
+import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
@@ -74,6 +75,11 @@ final class SemanticResolver {
   @Nullable
   Tree sourceTree(Element element) {
     return trees.getTree(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
+  }
+
+  @Nullable
+  Tree annotationSourceTree(Element owner, AnnotationMirror mirror) {
+    return trees.getTree(Objects.requireNonNull(owner, ELEMENT_ARGUMENT), Objects.requireNonNull(mirror, "mirror"));
   }
 
   Elements.Origin declarationOrigin(Element element) {
