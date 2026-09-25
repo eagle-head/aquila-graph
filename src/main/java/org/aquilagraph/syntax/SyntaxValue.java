@@ -983,18 +983,28 @@ public sealed interface SyntaxValue {
      *          attributed receiver type or no receiver type
      * @param receiverOwnerKey
      *          canonical type owner of a resolved receiver
+     * @param receiverSimpleName
+     *          compiler-selected simple name of the receiver type declaration
+     * @param enclosingTypeKey
+     *          immediate enclosing type of a constructor's declaring type, when present
      * @param thrownTypes
      *          attributed thrown types in declaration order
      */
-    public record AttributedHeader(SyntaxType receiverType, Optional<String> receiverOwnerKey, List<SyntaxType> thrownTypes) {
+    public record AttributedHeader(SyntaxType receiverType, Optional<String> receiverOwnerKey, Optional<String> receiverSimpleName,
+        Optional<String> enclosingTypeKey, List<SyntaxType> thrownTypes) {
       /** Validates the attributed receiver identity and ordered thrown types. */
       public AttributedHeader {
         Objects.requireNonNull(receiverType, "receiverType");
         Objects.requireNonNull(receiverOwnerKey, "receiverOwnerKey");
+        Objects.requireNonNull(receiverSimpleName, "receiverSimpleName");
+        Objects.requireNonNull(enclosingTypeKey, "enclosingTypeKey");
         thrownTypes = List.copyOf(Objects.requireNonNull(thrownTypes, "thrownTypes"));
         receiverOwnerKey.ifPresent(key -> SyntaxValueSupport.requireText(key, "receiverOwnerKey"));
+        receiverSimpleName.ifPresent(SyntaxValueSupport::requireName);
+        enclosingTypeKey.ifPresent(key -> SyntaxValueSupport.requireText(key, "enclosingTypeKey"));
         if ((receiverType != SyntaxType.NotApplicable.INSTANCE && !(receiverType instanceof SyntaxType.Resolved))
-            || (receiverType instanceof SyntaxType.Resolved) != receiverOwnerKey.isPresent()) {
+            || (receiverType instanceof SyntaxType.Resolved) != receiverOwnerKey.isPresent()
+            || receiverOwnerKey.isPresent() != receiverSimpleName.isPresent()) {
           throw new IllegalArgumentException("An executable requires a correlated attributed receiver type and owner");
         }
         if (receiverType instanceof SyntaxType.Resolved resolved) {
@@ -1002,7 +1012,14 @@ public sealed interface SyntaxValue {
             throw new IllegalArgumentException("An executable receiver requires a declared type");
           }
           var key = receiverOwnerKey.orElseThrow();
-          if (key.startsWith("type:") && !key.contains("#") && !key.substring("type:".length()).equals(resolved.identity().erasedName())) {
+          var structure = resolved.structure()
+              .orElseThrow(() -> new IllegalArgumentException("An executable receiver requires a structural declared type"));
+          var selectedKey = switch (structure) {
+            case JavaTypeStructure.Declared declared -> declared.declarationKey();
+            case JavaTypeStructure.LocalDeclared local -> local.declarationKey();
+            default -> throw new IllegalArgumentException("An executable receiver requires a declared type");
+          };
+          if (!key.equals(selectedKey)) {
             throw new IllegalArgumentException("An executable receiver type must identify its attributed owner");
           }
         }
@@ -1022,7 +1039,7 @@ public sealed interface SyntaxValue {
        * @return attributed header
        */
       public static AttributedHeader withoutReceiver(List<SyntaxType> thrownTypes) {
-        return new AttributedHeader(SyntaxType.NotApplicable.INSTANCE, Optional.empty(), thrownTypes);
+        return new AttributedHeader(SyntaxType.NotApplicable.INSTANCE, Optional.empty(), Optional.empty(), Optional.empty(), thrownTypes);
       }
 
       /**
@@ -1032,12 +1049,18 @@ public sealed interface SyntaxValue {
        *          resolved receiver type
        * @param receiverOwnerKey
        *          canonical receiver type owner
+       * @param receiverSimpleName
+       *          compiler-selected simple name of the receiver type declaration
+       * @param enclosingTypeKey
+       *          immediate enclosing type of a constructor's declaring type, when present
        * @param thrownTypes
        *          attributed thrown types in declaration order
        * @return attributed header
        */
-      public static AttributedHeader withReceiver(SyntaxType receiverType, String receiverOwnerKey, List<SyntaxType> thrownTypes) {
-        return new AttributedHeader(receiverType, Optional.of(receiverOwnerKey), thrownTypes);
+      public static AttributedHeader withReceiver(SyntaxType receiverType, String receiverOwnerKey, String receiverSimpleName,
+          Optional<String> enclosingTypeKey, List<SyntaxType> thrownTypes) {
+        return new AttributedHeader(receiverType, Optional.of(receiverOwnerKey), Optional.of(receiverSimpleName), enclosingTypeKey,
+            thrownTypes);
       }
     }
 
@@ -1070,7 +1093,7 @@ public sealed interface SyntaxValue {
           if (kind == ExecutableKind.METHOD && !ownerKey.equals(receiverOwnerKey)) {
             throw new IllegalArgumentException("A method receiver must identify its declaring type");
           }
-          if (kind == ExecutableKind.CONSTRUCTOR && !receiverMatchesConstructorOwner(ownerKey, receiverOwnerKey)) {
+          if (kind == ExecutableKind.CONSTRUCTOR && !attributed.enclosingTypeKey().equals(Optional.of(receiverOwnerKey))) {
             throw new IllegalArgumentException("A constructor receiver must identify its immediately enclosing type");
           }
           if (kind == ExecutableKind.COMPACT_CONSTRUCTOR || kind == ExecutableKind.ANNOTATION_ELEMENT) {
@@ -1102,12 +1125,6 @@ public sealed interface SyntaxValue {
         }
       }
 
-      private static boolean receiverMatchesConstructorOwner(String ownerKey, String receiverOwnerKey) {
-        var memberPrefix = receiverOwnerKey + ".";
-        var memberOwner = ownerKey.startsWith(memberPrefix) && !ownerKey.substring(memberPrefix.length()).contains(".");
-        var localOwner = ownerKey.startsWith(receiverOwnerKey + "#") && ownerKey.contains(":type:");
-        return memberOwner || localOwner;
-      }
     }
 
     private final ExecutableDetails details;
@@ -1214,6 +1231,15 @@ public sealed interface SyntaxValue {
      */
     public Optional<String> receiverOwnerKey() {
       return details.attributed().receiverOwnerKey();
+    }
+
+    /**
+     * Returns the compiler-selected simple name of a resolved receiver type.
+     *
+     * @return receiver declaration name, if present
+     */
+    public Optional<String> receiverSimpleName() {
+      return details.attributed().receiverSimpleName();
     }
 
     /**

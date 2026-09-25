@@ -919,6 +919,10 @@ public final class SyntaxNode {
           && (child.node().syntaxKind() != SyntaxKind.TYPE_USE || !child.node().sourceKind().identifiesTypeUseSyntax())) {
         throw new IllegalArgumentException("A field type requires a written type-use attachment");
       }
+      if (child.role() == SyntaxRole.DECLARED_TYPE && child.node().type() instanceof SyntaxType.Resolved resolved
+          && !resolved.identity().equals(declaration.declaredType())) {
+        throw new IllegalArgumentException("A field type attachment conflicts with its declaration type");
+      }
     }
   }
 
@@ -934,6 +938,10 @@ public final class SyntaxNode {
       if (child.role() == SyntaxRole.DECLARED_TYPE
           && (child.node().syntaxKind() != SyntaxKind.TYPE_USE || !child.node().sourceKind().identifiesTypeUseSyntax())) {
         throw new IllegalArgumentException("A record component requires a written type-use attachment");
+      }
+      if (child.role() == SyntaxRole.DECLARED_TYPE && child.node().type() instanceof SyntaxType.Resolved resolved
+          && !resolved.identity().equals(declaration.declaredType())) {
+        throw new IllegalArgumentException("A record component type attachment conflicts with its declaration type");
       }
     }
   }
@@ -1001,12 +1009,15 @@ public final class SyntaxNode {
             && node.value(SyntaxValue.TypeParameterDeclaration.class).ordinal() == child.position();
         case RECEIVER_PARAMETER -> node.sourceKind() == JavaSourceKind.VARIABLE && node.syntaxKind() == SyntaxKind.RECEIVER_PARAMETER
             && node.value() instanceof SyntaxValue.ReceiverParameter receiver && receiver.ownerKey().equals(declaration.declarationKey())
-            && receiverMatchesExecutable(declaration, node.requiredChild(SyntaxRole.QUALIFIER));
+            && receiverMatchesExecutable(declaration, node.requiredChild(SyntaxRole.QUALIFIER))
+            && matchingResolvedType(node.requiredChild(SyntaxRole.DECLARED_TYPE).type(), declaration.receiverType());
         case PARAMETER -> node.sourceKind() == JavaSourceKind.VARIABLE && node.syntaxKind() == SyntaxKind.PARAMETER_DECLARATION
             && node.value() instanceof SyntaxValue.ParameterDeclaration parameter
             && parameter.declarationKey().equals(declaration.declarationKey() + ":parameter:" + child.position())
             && parameter.varArgs() == (shape.varArgs() && child.position() == shape.parameters() - 1);
-        case RETURN_TYPE, THROWN_TYPE -> node.syntaxKind() == SyntaxKind.TYPE_USE && node.sourceKind().identifiesTypeUseSyntax();
+        case RETURN_TYPE -> node.syntaxKind() == SyntaxKind.TYPE_USE && node.sourceKind().identifiesTypeUseSyntax();
+        case THROWN_TYPE -> node.syntaxKind() == SyntaxKind.TYPE_USE && node.sourceKind().identifiesTypeUseSyntax()
+            && matchingResolvedType(node.type(), declaration.thrownTypes().get(child.position()));
         case BODY -> node.syntaxKind() == SyntaxKind.BLOCK;
         case DEFAULT_VALUE -> node.syntaxKind() == SyntaxKind.UNSUPPORTED;
         default -> false;
@@ -1021,10 +1032,14 @@ public final class SyntaxNode {
     return switch (declaration.kind()) {
       case METHOD -> nameExpression.sourceKind() == JavaSourceKind.IDENTIFIER;
       case CONSTRUCTOR -> nameExpression.sourceKind() == JavaSourceKind.MEMBER_SELECT
-          && declaration.receiverType() instanceof SyntaxType.Resolved resolved && nameExpression.value(SyntaxValue.SourceSymbol.class)
-              .name().equals(resolved.identity().erasedName().substring(resolved.identity().erasedName().lastIndexOf('.') + 1) + ".this");
+          && nameExpression.value(SyntaxValue.SourceSymbol.class).name().equals(declaration.receiverSimpleName().orElseThrow() + ".this");
       case COMPACT_CONSTRUCTOR, ANNOTATION_ELEMENT -> false;
     };
+  }
+
+  private static boolean matchingResolvedType(SyntaxType written, SyntaxType attributed) {
+    return !(written instanceof SyntaxType.Resolved resolved)
+        || attributed instanceof SyntaxType.Resolved expected && resolved.structure().equals(expected.structure());
   }
 
   private static void validateParameterDeclaration(SyntaxValue.ParameterDeclaration declaration, List<SyntaxChild> children) {

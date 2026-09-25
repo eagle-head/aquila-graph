@@ -13,6 +13,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import org.aquilagraph.model.InputSnapshot;
+import org.aquilagraph.model.ReferenceKind;
+import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.model.SourceFile;
 
@@ -308,6 +310,7 @@ final class JavaAstAggregateBuilder {
 
   private static void validateSemanticEdges(List<SyntaxSemanticEdge> edges, Map<String, SyntaxNode> nodes) {
     var seen = new HashSet<SyntaxSemanticEdge>();
+    var declarationEdges = new HashMap<String, List<SyntaxSemanticEdge>>();
     for (var edge : edges) {
       Objects.requireNonNull(edge, "semanticEdge");
       if (!seen.add(edge)) {
@@ -319,12 +322,60 @@ final class JavaAstAggregateBuilder {
       if (edge.target() instanceof SyntaxSemanticTarget.SourceOccurrence occurrence && !nodes.containsKey(occurrence.nodeKey())) {
         throw new IllegalArgumentException("AST edge endpoint is not owned by the aggregate: semantic target " + occurrence.nodeKey());
       }
+      if (edge.relation() == SyntaxSemanticRelation.DECLARATION_REFERENCE) {
+        appendDeclarationEdge(declarationEdges, edge);
+      }
     }
     for (var node : nodes.values()) {
       if (!seen.containsAll(node.semanticEdges())) {
         throw new IllegalArgumentException("AST semantic edges omit an owned node reference: " + node.nodeId());
       }
+      validateDeclarationEdge(node, declarationEdges.getOrDefault(node.nodeId(), List.of()));
     }
+  }
+
+  private static void appendDeclarationEdge(Map<String, List<SyntaxSemanticEdge>> declarationEdges, SyntaxSemanticEdge edge) {
+    declarationEdges.computeIfAbsent(edge.sourceKey(), ignored -> new ArrayList<>()).add(edge);
+  }
+
+  private static void validateDeclarationEdge(SyntaxNode node, List<SyntaxSemanticEdge> declarationEdges) {
+    if (node.syntaxKind() == SyntaxKind.TYPE_USE && !declarationEdges.equals(node.semanticEdges())) {
+      throw new IllegalArgumentException("AST type-use declaration reference must match its selected target: " + node.nodeId());
+    }
+    var declaration = switch (node.syntaxKind()) {
+      case TYPE_DECLARATION ->
+        Optional.of(declarationTarget(ReferenceKind.TYPE, node.value(SyntaxValue.TypeDeclaration.class).declarationKey()));
+      case TYPE_PARAMETER_DECLARATION -> Optional
+          .of(declarationTarget(ReferenceKind.TYPE_PARAMETER, node.value(SyntaxValue.TypeParameterDeclaration.class).declarationKey()));
+      case METHOD_DECLARATION -> {
+        var value = node.value(SyntaxValue.ExecutableDeclaration.class);
+        var kind = switch (value.kind()) {
+          case CONSTRUCTOR, COMPACT_CONSTRUCTOR -> ReferenceKind.CONSTRUCTOR;
+          case METHOD, ANNOTATION_ELEMENT -> ReferenceKind.METHOD;
+        };
+        yield Optional.of(declarationTarget(kind, value.declarationKey()));
+      }
+      case FIELD_DECLARATION ->
+        Optional.of(declarationTarget(ReferenceKind.FIELD, node.value(SyntaxValue.VariableDeclaration.class).declarationKey()));
+      case ENUM_CONSTANT_DECLARATION ->
+        Optional.of(declarationTarget(ReferenceKind.ENUM_CONSTANT, node.value(SyntaxValue.VariableDeclaration.class).declarationKey()));
+      case RECORD_COMPONENT_DECLARATION -> Optional
+          .of(declarationTarget(ReferenceKind.RECORD_COMPONENT, node.value(SyntaxValue.RecordComponentDeclaration.class).declarationKey()));
+      case PARAMETER_DECLARATION ->
+        Optional.of(declarationTarget(ReferenceKind.PARAMETER, node.value(SyntaxValue.ParameterDeclaration.class).declarationKey()));
+      default -> Optional.<SyntaxSemanticTarget.Declaration>empty();
+    };
+    if (declaration.isEmpty()) {
+      return;
+    }
+    if (declarationEdges.size() != 1 || !declarationEdges.getFirst().target().equals(declaration.orElseThrow())) {
+      throw new IllegalArgumentException("AST declaration reference must match its source declaration: " + node.nodeId());
+    }
+  }
+
+  private static SyntaxSemanticTarget.Declaration declarationTarget(ReferenceKind kind, String key) {
+    return new SyntaxSemanticTarget.Declaration(
+        new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of()));
   }
 
   private static int compareTargets(SyntaxSemanticEdge left, SyntaxSemanticEdge right) {

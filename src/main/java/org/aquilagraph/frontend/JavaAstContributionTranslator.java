@@ -32,6 +32,7 @@ import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.TypeMirror;
 import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.JavaRecordComponent;
 import org.aquilagraph.model.JavaType;
@@ -42,6 +43,7 @@ import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.syntax.JavaSourceKind;
+import org.aquilagraph.syntax.JavaTypeStructure;
 import org.aquilagraph.syntax.JavaDeclarationModifier;
 import org.aquilagraph.syntax.MethodBodyOrigin;
 import org.aquilagraph.syntax.SyntaxChild;
@@ -386,7 +388,7 @@ final class JavaAstContributionTranslator {
       var parameterPath = path.child(SyntaxRole.TYPE_PARAMETER, ordinal);
       var parameterOccurrencePath = occurrencePath.child(SyntaxRole.TYPE_PARAMETER, ordinal);
       var translated = typeParameter(unit, sourceFile, TreePath.getPath(classPath, parameter), parameter, parameterPath,
-          parameterOccurrencePath, semantics.declarationKey(typeElement).orElseThrow(), ordinal, diagnostics);
+          parameterOccurrencePath, semantics.declarationKey(typeElement).orElseThrow(), ordinal, stagedEdges, diagnostics);
       if (translated.isPresent()) {
         children.add(new SyntaxChild(SyntaxRole.TYPE_PARAMETER, ordinal, translated.orElseThrow()));
       }
@@ -394,15 +396,26 @@ final class JavaAstContributionTranslator {
     }
     if (declaration.getExtendsClause() != null) {
       complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getExtendsClause(), path, occurrencePath, SyntaxRole.SUPERCLASS,
-          0, children, diagnostics);
+          0, typeElement.getSuperclass(), children, diagnostics);
+    }
+    if ((!declaration.getImplementsClause().isEmpty() && declaration.getImplementsClause().size() != typeElement.getInterfaces().size())
+        || (!declaration.getPermitsClause().isEmpty()
+            && declaration.getPermitsClause().size() != typeElement.getPermittedSubclasses().size())) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.inconsistent-type-header",
+          "Written hierarchy attachments do not match compiler-attributed declaration order", range));
+      complete = false;
     }
     for (var ordinal = 0; ordinal < declaration.getImplementsClause().size(); ordinal++) {
-      complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getImplementsClause().get(ordinal), path, occurrencePath,
-          SyntaxRole.INTERFACE, ordinal, children, diagnostics);
+      if (ordinal < typeElement.getInterfaces().size()) {
+        complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getImplementsClause().get(ordinal), path, occurrencePath,
+            SyntaxRole.INTERFACE, ordinal, typeElement.getInterfaces().get(ordinal), children, diagnostics);
+      }
     }
     for (var ordinal = 0; ordinal < declaration.getPermitsClause().size(); ordinal++) {
-      complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getPermitsClause().get(ordinal), path, occurrencePath,
-          SyntaxRole.PERMITTED_SUBCLASS, ordinal, children, diagnostics);
+      if (ordinal < typeElement.getPermittedSubclasses().size()) {
+        complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getPermitsClause().get(ordinal), path, occurrencePath,
+            SyntaxRole.PERMITTED_SUBCLASS, ordinal, typeElement.getPermittedSubclasses().get(ordinal), children, diagnostics);
+      }
     }
     var modeledType = typesByKey.get(semantics.declarationKey(typeElement).orElseThrow());
     if (modeledType == null && typesByKey.isEmpty() && declaration.getKind() != Tree.Kind.RECORD) {
@@ -413,7 +426,9 @@ final class JavaAstContributionTranslator {
       complete = false;
     } else {
       for (var component : modeledType.recordComponents()) {
-        var componentNode = recordComponent(unit, sourceFile, declaration, component, path, occurrencePath, stagedEdges, diagnostics);
+        var attributedComponent = typeElement.getRecordComponents().get(component.ordinal());
+        var componentNode = recordComponent(unit, sourceFile, declaration, component, attributedComponent.asType(), path, occurrencePath,
+            stagedEdges, diagnostics);
         componentNode.ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.RECORD_COMPONENT, component.ordinal(), node)));
         complete &= componentNode.isPresent();
       }
@@ -454,16 +469,35 @@ final class JavaAstContributionTranslator {
   }
 
   private boolean appendTypeHeaderAttachment(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath parentPath,
-      SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal, List<SyntaxChild> children,
+      SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal, TypeMirror declarationType, List<SyntaxChild> children,
       List<AnalysisDiagnostic> diagnostics) {
     var path = parentPath.child(role, ordinal);
     var node = typeUseTranslator.translate(unit, sourceFile, tree, path, parentOccurrencePath.child(role, ordinal), diagnostics);
-    node.ifPresent(value -> children.add(new SyntaxChild(role, ordinal, value)));
-    return node.isPresent();
+    if (node.isEmpty()) {
+      return false;
+    }
+    var attributed = semantics.declarationType(declarationType);
+    var written = node.orElseThrow().type();
+    if (written instanceof SyntaxType.Resolved writtenType
+        && (!(attributed instanceof SyntaxType.Resolved declaredType) || !matchingDeclarationType(role, writtenType, declaredType))) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.inconsistent-declaration-type",
+          "A written type attachment conflicts with its compiler-attributed declaration type", node.orElseThrow().origin()));
+      return false;
+    }
+    children.add(new SyntaxChild(role, ordinal, node.orElseThrow()));
+    return true;
+  }
+
+  private static boolean matchingDeclarationType(SyntaxRole role, SyntaxType.Resolved written, SyntaxType.Resolved attributed) {
+    if (role == SyntaxRole.PERMITTED_SUBCLASS && written.structure().orElseThrow() instanceof JavaTypeStructure.Declared source
+        && attributed.structure().orElseThrow() instanceof JavaTypeStructure.Declared selected) {
+      return source.declarationKey().equals(selected.declarationKey());
+    }
+    return written.structure().equals(attributed.structure());
   }
 
   private Optional<SyntaxNode> recordComponent(CompilationUnitTree unit, SourceFile sourceFile, ClassTree declaration,
-      JavaRecordComponent component, SyntaxStructuralPath typePath, SyntaxStructuralPath typeOccurrencePath,
+      JavaRecordComponent component, TypeMirror attributedType, SyntaxStructuralPath typePath, SyntaxStructuralPath typeOccurrencePath,
       List<SyntaxSemanticEdge> semanticEdges, List<AnalysisDiagnostic> diagnostics) {
     var candidates = declaration.getMembers().stream().filter(VariableTree.class::isInstance).map(VariableTree.class::cast)
         .filter(tree -> treeInventory.isWritten(tree) && tree.getName().contentEquals(component.name())
@@ -479,8 +513,8 @@ final class JavaAstContributionTranslator {
     var tree = candidates.getFirst();
     var children = new ArrayList<SyntaxChild>();
     var complete = appendAnnotations(unit, sourceFile, tree.getModifiers().getAnnotations(), path, occurrencePath, children, diagnostics);
-    complete &= appendTypeHeaderAttachment(unit, sourceFile, tree.getType(), path, occurrencePath, SyntaxRole.DECLARED_TYPE, 0, children,
-        diagnostics);
+    complete &= appendTypeHeaderAttachment(unit, sourceFile, tree.getType(), path, occurrencePath, SyntaxRole.DECLARED_TYPE, 0,
+        attributedType, children, diagnostics);
     if (!complete) {
       return Optional.empty();
     }
@@ -499,7 +533,7 @@ final class JavaAstContributionTranslator {
 
   private Optional<SyntaxNode> typeParameter(CompilationUnitTree unit, SourceFile sourceFile, TreePath treePath,
       TypeParameterTree declaration, SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, String ownerKey, int ordinal,
-      List<AnalysisDiagnostic> diagnostics) {
+      List<SyntaxSemanticEdge> semanticEdges, List<AnalysisDiagnostic> diagnostics) {
     var range = requiredRange(unit, sourceFile, declaration, occurrencePath, diagnostics);
     var expectedKey = ownerKey + "#type-parameter:" + ordinal;
     var element = treePath == null ? null : semantics.element(treePath);
@@ -516,9 +550,16 @@ final class JavaAstContributionTranslator {
     }
     var children = new ArrayList<SyntaxChild>();
     var complete = appendAnnotations(unit, sourceFile, declaration.getAnnotations(), path, occurrencePath, children, diagnostics);
+    if (declaration.getBounds().size() != parameterElement.getBounds().size() && !declaration.getBounds().isEmpty()) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(expectedKey, "frontend.inconsistent-type-parameter-bounds",
+          "Written and attributed type-parameter bounds have different cardinality", range));
+      complete = false;
+    }
     for (var index = 0; index < declaration.getBounds().size(); index++) {
-      complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getBounds().get(index), path, occurrencePath,
-          SyntaxRole.TYPE_BOUND, index, children, diagnostics);
+      if (index < parameterElement.getBounds().size()) {
+        complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getBounds().get(index), path, occurrencePath,
+            SyntaxRole.TYPE_BOUND, index, parameterElement.getBounds().get(index), children, diagnostics);
+      }
     }
     if (!complete) {
       return Optional.empty();
@@ -531,8 +572,10 @@ final class JavaAstContributionTranslator {
     }
     var value = new SyntaxValue.TypeParameterDeclaration(declaration.getName().toString(), ownerKey, ordinal,
         declaration.getAnnotations().size(), declaration.getBounds().size(), upperBound.orElseThrow());
-    return Optional.of(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.TYPE_PARAMETER,
-        SyntaxKind.TYPE_PARAMETER_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), range.orElseThrow()));
+    var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.TYPE_PARAMETER, SyntaxKind.TYPE_PARAMETER_DECLARATION,
+        SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), range.orElseThrow());
+    declarationEdge(treePath, node, semanticEdges);
+    return Optional.of(node);
   }
 
   private boolean appendAnnotations(CompilationUnitTree unit, SourceFile sourceFile, List<? extends AnnotationTree> annotations,
@@ -655,13 +698,14 @@ final class JavaAstContributionTranslator {
     var methodKey = semantics.declarationKey(executable).orElseThrow();
     var children = new ArrayList<SyntaxChild>();
     var stagedBodies = new HashMap<String, SyntaxNode>();
+    var stagedEdges = new ArrayList<SyntaxSemanticEdge>();
     var complete = appendAnnotations(unit, sourceFile, declaration.getModifiers().getAnnotations(), path, occurrencePath, children,
         diagnostics);
     for (var index = 0; index < declaration.getTypeParameters().size(); index++) {
       var parameter = declaration.getTypeParameters().get(index);
       var translated = typeParameter(unit, sourceFile, TreePath.getPath(methodPath, parameter), parameter,
           path.child(SyntaxRole.TYPE_PARAMETER, index), occurrencePath.child(SyntaxRole.TYPE_PARAMETER, index), methodKey, index,
-          diagnostics);
+          stagedEdges, diagnostics);
       if (translated.isPresent()) {
         children.add(new SyntaxChild(SyntaxRole.TYPE_PARAMETER, index, translated.orElseThrow()));
       }
@@ -670,6 +714,10 @@ final class JavaAstContributionTranslator {
     var receiverTree = declaration.getReceiverParameter();
     var receiverType = semantics.receiverType(executable);
     var receiverOwnerKey = semantics.receiverOwnerKey(executable);
+    var receiverSimpleName = semantics.receiverSimpleName(executable);
+    var enclosingTypeKey = constructor && attributedOwner instanceof TypeElement ownerTypeElement
+        ? semantics.enclosingTypeKey(ownerTypeElement)
+        : Optional.<String>empty();
     if (receiverType == SyntaxType.Erroneous.INSTANCE) {
       diagnostics.add(FrontendDiagnosticFactory.erroneousCompilerState(methodKey, "frontend.error-receiver-type",
           "javac reported an error type for the executable receiver", range));
@@ -682,13 +730,13 @@ final class JavaAstContributionTranslator {
       diagnostics.add(FrontendDiagnosticFactory.otherError(methodKey, "frontend.unsupported-receiver-type",
           "The executable receiver has an implementation-reserved compiler type", range));
       complete = false;
-    } else if (receiverType == SyntaxType.Unresolved.INSTANCE
+    } else if (receiverType == SyntaxType.Unresolved.INSTANCE || receiverType instanceof SyntaxType.StructureUnavailable
         || (receiverTree != null && receiverType == SyntaxType.NotApplicable.INSTANCE)) {
       diagnostics.add(FrontendDiagnosticFactory.otherError(methodKey, "frontend.unavailable-receiver-type",
           "The attributed receiver type is unavailable for the executable", range));
       complete = false;
     }
-    if (receiverType instanceof SyntaxType.Resolved && receiverOwnerKey.isEmpty()) {
+    if (receiverType instanceof SyntaxType.Resolved && (receiverOwnerKey.isEmpty() || receiverSimpleName.isEmpty())) {
       diagnostics.add(FrontendDiagnosticFactory.otherError(methodKey, "frontend.unavailable-receiver-owner",
           "The attributed receiver has no canonical type owner", range));
       complete = false;
@@ -709,7 +757,8 @@ final class JavaAstContributionTranslator {
         return Optional.empty();
       }
       var receiver = parameter(unit, sourceFile, methodPath, receiverTree, path.child(SyntaxRole.RECEIVER_PARAMETER, 0),
-          occurrencePath.child(SyntaxRole.RECEIVER_PARAMETER, 0), methodKey, true, false, diagnostics);
+          occurrencePath.child(SyntaxRole.RECEIVER_PARAMETER, 0), methodKey, executable.getReceiverType(), true, false, stagedEdges,
+          diagnostics);
       receiver.ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.RECEIVER_PARAMETER, 0, node)));
       complete &= receiver.isPresent();
     }
@@ -723,9 +772,11 @@ final class JavaAstContributionTranslator {
     for (var index = 0; index < writtenParameters.size(); index++) {
       var formal = writtenParameters.get(index);
       var parameterKey = methodKey + ":parameter:" + index;
-      var translated = parameter(unit, sourceFile, methodPath, formal, path.child(SyntaxRole.PARAMETER, index),
-          occurrencePath.child(SyntaxRole.PARAMETER, index), parameterKey, false,
-          executable.isVarArgs() && index == writtenParameters.size() - 1, diagnostics);
+      var translated = index < executable.getParameters().size()
+          ? parameter(unit, sourceFile, methodPath, formal, path.child(SyntaxRole.PARAMETER, index),
+              occurrencePath.child(SyntaxRole.PARAMETER, index), parameterKey, executable.getParameters().get(index).asType(), false,
+              executable.isVarArgs() && index == writtenParameters.size() - 1, stagedEdges, diagnostics)
+          : Optional.<SyntaxNode>empty();
       if (translated.isPresent()) {
         children.add(new SyntaxChild(SyntaxRole.PARAMETER, index, translated.orElseThrow()));
       }
@@ -733,7 +784,7 @@ final class JavaAstContributionTranslator {
     }
     if (declaration.getReturnType() != null) {
       complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getReturnType(), path, occurrencePath, SyntaxRole.RETURN_TYPE, 0,
-          children, diagnostics);
+          executable.getReturnType(), children, diagnostics);
     }
     var thrownTypes = semantics.thrownTypes(executable);
     if (thrownTypes.size() != declaration.getThrows().size()) {
@@ -742,8 +793,10 @@ final class JavaAstContributionTranslator {
       complete = false;
     }
     for (var index = 0; index < declaration.getThrows().size(); index++) {
-      complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getThrows().get(index), path, occurrencePath,
-          SyntaxRole.THROWN_TYPE, index, children, diagnostics);
+      if (index < executable.getThrownTypes().size()) {
+        complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getThrows().get(index), path, occurrencePath,
+            SyntaxRole.THROWN_TYPE, index, executable.getThrownTypes().get(index), children, diagnostics);
+      }
       if (index < thrownTypes.size() && !(thrownTypes.get(index) instanceof SyntaxType.Resolved)) {
         var thrownType = thrownTypes.get(index);
         var code = thrownType instanceof SyntaxType.NoType
@@ -793,7 +846,8 @@ final class JavaAstContributionTranslator {
     try {
       value = new SyntaxValue.ExecutableDeclaration(name, sourceOwnerKey.orElseThrow(), methodKey, kind,
           declarationModifiers(declaration.getModifiers().getFlags()), declarationModifiers(executable.getModifiers()), shape,
-          new SyntaxValue.ExecutableDeclaration.AttributedHeader(receiverType, receiverOwnerKey, thrownTypes));
+          new SyntaxValue.ExecutableDeclaration.AttributedHeader(receiverType, receiverOwnerKey, receiverSimpleName, enclosingTypeKey,
+              thrownTypes));
     } catch (IllegalArgumentException exception) {
       diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.invalid-executable-header",
           Objects.requireNonNullElse(exception.getMessage(), "The executable header is inconsistent"), range));
@@ -805,13 +859,14 @@ final class JavaAstContributionTranslator {
     var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
         SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), range.orElseThrow());
     publishedBodies.putAll(stagedBodies);
-    declarationEdge(methodPath, node, semanticEdges);
+    declarationEdge(methodPath, node, stagedEdges);
+    semanticEdges.addAll(stagedEdges);
     return Optional.of(node);
   }
 
   private Optional<SyntaxNode> parameter(CompilationUnitTree unit, SourceFile sourceFile, TreePath methodPath, VariableTree declaration,
-      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, String identityKey, boolean receiver, boolean varArgs,
-      List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, String identityKey, TypeMirror attributedType, boolean receiver,
+      boolean varArgs, List<SyntaxSemanticEdge> semanticEdges, List<AnalysisDiagnostic> diagnostics) {
     var range = requiredRange(unit, sourceFile, declaration, occurrencePath, diagnostics);
     var parameterPath = TreePath.getPath(methodPath, declaration);
     var element = parameterPath == null ? null : semantics.element(parameterPath);
@@ -847,7 +902,7 @@ final class JavaAstContributionTranslator {
     var complete = appendAnnotations(unit, sourceFile, declaration.getModifiers().getAnnotations(), path, occurrencePath, children,
         diagnostics);
     complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getType(), path, occurrencePath, SyntaxRole.DECLARED_TYPE, 0,
-        children, diagnostics);
+        attributedType, children, diagnostics);
     if (receiver) {
       var qualified = receiverName(nameExpression);
       var qualifierRange = requiredRange(unit, sourceFile, nameExpression, occurrencePath.child(SyntaxRole.QUALIFIER, 0), diagnostics);
@@ -873,8 +928,12 @@ final class JavaAstContributionTranslator {
         : new SyntaxValue.ParameterDeclaration(identityKey, name, declarationModifiers(declaration.getModifiers().getFlags()),
             declarationModifiers(effective), declaration.getModifiers().getAnnotations().size(), true, varArgs);
     var syntaxKind = receiver ? SyntaxKind.RECEIVER_PARAMETER : SyntaxKind.PARAMETER_DECLARATION;
-    return Optional.of(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.VARIABLE, syntaxKind,
-        SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), range.orElseThrow()));
+    var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.VARIABLE, syntaxKind, SyntaxType.NotApplicable.INSTANCE,
+        value, children, Optional.empty(), range.orElseThrow());
+    if (!receiver) {
+      declarationEdge(parameterPath, node, semanticEdges);
+    }
+    return Optional.of(node);
   }
 
   private Optional<SyntaxNode> field(CompilationUnitTree unit, SourceFile sourceFile, TreePath fieldPath, VariableTree declaration,
@@ -913,7 +972,7 @@ final class JavaAstContributionTranslator {
         return Optional.empty();
       }
       complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getType(), path, occurrencePath, SyntaxRole.DECLARED_TYPE, 0,
-          children, diagnostics);
+          variable.asType(), children, diagnostics);
     }
     if (!complete) {
       return Optional.empty();
@@ -1014,6 +1073,8 @@ final class JavaAstContributionTranslator {
       case CONSTRUCTOR -> Optional.of(ReferenceKind.CONSTRUCTOR);
       case METHOD -> Optional.of(ReferenceKind.METHOD);
       case FIELD -> Optional.of(ReferenceKind.FIELD);
+      case TYPE_PARAMETER -> Optional.of(ReferenceKind.TYPE_PARAMETER);
+      case PARAMETER -> Optional.of(ReferenceKind.PARAMETER);
       case ENUM_CONSTANT -> Optional.of(ReferenceKind.ENUM_CONSTANT);
       case RECORD_COMPONENT -> Optional.of(ReferenceKind.RECORD_COMPONENT);
       default -> Optional.empty();

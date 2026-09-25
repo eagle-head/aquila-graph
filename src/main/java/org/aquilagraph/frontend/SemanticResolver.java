@@ -139,6 +139,10 @@ final class SemanticResolver {
     return projectType(compilerType(path), true);
   }
 
+  SyntaxType declarationType(TypeMirror type) {
+    return projectType(Objects.requireNonNull(type, "type"), true);
+  }
+
   private SyntaxType projectType(@Nullable TypeMirror type, boolean includeStructure) {
     if (type == null) {
       return SyntaxType.Unresolved.INSTANCE;
@@ -252,7 +256,7 @@ final class SemanticResolver {
     return switch (type.getKind()) {
       case NONE -> SyntaxType.NotApplicable.INSTANCE;
       case ERROR -> SyntaxType.Erroneous.INSTANCE;
-      case DECLARED -> new SyntaxType.Resolved(typeIdentity(type));
+      case DECLARED -> projectType(type, true);
       case PACKAGE -> new SyntaxType.NoType(SyntaxType.NoType.Kind.PACKAGE);
       case MODULE -> new SyntaxType.NoType(SyntaxType.NoType.Kind.MODULE);
       case OTHER -> SyntaxType.Unsupported.INSTANCE;
@@ -267,19 +271,24 @@ final class SemanticResolver {
         : Optional.empty();
   }
 
+  Optional<String> receiverSimpleName(ExecutableElement executable) {
+    var type = Objects.requireNonNull(executable, EXECUTABLE_ARGUMENT).getReceiverType();
+    return type instanceof DeclaredType declared && declared.asElement() instanceof TypeElement owner
+        ? Optional.of(owner.getSimpleName().toString())
+        : Optional.empty();
+  }
+
+  Optional<String> enclosingTypeKey(TypeElement type) {
+    for (var owner = Objects.requireNonNull(type, "type").getEnclosingElement(); owner != null; owner = owner.getEnclosingElement()) {
+      if (owner instanceof TypeElement enclosing) {
+        return identities.keyOf(enclosing);
+      }
+    }
+    return Optional.empty();
+  }
+
   List<SyntaxType> thrownTypes(ExecutableElement executable) {
-    return Objects.requireNonNull(executable, EXECUTABLE_ARGUMENT).getThrownTypes().stream().map(type -> {
-      if (type == null) {
-        return (SyntaxType) SyntaxType.Unresolved.INSTANCE;
-      }
-      if (type.getKind() == TypeKind.ERROR) {
-        return (SyntaxType) SyntaxType.Erroneous.INSTANCE;
-      }
-      if (type.getKind() != TypeKind.DECLARED && type.getKind() != TypeKind.TYPEVAR) {
-        return projectType(type, false);
-      }
-      return new SyntaxType.Resolved(typeIdentity(type));
-    }).toList();
+    return Objects.requireNonNull(executable, EXECUTABLE_ARGUMENT).getThrownTypes().stream().map(type -> projectType(type, true)).toList();
   }
 
   Optional<SemanticReference> typeReference(TreePath path) {

@@ -275,13 +275,15 @@ class JavaAstAggregateTest {
         new SyntaxSemanticTarget.SourceOccurrence(member.nodeId()));
     var declarationTarget = new SyntaxSemanticEdge(root.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.Declaration(reference("external")));
-    var childTarget = new SyntaxSemanticEdge(statement.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
+    var childTarget = new SyntaxSemanticEdge(root.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.Declaration(reference("other")));
+    var memberDeclaration = declarationEdge(member);
+    var statementDeclaration = declarationEdge(statement);
     var first = new SyntaxSourceContribution("a", root, root.descendantsAndSelf(), root.structuralEdges(),
-        List.of(childTarget, declarationTarget, sourceTarget));
+        List.of(childTarget, statementDeclaration, declarationTarget, memberDeclaration, sourceTarget));
     var reversed = new SyntaxSourceContribution("a", root, List.of(member, statement, root),
         List.of(root.structuralEdges().get(1), root.structuralEdges().get(0)),
-        List.of(sourceTarget, declarationTarget, childTarget));
+        List.of(sourceTarget, memberDeclaration, declarationTarget, statementDeclaration, childTarget));
 
     // Act
     var left = JavaAstAggregate.builder(snapshot).add(first).add(contribution(secondRoot)).seal();
@@ -295,7 +297,7 @@ class JavaAstAggregateTest {
     assertEquals(List.of(root.rangeTuple().orElseThrow(), member.rangeTuple().orElseThrow(), statement.rangeTuple().orElseThrow(),
         secondRoot.rangeTuple().orElseThrow()), left.rangeTuples());
     assertEquals(root.structuralEdges(), left.structuralEdges());
-    assertEquals(3, left.semanticEdges().size());
+    assertEquals(5, left.semanticEdges().size());
     assertTrue(left.semanticEdges().containsAll(List.of(sourceTarget, declarationTarget, childTarget)));
     assertEquals(left.nodeTuples(), right.nodeTuples());
     assertEquals(left.rangeTuples(), right.rangeTuples());
@@ -314,18 +316,19 @@ class JavaAstAggregateTest {
     var basic = contribution(root);
     var local = new SyntaxSemanticEdge(root.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.SourceOccurrence(child.nodeId()));
-    var external = new SyntaxSemanticEdge(child.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
+    var external = new SyntaxSemanticEdge(root.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.Declaration(reference("external")));
+    var childDeclaration = declarationEdge(child);
 
     // Act
     var without = JavaAstAggregate.builder(snapshot).add(basic).seal();
     var with = JavaAstAggregate.builder(snapshot).add(new SyntaxSourceContribution("a", root, basic.nodes(),
-        basic.structuralEdges(), List.of(external, local))).seal();
+        basic.structuralEdges(), List.of(external, childDeclaration, local))).seal();
 
     // Assert
     assertEquals(without.structuralEdges(), with.structuralEdges());
     assertEquals(without.nodeTuples(), with.nodeTuples());
-    assertEquals(List.of(local, external).stream().sorted(Comparator.comparing(SyntaxSemanticEdge::sourceKey)).toList(),
+    assertEquals(List.of(local, external, childDeclaration).stream().sorted(Comparator.comparing(SyntaxSemanticEdge::sourceKey)).toList(),
         with.semanticEdges());
     assertNotEquals(without, with);
   }
@@ -343,12 +346,13 @@ class JavaAstAggregateTest {
         new SyntaxSemanticTarget.Declaration(reference("external")));
     var nodes = new ArrayList<>(List.of(root, child));
     var structural = new ArrayList<>(List.of(structuralEdge));
-    var semantic = new ArrayList<>(List.of(semanticEdge));
+    var childDeclaration = declarationEdge(child);
+    var semantic = new ArrayList<>(List.of(semanticEdge, childDeclaration));
     var contribution = new SyntaxSourceContribution("a", root, nodes, structural, semantic);
     var expectedChild = type("a", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0));
     var expectedRoot = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, expectedChild)));
     var expected = JavaAstAggregate.builder(snapshot("a")).add(new SyntaxSourceContribution("a", expectedRoot,
-        List.of(expectedRoot, expectedChild), expectedRoot.structuralEdges(), List.of(semanticEdge))).seal();
+        List.of(expectedRoot, expectedChild), expectedRoot.structuralEdges(), List.of(semanticEdge, childDeclaration))).seal();
 
     // Act
     var aggregate = JavaAstAggregate.builder(snapshot).add(contribution).seal();
@@ -369,7 +373,8 @@ class JavaAstAggregateTest {
     assertEquals(List.of(root.nodeTuple(), child.nodeTuple()), aggregate.nodeTuples());
     assertEquals(List.of(root.rangeTuple().orElseThrow(), child.rangeTuple().orElseThrow()), aggregate.rangeTuples());
     assertEquals(List.of(structuralEdge), aggregate.structuralEdges());
-    assertEquals(List.of(semanticEdge), aggregate.semanticEdges());
+    assertEquals(List.of(semanticEdge, childDeclaration).stream().sorted(Comparator.comparing(SyntaxSemanticEdge::sourceKey)).toList(),
+        aggregate.semanticEdges());
     assertThrows(UnsupportedOperationException.class, () -> aggregate.structuralEdges().add(structural.getFirst()));
     assertThrows(UnsupportedOperationException.class, () -> aggregate.nodes().clear());
   }
@@ -817,7 +822,8 @@ class JavaAstAggregateTest {
 
     // Act
     var left = JavaAstAggregate.builder(snapshot).add(new SyntaxSourceContribution("a", plain, plain.descendantsAndSelf(),
-        plain.descendantsAndSelf().stream().flatMap(node -> node.structuralEdges().stream()).toList(), List.of(edge))).seal();
+        plain.descendantsAndSelf().stream().flatMap(node -> node.structuralEdges().stream()).toList(),
+        List.of(edge, declarationEdge(plainMember), declarationEdge(plainType)))).seal();
     var right = JavaAstAggregate.builder(snapshot).add(contribution(linked)).seal();
 
     // Assert
@@ -976,8 +982,21 @@ class JavaAstAggregateTest {
   private static SyntaxSourceContribution contribution(SyntaxNode root) {
     var nodes = root.descendantsAndSelf();
     var structural = nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList();
-    var semantic = nodes.stream().flatMap(node -> node.semanticEdges().stream()).toList();
+    var semantic = nodes.stream().flatMap(node -> switch (node.syntaxKind()) {
+      case TYPE_DECLARATION, METHOD_DECLARATION -> List.of(declarationEdge(node)).stream();
+      default -> node.semanticEdges().stream();
+    }).toList();
     return new SyntaxSourceContribution(root.sourceFileKey(), root, nodes, structural, semantic);
+  }
+
+  private static SyntaxSemanticEdge declarationEdge(SyntaxNode node) {
+    var kind = node.syntaxKind() == SyntaxKind.TYPE_DECLARATION ? ReferenceKind.TYPE : ReferenceKind.CONSTRUCTOR;
+    var key = node.syntaxKind() == SyntaxKind.TYPE_DECLARATION
+        ? node.value(SyntaxValue.TypeDeclaration.class).declarationKey()
+        : node.value(SyntaxValue.ExecutableDeclaration.class).declarationKey();
+    return new SyntaxSemanticEdge(node.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
+        new SyntaxSemanticTarget.Declaration(new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(),
+            List.of(), List.of())));
   }
 
   private static SyntaxSourceContribution contribution(SyntaxNode root, List<SyntaxStructuralEdge> structural,
