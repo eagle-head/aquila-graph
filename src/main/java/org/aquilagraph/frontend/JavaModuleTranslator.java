@@ -33,10 +33,12 @@ import org.aquilagraph.syntax.SyntaxValue;
 final class JavaModuleTranslator {
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
+  private final JavaAnnotationProjector annotationProjector;
 
-  JavaModuleTranslator(JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory) {
+  JavaModuleTranslator(JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory, JavaAnnotationProjector annotationProjector) {
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
+    this.annotationProjector = Objects.requireNonNull(annotationProjector, "annotationProjector");
   }
 
   Optional<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, ModuleTree declaration, SyntaxStructuralPath rootPath,
@@ -85,9 +87,7 @@ final class JavaModuleTranslator {
 
   private Optional<SyntaxNode> annotation(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
       SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
-    return requiredRange(unit, sourceFile, annotation, path, diagnostics)
-        .map(range -> SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT,
-            SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range));
+    return annotationProjector.declaration(unit, sourceFile, annotation, path, path, diagnostics);
   }
 
   private Optional<SyntaxNode> directive(CompilationUnitTree unit, SourceFile sourceFile, DirectiveTree declaration,

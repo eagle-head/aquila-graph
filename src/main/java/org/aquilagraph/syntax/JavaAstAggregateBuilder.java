@@ -17,6 +17,7 @@ import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.model.SourceFile;
+import org.aquilagraph.model.SourceSpan;
 
 /** Package-local validator for one captured source AST. */
 final class JavaAstAggregateBuilder {
@@ -97,6 +98,7 @@ final class JavaAstAggregateBuilder {
     var outgoing = validateStructuralEdges(structural, nodes, roots);
     var orderedNodes = orderNodes(roots, nodes, outgoing);
     validateEmbeddedChildren(nodes, outgoing);
+    validateAnnotationRanges(orderedNodes);
     validateSemanticEdges(semantic, nodes);
     validateMethodBodies(nodes);
     var orderedStructural = new ArrayList<SyntaxStructuralEdge>();
@@ -166,6 +168,29 @@ final class JavaAstAggregateBuilder {
         || range.endOffsetExclusive() > source.content().length()) {
       throw new IllegalArgumentException("AST source range is outside captured source " + source.sourceFileKey() + " for node "
           + node.nodeId() + ": [" + range.startOffset() + ", " + range.endOffsetExclusive() + ") of " + source.content().length());
+    }
+  }
+
+  private static void validateAnnotationRanges(List<SyntaxNode> nodes) {
+    var writtenOrigins = new HashSet<SourceSpan>();
+    for (var parent : nodes) {
+      var parentRange = parent.origin().orElseThrow();
+      var previousEnd = parentRange.startOffset();
+      for (var child : parent.children()) {
+        if (child.role() != SyntaxRole.ANNOTATION || !(child.node().value() instanceof SyntaxValue.Annotation)) {
+          continue;
+        }
+        var annotation = child.node();
+        var range = annotation.origin().orElseThrow();
+        if (!writtenOrigins.add(range)) {
+          throw new IllegalArgumentException("Duplicate AST written annotation range: " + annotation.nodeId());
+        }
+        if (range.length() == 0 || !range.sourceFileKey().equals(parentRange.sourceFileKey()) || range.startOffset() < previousEnd
+            || range.endOffsetExclusive() > parentRange.endOffsetExclusive()) {
+          throw new IllegalArgumentException("AST annotation range must be nonempty, contained, and ordered: " + annotation.nodeId());
+        }
+        previousEnd = range.endOffsetExclusive();
+      }
     }
   }
 
@@ -311,6 +336,7 @@ final class JavaAstAggregateBuilder {
   private static void validateSemanticEdges(List<SyntaxSemanticEdge> edges, Map<String, SyntaxNode> nodes) {
     var seen = new HashSet<SyntaxSemanticEdge>();
     var declarationEdges = new HashMap<String, List<SyntaxSemanticEdge>>();
+    var annotationTargets = new HashMap<String, List<SyntaxSemanticEdge>>();
     for (var edge : edges) {
       Objects.requireNonNull(edge, "semanticEdge");
       if (!seen.add(edge)) {
@@ -323,7 +349,9 @@ final class JavaAstAggregateBuilder {
         throw new IllegalArgumentException("AST edge endpoint is not owned by the aggregate: semantic target " + occurrence.nodeKey());
       }
       if (edge.relation() == SyntaxSemanticRelation.DECLARATION_REFERENCE) {
-        appendDeclarationEdge(declarationEdges, edge);
+        appendEdge(declarationEdges, edge);
+      } else if (edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET) {
+        appendEdge(annotationTargets, edge);
       }
     }
     for (var node : nodes.values()) {
@@ -331,14 +359,48 @@ final class JavaAstAggregateBuilder {
         throw new IllegalArgumentException("AST semantic edges omit an owned node reference: " + node.nodeId());
       }
       validateDeclarationEdge(node, declarationEdges.getOrDefault(node.nodeId(), List.of()));
+      var targets = annotationTargets.getOrDefault(node.nodeId(), List.of());
+      if (node.sourceKind() == JavaSourceKind.ANNOTATION && node.value() instanceof SyntaxValue.Annotation annotation
+          && annotation.location() == SyntaxValue.AnnotationLocation.DECLARATION) {
+        if (node.semanticReference().orElseThrow().status() != ResolutionStatus.RESOLVED) {
+          throw new IllegalArgumentException("AST declaration annotation requires a resolved annotation type: " + node.nodeId());
+        }
+        if (targets.size() != 1 || !(targets.getFirst().target() instanceof SyntaxSemanticTarget.SourceOccurrence occurrence)) {
+          throw new IllegalArgumentException("AST annotation requires exactly one source target: " + node.nodeId());
+        }
+        var parent = nodes.get(occurrence.nodeKey());
+        if (parent == null || !parent.sourceFileKey().equals(node.sourceFileKey())
+            || !parent.children().stream()
+                .anyMatch(child -> child.role() == SyntaxRole.ANNOTATION && child.node().nodeId().equals(node.nodeId()))
+            || !isDeclarationAnnotationTarget(parent)) {
+          throw new IllegalArgumentException("AST annotation target does not match its declaration owner: " + node.nodeId());
+        }
+      } else if (!targets.isEmpty()) {
+        throw new IllegalArgumentException("AST annotation target relation has a nonannotation source: " + node.nodeId());
+      }
     }
   }
 
-  private static void appendDeclarationEdge(Map<String, List<SyntaxSemanticEdge>> declarationEdges, SyntaxSemanticEdge edge) {
-    declarationEdges.computeIfAbsent(edge.sourceKey(), ignored -> new ArrayList<>()).add(edge);
+  private static boolean isDeclarationAnnotationTarget(SyntaxNode node) {
+    if (node.syntaxKind() == SyntaxKind.COMPILATION_UNIT) {
+      return node.sourceKind() == JavaSourceKind.PACKAGE || node.sourceKind() == JavaSourceKind.MODULE;
+    }
+    return switch (node.syntaxKind()) {
+      case TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, METHOD_DECLARATION, FIELD_DECLARATION, ENUM_CONSTANT_DECLARATION,
+          RECORD_COMPONENT_DECLARATION, PARAMETER_DECLARATION ->
+        true;
+      default -> false;
+    };
+  }
+
+  private static void appendEdge(Map<String, List<SyntaxSemanticEdge>> indexedEdges, SyntaxSemanticEdge edge) {
+    indexedEdges.computeIfAbsent(edge.sourceKey(), ignored -> new ArrayList<>()).add(edge);
   }
 
   private static void validateDeclarationEdge(SyntaxNode node, List<SyntaxSemanticEdge> declarationEdges) {
+    if (node.value() instanceof SyntaxValue.Annotation && !declarationEdges.equals(node.semanticEdges())) {
+      throw new IllegalArgumentException("AST annotation type reference must match its selected target: " + node.nodeId());
+    }
     if (node.syntaxKind() == SyntaxKind.TYPE_USE && !declarationEdges.equals(node.semanticEdges())) {
       throw new IllegalArgumentException("AST type-use declaration reference must match its selected target: " + node.nodeId());
     }

@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
@@ -223,7 +224,8 @@ class JavaVariableDeclarationAstTest {
       var task = (JavacTask) compiler.getTask(null, manager, null, List.of("-proc:none", "--release", "25"), null, files);
       var units = new ArrayList<CompilationUnitTree>();
       task.parse().forEach(units::add);
-      var inventory = ParsedTreeInventory.capture(units);
+      var inventory = ParsedTreeInventory.capture(units, ignored -> Optional.of(result.snapshot().sourceFiles().getFirst()),
+          new JavaSourceEvidence(Trees.instance(task).getSourcePositions()));
       task.analyze();
       var trees = Trees.instance(task);
       var identities = new DeclarationIdentityRegistry(trees, task.getTypes());

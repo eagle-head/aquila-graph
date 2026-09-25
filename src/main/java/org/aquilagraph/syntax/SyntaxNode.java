@@ -48,9 +48,12 @@ public final class SyntaxNode {
     validateSourceKind(syntaxKind, sourceKind);
     validateSourceOwner(sourceOwner, sourceOrigin);
     validateType(syntaxKind, type, value);
-    validateReference(syntaxKind, semanticReference);
+    validateReference(syntaxKind, sourceKind, semanticReference);
     validateChildPositions(childNodes);
     validateShape(syntaxKind, sourceKind, value, childNodes);
+    if (sourceKind == JavaSourceKind.ANNOTATION && value instanceof SyntaxValue.Annotation && semanticReference.isEmpty()) {
+      throw new IllegalArgumentException("A typed annotation occurrence requires a type resolution outcome");
+    }
     validateBoundSourceRanges(syntaxKind, sourceKind, sourceOrigin, childNodes);
     if (syntaxKind == SyntaxKind.TYPE_USE) {
       validateTypeUseAttribution(path, sourceKind, type, value, semanticReference, childNodes);
@@ -453,8 +456,14 @@ public final class SyntaxNode {
     }
   }
 
-  private static void validateReference(SyntaxKind kind, Optional<SemanticReference> reference) {
+  private static void validateReference(SyntaxKind kind, JavaSourceKind sourceKind, Optional<SemanticReference> reference) {
     if (kind == SyntaxKind.UNSUPPORTED) {
+      return;
+    }
+    if (kind == SyntaxKind.COMPILATION_UNIT && sourceKind == JavaSourceKind.ANNOTATION) {
+      if (reference.isPresent() && reference.orElseThrow().referenceKind() != ReferenceKind.TYPE) {
+        throw new IllegalArgumentException("ANNOTATION permits only an annotation type reference");
+      }
       return;
     }
     if (kind == SyntaxKind.TYPE_USE) {
@@ -497,7 +506,7 @@ public final class SyntaxNode {
         case COMPILATION_UNIT -> SyntaxValue.CompilationUnit.class;
         case PACKAGE -> SyntaxValue.PackageDeclaration.class;
         case IMPORT -> SyntaxValue.ImportDeclaration.class;
-        case ANNOTATION -> SyntaxValue.None.class;
+        case ANNOTATION -> SyntaxValue.class;
         case MODULE -> SyntaxValue.ModuleDeclaration.class;
         case REQUIRES -> SyntaxValue.Requires.class;
         case EXPORTS -> SyntaxValue.Exports.class;
@@ -574,18 +583,22 @@ public final class SyntaxNode {
           }
           case PACKAGE -> {
             requireShape(children, Set.of(SyntaxRole.ANNOTATION));
-            if (children.stream().anyMatch(child -> child.node().sourceKind() != JavaSourceKind.ANNOTATION
-                || child.node().syntaxKind() != SyntaxKind.COMPILATION_UNIT)) {
+            if (children.stream().anyMatch(child -> !(child.node().value() instanceof SyntaxValue.Annotation))) {
               throw new IllegalArgumentException("A package annotation child requires an annotation attachment");
             }
           }
-          case IMPORT, ANNOTATION, REQUIRES, EXPORTS, OPENS, USES, PROVIDES -> requireShape(children, Set.of());
+          case IMPORT, REQUIRES, EXPORTS, OPENS, USES, PROVIDES -> requireShape(children, Set.of());
+          case ANNOTATION -> {
+            requireShape(children, Set.of());
+            if (!(value instanceof SyntaxValue.Annotation || value instanceof SyntaxValue.None)) {
+              throw new IllegalArgumentException("An annotation requires a written form or a deferred type-use leaf");
+            }
+          }
           case MODULE -> {
             requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.MODULE_DIRECTIVE));
             for (var child : children) {
               var valid = switch (child.role()) {
-                case ANNOTATION ->
-                  child.node().sourceKind() == JavaSourceKind.ANNOTATION && child.node().syntaxKind() == SyntaxKind.COMPILATION_UNIT;
+                case ANNOTATION -> child.node().value() instanceof SyntaxValue.Annotation;
                 case MODULE_DIRECTIVE -> child.node().syntaxKind() == SyntaxKind.COMPILATION_UNIT && Set
                     .of(JavaSourceKind.REQUIRES, JavaSourceKind.EXPORTS, JavaSourceKind.OPENS, JavaSourceKind.USES, JavaSourceKind.PROVIDES)
                     .contains(child.node().sourceKind());
@@ -872,7 +885,7 @@ public final class SyntaxNode {
     for (var child : children) {
       var node = child.node();
       var valid = switch (child.role()) {
-        case ANNOTATION -> node.sourceKind() == JavaSourceKind.ANNOTATION && node.syntaxKind() == SyntaxKind.COMPILATION_UNIT;
+        case ANNOTATION -> node.value() instanceof SyntaxValue.Annotation;
         case TYPE_PARAMETER ->
           node.sourceKind() == JavaSourceKind.TYPE_PARAMETER && node.syntaxKind() == SyntaxKind.TYPE_PARAMETER_DECLARATION
               && node.value(SyntaxValue.TypeParameterDeclaration.class).ownerKey().equals(declaration.declarationKey())
@@ -911,8 +924,7 @@ public final class SyntaxNode {
     requireCount(children, SyntaxRole.ANNOTATION, declaration.annotations(), declaration.annotations());
     requireCount(children, SyntaxRole.DECLARED_TYPE, declaration.type() ? 1 : 0, declaration.type() ? 1 : 0);
     for (var child : children) {
-      if (child.role() == SyntaxRole.ANNOTATION
-          && (child.node().sourceKind() != JavaSourceKind.ANNOTATION || child.node().syntaxKind() != SyntaxKind.COMPILATION_UNIT)) {
+      if (child.role() == SyntaxRole.ANNOTATION && !(child.node().value() instanceof SyntaxValue.Annotation)) {
         throw new IllegalArgumentException("A variable annotation requires a written annotation attachment");
       }
       if (child.role() == SyntaxRole.DECLARED_TYPE
@@ -931,8 +943,7 @@ public final class SyntaxNode {
     requireCount(children, SyntaxRole.ANNOTATION, declaration.annotations(), declaration.annotations());
     requireCount(children, SyntaxRole.DECLARED_TYPE, 1, 1);
     for (var child : children) {
-      if (child.role() == SyntaxRole.ANNOTATION
-          && (child.node().sourceKind() != JavaSourceKind.ANNOTATION || child.node().syntaxKind() != SyntaxKind.COMPILATION_UNIT)) {
+      if (child.role() == SyntaxRole.ANNOTATION && !(child.node().value() instanceof SyntaxValue.Annotation)) {
         throw new IllegalArgumentException("A record component annotation requires a written annotation attachment");
       }
       if (child.role() == SyntaxRole.DECLARED_TYPE
@@ -978,7 +989,7 @@ public final class SyntaxNode {
     for (var child : children) {
       var node = child.node();
       var valid = switch (child.role()) {
-        case ANNOTATION -> node.sourceKind() == JavaSourceKind.ANNOTATION && node.syntaxKind() == SyntaxKind.COMPILATION_UNIT;
+        case ANNOTATION -> node.value() instanceof SyntaxValue.Annotation;
         case TYPE_BOUND -> node.syntaxKind() == SyntaxKind.TYPE_USE && node.sourceKind().identifiesTypeUseSyntax();
         default -> false;
       };
@@ -1003,7 +1014,7 @@ public final class SyntaxNode {
     for (var child : children) {
       var node = child.node();
       var valid = switch (child.role()) {
-        case ANNOTATION -> node.sourceKind() == JavaSourceKind.ANNOTATION && node.syntaxKind() == SyntaxKind.COMPILATION_UNIT;
+        case ANNOTATION -> node.value() instanceof SyntaxValue.Annotation;
         case TYPE_PARAMETER -> node.syntaxKind() == SyntaxKind.TYPE_PARAMETER_DECLARATION
             && node.value(SyntaxValue.TypeParameterDeclaration.class).ownerKey().equals(declaration.declarationKey())
             && node.value(SyntaxValue.TypeParameterDeclaration.class).ordinal() == child.position();
@@ -1049,7 +1060,7 @@ public final class SyntaxNode {
     for (var child : children) {
       var node = child.node();
       var valid = switch (child.role()) {
-        case ANNOTATION -> node.sourceKind() == JavaSourceKind.ANNOTATION && node.syntaxKind() == SyntaxKind.COMPILATION_UNIT;
+        case ANNOTATION -> node.value() instanceof SyntaxValue.Annotation;
         case DECLARED_TYPE -> node.syntaxKind() == SyntaxKind.TYPE_USE && node.sourceKind().identifiesTypeUseSyntax();
         default -> false;
       };
@@ -1067,7 +1078,7 @@ public final class SyntaxNode {
     for (var child : children) {
       var node = child.node();
       var valid = switch (child.role()) {
-        case ANNOTATION -> node.sourceKind() == JavaSourceKind.ANNOTATION && node.syntaxKind() == SyntaxKind.COMPILATION_UNIT;
+        case ANNOTATION -> node.value() instanceof SyntaxValue.Annotation;
         case DECLARED_TYPE -> node.syntaxKind() == SyntaxKind.TYPE_USE && node.sourceKind().identifiesTypeUseSyntax();
         case QUALIFIER -> node.syntaxKind() == SyntaxKind.RECEIVER_NAME;
         default -> false;

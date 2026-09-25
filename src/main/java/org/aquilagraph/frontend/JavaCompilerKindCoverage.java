@@ -130,7 +130,8 @@ final class JavaCompilerKindCoverage {
   }
 
   private static List<LanguageFeatureClassification> typePatternAndSpecialClassifications() {
-    return List.of(represented("ANNOTATED_TYPE", TYPE_USE_BOUNDARY), diagnosed("ANNOTATION"), diagnosed("ANY_PATTERN"),
+    return List.of(represented("ANNOTATED_TYPE", TYPE_USE_BOUNDARY),
+        represented("ANNOTATION", "JavaAstAggregate written annotation occurrence"), diagnosed("ANY_PATTERN"),
         represented("ARRAY_TYPE", TYPE_USE_BOUNDARY), diagnosed("BINDING_PATTERN"),
         represented("CONSTANT_CASE_LABEL", SWITCH_LABEL_BOUNDARY), diagnosed("DECONSTRUCTION_PATTERN"),
         represented("DEFAULT_CASE_LABEL", SWITCH_LABEL_BOUNDARY), diagnosed("ERRONEOUS"),
@@ -138,7 +139,8 @@ final class JavaCompilerKindCoverage {
         irrelevant("OTHER", "Tree.Kind.OTHER is reserved for implementation-defined trees and does not identify Java source syntax",
             OTHER_SOURCE),
         represented("PARAMETERIZED_TYPE", TYPE_USE_BOUNDARY), diagnosed("PATTERN_CASE_LABEL"),
-        represented("PRIMITIVE_TYPE", TYPE_USE_BOUNDARY), represented("SUPER_WILDCARD", TYPE_USE_BOUNDARY), diagnosed("TYPE_ANNOTATION"),
+        represented("PRIMITIVE_TYPE", TYPE_USE_BOUNDARY), represented("SUPER_WILDCARD", TYPE_USE_BOUNDARY),
+        represented("TYPE_ANNOTATION", "JavaAstAggregate written annotation occurrence"),
         represented("UNBOUNDED_WILDCARD", TYPE_USE_BOUNDARY), diagnosed("UNION_TYPE"));
   }
 

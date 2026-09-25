@@ -56,7 +56,6 @@ final class JavaTypeTranslator {
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
-  private final JavaDeclarationPropertyObserver propertyObserver;
   private final JavaMethodTranslator methodTranslator;
 
   JavaTypeTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
@@ -64,7 +63,7 @@ final class JavaTypeTranslator {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
-    this.propertyObserver = Objects.requireNonNull(propertyObserver, "propertyObserver");
+    Objects.requireNonNull(propertyObserver, "propertyObserver");
     this.methodTranslator = Objects.requireNonNull(methodTranslator, "methodTranslator");
   }
 
@@ -96,7 +95,7 @@ final class JavaTypeTranslator {
           "A type declaration element is unavailable", origin));
     }
 
-    diagnoseUnsupportedAnnotations(unit, sourceFile, typeKey, classTree, typeElement, diagnostics, occurrences, observations);
+    diagnoseHeaderTypeUseAnnotations(unit, sourceFile, typeKey, classTree, diagnostics);
     var completeComponents = true;
     if (typeElement != null) {
       recordComponents.addAll(translateRecordComponents(unit, classTree, sourceFile, typeElement, typeKey, diagnostics));
@@ -241,7 +240,6 @@ final class JavaTypeTranslator {
             "A written record component lacks a correlated element, source range, type, or canonical constructor", origin));
         continue;
       }
-      var source = written.getFirst();
       var accessor = component.getAccessor();
       var accessorKey = accessor == null ? Optional.<String>empty() : semantics.declarationKey(accessor);
       var backingFieldKey = typeElement.getEnclosedElements().stream().filter(VariableElement.class::isInstance)
@@ -258,13 +256,6 @@ final class JavaTypeTranslator {
       translated.add(new JavaRecordComponent(expectedKey, typeKey, ordinal, component.getSimpleName().toString(),
           type.orElseThrow().identity(), Set.of(), typeModifiers(component.getModifiers()), varArgs, accessorKey, backingFieldKey,
           parameterKey, origin.orElseThrow()));
-      if (!source.getModifiers().getAnnotations().isEmpty()) {
-        for (var annotation : source.getModifiers().getAnnotations()) {
-          diagnostics.add(FrontendDiagnosticFactory.otherError(expectedKey, "frontend.unsupported-record-component-annotation-content",
-              "Record component annotation content is outside the supported declaration profile",
-              sourceEvidence.origin(unit, sourceFile, annotation)));
-        }
-      }
     }
     return List.copyOf(translated);
   }
@@ -357,12 +348,6 @@ final class JavaTypeTranslator {
     var owner = semantics.element(classPath);
     var recordBacking = owner instanceof TypeElement typeElement && typeElement.getKind() == ElementKind.RECORD && typeElement
         .getRecordComponents().stream().anyMatch(component -> component.getSimpleName().contentEquals(variableTree.getName()));
-    if (!recordBacking) {
-      for (var annotation : variableTree.getModifiers().getAnnotations()) {
-        diagnostics.add(FrontendDiagnosticFactory.otherError(fieldKey, "frontend.unsupported-field-annotation-content",
-            "Field annotation content is outside the supported declaration profile", sourceEvidence.origin(unit, sourceFile, annotation)));
-      }
-    }
     if (variableTree.getNameExpression() != null) {
       diagnostics.add(FrontendDiagnosticFactory.otherError(fieldKey, "frontend.invalid-field-name-expression",
           "A field declaration cannot have a receiver name expression",
@@ -488,23 +473,9 @@ final class JavaTypeTranslator {
     return List.copyOf(parameters);
   }
 
-  private void diagnoseUnsupportedAnnotations(CompilationUnitTree unit, SourceFile sourceFile, String typeKey, ClassTree classTree,
-      @Nullable TypeElement typeElement, List<AnalysisDiagnostic> diagnostics, List<LanguageFeatureOccurrence> occurrences,
-      List<LanguageFeatureObservation> observations) {
-    addAnnotationDiagnostics(unit, sourceFile, typeKey, classTree.getModifiers().getAnnotations(),
-        "frontend.unsupported-type-declaration-annotation", "Type declaration annotations are outside the supported declaration profile",
-        diagnostics);
-    if (typeElement != null) {
-      for (var annotation : classTree.getModifiers().getAnnotations()) {
-        propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, typeKey,
-            JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC,
-            "Type declaration annotations are outside the supported semantic graph profile",
-            sourceEvidence.origin(unit, sourceFile, annotation), JavaDeclarationPropertyCoverage.TYPE_ELEMENT_ANNOTATION_MIRRORS);
-      }
-    }
+  private void diagnoseHeaderTypeUseAnnotations(CompilationUnitTree unit, SourceFile sourceFile, String typeKey, ClassTree classTree,
+      List<AnalysisDiagnostic> diagnostics) {
     for (var parameter : classTree.getTypeParameters()) {
-      addAnnotationDiagnostics(unit, sourceFile, typeKey, parameter.getAnnotations(), "frontend.unsupported-type-parameter-annotation",
-          "Type parameter annotations are outside the supported declaration profile", diagnostics);
       addNestedAnnotationDiagnostics(unit, sourceFile, typeKey, parameter.getBounds(), diagnostics);
     }
     var headerTypes = new ArrayList<Tree>();
@@ -528,14 +499,6 @@ final class JavaTypeTranslator {
       }
     };
     trees.forEach(tree -> scanner.scan(tree, null));
-  }
-
-  private void addAnnotationDiagnostics(CompilationUnitTree unit, SourceFile sourceFile, String typeKey,
-      List<? extends AnnotationTree> annotations, String code, String message, List<AnalysisDiagnostic> diagnostics) {
-    for (var annotation : annotations) {
-      diagnostics
-          .add(FrontendDiagnosticFactory.capabilityError(typeKey, code, message, sourceEvidence.origin(unit, sourceFile, annotation)));
-    }
   }
 
   static Set<JavaTypeModifier> typeModifiers(Set<Modifier> modifiers) {

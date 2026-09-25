@@ -355,8 +355,9 @@ class JavaAstBoundaryRegressionTest {
 
     // Assert
     var codes = input.diagnostics().stream().map(diagnostic -> diagnostic.code()).collect(Collectors.toSet());
-    assertTrue(codes.containsAll(Set.of("frontend.unsupported-type-declaration-annotation",
-        "frontend.unsupported-type-parameter-annotation", "frontend.unsupported-type-use-annotation")));
+    assertTrue(codes.contains("frontend.unsupported-type-use-annotation"));
+    assertTrue(codes.stream().noneMatch(code -> code.equals("frontend.unsupported-type-declaration-annotation")
+        || code.equals("frontend.unsupported-type-parameter-annotation")));
     assertTrue(input.diagnostics().stream().filter(diagnostic -> codes.contains(diagnostic.code()))
         .allMatch(diagnostic -> diagnostic.origins().size() == 1 && diagnostic.origins().getFirst().length() > 0));
     assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());

@@ -12,6 +12,40 @@ import org.aquilagraph.model.InvocationSemantics;
 
 /** Typed source facts required while syntax is lowered directly to semantic graphs. */
 public sealed interface SyntaxValue {
+  /** Written annotation surface form. */
+  enum AnnotationForm {
+    /** Annotation with no argument delimiters. */
+    MARKER,
+    /** Annotation with written empty argument delimiters. */
+    EMPTY_NORMAL,
+    /** Annotation with one unnamed value. */
+    SINGLE_ELEMENT,
+    /** Annotation with explicitly named values. */
+    NAMED_NORMAL
+  }
+
+  /** Whether the declaration target has been established for this occurrence. */
+  enum AnnotationLocation {
+    /** A supported declaration owns this occurrence. */
+    DECLARATION,
+    /** The precise annotation location is not yet represented. */
+    UNRESOLVED
+  }
+
+  /**
+   * An argument header retained before attribution.
+   *
+   * @param explicitName
+   *          written element name, when present
+   */
+  record AnnotationArgumentHeader(Optional<String> explicitName) {
+    /** Validates the optional written name. */
+    public AnnotationArgumentHeader {
+      Objects.requireNonNull(explicitName, "explicitName");
+      explicitName.ifPresent(SyntaxValueSupport::requireName);
+    }
+  }
+
   /** Indicates that a syntax kind requires no additional scalar value. */
   enum None implements SyntaxValue {
     /** Singleton absence value. */
@@ -376,11 +410,11 @@ public sealed interface SyntaxValue {
   /** Shared source-name value boundary for typed syntax facts. */
   abstract sealed class Symbol implements SyntaxValue permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration,
       ModuleDeclaration, ModuleDirective, TypeDeclaration, TypeParameterDeclaration, ExecutableDeclaration, ParameterHeader,
-      VariableDeclaration, RecordComponentDeclaration, PrimitiveType, PackageQualifier {
+      VariableDeclaration, RecordComponentDeclaration, PrimitiveType, PackageQualifier, Annotation {
     enum Form {
       SYMBOL, COMPILATION_UNIT, PACKAGE_DECLARATION, IMPORT_DECLARATION, MODULE_DECLARATION, REQUIRES, EXPORTS, OPENS, USES, PROVIDES,
       TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, EXECUTABLE_DECLARATION, PARAMETER_DECLARATION, RECEIVER_PARAMETER, VARIABLE_DECLARATION,
-      RECORD_COMPONENT_DECLARATION, PRIMITIVE_TYPE, PACKAGE_QUALIFIER
+      RECORD_COMPONENT_DECLARATION, PRIMITIVE_TYPE, PACKAGE_QUALIFIER, ANNOTATION
     }
 
     private final String sourceName;
@@ -419,6 +453,74 @@ public sealed interface SyntaxValue {
     @Override
     public String toString() {
       return getClass().getSimpleName() + "[name=" + sourceName + ']';
+    }
+  }
+
+  /** Exact written form and ordered argument headers of one annotation occurrence. */
+  final class Annotation extends Symbol {
+    private record AnnotationDetails(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location) {
+      private AnnotationDetails {
+        Objects.requireNonNull(form, "form");
+        Objects.requireNonNull(location, "location");
+        arguments = List.copyOf(Objects.requireNonNull(arguments, "arguments"));
+        if ((form == AnnotationForm.MARKER || form == AnnotationForm.EMPTY_NORMAL) != arguments.isEmpty()) {
+          throw new IllegalArgumentException("Annotation argument count does not match its written form");
+        }
+        if (form == AnnotationForm.SINGLE_ELEMENT && (arguments.size() != 1 || arguments.getFirst().explicitName().isPresent())) {
+          throw new IllegalArgumentException("Single-element annotation requires one unnamed argument");
+        }
+        if (form == AnnotationForm.NAMED_NORMAL && arguments.stream().anyMatch(argument -> argument.explicitName().isEmpty())) {
+          throw new IllegalArgumentException("Normal annotation requires named arguments");
+        }
+      }
+    }
+
+    private final AnnotationDetails details;
+
+    /**
+     * Creates one written annotation form with its current location outcome.
+     *
+     * @param form
+     *          written annotation form
+     * @param arguments
+     *          ordered written argument headers
+     * @param location
+     *          current location outcome
+     */
+    public Annotation(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location) {
+      this(new AnnotationDetails(form, arguments, location));
+    }
+
+    private Annotation(AnnotationDetails details) {
+      super("annotation", Form.ANNOTATION, details);
+      this.details = details;
+    }
+
+    /**
+     * Returns the source form captured before attribution.
+     *
+     * @return written annotation form
+     */
+    public AnnotationForm form() {
+      return details.form();
+    }
+
+    /**
+     * Returns ordered written argument headers.
+     *
+     * @return immutable argument headers
+     */
+    public List<AnnotationArgumentHeader> arguments() {
+      return details.arguments();
+    }
+
+    /**
+     * Returns whether a declaration target has been established.
+     *
+     * @return current location outcome
+     */
+    public AnnotationLocation location() {
+      return details.location();
     }
   }
 

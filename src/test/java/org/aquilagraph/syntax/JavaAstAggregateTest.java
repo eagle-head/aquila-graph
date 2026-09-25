@@ -918,6 +918,149 @@ class JavaAstAggregateTest {
     assertTrue(error.getMessage().contains("identical aggregate occurrence: method"));
   }
 
+  @Test
+  void givenAnnotationWithoutTarget_whenAggregateIsSealed_thenCardinalityIsRejected() {
+    // Arrange
+    var root = annotatedPackageRoot("a");
+
+    // Act
+    var error = failure(snapshot("a"), contribution(root));
+
+    // Assert
+    assertTrue(error.getMessage().contains("annotation requires exactly one source target"));
+    assertTrue(error.getMessage().contains(root.requiredChild(SyntaxRole.PACKAGE_DECLARATION)
+        .requiredChild(SyntaxRole.ANNOTATION).nodeId()));
+  }
+
+  @Test
+  void givenAnnotationWithWrongOrDuplicateTarget_whenAggregateIsSealed_thenOwnerInvariantIsRejected() {
+    // Arrange
+    var root = annotatedPackageRoot("a");
+    var packageNode = root.requiredChild(SyntaxRole.PACKAGE_DECLARATION);
+    var annotation = packageNode.requiredChild(SyntaxRole.ANNOTATION);
+    var base = contribution(root);
+    var correct = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
+        new SyntaxSemanticTarget.SourceOccurrence(packageNode.nodeId()));
+    var wrong = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
+        new SyntaxSemanticTarget.SourceOccurrence(root.nodeId()));
+    var extraType = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
+        new SyntaxSemanticTarget.Declaration(reference("type:Other")));
+
+    // Act
+    var wrongError = failure(snapshot("a"), contribution(root, base.structuralEdges(),
+        append(base.semanticEdges(), wrong)));
+    var duplicateError = failure(snapshot("a"), contribution(root, base.structuralEdges(),
+        append(append(base.semanticEdges(), correct), wrong)));
+    var typeError = failure(snapshot("a"), contribution(root, base.structuralEdges(),
+        append(append(base.semanticEdges(), correct), extraType)));
+
+    // Assert
+    assertTrue(wrongError.getMessage().contains("does not match its declaration owner"));
+    assertTrue(duplicateError.getMessage().contains("exactly one source target"));
+    assertTrue(typeError.getMessage().contains("annotation type reference must match"));
+    assertTrue(wrongError.getMessage().contains(annotation.nodeId()));
+    assertTrue(duplicateError.getMessage().contains(annotation.nodeId()));
+    assertTrue(typeError.getMessage().contains(annotation.nodeId()));
+  }
+
+  @Test
+  void givenAnnotationTargetInForeignSource_whenAggregateIsSealed_thenSourceOwnershipIsRejected() {
+    // Arrange
+    var root = annotatedPackageRoot("a");
+    var other = root("b", List.of());
+    var annotation = root.requiredChild(SyntaxRole.PACKAGE_DECLARATION).requiredChild(SyntaxRole.ANNOTATION);
+    var base = contribution(root);
+    var foreign = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
+        new SyntaxSemanticTarget.SourceOccurrence(other.nodeId()));
+    var linked = contribution(root, base.structuralEdges(), append(base.semanticEdges(), foreign));
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class,
+        () -> JavaAstAggregate.builder(snapshot("a", "b")).add(linked).add(contribution(other)).seal());
+
+    // Assert
+    assertTrue(error.getMessage().contains("does not match its declaration owner"));
+    assertTrue(error.getMessage().contains(annotation.nodeId()));
+  }
+
+  @Test
+  void givenInvalidAnnotationRanges_whenAggregateIsSealed_thenEachSourceViolationIsRejected() {
+    // Arrange
+    var empty = annotatedPackageRoot("a", List.of(new SourceSpan("a", 2, 2)), reference("type:Annotation"));
+    var outside = annotatedPackageRoot("a", List.of(new SourceSpan("a", 0, 1)), reference("type:Annotation"));
+    var unordered = annotatedPackageRoot("a", List.of(new SourceSpan("a", 5, 7), new SourceSpan("a", 2, 4)),
+        reference("type:Annotation"));
+    var duplicate = annotatedPackageRoot("a", List.of(new SourceSpan("a", 2, 4), new SourceSpan("a", 2, 4)),
+        reference("type:Annotation"));
+
+    // Act
+    var emptyError = failure(snapshot("a"), contribution(empty));
+    var outsideError = failure(snapshot("a"), contribution(outside));
+    var unorderedError = failure(snapshot("a"), contribution(unordered));
+    var duplicateError = failure(snapshot("a"), contribution(duplicate));
+
+    // Assert
+    assertTrue(emptyError.getMessage().contains("nonempty, contained, and ordered"));
+    assertTrue(outsideError.getMessage().contains("nonempty, contained, and ordered"));
+    assertTrue(unorderedError.getMessage().contains("nonempty, contained, and ordered"));
+    assertTrue(duplicateError.getMessage().contains("Duplicate AST written annotation range"));
+    assertTrue(emptyError.getMessage().contains(empty.requiredChild(SyntaxRole.PACKAGE_DECLARATION)
+        .requiredChild(SyntaxRole.ANNOTATION).nodeId()));
+    assertTrue(outsideError.getMessage().contains(outside.requiredChild(SyntaxRole.PACKAGE_DECLARATION)
+        .requiredChild(SyntaxRole.ANNOTATION).nodeId()));
+    assertTrue(unorderedError.getMessage().contains(unordered.requiredChild(SyntaxRole.PACKAGE_DECLARATION)
+        .children(SyntaxRole.ANNOTATION).get(1).nodeId()));
+    assertTrue(duplicateError.getMessage().contains(duplicate.requiredChild(SyntaxRole.PACKAGE_DECLARATION)
+        .children(SyntaxRole.ANNOTATION).get(1).nodeId()));
+  }
+
+  @Test
+  void givenUnresolvedAnnotationTypeWithDeclarationTarget_whenAggregateIsSealed_thenLocationIsRejected() {
+    // Arrange
+    var unresolved = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(),
+        List.of(), List.of());
+    var root = annotatedPackageRoot("a", List.of(new SourceSpan("a", 2, 4)), unresolved);
+    var packageNode = root.requiredChild(SyntaxRole.PACKAGE_DECLARATION);
+    var annotation = packageNode.requiredChild(SyntaxRole.ANNOTATION);
+    var base = contribution(root);
+    var target = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
+        new SyntaxSemanticTarget.SourceOccurrence(packageNode.nodeId()));
+
+    // Act
+    var error = failure(snapshot("a"), contribution(root, base.structuralEdges(), append(base.semanticEdges(), target)));
+
+    // Assert
+    assertTrue(error.getMessage().contains("requires a resolved annotation type"));
+    assertTrue(error.getMessage().contains(annotation.nodeId()));
+  }
+
+  private static SyntaxNode annotatedPackageRoot(String sourceKey) {
+    return annotatedPackageRoot(sourceKey, List.of(new SourceSpan(sourceKey, 2, 4)), reference("type:Annotation"));
+  }
+
+  private static SyntaxNode annotatedPackageRoot(String sourceKey, List<SourceSpan> ranges, SemanticReference reference) {
+    var path = SyntaxStructuralPath.sourceFileRoot();
+    var packagePath = path.child(SyntaxRole.PACKAGE_DECLARATION, 0);
+    var annotations = new ArrayList<SyntaxChild>();
+    for (var index = 0; index < ranges.size(); index++) {
+      var annotation = SyntaxNode.source(sourceKey, packagePath.child(SyntaxRole.ANNOTATION, index), JavaSourceKind.ANNOTATION,
+          SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+          new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.MARKER, List.of(), SyntaxValue.AnnotationLocation.DECLARATION),
+          List.of(), Optional.of(reference), ranges.get(index));
+      annotations.add(new SyntaxChild(SyntaxRole.ANNOTATION, index, annotation));
+    }
+    var declaration = SyntaxNode.source(sourceKey, packagePath, JavaSourceKind.PACKAGE, SyntaxKind.COMPILATION_UNIT,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.PackageDeclaration("sample"), annotations, Optional.empty(),
+        new SourceSpan(sourceKey, 1, 9));
+    return root(sourceKey, List.of(new SyntaxChild(SyntaxRole.PACKAGE_DECLARATION, 0, declaration)));
+  }
+
+  private static List<SyntaxSemanticEdge> append(List<SyntaxSemanticEdge> existing, SyntaxSemanticEdge added) {
+    var result = new ArrayList<>(existing);
+    result.add(added);
+    return result;
+  }
+
   private static IllegalArgumentException failure(InputSnapshot snapshot, SyntaxSourceContribution contribution) {
     return assertThrows(IllegalArgumentException.class, () -> JavaAstAggregate.builder(snapshot).add(contribution).seal());
   }

@@ -150,11 +150,6 @@ final class JavaMethodTranslator {
       MethodTree methodTree, @Nullable ExecutableElement executable, List<AnalysisDiagnostic> diagnostics,
       List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
     for (var parameter : methodTree.getTypeParameters()) {
-      for (var annotation : parameter.getAnnotations()) {
-        diagnostics.add(FrontendDiagnosticFactory.capabilityError(methodKey, "frontend.unsupported-type-parameter-annotation",
-            "Type-parameter annotation content is outside the supported declaration profile",
-            sourceEvidence.origin(unit, sourceFile, annotation)));
-      }
       diagnoseTypeUseAnnotations(unit, sourceFile, methodKey, parameter.getBounds(), diagnostics);
     }
     if (methodTree.getReceiverParameter() != null) {
@@ -173,14 +168,6 @@ final class JavaMethodTranslator {
         diagnoseTypeUseAnnotations(unit, sourceFile, methodKey, List.of(parameter.getType()), diagnostics);
       }
     }
-    if (executable != null) {
-      for (var annotation : methodTree.getModifiers().getAnnotations()) {
-        propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, methodKey,
-            JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC,
-            "Method and constructor declaration annotations are outside the supported semantic graph profile",
-            sourceEvidence.origin(unit, sourceFile, annotation), JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_ANNOTATION_MIRRORS);
-      }
-    }
     if (methodTree.getDefaultValue() != null) {
       observeMethodAndExecutableProperty(diagnostics, occurrences, observations, sourceFile, methodKey,
           JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC,
@@ -192,13 +179,12 @@ final class JavaMethodTranslator {
 
   private void diagnoseUnsupportedVariableProperties(CompilationUnitTree unit, SourceFile sourceFile, String context,
       VariableTree variableTree, boolean receiver, List<AnalysisDiagnostic> diagnostics) {
-    for (var annotation : variableTree.getModifiers().getAnnotations()) {
-      diagnostics.add(FrontendDiagnosticFactory.capabilityError(context,
-          receiver ? "frontend.unsupported-receiver-annotation-content" : "frontend.unsupported-parameter-annotation-content",
-          receiver
-              ? "Receiver annotation content is outside the supported declaration profile"
-              : "Parameter annotation content is outside the supported declaration profile",
-          sourceEvidence.origin(unit, sourceFile, annotation)));
+    if (receiver) {
+      for (var annotation : variableTree.getModifiers().getAnnotations()) {
+        diagnostics.add(FrontendDiagnosticFactory.capabilityError(context, "frontend.unsupported-receiver-annotation-content",
+            "Receiver annotation content is outside the supported declaration profile",
+            sourceEvidence.origin(unit, sourceFile, annotation)));
+      }
     }
     if (variableTree.getInitializer() != null) {
       diagnostics.add(FrontendDiagnosticFactory.otherError(context,

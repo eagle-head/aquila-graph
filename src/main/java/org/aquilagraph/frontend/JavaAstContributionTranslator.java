@@ -67,13 +67,15 @@ final class JavaAstContributionTranslator {
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
   private final JavaModuleTranslator moduleTranslator;
+  private final JavaAnnotationProjector annotationProjector;
   private final JavaTypeUseTranslator typeUseTranslator;
 
   JavaAstContributionTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
-    moduleTranslator = new JavaModuleTranslator(sourceEvidence, treeInventory);
+    annotationProjector = new JavaAnnotationProjector(semantics, sourceEvidence, treeInventory);
+    moduleTranslator = new JavaModuleTranslator(sourceEvidence, treeInventory, annotationProjector);
     typeUseTranslator = new JavaTypeUseTranslator(semantics, sourceEvidence);
   }
 
@@ -170,6 +172,11 @@ final class JavaAstContributionTranslator {
     var structural = nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList();
     var semantic = new ArrayList<>(declarationEdges);
     nodes.forEach(node -> semantic.addAll(node.semanticEdges()));
+    nodes.forEach(parent -> parent.children().stream()
+        .filter(child -> child.role() == SyntaxRole.ANNOTATION && child.node().value() instanceof SyntaxValue.Annotation annotation
+            && annotation.location() == SyntaxValue.AnnotationLocation.DECLARATION)
+        .forEach(child -> semantic.add(new SyntaxSemanticEdge(child.node().nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
+            new SyntaxSemanticTarget.SourceOccurrence(parent.nodeId())))));
     var contribution = new SyntaxSourceContribution(sourceFile.sourceFileKey(), root, nodes, structural, semantic);
     var registrations = new ArrayList<BodyRegistration>();
     for (var body : bodies) {
@@ -219,9 +226,7 @@ final class JavaAstContributionTranslator {
 
   private Optional<SyntaxNode> annotationAttachment(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, List<AnalysisDiagnostic> diagnostics) {
-    return requiredRange(unit, sourceFile, annotation, occurrencePath, diagnostics)
-        .map(range -> SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT,
-            SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range));
+    return annotationProjector.declaration(unit, sourceFile, annotation, path, occurrencePath, diagnostics);
   }
 
   private Optional<SyntaxNode> importDeclaration(CompilationUnitTree unit, SourceFile sourceFile, ImportTree declaration,
@@ -511,8 +516,14 @@ final class JavaAstContributionTranslator {
       return Optional.empty();
     }
     var tree = candidates.getFirst();
+    var annotations = treeInventory.variableAnnotations(tree);
+    if (annotations.isEmpty()) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(component.componentKey(), "frontend.missing-record-component-annotations",
+          "A written record component has no pre-attribution annotation inventory", Optional.of(component.origin())));
+      return Optional.empty();
+    }
     var children = new ArrayList<SyntaxChild>();
-    var complete = appendAnnotations(unit, sourceFile, tree.getModifiers().getAnnotations(), path, occurrencePath, children, diagnostics);
+    var complete = appendAnnotations(unit, sourceFile, annotations.orElseThrow(), path, occurrencePath, children, diagnostics);
     complete &= appendTypeHeaderAttachment(unit, sourceFile, tree.getType(), path, occurrencePath, SyntaxRole.DECLARED_TYPE, 0,
         attributedType, children, diagnostics);
     if (!complete) {
@@ -521,7 +532,7 @@ final class JavaAstContributionTranslator {
     var effectiveModifiers = component.effectiveModifiers().stream().map(modifier -> JavaDeclarationModifier.valueOf(modifier.name()))
         .collect(Collectors.toUnmodifiableSet());
     var value = new SyntaxValue.RecordComponentDeclaration(component.name(), component.ownerTypeKey(), component.ordinal(), Set.of(),
-        effectiveModifiers, component.staticType(), tree.getModifiers().getAnnotations().size(), component.varArgs());
+        effectiveModifiers, component.staticType(), annotations.orElseThrow().size(), component.varArgs());
     var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.VARIABLE, SyntaxKind.RECORD_COMPONENT_DECLARATION,
         SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), component.origin());
     var reference = new SemanticReference(ReferenceKind.RECORD_COMPONENT, ResolutionStatus.RESOLVED, Optional.of(component.componentKey()),

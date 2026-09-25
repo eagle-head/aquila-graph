@@ -54,6 +54,28 @@ class JavaDeclarationCompletenessRegressionTest {
   }
 
   @Test
+  void givenDeclarationOnlyMarkers_whenAnalysisRuns_thenAnnotationContentPermitsCompletion() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("AnnotatedDeclarations.java"), """
+        @interface First { }
+        @interface Second { }
+        @First @Second final class AnnotatedDeclarations {
+          @First int value;
+          @First @Second void annotated(@First int input) { }
+        }
+        """);
+
+    // Act
+    var input = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory, JAVA_25_CONFIGURATION);
+    var run = new AnalysisEngine().analyze(input);
+
+    // Assert
+    assertEquals(AnalysisCompletion.COMPLETED, run.completion(), () -> run.diagnostics().toString());
+    assertEquals(6, input.aggregate().orElseThrow().nodes().stream()
+        .filter(node -> node.value() instanceof SyntaxValue.Annotation).count());
+  }
+
+  @Test
   void givenImportDeclarations_whenFrontendRuns_thenImportPolicyMatchesRetainedSourceFacts() throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("Imported.java"), """
@@ -201,16 +223,6 @@ class JavaDeclarationCompletenessRegressionTest {
 
   private static List<SourceCase> unrepresentedDeclarationFacts() {
     return List.of(
-        source("declaration annotations", "AnnotatedDeclarations.java", """
-            @interface First { }
-            @interface Second { }
-            @First @Second final class AnnotatedDeclarations {
-              int plain;
-              @First int value;
-              void plain(int input) { }
-              @First @Second void annotated(@First int input) { }
-            }
-            """, JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC, 4),
         source("annotation defaults", "Configuration.java", """
             @interface Configuration {
               int required();

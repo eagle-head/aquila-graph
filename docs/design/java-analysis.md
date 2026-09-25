@@ -19,6 +19,33 @@ active system compiler advertises the selected release. The composition root
 injects Java 25 as the CLI default rather than embedding a release constant in
 the analysis pipeline.[1][2][15][17][19]
 
+`CompilerSession.parse()` captures `ParsedTreeInventory` before attribution.
+For every written annotation, the inventory records marker, empty-normal,
+single-element, or named-normal form, ordered explicit-name presence, and its
+parsed annotation-type tree path. It also snapshots variable modifier
+attachments, so record-component annotations remain available if attribution
+repurposes the variable tree as a backing field and changes its modifiers.
+Delimiter inspection uses original source offsets, decodes Unicode escapes, and
+skips comments; the later compiler argument view cannot replace that evidence.
+`JavaAnnotationProjector` combines the captured form with the attributed
+annotation type and exact range. A declaration-only occurrence receives one
+`ANNOTATED_TARGET` edge to its structural declaration owner, and aggregate
+sealing checks the edge's cardinality, endpoint, resolved annotation type, and
+nonempty, contained, ordered, unique source range. Unknown or nonannotation
+types keep an unresolved type-reference outcome; dual or type-use applicability
+keeps an unresolved location and no declaration-target edge. Value-bearing
+forms retain their headers and a blocking value diagnostic for the next
+increment. Distinct written repeats remain distinct source nodes.[35][36]
+
+The application's actual compiler options and captured environment options
+both include `-proc:none`. A test artifact with a discoverable service entry
+and an explicitly selected processor records zero `jdk.ClassLoad` events for
+that processor and zero static-initializer, constructor, `init`, or `process`
+effects during analysis. A separate positive-control class load verifies that
+the recording detects the probe class. This fixture establishes the processor
+boundary for those two selection paths; repository build-time processors are
+outside the application's compiler invocation.[35][36]
+
 Inside that session, `JavaCompilerInvocation` derives managed compiler options,
 and `SnapshotSourceCatalog` is the single correlation point between captured
 `SourceFile` values, in-memory `JavaFileObject` values, compiler URIs, and source
@@ -33,10 +60,10 @@ ownership, an optional direct superclass, ordered direct interfaces, ordered
 permitted subclasses, and ordered type parameters with their compiler-resolved
 bounds. `JavaTypeReference` retains the compiler-derived identity and the
 canonical declaration key when one is available, including for declarations
-outside the analyzed source root. Type, type-parameter, and declaration-header
-type-use annotations are outside the current bounded profile; each occurrence
-therefore produces a deterministic, source-located unsupported diagnostic
-instead of being discarded. `DeclarationIdentityRegistry` assigns canonical keys
+outside the analyzed source root. Declaration-only marker and empty-normal
+annotations now have typed source occurrences, annotation-type references, and
+one exact declaration target. Explicit values and unresolved type-use locations
+retain source-located capability diagnostics. `DeclarationIdentityRegistry` assigns canonical keys
 to declarations, including owner-and-ordinal type-parameter keys, while compiler
 elements remain available. `JavaMethodBodyTranslator` recursively
 converts one method body into project-owned `SyntaxNode` values; and
@@ -63,10 +90,10 @@ all three forms own ordered import occurrences. Compact roots own written class
 members directly, without presenting the implicitly declared wrapper class as a
 written type. A compact root spans the complete captured source because javac
 does not provide an end position for its implicit class or compilation unit.
-Package declarations own ordered annotation attachments. Package and import
+Package declarations own ordered typed annotation occurrences. Package and import
 names come from compiler-tree name components, while import values separately
-retain static, module, and on-demand form. Annotation value structure remains
-outside this increment and continues to produce its own capability diagnostic.
+retain static, module, and on-demand form. Explicit annotation argument values
+remain outside this increment and continue to produce a capability diagnostic.
 Modular roots own exactly one written module declaration with its qualified name,
 open state, annotation attachments, and ordered directive occurrences. The five
 directive values retain qualified operands, `requires` flags, optional ordered
@@ -321,7 +348,9 @@ The corresponding E04-valid written type-tree kinds now have represented policie
 `INTERSECTION_TYPE` and `UNION_TYPE` source-tree kinds remain diagnosed because
 their written tree forms occur in casts and multi-catch bodies, outside E04
 declaration headers; attributed intersection and union type kinds remain
-represented. Type-annotation content retains its separate AST-E05 diagnosis.
+represented. `ANNOTATION` and `TYPE_ANNOTATION` tree-kind policies now account for
+source occurrences; annotation locations without a supported typed declaration
+occurrence receive an exact-range capability diagnostic.[35]
 The public type-use completion check compares the occurrence multiset for these
 seven classified source kinds with retained `TYPE_USE` nodes by source file, exact tree kind, and
 range, so changing only a policy cannot produce a complete run.[23][26][31][32][34]
@@ -351,7 +380,7 @@ written receiver syntax. A resolved receiver identifies its declaring type for a
 instance method or its immediately enclosing type for an inner constructor.
 Ordered attributed thrown types correspond one-to-one with written `throws`
 attachments; an unavailable attribution prevents publication of the declaration.
-Unrepresented annotation content and defaults remain connected to source-located
+Unrepresented annotation values, type-use locations, and defaults remain connected to source-located
 frontend errors. Those errors flow through the existing completion
 projection and therefore prevent `COMPLETED` without using CFG construction as the
 declaration-coverage oracle. Written receiver names and qualifiers are distinct from
@@ -359,8 +388,8 @@ formal parameters. Local declaration modifiers and annotation content outside
 their later feature boundary also produce source-located capability errors. The
 catalog classifies `VariableTree.getModifiers()` and
 `VariableTree.getInitializer()` as represented for written declaration
-attachments and initializer presence. Parameter annotation content, local
-declaration modifiers, and initializer expression content retain specific
+attachments and initializer presence. Local declaration modifiers and
+initializer expression content retain specific
 diagnostics until their later owners represent them. Written and attributed
 executable modifiers remain distinct in the source AST; attributed modifiers, including
 implicit interface method modifiers, are also retained in `JavaMethod`. Compiler errors
@@ -447,9 +476,9 @@ captured source, including an empty source. The root has an explicit ordinary,
 compact, or modular form. Package and import accessors are represented by source-owned
 occurrences and ordered structural edges. Modular roots own one typed module
 declaration and its ordered typed directives. Package and module annotations
-have source-owned attachment nodes,
-while their type and value details retain the separate annotation capability
-diagnostic. Coverage values and AST occurrences are not yet
+have source-owned typed occurrences with annotation-type references and exact
+declaration targets when their location is established. Explicit values and
+unresolved locations retain capability diagnostics. Coverage values and AST occurrences are not yet
 persisted, compiler API types remain confined to `frontend`, and no Neo4j schema
 change is required. The focused class, sequence, and component views show the
 coverage scanner, contextual declaration-property observation, source aggregate
@@ -489,10 +518,12 @@ anonymous class bodies. An ordinary field whose initializer contains an
 anonymous class reports
 `frontend.unsupported-anonymous-class-field-initializer`; an enum
 constant-specific class body reports `frontend.unsupported-enum-constant-body`.
-Type declaration, type-parameter, and declaration-header type-use annotations
-report `frontend.unsupported-type-declaration-annotation`,
-`frontend.unsupported-type-parameter-annotation`, and
-`frontend.unsupported-type-use-annotation`, respectively. Switch statement
+Declaration-only marker and empty-normal annotations on supported headers retain
+form, type resolution, origin, and one validated target. Explicit argument values
+report `frontend.unsupported-annotation-value`; unresolved type-use applicability
+reports `frontend.unresolved-annotation-location`. Header type-use annotations
+retain `frontend.unsupported-type-use-annotation` or
+`frontend.unrepresented-source-annotation` diagnostics. Switch statement
 groups, patterns, guards, `null`
 labels, and constant-expression labels other than literals or enum constants
 are also rejected as complete constructs. They remain outside the profile until
@@ -918,3 +949,13 @@ implements its bounded model and has no runtime dependency on
     public completion, primitive header, repeatability, and body-local boundary evidence;
     Oracle, Java SE 25 [Tree.Kind](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/Tree.Kind.html),
     source tree kind definitions.
+35. [ParsedTreeInventory](../../src/main/java/org/aquilagraph/frontend/ParsedTreeInventory.java), parsed-only annotation forms;
+    [JavaAnnotationProjector](../../src/main/java/org/aquilagraph/frontend/JavaAnnotationProjector.java), attributed annotation type and location outcome;
+    [JavaAstAggregateBuilder](../../src/main/java/org/aquilagraph/syntax/JavaAstAggregateBuilder.java), target-edge validation;
+    [JavaAnnotationAstTest](../../src/test/java/org/aquilagraph/frontend/JavaAnnotationAstTest.java), form, location, repetition, and source-range observations;
+    [JavaAnnotationProcessingBoundaryTest](../../src/test/java/org/aquilagraph/frontend/JavaAnnotationProcessingBoundaryTest.java), controlled loading and lifecycle observations.
+36. Oracle, *The Java Language Specification, Java SE 25 Edition*,
+    [§3.3](https://docs.oracle.com/javase/specs/jls/se25/html/jls-3.html#jls-3.3), Unicode escapes, and
+    [§§9.7.2–9.7.5](https://docs.oracle.com/javase/specs/jls/se25/html/jls-9.html#jls-9.7.2), annotation forms and applicability;
+    [AnnotationTree.getArguments](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/AnnotationTree.html#getArguments()), source argument tree;
+    [javac `-proc:none`](https://docs.oracle.com/en/java/javase/25/docs/specs/man/javac.html#option-proc), processing-disabled compiler option.

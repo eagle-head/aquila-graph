@@ -17,11 +17,14 @@ final class CompilerSession implements AutoCloseable {
   private final StandardJavaFileManager fileManager;
   private final DiagnosticCollector<JavaFileObject> diagnostics;
   private final JavacTask task;
+  private final SnapshotSourceCatalog sources;
 
-  private CompilerSession(StandardJavaFileManager fileManager, DiagnosticCollector<JavaFileObject> diagnostics, JavacTask task) {
+  private CompilerSession(StandardJavaFileManager fileManager, DiagnosticCollector<JavaFileObject> diagnostics, JavacTask task,
+      SnapshotSourceCatalog sources) {
     this.fileManager = Objects.requireNonNull(fileManager, "fileManager");
     this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
     this.task = Objects.requireNonNull(task, "task");
+    this.sources = Objects.requireNonNull(sources, "sources");
   }
 
   static CompilerSession open(JavaCompiler compiler, JavaCompilerInvocation invocation, SnapshotSourceCatalog sources) {
@@ -33,7 +36,7 @@ final class CompilerSession implements AutoCloseable {
     try {
       var task = (JavacTask) compiler.getTask(null, fileManager, diagnostics, invocation.compilerOptions(), null,
           sources.compilationUnits());
-      return new CompilerSession(fileManager, diagnostics, task);
+      return new CompilerSession(fileManager, diagnostics, task, sources);
     } catch (IllegalArgumentException exception) {
       closeAfterFailure(fileManager, exception);
       throw exception;
@@ -44,7 +47,8 @@ final class CompilerSession implements AutoCloseable {
     var units = new ArrayList<CompilationUnitTree>();
     task.parse().forEach(units::add);
     var trees = Trees.instance(task);
-    return new ParsedJavaSource(units, new JavaSourceEvidence(trees.getSourcePositions()), ParsedTreeInventory.capture(units));
+    var evidence = new JavaSourceEvidence(trees.getSourcePositions());
+    return new ParsedJavaSource(units, evidence, ParsedTreeInventory.capture(units, sources::find, evidence));
   }
 
   JavaCompilation analyze(ParsedJavaSource parsedSource) throws IOException {

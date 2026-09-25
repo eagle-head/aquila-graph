@@ -33,6 +33,7 @@ class JavaCompilerKindCoverageTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION =
       CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final EnumSet<Tree.Kind> REPRESENTED_KINDS = EnumSet.of(
+      Tree.Kind.ANNOTATION,
       Tree.Kind.ANNOTATED_TYPE,
       Tree.Kind.ANNOTATION_TYPE,
       Tree.Kind.AND,
@@ -102,6 +103,7 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.THROW,
       Tree.Kind.TRY,
       Tree.Kind.TYPE_CAST,
+      Tree.Kind.TYPE_ANNOTATION,
       Tree.Kind.TYPE_PARAMETER,
       Tree.Kind.UNARY_MINUS,
       Tree.Kind.UNARY_PLUS,
@@ -171,7 +173,7 @@ class JavaCompilerKindCoverageTest {
         interface Contract { }
         enum Choice { ONE }
         record Pair(int value) { }
-        final class KindEvidence<T> implements Contract {
+        final class KindEvidence<@Marker T> implements Contract {
           private int field = 1;
           private List<?> any;
           private List<? extends Number> upper;
@@ -392,6 +394,12 @@ class JavaCompilerKindCoverageTest {
     var retainedKinds = EnumSet.noneOf(Tree.Kind.class);
     result.aggregate().orElseThrow().nodes()
         .forEach(node -> retainedKinds.add(Tree.Kind.valueOf(node.sourceKind().name())));
+    var typedAnnotationRanges = result.aggregate().orElseThrow().nodes().stream()
+        .filter(node -> node.value() instanceof SyntaxValue.Annotation).flatMap(node -> node.origin().stream()).toList();
+    if (result.languageFeatureCoverageResult().observations().stream().anyMatch(observation -> observation.classification().feature().identifier()
+        .equals("TYPE_ANNOTATION") && observation.origins().stream().anyMatch(typedAnnotationRanges::contains))) {
+      retainedKinds.add(Tree.Kind.TYPE_ANNOTATION);
+    }
     for (var type : result.program().types()) {
       retainedKinds.add(switch (type.kind()) {
         case ANNOTATION -> Tree.Kind.ANNOTATION_TYPE;

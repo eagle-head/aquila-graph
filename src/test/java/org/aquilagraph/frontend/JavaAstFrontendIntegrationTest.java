@@ -379,7 +379,7 @@ class JavaAstFrontendIntegrationTest {
     assertEquals("@SuppressWarnings(\"unused\")", source.substring(Math.toIntExact(secondRange.startOffset()),
         Math.toIntExact(secondRange.endOffsetExclusive())));
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(
-        "frontend.unsupported-tree-kind.annotation")));
+        "frontend.unsupported-annotation-value")));
     assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals(
         "frontend.unsupported-package-declaration")));
   }

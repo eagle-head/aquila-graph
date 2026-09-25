@@ -24,6 +24,7 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import javax.lang.model.element.ElementKind;
@@ -75,7 +76,8 @@ class JavaAstSourcePositionTest {
       var task = (JavacTask) compiler.getTask(null, fileManager, null, List.of("-proc:none", "--release", "25"), null,
           List.of(source));
       var unit = task.parse().iterator().next();
-      var inventory = ParsedTreeInventory.capture(List.of(unit));
+      var inventory = ParsedTreeInventory.capture(List.of(unit), ignored -> Optional.of(sourceFile),
+          new JavaSourceEvidence(Trees.instance(task).getSourcePositions()));
       task.analyze();
       var trees = Trees.instance(task);
       var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(),
@@ -642,7 +644,7 @@ class JavaAstSourcePositionTest {
       var origin = evidence.origin(fixture.unit(), fixture.sourceFile(), declaration);
       var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
       var observer = new JavaDeclarationPropertyObserver(coverage);
-      var emptyInventory = ParsedTreeInventory.capture(List.of());
+      var emptyInventory = ParsedTreeInventory.capture(List.of(), ignored -> Optional.empty(), evidence);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, emptyInventory);
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, observer, bodyTranslator);
       var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, observer, methodTranslator);
@@ -677,7 +679,7 @@ class JavaAstSourcePositionTest {
       var evidence = new JavaSourceEvidence(fixture.positions());
       var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
       var observer = new JavaDeclarationPropertyObserver(coverage);
-      var emptyInventory = ParsedTreeInventory.capture(List.of());
+      var emptyInventory = ParsedTreeInventory.capture(List.of(), ignored -> Optional.empty(), evidence);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, emptyInventory);
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, observer, bodyTranslator);
       var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, observer, methodTranslator);
@@ -749,7 +751,8 @@ class JavaAstSourcePositionTest {
       assertEquals(1, retained.size());
       assertEquals(0, packageNode.children().getFirst().position());
       assertEquals(packageNode.structuralPath().child(SyntaxRole.ANNOTATION, 0), retained.getFirst().structuralPath());
-      assertEquals(List.of("frontend.missing-source-position"), result.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+      assertEquals(List.of("frontend.missing-source-position", "frontend.unsupported-annotation-value"),
+          result.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
       assertEquals(AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR, result.diagnostics().getFirst().outcomeKind());
     });
   }
@@ -917,7 +920,8 @@ class JavaAstSourcePositionTest {
       var task = (JavacTask) compiler.getTask(null, fileManager, null, List.of("-proc:none", "--release", "25"), null,
           List.of(source));
       var unit = task.parse().iterator().next();
-      var inventory = ParsedTreeInventory.capture(List.of(unit));
+      var inventory = ParsedTreeInventory.capture(List.of(unit), ignored -> Optional.of(sourceFile),
+          new JavaSourceEvidence(Trees.instance(task).getSourcePositions()));
       task.analyze();
       var trees = Trees.instance(task);
       var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(),
