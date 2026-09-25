@@ -140,8 +140,11 @@ Selected external types remain keyed references without fabricated source bodies
 Explicit receiver validation uses compiler-selected owner and simple-name facts, while
 constructor receiver ownership uses the attributed enclosing type. None of
 these facts is recovered by parsing display or erasure strings.[33]
-Annotation content remains later AST-E05 work; public type-use completion
-remains later AST-E04 work.[32] Static and
+Annotation content remains later AST-E05 work. Public type-use completion checks
+the seven E04-valid distinct written type-tree kinds against retained source
+type-use nodes at the same source file and range; unmatched occurrences block completion.
+This also preserves the separate AST-E06 boundary for written body-local type
+forms.[32][34] Static and
 instance initializer blocks are distinct `STATIC_INITIALIZER_BLOCK` and
 `INSTANCE_INITIALIZER_BLOCK` member occurrences with written source ranges; their statement content
 remains diagnosed until initialization ownership is completed. Empty class-body
@@ -314,9 +317,14 @@ emits an error with the nearest available source span when required attribution 
 kind and attributed type kind remain separate feature categories. Implemented
 nominal, array, wildcard, intersection, and union type structures carry recursive
 source and compiler-derived component facts where a written occurrence exists.
-The corresponding tree-kind policies remain diagnosed pending the complete
-declaration-role and public profile transitions. The catalog does not claim complete
-E04 type-use coverage.[23][26][31][32]
+The corresponding E04-valid written type-tree kinds now have represented policies.
+`INTERSECTION_TYPE` and `UNION_TYPE` source-tree kinds remain diagnosed because
+their written tree forms occur in casts and multi-catch bodies, outside E04
+declaration headers; attributed intersection and union type kinds remain
+represented. Type-annotation content retains its separate AST-E05 diagnosis.
+The public type-use completion check compares the occurrence multiset for these
+seven classified source kinds with retained `TYPE_USE` nodes by source file, exact tree kind, and
+range, so changing only a policy cannot produce a complete run.[23][26][31][32][34]
 
 `JavaDeclarationPropertyCoverage` owns the Java 25 declaration-property catalog.
 Its exact identities include the declaring interface and raw parameter types for
@@ -404,7 +412,12 @@ occurrences and observations are emitted by the translator that encounters the
 specific accessor context. One diagnostic may therefore own multiple exact accessor
 occurrences, while variable annotations are accounted for by
 `VariableTree.getModifiers()` rather than an unrelated element surface. The combined
-contract and all diagnostics are returned in
+type-use completion check adds a source-located frontend capability diagnostic
+when a classified E04 type tree has no corresponding retained type-use node;
+a missing exact range has a distinct diagnostic with the source path in its message.
+`IDENTIFIER` and `MEMBER_SELECT` have expression and written header type-use
+representation boundaries, but their shared compiler kinds do not by themselves
+identify a type-use context. The combined contract and all diagnostics are returned in
 `SyntaxAnalysisInput` before the existing completion projection runs. Construction
 rejects any partial or two-sided removal because the complete ordered occurrence
 manifest must equal the retained observation inventory. Construction also rejects a
@@ -899,3 +912,9 @@ implements its bounded model and has no runtime dependency on
     [`ExecutableElement`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/ExecutableElement.html),
     and [`TypeMirror`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/type/TypeMirror.html),
     declaration-member and attributed-type contracts.
+34. [JavaTypeUseCompleteness](../../src/main/java/org/aquilagraph/frontend/JavaTypeUseCompleteness.java),
+    source occurrence to retained type-use comparison;
+    [JavaTypeUseCompletionTest](../../src/test/java/org/aquilagraph/frontend/JavaTypeUseCompletionTest.java),
+    public completion, primitive header, repeatability, and body-local boundary evidence;
+    Oracle, Java SE 25 [Tree.Kind](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/Tree.Kind.html),
+    source tree kind definitions.

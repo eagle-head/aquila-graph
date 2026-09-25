@@ -19,7 +19,7 @@ class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
 
   @Test
-  void givenPackagedJarWithUnrepresentedCompilerKinds_whenProcessRuns_thenCoverageBlocksCompletion()
+  void givenPackagedJarWithSupportedHeaderTypes_whenProcessRuns_thenCompletionIsReported()
       throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
@@ -31,13 +31,13 @@ class AquilaGraphProcessIT {
 
     // Assert
     assertTrue(result.completed(), "The packaged analyzer process did not finish within 30 seconds: " + result.output());
-    assertEquals(1, result.exitCode(), result.output());
-    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertEquals(0, result.exitCode(), result.output());
+    assertTrue(result.output().contains("Completion: COMPLETED"), result.output());
     assertFalse(result.output().contains("frontend.unsupported-tree-kind.compilation-unit"), result.output());
-    assertTrue(result.output().contains("frontend.unsupported-tree-kind.primitive-type"), result.output());
+    assertFalse(result.output().contains("frontend.unsupported-tree-kind.primitive-type"), result.output());
     assertTrue(result.output().contains("Java release: 25"), result.output());
     assertTrue(result.output().contains("Java source files: 1"), result.output());
-    assertTrue(result.output().contains("Repository: NOT_ELIGIBLE"), result.output());
+    assertTrue(result.output().contains("Repository: NOT_REQUESTED"), result.output());
   }
 
   @Test

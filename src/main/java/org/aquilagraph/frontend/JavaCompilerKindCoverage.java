@@ -18,9 +18,11 @@ import org.aquilagraph.model.LanguageFeatureCoverage;
 final class JavaCompilerKindCoverage {
   private static final String TYPE_DECLARATION_BOUNDARY = "JavaType declaration kind";
   private static final String METHOD_SYNTAX_BOUNDARY = "MethodSyntax source occurrence";
+  private static final String NAME_BOUNDARY = "MethodSyntax expression or JavaAstAggregate written type-use occurrence";
   private static final String OPERATOR_BOUNDARY = "MethodSyntax operator occurrence";
   private static final String LITERAL_BOUNDARY = "MethodSyntax literal occurrence and compiler type";
   private static final String SWITCH_LABEL_BOUNDARY = "MethodSyntax switch-label aggregate";
+  private static final String TYPE_USE_BOUNDARY = "JavaAstAggregate recursive written type-use occurrence";
   private static final String DIAGNOSTIC_PREFIX = "frontend.unsupported-tree-kind.";
   private static final String TREE_API_ROOT = "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/";
   private static final String OTHER_SOURCE = TREE_API_ROOT + "Tree.Kind.html#OTHER";
@@ -109,11 +111,11 @@ final class JavaCompilerKindCoverage {
         represented("CONDITIONAL_OR", OPERATOR_BOUNDARY), represented("DIVIDE", OPERATOR_BOUNDARY), diagnosed("DIVIDE_ASSIGNMENT"),
         represented("DOUBLE_LITERAL", LITERAL_BOUNDARY), represented("EQUAL_TO", OPERATOR_BOUNDARY),
         represented("FLOAT_LITERAL", LITERAL_BOUNDARY), represented("GREATER_THAN", OPERATOR_BOUNDARY),
-        represented("GREATER_THAN_EQUAL", OPERATOR_BOUNDARY), represented("IDENTIFIER", METHOD_SYNTAX_BOUNDARY), diagnosed("INSTANCE_OF"),
+        represented("GREATER_THAN_EQUAL", OPERATOR_BOUNDARY), represented("IDENTIFIER", NAME_BOUNDARY), diagnosed("INSTANCE_OF"),
         represented("INT_LITERAL", LITERAL_BOUNDARY), diagnosed("LAMBDA_EXPRESSION"), represented("LEFT_SHIFT", OPERATOR_BOUNDARY),
         diagnosed("LEFT_SHIFT_ASSIGNMENT"), represented("LESS_THAN", OPERATOR_BOUNDARY), represented("LESS_THAN_EQUAL", OPERATOR_BOUNDARY),
         represented("LOGICAL_COMPLEMENT", OPERATOR_BOUNDARY), represented("LONG_LITERAL", LITERAL_BOUNDARY), diagnosed("MEMBER_REFERENCE"),
-        represented("MEMBER_SELECT", METHOD_SYNTAX_BOUNDARY), represented("METHOD_INVOCATION", METHOD_SYNTAX_BOUNDARY),
+        represented("MEMBER_SELECT", NAME_BOUNDARY), represented("METHOD_INVOCATION", METHOD_SYNTAX_BOUNDARY),
         represented("MINUS", OPERATOR_BOUNDARY), diagnosed("MINUS_ASSIGNMENT"), represented("MULTIPLY", OPERATOR_BOUNDARY),
         diagnosed("MULTIPLY_ASSIGNMENT"), diagnosed("NEW_ARRAY"), represented("NEW_CLASS", METHOD_SYNTAX_BOUNDARY),
         represented("NOT_EQUAL_TO", OPERATOR_BOUNDARY), represented("NULL_LITERAL", LITERAL_BOUNDARY), represented("OR", OPERATOR_BOUNDARY),
@@ -128,14 +130,16 @@ final class JavaCompilerKindCoverage {
   }
 
   private static List<LanguageFeatureClassification> typePatternAndSpecialClassifications() {
-    return List.of(diagnosed("ANNOTATED_TYPE"), diagnosed("ANNOTATION"), diagnosed("ANY_PATTERN"), diagnosed("ARRAY_TYPE"),
-        diagnosed("BINDING_PATTERN"), represented("CONSTANT_CASE_LABEL", SWITCH_LABEL_BOUNDARY), diagnosed("DECONSTRUCTION_PATTERN"),
-        represented("DEFAULT_CASE_LABEL", SWITCH_LABEL_BOUNDARY), diagnosed("ERRONEOUS"), diagnosed("EXTENDS_WILDCARD"),
-        diagnosed("INTERSECTION_TYPE"),
+    return List.of(represented("ANNOTATED_TYPE", TYPE_USE_BOUNDARY), diagnosed("ANNOTATION"), diagnosed("ANY_PATTERN"),
+        represented("ARRAY_TYPE", TYPE_USE_BOUNDARY), diagnosed("BINDING_PATTERN"),
+        represented("CONSTANT_CASE_LABEL", SWITCH_LABEL_BOUNDARY), diagnosed("DECONSTRUCTION_PATTERN"),
+        represented("DEFAULT_CASE_LABEL", SWITCH_LABEL_BOUNDARY), diagnosed("ERRONEOUS"),
+        represented("EXTENDS_WILDCARD", TYPE_USE_BOUNDARY), diagnosed("INTERSECTION_TYPE"),
         irrelevant("OTHER", "Tree.Kind.OTHER is reserved for implementation-defined trees and does not identify Java source syntax",
             OTHER_SOURCE),
-        diagnosed("PARAMETERIZED_TYPE"), diagnosed("PATTERN_CASE_LABEL"), diagnosed("PRIMITIVE_TYPE"), diagnosed("SUPER_WILDCARD"),
-        diagnosed("TYPE_ANNOTATION"), diagnosed("UNBOUNDED_WILDCARD"), diagnosed("UNION_TYPE"));
+        represented("PARAMETERIZED_TYPE", TYPE_USE_BOUNDARY), diagnosed("PATTERN_CASE_LABEL"),
+        represented("PRIMITIVE_TYPE", TYPE_USE_BOUNDARY), represented("SUPER_WILDCARD", TYPE_USE_BOUNDARY), diagnosed("TYPE_ANNOTATION"),
+        represented("UNBOUNDED_WILDCARD", TYPE_USE_BOUNDARY), diagnosed("UNION_TYPE"));
   }
 
   private static LanguageFeatureClassification represented(String identifier, String boundary) {

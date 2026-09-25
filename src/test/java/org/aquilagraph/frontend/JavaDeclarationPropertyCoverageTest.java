@@ -292,7 +292,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:a25c92e01edc77ae5f5cde75658f03851744f4ab21a27582c18817713523c0ee",
+    assertEquals("java-language-feature-coverage:82ec6818a70df34d101d35d98e4deaf66e280e7ae1eed33979a157cd91baed61",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 

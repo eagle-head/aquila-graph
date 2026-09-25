@@ -1039,7 +1039,7 @@ public final class SyntaxNode {
 
   private static boolean matchingResolvedType(SyntaxType written, SyntaxType attributed) {
     return !(written instanceof SyntaxType.Resolved resolved)
-        || attributed instanceof SyntaxType.Resolved expected && resolved.structure().equals(expected.structure());
+        || (attributed instanceof SyntaxType.Resolved expected && resolved.structure().equals(expected.structure()));
   }
 
   private static void validateParameterDeclaration(SyntaxValue.ParameterDeclaration declaration, List<SyntaxChild> children) {

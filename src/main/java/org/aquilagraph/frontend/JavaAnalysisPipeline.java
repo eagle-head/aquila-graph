@@ -54,8 +54,9 @@ final class JavaAnalysisPipeline {
       observations.addAll(typeEvidence.observations());
       observations.addAll(translation.featureObservations());
       var kindDiagnostics = kindEvidence.observations().stream().flatMap(observation -> observation.diagnostic().stream()).toList();
+      var typeUseDiagnostics = JavaTypeUseCompleteness.diagnostics(snapshot, kindEvidence.observations(), translation.value().aggregate());
       var diagnostics = combineDiagnostics(new CompilerDiagnosticTranslator(sources).translate(compilation.diagnostics()), kindDiagnostics,
-          typeEvidence.diagnostics(), translation.diagnostics());
+          typeEvidence.diagnostics(), translation.diagnostics(), typeUseDiagnostics);
       var coverageResult = JavaLanguageFeatureCoverage.result(languageFeatureCoverage, occurrences, observations, diagnostics);
       result = new SyntaxAnalysisInput(snapshot, environment, translation.value().program(), translation.value().aggregate(), diagnostics,
           coverageResult);

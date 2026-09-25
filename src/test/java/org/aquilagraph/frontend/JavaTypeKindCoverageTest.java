@@ -213,7 +213,7 @@ class JavaTypeKindCoverageTest {
     assertTrue(typeObservations.stream().allMatch(observation -> observation.classification().policy() == LanguageFeaturePolicy.REPRESENTED
         && observation.diagnostic().isEmpty() && observation.origins().size() == 1));
     assertFalse(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
-    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-tree-kind.primitive-type")));
+    assertEquals(List.of(), result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
   }
 
   @Test

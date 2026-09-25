@@ -49,7 +49,7 @@ class AnalysisEngineTest {
         engine.analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
 
     // Assert
-    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+    assertEquals(AnalysisCompletion.COMPLETED, run.completion());
     var methodAnalysis =
         run.representation().orElseThrow().methodAnalyses().stream()
             .filter(analysis -> analysis.sourceMethod().name().equals("choose"))

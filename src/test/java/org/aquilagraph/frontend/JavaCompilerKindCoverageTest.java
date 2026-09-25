@@ -33,9 +33,11 @@ class JavaCompilerKindCoverageTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION =
       CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final EnumSet<Tree.Kind> REPRESENTED_KINDS = EnumSet.of(
+      Tree.Kind.ANNOTATED_TYPE,
       Tree.Kind.ANNOTATION_TYPE,
       Tree.Kind.AND,
       Tree.Kind.ARRAY_ACCESS,
+      Tree.Kind.ARRAY_TYPE,
       Tree.Kind.ASSIGNMENT,
       Tree.Kind.BITWISE_COMPLEMENT,
       Tree.Kind.BLOCK,
@@ -57,6 +59,7 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.EQUAL_TO,
       Tree.Kind.EXPORTS,
       Tree.Kind.EXPRESSION_STATEMENT,
+      Tree.Kind.EXTENDS_WILDCARD,
       Tree.Kind.FLOAT_LITERAL,
       Tree.Kind.GREATER_THAN,
       Tree.Kind.GREATER_THAN_EQUAL,
@@ -80,11 +83,13 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.NEW_CLASS,
       Tree.Kind.NOT_EQUAL_TO,
       Tree.Kind.NULL_LITERAL,
+      Tree.Kind.PARAMETERIZED_TYPE,
       Tree.Kind.OPENS,
       Tree.Kind.OR,
       Tree.Kind.PACKAGE,
       Tree.Kind.PARENTHESIZED,
       Tree.Kind.PLUS,
+      Tree.Kind.PRIMITIVE_TYPE,
       Tree.Kind.PROVIDES,
       Tree.Kind.RECORD,
       Tree.Kind.REMAINDER,
@@ -93,6 +98,7 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.RIGHT_SHIFT,
       Tree.Kind.STRING_LITERAL,
       Tree.Kind.SWITCH_EXPRESSION,
+      Tree.Kind.SUPER_WILDCARD,
       Tree.Kind.THROW,
       Tree.Kind.TRY,
       Tree.Kind.TYPE_CAST,
@@ -100,6 +106,7 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.UNARY_MINUS,
       Tree.Kind.UNARY_PLUS,
       Tree.Kind.UNSIGNED_RIGHT_SHIFT,
+      Tree.Kind.UNBOUNDED_WILDCARD,
       Tree.Kind.USES,
       Tree.Kind.VARIABLE,
       Tree.Kind.XOR,
@@ -159,12 +166,17 @@ class JavaCompilerKindCoverageTest {
     Files.writeString(ordinaryRoot.resolve("KindEvidence.java"), """
         package sample;
         import java.util.List;
+        @java.lang.annotation.Target(java.lang.annotation.ElementType.TYPE_USE) @interface Mark { }
         @interface Marker { }
         interface Contract { }
         enum Choice { ONE }
         record Pair(int value) { }
         final class KindEvidence<T> implements Contract {
           private int field = 1;
+          private List<?> any;
+          private List<? extends Number> upper;
+          private List<? super Number> lower;
+          private List<@Mark String> annotated;
 
           int exercise(int[] values, boolean flag, int value) {
             ;
@@ -256,12 +268,12 @@ class JavaCompilerKindCoverageTest {
 
     // Assert
     assertEquals(List.of(
-        LanguageFeaturePolicy.DIAGNOSED,
+        LanguageFeaturePolicy.REPRESENTED,
         LanguageFeaturePolicy.REPRESENTED,
         LanguageFeaturePolicy.DIAGNOSED,
         LanguageFeaturePolicy.IRRELEVANT,
         LanguageFeaturePolicy.REPRESENTED,
-        LanguageFeaturePolicy.DIAGNOSED,
+        LanguageFeaturePolicy.REPRESENTED,
         LanguageFeaturePolicy.REPRESENTED,
         LanguageFeaturePolicy.REPRESENTED,
         LanguageFeaturePolicy.DIAGNOSED,
