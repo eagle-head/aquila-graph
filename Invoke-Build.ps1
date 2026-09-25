@@ -27,6 +27,12 @@ Arguments included in targets that skip test compilation and execution.
 .\Invoke-Build.ps1 test
 
 .EXAMPLE
+.\Invoke-Build.ps1 integration-test
+
+.EXAMPLE
+.\Invoke-Build.ps1 integration-test-neo4j
+
+.EXAMPLE
 .\Invoke-Build.ps1 coverage
 
 .EXAMPLE
@@ -35,7 +41,7 @@ Arguments included in targets that skip test compilation and execution.
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('compile', 'test', 'coverage', 'format', 'format-check', 'quality', 'supply-chain-check')]
+    [ValidateSet('compile', 'test', 'integration-test', 'integration-test-neo4j', 'coverage', 'format', 'format-check', 'quality', 'supply-chain-check')]
     [string] $Target = 'compile',
 
     [string] $MavenCommand,
@@ -68,6 +74,14 @@ else {
     }
     'test' {
         $MavenFlags + @('test')
+        break
+    }
+    'integration-test' {
+        $MavenFlags + @('-DskipTests=true', 'verify')
+        break
+    }
+    'integration-test-neo4j' {
+        $MavenFlags + @('-DskipTests=true', '-Pneo4j-integration', 'verify')
         break
     }
     'coverage' {

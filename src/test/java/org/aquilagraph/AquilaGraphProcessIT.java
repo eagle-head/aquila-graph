@@ -77,7 +77,8 @@ class AquilaGraphProcessIT {
   }
 
   private ProcessResult runPackagedJar(Path sourceRoot, String... options) throws IOException, InterruptedException {
-    var javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java.exe");
+    var javaName = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
+    var javaExecutable = Path.of(System.getProperty("java.home"), "bin", javaName);
     var jar = Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath().normalize();
     var command = new ArrayList<>(List.of(javaExecutable.toString(), "-jar", jar.toString(), sourceRoot.toString()));
     command.addAll(List.of(options));

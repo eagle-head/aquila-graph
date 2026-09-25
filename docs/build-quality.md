@@ -31,20 +31,26 @@ version drift.
 
 ## Commands
 
-Use the Wrapper so the Maven version and distribution checksum remain enforced:
+The Makefile and PowerShell script use the checked-in Wrapper, which enforces the Maven version and
+distribution checksum:
 
-```shell
-./mvnw -B --no-transfer-progress -Dmaven.test.skip=true compile
-./mvnw -B --no-transfer-progress test
-./mvnw -B --no-transfer-progress jacoco:prepare-agent test jacoco:report
-./mvnw -B --no-transfer-progress spotless:apply
-./mvnw -B --no-transfer-progress spotless:check
-./mvnw -B --no-transfer-progress -Dmaven.test.skip=true verify
-./mvnw -B --no-transfer-progress -Dmaven.test.skip=true -Psupply-chain verify
-```
+| Purpose | Linux and macOS | Windows PowerShell |
+| --- | --- | --- |
+| Compile | `make compile` | `.\Invoke-Build.ps1 compile` |
+| Run `*Test` tests | `make test` | `.\Invoke-Build.ps1 test` |
+| Run packaged-process `*ProcessIT` tests | `make integration-test` | `.\Invoke-Build.ps1 integration-test` |
+| Run all `*IT` tests, including the database test | `make integration-test-neo4j` | `.\Invoke-Build.ps1 integration-test-neo4j` |
+| Produce unit-test coverage reports | `make coverage` | `.\Invoke-Build.ps1 coverage` |
+| Format production Java | `make format` | `.\Invoke-Build.ps1 format` |
+| Check production Java formatting | `make format-check` | `.\Invoke-Build.ps1 format-check` |
+| Run static quality gates without tests | `make quality` | `.\Invoke-Build.ps1 quality` |
+| Run supply-chain gates without tests | `make supply-chain-check` | `.\Invoke-Build.ps1 supply-chain-check` |
 
-Equivalent Make targets are `compile`, `test`, `coverage`, `format`, `format-check`, `quality`, and
-`supply-chain-check`. On Windows PowerShell, use `./mvnw.cmd` when invoking Maven directly.
+Surefire runs the `*Test` group during Maven's `test` phase. Failsafe runs the `*ProcessIT` group during
+`verify`; the `neo4j-integration` profile broadens that group to all `*IT` classes and requires a configured
+Neo4j instance. The integration-only targets still compile test sources and package the application, but skip
+Surefire execution. The `quality` and `supply-chain-check` targets skip test compilation and execution, so
+run the relevant test targets separately when validating behavior.
 
 ## Responsibility Boundaries
 
@@ -100,6 +106,9 @@ repository only owns its policy configuration.
 
 ## References
 
+- [Maven Surefire test inclusion](https://maven.apache.org/surefire/maven-surefire-plugin/examples/inclusion-exclusion.html)
+- [Maven Failsafe test inclusion](https://maven.apache.org/surefire/maven-failsafe-plugin/examples/inclusion-exclusion.html)
+- [Maven Failsafe test skipping](https://maven.apache.org/surefire/maven-failsafe-plugin/examples/skipping-tests.html)
 - [Apache Maven Enforcer built-in rules](https://maven.apache.org/enforcer/enforcer-rules/index.html)
 - [Apache Maven Toolchains Plugin](https://maven.apache.org/plugins/maven-toolchains-plugin/)
 - [Maven Dependency Plugin dependency analysis](https://maven.apache.org/plugins/maven-dependency-plugin/examples/failing-the-build-on-dependency-analysis-warnings.html)

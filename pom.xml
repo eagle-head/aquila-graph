@@ -445,6 +445,9 @@
         <version>${maven-surefire-plugin.version}</version>
         <configuration>
           <useManifestOnlyJar>false</useManifestOnlyJar>
+          <includes>
+            <include>**/*Test.java</include>
+          </includes>
         </configuration>
       </plugin>
       <plugin>
@@ -548,8 +551,7 @@
             <version>${maven-failsafe-plugin.version}</version>
             <configuration>
               <includes combine.self="override">
-                <include>**/*ProcessIT.java</include>
-                <include>**/*Neo4jIT.java</include>
+                <include>**/*IT.java</include>
               </includes>
             </configuration>
           </plugin>
