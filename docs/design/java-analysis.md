@@ -122,8 +122,26 @@ selection, `SemanticResolver` checks the compiler-selected element against
 the written qualifier through `Types.asMemberOf`; a type parameter is checked
 through its upper bound. An invalid or unavailable relation blocks the type-use
 node with a source-located diagnostic.[32]
-Annotation content remains later AST-E05 work; full declaration role linking
-and public type-use completion remain later AST-E04 work.[32] Static and
+Written declaration type attachments for superclass, interfaces, permitted
+subclasses, bounds, record components, fields, receivers, formal parameters,
+returns, and throws retain distinct roles and source positions. Where javac
+provides a corresponding declaration type, the frontend compares its recursive
+compiler structure with the written type-use structure before publishing the
+declaration. The `permits` comparison uses the selected declaration key because
+javac may express a generic permitted subtype with prototype type arguments
+that are absent from the written `permits` clause. Type-parameter and formal
+parameter occurrences carry exactly one declaration-reference edge whose kind
+and key must match their declaration values when the aggregate is sealed. A
+type-use occurrence's declaration-reference edges must exactly match its own
+selected target when the aggregate is sealed. Source type, executable, field,
+enum-constant, and record-component declarations likewise require exactly one
+edge matching their typed declaration kind and key.
+Selected external types remain keyed references without fabricated source bodies.
+Explicit receiver validation uses compiler-selected owner and simple-name facts, while
+constructor receiver ownership uses the attributed enclosing type. None of
+these facts is recovered by parsing display or erasure strings.[33]
+Annotation content remains later AST-E05 work; public type-use completion
+remains later AST-E04 work.[32] Static and
 instance initializer blocks are distinct `STATIC_INITIALIZER_BLOCK` and
 `INSTANCE_INITIALIZER_BLOCK` member occurrences with written source ranges; their statement content
 remains diagnosed until initialization ownership is completed. Empty class-body
@@ -869,3 +887,15 @@ implements its bounded model and has no runtime dependency on
     compiler bound and alternative accessors; [`DeclaredType.getEnclosingType`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/type/DeclaredType.html#getEnclosingType()),
     enclosing instance contract; [`TypeElement.getNestingKind`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/TypeElement.html#getNestingKind()),
     local and anonymous declaration classification.
+33. [JavaAstContributionTranslator](../../src/main/java/org/aquilagraph/frontend/JavaAstContributionTranslator.java),
+    declaration attachment comparison and semantic edges; [SemanticResolver](../../src/main/java/org/aquilagraph/frontend/SemanticResolver.java),
+    compiler-derived receiver, thrown, and enclosing-type facts; [SyntaxNode](../../src/main/java/org/aquilagraph/syntax/SyntaxNode.java)
+    and [SyntaxValue](../../src/main/java/org/aquilagraph/syntax/SyntaxValue.java), declaration shape checks;
+    [JavaAstAggregateBuilder](../../src/main/java/org/aquilagraph/syntax/JavaAstAggregateBuilder.java),
+    exact declaration-edge validation;
+    [JavaDeclarationTypeAttachmentAstTest](../../src/test/java/org/aquilagraph/frontend/JavaDeclarationTypeAttachmentAstTest.java),
+    public-frontend role, range, structure, and selected-key evidence; Oracle, Java SE 25
+    [`TypeElement`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/TypeElement.html),
+    [`ExecutableElement`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/ExecutableElement.html),
+    and [`TypeMirror`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/type/TypeMirror.html),
+    declaration-member and attributed-type contracts.
