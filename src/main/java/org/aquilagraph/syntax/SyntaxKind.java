@@ -4,6 +4,10 @@ package org.aquilagraph.syntax;
 public enum SyntaxKind {
   /** Source-only compilation-unit and module structure outside method-body lowering. */
   COMPILATION_UNIT,
+  /** One written annotation occurrence, including a nested annotation value. */
+  ANNOTATION,
+  /** A written, braced annotation array initializer. */
+  ANNOTATION_ARRAY,
   /** Explicit source-owned annotation element-value pair. */
   ANNOTATION_ARGUMENT,
   /** Written name in an explicit annotation element-value pair. */
@@ -131,10 +135,13 @@ public enum SyntaxKind {
     }
     return switch (this) {
       case COMPILATION_UNIT -> switch (sourceKind) {
-        case COMPILATION_UNIT, PACKAGE, IMPORT, ANNOTATION, MODULE, REQUIRES, EXPORTS, OPENS, USES, PROVIDES -> true;
+        case COMPILATION_UNIT, PACKAGE, IMPORT, MODULE, REQUIRES, EXPORTS, OPENS, USES, PROVIDES -> true;
         default -> false;
       };
-      case ANNOTATION_ARGUMENT -> sourceKind == JavaSourceKind.ASSIGNMENT || annotationScalarSyntax(sourceKind);
+      case ANNOTATION -> sourceKind == JavaSourceKind.ANNOTATION;
+      case ANNOTATION_ARRAY -> sourceKind == JavaSourceKind.NEW_ARRAY;
+      case ANNOTATION_ARGUMENT -> sourceKind == JavaSourceKind.ASSIGNMENT || sourceKind == JavaSourceKind.NEW_ARRAY
+          || sourceKind == JavaSourceKind.ANNOTATION || annotationScalarSyntax(sourceKind);
       case ANNOTATION_ELEMENT_NAME -> sourceKind == JavaSourceKind.IDENTIFIER;
       case ANNOTATION_NAME_REFERENCE -> sourceKind == JavaSourceKind.IDENTIFIER || sourceKind == JavaSourceKind.MEMBER_SELECT;
       case ANNOTATION_CLASS_LITERAL -> sourceKind == JavaSourceKind.MEMBER_SELECT;

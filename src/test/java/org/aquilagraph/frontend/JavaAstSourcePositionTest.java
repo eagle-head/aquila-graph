@@ -211,8 +211,7 @@ class JavaAstSourcePositionTest {
       var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
       var propertyObserver = new JavaDeclarationPropertyObserver(coverage);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory());
-      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), propertyObserver,
-          bodyTranslator);
+      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), bodyTranslator);
       var method = methodTranslator.translate(fixture.unit(), new TreePath(new TreePath(fixture.unit()), type), fixture.sourceFile(),
           "type:Example", constructor);
       var body = new TranslatedMethodBody(method.value().method().methodKey(), method.value().syntax().orElseThrow());
@@ -464,8 +463,7 @@ class JavaAstSourcePositionTest {
       var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
       var propertyObserver = new JavaDeclarationPropertyObserver(coverage);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory());
-      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), propertyObserver,
-          bodyTranslator);
+      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), bodyTranslator);
       var typeTranslator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), propertyObserver, methodTranslator);
       var modeledTypes = new ArrayList<JavaType>();
       for (var declaration : fixture.unit().getTypeDecls()) {
@@ -614,7 +612,7 @@ class JavaAstSourcePositionTest {
       var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
       var observer = new JavaDeclarationPropertyObserver(coverage);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory());
-      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), observer, bodyTranslator);
+      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), bodyTranslator);
       var translator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), observer, methodTranslator);
 
       // Act
@@ -646,7 +644,7 @@ class JavaAstSourcePositionTest {
       var observer = new JavaDeclarationPropertyObserver(coverage);
       var emptyInventory = ParsedTreeInventory.capture(List.of(), ignored -> Optional.empty(), evidence);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, emptyInventory);
-      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, observer, bodyTranslator);
+      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, bodyTranslator);
       var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, observer, methodTranslator);
       var diagnostics = new ArrayList<AnalysisDiagnostic>();
 
@@ -681,7 +679,7 @@ class JavaAstSourcePositionTest {
       var observer = new JavaDeclarationPropertyObserver(coverage);
       var emptyInventory = ParsedTreeInventory.capture(List.of(), ignored -> Optional.empty(), evidence);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, emptyInventory);
-      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, observer, bodyTranslator);
+      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, bodyTranslator);
       var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, observer, methodTranslator);
       var diagnostics = new ArrayList<AnalysisDiagnostic>();
 
@@ -717,7 +715,7 @@ class JavaAstSourcePositionTest {
       var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
       var observer = new JavaDeclarationPropertyObserver(coverage);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory());
-      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), observer, bodyTranslator);
+      var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), bodyTranslator);
       var translator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), observer, methodTranslator);
 
       // Act
@@ -751,7 +749,7 @@ class JavaAstSourcePositionTest {
       assertEquals(1, retained.size());
       assertEquals(0, packageNode.children().getFirst().position());
       assertEquals(packageNode.structuralPath().child(SyntaxRole.ANNOTATION, 0), retained.getFirst().structuralPath());
-      assertEquals(List.of("frontend.missing-source-position", "frontend.unsupported-annotation-value"),
+      assertEquals(List.of("frontend.missing-source-position"),
           result.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
       assertEquals(AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR, result.diagnostics().getFirst().outcomeKind());
     });

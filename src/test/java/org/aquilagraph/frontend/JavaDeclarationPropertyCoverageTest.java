@@ -115,10 +115,8 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::Element#getEnclosedElements()",
       "ExecutableElement::Element#hashCode()");
   private static final Set<String> EXPECTED_DIAGNOSED_PROPERTIES = Set.of(
-      "MethodTree::MethodTree#getDefaultValue()",
       "TypeElement::Element#getAnnotationMirrors()",
-      "ExecutableElement::Element#getAnnotationMirrors()",
-      "ExecutableElement::ExecutableElement#getDefaultValue()");
+      "ExecutableElement::Element#getAnnotationMirrors()");
 
   @Test
   void givenJava25DeclarationApis_whenPropertyCoverageIsCreated_thenEveryAccessorHasExactlyOnePolicy() {
@@ -164,6 +162,10 @@ class JavaDeclarationPropertyCoverageTest {
         policyOf(coverage, JavaDeclarationPropertyCoverage.COMPILATION_UNIT_PACKAGE_ANNOTATIONS));
     assertEquals(LanguageFeaturePolicy.REPRESENTED,
         policyOf(coverage, JavaDeclarationPropertyCoverage.VARIABLE_NAME_EXPRESSION));
+    assertEquals(LanguageFeaturePolicy.REPRESENTED,
+        policyOf(coverage, JavaDeclarationPropertyCoverage.METHOD_DEFAULT_VALUE));
+    assertEquals(LanguageFeaturePolicy.REPRESENTED,
+        policyOf(coverage, JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_DEFAULT_VALUE));
     for (var represented : Set.of(JavaDeclarationPropertyCoverage.METHOD_TYPE_PARAMETERS, JavaDeclarationPropertyCoverage.METHOD_THROWS,
         JavaDeclarationPropertyCoverage.METHOD_RECEIVER_PARAMETER, JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_TYPE_PARAMETERS,
         JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_THROWN_TYPES,
@@ -292,7 +294,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:de0be5b124bc270cfb224385de130013f6db22e5e0adfa78e55bc67954065721",
+    assertEquals("java-language-feature-coverage:6ac8ebf60ce5ef0d5288124f5353204579b4efd9cd2767b0da7acc983df7ea8e",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 

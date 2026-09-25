@@ -280,7 +280,7 @@ final class JavaTypeUseTranslator {
     if (range.isEmpty()) {
       return false;
     }
-    var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT,
+    var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION,
         SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range.orElseThrow());
     children.add(new SyntaxChild(SyntaxRole.ANNOTATION, ordinal, node));
     return true;

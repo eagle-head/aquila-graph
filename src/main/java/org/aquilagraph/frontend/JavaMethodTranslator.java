@@ -36,15 +36,13 @@ final class JavaMethodTranslator {
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
-  private final JavaDeclarationPropertyObserver propertyObserver;
   private final JavaMethodBodyTranslator bodyTranslator;
 
   JavaMethodTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
-      JavaDeclarationPropertyObserver propertyObserver, JavaMethodBodyTranslator bodyTranslator) {
+      JavaMethodBodyTranslator bodyTranslator) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
-    this.propertyObserver = Objects.requireNonNull(propertyObserver, "propertyObserver");
     this.bodyTranslator = Objects.requireNonNull(bodyTranslator, "bodyTranslator");
   }
 
@@ -76,7 +74,7 @@ final class JavaMethodTranslator {
       diagnostics.add(FrontendDiagnosticFactory.otherError(methodKey, "frontend.unresolved-method",
           "A method declaration element is unavailable", origin));
     }
-    diagnoseUnsupportedDeclarationProperties(unit, sourceFile, methodKey, methodTree, executable, diagnostics, occurrences, observations);
+    diagnoseUnsupportedDeclarationProperties(unit, sourceFile, methodKey, methodTree, diagnostics);
     var parameterTranslation = parameters(unit, sourceFile, methodKey, methodPath, methodTree, executable);
     diagnostics.addAll(parameterTranslation.diagnostics());
     occurrences.addAll(parameterTranslation.featureOccurrences());
@@ -147,8 +145,7 @@ final class JavaMethodTranslator {
   }
 
   private void diagnoseUnsupportedDeclarationProperties(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,
-      MethodTree methodTree, @Nullable ExecutableElement executable, List<AnalysisDiagnostic> diagnostics,
-      List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
+      MethodTree methodTree, List<AnalysisDiagnostic> diagnostics) {
     for (var parameter : methodTree.getTypeParameters()) {
       diagnoseTypeUseAnnotations(unit, sourceFile, methodKey, parameter.getBounds(), diagnostics);
     }
@@ -167,13 +164,6 @@ final class JavaMethodTranslator {
       if (parameter.getType() != null) {
         diagnoseTypeUseAnnotations(unit, sourceFile, methodKey, List.of(parameter.getType()), diagnostics);
       }
-    }
-    if (methodTree.getDefaultValue() != null) {
-      observeMethodAndExecutableProperty(diagnostics, occurrences, observations, sourceFile, methodKey,
-          JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC,
-          "Annotation element defaults are outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, methodTree.getDefaultValue()), executable,
-          JavaDeclarationPropertyCoverage.METHOD_DEFAULT_VALUE, JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_DEFAULT_VALUE);
     }
   }
 
@@ -205,17 +195,6 @@ final class JavaMethodTranslator {
       }
     };
     typeTrees.forEach(tree -> scanner.scan(tree, null));
-  }
-
-  private void observeMethodAndExecutableProperty(List<AnalysisDiagnostic> diagnostics, List<LanguageFeatureOccurrence> occurrences,
-      List<LanguageFeatureObservation> observations, SourceFile sourceFile, String context, String code, String message,
-      Optional<SourceSpan> origin, @Nullable ExecutableElement executable, String methodFeature, String executableFeature) {
-    if (executable == null) {
-      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, context, code, message, origin, methodFeature);
-    } else {
-      propertyObserver.observe(diagnostics, occurrences, observations, sourceFile, context, code, message, origin, methodFeature,
-          executableFeature);
-    }
   }
 
   private static TreePath parameterPath(TreePath methodPath, VariableTree parameterTree) {

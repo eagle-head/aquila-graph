@@ -103,7 +103,7 @@ class JavaAnnotationAstTest {
           var range = node.origin().orElseThrow();
           return source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive()));
         }).toList());
-    assertEquals(List.of("frontend.unsupported-annotation-default"),
+    assertEquals(List.of(),
         result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
     assertEquals(result.aggregate(), repeated.aggregate());
     assertEquals(result.diagnostics(), repeated.diagnostics());

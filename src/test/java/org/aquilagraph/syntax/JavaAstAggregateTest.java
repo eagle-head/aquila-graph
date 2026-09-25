@@ -27,6 +27,154 @@ class JavaAstAggregateTest {
   private static final String CONTENT = "0123456789";
 
   @Test
+  void givenUnresolvedOrIncompleteNestedValue_whenDefaultIsConstructed_thenTypedPublicationIsRejected() {
+    // Arrange
+    var methodPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0);
+    var valuePath = methodPath.child(SyntaxRole.DEFAULT_VALUE, 0);
+    var range = new SourceSpan("a", 2, 8);
+    var unresolvedType = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED,
+        Optional.of("type:Inner"), Optional.empty(), List.of(), List.of());
+    var unresolved = SyntaxNode.source("a", valuePath, JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION,
+        SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.MARKER, List.of(), SyntaxValue.AnnotationLocation.VALUE),
+        List.of(), Optional.of(unresolvedType), range);
+    var incomplete = SyntaxNode.source("a", valuePath, JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION,
+        SyntaxType.NotApplicable.INSTANCE,
+        SyntaxValue.Annotation.withArgumentFailure(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
+            List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.VALUE,
+            "frontend.unavailable-annotation-attribution"),
+        List.of(), Optional.of(reference("type:Inner")), range);
+    var returnType = SyntaxNode.source("a", methodPath.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.IDENTIFIER,
+        SyntaxKind.TYPE_USE, new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Inner", "Inner"),
+            new JavaTypeStructure.Declared("type:Inner", Optional.empty(), List.of())),
+        new SyntaxValue.SourceSymbol("Inner"), List.of(), Optional.of(reference("type:Inner")), new SourceSpan("a", 0, 1));
+    var defaultValue = new AnnotationElementValue.Nested("type:Inner");
+
+    // Act
+    var unresolvedFailure = assertThrows(IllegalArgumentException.class,
+        () -> annotationElement(returnType, Optional.of(defaultValue), List.of(unresolved)));
+    var incompleteFailure = assertThrows(IllegalArgumentException.class,
+        () -> annotationElement(returnType, Optional.of(defaultValue), List.of(incomplete)));
+
+    // Assert
+    assertTrue(unresolvedFailure.getMessage().contains("does not match its written source form"));
+    assertTrue(incompleteFailure.getMessage().contains("does not match its written source form"));
+  }
+
+  @Test
+  void givenAnnotationSourceKinds_whenClassifiedAsCompilationUnits_thenConstructionIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DEFAULT_VALUE, 0);
+    var sourceKinds = List.of(JavaSourceKind.ANNOTATION, JavaSourceKind.NEW_ARRAY, JavaSourceKind.INT_LITERAL);
+
+    for (var sourceKind : sourceKinds) {
+      // Act
+      var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
+          sourceKind, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+          List.of(), Optional.empty(), new SourceSpan("a", 2, 8)));
+
+      // Assert
+      assertTrue(failure.getMessage().contains("cannot represent Java source kind"));
+    }
+  }
+
+  @Test
+  void givenDefaultFactsAndSourceChildren_whenCardinalityOrTypeDisagrees_thenConstructionIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0);
+    var intType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"),
+        new JavaTypeStructure.Primitive(JavaTypeCategory.INT));
+    var returnType = SyntaxNode.source("a", path.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.PRIMITIVE_TYPE,
+        SyntaxKind.TYPE_USE, intType, new SyntaxValue.PrimitiveType(JavaTypeCategory.INT), List.of(), Optional.empty(),
+        new SourceSpan("a", 0, 1));
+    var expression = SyntaxNode.source("a", path.child(SyntaxRole.DEFAULT_VALUE, 0), JavaSourceKind.INT_LITERAL,
+        SyntaxKind.LITERAL, intType, new SyntaxValue.Literal("7"), List.of(), Optional.empty(), new SourceSpan("a", 2, 3));
+
+    // Act
+    var missing = assertThrows(IllegalArgumentException.class,
+        () -> annotationElement(returnType, Optional.of(new AnnotationScalar.IntValue(7)), List.of()));
+    var unexpected = assertThrows(IllegalArgumentException.class,
+        () -> annotationElement(returnType, Optional.empty(), List.of(expression)));
+    var duplicate = assertThrows(IllegalArgumentException.class,
+        () -> annotationElement(returnType, Optional.of(new AnnotationScalar.IntValue(7)), List.of(expression, expression)));
+    var incompatible = assertThrows(IllegalArgumentException.class,
+        () -> annotationElement(returnType, Optional.of(new AnnotationScalar.StringValue("seven")), List.of(expression)));
+
+    // Assert
+    assertTrue(missing.getMessage().contains("DEFAULT_VALUE"));
+    assertTrue(unexpected.getMessage().contains("DEFAULT_VALUE"));
+    assertTrue(duplicate.getMessage().contains("DEFAULT_VALUE"));
+    assertEquals("Annotation scalar category conflicts with the selected element type", incompatible.getMessage());
+  }
+
+  @Test
+  void givenValueAnnotationAsDeclarationAttachment_whenConstructed_thenLocationIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.PACKAGE_DECLARATION, 0);
+    var annotation = SyntaxNode.source("a", path.child(SyntaxRole.ANNOTATION, 0), JavaSourceKind.ANNOTATION,
+        SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.MARKER, List.of(), SyntaxValue.AnnotationLocation.VALUE),
+        List.of(), Optional.of(reference("type:Owned")), new SourceSpan("a", 0, 2));
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
+        JavaSourceKind.PACKAGE, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.PackageDeclaration("sample"), List.of(new SyntaxChild(SyntaxRole.ANNOTATION, 0, annotation)),
+        Optional.empty(), new SourceSpan("a", 0, 9)));
+
+    // Assert
+    assertTrue(error.getMessage().contains("location must match its structural role"));
+  }
+
+  @Test
+  void givenDefaultValueOnOrdinaryMethod_whenConstructed_thenWrongDeclarationFamilyIsRejected() {
+    // Arrange
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, false);
+    var attributed = new SyntaxValue.ExecutableDeclaration.AttributedHeader(SyntaxType.NotApplicable.INSTANCE,
+        Optional.empty(), Optional.empty(), Optional.empty(), List.of(), Optional.of(new AnnotationScalar.IntValue(7)));
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> new SyntaxValue.ExecutableDeclaration("value",
+        "type:Owned", "type:Owned#value()", SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD,
+        Set.of(), Set.of(), shape, attributed));
+
+    // Assert
+    assertEquals("Only an annotation element can own a default value", error.getMessage());
+  }
+
+  @Test
+  void givenArrayValueWithInconsistentWrittenCardinality_whenPairIsConstructed_thenMismatchIsRejected() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0)
+        .child(SyntaxRole.ANNOTATION_ARGUMENT, 0);
+    var valuePath = path.child(SyntaxRole.VALUE, 0);
+    var intType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"),
+        new JavaTypeStructure.Primitive(JavaTypeCategory.INT));
+    var arrayType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.ARRAY, "int[]", "int[]"),
+        new JavaTypeStructure.Array(new JavaTypeStructure.Primitive(JavaTypeCategory.INT)));
+    var literal = SyntaxNode.source("a", valuePath.child(SyntaxRole.VALUE, 0), JavaSourceKind.INT_LITERAL,
+        SyntaxKind.LITERAL, intType, new SyntaxValue.Literal("7"), List.of(), Optional.empty(), new SourceSpan("a", 3, 4));
+    var array = SyntaxNode.source("a", valuePath, JavaSourceKind.NEW_ARRAY, SyntaxKind.ANNOTATION_ARRAY,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.VALUE, 0, literal)), Optional.empty(), new SourceSpan("a", 2, 5));
+    var selectedKey = "type:Owned#value()";
+    var selected = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED, Optional.of(selectedKey),
+        Optional.empty(), List.of(), List.of());
+
+    // Act
+    var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
+        JavaSourceKind.NEW_ARRAY, SyntaxKind.ANNOTATION_ARGUMENT, arrayType,
+        new SyntaxValue.AnnotationArgument(Optional.empty(), selectedKey,
+            new AnnotationElementValue.Array(List.of(new AnnotationScalar.IntValue(7), new AnnotationScalar.IntValue(8)))),
+        List.of(new SyntaxChild(SyntaxRole.VALUE, 0, array)), Optional.of(selected), new SourceSpan("a", 2, 5)));
+
+    // Assert
+    assertEquals("Annotation value does not match its written source form", error.getMessage());
+  }
+
+  @Test
   void givenScalarPairWithForeignElement_whenAnnotationIsConstructed_thenOwnershipIsRejected() {
     // Arrange
     var annotationPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0);
@@ -34,7 +182,7 @@ class JavaAstAggregateTest {
 
     // Act
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
-        JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
             List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION),
         List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, pair)), Optional.of(reference("type:Owned")),
@@ -52,10 +200,10 @@ class JavaAstAggregateTest {
 
     // Act
     var missing = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
-        JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT, header, SyntaxValue.AnnotationLocation.DECLARATION),
         List.of(), Optional.of(reference("type:Owned")), new SourceSpan("a", 0, 7)));
-    var diagnosed = SyntaxNode.source("a", annotationPath, JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT,
+    var diagnosed = SyntaxNode.source("a", annotationPath, JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION,
         SyntaxType.NotApplicable.INSTANCE, SyntaxValue.Annotation.withArgumentFailure(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
             header, SyntaxValue.AnnotationLocation.DECLARATION, "frontend.unavailable-annotation-attribution"),
         List.of(), Optional.of(reference("type:Owned")), new SourceSpan("a", 0, 7));
@@ -93,7 +241,7 @@ class JavaAstAggregateTest {
 
     // Act
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
-        JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
             List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION),
         List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, pair)), Optional.of(reference("type:Owned")),
@@ -114,7 +262,7 @@ class JavaAstAggregateTest {
 
     // Act
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
-        JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.NAMED_NORMAL, headers, SyntaxValue.AnnotationLocation.DECLARATION),
         List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, first),
             new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 1, second)),
@@ -132,7 +280,7 @@ class JavaAstAggregateTest {
 
     // Act
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
-        JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
         SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, pair)),
         Optional.empty(), new SourceSpan("a", 0, 7)));
 
@@ -296,7 +444,7 @@ class JavaAstAggregateTest {
 
     // Act
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
-        JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
             List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION),
         List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, pair)), Optional.of(reference("type:Owned")),
@@ -1324,7 +1472,7 @@ class JavaAstAggregateTest {
     var annotationPath = packagePath.child(SyntaxRole.ANNOTATION, 0);
     var pair = scalarArgument(annotationPath, scalar, "type:Owned#value()", Optional.empty(), JavaSourceKind.INT_LITERAL,
         literalText);
-    var annotation = SyntaxNode.source("a", annotationPath, JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT,
+    var annotation = SyntaxNode.source("a", annotationPath, JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION,
         SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
             List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION),
@@ -1346,7 +1494,7 @@ class JavaAstAggregateTest {
     var annotations = new ArrayList<SyntaxChild>();
     for (var index = 0; index < ranges.size(); index++) {
       var annotation = SyntaxNode.source(sourceKey, packagePath.child(SyntaxRole.ANNOTATION, index), JavaSourceKind.ANNOTATION,
-          SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+          SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
           new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.MARKER, List.of(), SyntaxValue.AnnotationLocation.DECLARATION),
           List.of(), Optional.of(reference), ranges.get(index));
       annotations.add(new SyntaxChild(SyntaxRole.ANNOTATION, index, annotation));
@@ -1400,6 +1548,22 @@ class JavaAstAggregateTest {
         new SourceSpan(sourceKey, 1, 2));
   }
 
+  private static SyntaxNode annotationElement(SyntaxNode returnType, Optional<AnnotationElementValue> defaultValue,
+      List<SyntaxNode> expressions) {
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0);
+    var value = new SyntaxValue.ExecutableDeclaration("value", "type:Owned", "type:Owned#value()",
+        SyntaxValue.ExecutableDeclaration.ExecutableKind.ANNOTATION_ELEMENT, Set.of(), Set.of(),
+        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, false),
+        SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(), defaultValue));
+    var children = new ArrayList<SyntaxChild>();
+    children.add(new SyntaxChild(SyntaxRole.RETURN_TYPE, 0, returnType));
+    for (var index = 0; index < expressions.size(); index++) {
+      children.add(new SyntaxChild(SyntaxRole.DEFAULT_VALUE, index, expressions.get(index)));
+    }
+    return SyntaxNode.source("a", path, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION, SyntaxType.NotApplicable.INSTANCE,
+        value, children, Optional.empty(), new SourceSpan("a", 0, 10));
+  }
+
   private static SyntaxNode type(String sourceKey, SyntaxStructuralPath path) {
     return SyntaxNode.source(sourceKey, path, JavaSourceKind.CLASS, SyntaxKind.TYPE_DECLARATION,
         SyntaxType.NotApplicable.INSTANCE, typeValue(0), List.of(), Optional.empty(),
@@ -1414,8 +1578,8 @@ class JavaAstAggregateTest {
   private static SyntaxValue.ExecutableDeclaration constructorValue() {
     return new SyntaxValue.ExecutableDeclaration("Type", "type:Type", "type:Type#Type()",
         SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR,
-        Set.of(), Set.of(), new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false, false),
-        SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of()));
+        Set.of(), Set.of(), new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false),
+        SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(), Optional.empty()));
   }
 
   private static SyntaxNode block(String sourceKey, SyntaxStructuralPath path) {

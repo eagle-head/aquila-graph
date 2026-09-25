@@ -81,6 +81,7 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.MODIFIERS,
       Tree.Kind.MODULE,
       Tree.Kind.MULTIPLY,
+      Tree.Kind.NEW_ARRAY,
       Tree.Kind.NEW_CLASS,
       Tree.Kind.NOT_EQUAL_TO,
       Tree.Kind.NULL_LITERAL,
@@ -170,10 +171,11 @@ class JavaCompilerKindCoverageTest {
         import java.util.List;
         @java.lang.annotation.Target(java.lang.annotation.ElementType.TYPE_USE) @interface Mark { }
         @interface Marker { }
+        @interface Numbers { int[] value(); }
         interface Contract { }
         enum Choice { ONE }
         record Pair(int value) { }
-        final class KindEvidence<@Marker T> implements Contract {
+        @Numbers({1,2}) final class KindEvidence<@Marker T> implements Contract {
           private int field = 1;
           private List<?> any;
           private List<? extends Number> upper;

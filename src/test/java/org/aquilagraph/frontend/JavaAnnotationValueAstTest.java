@@ -29,6 +29,7 @@ import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.syntax.AnnotationScalar;
+import org.aquilagraph.syntax.AnnotationElementValue;
 import org.aquilagraph.syntax.JavaAstAggregate;
 import org.aquilagraph.syntax.JavaTypeStructure;
 import org.aquilagraph.syntax.SyntaxKind;
@@ -45,6 +46,157 @@ import org.junit.jupiter.api.io.TempDir;
 
 class JavaAnnotationValueAstTest {
   @TempDir Path sourceRoot;
+
+  @Test
+  void givenBracedAndUnbracedArrays_whenAnalyzed_thenCardinalityOrderAndSourceFormsRemainDistinct() throws IOException {
+    // Arrange
+    var source = """
+        @interface Numbers { int[] value(); }
+        @Numbers({3,1,3,}) class Braced {}
+        @Numbers(3) class Unbraced {}
+        @Numbers({3}) class Singleton {}
+        @Numbers({}) class Empty {}
+        """;
+    Files.writeString(sourceRoot.resolve("Numbers.java"), source);
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot,
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var pairs = result.aggregate().orElseThrow().nodes().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION_ARGUMENT).toList();
+    var values = pairs.stream().map(node -> (AnnotationElementValue.Array) node.value(SyntaxValue.AnnotationArgument.class).value())
+        .toList();
+    var written = pairs.stream().map(node -> node.requiredChild(SyntaxRole.VALUE)).toList();
+
+    // Assert
+    assertEquals(List.of(new AnnotationScalar.IntValue(3), new AnnotationScalar.IntValue(1),
+        new AnnotationScalar.IntValue(3)), values.get(0).elements());
+    assertEquals(List.of(new AnnotationScalar.IntValue(3)), values.get(1).elements());
+    assertEquals(values.get(1), values.get(2));
+    assertEquals(List.of(), values.get(3).elements());
+    assertEquals(List.of("{3,1,3,}", "3", "{3}", "{}"), written.stream().map(node -> excerpt(source, node)).toList());
+    assertEquals(List.of("3", "1", "3"), written.get(0).children(SyntaxRole.VALUE).stream()
+        .map(node -> excerpt(source, node)).toList());
+    assertEquals(0, written.get(1).children(SyntaxRole.VALUE).size());
+    assertEquals(0, written.get(3).children(SyntaxRole.VALUE).size());
+    assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+  }
+
+  @Test
+  void givenNestedValuesAndAnnotationArrays_whenAnalyzed_thenEachNestedOccurrenceKeepsItsOwnTypeAndArguments()
+      throws IOException {
+    // Arrange
+    var source = """
+        @interface Inner { int value(); }
+        @interface Other { String value(); }
+        @interface Outer { Inner inner(); Inner[] many(); Other other(); }
+        @Outer(inner=@Inner(2), many={@Inner(1), @Inner(1)}, other=@Other("x")) class Sample {}
+        """;
+    Files.writeString(sourceRoot.resolve("Outer.java"), source);
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot,
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var aggregate = result.aggregate().orElseThrow();
+    var sample = aggregate.nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_DECLARATION
+        && node.value(SyntaxValue.TypeDeclaration.class).name().equals("Sample")).findFirst().orElseThrow();
+    var outer = sample.requiredChild(SyntaxRole.ANNOTATION);
+    var pairs = outer.children(SyntaxRole.ANNOTATION_ARGUMENT);
+    var inner = pairs.getFirst().requiredChild(SyntaxRole.VALUE);
+    var many = pairs.get(1).requiredChild(SyntaxRole.VALUE).children(SyntaxRole.VALUE);
+    var other = pairs.get(2).requiredChild(SyntaxRole.VALUE);
+
+    // Assert
+    assertEquals(1, sample.children(SyntaxRole.ANNOTATION).size());
+    assertEquals(new AnnotationElementValue.Nested("type:Inner"), pairs.getFirst().value(SyntaxValue.AnnotationArgument.class).value());
+    assertEquals(new AnnotationElementValue.Array(List.of(new AnnotationElementValue.Nested("type:Inner"),
+        new AnnotationElementValue.Nested("type:Inner"))), pairs.get(1).value(SyntaxValue.AnnotationArgument.class).value());
+    assertEquals(new AnnotationElementValue.Nested("type:Other"), pairs.get(2).value(SyntaxValue.AnnotationArgument.class).value());
+    assertEquals(List.of("@Inner(2)", "@Inner(1)", "@Inner(1)", "@Other(\"x\")"),
+        List.of(inner, many.get(0), many.get(1), other).stream().map(node -> excerpt(source, node)).toList());
+    assertEquals(List.of(new AnnotationScalar.IntValue(2), new AnnotationScalar.IntValue(1),
+        new AnnotationScalar.IntValue(1), new AnnotationScalar.StringValue("x")),
+        List.of(inner, many.get(0), many.get(1), other).stream().map(node -> node.requiredChild(SyntaxRole.ANNOTATION_ARGUMENT)
+            .value(SyntaxValue.AnnotationArgument.class).value()).toList());
+    assertTrue(List.of(inner, many.get(0), many.get(1), other).stream().allMatch(node ->
+        node.value(SyntaxValue.Annotation.class).location() == SyntaxValue.AnnotationLocation.VALUE));
+    assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+  }
+
+  @Test
+  void givenArraysOfEveryLegalElementFamily_whenAnalyzed_thenEachRetainsItsAttributedComponentValue() throws IOException {
+    // Arrange
+    var source = """
+        @interface Inner { int value(); }
+        @interface Families {
+          boolean[] bools(); byte[] bytes(); short[] shorts(); char[] chars(); int[] ints(); long[] longs();
+          float[] floats(); double[] doubles(); String[] strings();
+          java.lang.annotation.ElementType[] enums(); Class<?>[] classes(); Inner[] nested();
+        }
+        @Families(bools={true},bytes={1},shorts={2},chars={'x'},ints={3},longs={4L},
+          floats={1.5f},doubles={2.5},strings={"ok"},
+          enums={java.lang.annotation.ElementType.TYPE},classes={String.class},nested={@Inner(6)})
+        class Sample {}
+        """;
+    Files.writeString(sourceRoot.resolve("Families.java"), source);
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot,
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var pairs = result.aggregate().orElseThrow().nodes().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION_ARGUMENT
+            && node.value(SyntaxValue.AnnotationArgument.class).selectedElementKey().startsWith("type:Families#"))
+        .toList();
+    var values = pairs.stream().map(node -> ((AnnotationElementValue.Array) node.value(SyntaxValue.AnnotationArgument.class)
+        .value()).elements().getFirst()).toList();
+
+    // Assert
+    assertEquals(12, pairs.size(), () -> result.diagnostics().toString());
+    assertEquals(List.of(new AnnotationScalar.BooleanValue(true), new AnnotationScalar.ByteValue((byte) 1),
+        new AnnotationScalar.ShortValue((short) 2), new AnnotationScalar.CharValue('x'), new AnnotationScalar.IntValue(3),
+        new AnnotationScalar.LongValue(4L), new AnnotationScalar.FloatValue(1.5f), new AnnotationScalar.DoubleValue(2.5),
+        new AnnotationScalar.StringValue("ok")), values.subList(0, 9));
+    assertInstanceOf(AnnotationScalar.EnumConstant.class, values.get(9));
+    assertInstanceOf(AnnotationScalar.ClassLiteral.class, values.get(10));
+    assertEquals(new AnnotationElementValue.Nested("type:Inner"), values.get(11));
+    assertTrue(pairs.stream().allMatch(node -> node.requiredChild(SyntaxRole.VALUE).children(SyntaxRole.VALUE).size() == 1));
+    assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+  }
+
+  @Test
+  void givenRepeatedAnnotationsAndWrittenContainer_whenAnalyzed_thenSourceStructuresStayDistinct() throws IOException {
+    // Arrange
+    var source = """
+        import java.lang.annotation.Repeatable;
+        @Repeatable(Tags.class) @interface Tag { int value(); }
+        @interface Tags { Tag[] value(); }
+        @Tag(1) @Tag(2) class Repeated {}
+        @Tags({@Tag(1), @Tag(2)}) class Container {}
+        """;
+    Files.writeString(sourceRoot.resolve("Tags.java"), source);
+
+    // Act
+    var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot,
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var nodes = result.aggregate().orElseThrow().nodes();
+    var repeated = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_DECLARATION
+        && node.value(SyntaxValue.TypeDeclaration.class).name().equals("Repeated")).findFirst().orElseThrow();
+    var container = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_DECLARATION
+        && node.value(SyntaxValue.TypeDeclaration.class).name().equals("Container")).findFirst().orElseThrow();
+    var containerValue = container.requiredChild(SyntaxRole.ANNOTATION).requiredChild(SyntaxRole.ANNOTATION_ARGUMENT)
+        .requiredChild(SyntaxRole.VALUE);
+
+    // Assert
+    assertEquals(List.of("@Tag(1)", "@Tag(2)"), repeated.children(SyntaxRole.ANNOTATION).stream()
+        .map(node -> excerpt(source, node)).toList());
+    assertEquals(List.of("@Tags({@Tag(1), @Tag(2)})"), container.children(SyntaxRole.ANNOTATION).stream()
+        .map(node -> excerpt(source, node)).toList());
+    assertEquals(List.of("@Tag(1)", "@Tag(2)"), containerValue.children(SyntaxRole.VALUE).stream()
+        .map(node -> excerpt(source, node)).toList());
+    assertEquals(2, ((AnnotationElementValue.Array) container.requiredChild(SyntaxRole.ANNOTATION)
+        .requiredChild(SyntaxRole.ANNOTATION_ARGUMENT).value(SyntaxValue.AnnotationArgument.class).value()).elements().size());
+    assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+  }
 
   @Test
   void givenAllScalarCategories_whenAnalyzed_thenOrderedPairsRetainAttributedValuesAndWrittenNames() throws IOException {
@@ -77,16 +229,16 @@ class JavaAnnotationValueAstTest {
         new AnnotationScalar.ShortValue((short) 2), new AnnotationScalar.CharValue('x'),
         new AnnotationScalar.LongValue(3L), new AnnotationScalar.FloatValue(1.5f),
         new AnnotationScalar.DoubleValue(2.5)),
-        arguments.subList(0, 9).stream().map(node -> node.value(SyntaxValue.AnnotationArgument.class).scalar()).toList());
-    assertInstanceOf(AnnotationScalar.EnumConstant.class, arguments.get(9).value(SyntaxValue.AnnotationArgument.class).scalar());
-    assertInstanceOf(AnnotationScalar.ClassLiteral.class, arguments.get(10).value(SyntaxValue.AnnotationArgument.class).scalar());
+        arguments.subList(0, 9).stream().map(node -> node.value(SyntaxValue.AnnotationArgument.class).value()).toList());
+    assertInstanceOf(AnnotationScalar.EnumConstant.class, arguments.get(9).value(SyntaxValue.AnnotationArgument.class).value());
+    assertInstanceOf(AnnotationScalar.ClassLiteral.class, arguments.get(10).value(SyntaxValue.AnnotationArgument.class).value());
     assertEquals(JavaTypeCategory.SHORT, ((SyntaxType.Resolved) arguments.get(4).type()).identity().category());
     assertEquals(JavaTypeCategory.INT,
         ((SyntaxType.Resolved) arguments.get(4).requiredChild(SyntaxRole.VALUE).type()).identity().category());
     assertEquals(JavaTypeCategory.BYTE,
         ((SyntaxType.Resolved) arguments.get(3).requiredChild(SyntaxRole.VALUE).type()).identity().category());
     assertEquals(new AnnotationScalar.EnumConstant("type:java.lang.annotation.ElementType#enum:TYPE",
-        "type:java.lang.annotation.ElementType"), arguments.get(9).value(SyntaxValue.AnnotationArgument.class).scalar());
+        "type:java.lang.annotation.ElementType"), arguments.get(9).value(SyntaxValue.AnnotationArgument.class).value());
     assertEquals(SyntaxKind.ANNOTATION_NAME_REFERENCE, arguments.get(9).requiredChild(SyntaxRole.VALUE).syntaxKind());
     assertEquals(SyntaxKind.ANNOTATION_CLASS_LITERAL, arguments.get(10).requiredChild(SyntaxRole.VALUE).syntaxKind());
     assertEquals(SyntaxKind.TYPE_USE, arguments.get(10).requiredChild(SyntaxRole.VALUE)
@@ -127,9 +279,9 @@ class JavaAnnotationValueAstTest {
     var modulePair = moduleNode.requiredChild(SyntaxRole.ANNOTATION).requiredChild(SyntaxRole.ANNOTATION_ARGUMENT);
 
     // Assert
-    assertEquals(new AnnotationScalar.IntValue(7), packagePair.value(SyntaxValue.AnnotationArgument.class).scalar());
+    assertEquals(new AnnotationScalar.IntValue(7), packagePair.value(SyntaxValue.AnnotationArgument.class).value());
     assertEquals("type:sample.OnPackage#value()", packagePair.value(SyntaxValue.AnnotationArgument.class).selectedElementKey());
-    assertEquals(new AnnotationScalar.IntValue(8), modulePair.value(SyntaxValue.AnnotationArgument.class).scalar());
+    assertEquals(new AnnotationScalar.IntValue(8), modulePair.value(SyntaxValue.AnnotationArgument.class).value());
     assertEquals("type:sample.OnModule#value()", modulePair.value(SyntaxValue.AnnotationArgument.class).selectedElementKey());
     assertTrue(packagePair.value(SyntaxValue.AnnotationArgument.class).explicitName().isEmpty());
     assertTrue(modulePair.value(SyntaxValue.AnnotationArgument.class).explicitName().isEmpty());
@@ -159,7 +311,7 @@ class JavaAnnotationValueAstTest {
     assertTrue(pair.value(SyntaxValue.AnnotationArgument.class).explicitName().isEmpty());
     assertEquals("", pair.value(SyntaxValue.Symbol.class).name());
     assertTrue(pair.children(SyntaxRole.ANNOTATION_ELEMENT_NAME).isEmpty());
-    assertEquals(new AnnotationScalar.IntValue(10), pair.value(SyntaxValue.AnnotationArgument.class).scalar());
+    assertEquals(new AnnotationScalar.IntValue(10), pair.value(SyntaxValue.AnnotationArgument.class).value());
     assertEquals(SyntaxKind.ANNOTATION_CAST, pair.requiredChild(SyntaxRole.VALUE).syntaxKind());
     assertEquals(SyntaxKind.TYPE_USE, pair.requiredChild(SyntaxRole.VALUE).requiredChild(SyntaxRole.TYPE_OPERAND).syntaxKind());
     assertEquals(SyntaxKind.PARENTHESIZED, cast.syntaxKind());
@@ -194,7 +346,7 @@ class JavaAnnotationValueAstTest {
     // Assert
     assertEquals(List.of("@NumberValue(1)", "@NumberValue(2)"), annotations.stream().map(node -> excerpt(source, node)).toList());
     assertEquals(List.of(new AnnotationScalar.IntValue(1), new AnnotationScalar.IntValue(2)), annotations.stream()
-        .map(node -> node.requiredChild(SyntaxRole.ANNOTATION_ARGUMENT).value(SyntaxValue.AnnotationArgument.class).scalar()).toList());
+        .map(node -> node.requiredChild(SyntaxRole.ANNOTATION_ARGUMENT).value(SyntaxValue.AnnotationArgument.class).value()).toList());
     assertNotEquals(annotations.getFirst().nodeId(), annotations.getLast().nodeId());
     assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unavailable-annotation-attribution")),
         () -> result.diagnostics().toString());
@@ -223,7 +375,7 @@ class JavaAnnotationValueAstTest {
     // Assert
     assertEquals(List.of("@Tag(1)", "@Tag(2)"), repeated.stream().map(node -> excerpt(source, node)).toList());
     assertEquals(List.of(new AnnotationScalar.IntValue(1), new AnnotationScalar.IntValue(2)), repeated.stream()
-        .map(node -> node.requiredChild(SyntaxRole.ANNOTATION_ARGUMENT).value(SyntaxValue.AnnotationArgument.class).scalar()).toList());
+        .map(node -> node.requiredChild(SyntaxRole.ANNOTATION_ARGUMENT).value(SyntaxValue.AnnotationArgument.class).value()).toList());
     assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unavailable-annotation-attribution")),
         () -> result.diagnostics().toString());
   }
@@ -251,7 +403,7 @@ class JavaAnnotationValueAstTest {
 
     // Assert
     assertEquals("@OnlyComponent(7)", excerpt(source, annotation));
-    assertEquals(new AnnotationScalar.IntValue(7), pair.value(SyntaxValue.AnnotationArgument.class).scalar());
+    assertEquals(new AnnotationScalar.IntValue(7), pair.value(SyntaxValue.AnnotationArgument.class).value());
     assertEquals("type:OnlyComponent#value()", pair.value(SyntaxValue.AnnotationArgument.class).selectedElementKey());
     assertTrue(aggregate.semanticEdges().stream().anyMatch(edge -> edge.sourceKey().equals(annotation.nodeId())
         && edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET
@@ -285,7 +437,7 @@ class JavaAnnotationValueAstTest {
     assertEquals(List.of("@OnlyParameter(7)", "@OnlyParameter(8)"), annotations.stream()
         .map(node -> excerpt(source, node)).toList());
     assertEquals(List.of(new AnnotationScalar.IntValue(7), new AnnotationScalar.IntValue(8)), annotations.stream()
-        .map(node -> node.requiredChild(SyntaxRole.ANNOTATION_ARGUMENT).value(SyntaxValue.AnnotationArgument.class).scalar()).toList(),
+        .map(node -> node.requiredChild(SyntaxRole.ANNOTATION_ARGUMENT).value(SyntaxValue.AnnotationArgument.class).value()).toList(),
         () -> result.diagnostics().toString());
     assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unavailable-annotation-attribution")),
         () -> result.diagnostics().toString());
@@ -391,9 +543,9 @@ class JavaAnnotationValueAstTest {
     // Assert
     assertEquals(first.aggregate(), repeated.aggregate());
     assertEquals(first.diagnostics(), repeated.diagnostics());
-    assertEquals(new AnnotationScalar.IntValue(7), firstPair.value(SyntaxValue.AnnotationArgument.class).scalar());
-    assertEquals(firstPair.value(SyntaxValue.AnnotationArgument.class).scalar(),
-        secondPair.value(SyntaxValue.AnnotationArgument.class).scalar());
+    assertEquals(new AnnotationScalar.IntValue(7), firstPair.value(SyntaxValue.AnnotationArgument.class).value());
+    assertEquals(firstPair.value(SyntaxValue.AnnotationArgument.class).value(),
+        secondPair.value(SyntaxValue.AnnotationArgument.class).value());
     assertEquals(firstPair.value(SyntaxValue.AnnotationArgument.class).selectedElementKey(),
         secondPair.value(SyntaxValue.AnnotationArgument.class).selectedElementKey());
     assertTrue(firstPair.value(SyntaxValue.AnnotationArgument.class).explicitName().isEmpty());
@@ -489,10 +641,10 @@ class JavaAnnotationValueAstTest {
     assertEquals(4, pairs.size(), () -> result.diagnostics().toString());
     assertEquals(List.of(new AnnotationScalar.StringValue("line\n"), new AnnotationScalar.StringValue("line\n"),
         new AnnotationScalar.FloatValue(-0.0f), new AnnotationScalar.DoubleValue(-0.0d)),
-        pairs.stream().map(node -> node.value(SyntaxValue.AnnotationArgument.class).scalar()).toList());
+        pairs.stream().map(node -> node.value(SyntaxValue.AnnotationArgument.class).value()).toList());
     assertNotEquals(excerpt(source, pairs.getFirst()), excerpt(source, pairs.get(1)));
-    assertNotEquals(new AnnotationScalar.FloatValue(0.0f), pairs.get(2).value(SyntaxValue.AnnotationArgument.class).scalar());
-    assertNotEquals(new AnnotationScalar.DoubleValue(0.0d), pairs.get(3).value(SyntaxValue.AnnotationArgument.class).scalar());
+    assertNotEquals(new AnnotationScalar.FloatValue(0.0f), pairs.get(2).value(SyntaxValue.AnnotationArgument.class).value());
+    assertNotEquals(new AnnotationScalar.DoubleValue(0.0d), pairs.get(3).value(SyntaxValue.AnnotationArgument.class).value());
     assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
   }
 
@@ -512,7 +664,7 @@ class JavaAnnotationValueAstTest {
     // Assert
     assertEquals(List.of(new AnnotationScalar.ByteValue((byte) -128), new AnnotationScalar.ShortValue((short) 32767),
         new AnnotationScalar.CharValue('\uffff')),
-        pairs.stream().map(node -> node.value(SyntaxValue.AnnotationArgument.class).scalar()).toList());
+        pairs.stream().map(node -> node.value(SyntaxValue.AnnotationArgument.class).value()).toList());
     assertTrue(pairs.stream().allMatch(node -> ((SyntaxType.Resolved) node.requiredChild(SyntaxRole.VALUE).type())
         .identity().category() == JavaTypeCategory.INT));
     assertEquals(List.of(JavaTypeCategory.BYTE, JavaTypeCategory.SHORT, JavaTypeCategory.CHAR), pairs.stream()
@@ -556,9 +708,9 @@ class JavaAnnotationValueAstTest {
 
     // Assert
     assertEquals(4, pairs.size(), () -> result.diagnostics().toString());
-    assertEquals(new AnnotationScalar.IntValue(8), pairs.get(0).value(SyntaxValue.AnnotationArgument.class).scalar());
-    assertEquals(pairs.get(0).value(SyntaxValue.AnnotationArgument.class).scalar(),
-        pairs.get(1).value(SyntaxValue.AnnotationArgument.class).scalar());
+    assertEquals(new AnnotationScalar.IntValue(8), pairs.get(0).value(SyntaxValue.AnnotationArgument.class).value());
+    assertEquals(pairs.get(0).value(SyntaxValue.AnnotationArgument.class).value(),
+        pairs.get(1).value(SyntaxValue.AnnotationArgument.class).value());
     assertEquals("type:java.lang.Long#field:BYTES", firstReference.semanticReference().orElseThrow().symbolKey().orElseThrow());
     assertEquals("type:java.lang.Double#field:BYTES", secondReference.semanticReference().orElseThrow().symbolKey().orElseThrow());
     assertEquals("type:First.Item", ((JavaTypeStructure.Declared) ((SyntaxType.Resolved) firstType.type())
@@ -566,9 +718,9 @@ class JavaAnnotationValueAstTest {
     assertEquals("type:Second.Item", ((JavaTypeStructure.Declared) ((SyntaxType.Resolved) secondType.type())
         .structure().orElseThrow()).declarationKey());
     assertEquals(((SyntaxType.Resolved) firstType.type()).structure().orElseThrow(),
-        ((AnnotationScalar.ClassLiteral) pairs.get(2).value(SyntaxValue.AnnotationArgument.class).scalar()).operandType());
+        ((AnnotationScalar.ClassLiteral) pairs.get(2).value(SyntaxValue.AnnotationArgument.class).value()).operandType());
     assertEquals(((SyntaxType.Resolved) secondType.type()).structure().orElseThrow(),
-        ((AnnotationScalar.ClassLiteral) pairs.get(3).value(SyntaxValue.AnnotationArgument.class).scalar()).operandType());
+        ((AnnotationScalar.ClassLiteral) pairs.get(3).value(SyntaxValue.AnnotationArgument.class).value()).operandType());
     assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
   }
 
@@ -596,11 +748,11 @@ class JavaAnnotationValueAstTest {
     for (var index = 1; index < aggregates.size(); index++) {
       assertNotEquals(aggregates.getFirst(), aggregates.get(index));
     }
-    assertEquals(pairs.getFirst().getFirst().value(SyntaxValue.AnnotationArgument.class).scalar(),
-        pairs.get(1).getFirst().value(SyntaxValue.AnnotationArgument.class).scalar());
+    assertEquals(pairs.getFirst().getFirst().value(SyntaxValue.AnnotationArgument.class).value(),
+        pairs.get(1).getFirst().value(SyntaxValue.AnnotationArgument.class).value());
     assertNotEquals(pairs.getFirst().getFirst(), pairs.get(1).getFirst());
-    assertNotEquals(pairs.getFirst().get(1).value(SyntaxValue.AnnotationArgument.class).scalar(),
-        pairs.get(2).get(1).value(SyntaxValue.AnnotationArgument.class).scalar());
+    assertNotEquals(pairs.getFirst().get(1).value(SyntaxValue.AnnotationArgument.class).value(),
+        pairs.get(2).get(1).value(SyntaxValue.AnnotationArgument.class).value());
     assertNotEquals(pairs.getFirst().getFirst().value(SyntaxValue.AnnotationArgument.class).selectedElementKey(),
         pairs.get(4).getFirst().value(SyntaxValue.AnnotationArgument.class).selectedElementKey());
     assertEquals(List.of("second", "first"), pairs.get(4).stream()

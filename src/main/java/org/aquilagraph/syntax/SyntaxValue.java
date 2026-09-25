@@ -28,6 +28,8 @@ public sealed interface SyntaxValue {
   enum AnnotationLocation {
     /** A supported declaration owns this occurrence. */
     DECLARATION,
+    /** A nested annotation is the value of an annotation element. */
+    VALUE,
     /** The precise annotation location is not yet represented. */
     UNRESOLVED
   }
@@ -456,28 +458,30 @@ public sealed interface SyntaxValue {
     }
   }
 
-  /** One written annotation pair with a compiler-selected element and scalar value. */
+  /** One written annotation pair with a compiler-selected element and typed value. */
   final class AnnotationArgument extends Symbol {
-    private record AnnotationArgumentDetails(Optional<String> explicitName, String selectedElementKey, AnnotationScalar scalar) {
+    private record AnnotationArgumentDetails(Optional<String> explicitName, String selectedElementKey, AnnotationElementValue value) {
       private AnnotationArgumentDetails {
         Objects.requireNonNull(explicitName, "explicitName").ifPresent(SyntaxValueSupport::requireName);
         SyntaxValueSupport.requireText(selectedElementKey, "selectedElementKey");
-        Objects.requireNonNull(scalar, "scalar");
+        Objects.requireNonNull(value, "value");
       }
     }
 
     private final AnnotationArgumentDetails details;
 
     /**
+     * Creates an explicit annotation element-value pair.
+     *
      * @param explicitName
      *          written name, if present
      * @param selectedElementKey
      *          selected element declaration identity
-     * @param scalar
-     *          attributed scalar value
+     * @param value
+     *          attributed typed value
      */
-    public AnnotationArgument(Optional<String> explicitName, String selectedElementKey, AnnotationScalar scalar) {
-      this(new AnnotationArgumentDetails(explicitName, selectedElementKey, scalar));
+    public AnnotationArgument(Optional<String> explicitName, String selectedElementKey, AnnotationElementValue value) {
+      this(new AnnotationArgumentDetails(explicitName, selectedElementKey, value));
     }
 
     private AnnotationArgument(AnnotationArgumentDetails details) {
@@ -485,19 +489,31 @@ public sealed interface SyntaxValue {
       this.details = details;
     }
 
-    /** @return written name, absent for shorthand syntax */
+    /**
+     * Returns the written name, absent for shorthand syntax.
+     *
+     * @return written name, when present
+     */
     public Optional<String> explicitName() {
       return details.explicitName();
     }
 
-    /** @return selected annotation element declaration key */
+    /**
+     * Returns the selected annotation element declaration key.
+     *
+     * @return selected element key
+     */
     public String selectedElementKey() {
       return details.selectedElementKey();
     }
 
-    /** @return attributed typed scalar value */
-    public AnnotationScalar scalar() {
-      return details.scalar();
+    /**
+     * Returns the attributed typed value.
+     *
+     * @return attributed value
+     */
+    public AnnotationElementValue value() {
+      return details.value();
     }
   }
 
@@ -583,7 +599,11 @@ public sealed interface SyntaxValue {
       return details.arguments();
     }
 
-    /** @return blocking diagnostic code when written arguments could not be projected */
+    /**
+     * Returns the blocking diagnostic code for incomplete written arguments.
+     *
+     * @return diagnostic code, when present
+     */
     public Optional<String> argumentFailureCode() {
       return details.argumentFailureCode();
     }
@@ -1134,20 +1154,15 @@ public sealed interface SyntaxValue {
      *          written throws attachments
      * @param body
      *          written body presence
-     * @param defaultValue
-     *          written annotation default presence
      * @param varArgs
      *          attributed variable-arity state
      */
     public record HeaderShape(int annotations, int typeParameters, boolean receiver, int parameters, boolean returnType, int thrownTypes,
-        boolean body, boolean defaultValue, boolean varArgs) {
+        boolean body, boolean varArgs) {
       /** Rejects impossible cardinalities. */
       public HeaderShape {
         if (annotations < 0 || typeParameters < 0 || parameters < 0 || thrownTypes < 0) {
           throw new IllegalArgumentException("Executable declaration child counts cannot be negative");
-        }
-        if (body && defaultValue) {
-          throw new IllegalArgumentException("An executable cannot have both a body and an annotation default");
         }
       }
     }
@@ -1165,15 +1180,18 @@ public sealed interface SyntaxValue {
      *          immediate enclosing type of a constructor's declaring type, when present
      * @param thrownTypes
      *          attributed thrown types in declaration order
+     * @param defaultValue
+     *          attributed annotation element default, absent when no default is written
      */
     public record AttributedHeader(SyntaxType receiverType, Optional<String> receiverOwnerKey, Optional<String> receiverSimpleName,
-        Optional<String> enclosingTypeKey, List<SyntaxType> thrownTypes) {
-      /** Validates the attributed receiver identity and ordered thrown types. */
+        Optional<String> enclosingTypeKey, List<SyntaxType> thrownTypes, Optional<AnnotationElementValue> defaultValue) {
+      /** Validates receiver identity, ordered thrown types, and optional default presence. */
       public AttributedHeader {
         Objects.requireNonNull(receiverType, "receiverType");
         Objects.requireNonNull(receiverOwnerKey, "receiverOwnerKey");
         Objects.requireNonNull(receiverSimpleName, "receiverSimpleName");
         Objects.requireNonNull(enclosingTypeKey, "enclosingTypeKey");
+        Objects.requireNonNull(defaultValue, "defaultValue");
         thrownTypes = List.copyOf(Objects.requireNonNull(thrownTypes, "thrownTypes"));
         receiverOwnerKey.ifPresent(key -> SyntaxValueSupport.requireText(key, "receiverOwnerKey"));
         receiverSimpleName.ifPresent(SyntaxValueSupport::requireName);
@@ -1212,10 +1230,13 @@ public sealed interface SyntaxValue {
        *
        * @param thrownTypes
        *          attributed thrown types in declaration order
+       * @param defaultValue
+       *          attributed annotation element default, when present
        * @return attributed header
        */
-      public static AttributedHeader withoutReceiver(List<SyntaxType> thrownTypes) {
-        return new AttributedHeader(SyntaxType.NotApplicable.INSTANCE, Optional.empty(), Optional.empty(), Optional.empty(), thrownTypes);
+      public static AttributedHeader withoutReceiver(List<SyntaxType> thrownTypes, Optional<AnnotationElementValue> defaultValue) {
+        return new AttributedHeader(SyntaxType.NotApplicable.INSTANCE, Optional.empty(), Optional.empty(), Optional.empty(), thrownTypes,
+            defaultValue);
       }
 
       /**
@@ -1236,7 +1257,7 @@ public sealed interface SyntaxValue {
       public static AttributedHeader withReceiver(SyntaxType receiverType, String receiverOwnerKey, String receiverSimpleName,
           Optional<String> enclosingTypeKey, List<SyntaxType> thrownTypes) {
         return new AttributedHeader(receiverType, Optional.of(receiverOwnerKey), Optional.of(receiverSimpleName), enclosingTypeKey,
-            thrownTypes);
+            thrownTypes, Optional.empty());
       }
     }
 
@@ -1285,11 +1306,11 @@ public sealed interface SyntaxValue {
         if (kind == ExecutableKind.CONSTRUCTOR && !shape.body()) {
           throw new IllegalArgumentException("A constructor requires a body");
         }
-        if (kind != ExecutableKind.ANNOTATION_ELEMENT && shape.defaultValue()) {
+        if (kind != ExecutableKind.ANNOTATION_ELEMENT && attributed.defaultValue().isPresent()) {
           throw new IllegalArgumentException("Only an annotation element can own a default value");
         }
-        if (kind == ExecutableKind.COMPACT_CONSTRUCTOR && (shape.parameters() != 0 || !shape.body() || shape.receiver()
-            || shape.typeParameters() != 0 || shape.thrownTypes() != 0 || shape.defaultValue())) {
+        if (kind == ExecutableKind.COMPACT_CONSTRUCTOR
+            && (shape.parameters() != 0 || !shape.body() || shape.receiver() || shape.typeParameters() != 0 || shape.thrownTypes() != 0)) {
           throw new IllegalArgumentException("A compact constructor has an invalid source header");
         }
         if (kind != ExecutableKind.COMPACT_CONSTRUCTOR && shape.varArgs() && shape.parameters() == 0) {
@@ -1323,7 +1344,7 @@ public sealed interface SyntaxValue {
      * @param shape
      *          required child shape
      * @param attributed
-     *          compiler-attributed receiver and thrown-type outcomes
+     *          compiler-attributed receiver, thrown-type, and annotation default outcomes
      */
     public ExecutableDeclaration(String name, String ownerKey, String declarationKey, ExecutableKind kind,
         Set<JavaDeclarationModifier> writtenModifiers, Set<JavaDeclarationModifier> effectiveModifiers, HeaderShape shape,
@@ -1362,6 +1383,15 @@ public sealed interface SyntaxValue {
      */
     public ExecutableKind kind() {
       return details.kind();
+    }
+
+    /**
+     * Returns this annotation element's attributed default, if it declares one.
+     *
+     * @return the default value, absent for a required element or another executable kind
+     */
+    public Optional<AnnotationElementValue> defaultValue() {
+      return details.attributed().defaultValue();
     }
 
     /**

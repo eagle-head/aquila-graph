@@ -8,6 +8,7 @@ import com.sun.source.tree.ExpressionStatementTree;
 import com.sun.source.tree.IdentifierTree;
 import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.ModifiersTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.VariableTree;
@@ -86,7 +87,7 @@ final class ParsedTreeInventory {
       public Void visitAnnotation(AnnotationTree annotation, Void unused) {
         annotationPaths.put(annotation, getCurrentPath());
         var owner = getCurrentPath().getParentPath();
-        while (owner != null && owner.getLeaf().getKind() == Tree.Kind.MODIFIERS) {
+        while (owner != null && owner.getLeaf() instanceof ModifiersTree) {
           owner = owner.getParentPath();
         }
         if (owner != null) {

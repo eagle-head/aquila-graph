@@ -33,7 +33,9 @@ import org.aquilagraph.model.LanguageFeatureObservation;
 import org.aquilagraph.model.LanguageFeatureOccurrence;
 import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.model.StableId;
+import org.aquilagraph.syntax.AnnotationScalar;
 import org.aquilagraph.syntax.SyntaxAnalysisInput;
+import org.aquilagraph.syntax.SyntaxValue;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -214,7 +216,7 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenDeclarationPropertyCapability_whenAnalysisRuns_thenExactDiagnosticParticipatesInTheCombinedContract()
+  void givenWrittenAnnotationDefault_whenAnalysisRuns_thenRepresentedPropertyAndTypedValueComplete()
       throws IOException {
     // Arrange
     writeSource("Settings.java", "@interface Settings { int count() default 1; }");
@@ -224,46 +226,43 @@ class JavaLanguageCompletionContractTest {
     var run = new AnalysisEngine().analyze(input);
     var classification = classification(input, LanguageFeatureCategory.DECLARATION_PROPERTY,
         "MethodTree::MethodTree#getDefaultValue()");
+    var defaultValue = input.aggregate().orElseThrow().nodes().stream().map(node -> node.value())
+        .filter(SyntaxValue.ExecutableDeclaration.class::isInstance).map(SyntaxValue.ExecutableDeclaration.class::cast)
+        .flatMap(declaration -> declaration.defaultValue().stream()).findFirst().orElseThrow();
 
     // Assert
-    assertEquals(LanguageFeaturePolicy.DIAGNOSED, classification.policy());
-    assertEquals(JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC,
-        classification.diagnosticCode().orElseThrow());
-    assertTrue(input.diagnostics().stream()
-        .anyMatch(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC)));
-    assertTrue(input.diagnostics().stream()
-        .filter(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC))
-        .allMatch(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.UNSUPPORTED_LANGUAGE_FEATURE));
-    assertNotEquals(AnalysisCompletion.COMPLETED, run.completion());
+    assertEquals(LanguageFeaturePolicy.REPRESENTED, classification.policy());
+    assertTrue(classification.diagnosticCode().isEmpty());
+    assertEquals(new AnnotationScalar.IntValue(1), defaultValue);
+    assertEquals(AnalysisCompletion.COMPLETED, run.completion());
   }
 
   @Test
-  void givenDiagnosedDeclarationProperty_whenFrontendRuns_thenContextualOccurrencesOwnTheExactDiagnostic()
+  void givenDiagnosedWhileSyntax_whenFrontendRuns_thenContextualOccurrenceOwnsTheExactDiagnostic()
       throws IOException {
     // Arrange
-    writeSource("Settings.java", "@interface Settings { int count() default 1; }");
+    writeSource("Looping.java", "final class Looping { void run() { while (false) { } } }");
 
     // Act
     var input = analyze();
-    var diagnostic = diagnostic(input, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, WHILE_DIAGNOSTIC);
     var propertyObservations = input.languageFeatureCoverageResult().observations().stream()
         .filter(observation -> observation.diagnostic().filter(diagnostic::equals).isPresent()).toList();
 
     // Assert
-    assertEquals(List.of("ExecutableElement::ExecutableElement#getDefaultValue()",
-        "MethodTree::MethodTree#getDefaultValue()"), propertyObservations.stream()
+    assertEquals(List.of("WHILE_LOOP"), propertyObservations.stream()
             .map(observation -> observation.classification().feature().identifier()).sorted().toList());
     assertTrue(propertyObservations.stream()
         .allMatch(observation -> observation.sourceFileKey().equals(diagnostic.origins().getFirst().sourceFileKey())));
   }
 
   @Test
-  void givenContextualPropertyOccurrence_whenItsDiagnosticIsRemoved_thenCoverageResultRejectsTheDetachment()
+  void givenDiagnosedWhileOccurrence_whenItsDiagnosticIsRemoved_thenCoverageRejectsTheDetachment()
       throws IOException {
     // Arrange
-    writeSource("Settings.java", "@interface Settings { int count() default 1; }");
+    writeSource("Looping.java", "final class Looping { void run() { while (false) { } } }");
     var input = analyze();
-    var diagnostic = diagnostic(input, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, WHILE_DIAGNOSTIC);
     var capabilityDiagnostics = input.languageFeatureCoverageResult().capabilityDiagnostics().stream()
         .filter(candidate -> !candidate.equals(diagnostic)).toList();
 
@@ -278,15 +277,15 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenSharedPropertyDiagnostic_whenOneContextualOccurrenceIsRemoved_thenCoverageResultRejectsThePartialInventory()
+  void givenDiagnosedWhileOccurrence_whenItsObservationIsRemoved_thenCoverageRejectsThePartialInventory()
       throws IOException {
     // Arrange
-    writeSource("Settings.java", "@interface Settings { int count() default 1; }");
+    writeSource("Looping.java", "final class Looping { void run() { while (false) { } } }");
     var input = analyze();
-    var diagnostic = diagnostic(input, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, WHILE_DIAGNOSTIC);
     var observations = input.languageFeatureCoverageResult().observations().stream()
         .filter(observation -> !observation.classification().feature().identifier()
-            .equals("MethodTree::MethodTree#getDefaultValue()"))
+            .equals("WHILE_LOOP"))
         .toList();
 
     // Act
@@ -302,12 +301,12 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenContextualPropertyOccurrence_whenItsWholeOutcomeBundleIsRemoved_thenCoverageResultRejectsTheMissingFact()
+  void givenDiagnosedWhileOccurrence_whenItsObservationAndDiagnosticAreRemoved_thenCoverageRejectsMissingFact()
       throws IOException {
     // Arrange
-    writeSource("Settings.java", "@interface Settings { int count() default 1; }");
+    writeSource("Looping.java", "final class Looping { void run() { while (false) { } } }");
     var input = analyze();
-    var diagnostic = diagnostic(input, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, WHILE_DIAGNOSTIC);
     var observations = input.languageFeatureCoverageResult().observations().stream()
         .filter(observation -> observation.diagnostic().filter(diagnostic::equals).isEmpty()).toList();
     var capabilityDiagnostics = input.languageFeatureCoverageResult().capabilityDiagnostics().stream()
@@ -363,11 +362,11 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenPropertyDiagnosticWithErroneousOutcome_whenCoverageResultIsBuilt_thenOutcomeMismatchIsRejected() throws IOException {
+  void givenWhileDiagnosticWithErroneousOutcome_whenCoverageResultIsBuilt_thenOutcomeMismatchIsRejected() throws IOException {
     // Arrange
-    writeSource("Settings.java", "@interface Settings { int count() default 1; }");
+    writeSource("Looping.java", "final class Looping { void run() { while (false) { } } }");
     var input = analyze();
-    var original = diagnostic(input, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC);
+    var original = diagnostic(input, WHILE_DIAGNOSTIC);
     var mismatched = new AnalysisDiagnostic(StableId.sha256("diagnostic", original.diagnosticKey(), "mismatched-outcome"),
         original.code(), original.stage(), original.severity(), original.message(), original.origins(),
         AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE);

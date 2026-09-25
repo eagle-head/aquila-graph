@@ -557,9 +557,9 @@ class SyntaxNodeTest {
         Optional.empty(), ORIGIN);
     var declaration = new SyntaxValue.ExecutableDeclaration("run", "type:Host", "type:Host#run()",
         SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(),
-        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 2, false, false, false),
+        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 2, false, false),
         SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(
-            receiverType("type:java.sql.SQLException", "SQLException"), receiverType("type:java.io.IOException", "IOException"))));
+            receiverType("type:java.sql.SQLException", "SQLException"), receiverType("type:java.io.IOException", "IOException")), Optional.empty()));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.METHOD,
@@ -576,7 +576,7 @@ class SyntaxNodeTest {
     // Arrange
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
     var annotation = SyntaxNode.source("source", path.child(SyntaxRole.INTERFACE, 0), JavaSourceKind.ANNOTATION,
-        SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+        SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
     var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 1, 0, 0, 0));
 
@@ -692,8 +692,8 @@ class SyntaxNodeTest {
         SyntaxKind.TYPE_USE, SyntaxType.Unresolved.INSTANCE, new SyntaxValue.SourceSymbol("Example"), List.of(), Optional.empty(), ORIGIN);
     var value = new SyntaxValue.ExecutableDeclaration("Example", "owner", "owner#Example()",
         SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR, Set.of(), Set.of(),
-        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false, false),
-        SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of()));
+        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false),
+        SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(), Optional.empty()));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.METHOD,
@@ -707,13 +707,13 @@ class SyntaxNodeTest {
   @Test
   void givenMethodWithoutReturnType_whenCreatingDeclarationValue_thenInvalidHeaderIsRejected() {
     // Arrange
-    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false, false);
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false);
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
         () -> new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
             SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(), shape,
-            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())));
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(), Optional.empty())));
 
     // Assert
     assertTrue(exception.getMessage().contains("return-type"));
@@ -722,13 +722,13 @@ class SyntaxNodeTest {
   @Test
   void givenConstructorWithoutBody_whenCreatingDeclarationValue_thenInvalidHeaderIsRejected() {
     // Arrange
-    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, false, false, false);
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, false, false);
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
         () -> new SyntaxValue.ExecutableDeclaration("Example", "owner", "owner#Example()",
             SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR, Set.of(), Set.of(), shape,
-            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())));
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(), Optional.empty())));
 
     // Assert
     assertTrue(exception.getMessage().contains("requires a body"));
@@ -737,13 +737,13 @@ class SyntaxNodeTest {
   @Test
   void givenOrdinaryMethodWithAnnotationDefault_whenCreatingDeclarationValue_thenInvalidHeaderIsRejected() {
     // Arrange
-    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, true, false);
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, false);
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
         () -> new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
             SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(), shape,
-            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())));
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(), Optional.of(new AnnotationScalar.IntValue(7)))));
 
     // Assert
     assertTrue(exception.getMessage().contains("annotation element"));
@@ -752,14 +752,14 @@ class SyntaxNodeTest {
   @Test
   void givenCompactConstructorWithThrows_whenCreatingDeclarationValue_thenInvalidHeaderIsRejected() {
     // Arrange
-    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 1, true, false, false);
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 1, true, false);
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
         () -> new SyntaxValue.ExecutableDeclaration("Record", "owner", "owner#Record()",
             SyntaxValue.ExecutableDeclaration.ExecutableKind.COMPACT_CONSTRUCTOR, Set.of(), Set.of(), shape,
             SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(
-                new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Exception", "Exception"))))));
+                new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Exception", "Exception"))), Optional.empty())));
 
     // Assert
     assertTrue(exception.getMessage().contains("compact constructor"));
@@ -776,8 +776,8 @@ class SyntaxNodeTest {
         SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.ExecutableDeclaration("Example", "owner", "owner#Example()",
             SyntaxValue.ExecutableDeclaration.ExecutableKind.COMPACT_CONSTRUCTOR, Set.of(), Set.of(),
-            new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false, false),
-            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())),
+            new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false),
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(), Optional.empty())),
         List.of(new SyntaxChild(SyntaxRole.BODY, 0, body)), Optional.empty(), ORIGIN);
     var owner = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 1));
@@ -802,8 +802,8 @@ class SyntaxNodeTest {
         SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.ExecutableDeclaration("value", "owner", "owner#value()",
             SyntaxValue.ExecutableDeclaration.ExecutableKind.ANNOTATION_ELEMENT, Set.of(), Set.of(),
-            new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, false, false),
-            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())),
+            new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, false),
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(), Optional.empty())),
         List.of(new SyntaxChild(SyntaxRole.RETURN_TYPE, 0, returnType)), Optional.empty(), ORIGIN);
     var owner = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 1));
@@ -820,13 +820,13 @@ class SyntaxNodeTest {
   @Test
   void givenExecutableKeyOutsideDeclaredOwner_whenCreatingValue_thenCanonicalOwnerIsRejected() {
     // Arrange
-    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, false, false);
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, false);
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
         () -> new SyntaxValue.ExecutableDeclaration("run", "type:First", "type:Second#run()",
             SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(), shape,
-            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())));
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(), Optional.empty())));
 
     // Assert
     assertTrue(exception.getMessage().contains("type owner"));
@@ -843,8 +843,8 @@ class SyntaxNodeTest {
         SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.ExecutableDeclaration("run", "type:Second", "type:Second#run()",
             SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(),
-            new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, false, false),
-            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())),
+            new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, false, false),
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(), Optional.empty())),
         List.of(new SyntaxChild(SyntaxRole.RETURN_TYPE, 0, returnType)), Optional.empty(), ORIGIN);
     var owner = new SyntaxValue.TypeDeclaration("First", "type:First", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 1));
@@ -936,13 +936,13 @@ class SyntaxNodeTest {
   @Test
   void givenExplicitReceiverWithoutAttributedType_whenCreatingExecutableValue_thenTypeIsRejected() {
     // Arrange
-    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, true, 0, true, false, false);
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, true, 0, true, false);
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
         () -> new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
             SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(), shape,
-            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())));
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(), Optional.empty())));
 
     // Assert
     assertTrue(exception.getMessage().contains("receiver-type"));
@@ -951,7 +951,7 @@ class SyntaxNodeTest {
   @Test
   void givenPrimitiveAttributedReceiverType_whenCreatingExecutableValue_thenTypeIsRejected() {
     // Arrange
-    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, true, 0, true, false, false);
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, true, 0, true, false);
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
@@ -967,7 +967,7 @@ class SyntaxNodeTest {
   @Test
   void givenStaticMethodWithAttributedReceiverType_whenCreatingExecutableValue_thenReceiverIsRejected() {
     // Arrange
-    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, true, false, false);
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, true, false);
     var receiverType = receiverType("owner", "Owner");
 
     // Act
@@ -983,7 +983,7 @@ class SyntaxNodeTest {
   @Test
   void givenWrittenStaticMethodWithReceiverParameter_whenCreatingExecutableValue_thenReceiverIsRejected() {
     // Arrange
-    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, true, 0, true, false, false);
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, true, 0, true, false);
     var receiverType = receiverType("owner", "Owner");
 
     // Act
@@ -999,7 +999,7 @@ class SyntaxNodeTest {
   @Test
   void givenMethodReceiverOfAnotherType_whenCreatingExecutableValue_thenOwnerIsRejected() {
     // Arrange
-    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, true, false, false);
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 0, true, false);
     var receiver = SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(
         receiverType("type:Unrelated", "Unrelated"), "type:Unrelated", "Unrelated", Optional.empty(), List.of());
 
@@ -1029,7 +1029,7 @@ class SyntaxNodeTest {
   @Test
   void givenTopLevelConstructorWithReceiver_whenCreatingExecutableValue_thenEnclosingOwnerIsRejected() {
     // Arrange
-    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false, false);
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, false, 0, true, false);
     var receiver = SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(
         receiverType("type:Unrelated", "Unrelated"), "type:Unrelated", "Unrelated", Optional.empty(), List.of());
 
@@ -1046,7 +1046,7 @@ class SyntaxNodeTest {
   void givenLocalInnerConstructorWithEnclosingReceiver_whenCreatingExecutableValue_thenOwnerIsAccepted() {
     // Arrange
     var localKey = "type:Outer#method():type:10:30";
-    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, false, 0, true, false, false);
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, false, 0, true, false);
     var receiver = SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(
         receiverType("type:Outer", "Outer"), "type:Outer", "Outer", Optional.of("type:Outer"), List.of());
 
@@ -1061,13 +1061,13 @@ class SyntaxNodeTest {
   @Test
   void givenThrownAttachmentWithoutAttributedType_whenCreatingExecutableValue_thenCountIsRejected() {
     // Arrange
-    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 1, true, false, false);
+    var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 0, true, 1, true, false);
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
         () -> new SyntaxValue.ExecutableDeclaration("run", "type:Host", "type:Host#run()",
             SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(), shape,
-            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of())));
+            SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(), Optional.empty())));
 
     // Assert
     assertTrue(exception.getMessage().contains("thrown-type counts"));
@@ -1092,7 +1092,7 @@ class SyntaxNodeTest {
         SyntaxKind.TYPE_USE, SyntaxType.Unresolved.INSTANCE, new SyntaxValue.PrimitiveType(JavaTypeCategory.INT), List.of(), Optional.empty(), ORIGIN);
     var value = new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
         SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(),
-        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, true, 0, false, false, false),
+        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, true, 0, false, false),
         SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(
             receiverType("owner", "Owner"), "owner", "Owner", Optional.empty(), List.of()));
 
@@ -1126,7 +1126,7 @@ class SyntaxNodeTest {
         SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
     var value = new SyntaxValue.ExecutableDeclaration("Inner", "type:Outer.Inner", "type:Outer.Inner#Inner()",
         SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR, Set.of(), Set.of(),
-        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, false, 0, true, false, false),
+        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, true, 0, false, 0, true, false),
         SyntaxValue.ExecutableDeclaration.AttributedHeader.withReceiver(
             receiverType("type:Outer", "Outer"), "type:Outer", "Outer", Optional.of("type:Outer"), List.of()));
 
@@ -1196,8 +1196,8 @@ class SyntaxNodeTest {
         Optional.empty(), ORIGIN);
     var value = new SyntaxValue.ExecutableDeclaration("method", "owner", "owner#method()",
         SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, Set.of(), Set.of(),
-        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 1, true, 0, false, false, false),
-        SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of()));
+        new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 0, false, 1, true, 0, false, false),
+        SyntaxValue.ExecutableDeclaration.AttributedHeader.withoutReceiver(List.of(), Optional.empty()));
     var returnType = SyntaxNode.source("source", path.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.PRIMITIVE_TYPE,
         SyntaxKind.TYPE_USE, SyntaxType.Unresolved.INSTANCE, new SyntaxValue.PrimitiveType(JavaTypeCategory.INT), List.of(), Optional.empty(), ORIGIN);
 

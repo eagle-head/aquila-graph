@@ -45,9 +45,7 @@ final class JavaDeclarationPropertyCoverage {
   static final String EXECUTABLE_ELEMENT_TYPE_PARAMETERS = "ExecutableElement::ExecutableElement#getTypeParameters()";
   static final String EXECUTABLE_ELEMENT_VARARGS = "ExecutableElement::ExecutableElement#isVarArgs()";
   static final String DECLARATION_ANNOTATIONS_DIAGNOSTIC = "frontend.unsupported-declaration-annotations";
-  static final String ANNOTATION_DEFAULT_DIAGNOSTIC = "frontend.unsupported-annotation-default";
-  private static final Set<String> DECLARATION_PROPERTY_DIAGNOSTICS = Set.of(DECLARATION_ANNOTATIONS_DIAGNOSTIC,
-      ANNOTATION_DEFAULT_DIAGNOSTIC);
+  private static final Set<String> DECLARATION_PROPERTY_DIAGNOSTICS = Set.of(DECLARATION_ANNOTATIONS_DIAGNOSTIC);
 
   private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
       VariableTree.class, TypeElement.class, ExecutableElement.class);
@@ -148,7 +146,7 @@ final class JavaDeclarationPropertyCoverage {
     return List.of(
         irrelevant("MethodTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
         represented("MethodTree::MethodTree#getBody()", "MethodSyntax body occurrence and JavaMethod body-presence flag"),
-        diagnosed(METHOD_DEFAULT_VALUE, ANNOTATION_DEFAULT_DIAGNOSTIC),
+        represented(METHOD_DEFAULT_VALUE, "JavaAstAggregate declaration-owned typed annotation default"),
         represented("MethodTree::Tree#getKind()", "JavaMethod declaration aggregate"),
         represented("MethodTree::MethodTree#getModifiers()", "JavaMethod modifier set and declaration-annotation diagnostics"),
         represented("MethodTree::MethodTree#getName()", "JavaMethod name and declaration identity"),
@@ -215,7 +213,7 @@ final class JavaDeclarationPropertyCoverage {
         diagnosed(EXECUTABLE_ELEMENT_ANNOTATION_MIRRORS, DECLARATION_ANNOTATIONS_DIAGNOSTIC),
         irrelevant("ExecutableElement::Element#getAnnotationsByType(java.lang.Class)", ANNOTATION_PROXY_REASON,
             ANNOTATED_CONSTRUCT_API + "#getAnnotationsByType(java.lang.Class)"),
-        diagnosed(EXECUTABLE_ELEMENT_DEFAULT_VALUE, ANNOTATION_DEFAULT_DIAGNOSTIC),
+        represented(EXECUTABLE_ELEMENT_DEFAULT_VALUE, "JavaAstAggregate attributed annotation default value"),
         irrelevant("ExecutableElement::Element#getEnclosedElements()",
             "Executable elements do not contribute separately queryable enclosed declarations to the current semantic graph",
             ELEMENT_API + "ExecutableElement.html"),

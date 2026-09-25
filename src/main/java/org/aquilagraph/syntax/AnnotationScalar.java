@@ -2,8 +2,8 @@ package org.aquilagraph.syntax;
 
 import java.util.Objects;
 
-/** Compiler-neutral value of one explicit scalar annotation element. */
-public sealed interface AnnotationScalar {
+/** Compiler-neutral scalar value of an explicit annotation argument or declaration default. */
+public sealed interface AnnotationScalar extends AnnotationElementValue {
   /**
    * Boolean element value.
    *

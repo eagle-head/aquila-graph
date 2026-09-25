@@ -32,7 +32,7 @@ final class JavaProgramTranslator {
     Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     propertyObserver = new JavaDeclarationPropertyObserver(coverage);
     var bodyTranslator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory);
-    var methodTranslator = new JavaMethodTranslator(semantics, sourceEvidence, treeInventory, propertyObserver, bodyTranslator);
+    var methodTranslator = new JavaMethodTranslator(semantics, sourceEvidence, treeInventory, bodyTranslator);
     typeTranslator = new JavaTypeTranslator(semantics, sourceEvidence, treeInventory, propertyObserver, methodTranslator);
     astTranslator = new JavaAstContributionTranslator(semantics, sourceEvidence, treeInventory);
   }

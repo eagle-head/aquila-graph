@@ -378,7 +378,8 @@ class JavaAstFrontendIntegrationTest {
         Math.toIntExact(firstRange.endOffsetExclusive())));
     assertEquals("@SuppressWarnings(\"unused\")", source.substring(Math.toIntExact(secondRange.startOffset()),
         Math.toIntExact(secondRange.endOffsetExclusive())));
-    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(
+    assertEquals(1, annotations.get(1).children(SyntaxRole.ANNOTATION_ARGUMENT).size());
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals(
         "frontend.unsupported-annotation-value")));
     assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals(
         "frontend.unsupported-package-declaration")));

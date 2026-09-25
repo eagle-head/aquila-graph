@@ -223,13 +223,6 @@ class JavaDeclarationCompletenessRegressionTest {
 
   private static List<SourceCase> unrepresentedDeclarationFacts() {
     return List.of(
-        source("annotation defaults", "Configuration.java", """
-            @interface Configuration {
-              int required();
-              int count() default 1;
-              String[] names() default {"first", "second"};
-            }
-            """, JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC, 2),
         source("field initializer content", "Initialized.java", "class Initialized { int value = 1; }",
             "frontend.unsupported-field-initializer"));
   }

@@ -2,12 +2,15 @@ package org.aquilagraph.frontend;
 
 import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.MethodTree;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import org.aquilagraph.frontend.JavaAnnotationValueProjector.ProjectedValue;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.VariableElement;
 import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.ReferenceKind;
@@ -75,7 +78,7 @@ final class JavaAnnotationProjector {
     if (parsed.form() == SyntaxValue.AnnotationForm.SINGLE_ELEMENT || parsed.form() == SyntaxValue.AnnotationForm.NAMED_NORMAL) {
       if (validType && declarationOnly) {
         var diagnosticCount = diagnostics.size();
-        children = values.arguments(unit, sourceFile, annotation, (TypeElement) element, path, diagnostics);
+        children = values.arguments(unit, sourceFile, annotation, (TypeElement) Objects.requireNonNull(element), path, diagnostics);
         if (children.isEmpty()) {
           if (diagnostics.size() == diagnosticCount) {
             diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath,
@@ -90,8 +93,13 @@ final class JavaAnnotationProjector {
     var value = argumentFailureCode == null
         ? new SyntaxValue.Annotation(parsed.form(), parsed.arguments(), location)
         : SyntaxValue.Annotation.withArgumentFailure(parsed.form(), parsed.arguments(), location, argumentFailureCode);
-    return Optional.of(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.ANNOTATION, SyntaxKind.COMPILATION_UNIT,
+    return Optional.of(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION,
         SyntaxType.NotApplicable.INSTANCE, value, children, reference, range.orElseThrow()));
+  }
+
+  Optional<ProjectedValue> defaultValue(CompilationUnitTree unit, SourceFile sourceFile, MethodTree method, ExecutableElement element,
+      SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
+    return values.defaultValue(unit, sourceFile, method, element, path, diagnostics);
   }
 
   private static boolean allowsTypeUse(TypeElement annotationType) {

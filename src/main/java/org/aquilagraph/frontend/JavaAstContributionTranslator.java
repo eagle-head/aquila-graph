@@ -43,6 +43,7 @@ import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.syntax.JavaSourceKind;
+import org.aquilagraph.syntax.AnnotationElementValue;
 import org.aquilagraph.syntax.JavaTypeStructure;
 import org.aquilagraph.syntax.JavaDeclarationModifier;
 import org.aquilagraph.syntax.MethodBodyOrigin;
@@ -831,18 +832,10 @@ final class JavaAstContributionTranslator {
         complete = false;
       }
     }
-    if (declaration.getDefaultValue() != null) {
-      var defaultTree = declaration.getDefaultValue();
-      var defaultRange = requiredRange(unit, sourceFile, defaultTree, occurrencePath.child(SyntaxRole.DEFAULT_VALUE, 0), diagnostics);
-      if (defaultRange.isPresent()) {
-        var sourceKind = JavaSourceKind.valueOf(defaultTree.getKind().name());
-        var defaultNode = SyntaxNode.source(sourceFile.sourceFileKey(), path.child(SyntaxRole.DEFAULT_VALUE, 0), sourceKind,
-            SyntaxKind.UNSUPPORTED, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.Unsupported(sourceKind.name()), List.of(),
-            Optional.empty(), defaultRange.orElseThrow());
-        children.add(new SyntaxChild(SyntaxRole.DEFAULT_VALUE, 0, defaultNode));
-      } else {
-        complete = false;
-      }
+    Optional<AnnotationElementValue> defaultValue = Optional.empty();
+    if (declaration.getDefaultValue() != null || executable.getDefaultValue() != null) {
+      defaultValue = appendDefault(unit, sourceFile, declaration, executable, path, children, diagnostics);
+      complete &= defaultValue.isPresent();
     }
     if (!complete) {
       if (body != null) {
@@ -852,13 +845,13 @@ final class JavaAstContributionTranslator {
     }
     var shape = new SyntaxValue.ExecutableDeclaration.HeaderShape(declaration.getModifiers().getAnnotations().size(),
         declaration.getTypeParameters().size(), receiverTree != null, writtenParameters.size(), declaration.getReturnType() != null,
-        declaration.getThrows().size(), declaration.getBody() != null, declaration.getDefaultValue() != null, executable.isVarArgs());
+        declaration.getThrows().size(), declaration.getBody() != null, executable.isVarArgs());
     SyntaxValue.ExecutableDeclaration value;
     try {
       value = new SyntaxValue.ExecutableDeclaration(name, sourceOwnerKey.orElseThrow(), methodKey, kind,
           declarationModifiers(declaration.getModifiers().getFlags()), declarationModifiers(executable.getModifiers()), shape,
           new SyntaxValue.ExecutableDeclaration.AttributedHeader(receiverType, receiverOwnerKey, receiverSimpleName, enclosingTypeKey,
-              thrownTypes));
+              thrownTypes, defaultValue));
     } catch (IllegalArgumentException exception) {
       diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.invalid-executable-header",
           Objects.requireNonNullElse(exception.getMessage(), "The executable header is inconsistent"), range));
@@ -873,6 +866,14 @@ final class JavaAstContributionTranslator {
     declarationEdge(methodPath, node, stagedEdges);
     semanticEdges.addAll(stagedEdges);
     return Optional.of(node);
+  }
+
+  Optional<AnnotationElementValue> appendDefault(CompilationUnitTree unit, SourceFile sourceFile, MethodTree declaration,
+      ExecutableElement executable, SyntaxStructuralPath path, List<SyntaxChild> children, List<AnalysisDiagnostic> diagnostics) {
+    var defaultPath = path.child(SyntaxRole.DEFAULT_VALUE, 0);
+    var projected = annotationProjector.defaultValue(unit, sourceFile, declaration, executable, defaultPath, diagnostics);
+    projected.ifPresent(result -> children.add(new SyntaxChild(SyntaxRole.DEFAULT_VALUE, 0, result.node())));
+    return projected.map(result -> result.value());
   }
 
   private Optional<SyntaxNode> parameter(CompilationUnitTree unit, SourceFile sourceFile, TreePath methodPath, VariableTree declaration,

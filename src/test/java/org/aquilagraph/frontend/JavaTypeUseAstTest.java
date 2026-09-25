@@ -682,10 +682,16 @@ class JavaTypeUseAstTest {
             expected(JavaSourceKind.IDENTIFIER, start + 21, 6, "type:java.lang.String")));
     var expectedRoot = expected(JavaSourceKind.PARAMETERIZED_TYPE, start, 28, "type:java.util.List",
         child(SyntaxRole.TYPE_NAME, 0, listName), child(SyntaxRole.TYPE_ARGUMENT, 0, annotatedArgument));
-    assertExactTypeInventory(result.aggregate().orElseThrow(), owner, List.of(new ExpectedRoot(path, expectedRoot)));
+    var qualifierPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+        .child(SyntaxRole.ANNOTATION, 0).child(SyntaxRole.ANNOTATION_ARGUMENT, 0)
+        .child(SyntaxRole.VALUE, 0).child(SyntaxRole.QUALIFIER, 0);
+    var qualifierStart = source.indexOf("ElementType.TYPE_USE");
+    assertExactTypeInventory(result.aggregate().orElseThrow(), owner, List.of(
+        new ExpectedRoot(qualifierPath, expected(JavaSourceKind.IDENTIFIER, qualifierStart, 11,
+            "type:java.lang.annotation.ElementType")), new ExpectedRoot(path, expectedRoot)));
     var annotationPath = path.child(SyntaxRole.TYPE_ARGUMENT, 0).child(SyntaxRole.ANNOTATION, 0);
     var annotationKey = SyntaxNodeKey.from(owner, annotationPath, JavaSourceKind.ANNOTATION).value();
-    assertEquals(SyntaxKind.COMPILATION_UNIT, result.aggregate().orElseThrow().node(annotationKey).orElseThrow().syntaxKind());
+    assertEquals(SyntaxKind.ANNOTATION, result.aggregate().orElseThrow().node(annotationKey).orElseThrow().syntaxKind());
     assertTrue(result.aggregate().orElseThrow().rangeTuples().contains(
         span(owner, annotationPath, JavaSourceKind.ANNOTATION, start + 15, 5)));
   }

@@ -15,6 +15,7 @@ import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.LanguageFeature;
 import org.aquilagraph.model.LanguageFeatureCategory;
 import org.aquilagraph.model.LanguageFeaturePolicy;
+import org.aquilagraph.syntax.AnnotationScalar;
 import org.aquilagraph.syntax.JavaDeclarationModifier;
 import org.aquilagraph.syntax.SyntaxKind;
 import org.aquilagraph.syntax.SyntaxNode;
@@ -76,7 +77,7 @@ class JavaExecutableDeclarationAstTest {
         constructor.value(SyntaxValue.ExecutableDeclaration.class).effectiveModifiers());
     assertEquals(SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD, genericValue.kind());
     assertEquals(typeKey, genericValue.ownerKey());
-    assertEquals(new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 1, false, 1, true, 2, true, false, false),
+    assertEquals(new SyntaxValue.ExecutableDeclaration.HeaderShape(0, 1, false, 1, true, 2, true, false),
         genericValue.shape());
     assertEquals(genericValue.declarationKey() + "#type-parameter:0",
         genericParameter.value(SyntaxValue.TypeParameterDeclaration.class).declarationKey());
@@ -262,13 +263,13 @@ class JavaExecutableDeclarationAstTest {
     assertTrue(elements.stream().allMatch(element -> element.value(SyntaxValue.ExecutableDeclaration.class).kind()
         == SyntaxValue.ExecutableDeclaration.ExecutableKind.ANNOTATION_ELEMENT));
     assertEquals(List.of(false, true), elements.stream()
-        .map(element -> element.value(SyntaxValue.ExecutableDeclaration.class).shape().defaultValue()).toList());
+        .map(element -> element.value(SyntaxValue.ExecutableDeclaration.class).defaultValue().isPresent()).toList());
     assertEquals(List.of(), elements.getFirst().children(SyntaxRole.DEFAULT_VALUE));
     assertEquals(List.of("1"), excerpts(source, elements.get(1).children(SyntaxRole.DEFAULT_VALUE)));
     assertEquals(List.of("String", "int"), elements.stream()
         .flatMap(element -> element.children(SyntaxRole.RETURN_TYPE).stream()).map(node -> excerpt(source, node)).toList());
-    assertEquals(1, result.diagnostics().stream()
-        .filter(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.ANNOTATION_DEFAULT_DIAGNOSTIC)).count());
+    assertEquals(new AnnotationScalar.IntValue(1), elements.get(1).value(SyntaxValue.ExecutableDeclaration.class).defaultValue().orElseThrow());
+    assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
   }
 
   @Test
