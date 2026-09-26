@@ -29,15 +29,74 @@ repurposes the variable tree as a backing field and changes its modifiers.
 Delimiter inspection uses original source offsets, decodes Unicode escapes, and
 skips comments; the later compiler argument view cannot replace that evidence.
 `JavaAnnotationProjector` combines the captured form with the attributed
-annotation type and exact range. A declaration-only occurrence receives one
-`ANNOTATED_TARGET` edge to its structural declaration owner, and aggregate
-sealing checks the edge's cardinality, endpoint, resolved annotation type, and
-nonempty, contained, ordered, unique source range. Unknown or nonannotation
-types keep an unresolved type-reference outcome; dual or type-use applicability
-keeps an unresolved location and no declaration-target edge. For declaration-only
-annotation forms, `JavaAnnotationValueProjector` correlates an attributed mirror to
-each written occurrence, including values inside a compiler-synthesized
-repeatable container. It emits ordered `ANNOTATION_ARGUMENT` children with an
+annotation type, its `@Target` element kinds, the written site, and exact range.
+An annotation without `@Target` applies to declaration contexts but not type-use
+contexts. Each resolved declaration-only, type-only, or dual occurrence receives
+one `ANNOTATED_TARGET` edge to an `AnnotationApplication`. The edge retains its
+structural owner, optional declaration node, exact written or constructed type
+destination, additional written field declarators sharing the same header, and
+any record-component counterpart applications. A dual field
+annotation keeps one source node and one edge with both destinations. Type-only
+constructor annotations select the constructed class without inventing a return
+type; receiver annotations select their written receiver type. A type-parameter
+declaration remains distinct from its bounds. Record-component propagation keeps
+separate declaration and type applicability for the backing field, an implicit
+accessor, and a derived canonical parameter. Nested annotations in a component's
+written type carry their exact type path to those derived counterparts. Explicit accessors and normal
+canonical parameters retain their own written annotations without inherited
+component annotations. A component annotation targeted only at an explicit
+accessor or normal canonical parameter retains its source-site application edge
+with no propagated destination. The frontend checks the nearest written type's
+admissibility using attributed qualifier names and member modifiers; a field
+annotation before a package-qualified or static-member-qualified type may apply
+only to the declaration. A modifier annotation before `Outer.Inner` selects the
+written `Outer` qualifier when `Inner` is an inner class, while an annotation
+written between `Outer.` and `Inner` selects the member type. The frontend correlates
+propagated compiler mirrors by explicit annotation values and recursive type
+position, including repeated values, and independently requires each written type
+annotation at that position on the component and every eligible counterpart.
+It correlates source/constructor provenance;
+it creates no additional written
+annotation nodes. Aggregate sealing checks the edge's
+cardinality, source owner, applicable targets, type path, and counterpart identities,
+resolved annotation type, and nonempty, contained, ordered, unique source range.
+For a comma-separated field declaration, javac exposes one `VariableTree` per
+declarator with a shared modifier/type header. Each `VariableDeclaration` records
+the complete source-ordered `sharedDeclaratorKeys`; its own attributed type and
+declarator-specific dimensions remain intact. The first source declarator owns
+the physical common modifier annotations. Common type annotations likewise have
+one structural owner; later compiler type contexts carry `SharedTypeAnnotations`
+references to those existing source identities. `SharedFieldDeclarations` checks
+the sibling source starts, ordered ranges, owner/modifier agreement, complete
+declarator identities, and exact annotation-owner ranges. Common type contexts
+must agree on their complete resolved type identity and recursive structure as
+well as their source range. Array depth distinguishes dimensions with equal
+compiler spans, while declarator-specific outer dimensions remain outside the
+matched common context. The validator derives the complete ordered annotation
+set from the unique earlier physical owner independently of the supplied shared
+references. The application factory uses that same typed correspondence and
+requires the entire set, including repeated occurrences. The single application
+contains source-ordered `FieldDeclaratorApplication` destinations for every other
+applicable declarator. These are written declarations, distinct from implicit
+record counterparts. No annotation, argument, value, or source range is copied,
+and the source declaration is not rewritten as independent declarations.
+Missing destinations, foreign shared references, moved type positions, and
+duplicate physical annotations remain sealing failures. A static member's absent
+enclosing-instance type also prevents a forged modifier application through its
+qualifier. The frontend inspects every selected member in a qualified chain;
+the factory independently rejects omission of an admissible closest type even
+when a supplied admissibility flag is false.[38]
+The record type reconstructs the required compiler-derived counterpart keys from
+the written component inventory and attributed erasures during construction.
+Unknown or nonannotation types and illegal or unavailable locations retain
+source-located blocking outcomes. For explicit annotation arguments,
+`JavaAnnotationValueProjector` evaluates each written occurrence using resolved
+annotation-element types, source expression types, and compiler constant symbols.
+`JavaAnnotationValues` produces domain scalars directly for every source site and
+default. Actual compiler annotation values independently corroborate those results
+where exposed, including values inside a compiler-synthesized repeatable container.
+A disagreement blocks publication; no project-created compiler mirror supplies the
+expected value. The projector emits ordered `ANNOTATION_ARGUMENT` children with an
 optional written name child, one source expression child, a selected element
 reference and type, and a distinct attributed `AnnotationElementValue`. Constant
 expression nodes keep their operators, operand roles, independent types,
@@ -51,8 +110,20 @@ expression is the direct `DEFAULT_VALUE` child of its declaring annotation
 element. Its attributed `AnnotationElementValue` belongs to that element's
 `ExecutableDeclaration`, with no additional AST node. Omitted use-site pairs remain absent,
 and written repeatable containers retain their source structure. Unavailable
-attribution or position evidence blocks publication. Unresolved type-use
-locations retain source-located capability outcomes.[35][36][37]
+attribution or position evidence blocks publication. Body-local annotation
+locations remain at their introducing feature boundary.[35][36][37][38]
+
+A valued `TYPE_USE` annotation written before a constructor is source-located
+and assigned to the constructed type. A controlled javac 25 probe found no
+attributed use-site annotation mirror through the inspected constructor element,
+its return type, or the enclosing source paths. This site uses the same source-value
+contract as declarations, fields, record components, and defaults, with no
+constructor-specific fallback. Required type, symbol, argument-inventory, and source
+position evidence remains mandatory. `JavaAnnotationValueEvaluationTest` compares
+nine primitive/String array families at four source sites and declaration defaults
+directly with actual javac values, including overflow, narrowing, floating-point
+special values, shifts, promotions, and String constant equality. This finite
+comparison establishes agreement for its exercised cases, not all Java programs.[38]
 
 The application's actual compiler options and captured environment options
 both include `-proc:none`. A test artifact with a discoverable service entry
@@ -77,10 +148,10 @@ ownership, an optional direct superclass, ordered direct interfaces, ordered
 permitted subclasses, and ordered type parameters with their compiler-resolved
 bounds. `JavaTypeReference` retains the compiler-derived identity and the
 canonical declaration key when one is available, including for declarations
-outside the analyzed source root. Declaration-only marker and empty-normal
-annotations now have typed source occurrences, annotation-type references, and
-one exact declaration target. Explicit values and unresolved type-use locations
-retain source-located capability diagnostics. `DeclarationIdentityRegistry` assigns canonical keys
+outside the analyzed source root. Written annotations now have typed source
+occurrences, annotation-type references, and exact declaration and type
+applicability. Unavailable values and locations retain source-located capability
+diagnostics. `DeclarationIdentityRegistry` assigns canonical keys
 to declarations, including owner-and-ordinal type-parameter keys, while compiler
 elements remain available. `JavaMethodBodyTranslator` recursively
 converts one method body into project-owned `SyntaxNode` values; and
@@ -186,7 +257,9 @@ Selected external types remain keyed references without fabricated source bodies
 Explicit receiver validation uses compiler-selected owner and simple-name facts, while
 constructor receiver ownership uses the attributed enclosing type. None of
 these facts is recovered by parsing display or erasure strings.[33]
-Exact type-use applicability remains later AST-E05 work. Public type-use completion checks
+E04 header type-use annotations have exact application targets; E05's remaining
+reconciliation work checks those facts against the complete source occurrence set.
+Public type-use completion checks
 the seven E04-valid distinct written type-tree kinds against retained source
 type-use nodes at the same source file and range; unmatched occurrences block completion.
 This also preserves the separate AST-E06 boundary for written body-local type
@@ -368,8 +441,8 @@ The corresponding E04-valid written type-tree kinds now have represented policie
 their written tree forms occur in casts and multi-catch bodies, outside E04
 declaration headers; attributed intersection and union type kinds remain
 represented. `ANNOTATION` and `TYPE_ANNOTATION` tree-kind policies now account for
-source occurrences; annotation locations without a supported typed declaration
-occurrence receive an exact-range capability diagnostic.[35]
+source occurrences; annotation locations outside the supported declaration and
+header-type boundary receive an exact-range capability diagnostic.[35][38]
 The public type-use completion check compares the occurrence multiset for these
 seven classified source kinds with retained `TYPE_USE` nodes by source file, exact tree kind, and
 range, so changing only a policy cannot produce a complete run.[23][26][31][32][34]
@@ -497,8 +570,9 @@ compact, or modular form. Package and import accessors are represented by source
 occurrences and ordered structural edges. Modular roots own one typed module
 declaration and its ordered typed directives. Package and module annotations
 have source-owned typed occurrences with annotation-type references and exact
-declaration targets when their location is established. Explicit values and
-unresolved locations retain capability diagnostics. Coverage values and AST occurrences are not yet
+declaration targets when their location is established. Represented header-type
+annotations have typed application targets; unavailable values and unresolved
+locations retain capability diagnostics. Coverage values and AST occurrences are not yet
 persisted, compiler API types remain confined to `frontend`, and no Neo4j schema
 change is required. The focused class, sequence, and component views show the
 coverage scanner, contextual declaration-property observation, source aggregate
@@ -553,16 +627,32 @@ annotation-value declaration edges to match the node's selected reference
 exactly. Repeatable occurrences correlate only through their declared containing annotation.
 Record-component annotations use the component element when its source tree
 matches the written component occurrence; same-named record parameters retain
-their own annotation mirrors. Array and nested values retain typed recursive
+their own annotation mirrors. Modifier-position type annotations correlate with the
+closest admissible type, traversing array components and enclosing declared types;
+a dimension mirror cannot supply the element annotation's value. Written values
+are evaluated once into domain values for all sites, including constructors.
+Record propagation consumes those projected source annotations as expectations,
+compares explicit values on actual declaration mirrors, and recursively
+compares annotation values at each array, declared-type, enclosing-type, and
+wildcard-bound position of the component and its implicit counterparts. The record
+wildcard comparison checks its upper/lower bounds structurally because
+`Types.isSameType` does not regard a wildcard as the same type as itself.[38]
+The record
+source-type correlation separately checks written annotation values and multiplicity
+against each mirror, rejecting equally missing or corrupted annotations on both sides.
+The record
+node reconstructs the expected field, accessor, and canonical-parameter identities
+from its owner, component names, ordinals, and attributed erasures; a foreign
+counterpart identity is rejected during construction. Array and nested values retain typed recursive
 facts below their source value slots. Each annotation-element declaration owns an
 optional attributed default and exactly one direct `DEFAULT_VALUE` expression
 when that value is present. Construction validates that expression against the
 declared return type and attributed value, and requires its range to remain
 inside its owner. Absent defaults and omitted explicit arguments have no fabricated subtree.
 Invalid or unavailable value evidence reports a blocking frontend diagnostic.[28][37]
-Unresolved type-use applicability
-reports `frontend.unresolved-annotation-location`. Header type-use annotations
-retain `frontend.unsupported-type-use-annotation` or
+Unresolved type-use applicability reports `frontend.unresolved-annotation-location`.
+Represented header type uses retain their exact source location and application;
+body-local annotations outside the current AST profile retain
 `frontend.unrepresented-source-annotation` diagnostics. Switch statement
 groups, patterns, guards, `null`
 labels, and constant-expression labels other than literals or enum constants
@@ -1010,3 +1100,22 @@ implements its bounded model and has no runtime dependency on
     Oracle, *The Java Language Specification, Java SE 25 Edition*,
     [§9.7.1](https://docs.oracle.com/javase/specs/jls/se25/html/jls-9.html#jls-9.7.1), normal annotations and element values, and
     [§15.29](https://docs.oracle.com/javase/specs/jls/se25/html/jls-15.html#jls-15.29), constant expressions.
+38. [SyntaxSemanticTarget.AnnotationApplication](../../src/main/java/org/aquilagraph/syntax/SyntaxSemanticTarget.java), exact declaration, type, shared field-declarator, and record-counterpart destinations;
+    [SharedFieldDeclarations](../../src/main/java/org/aquilagraph/syntax/SharedFieldDeclarations.java), shared source-header ownership and identity validation;
+    [SyntaxValue.VariableDeclaration and SharedTypeAnnotations](../../src/main/java/org/aquilagraph/syntax/SyntaxValue.java), source declarator groups and common annotation references;
+    [JavaAnnotationValues](../../src/main/java/org/aquilagraph/frontend/JavaAnnotationValues.java), canonical typed source-value evaluation and actual compiler scalar projection;
+    [JavaAnnotationValueEvaluationTest](../../src/test/java/org/aquilagraph/frontend/JavaAnnotationValueEvaluationTest.java), independent javac comparisons and divergent-mirror controls;
+    [JavaAnnotationMirrorCorrelation](../../src/main/java/org/aquilagraph/frontend/JavaAnnotationMirrorCorrelation.java), counterpart mirror values and type positions;
+    [JavaWrittenTypeAnnotationCorrelation](../../src/main/java/org/aquilagraph/frontend/JavaWrittenTypeAnnotationCorrelation.java), written type annotations against each compiler mirror;
+    [JavaAnnotationProjector](../../src/main/java/org/aquilagraph/frontend/JavaAnnotationProjector.java), attributed target applicability;
+    [JavaTypeUseTranslator](../../src/main/java/org/aquilagraph/frontend/JavaTypeUseTranslator.java), recursive annotated type sites;
+    [JavaAstAggregateBuilder](../../src/main/java/org/aquilagraph/syntax/JavaAstAggregateBuilder.java), application validation;
+    [JavaAnnotationTargetAstTest](../../src/test/java/org/aquilagraph/frontend/JavaAnnotationTargetAstTest.java), location, propagation, and invalid-target observations;
+    Oracle, Java SE 25 [Types.isSameType](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/util/Types.html#isSameType(javax.lang.model.type.TypeMirror,javax.lang.model.type.TypeMirror)), wildcard comparison caveat;
+    Oracle, *The Java Language Specification, Java SE 25 Edition*,
+    [§4.11](https://docs.oracle.com/javase/specs/jls/se25/html/jls-4.html#jls-4.11), type contexts,
+    [§8.3](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.3), field headers and variable declarator lists,
+    [§8.10.3](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.10.3), record fields and accessors,
+    [§8.10.4](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.10.4), derived canonical parameters,
+    [§9.6.4.1](https://docs.oracle.com/javase/specs/jls/se25/html/jls-9.html#jls-9.6.4.1), target restrictions, and
+    [§9.7.4](https://docs.oracle.com/javase/specs/jls/se25/html/jls-9.html#jls-9.7.4), applicability at declaration and type sites.
