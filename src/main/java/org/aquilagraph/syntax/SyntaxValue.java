@@ -1,5 +1,6 @@
 package org.aquilagraph.syntax;
 
+import java.lang.annotation.ElementType;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -12,6 +13,37 @@ import org.aquilagraph.model.InvocationSemantics;
 
 /** Typed source facts required while syntax is lowered directly to semantic graphs. */
 public sealed interface SyntaxValue {
+  /**
+   * Previously owned physical annotations reused by another compiler tree for the same field header.
+   *
+   */
+  final class SharedTypeAnnotations extends Symbol {
+    private final List<String> sourceAnnotationKeys;
+
+    /**
+     * Validates the immutable source identities.
+     *
+     * @param annotationNodeKeys
+     *          source annotation identities in written order
+     */
+    public SharedTypeAnnotations(List<String> annotationNodeKeys) {
+      super("", Form.SHARED_TYPE_ANNOTATIONS, List.copyOf(Objects.requireNonNull(annotationNodeKeys, "annotationNodeKeys")));
+      this.sourceAnnotationKeys = List.copyOf(annotationNodeKeys);
+      this.sourceAnnotationKeys.forEach(key -> SyntaxValueSupport.requireText(key, "shared annotation node key"));
+      if (this.sourceAnnotationKeys.isEmpty() || Set.copyOf(this.sourceAnnotationKeys).size() != this.sourceAnnotationKeys.size()) {
+        throw new IllegalArgumentException("Shared type annotations require distinct source annotation identities");
+      }
+    }
+
+    /**
+     * Returns source annotation identities in written order.
+     *
+     * @return owned annotation identities
+     */
+    public List<String> annotationNodeKeys() {
+      return sourceAnnotationKeys;
+    }
+  }
   /** Written annotation surface form. */
   enum AnnotationForm {
     /** Annotation with no argument delimiters. */
@@ -24,10 +56,14 @@ public sealed interface SyntaxValue {
     NAMED_NORMAL
   }
 
-  /** Whether the declaration target has been established for this occurrence. */
+  /** Resolved applicability of a written annotation occurrence. */
   enum AnnotationLocation {
-    /** A supported declaration owns this occurrence. */
+    /** The annotation applies to a declaration. */
     DECLARATION,
+    /** The annotation applies to an exact written or constructed type location. */
+    TYPE_USE,
+    /** One written annotation applies to both a declaration and its closest type. */
+    DUAL,
     /** A nested annotation is the value of an annotation element. */
     VALUE,
     /** The precise annotation location is not yet represented. */
@@ -410,13 +446,14 @@ public sealed interface SyntaxValue {
   }
 
   /** Shared source-name value boundary for typed syntax facts. */
-  abstract sealed class Symbol implements SyntaxValue permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration,
-      ModuleDeclaration, ModuleDirective, TypeDeclaration, TypeParameterDeclaration, ExecutableDeclaration, ParameterHeader,
-      VariableDeclaration, RecordComponentDeclaration, PrimitiveType, PackageQualifier, Annotation, AnnotationArgument {
+  abstract sealed class Symbol implements SyntaxValue
+      permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration, ModuleDeclaration, ModuleDirective, TypeDeclaration,
+      TypeParameterDeclaration, ExecutableDeclaration, ParameterHeader, VariableDeclaration, RecordComponentDeclaration, PrimitiveType,
+      PackageQualifier, Annotation, AnnotationArgument, SharedTypeAnnotations {
     enum Form {
       SYMBOL, COMPILATION_UNIT, PACKAGE_DECLARATION, IMPORT_DECLARATION, MODULE_DECLARATION, REQUIRES, EXPORTS, OPENS, USES, PROVIDES,
       TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, EXECUTABLE_DECLARATION, PARAMETER_DECLARATION, RECEIVER_PARAMETER, VARIABLE_DECLARATION,
-      RECORD_COMPONENT_DECLARATION, PRIMITIVE_TYPE, PACKAGE_QUALIFIER, ANNOTATION, ANNOTATION_ARGUMENT
+      RECORD_COMPONENT_DECLARATION, PRIMITIVE_TYPE, PACKAGE_QUALIFIER, ANNOTATION, ANNOTATION_ARGUMENT, SHARED_TYPE_ANNOTATIONS
     }
 
     private final String sourceName;
@@ -520,13 +557,20 @@ public sealed interface SyntaxValue {
   /** Exact written form and ordered argument headers of one annotation occurrence. */
   final class Annotation extends Symbol {
     private record AnnotationDetails(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location,
-        Optional<String> argumentFailureCode) {
+        Set<ElementType> applicableTargets, boolean closestTypeAdmissible, Optional<String> argumentFailureCode) {
       private AnnotationDetails {
         Objects.requireNonNull(form, "form");
         Objects.requireNonNull(location, "location");
+        applicableTargets = Set.copyOf(Objects.requireNonNull(applicableTargets, "applicableTargets"));
         Objects.requireNonNull(argumentFailureCode, "argumentFailureCode")
             .ifPresent(code -> SyntaxValueSupport.requireText(code, "argumentFailureCode"));
         arguments = List.copyOf(Objects.requireNonNull(arguments, "arguments"));
+        if (!closestTypeAdmissible && (location == AnnotationLocation.TYPE_USE || location == AnnotationLocation.DUAL)) {
+          throw new IllegalArgumentException("An inadmissible closest type cannot receive an annotation");
+        }
+        if ((location == AnnotationLocation.VALUE || location == AnnotationLocation.UNRESOLVED) != applicableTargets.isEmpty()) {
+          throw new IllegalArgumentException("Resolved annotation applicability must match its target set");
+        }
         if (argumentFailureCode.isPresent() && arguments.isEmpty()) {
           throw new IllegalArgumentException("An argument failure requires written arguments");
         }
@@ -553,9 +597,45 @@ public sealed interface SyntaxValue {
      *          ordered written argument headers
      * @param location
      *          current location outcome
+     * @param applicableTargets
+     *          compiler-derived annotation target kinds
+     */
+    public Annotation(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location,
+        Set<ElementType> applicableTargets) {
+      this(form, arguments, location, applicableTargets, true);
+    }
+
+    /**
+     * Creates one attributed annotation with its closest-type admissibility.
+     *
+     * @param form
+     *          written annotation form
+     * @param arguments
+     *          ordered written argument headers
+     * @param location
+     *          current location outcome
+     * @param applicableTargets
+     *          compiler-derived annotation target kinds
+     * @param closestTypeAdmissible
+     *          whether the closest written type admits an annotation
+     */
+    public Annotation(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location,
+        Set<ElementType> applicableTargets, boolean closestTypeAdmissible) {
+      this(new AnnotationDetails(form, arguments, location, applicableTargets, closestTypeAdmissible, Optional.empty()));
+    }
+
+    /**
+     * Creates a captured or nested value occurrence before application targets are resolved.
+     *
+     * @param form
+     *          written annotation form
+     * @param arguments
+     *          written annotation arguments
+     * @param location
+     *          current location outcome
      */
     public Annotation(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location) {
-      this(new AnnotationDetails(form, arguments, location, Optional.empty()));
+      this(form, arguments, location, Set.of());
     }
 
     /**
@@ -567,13 +647,38 @@ public sealed interface SyntaxValue {
      *          ordered written argument headers
      * @param location
      *          current location outcome
+     * @param applicableTargets
+     *          compiler-derived annotation target kinds
      * @param diagnosticCode
      *          blocking source diagnostic code
      * @return diagnosed incomplete annotation occurrence
      */
     public static Annotation withArgumentFailure(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location,
-        String diagnosticCode) {
-      return new Annotation(new AnnotationDetails(form, arguments, location, Optional.of(diagnosticCode)));
+        Set<ElementType> applicableTargets, String diagnosticCode) {
+      return withArgumentFailure(form, arguments, location, applicableTargets, true, diagnosticCode);
+    }
+
+    /**
+     * Creates an attributed occurrence with unavailable arguments and a known closest-type outcome.
+     *
+     * @param form
+     *          written annotation form
+     * @param arguments
+     *          ordered written argument headers
+     * @param location
+     *          current location outcome
+     * @param applicableTargets
+     *          compiler-derived annotation target kinds
+     * @param closestTypeAdmissible
+     *          whether the closest written type admits an annotation
+     * @param diagnosticCode
+     *          blocking source diagnostic code
+     * @return diagnosed incomplete annotation occurrence
+     */
+    public static Annotation withArgumentFailure(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location,
+        Set<ElementType> applicableTargets, boolean closestTypeAdmissible, String diagnosticCode) {
+      return new Annotation(
+          new AnnotationDetails(form, arguments, location, applicableTargets, closestTypeAdmissible, Optional.of(diagnosticCode)));
     }
 
     private Annotation(AnnotationDetails details) {
@@ -615,6 +720,24 @@ public sealed interface SyntaxValue {
      */
     public AnnotationLocation location() {
       return details.location();
+    }
+
+    /**
+     * Returns the compiler-derived annotation interface target set, empty for unresolved or nested values.
+     *
+     * @return applicable annotation target kinds
+     */
+    public Set<ElementType> applicableTargets() {
+      return details.applicableTargets();
+    }
+
+    /**
+     * Returns the attributed admissibility of the closest written type.
+     *
+     * @return whether that type admits an annotation
+     */
+    public boolean closestTypeAdmissible() {
+      return details.closestTypeAdmissible();
     }
   }
 
@@ -734,11 +857,18 @@ public sealed interface SyntaxValue {
 
     private record VariableDeclarationFacts(String ownerKey, String declarationKey, Kind kind,
         Set<JavaDeclarationModifier> writtenModifiers, Set<JavaDeclarationModifier> effectiveModifiers, JavaTypeIdentity declaredType,
-        int annotations, boolean type, boolean initializer, boolean argumentList, int arguments, boolean constantBody) {
+        int annotations, boolean type, boolean initializer, boolean argumentList, int arguments, boolean constantBody,
+        List<String> sharedDeclaratorKeys) {
       private VariableDeclarationFacts {
         SyntaxValueSupport.requireText(ownerKey, SyntaxValueSupport.OWNER_KEY_ARGUMENT);
         SyntaxValueSupport.requireText(declarationKey, SyntaxValueSupport.DECLARATION_KEY_ARGUMENT);
         Objects.requireNonNull(kind, "kind");
+        sharedDeclaratorKeys = List.copyOf(Objects.requireNonNull(sharedDeclaratorKeys, "sharedDeclaratorKeys"));
+        if (!sharedDeclaratorKeys.isEmpty() && (kind != Kind.FIELD || sharedDeclaratorKeys.size() < 2
+            || Set.copyOf(sharedDeclaratorKeys).size() != sharedDeclaratorKeys.size() || !sharedDeclaratorKeys.contains(declarationKey))) {
+          throw new IllegalArgumentException("A shared field header requires all distinct source declarator identities");
+        }
+        sharedDeclaratorKeys.forEach(key -> SyntaxValueSupport.requireText(key, "shared field declarator key"));
         var prefix = ownerKey + (kind == Kind.FIELD ? "#field:" : "#enum:");
         if (!declarationKey.startsWith(prefix) || declarationKey.length() == prefix.length()) {
           throw new IllegalArgumentException("A variable declaration key must belong to its type owner and kind");
@@ -784,12 +914,15 @@ public sealed interface SyntaxValue {
      *          enum constructor argument count
      * @param constantBody
      *          enum constant-specific body presence
+     * @param sharedDeclaratorKeys
+     *          ordered declarations sharing this source header, empty for a single declaration
      */
     public VariableDeclaration(String name, String ownerKey, String declarationKey, Kind kind,
         Set<JavaDeclarationModifier> writtenModifiers, Set<JavaDeclarationModifier> effectiveModifiers, JavaTypeIdentity declaredType,
-        int annotations, boolean type, boolean initializer, boolean argumentList, int arguments, boolean constantBody) {
+        int annotations, boolean type, boolean initializer, boolean argumentList, int arguments, boolean constantBody,
+        List<String> sharedDeclaratorKeys) {
       this(name, new VariableDeclarationFacts(ownerKey, declarationKey, kind, writtenModifiers, effectiveModifiers, declaredType,
-          annotations, type, initializer, argumentList, arguments, constantBody));
+          annotations, type, initializer, argumentList, arguments, constantBody, sharedDeclaratorKeys));
     }
 
     private VariableDeclaration(String name, VariableDeclarationFacts details) {
@@ -814,6 +947,15 @@ public sealed interface SyntaxValue {
      */
     public String ownerKey() {
       return details.ownerKey();
+    }
+
+    /**
+     * Returns the source-ordered declarations sharing this header.
+     *
+     * @return shared declarator identities, empty for a single declaration
+     */
+    public List<String> sharedDeclaratorKeys() {
+      return details.sharedDeclaratorKeys();
     }
 
     /**
@@ -909,8 +1051,33 @@ public sealed interface SyntaxValue {
 
   /** Written record-header component with an identity independent of generated members. */
   final class RecordComponentDeclaration extends Symbol {
+    /**
+     * Compiler-correlated declarations that can receive applicable record annotations.
+     *
+     * @param backingFieldKey
+     *          backing field declaration key
+     * @param accessorKey
+     *          accessor method declaration key
+     * @param canonicalParameterKey
+     *          canonical constructor parameter declaration key
+     * @param accessorImplicit
+     *          whether the accessor is implicit in source
+     * @param canonicalParameterDerived
+     *          whether the canonical parameter is derived from the record header
+     */
+    public record Counterparts(String backingFieldKey, String accessorKey, String canonicalParameterKey, boolean accessorImplicit,
+        boolean canonicalParameterDerived) {
+      /** Validates the three independently identified counterpart declarations. */
+      public Counterparts {
+        SyntaxValueSupport.requireText(backingFieldKey, "backingFieldKey");
+        SyntaxValueSupport.requireText(accessorKey, "accessorKey");
+        SyntaxValueSupport.requireText(canonicalParameterKey, "canonicalParameterKey");
+      }
+    }
+
     private record RecordComponentFacts(String ownerKey, int ordinal, Set<JavaDeclarationModifier> writtenModifiers,
-        Set<JavaDeclarationModifier> effectiveModifiers, JavaTypeIdentity declaredType, int annotations, boolean varArgs) {
+        Set<JavaDeclarationModifier> effectiveModifiers, JavaTypeIdentity declaredType, int annotations, boolean varArgs,
+        Counterparts counterparts) {
       private RecordComponentFacts {
         SyntaxValueSupport.requireText(ownerKey, SyntaxValueSupport.OWNER_KEY_ARGUMENT);
         if (ordinal < 0 || annotations < 0) {
@@ -919,6 +1086,7 @@ public sealed interface SyntaxValue {
         writtenModifiers = Set.copyOf(Objects.requireNonNull(writtenModifiers, SyntaxValueSupport.WRITTEN_MODIFIERS_ARGUMENT));
         effectiveModifiers = Set.copyOf(Objects.requireNonNull(effectiveModifiers, SyntaxValueSupport.EFFECTIVE_MODIFIERS_ARGUMENT));
         Objects.requireNonNull(declaredType, "declaredType");
+        Objects.requireNonNull(counterparts, "counterparts");
       }
     }
 
@@ -943,10 +1111,14 @@ public sealed interface SyntaxValue {
      *          written annotation count
      * @param varArgs
      *          variable-arity final component state
+     * @param counterparts
+     *          correlated compiler declarations eligible for annotation propagation
      */
     public RecordComponentDeclaration(String name, String ownerKey, int ordinal, Set<JavaDeclarationModifier> writtenModifiers,
-        Set<JavaDeclarationModifier> effectiveModifiers, JavaTypeIdentity declaredType, int annotations, boolean varArgs) {
-      this(name, new RecordComponentFacts(ownerKey, ordinal, writtenModifiers, effectiveModifiers, declaredType, annotations, varArgs));
+        Set<JavaDeclarationModifier> effectiveModifiers, JavaTypeIdentity declaredType, int annotations, boolean varArgs,
+        Counterparts counterparts) {
+      this(name, new RecordComponentFacts(ownerKey, ordinal, writtenModifiers, effectiveModifiers, declaredType, annotations, varArgs,
+          counterparts));
     }
 
     private RecordComponentDeclaration(String name, RecordComponentFacts details) {
@@ -1025,6 +1197,15 @@ public sealed interface SyntaxValue {
      */
     public boolean varArgs() {
       return details.varArgs();
+    }
+
+    /**
+     * Returns compiler-correlated counterpart identities for record annotation propagation.
+     *
+     * @return counterpart declaration identities
+     */
+    public Counterparts counterparts() {
+      return details.counterparts();
     }
   }
 

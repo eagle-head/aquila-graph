@@ -1,12 +1,9 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.CompilationUnitTree;
-import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.MethodTree;
-import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
-import com.sun.source.util.TreeScanner;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -146,55 +143,19 @@ final class JavaMethodTranslator {
 
   private void diagnoseUnsupportedDeclarationProperties(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,
       MethodTree methodTree, List<AnalysisDiagnostic> diagnostics) {
-    for (var parameter : methodTree.getTypeParameters()) {
-      diagnoseTypeUseAnnotations(unit, sourceFile, methodKey, parameter.getBounds(), diagnostics);
-    }
     if (methodTree.getReceiverParameter() != null) {
       diagnoseUnsupportedVariableProperties(unit, sourceFile, methodKey + ":receiver", methodTree.getReceiverParameter(), true,
           diagnostics);
-      if (methodTree.getReceiverParameter().getType() != null) {
-        diagnoseTypeUseAnnotations(unit, sourceFile, methodKey, List.of(methodTree.getReceiverParameter().getType()), diagnostics);
-      }
-    }
-    diagnoseTypeUseAnnotations(unit, sourceFile, methodKey, methodTree.getThrows(), diagnostics);
-    if (methodTree.getReturnType() != null) {
-      diagnoseTypeUseAnnotations(unit, sourceFile, methodKey, List.of(methodTree.getReturnType()), diagnostics);
-    }
-    for (var parameter : methodTree.getParameters()) {
-      if (parameter.getType() != null) {
-        diagnoseTypeUseAnnotations(unit, sourceFile, methodKey, List.of(parameter.getType()), diagnostics);
-      }
     }
   }
 
   private void diagnoseUnsupportedVariableProperties(CompilationUnitTree unit, SourceFile sourceFile, String context,
       VariableTree variableTree, boolean receiver, List<AnalysisDiagnostic> diagnostics) {
-    if (receiver) {
-      for (var annotation : variableTree.getModifiers().getAnnotations()) {
-        diagnostics.add(FrontendDiagnosticFactory.capabilityError(context, "frontend.unsupported-receiver-annotation-content",
-            "Receiver annotation content is outside the supported declaration profile",
-            sourceEvidence.origin(unit, sourceFile, annotation)));
-      }
-    }
     if (variableTree.getInitializer() != null) {
       diagnostics.add(FrontendDiagnosticFactory.otherError(context,
           receiver ? "frontend.invalid-receiver-initializer" : "frontend.invalid-parameter-initializer",
           "A parameter cannot have an initializer", sourceEvidence.origin(unit, sourceFile, variableTree.getInitializer())));
     }
-  }
-
-  private void diagnoseTypeUseAnnotations(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, List<? extends Tree> typeTrees,
-      List<AnalysisDiagnostic> diagnostics) {
-    var scanner = new TreeScanner<Void, Void>() {
-      @Override
-      public Void visitAnnotation(AnnotationTree annotation, Void unused) {
-        diagnostics.add(FrontendDiagnosticFactory.capabilityError(methodKey, "frontend.unsupported-type-use-annotation",
-            "Type-use annotation content is outside the supported declaration profile",
-            sourceEvidence.origin(unit, sourceFile, annotation)));
-        return super.visitAnnotation(annotation, null);
-      }
-    };
-    typeTrees.forEach(tree -> scanner.scan(tree, null));
   }
 
   private static TreePath parameterPath(TreePath methodPath, VariableTree parameterTree) {

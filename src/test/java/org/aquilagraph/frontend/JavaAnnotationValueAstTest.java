@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.lang.model.element.TypeElement;
@@ -407,7 +408,8 @@ class JavaAnnotationValueAstTest {
     assertEquals("type:OnlyComponent#value()", pair.value(SyntaxValue.AnnotationArgument.class).selectedElementKey());
     assertTrue(aggregate.semanticEdges().stream().anyMatch(edge -> edge.sourceKey().equals(annotation.nodeId())
         && edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET
-        && edge.target() instanceof SyntaxSemanticTarget.SourceOccurrence target && target.nodeKey().equals(component.nodeId())));
+        && edge.target() instanceof SyntaxSemanticTarget.AnnotationApplication target
+        && target.declarationNodeKey().equals(Optional.of(component.nodeId()))));
     assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unavailable-annotation-attribution")),
         () -> result.diagnostics().toString());
   }

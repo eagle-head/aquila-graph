@@ -519,7 +519,7 @@ class SyntaxNodeTest {
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0);
     var type = declaredUse(path.child(SyntaxRole.DECLARED_TYPE, 0), "String", "type:java.lang.String", ORIGIN);
     var field = new SyntaxValue.VariableDeclaration("value", "type:Host", "type:Host#field:value",
-        SyntaxValue.VariableDeclaration.Kind.FIELD, Set.of(), Set.of(), INT_TYPE, 0, true, false, false, 0, false);
+        SyntaxValue.VariableDeclaration.Kind.FIELD, Set.of(), Set.of(), INT_TYPE, 0, true, false, false, 0, false, List.of());
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.VARIABLE,
@@ -535,7 +535,9 @@ class SyntaxNodeTest {
     // Arrange
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.RECORD_COMPONENT, 0);
     var type = declaredUse(path.child(SyntaxRole.DECLARED_TYPE, 0), "String", "type:java.lang.String", ORIGIN);
-    var component = new SyntaxValue.RecordComponentDeclaration("value", "type:Host", 0, Set.of(), Set.of(), INT_TYPE, 0, false);
+    var component = new SyntaxValue.RecordComponentDeclaration("value", "type:Host", 0, Set.of(), Set.of(), INT_TYPE, 0, false,
+        new SyntaxValue.RecordComponentDeclaration.Counterparts("type:Host#value", "type:Host#value()", "type:Host#<init>(int)#value",
+            true, true));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path, JavaSourceKind.VARIABLE,
@@ -576,7 +578,10 @@ class SyntaxNodeTest {
     // Arrange
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
     var annotation = SyntaxNode.source("source", path.child(SyntaxRole.INTERFACE, 0), JavaSourceKind.ANNOTATION,
-        SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), ORIGIN);
+        SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.MARKER, List.of(), SyntaxValue.AnnotationLocation.UNRESOLVED),
+        List.of(), Optional.of(new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED,
+            Optional.empty(), Optional.empty(), List.of(), List.of())), ORIGIN);
     var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 1, 0, 0, 0));
 

@@ -11,6 +11,7 @@ import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.PackageTree;
+import com.sun.source.tree.PrimitiveTypeTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.TypeParameterTree;
 import com.sun.source.tree.VariableTree;
@@ -25,6 +26,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.lang.annotation.ElementType;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
@@ -32,7 +34,10 @@ import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.util.Elements;
 import javax.lang.model.type.TypeMirror;
+import javax.lang.model.type.TypeKind;
+import org.aquilagraph.frontend.JavaAnnotationProjector.DeclarationSite;
 import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.JavaRecordComponent;
 import org.aquilagraph.model.JavaType;
@@ -58,6 +63,7 @@ import org.aquilagraph.syntax.SyntaxSourceContribution;
 import org.aquilagraph.syntax.SyntaxStructuralPath;
 import org.aquilagraph.syntax.SyntaxType;
 import org.aquilagraph.syntax.SyntaxValue;
+import org.aquilagraph.syntax.SharedFieldDeclarations;
 
 /** Assembles the source-only declaration/body tree for one attributed compilation unit. */
 final class JavaAstContributionTranslator {
@@ -70,14 +76,22 @@ final class JavaAstContributionTranslator {
   private final JavaModuleTranslator moduleTranslator;
   private final JavaAnnotationProjector annotationProjector;
   private final JavaTypeUseTranslator typeUseTranslator;
+  private final RecordAnnotationMirrorCorrelation recordMirrorCorrelation;
+  private final Map<String, Map<SourceSpan, String>> sharedFieldAnnotations = new HashMap<>();
 
   JavaAstContributionTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory) {
+    this(semantics, sourceEvidence, treeInventory, new JavaAnnotationMirrorCorrelation(semantics));
+  }
+
+  JavaAstContributionTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
+      RecordAnnotationMirrorCorrelation recordMirrorCorrelation) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
+    this.recordMirrorCorrelation = Objects.requireNonNull(recordMirrorCorrelation, "recordMirrorCorrelation");
     annotationProjector = new JavaAnnotationProjector(semantics, sourceEvidence, treeInventory);
     moduleTranslator = new JavaModuleTranslator(sourceEvidence, treeInventory, annotationProjector);
-    typeUseTranslator = new JavaTypeUseTranslator(semantics, sourceEvidence);
+    typeUseTranslator = new JavaTypeUseTranslator(semantics, sourceEvidence, treeInventory);
   }
 
   UnitTranslation translate(CompilationUnitTree unit, SourceFile sourceFile, List<TranslatedMethodBody> bodies,
@@ -173,11 +187,17 @@ final class JavaAstContributionTranslator {
     var structural = nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList();
     var semantic = new ArrayList<>(declarationEdges);
     nodes.forEach(node -> semantic.addAll(node.semanticEdges()));
+    var recordTypeOwners = new HashMap<String, SyntaxNode>();
+    var fieldGroups = SharedFieldDeclarations.index(nodes);
+    nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.RECORD_COMPONENT_DECLARATION).forEach(component -> component
+        .children(SyntaxRole.DECLARED_TYPE).forEach(type -> collectRecordTypeOwners(type, component, recordTypeOwners)));
     nodes.forEach(parent -> parent.children().stream()
         .filter(child -> child.role() == SyntaxRole.ANNOTATION && child.node().value() instanceof SyntaxValue.Annotation annotation
-            && annotation.location() == SyntaxValue.AnnotationLocation.DECLARATION)
+            && annotation.location() != SyntaxValue.AnnotationLocation.VALUE
+            && annotation.location() != SyntaxValue.AnnotationLocation.UNRESOLVED)
         .forEach(child -> semantic.add(new SyntaxSemanticEdge(child.node().nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-            new SyntaxSemanticTarget.SourceOccurrence(parent.nodeId())))));
+            SyntaxSemanticTarget.AnnotationApplication.forAttachment(parent, child.node(),
+                Optional.ofNullable(recordTypeOwners.get(parent.nodeId())), fieldGroups.getOrDefault(parent.nodeId(), List.of()))))));
     var contribution = new SyntaxSourceContribution(sourceFile.sourceFileKey(), root, nodes, structural, semantic);
     var registrations = new ArrayList<BodyRegistration>();
     for (var body : bodies) {
@@ -193,6 +213,12 @@ final class JavaAstContributionTranslator {
       registrations.add(new BodyRegistration(body.methodKey(), body.root(), origin));
     }
     return new UnitTranslation(Optional.of(contribution), registrations, diagnostics);
+  }
+
+  private static void collectRecordTypeOwners(SyntaxNode type, SyntaxNode component, Map<String, SyntaxNode> owners) {
+    owners.put(type.nodeId(), component);
+    type.children().stream().map(SyntaxChild::node).filter(child -> child.syntaxKind() == SyntaxKind.TYPE_USE)
+        .forEach(child -> collectRecordTypeOwners(child, component, owners));
   }
 
   private Optional<SyntaxNode> packageDeclaration(CompilationUnitTree unit, SourceFile sourceFile, PackageTree declaration,
@@ -217,7 +243,7 @@ final class JavaAstContributionTranslator {
       var annotation = declaration.getAnnotations().get(position);
       var annotationPath = path.child(SyntaxRole.ANNOTATION, annotations.size());
       var occurrencePath = path.child(SyntaxRole.ANNOTATION, position);
-      annotationAttachment(unit, sourceFile, annotation, annotationPath, occurrencePath, diagnostics)
+      annotationAttachment(unit, sourceFile, annotation, annotationPath, occurrencePath, DeclarationSite.PACKAGE, diagnostics)
           .ifPresent(node -> annotations.add(new SyntaxChild(SyntaxRole.ANNOTATION, annotations.size(), node)));
     }
     return Optional.of(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.PACKAGE, SyntaxKind.COMPILATION_UNIT,
@@ -226,8 +252,8 @@ final class JavaAstContributionTranslator {
   }
 
   private Optional<SyntaxNode> annotationAttachment(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
-      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, List<AnalysisDiagnostic> diagnostics) {
-    return annotationProjector.declaration(unit, sourceFile, annotation, path, occurrencePath, diagnostics);
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DeclarationSite site, List<AnalysisDiagnostic> diagnostics) {
+    return annotationProjector.declaration(unit, sourceFile, annotation, path, occurrencePath, site, diagnostics);
   }
 
   private Optional<SyntaxNode> importDeclaration(CompilationUnitTree unit, SourceFile sourceFile, ImportTree declaration,
@@ -385,7 +411,7 @@ final class JavaAstContributionTranslator {
       var role = SyntaxRole.ANNOTATION;
       var annotation = annotations.get(ordinal);
       var attachment = annotationAttachment(unit, sourceFile, annotation, path.child(role, position), occurrencePath.child(role, ordinal),
-          diagnostics);
+          declaration.getKind() == Tree.Kind.ANNOTATION_TYPE ? DeclarationSite.ANNOTATION_TYPE : DeclarationSite.TYPE, diagnostics);
       attachment.ifPresent(node -> children.add(new SyntaxChild(role, position, node)));
       complete &= attachment.isPresent();
     }
@@ -433,8 +459,8 @@ final class JavaAstContributionTranslator {
     } else {
       for (var component : modeledType.recordComponents()) {
         var attributedComponent = typeElement.getRecordComponents().get(component.ordinal());
-        var componentNode = recordComponent(unit, sourceFile, declaration, component, attributedComponent.asType(), path, occurrencePath,
-            stagedEdges, diagnostics);
+        var componentNode = recordComponent(unit, sourceFile, declaration, typeElement, component, attributedComponent.asType(), path,
+            occurrencePath, stagedEdges, diagnostics);
         componentNode.ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.RECORD_COMPONENT, component.ordinal(), node)));
         complete &= componentNode.isPresent();
       }
@@ -478,11 +504,14 @@ final class JavaAstContributionTranslator {
       SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal, TypeMirror declarationType, List<SyntaxChild> children,
       List<AnalysisDiagnostic> diagnostics) {
     var path = parentPath.child(role, ordinal);
-    var node = typeUseTranslator.translate(unit, sourceFile, tree, path, parentOccurrencePath.child(role, ordinal), diagnostics);
+    var attributed = semantics.declarationType(declarationType);
+    var node = role == SyntaxRole.DECLARED_TYPE || role == SyntaxRole.RETURN_TYPE
+        ? typeUseTranslator.translateDeclaration(unit, sourceFile, tree, path, parentOccurrencePath.child(role, ordinal), attributed,
+            diagnostics)
+        : typeUseTranslator.translate(unit, sourceFile, tree, path, parentOccurrencePath.child(role, ordinal), diagnostics);
     if (node.isEmpty()) {
       return false;
     }
-    var attributed = semantics.declarationType(declarationType);
     var written = node.orElseThrow().type();
     if (written instanceof SyntaxType.Resolved writtenType
         && (!(attributed instanceof SyntaxType.Resolved declaredType) || !matchingDeclarationType(role, writtenType, declaredType))) {
@@ -503,8 +532,8 @@ final class JavaAstContributionTranslator {
   }
 
   private Optional<SyntaxNode> recordComponent(CompilationUnitTree unit, SourceFile sourceFile, ClassTree declaration,
-      JavaRecordComponent component, TypeMirror attributedType, SyntaxStructuralPath typePath, SyntaxStructuralPath typeOccurrencePath,
-      List<SyntaxSemanticEdge> semanticEdges, List<AnalysisDiagnostic> diagnostics) {
+      TypeElement typeElement, JavaRecordComponent component, TypeMirror attributedType, SyntaxStructuralPath typePath,
+      SyntaxStructuralPath typeOccurrencePath, List<SyntaxSemanticEdge> semanticEdges, List<AnalysisDiagnostic> diagnostics) {
     var candidates = declaration.getMembers().stream().filter(VariableTree.class::isInstance).map(VariableTree.class::cast)
         .filter(tree -> treeInventory.isWritten(tree) && tree.getName().contentEquals(component.name())
             && sourceEvidence.origin(unit, sourceFile, tree).filter(component.origin()::equals).isPresent())
@@ -524,7 +553,8 @@ final class JavaAstContributionTranslator {
       return Optional.empty();
     }
     var children = new ArrayList<SyntaxChild>();
-    var complete = appendAnnotations(unit, sourceFile, annotations.orElseThrow(), path, occurrencePath, children, diagnostics);
+    var complete = appendAnnotations(unit, sourceFile, annotations.orElseThrow(), path, occurrencePath, DeclarationSite.RECORD_COMPONENT,
+        children, diagnostics);
     complete &= appendTypeHeaderAttachment(unit, sourceFile, tree.getType(), path, occurrencePath, SyntaxRole.DECLARED_TYPE, 0,
         attributedType, children, diagnostics);
     if (!complete) {
@@ -532,8 +562,20 @@ final class JavaAstContributionTranslator {
     }
     var effectiveModifiers = component.effectiveModifiers().stream().map(modifier -> JavaDeclarationModifier.valueOf(modifier.name()))
         .collect(Collectors.toUnmodifiableSet());
+    var counterparts = recordCounterparts(typeElement, component);
+    if (counterparts.isEmpty()) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(component.componentKey(), "frontend.unavailable-record-counterpart",
+          "A record component has no uniquely correlated accessor or canonical parameter provenance", Optional.of(component.origin())));
+      return Optional.empty();
+    }
+    if (!recordAnnotationMirrors(children, counterparts.orElseThrow())) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(component.componentKey(), "frontend.unavailable-record-annotation-propagation",
+          "A record component annotation has no matching compiler-propagated counterpart mirror", Optional.of(component.origin())));
+      return Optional.empty();
+    }
     var value = new SyntaxValue.RecordComponentDeclaration(component.name(), component.ownerTypeKey(), component.ordinal(), Set.of(),
-        effectiveModifiers, component.staticType(), annotations.orElseThrow().size(), component.varArgs());
+        effectiveModifiers, component.staticType(), annotations.orElseThrow().size(), component.varArgs(),
+        counterparts.orElseThrow().counterparts());
     var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.VARIABLE, SyntaxKind.RECORD_COMPONENT_DECLARATION,
         SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), component.origin());
     var reference = new SemanticReference(ReferenceKind.RECORD_COMPONENT, ResolutionStatus.RESOLVED, Optional.of(component.componentKey()),
@@ -541,6 +583,84 @@ final class JavaAstContributionTranslator {
     semanticEdges.add(new SyntaxSemanticEdge(node.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.Declaration(reference)));
     return Optional.of(node);
+  }
+
+  private Optional<RecordCounterpartEvidence> recordCounterparts(TypeElement owner, JavaRecordComponent component) {
+    var recordComponent = owner.getRecordComponents().get(component.ordinal());
+    var accessor = recordComponent.getAccessor();
+    if (accessor == null || semantics.declarationKey(accessor).filter(component.accessorKey().orElseThrow()::equals).isEmpty()) {
+      return Optional.empty();
+    }
+    var canonical = owner.getEnclosedElements().stream().filter(ExecutableElement.class::isInstance).map(ExecutableElement.class::cast)
+        .filter(executable -> executable.getKind() == ElementKind.CONSTRUCTOR)
+        .filter(executable -> executable.getParameters().size() > component.ordinal())
+        .filter(executable -> semantics.declarationKey(executable.getParameters().get(component.ordinal()))
+            .filter(component.canonicalParameterKey().orElseThrow()::equals).isPresent())
+        .toList();
+    if (canonical.size() != REQUIRED_COMPONENT_SOURCE_COUNT) {
+      return Optional.empty();
+    }
+    var fields = owner.getEnclosedElements().stream().filter(VariableElement.class::isInstance).map(VariableElement.class::cast)
+        .filter(field -> field.getKind() == ElementKind.FIELD)
+        .filter(field -> semantics.declarationKey(field).filter(component.backingFieldKey().orElseThrow()::equals).isPresent()).toList();
+    if (fields.size() != REQUIRED_COMPONENT_SOURCE_COUNT) {
+      return Optional.empty();
+    }
+    var constructor = canonical.getFirst();
+    var accessorImplicit = semantics.sourceTree(accessor) == null;
+    var parameterDerived = semantics.declarationOrigin(constructor) == Elements.Origin.MANDATED
+        || semantics.isCompactConstructor(constructor);
+    var facts = new SyntaxValue.RecordComponentDeclaration.Counterparts(component.backingFieldKey().orElseThrow(),
+        component.accessorKey().orElseThrow(), component.canonicalParameterKey().orElseThrow(), accessorImplicit, parameterDerived);
+    return Optional.of(new RecordCounterpartEvidence(facts, recordComponent.asType(), fields.getFirst(), accessor,
+        constructor.getParameters().get(component.ordinal())));
+  }
+
+  private record RecordCounterpartEvidence(SyntaxValue.RecordComponentDeclaration.Counterparts counterparts, TypeMirror componentType,
+      VariableElement field, ExecutableElement accessor, VariableElement parameter) {
+  }
+
+  private boolean recordAnnotationMirrors(List<SyntaxChild> children, RecordCounterpartEvidence evidence) {
+    var writtenType = children.stream().filter(child -> child.role() == SyntaxRole.DECLARED_TYPE).map(SyntaxChild::node).findFirst()
+        .orElseThrow();
+    var correlation = recordMirrorCorrelation;
+    var fieldValues = new ArrayList<SyntaxNode>();
+    var accessorValues = new ArrayList<SyntaxNode>();
+    var parameterValues = new ArrayList<SyntaxNode>();
+    var typeValues = new ArrayList<SyntaxNode>();
+    for (var expected : children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION).map(SyntaxChild::node).toList()) {
+      var annotation = expected.value(SyntaxValue.Annotation.class);
+      var targets = annotation.applicableTargets();
+      var counterparts = evidence.counterparts();
+      if (targets.contains(ElementType.FIELD)) {
+        fieldValues.add(expected);
+      }
+      if (annotation.location() == SyntaxValue.AnnotationLocation.TYPE_USE
+          || annotation.location() == SyntaxValue.AnnotationLocation.DUAL) {
+        typeValues.add(expected);
+      }
+      if (counterparts.accessorImplicit() && targets.contains(ElementType.METHOD)) {
+        accessorValues.add(expected);
+      }
+      if (counterparts.canonicalParameterDerived() && targets.contains(ElementType.PARAMETER)) {
+        parameterValues.add(expected);
+      }
+    }
+    var sourceTypes = new JavaWrittenTypeAnnotationCorrelation(semantics);
+    return sourceTypes.matches(writtenType, typeValues, evidence.componentType())
+        && sourceTypes.matches(writtenType, typeValues, evidence.field().asType())
+        && (!evidence.counterparts().accessorImplicit()
+            || sourceTypes.matches(writtenType, typeValues, evidence.accessor().getReturnType()))
+        && (!evidence.counterparts().canonicalParameterDerived()
+            || sourceTypes.matches(writtenType, typeValues, evidence.parameter().asType()))
+        && correlation.containsAll(evidence.field().getAnnotationMirrors(), fieldValues)
+        && correlation.containsAll(evidence.accessor().getAnnotationMirrors(), accessorValues)
+        && correlation.containsAll(evidence.parameter().getAnnotationMirrors(), parameterValues)
+        && correlation.sameAnnotatedType(evidence.componentType(), evidence.field().asType())
+        && (!evidence.counterparts().accessorImplicit()
+            || correlation.sameAnnotatedType(evidence.componentType(), evidence.accessor().getReturnType()))
+        && (!evidence.counterparts().canonicalParameterDerived()
+            || correlation.sameAnnotatedType(evidence.componentType(), evidence.parameter().asType()));
   }
 
   private Optional<SyntaxNode> typeParameter(CompilationUnitTree unit, SourceFile sourceFile, TreePath treePath,
@@ -561,7 +681,8 @@ final class JavaAstContributionTranslator {
       return Optional.empty();
     }
     var children = new ArrayList<SyntaxChild>();
-    var complete = appendAnnotations(unit, sourceFile, declaration.getAnnotations(), path, occurrencePath, children, diagnostics);
+    var complete = appendAnnotations(unit, sourceFile, declaration.getAnnotations(), path, occurrencePath, DeclarationSite.TYPE_PARAMETER,
+        children, diagnostics);
     if (declaration.getBounds().size() != parameterElement.getBounds().size() && !declaration.getBounds().isEmpty()) {
       diagnostics.add(FrontendDiagnosticFactory.otherError(expectedKey, "frontend.inconsistent-type-parameter-bounds",
           "Written and attributed type-parameter bounds have different cardinality", range));
@@ -591,11 +712,12 @@ final class JavaAstContributionTranslator {
   }
 
   private boolean appendAnnotations(CompilationUnitTree unit, SourceFile sourceFile, List<? extends AnnotationTree> annotations,
-      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, List<SyntaxChild> children, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DeclarationSite site, List<SyntaxChild> children,
+      List<AnalysisDiagnostic> diagnostics) {
     var complete = true;
     for (var index = 0; index < annotations.size(); index++) {
       var annotation = annotationAttachment(unit, sourceFile, annotations.get(index), path.child(SyntaxRole.ANNOTATION, index),
-          occurrencePath.child(SyntaxRole.ANNOTATION, index), diagnostics);
+          occurrencePath.child(SyntaxRole.ANNOTATION, index), site, diagnostics);
       if (annotation.isPresent()) {
         children.add(new SyntaxChild(SyntaxRole.ANNOTATION, index, annotation.orElseThrow()));
       }
@@ -711,7 +833,12 @@ final class JavaAstContributionTranslator {
     var children = new ArrayList<SyntaxChild>();
     var stagedBodies = new HashMap<String, SyntaxNode>();
     var stagedEdges = new ArrayList<SyntaxSemanticEdge>();
-    var complete = appendAnnotations(unit, sourceFile, declaration.getModifiers().getAnnotations(), path, occurrencePath, children,
+    var site = constructor
+        ? DeclarationSite.CONSTRUCTOR
+        : declaration.getReturnType() instanceof PrimitiveTypeTree primitive && primitive.getPrimitiveTypeKind() == TypeKind.VOID
+            ? DeclarationSite.VOID_METHOD
+            : DeclarationSite.METHOD;
+    var complete = appendAnnotations(unit, sourceFile, declaration.getModifiers().getAnnotations(), path, occurrencePath, site, children,
         diagnostics);
     for (var index = 0; index < declaration.getTypeParameters().size(); index++) {
       var parameter = declaration.getTypeParameters().get(index);
@@ -911,8 +1038,8 @@ final class JavaAstContributionTranslator {
       return Optional.empty();
     }
     var children = new ArrayList<SyntaxChild>();
-    var complete = appendAnnotations(unit, sourceFile, declaration.getModifiers().getAnnotations(), path, occurrencePath, children,
-        diagnostics);
+    var complete = appendAnnotations(unit, sourceFile, declaration.getModifiers().getAnnotations(), path, occurrencePath,
+        receiver ? DeclarationSite.RECEIVER : DeclarationSite.PARAMETER, children, diagnostics);
     complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getType(), path, occurrencePath, SyntaxRole.DECLARED_TYPE, 0,
         attributedType, children, diagnostics);
     if (receiver) {
@@ -975,16 +1102,29 @@ final class JavaAstContributionTranslator {
       return Optional.empty();
     }
     var children = new ArrayList<SyntaxChild>();
-    var complete = appendAnnotations(unit, sourceFile, declaration.getModifiers().getAnnotations(), path, occurrencePath, children,
-        diagnostics);
+    var sharedKeys = enumConstant ? List.<String>of() : sharedFieldKeys(unit, fieldPath, declaration);
+    var annotationOwners = sharedKeys.isEmpty()
+        ? Optional.<Map<SourceSpan, String>>empty()
+        : Optional.of(sharedFieldAnnotations.computeIfAbsent(sharedKeys.getFirst(), ignored -> new HashMap<>()));
+    var ownsModifiers = sharedKeys.isEmpty() || sharedKeys.getFirst().equals(semantics.declarationKey(variable).orElseThrow());
+    var modifierAnnotations = ownsModifiers ? declaration.getModifiers().getAnnotations() : List.<AnnotationTree>of();
+    var complete = appendAnnotations(unit, sourceFile, modifierAnnotations, path, occurrencePath,
+        enumConstant ? DeclarationSite.ENUM_CONSTANT : DeclarationSite.FIELD, children, diagnostics);
+    if (complete && annotationOwners.isPresent()) {
+      children.forEach(child -> annotationOwners.orElseThrow().put(child.node().origin().orElseThrow(), child.node().nodeId()));
+    }
     if (!enumConstant) {
       if (declaration.getType() == null) {
         diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-field-type-attachment",
             "A written field has no source type attachment", range));
         return Optional.empty();
       }
-      complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getType(), path, occurrencePath, SyntaxRole.DECLARED_TYPE, 0,
-          variable.asType(), children, diagnostics);
+      var typePath = path.child(SyntaxRole.DECLARED_TYPE, 0);
+      var typeNode = new JavaTypeUseTranslator(semantics, sourceEvidence, treeInventory, annotationOwners).translateDeclaration(unit,
+          sourceFile, declaration.getType(), typePath, occurrencePath.child(SyntaxRole.DECLARED_TYPE, 0),
+          semantics.declarationType(variable.asType()), diagnostics);
+      typeNode.ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.DECLARED_TYPE, 0, node)));
+      complete &= typeNode.isPresent();
     }
     if (!complete) {
       return Optional.empty();
@@ -1005,14 +1145,26 @@ final class JavaAstContributionTranslator {
     }
     var value = new SyntaxValue.VariableDeclaration(declaration.getName().toString(), semantics.declarationKey(ownerType).orElseThrow(),
         semantics.declarationKey(variable).orElseThrow(), kind, writtenModifiers, declarationModifiers(variable.getModifiers()),
-        resolved.identity(), declaration.getModifiers().getAnnotations().size(), !enumConstant, initializer != null,
-        argumentList.orElseThrow(), creation == null ? 0 : creation.getArguments().size(),
-        creation != null && creation.getClassBody() != null);
+        resolved.identity(), modifierAnnotations.size(), !enumConstant, initializer != null, argumentList.orElseThrow(),
+        creation == null ? 0 : creation.getArguments().size(), creation != null && creation.getClassBody() != null, sharedKeys);
     var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.VARIABLE,
         enumConstant ? SyntaxKind.ENUM_CONSTANT_DECLARATION : SyntaxKind.FIELD_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value,
         children, Optional.empty(), range.orElseThrow());
     declarationEdge(fieldPath, node, semanticEdges);
     return Optional.of(node);
+  }
+
+  private List<String> sharedFieldKeys(CompilationUnitTree unit, TreePath fieldPath, VariableTree declaration) {
+    if (!(fieldPath.getParentPath().getLeaf() instanceof ClassTree owner)) {
+      return List.of();
+    }
+    var start = sourceEvidence.rawStart(unit, declaration);
+    var keys = owner.getMembers().stream().filter(treeInventory::isWritten).filter(VariableTree.class::isInstance)
+        .map(VariableTree.class::cast).filter(candidate -> sourceEvidence.rawStart(unit, candidate) == start)
+        .map(candidate -> semantics.element(new TreePath(fieldPath.getParentPath(), candidate)))
+        .filter(element -> element != null && element.getKind() == ElementKind.FIELD).map(semantics::declarationKey)
+        .flatMap(Optional::stream).toList();
+    return keys.size() > 1 ? keys : List.of();
   }
 
   private Optional<SyntaxNode> sourceBody(SyntaxNode body, SyntaxStructuralPath path, TreePath methodPath, MethodTree declaration) {

@@ -145,6 +145,15 @@ final class SemanticResolver {
     return projectType(compilerType(path), true);
   }
 
+  List<? extends AnnotationMirror> typeAnnotationMirrors(TreePath path) {
+    var type = compilerType(Objects.requireNonNull(path, PATH_ARGUMENT));
+    return type == null ? List.of() : type.getAnnotationMirrors();
+  }
+
+  Optional<TypeMirror> attributedMirror(TreePath path) {
+    return Optional.ofNullable(compilerType(Objects.requireNonNull(path, PATH_ARGUMENT)));
+  }
+
   SyntaxType declarationType(TypeMirror type) {
     return projectType(Objects.requireNonNull(type, "type"), true);
   }

@@ -1,5 +1,9 @@
 package org.aquilagraph.syntax;
 
+import org.aquilagraph.syntax.SyntaxSemanticTarget.AnnotationApplication;
+import org.aquilagraph.syntax.SyntaxSemanticTarget.AnnotationTypeLocation;
+import org.aquilagraph.syntax.SyntaxSemanticTarget.Declaration;
+import org.aquilagraph.syntax.SyntaxSemanticTarget.SourceOccurrence;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -337,6 +341,16 @@ final class JavaAstAggregateBuilder {
     var seen = new HashSet<SyntaxSemanticEdge>();
     var declarationEdges = new HashMap<String, List<SyntaxSemanticEdge>>();
     var annotationTargets = new HashMap<String, List<SyntaxSemanticEdge>>();
+    var annotationParents = new HashMap<String, SyntaxNode>();
+    var recordTypeOwners = new HashMap<String, SyntaxNode>();
+    var fieldGroups = SharedFieldDeclarations.index(List.copyOf(nodes.values()));
+    for (var parent : nodes.values()) {
+      parent.children().stream().filter(child -> child.role() == SyntaxRole.ANNOTATION)
+          .forEach(child -> annotationParents.put(child.node().nodeId(), parent));
+      if (parent.syntaxKind() == SyntaxKind.RECORD_COMPONENT_DECLARATION) {
+        parent.children(SyntaxRole.DECLARED_TYPE).forEach(type -> collectRecordTypeOwners(type, parent, recordTypeOwners));
+      }
+    }
     for (var edge : edges) {
       Objects.requireNonNull(edge, "semanticEdge");
       if (!seen.add(edge)) {
@@ -345,7 +359,7 @@ final class JavaAstAggregateBuilder {
       if (!nodes.containsKey(edge.sourceKey())) {
         throw new IllegalArgumentException("AST edge endpoint is not owned by the aggregate: semantic source " + edge.sourceKey());
       }
-      if (edge.target() instanceof SyntaxSemanticTarget.SourceOccurrence occurrence && !nodes.containsKey(occurrence.nodeKey())) {
+      if (edge.target() instanceof SourceOccurrence occurrence && !nodes.containsKey(occurrence.nodeKey())) {
         throw new IllegalArgumentException("AST edge endpoint is not owned by the aggregate: semantic target " + occurrence.nodeKey());
       }
       if (edge.relation() == SyntaxSemanticRelation.DECLARATION_REFERENCE) {
@@ -361,19 +375,19 @@ final class JavaAstAggregateBuilder {
       validateDeclarationEdge(node, declarationEdges.getOrDefault(node.nodeId(), List.of()));
       var targets = annotationTargets.getOrDefault(node.nodeId(), List.of());
       if (node.sourceKind() == JavaSourceKind.ANNOTATION && node.value() instanceof SyntaxValue.Annotation annotation
-          && annotation.location() == SyntaxValue.AnnotationLocation.DECLARATION) {
+          && annotation.location() != SyntaxValue.AnnotationLocation.UNRESOLVED
+          && annotation.location() != SyntaxValue.AnnotationLocation.VALUE) {
         if (node.semanticReference().orElseThrow().status() != ResolutionStatus.RESOLVED) {
-          throw new IllegalArgumentException("AST declaration annotation requires a resolved annotation type: " + node.nodeId());
+          throw new IllegalArgumentException("AST applied annotation requires a resolved annotation type: " + node.nodeId());
         }
-        if (targets.size() != 1 || !(targets.getFirst().target() instanceof SyntaxSemanticTarget.SourceOccurrence occurrence)) {
-          throw new IllegalArgumentException("AST annotation requires exactly one source target: " + node.nodeId());
+        if (targets.size() != 1 || !(targets.getFirst().target() instanceof AnnotationApplication application)) {
+          throw new IllegalArgumentException("AST annotation requires exactly one typed application: " + node.nodeId());
         }
-        var parent = nodes.get(occurrence.nodeKey());
+        var parent = annotationParents.get(node.nodeId());
         if (parent == null || !parent.sourceFileKey().equals(node.sourceFileKey())
-            || !parent.children().stream()
-                .anyMatch(child -> child.role() == SyntaxRole.ANNOTATION && child.node().nodeId().equals(node.nodeId()))
-            || !isDeclarationAnnotationTarget(parent)) {
-          throw new IllegalArgumentException("AST annotation target does not match its declaration owner: " + node.nodeId());
+            || !application.equals(AnnotationApplication.forAttachment(parent, node,
+                Optional.ofNullable(recordTypeOwners.get(parent.nodeId())), fieldGroups.getOrDefault(parent.nodeId(), List.of())))) {
+          throw new IllegalArgumentException("AST annotation application does not match its exact source location: " + node.nodeId());
         }
       } else if (!targets.isEmpty()) {
         throw new IllegalArgumentException("AST annotation target relation has a nonannotation source: " + node.nodeId());
@@ -381,16 +395,10 @@ final class JavaAstAggregateBuilder {
     }
   }
 
-  private static boolean isDeclarationAnnotationTarget(SyntaxNode node) {
-    if (node.syntaxKind() == SyntaxKind.COMPILATION_UNIT) {
-      return node.sourceKind() == JavaSourceKind.PACKAGE || node.sourceKind() == JavaSourceKind.MODULE;
-    }
-    return switch (node.syntaxKind()) {
-      case TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, METHOD_DECLARATION, FIELD_DECLARATION, ENUM_CONSTANT_DECLARATION,
-          RECORD_COMPONENT_DECLARATION, PARAMETER_DECLARATION ->
-        true;
-      default -> false;
-    };
+  private static void collectRecordTypeOwners(SyntaxNode type, SyntaxNode component, Map<String, SyntaxNode> owners) {
+    owners.put(type.nodeId(), component);
+    type.children().stream().map(SyntaxChild::node).filter(child -> child.syntaxKind() == SyntaxKind.TYPE_USE)
+        .forEach(child -> collectRecordTypeOwners(child, component, owners));
   }
 
   private static void appendEdge(Map<String, List<SyntaxSemanticEdge>> indexedEdges, SyntaxSemanticEdge edge) {
@@ -431,7 +439,7 @@ final class JavaAstAggregateBuilder {
           .of(declarationTarget(ReferenceKind.RECORD_COMPONENT, node.value(SyntaxValue.RecordComponentDeclaration.class).declarationKey()));
       case PARAMETER_DECLARATION ->
         Optional.of(declarationTarget(ReferenceKind.PARAMETER, node.value(SyntaxValue.ParameterDeclaration.class).declarationKey()));
-      default -> Optional.<SyntaxSemanticTarget.Declaration>empty();
+      default -> Optional.<Declaration>empty();
     };
     if (declaration.isEmpty()) {
       return;
@@ -441,26 +449,85 @@ final class JavaAstAggregateBuilder {
     }
   }
 
-  private static SyntaxSemanticTarget.Declaration declarationTarget(ReferenceKind kind, String key) {
-    return new SyntaxSemanticTarget.Declaration(
+  private static Declaration declarationTarget(ReferenceKind kind, String key) {
+    return new Declaration(
         new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of()));
   }
 
   private static int compareTargets(SyntaxSemanticEdge left, SyntaxSemanticEdge right) {
     var first = left.target();
     var second = right.target();
-    if (first instanceof SyntaxSemanticTarget.SourceOccurrence source) {
-      if (second instanceof SyntaxSemanticTarget.SourceOccurrence other) {
+    if (first instanceof SourceOccurrence source) {
+      if (second instanceof SourceOccurrence other) {
         return source.nodeKey().compareTo(other.nodeKey());
       }
       return -1;
     }
-    if (second instanceof SyntaxSemanticTarget.SourceOccurrence) {
+    if (second instanceof SourceOccurrence) {
       return 1;
     }
-    var leftReference = ((SyntaxSemanticTarget.Declaration) first).reference();
-    var rightReference = ((SyntaxSemanticTarget.Declaration) second).reference();
-    return compareReferences(leftReference, rightReference);
+    if (first instanceof Declaration leftDeclaration) {
+      return second instanceof Declaration rightDeclaration
+          ? compareReferences(leftDeclaration.reference(), rightDeclaration.reference())
+          : -1;
+    }
+    if (second instanceof Declaration) {
+      return 1;
+    }
+    var leftApplication = (AnnotationApplication) first;
+    var rightApplication = (AnnotationApplication) second;
+    var result = leftApplication.ownerNodeKey().compareTo(rightApplication.ownerNodeKey());
+    if (result == 0) {
+      result = compareOptional(leftApplication.declarationNodeKey(), rightApplication.declarationNodeKey());
+    }
+    if (result == 0) {
+      result = compareTypeLocation(leftApplication.typeLocation(), rightApplication.typeLocation());
+    }
+    for (var index = 0; result == 0
+        && index < Math.min(leftApplication.propagatedCounterparts().size(), rightApplication.propagatedCounterparts().size()); index++) {
+      var leftCounterpart = leftApplication.propagatedCounterparts().get(index);
+      var rightCounterpart = rightApplication.propagatedCounterparts().get(index);
+      result = compareReferences(leftCounterpart.reference(), rightCounterpart.reference());
+      if (result == 0) {
+        result = Boolean.compare(leftCounterpart.declarationApplicable(), rightCounterpart.declarationApplicable());
+      }
+      if (result == 0) {
+        result = compareTypeLocation(leftCounterpart.typeLocation(), rightCounterpart.typeLocation());
+      }
+    }
+    if (result == 0) {
+      result = Integer.compare(leftApplication.propagatedCounterparts().size(), rightApplication.propagatedCounterparts().size());
+    }
+    for (var index = 0; result == 0
+        && index < Math.min(leftApplication.fieldDeclarators().size(), rightApplication.fieldDeclarators().size()); index++) {
+      var leftField = leftApplication.fieldDeclarators().get(index);
+      var rightField = rightApplication.fieldDeclarators().get(index);
+      result = leftField.fieldNodeKey().compareTo(rightField.fieldNodeKey());
+      if (result == 0) {
+        result = Boolean.compare(leftField.declarationApplicable(), rightField.declarationApplicable());
+      }
+      if (result == 0) {
+        result = compareTypeLocation(leftField.typeLocation(), rightField.typeLocation());
+      }
+    }
+    return result == 0 ? Integer.compare(leftApplication.fieldDeclarators().size(), rightApplication.fieldDeclarators().size()) : result;
+  }
+
+  private static int compareTypeLocation(Optional<AnnotationTypeLocation> left, Optional<AnnotationTypeLocation> right) {
+    if (left.isEmpty()) {
+      return right.isEmpty() ? 0 : -1;
+    }
+    if (right.isEmpty()) {
+      return 1;
+    }
+    if (left.orElseThrow() instanceof AnnotationTypeLocation.Written written) {
+      return right.orElseThrow() instanceof AnnotationTypeLocation.Written other ? written.nodeKey().compareTo(other.nodeKey()) : -1;
+    }
+    if (right.orElseThrow() instanceof AnnotationTypeLocation.Written) {
+      return 1;
+    }
+    return ((AnnotationTypeLocation.Constructed) left.orElseThrow()).declarationKey()
+        .compareTo(((AnnotationTypeLocation.Constructed) right.orElseThrow()).declarationKey());
   }
 
   private static int compareReferences(SemanticReference left, SemanticReference right) {

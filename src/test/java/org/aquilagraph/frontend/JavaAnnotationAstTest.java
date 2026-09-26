@@ -64,7 +64,7 @@ class JavaAnnotationAstTest {
       var targets = aggregate.semanticEdges().stream().filter(edge -> edge.sourceKey().equals(occurrence.nodeId())
           && edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET).toList();
       assertEquals(1, targets.size());
-      assertTrue(targets.getFirst().target() instanceof SyntaxSemanticTarget.SourceOccurrence);
+      assertTrue(targets.getFirst().target() instanceof SyntaxSemanticTarget.AnnotationApplication);
       var range = occurrence.origin().orElseThrow();
       assertTrue(source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive())).startsWith("@A"));
     }
@@ -135,7 +135,7 @@ class JavaAnnotationAstTest {
         assertEquals(ResolutionStatus.RESOLVED, occurrence.semanticReference().orElseThrow().status());
         assertEquals(1, aggregate.semanticEdges().stream().filter(edge -> edge.sourceKey().equals(occurrence.nodeId())
             && edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET
-            && edge.target().equals(new SyntaxSemanticTarget.SourceOccurrence(declaration.nodeId()))).count());
+            && targetsDeclaration(edge.target(), declaration.nodeId())).count());
       }
       assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
       Files.writeString(packageDirectory.resolve("package-info.java"), "@sample.A() package sample;\n");
@@ -176,7 +176,7 @@ class JavaAnnotationAstTest {
         assertEquals(ResolutionStatus.RESOLVED, annotation.semanticReference().orElseThrow().status());
         assertEquals(1, aggregate.semanticEdges().stream().filter(edge -> edge.sourceKey().equals(annotation.nodeId())
             && edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET
-            && edge.target().equals(new SyntaxSemanticTarget.SourceOccurrence(declaration.nodeId()))).count());
+            && targetsDeclaration(edge.target(), declaration.nodeId())).count());
         var range = annotation.origin().orElseThrow();
         assertEquals(form == SyntaxValue.AnnotationForm.MARKER ? "@A" : "@A()",
             aggregate.snapshot().sourceFiles().getFirst().content().substring(Math.toIntExact(range.startOffset()),
@@ -233,7 +233,7 @@ class JavaAnnotationAstTest {
       assertEquals(typeKeys.get(name), pair.annotation().semanticReference().orElseThrow().symbolKey().orElseThrow());
       assertEquals(1, aggregate.semanticEdges().stream().filter(edge -> edge.sourceKey().equals(pair.annotation().nodeId())
           && edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET
-          && edge.target().equals(new SyntaxSemanticTarget.SourceOccurrence(pair.owner().nodeId()))).count());
+          && targetsDeclaration(edge.target(), pair.owner().nodeId())).count());
     }
     assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")),
         () -> result.diagnostics().toString());
@@ -268,7 +268,7 @@ class JavaAnnotationAstTest {
       assertEquals(typeKeys.get(name), annotation.semanticReference().orElseThrow().symbolKey().orElseThrow());
       assertEquals(1, aggregate.semanticEdges().stream().filter(edge -> edge.sourceKey().equals(annotation.nodeId())
           && edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET
-          && edge.target().equals(new SyntaxSemanticTarget.SourceOccurrence(declaration.nodeId()))).count());
+          && targetsDeclaration(edge.target(), declaration.nodeId())).count());
     }
     assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")),
         () -> result.diagnostics().toString());
@@ -304,7 +304,7 @@ class JavaAnnotationAstTest {
     assertTrue(occurrences.stream().allMatch(node -> node.semanticReference().orElseThrow().symbolKey()
         .equals(occurrences.getFirst().semanticReference().orElseThrow().symbolKey())));
     assertEquals(2, aggregate.semanticEdges().stream().filter(edge -> edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET
-        && edge.target().equals(new SyntaxSemanticTarget.SourceOccurrence(sample.nodeId()))).count());
+        && targetsDeclaration(edge.target(), sample.nodeId())).count());
     assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
 
     Files.writeString(sourceRoot.resolve("Repeat.java"), source.replace("@Repeat @Repeat() class", "@Repeat() @Repeat class"));
@@ -343,7 +343,7 @@ class JavaAnnotationAstTest {
     assertEquals(List.of(SyntaxValue.AnnotationForm.MARKER, SyntaxValue.AnnotationForm.MARKER),
         occurrences.stream().map(node -> node.value(SyntaxValue.Annotation.class).form()).toList());
     assertEquals(2, aggregate.semanticEdges().stream().filter(edge -> edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET
-        && edge.target().equals(new SyntaxSemanticTarget.SourceOccurrence(sample.nodeId()))).count());
+        && targetsDeclaration(edge.target(), sample.nodeId())).count());
     assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
     assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion());
   }
@@ -392,7 +392,7 @@ class JavaAnnotationAstTest {
   }
 
   @Test
-  void givenTypeUseApplicableAnnotation_whenAnalyzed_thenLocationStaysUnresolvedWithoutDeclarationTarget() throws IOException {
+  void givenFieldAndTypeApplicableAnnotation_whenAnalyzed_thenOneOccurrenceRetainsBothTargets() throws IOException {
     // Arrange
     var source = """
         import java.lang.annotation.ElementType;
@@ -412,10 +412,13 @@ class JavaAnnotationAstTest {
         .findFirst().orElseThrow();
 
     // Assert
-    assertEquals(SyntaxValue.AnnotationLocation.UNRESOLVED, dual.value(SyntaxValue.Annotation.class).location());
-    assertTrue(result.aggregate().orElseThrow().semanticEdges().stream().noneMatch(edge -> edge.sourceKey().equals(dual.nodeId())
-        && edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET));
-    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unresolved-annotation-location")));
+    assertEquals(SyntaxValue.AnnotationLocation.DUAL, dual.value(SyntaxValue.Annotation.class).location());
+    var application = result.aggregate().orElseThrow().semanticEdges().stream().filter(edge -> edge.sourceKey().equals(dual.nodeId())
+        && edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET)
+        .map(edge -> (SyntaxSemanticTarget.AnnotationApplication) edge.target()).findFirst().orElseThrow();
+    assertEquals(Optional.of(application.ownerNodeKey()), application.declarationNodeKey());
+    assertTrue(application.typeLocation().isPresent());
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unresolved-annotation-location")));
   }
 
   @Test
@@ -493,7 +496,7 @@ class JavaAnnotationAstTest {
     assertEquals(List.of("SourceMark", "ClassMark", "RuntimeMark").stream().map(annotationTypes::get).toList(),
         occurrences.stream().map(node -> node.semanticReference().orElseThrow().symbolKey().orElseThrow()).toList());
     assertEquals(3, aggregate.semanticEdges().stream().filter(edge -> edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET
-        && edge.target().equals(new SyntaxSemanticTarget.SourceOccurrence(sample.nodeId()))).count());
+        && targetsDeclaration(edge.target(), sample.nodeId())).count());
     assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
   }
 
@@ -526,6 +529,11 @@ class JavaAnnotationAstTest {
   private static String annotationExcerpt(String source, SyntaxNode annotation) {
     var range = annotation.origin().orElseThrow();
     return source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive()));
+  }
+
+  private static boolean targetsDeclaration(SyntaxSemanticTarget target, String key) {
+    return target instanceof SyntaxSemanticTarget.AnnotationApplication application
+        && application.declarationNodeKey().equals(Optional.of(key));
   }
 
   private record AppliedAnnotation(SyntaxNode owner, SyntaxNode annotation) {

@@ -1,6 +1,5 @@
 package org.aquilagraph.frontend;
 
-import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
@@ -10,7 +9,6 @@ import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.TypeParameterTree;
 import com.sun.source.tree.VariableTree;
-import com.sun.source.util.TreeScanner;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -95,7 +93,6 @@ final class JavaTypeTranslator {
           "A type declaration element is unavailable", origin));
     }
 
-    diagnoseHeaderTypeUseAnnotations(unit, sourceFile, typeKey, classTree, diagnostics);
     var completeComponents = true;
     if (typeElement != null) {
       recordComponents.addAll(translateRecordComponents(unit, classTree, sourceFile, typeElement, typeKey, diagnostics));
@@ -471,34 +468,6 @@ final class JavaTypeTranslator {
       }
     }
     return List.copyOf(parameters);
-  }
-
-  private void diagnoseHeaderTypeUseAnnotations(CompilationUnitTree unit, SourceFile sourceFile, String typeKey, ClassTree classTree,
-      List<AnalysisDiagnostic> diagnostics) {
-    for (var parameter : classTree.getTypeParameters()) {
-      addNestedAnnotationDiagnostics(unit, sourceFile, typeKey, parameter.getBounds(), diagnostics);
-    }
-    var headerTypes = new ArrayList<Tree>();
-    if (classTree.getExtendsClause() != null) {
-      headerTypes.add(classTree.getExtendsClause());
-    }
-    headerTypes.addAll(classTree.getImplementsClause());
-    headerTypes.addAll(classTree.getPermitsClause());
-    addNestedAnnotationDiagnostics(unit, sourceFile, typeKey, headerTypes, diagnostics);
-  }
-
-  private void addNestedAnnotationDiagnostics(CompilationUnitTree unit, SourceFile sourceFile, String typeKey, List<? extends Tree> trees,
-      List<AnalysisDiagnostic> diagnostics) {
-    var scanner = new TreeScanner<Void, Void>() {
-      @Override
-      public Void visitAnnotation(AnnotationTree annotation, Void unused) {
-        var origin = sourceEvidence.origin(unit, sourceFile, annotation);
-        diagnostics.add(FrontendDiagnosticFactory.capabilityError(typeKey, "frontend.unsupported-type-use-annotation",
-            "Type-use annotations in declaration headers are outside the supported declaration profile", origin));
-        return super.visitAnnotation(annotation, null);
-      }
-    };
-    trees.forEach(tree -> scanner.scan(tree, null));
   }
 
   static Set<JavaTypeModifier> typeModifiers(Set<Modifier> modifiers) {

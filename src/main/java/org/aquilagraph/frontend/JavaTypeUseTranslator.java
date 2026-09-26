@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Map;
 import javax.lang.model.type.TypeKind;
 import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.AnalysisOutcomeKind;
@@ -37,10 +38,19 @@ import org.aquilagraph.syntax.SyntaxValue;
 final class JavaTypeUseTranslator {
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
+  private final ParsedTreeInventory inventory;
+  private final Optional<Map<SourceSpan, String>> sharedAnnotations;
 
-  JavaTypeUseTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence) {
+  JavaTypeUseTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory inventory) {
+    this(semantics, sourceEvidence, inventory, Optional.empty());
+  }
+
+  JavaTypeUseTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory inventory,
+      Optional<Map<SourceSpan, String>> sharedAnnotations) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
+    this.inventory = Objects.requireNonNull(inventory, "inventory");
+    this.sharedAnnotations = Objects.requireNonNull(sharedAnnotations, "sharedAnnotations");
   }
 
   Optional<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
@@ -58,6 +68,17 @@ final class JavaTypeUseTranslator {
       return Optional.empty();
     }
     return translate(unit, sourceFile, tree, treePath, path, occurrencePath, diagnostics);
+  }
+
+  Optional<SyntaxNode> translateDeclaration(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
+      SyntaxStructuralPath occurrencePath, SyntaxType attributedType, List<AnalysisDiagnostic> diagnostics) {
+    var treePath = TreePath.getPath(unit, tree);
+    if (treePath == null) {
+      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-type-tree-path",
+          "A written type has no compiler tree path", sourceEvidence.origin(unit, sourceFile, tree)));
+      return Optional.empty();
+    }
+    return translateAttributed(unit, sourceFile, tree, treePath, path, occurrencePath, attributedType, diagnostics);
   }
 
   private Optional<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
@@ -105,9 +126,23 @@ final class JavaTypeUseTranslator {
       case ArrayTypeTree array -> complete = appendTypeChild(unit, sourceFile, array.getType(), new TreePath(treePath, array.getType()),
           path, occurrencePath, SyntaxRole.COMPONENT_TYPE, 0, children, diagnostics);
       case AnnotatedTypeTree annotated -> {
+        var sharedKeys = new ArrayList<String>();
         for (var ordinal = 0; ordinal < annotated.getAnnotations().size(); ordinal++) {
           var annotation = annotated.getAnnotations().get(ordinal);
-          complete &= appendAnnotation(unit, sourceFile, annotation, path, occurrencePath, ordinal, children, diagnostics);
+          var origin = sourceEvidence.origin(unit, sourceFile, annotation);
+          var previousOwner = origin.flatMap(span -> sharedAnnotations.map(owners -> owners.get(span)));
+          if (previousOwner.isPresent()) {
+            sharedKeys.add(previousOwner.orElseThrow());
+          } else {
+            var position = (int) children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION).count();
+            complete &= appendAnnotation(unit, sourceFile, annotation, path, occurrencePath, position, children, diagnostics);
+            if (complete && sharedAnnotations.isPresent()) {
+              sharedAnnotations.orElseThrow().put(origin.orElseThrow(), children.getLast().node().nodeId());
+            }
+          }
+        }
+        if (!sharedKeys.isEmpty()) {
+          value = new SyntaxValue.SharedTypeAnnotations(sharedKeys);
         }
         complete &= appendTypeChild(unit, sourceFile, annotated.getUnderlyingType(), new TreePath(treePath, annotated.getUnderlyingType()),
             path, occurrencePath, SyntaxRole.UNDERLYING_TYPE, 0, children, diagnostics);
@@ -276,14 +311,10 @@ final class JavaTypeUseTranslator {
       List<AnalysisDiagnostic> diagnostics) {
     var path = parentPath.child(SyntaxRole.ANNOTATION, ordinal);
     var occurrencePath = parentOccurrencePath.child(SyntaxRole.ANNOTATION, ordinal);
-    var range = requiredRange(unit, sourceFile, annotation, occurrencePath, diagnostics);
-    if (range.isEmpty()) {
-      return false;
-    }
-    var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION,
-        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range.orElseThrow());
-    children.add(new SyntaxChild(SyntaxRole.ANNOTATION, ordinal, node));
-    return true;
+    var projected = new JavaAnnotationProjector(semantics, sourceEvidence, inventory).typeUse(unit, sourceFile, annotation, path,
+        occurrencePath, diagnostics);
+    projected.ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.ANNOTATION, ordinal, node)));
+    return projected.isPresent();
   }
 
   private Optional<SourceSpan> requiredRange(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,

@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.JavaTypeIdentity;
 import org.aquilagraph.model.InvocationForm;
@@ -413,6 +414,10 @@ public final class SyntaxNode {
         continue;
       }
       if ((child.role() == SyntaxRole.ANNOTATION && annotation.location() == SyntaxValue.AnnotationLocation.VALUE)
+          || (child.role() == SyntaxRole.ANNOTATION && child.node().syntaxKind() == SyntaxKind.ANNOTATION
+              && children.stream().anyMatch(candidate -> candidate.role() == SyntaxRole.UNDERLYING_TYPE)
+              && annotation.location() != SyntaxValue.AnnotationLocation.TYPE_USE
+              && annotation.location() != SyntaxValue.AnnotationLocation.UNRESOLVED)
           || ((child.role() == SyntaxRole.VALUE || child.role() == SyntaxRole.DEFAULT_VALUE)
               && annotation.location() != SyntaxValue.AnnotationLocation.VALUE)) {
         throw new IllegalArgumentException("Annotation location must match its structural role");
@@ -595,6 +600,8 @@ public final class SyntaxNode {
       case TYPE_USE -> switch (sourceKind) {
         case PRIMITIVE_TYPE -> SyntaxValue.PrimitiveType.class;
         case IDENTIFIER, MEMBER_SELECT -> SyntaxValue.Symbol.class;
+        case ANNOTATED_TYPE ->
+          value instanceof SyntaxValue.SharedTypeAnnotations ? SyntaxValue.SharedTypeAnnotations.class : SyntaxValue.None.class;
         default -> SyntaxValue.None.class;
       };
       case METHOD_DECLARATION -> SyntaxValue.ExecutableDeclaration.class;
@@ -678,30 +685,26 @@ public final class SyntaxNode {
       }
       case ANNOTATION -> {
         requireShape(children, Set.of(SyntaxRole.ANNOTATION_ARGUMENT));
-        if (!(value instanceof SyntaxValue.Annotation || value instanceof SyntaxValue.None)) {
-          throw new IllegalArgumentException("An annotation requires a written form or a deferred type-use leaf");
+        if (!(value instanceof SyntaxValue.Annotation annotation)) {
+          throw new IllegalArgumentException("An annotation requires its captured written form");
         }
-        if (value instanceof SyntaxValue.Annotation annotation) {
-          var arguments = children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION_ARGUMENT).toList();
-          if (annotation.argumentFailureCode().isPresent()) {
-            if (!arguments.isEmpty()) {
-              throw new IllegalArgumentException("A diagnosed incomplete annotation cannot publish argument pairs");
-            }
-          } else if (arguments.size() != annotation.arguments().size()) {
-            throw new IllegalArgumentException("Annotation argument children must match its captured source headers");
+        var arguments = children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION_ARGUMENT).toList();
+        if (annotation.argumentFailureCode().isPresent()) {
+          if (!arguments.isEmpty()) {
+            throw new IllegalArgumentException("A diagnosed incomplete annotation cannot publish argument pairs");
           }
-          var selectedElements = new HashSet<String>();
-          for (var child : arguments) {
-            if (child.node().syntaxKind() != SyntaxKind.ANNOTATION_ARGUMENT || !child.node().value(SyntaxValue.AnnotationArgument.class)
-                .explicitName().equals(annotation.arguments().get(child.position()).explicitName())) {
-              throw new IllegalArgumentException("Annotation argument child differs from its captured source header");
-            }
-            if (!selectedElements.add(child.node().value(SyntaxValue.AnnotationArgument.class).selectedElementKey())) {
-              throw new IllegalArgumentException("Annotation argument pairs must select distinct elements");
-            }
+        } else if (arguments.size() != annotation.arguments().size()) {
+          throw new IllegalArgumentException("Annotation argument children must match its captured source headers");
+        }
+        var selectedElements = new HashSet<String>();
+        for (var child : arguments) {
+          if (child.node().syntaxKind() != SyntaxKind.ANNOTATION_ARGUMENT || !child.node().value(SyntaxValue.AnnotationArgument.class)
+              .explicitName().equals(annotation.arguments().get(child.position()).explicitName())) {
+            throw new IllegalArgumentException("Annotation argument child differs from its captured source header");
           }
-        } else if (!children.isEmpty()) {
-          throw new IllegalArgumentException("A deferred annotation cannot publish argument pairs");
+          if (!selectedElements.add(child.node().value(SyntaxValue.AnnotationArgument.class).selectedElementKey())) {
+            throw new IllegalArgumentException("Annotation argument pairs must select distinct elements");
+          }
         }
       }
       case ANNOTATION_ARRAY -> validateAnnotationArray(children);
@@ -1008,7 +1011,8 @@ public final class SyntaxNode {
       case UNION_TYPE -> requireShape(children, Set.of(SyntaxRole.UNION_ALTERNATIVE), SyntaxRole.UNION_ALTERNATIVE, 2, Integer.MAX_VALUE);
       case ANNOTATED_TYPE -> {
         requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.UNDERLYING_TYPE));
-        requireCount(children, SyntaxRole.ANNOTATION, 1, Integer.MAX_VALUE);
+        requireCount(children, SyntaxRole.ANNOTATION, value instanceof SyntaxValue.SharedTypeAnnotations ? 0 : 1,
+            value instanceof SyntaxValue.SharedTypeAnnotations ? 0 : Integer.MAX_VALUE);
         requireCount(children, SyntaxRole.UNDERLYING_TYPE, 1, 1);
       }
       default -> requireShape(children, Set.of());
@@ -1068,7 +1072,8 @@ public final class SyntaxNode {
         && !structure.equals(new JavaTypeStructure.Array(requiredTypeUseStructure(children, SyntaxRole.COMPONENT_TYPE, 0)))) {
       throw new IllegalArgumentException("Array source component conflicts with attributed component");
     }
-    if (structure instanceof JavaTypeStructure.Wildcard wildcard) {
+    if (Set.of(JavaSourceKind.UNBOUNDED_WILDCARD, JavaSourceKind.EXTENDS_WILDCARD, JavaSourceKind.SUPER_WILDCARD).contains(sourceKind)
+        && structure instanceof JavaTypeStructure.Wildcard wildcard) {
       var role = switch (wildcard.kind()) {
         case UNBOUNDED -> null;
         case EXTENDS -> SyntaxRole.UPPER_BOUND;
@@ -1154,7 +1159,9 @@ public final class SyntaxNode {
     return children.stream().filter(child -> child.role() == role && child.position() == position).findFirst().map(SyntaxChild::node)
         .map(SyntaxNode::type).filter(SyntaxType.Resolved.class::isInstance).map(SyntaxType.Resolved.class::cast)
         .flatMap(SyntaxType.Resolved::structure)
-        .orElseThrow(() -> new IllegalArgumentException("A written type component requires recursive attributed structure"));
+        .orElseThrow(() -> new IllegalArgumentException(
+            "A written type component requires recursive attributed structure: " + role + '[' + position + "] among "
+                + children.stream().map(child -> child.role() + "[" + child.position() + "]=" + child.node().type()).toList()));
   }
 
   private static void requireTypeUseTarget(Optional<SemanticReference> reference, ReferenceKind kind, String key) {
@@ -1213,6 +1220,41 @@ public final class SyntaxNode {
         throw new IllegalArgumentException("Type declaration child kind does not match its role");
       }
     }
+    if (sourceKind == JavaSourceKind.RECORD) {
+      validateRecordCounterpartOrigins(children);
+    }
+  }
+
+  private static void validateRecordCounterpartOrigins(List<SyntaxChild> children) {
+    var members = children.stream().filter(child -> child.role() == SyntaxRole.MEMBER).map(SyntaxChild::node).toList();
+    var components = children.stream().filter(child -> child.role() == SyntaxRole.RECORD_COMPONENT).map(SyntaxChild::node)
+        .map(node -> node.value(SyntaxValue.RecordComponentDeclaration.class)).toList();
+    var canonicalSignature = "<init>("
+        + components.stream().map(component -> component.declaredType().erasedName()).collect(Collectors.joining(",")) + ")";
+    for (var componentChild : children) {
+      if (componentChild.role() != SyntaxRole.RECORD_COMPONENT) {
+        continue;
+      }
+      var component = componentChild.node().value(SyntaxValue.RecordComponentDeclaration.class);
+      var counterparts = component.counterparts();
+      var owner = component.ownerKey();
+      if (!counterparts.backingFieldKey().equals(owner + "#field:" + component.name())
+          || !counterparts.accessorKey().equals(owner + "#" + component.name() + "()")
+          || !counterparts.canonicalParameterKey().equals(owner + "#" + canonicalSignature + ":parameter:" + component.ordinal())) {
+        throw new IllegalArgumentException("Record counterpart identities conflict with the record header");
+      }
+      var writtenAccessor = members.stream().filter(member -> member.syntaxKind() == SyntaxKind.METHOD_DECLARATION)
+          .map(member -> member.value(SyntaxValue.ExecutableDeclaration.class))
+          .anyMatch(method -> method.declarationKey().equals(counterparts.accessorKey()));
+      var writtenCanonicalParameter = members.stream().filter(member -> member.syntaxKind() == SyntaxKind.METHOD_DECLARATION)
+          .filter(member -> member.value(SyntaxValue.ExecutableDeclaration.class)
+              .kind() == SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR)
+          .flatMap(member -> member.children(SyntaxRole.PARAMETER).stream()).anyMatch(parameter -> parameter
+              .value(SyntaxValue.ParameterDeclaration.class).declarationKey().equals(counterparts.canonicalParameterKey()));
+      if (counterparts.accessorImplicit() == writtenAccessor || counterparts.canonicalParameterDerived() == writtenCanonicalParameter) {
+        throw new IllegalArgumentException("Record counterpart provenance conflicts with written members");
+      }
+    }
   }
 
   private static void validateVariableDeclaration(SyntaxKind kind, SyntaxValue.VariableDeclaration declaration,
@@ -1233,7 +1275,8 @@ public final class SyntaxNode {
       }
       if (child.role() == SyntaxRole.DECLARED_TYPE && child.node().type() instanceof SyntaxType.Resolved resolved
           && !resolved.identity().equals(declaration.declaredType())) {
-        throw new IllegalArgumentException("A field type attachment conflicts with its declaration type");
+        throw new IllegalArgumentException("A field type attachment conflicts with its declaration type: " + resolved.identity()
+            + " versus " + declaration.declaredType());
       }
     }
   }

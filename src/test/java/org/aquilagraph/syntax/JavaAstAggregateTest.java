@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Modifier;
+import java.lang.annotation.ElementType;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -43,7 +44,7 @@ class JavaAstAggregateTest {
         SyntaxType.NotApplicable.INSTANCE,
         SyntaxValue.Annotation.withArgumentFailure(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
             List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.VALUE,
-            "frontend.unavailable-annotation-attribution"),
+            Set.of(), "frontend.unavailable-annotation-attribution"),
         List.of(), Optional.of(reference("type:Inner")), range);
     var returnType = SyntaxNode.source("a", methodPath.child(SyntaxRole.RETURN_TYPE, 0), JavaSourceKind.IDENTIFIER,
         SyntaxKind.TYPE_USE, new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Inner", "Inner"),
@@ -184,7 +185,8 @@ class JavaAstAggregateTest {
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
         JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
-            List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION),
+            List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION,
+            Set.of(ElementType.PACKAGE)),
         List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, pair)), Optional.of(reference("type:Owned")),
         new SourceSpan("a", 0, 7)));
 
@@ -201,11 +203,13 @@ class JavaAstAggregateTest {
     // Act
     var missing = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
         JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT, header, SyntaxValue.AnnotationLocation.DECLARATION),
+        new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT, header, SyntaxValue.AnnotationLocation.DECLARATION,
+            Set.of(ElementType.PACKAGE)),
         List.of(), Optional.of(reference("type:Owned")), new SourceSpan("a", 0, 7)));
     var diagnosed = SyntaxNode.source("a", annotationPath, JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION,
         SyntaxType.NotApplicable.INSTANCE, SyntaxValue.Annotation.withArgumentFailure(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
-            header, SyntaxValue.AnnotationLocation.DECLARATION, "frontend.unavailable-annotation-attribution"),
+            header, SyntaxValue.AnnotationLocation.DECLARATION, Set.of(ElementType.PACKAGE),
+            "frontend.unavailable-annotation-attribution"),
         List.of(), Optional.of(reference("type:Owned")), new SourceSpan("a", 0, 7));
 
     // Assert
@@ -243,7 +247,8 @@ class JavaAstAggregateTest {
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
         JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
-            List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION),
+            List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION,
+            Set.of(ElementType.PACKAGE)),
         List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, pair)), Optional.of(reference("type:Owned")),
         new SourceSpan("a", 0, 3)));
 
@@ -263,7 +268,8 @@ class JavaAstAggregateTest {
     // Act
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
         JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.NAMED_NORMAL, headers, SyntaxValue.AnnotationLocation.DECLARATION),
+        new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.NAMED_NORMAL, headers, SyntaxValue.AnnotationLocation.DECLARATION,
+            Set.of(ElementType.PACKAGE)),
         List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, first),
             new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 1, second)),
         Optional.of(reference("type:Owned")), new SourceSpan("a", 0, 10)));
@@ -285,7 +291,7 @@ class JavaAstAggregateTest {
         Optional.empty(), new SourceSpan("a", 0, 7)));
 
     // Assert
-    assertTrue(error.getMessage().contains("deferred annotation cannot publish"));
+    assertTrue(error.getMessage().contains("requires its captured written form"));
   }
 
   @Test
@@ -446,7 +452,8 @@ class JavaAstAggregateTest {
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", annotationPath,
         JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
-            List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION),
+            List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION,
+            Set.of(ElementType.PACKAGE)),
         List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, pair)), Optional.of(reference("type:Owned")),
         new SourceSpan("a", 0, 8)));
 
@@ -1355,7 +1362,7 @@ class JavaAstAggregateTest {
     var error = failure(snapshot("a"), contribution(root));
 
     // Assert
-    assertTrue(error.getMessage().contains("annotation requires exactly one source target"));
+    assertTrue(error.getMessage().contains("annotation requires exactly one typed application"));
     assertTrue(error.getMessage().contains(root.requiredChild(SyntaxRole.PACKAGE_DECLARATION)
         .requiredChild(SyntaxRole.ANNOTATION).nodeId()));
   }
@@ -1368,9 +1375,9 @@ class JavaAstAggregateTest {
     var annotation = packageNode.requiredChild(SyntaxRole.ANNOTATION);
     var base = contribution(root);
     var correct = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-        new SyntaxSemanticTarget.SourceOccurrence(packageNode.nodeId()));
+        SyntaxSemanticTarget.AnnotationApplication.forAttachment(packageNode, annotation));
     var wrong = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-        new SyntaxSemanticTarget.SourceOccurrence(root.nodeId()));
+        new SyntaxSemanticTarget.AnnotationApplication(root.nodeId(), Optional.of(root.nodeId()), Optional.empty(), List.of(), List.of()));
     var extraType = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.Declaration(reference("type:Other")));
 
@@ -1383,8 +1390,8 @@ class JavaAstAggregateTest {
         append(append(base.semanticEdges(), correct), extraType)));
 
     // Assert
-    assertTrue(wrongError.getMessage().contains("does not match its declaration owner"));
-    assertTrue(duplicateError.getMessage().contains("exactly one source target"));
+    assertTrue(wrongError.getMessage().contains("does not match its exact source location"));
+    assertTrue(duplicateError.getMessage().contains("exactly one typed application"));
     assertTrue(typeError.getMessage().contains("annotation type reference must match"));
     assertTrue(wrongError.getMessage().contains(annotation.nodeId()));
     assertTrue(duplicateError.getMessage().contains(annotation.nodeId()));
@@ -1399,7 +1406,7 @@ class JavaAstAggregateTest {
     var annotation = root.requiredChild(SyntaxRole.PACKAGE_DECLARATION).requiredChild(SyntaxRole.ANNOTATION);
     var base = contribution(root);
     var foreign = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-        new SyntaxSemanticTarget.SourceOccurrence(other.nodeId()));
+        new SyntaxSemanticTarget.AnnotationApplication(other.nodeId(), Optional.of(other.nodeId()), Optional.empty(), List.of(), List.of()));
     var linked = contribution(root, base.structuralEdges(), append(base.semanticEdges(), foreign));
 
     // Act
@@ -1407,7 +1414,7 @@ class JavaAstAggregateTest {
         () -> JavaAstAggregate.builder(snapshot("a", "b")).add(linked).add(contribution(other)).seal());
 
     // Assert
-    assertTrue(error.getMessage().contains("does not match its declaration owner"));
+    assertTrue(error.getMessage().contains("does not match its exact source location"));
     assertTrue(error.getMessage().contains(annotation.nodeId()));
   }
 
@@ -1452,7 +1459,7 @@ class JavaAstAggregateTest {
     var annotation = packageNode.requiredChild(SyntaxRole.ANNOTATION);
     var base = contribution(root);
     var target = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-        new SyntaxSemanticTarget.SourceOccurrence(packageNode.nodeId()));
+        SyntaxSemanticTarget.AnnotationApplication.forAttachment(packageNode, annotation));
 
     // Act
     var error = failure(snapshot("a"), contribution(root, base.structuralEdges(), append(base.semanticEdges(), target)));
@@ -1475,7 +1482,8 @@ class JavaAstAggregateTest {
     var annotation = SyntaxNode.source("a", annotationPath, JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION,
         SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.SINGLE_ELEMENT,
-            List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION),
+            List.of(new SyntaxValue.AnnotationArgumentHeader(Optional.empty())), SyntaxValue.AnnotationLocation.DECLARATION,
+            Set.of(ElementType.PACKAGE)),
         List.of(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, 0, pair)), Optional.of(reference("type:Owned")),
         new SourceSpan("a", 2, 5));
     var declaration = SyntaxNode.source("a", packagePath, JavaSourceKind.PACKAGE, SyntaxKind.COMPILATION_UNIT,
@@ -1484,7 +1492,7 @@ class JavaAstAggregateTest {
     var root = root("a", List.of(new SyntaxChild(SyntaxRole.PACKAGE_DECLARATION, 0, declaration)));
     var base = contribution(root);
     var target = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-        new SyntaxSemanticTarget.SourceOccurrence(declaration.nodeId()));
+        SyntaxSemanticTarget.AnnotationApplication.forAttachment(declaration, annotation));
     return contribution(root, base.structuralEdges(), append(base.semanticEdges(), target));
   }
 
@@ -1495,7 +1503,8 @@ class JavaAstAggregateTest {
     for (var index = 0; index < ranges.size(); index++) {
       var annotation = SyntaxNode.source(sourceKey, packagePath.child(SyntaxRole.ANNOTATION, index), JavaSourceKind.ANNOTATION,
           SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
-          new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.MARKER, List.of(), SyntaxValue.AnnotationLocation.DECLARATION),
+          new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.MARKER, List.of(), SyntaxValue.AnnotationLocation.DECLARATION,
+              Set.of(ElementType.PACKAGE)),
           List.of(), Optional.of(reference), ranges.get(index));
       annotations.add(new SyntaxChild(SyntaxRole.ANNOTATION, index, annotation));
     }

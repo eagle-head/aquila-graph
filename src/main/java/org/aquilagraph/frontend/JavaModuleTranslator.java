@@ -28,6 +28,7 @@ import org.aquilagraph.syntax.SyntaxRole;
 import org.aquilagraph.syntax.SyntaxStructuralPath;
 import org.aquilagraph.syntax.SyntaxType;
 import org.aquilagraph.syntax.SyntaxValue;
+import org.aquilagraph.frontend.JavaAnnotationProjector.DeclarationSite;
 
 /** Projects one written Java module declaration into source-owned AST facts. */
 final class JavaModuleTranslator {
@@ -87,7 +88,7 @@ final class JavaModuleTranslator {
 
   private Optional<SyntaxNode> annotation(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
       SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
-    return annotationProjector.declaration(unit, sourceFile, annotation, path, path, diagnostics);
+    return annotationProjector.declaration(unit, sourceFile, annotation, path, path, DeclarationSite.MODULE, diagnostics);
   }
 
   private Optional<SyntaxNode> directive(CompilationUnitTree unit, SourceFile sourceFile, DirectiveTree declaration,

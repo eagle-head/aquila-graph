@@ -4,9 +4,11 @@ import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.util.TreeScanner;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.AnalysisOutcomeKind;
 import org.aquilagraph.model.LanguageFeature;
@@ -16,6 +18,7 @@ import org.aquilagraph.model.LanguageFeatureObservation;
 import org.aquilagraph.model.LanguageFeatureOccurrence;
 import org.aquilagraph.model.LanguageFeaturePolicy;
 import org.aquilagraph.model.SourceFile;
+import org.aquilagraph.model.SourceSpan;
 import org.jspecify.annotations.Nullable;
 
 /** Emits exact diagnostics for encountered compiler tree kinds classified as diagnosed. */
@@ -49,6 +52,7 @@ final class JavaCompilerKindDiagnostics {
   private final class DiagnosticScanner extends TreeScanner<Void, ScanContext> {
     private final List<LanguageFeatureOccurrence> occurrences;
     private final List<LanguageFeatureObservation> observations;
+    private final Set<SourceSpan> observedAnnotationRanges = new HashSet<>();
 
     private DiagnosticScanner(List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
       this.occurrences = occurrences;
@@ -61,10 +65,14 @@ final class JavaCompilerKindDiagnostics {
         return null;
       }
       var kind = tree.getKind();
+      var origins = sourceEvidence.origins(context.unit(), context.sourceFile(), tree);
+      if ((kind == Tree.Kind.ANNOTATION || kind == Tree.Kind.TYPE_ANNOTATION) && origins.size() == 1
+          && !observedAnnotationRanges.add(origins.getFirst())) {
+        return null;
+      }
       var feature = new LanguageFeature(LanguageFeatureCategory.COMPILER_TREE_KIND, kind.name());
       var classification = coverage.classificationOf(feature)
           .orElseThrow(() -> new IllegalStateException("Unclassified Java compiler tree kind: " + kind));
-      var origins = sourceEvidence.origins(context.unit(), context.sourceFile(), tree);
       Optional<AnalysisDiagnostic> diagnostic = Optional.empty();
       if (classification.policy() == LanguageFeaturePolicy.DIAGNOSED) {
         var code = classification.diagnosticCode().orElseThrow();

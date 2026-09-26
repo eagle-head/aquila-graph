@@ -341,10 +341,12 @@ class JavaAstBoundaryRegressionTest {
   }
 
   @Test
-  void givenAnnotationsInTypeHeaders_whenAnalysisRuns_thenPreciseDiagnosticsPreventFalseCompletion() throws IOException {
+  void givenAnnotationsInTypeHeaders_whenAnalysisRuns_thenTypedLocationsComplete() throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("Annotated.java"), """
-        @interface Marker { }
+        import java.lang.annotation.ElementType;
+        import java.lang.annotation.Target;
+        @Target({ElementType.TYPE, ElementType.TYPE_PARAMETER, ElementType.TYPE_USE}) @interface Marker { }
         @Marker class Annotated<@Marker T extends @Marker Number> { }
         """);
     var frontend = new JavaFrontend(new JavaSourceLoader());
@@ -355,12 +357,8 @@ class JavaAstBoundaryRegressionTest {
 
     // Assert
     var codes = input.diagnostics().stream().map(diagnostic -> diagnostic.code()).collect(Collectors.toSet());
-    assertTrue(codes.contains("frontend.unsupported-type-use-annotation"));
-    assertTrue(codes.stream().noneMatch(code -> code.equals("frontend.unsupported-type-declaration-annotation")
-        || code.equals("frontend.unsupported-type-parameter-annotation")));
-    assertTrue(input.diagnostics().stream().filter(diagnostic -> codes.contains(diagnostic.code()))
-        .allMatch(diagnostic -> diagnostic.origins().size() == 1 && diagnostic.origins().getFirst().length() > 0));
-    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+    assertTrue(codes.isEmpty(), () -> input.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETED, run.completion());
   }
 
   @Test

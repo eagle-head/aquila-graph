@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.AnnotationTree;
+import com.sun.source.tree.AnnotatedTypeTree;
 import com.sun.source.tree.BinaryTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.ConditionalExpressionTree;
@@ -30,6 +31,8 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
+import javax.lang.model.type.TypeKind;
+import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
 import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.JavaTypeCategory;
@@ -51,7 +54,7 @@ import org.aquilagraph.syntax.SyntaxStructuralPath;
 import org.aquilagraph.syntax.SyntaxType;
 import org.aquilagraph.syntax.SyntaxValue;
 
-/** Correlates written annotation values and defaults with compiler attribution. */
+/** Projects written annotation values and checks available compiler attribution independently. */
 final class JavaAnnotationValueProjector {
   private static final String VALUE_ELEMENT_NAME = "value";
   private static final int UNIQUE_CANDIDATE_COUNT = 1;
@@ -59,16 +62,26 @@ final class JavaAnnotationValueProjector {
   private final JavaSourceEvidence evidence;
   private final ParsedTreeInventory inventory;
   private final JavaTypeUseTranslator typeUses;
+  private final JavaAnnotationValues values;
+  private final JavaAnnotationMirrorCorrelation correlation;
 
   JavaAnnotationValueProjector(SemanticResolver semantics, JavaSourceEvidence evidence, ParsedTreeInventory inventory) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.evidence = Objects.requireNonNull(evidence, "evidence");
     this.inventory = Objects.requireNonNull(inventory, "inventory");
-    typeUses = new JavaTypeUseTranslator(semantics, evidence);
+    typeUses = new JavaTypeUseTranslator(semantics, evidence, inventory);
+    values = new JavaAnnotationValues(semantics);
+    correlation = new JavaAnnotationMirrorCorrelation(semantics);
   }
 
   List<SyntaxChild> arguments(CompilationUnitTree unit, SourceFile source, AnnotationTree annotation, TypeElement annotationType,
       SyntaxStructuralPath parentPath, List<AnalysisDiagnostic> diagnostics) {
+    if (inventory.annotationTypePath(annotation).map(semantics::element).filter(annotationType::equals).isEmpty()) {
+      report(source, parentPath, "frontend.unavailable-annotation-attribution",
+          "The written annotation does not resolve to the selected annotation type", evidence.origin(unit, source, annotation),
+          diagnostics);
+      return List.of();
+    }
     var captured = inventory.annotationArguments(annotation);
     if (captured.isEmpty()) {
       report(source, parentPath, "frontend.missing-annotation-argument-evidence",
@@ -88,23 +101,26 @@ final class JavaAnnotationValueProjector {
         return List.of();
       }
     }
+    var children = writtenArguments(unit, source, annotation, annotationType, parentPath, diagnostics);
     var mirror = mirror(annotation, annotationType);
-    if (mirror.isEmpty()) {
-      report(source, parentPath, "frontend.unavailable-annotation-attribution",
-          "No attributed annotation mirror matches the written occurrence", evidence.origin(unit, source, annotation), diagnostics);
+    if (children.size() == written.size() && mirror.isPresent()
+        && !correlation.matchesArguments(mirror.orElseThrow(), children.stream().map(SyntaxChild::node).toList())) {
+      report(source, parentPath, "frontend.inconsistent-annotation-value",
+          "The evaluated written arguments disagree with the compiler annotation values", evidence.origin(unit, source, annotation),
+          diagnostics);
       return List.of();
     }
-    return arguments(unit, source, annotation, annotationType, mirror.orElseThrow(), parentPath, diagnostics);
+    return children;
   }
 
-  private List<SyntaxChild> arguments(CompilationUnitTree unit, SourceFile source, AnnotationTree annotation, TypeElement annotationType,
-      AnnotationMirror mirror, SyntaxStructuralPath parentPath, List<AnalysisDiagnostic> diagnostics) {
+  private List<SyntaxChild> writtenArguments(CompilationUnitTree unit, SourceFile source, AnnotationTree annotation,
+      TypeElement annotationType, SyntaxStructuralPath parentPath, List<AnalysisDiagnostic> diagnostics) {
     var written = inventory.annotationArguments(annotation).orElseThrow();
     var children = new ArrayList<SyntaxChild>();
     for (var ordinal = 0; ordinal < written.size(); ordinal++) {
       var argument = written.get(ordinal);
       var path = parentPath.child(SyntaxRole.ANNOTATION_ARGUMENT, ordinal);
-      var projected = argument(unit, source, annotationType, mirror, argument, path, diagnostics);
+      var projected = argument(unit, source, annotationType, argument, path, diagnostics);
       if (projected.isPresent()) {
         children.add(new SyntaxChild(SyntaxRole.ANNOTATION_ARGUMENT, ordinal, projected.orElseThrow()));
       }
@@ -129,7 +145,7 @@ final class JavaAnnotationValueProjector {
           "The written annotation default has no source path, range, or structural element type", range, diagnostics);
       return Optional.empty();
     }
-    var projected = value(unit, source, expression, treePath, attributed, path, diagnostics);
+    var projected = value(unit, source, expression, treePath, element.getReturnType(), path, diagnostics);
     if (projected.isEmpty()) {
       return Optional.empty();
     }
@@ -137,6 +153,11 @@ final class JavaAnnotationValueProjector {
     if (!valueMatchesElement(result.value(), resolved.structure().orElseThrow())) {
       report(source, path, "frontend.incompatible-annotation-default",
           "The attributed annotation default conflicts with its declaring element type", range, diagnostics);
+      return Optional.empty();
+    }
+    if (!correlation.matchesValue(attributed, result.value(), result.node())) {
+      report(source, path, "frontend.inconsistent-annotation-default",
+          "The evaluated written default disagrees with the compiler default value", range, diagnostics);
       return Optional.empty();
     }
     return Optional.of(result);
@@ -155,12 +176,26 @@ final class JavaAnnotationValueProjector {
       return Optional.empty();
     }
     var owner = annotationOwner(ownerPath);
-    if (owner == null) {
-      return Optional.empty();
+    var attributed = new ArrayList<AnnotationMirror>();
+    if (owner != null && !(ownerPath.getLeaf() instanceof AnnotatedTypeTree)) {
+      attributed.addAll(owner.getAnnotationMirrors());
+      var annotatedType = owner instanceof ExecutableElement executable ? executable.getReturnType() : owner.asType();
+      for (var mirror : closestType(annotatedType).getAnnotationMirrors()) {
+        if (!attributed.contains(mirror)) {
+          attributed.add(mirror);
+        }
+      }
+      for (var mirror : attributed) {
+        if (annotation.equals(semantics.annotationSourceTree(owner, mirror)) && sameAnnotationType(mirror, annotationType)) {
+          return Optional.of(mirror);
+        }
+      }
     }
-    for (var mirror : owner.getAnnotationMirrors()) {
-      if (annotation.equals(semantics.annotationSourceTree(owner, mirror)) && sameAnnotationType(mirror, annotationType)) {
-        return Optional.of(mirror);
+    for (var mirror : ownerPath.getLeaf() instanceof AnnotatedTypeTree
+        ? semantics.typeAnnotationMirrors(ownerPath)
+        : List.<AnnotationMirror>of()) {
+      if (!attributed.contains(mirror)) {
+        attributed.add(mirror);
       }
     }
     var sourceOrdinal = 0;
@@ -172,16 +207,16 @@ final class JavaAnnotationValueProjector {
         sourceOrdinal++;
       }
     }
-    var direct = owner.getAnnotationMirrors().stream().filter(candidate -> sameAnnotationType(candidate, annotationType)).toList();
-    if (direct.size() == UNIQUE_CANDIDATE_COUNT && sourceOrdinal == 0) {
-      return Optional.of(direct.getFirst());
+    var direct = attributed.stream().filter(candidate -> sameAnnotationType(candidate, annotationType)).toList();
+    if (sourceOrdinal < direct.size()) {
+      return Optional.of(direct.get(sourceOrdinal));
     }
     var containingType = repeatableContainingType(annotationType);
     if (containingType.isEmpty()) {
       return Optional.empty();
     }
     var nested = new ArrayList<AnnotationMirror>();
-    for (var container : owner.getAnnotationMirrors()) {
+    for (var container : attributed) {
       if (!sameAnnotationType(container, containingType.orElseThrow())) {
         continue;
       }
@@ -198,6 +233,17 @@ final class JavaAnnotationValueProjector {
       }
     }
     return sourceOrdinal < nested.size() ? Optional.of(nested.get(sourceOrdinal)) : Optional.empty();
+  }
+
+  private static TypeMirror closestType(TypeMirror type) {
+    var current = type;
+    while (current instanceof ArrayType array) {
+      current = array.getComponentType();
+    }
+    while (current instanceof DeclaredType declared && declared.getEnclosingType().getKind() != TypeKind.NONE) {
+      current = declared.getEnclosingType();
+    }
+    return current;
   }
 
   private Element annotationOwner(TreePath ownerPath) {
@@ -242,7 +288,7 @@ final class JavaAnnotationValueProjector {
     return mirror.getAnnotationType().asElement().equals(annotationType);
   }
 
-  private Optional<SyntaxNode> argument(CompilationUnitTree unit, SourceFile source, TypeElement annotationType, AnnotationMirror mirror,
+  private Optional<SyntaxNode> argument(CompilationUnitTree unit, SourceFile source, TypeElement annotationType,
       ParsedTreeInventory.WrittenAnnotationArgument written, SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
     var range = evidence.requiredRange(unit, source, written.argument(), path, diagnostics);
     var name = written.name().map(identifier -> identifier.getName().toString());
@@ -262,11 +308,10 @@ final class JavaAnnotationValueProjector {
           "The selected annotation element has no resolved structural type", range, diagnostics);
       return Optional.empty();
     }
-    var value = mirror.getElementValues().get(selected);
     var key = semantics.declarationKey(selected);
-    if (value == null || key.isEmpty()) {
-      report(source, path, "frontend.unavailable-annotation-attribution",
-          "The selected annotation element has no explicit attributed value or identity", range, diagnostics);
+    if (key.isEmpty()) {
+      report(source, path, "frontend.unavailable-annotation-attribution", "The selected annotation element has no resolved identity", range,
+          diagnostics);
       return Optional.empty();
     }
     var children = new ArrayList<SyntaxChild>();
@@ -281,7 +326,8 @@ final class JavaAnnotationValueProjector {
               SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol(selectedName), List.of(), Optional.empty(),
               nameRange.orElseThrow())));
     }
-    var projected = value(unit, source, written.value(), written.valuePath(), value, path.child(SyntaxRole.VALUE, 0), diagnostics);
+    var projected = value(unit, source, written.value(), written.valuePath(), selected.getReturnType(), path.child(SyntaxRole.VALUE, 0),
+        diagnostics);
     if (projected.isEmpty()) {
       return Optional.empty();
     }
@@ -301,67 +347,26 @@ final class JavaAnnotationValueProjector {
         Optional.of(reference), range.orElseThrow()));
   }
 
-  private Optional<AnnotationScalar> scalar(AnnotationValue value, SourceFile source, SyntaxStructuralPath path, Optional<SourceSpan> range,
-      List<AnalysisDiagnostic> diagnostics) {
-    var attributed = value.getValue();
-    AnnotationScalar result = switch (attributed) {
-      case Boolean number -> new AnnotationScalar.BooleanValue(number);
-      case Byte number -> new AnnotationScalar.ByteValue(number);
-      case Short number -> new AnnotationScalar.ShortValue(number);
-      case Character character -> new AnnotationScalar.CharValue(character);
-      case Integer number -> new AnnotationScalar.IntValue(number);
-      case Long number -> new AnnotationScalar.LongValue(number);
-      case Float number -> new AnnotationScalar.FloatValue(number);
-      case Double number -> new AnnotationScalar.DoubleValue(number);
-      case String string -> new AnnotationScalar.StringValue(string);
-      case VariableElement constant when constant.getKind() == ElementKind.ENUM_CONSTANT -> {
-        var constantKey = semantics.declarationKey(constant);
-        var enumOwner = constant.getEnclosingElement();
-        var enumKey = enumOwner == null ? Optional.<String>empty() : semantics.declarationKey(enumOwner);
-        yield constantKey.isPresent() && enumKey.isPresent()
-            ? new AnnotationScalar.EnumConstant(constantKey.orElseThrow(), enumKey.orElseThrow())
-            : null;
-      }
-      case TypeMirror type -> {
-        var projected = semantics.declarationType(type);
-        yield projected instanceof SyntaxType.Resolved resolved && resolved.structure().isPresent()
-            ? new AnnotationScalar.ClassLiteral(resolved.structure().orElseThrow())
-            : null;
-      }
-      default -> null;
-    };
-    if (result == null) {
-      report(source, path, "frontend.unsupported-annotation-value", "The written argument has no supported attributed scalar value", range,
-          diagnostics);
-    }
-    return Optional.ofNullable(result);
-  }
-
   private Optional<ProjectedValue> value(CompilationUnitTree unit, SourceFile source, ExpressionTree tree, TreePath treePath,
-      AnnotationValue attributed, SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
+      TypeMirror expected, SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
     var range = evidence.requiredRange(unit, source, tree, path, diagnostics);
     if (range.isEmpty()) {
       return Optional.empty();
     }
-    if (attributed.getValue() instanceof List<?> rawValues) {
+    if (expected instanceof ArrayType arrayType) {
       var values = new ArrayList<AnnotationElementValue>();
       if (tree instanceof NewArrayTree array) {
         var initializers = array.getInitializers();
-        if (initializers == null || initializers.size() != rawValues.size()) {
-          report(source, path, "frontend.inconsistent-annotation-array", "Written and attributed annotation array cardinalities disagree",
-              range, diagnostics);
+        if (initializers == null) {
+          report(source, path, "frontend.inconsistent-annotation-array", "The written annotation array has no initializer inventory", range,
+              diagnostics);
           return Optional.empty();
         }
         var children = new ArrayList<SyntaxChild>();
         for (var index = 0; index < initializers.size(); index++) {
-          if (!(rawValues.get(index) instanceof AnnotationValue childValue)) {
-            report(source, path, "frontend.unavailable-annotation-attribution", "An attributed array item is unavailable", range,
-                diagnostics);
-            return Optional.empty();
-          }
           var childTree = initializers.get(index);
           var childPath = path.child(SyntaxRole.VALUE, index);
-          var child = arrayItem(unit, source, childTree, treePath, childValue, childPath, diagnostics);
+          var child = arrayItem(unit, source, childTree, treePath, arrayType.getComponentType(), childPath, diagnostics);
           if (child.isEmpty()) {
             return Optional.empty();
           }
@@ -372,42 +377,38 @@ final class JavaAnnotationValueProjector {
             SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, children, Optional.empty(), range.orElseThrow());
         return Optional.of(new ProjectedValue(new AnnotationElementValue.Array(values), node));
       }
-      if (rawValues.size() != 1 || !(rawValues.getFirst() instanceof AnnotationValue childValue)) {
-        report(source, path, "frontend.inconsistent-annotation-array", "An unbraced annotation array must have one written value", range,
-            diagnostics);
-        return Optional.empty();
-      }
-      var child = value(unit, source, tree, treePath, childValue, path, diagnostics);
+      var child = value(unit, source, tree, treePath, arrayType.getComponentType(), path, diagnostics);
       return child.map(result -> new ProjectedValue(new AnnotationElementValue.Array(List.of(result.value())), result.node()));
     }
-    if (attributed.getValue() instanceof AnnotationMirror mirror) {
+    if (expected instanceof DeclaredType declared && declared.asElement() instanceof TypeElement annotationType
+        && annotationType.getKind() == ElementKind.ANNOTATION_TYPE) {
       if (!(tree instanceof AnnotationTree nested)) {
         report(source, path, "frontend.inconsistent-nested-annotation",
             "An attributed nested annotation has no written annotation occurrence", range, diagnostics);
         return Optional.empty();
       }
-      return nested(unit, source, nested, mirror, path, diagnostics);
+      return nested(unit, source, nested, annotationType, path, diagnostics);
     }
-    var scalar = scalar(attributed, source, path, range, diagnostics);
+    var scalar = values.scalar(treePath, expected);
     if (scalar.isEmpty()) {
+      report(source, path, "frontend.unavailable-annotation-attribution",
+          "The written annotation value cannot be evaluated from resolved compiler types and constants", range, diagnostics);
       return Optional.empty();
     }
     return expression(unit, source, tree, treePath, path, diagnostics).map(node -> new ProjectedValue(scalar.orElseThrow(), node));
   }
 
   private Optional<ProjectedValue> arrayItem(CompilationUnitTree unit, SourceFile source, ExpressionTree tree, TreePath parentPath,
-      AnnotationValue attributed, SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
-    return value(unit, source, tree, new TreePath(parentPath, tree), attributed, path, diagnostics);
+      TypeMirror expected, SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
+    return value(unit, source, tree, new TreePath(parentPath, tree), expected, path, diagnostics);
   }
 
-  private Optional<ProjectedValue> nested(CompilationUnitTree unit, SourceFile source, AnnotationTree tree, AnnotationMirror mirror,
+  private Optional<ProjectedValue> nested(CompilationUnitTree unit, SourceFile source, AnnotationTree tree, TypeElement annotationType,
       SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
     var parsed = inventory.annotation(tree);
     var typePath = inventory.annotationTypePath(tree);
-    var type = mirror.getAnnotationType().asElement();
     var range = evidence.requiredRange(unit, source, tree, path, diagnostics);
-    if (parsed.isEmpty() || typePath.isEmpty() || !(type instanceof TypeElement annotationType) || range.isEmpty()
-        || !annotationType.equals(semantics.element(typePath.orElseThrow()))) {
+    if (parsed.isEmpty() || typePath.isEmpty() || range.isEmpty() || !annotationType.equals(semantics.element(typePath.orElseThrow()))) {
       report(source, path, "frontend.unavailable-nested-annotation",
           "The nested annotation has no matching written form and attributed type", range, diagnostics);
       return Optional.empty();
@@ -418,8 +419,15 @@ final class JavaAnnotationValueProjector {
       report(source, path, "frontend.unresolved-nested-annotation", "The nested annotation type cannot be resolved", range, diagnostics);
       return Optional.empty();
     }
+    var names = inventory.annotationArguments(tree).orElseThrow().stream()
+        .map(argument -> argument.name().map(identifier -> identifier.getName().toString()).orElse(VALUE_ELEMENT_NAME)).toList();
+    if (new HashSet<>(names).size() != names.size()) {
+      report(source, path, "frontend.duplicate-annotation-element", "The nested annotation writes the same element more than once", range,
+          diagnostics);
+      return Optional.empty();
+    }
     if (annotationType.getEnclosedElements().stream().filter(ExecutableElement.class::isInstance).map(ExecutableElement.class::cast)
-        .anyMatch(element -> element.getDefaultValue() == null && !mirror.getElementValues().containsKey(element))) {
+        .anyMatch(element -> element.getDefaultValue() == null && !names.contains(element.getSimpleName().toString()))) {
       report(source, path, "frontend.incomplete-nested-annotation", "The nested annotation omits a required element value", range,
           diagnostics);
       return Optional.empty();
@@ -427,7 +435,7 @@ final class JavaAnnotationValueProjector {
     var written = parsed.orElseThrow();
     var children = written.arguments().isEmpty()
         ? List.<SyntaxChild>of()
-        : arguments(unit, source, tree, annotationType, mirror, path, diagnostics);
+        : writtenArguments(unit, source, tree, annotationType, path, diagnostics);
     if (children.size() != written.arguments().size()) {
       return Optional.empty();
     }

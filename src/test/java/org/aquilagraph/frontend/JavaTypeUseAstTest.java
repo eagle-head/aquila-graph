@@ -667,7 +667,9 @@ class JavaTypeUseAstTest {
     assertEquals(JavaSourceKind.ANNOTATED_TYPE, wrapper.sourceKind());
     assertEquals("@Mark", excerpt(source, wrapper.requiredChild(SyntaxRole.ANNOTATION)));
     assertEquals("String", excerpt(source, wrapper.requiredChild(SyntaxRole.UNDERLYING_TYPE)));
-    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().contains("annotation")));
+    assertEquals(SyntaxValue.AnnotationLocation.TYPE_USE,
+        wrapper.requiredChild(SyntaxRole.ANNOTATION).value(SyntaxValue.Annotation.class).location());
+    assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
     var owner = result.snapshot().sourceFiles().getFirst().sourceFileKey();
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 1)
         .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
@@ -891,7 +893,7 @@ class JavaTypeUseAstTest {
       var compilation = session.analyze(parsed);
       var unit = compilation.units().getFirst();
       var typeTree = unit.getPackageName();
-      var translator = new JavaTypeUseTranslator(compilation.semantics(), compilation.sourceEvidence());
+      var translator = new JavaTypeUseTranslator(compilation.semantics(), compilation.sourceEvidence(), parsed.treeInventory());
 
       // Act and Assert
       for (var index = 0; index < states.size(); index++) {
@@ -931,7 +933,7 @@ class JavaTypeUseAstTest {
       var compilation = session.analyze(parsed);
       var unit = compilation.units().getFirst();
       var typeTree = unit.getPackageName();
-      var translator = new JavaTypeUseTranslator(compilation.semantics(), compilation.sourceEvidence());
+      var translator = new JavaTypeUseTranslator(compilation.semantics(), compilation.sourceEvidence(), parsed.treeInventory());
       var diagnostics = new ArrayList<AnalysisDiagnostic>(baseline.diagnostics());
 
       // Act
