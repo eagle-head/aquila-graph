@@ -341,10 +341,16 @@ access and UTF-8 decoding failures remain checked
 through the frontend and application service.
 [1][2][16][22]
 
-`JavaSourceLoader` orders normalized relative paths, hashes each captured UTF-8
-source with SHA-256, and derives a length-framed SHA-256 snapshot identity from
-ordered path/digest pairs. The captured `SourceFile.content` is therefore the
-authoritative compiler input and persisted source evidence for that run.[3][4]
+`JavaSourceLoader` discovers and reads UTF-8 source files, delegating content-derived
+identity to `SourceFile.fromContent` and canonical collection construction to
+`InputSnapshot.fromSources`. `SourceFile.canonicalRelativePath` supplies the
+case-preserving, slash-separated representation used for identity and ordering.
+The snapshot factory and validating constructor use one case-sensitive comparator;
+the factory derives the existing length-framed SHA-256 identity from ordered
+path/digest pairs. Native `Path` comparison does not define snapshot validity.
+The captured `SourceFile.content` remains the authoritative compiler input and
+persisted source evidence for that run. See the [source snapshot contract](source-snapshots.md)
+for responsibilities, compatibility, and behavioral obligations.[3][4]
 
 Before compiler analysis, `JavaAnalysisPipeline` captures an immutable
 `AnalysisEnvironmentSnapshot` through `AnalysisEnvironmentCapture`. It records

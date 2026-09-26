@@ -18,6 +18,23 @@ class JavaSourceLoaderTest {
   @TempDir Path temporaryDirectory;
 
   @Test
+  void givenMixedCaseAndNestedSourcePaths_whenDiscovered_thenCanonicalOrderIsIndependentOfNativePathComparison() throws IOException {
+    // Arrange
+    var expected = List.of("Sample.java", "a/B.java", "a0.java", "module-info.java", "package-info.java", "z.java", "É.java");
+    for (var name : expected.reversed()) {
+      var file = temporaryDirectory.resolve(name);
+      Files.createDirectories(file.getParent());
+      Files.writeString(file, "class Sample {}");
+    }
+
+    // Act
+    var snapshot = new JavaSourceLoader().discover(temporaryDirectory);
+
+    // Assert
+    assertEquals(expected.stream().map(Path::of).toList(), snapshot.sourceFiles().stream().map(source -> source.relativePath()).toList());
+  }
+
+  @Test
   void givenMixedSourceTree_whenSourcesAreDiscovered_thenSnapshotIsOrderedAndContentAddressed()
       throws IOException {
     // Arrange
@@ -60,6 +77,27 @@ class JavaSourceLoaderTest {
     assertEquals(
         "Source root is not a directory: " + missingRoot.toAbsolutePath().normalize(),
         exception.getMessage());
+  }
+
+  @Test
+  void givenKnownMixedCaseSources_whenDiscoveredRepeatedly_thenCanonicalSnapshotRetainsExistingIdentities() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("package-info.java"), "package sample;");
+    Files.writeString(temporaryDirectory.resolve("Sample.java"), "class Sample {}");
+    var loader = new JavaSourceLoader();
+
+    // Act
+    var snapshot = loader.discover(temporaryDirectory);
+    var repeated = loader.discover(temporaryDirectory);
+
+    // Assert
+    assertEquals(snapshot, repeated);
+    assertEquals(List.of(Path.of("Sample.java"), Path.of("package-info.java")),
+        snapshot.sourceFiles().stream().map(source -> source.relativePath()).toList());
+    assertEquals(List.of("source:5b7d302b83ed255231899a484fac0ec5daf17b2311738c6a8d6eb46f7687faf7",
+        "source:eb15457babaaed21bcf793195907afce837a598b5f4019297fd79d8eabe45ce4"),
+        snapshot.sourceFiles().stream().map(source -> source.sourceFileKey()).toList());
+    assertEquals("snapshot:59ea0f249b25412396bb902ec3fc0ab7cc48048f7a75d1484a86288fe005fa14", snapshot.snapshotDigest());
   }
 
   @Test

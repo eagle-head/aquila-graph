@@ -452,11 +452,10 @@ class JavaAnnotationCompletionTest {
   @Test
   void givenAnnotationFreePackageSourceWithAnExtraFact_whenReconciled_thenCapturedSourceOwnsTheBlockingOutcome() throws IOException {
     // Arrange
-    Files.createDirectories(sourceRoot.resolve("sample"));
-    Files.writeString(sourceRoot.resolve("sample/Sample.java"), "package sample; class Sample {}");
+    Files.writeString(sourceRoot.resolve("Sample.java"), "package sample; class Sample {}");
     withCompilation("package-info.java", "package sample;", fixture -> {
       var original = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, CONFIGURATION);
-      var damaged = addUnwrittenAnnotation(fixture, JavaSourceKind.PACKAGE, ElementType.PACKAGE);
+      var damaged = addUnwrittenAnnotation(fixture, "package-info.java", JavaSourceKind.PACKAGE, ElementType.PACKAGE);
 
       // Act
       var diagnostics = reconcile(fixture, damaged);
@@ -478,11 +477,10 @@ class JavaAnnotationCompletionTest {
   @Test
   void givenAnnotationFreeModuleSourceWithAnExtraFact_whenReconciled_thenCapturedSourceOwnsTheBlockingOutcome() throws IOException {
     // Arrange
-    Files.createDirectories(sourceRoot.resolve("sample"));
-    Files.writeString(sourceRoot.resolve("sample/Sample.java"), "package sample; class Sample {}");
+    Files.writeString(sourceRoot.resolve("Sample.java"), "package sample; class Sample {}");
     withCompilation("module-info.java", "module sample.module {}", fixture -> {
       var original = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, CONFIGURATION);
-      var damaged = addUnwrittenAnnotation(fixture, JavaSourceKind.MODULE, ElementType.MODULE);
+      var damaged = addUnwrittenAnnotation(fixture, "module-info.java", JavaSourceKind.MODULE, ElementType.MODULE);
 
       // Act
       var diagnostics = reconcile(fixture, damaged);
@@ -526,8 +524,10 @@ class JavaAnnotationCompletionTest {
     });
   }
 
-  private static JavaAstAggregate addUnwrittenAnnotation(Fixture fixture, JavaSourceKind ownerKind, ElementType target) {
-    var owner = fixture.aggregate().nodes().stream().filter(node -> node.sourceKind() == ownerKind).findFirst().orElseThrow();
+  private static JavaAstAggregate addUnwrittenAnnotation(Fixture fixture, String sourcePath, JavaSourceKind ownerKind, ElementType target) {
+    var source = fixture.snapshot().sourceFiles().stream().filter(file -> file.canonicalRelativePath().equals(sourcePath)).findFirst().orElseThrow();
+    var owner = fixture.aggregate().nodes().stream()
+        .filter(node -> node.sourceKind() == ownerKind && node.sourceFileKey().equals(source.sourceFileKey())).findFirst().orElseThrow();
     var ownerRange = owner.origin().orElseThrow();
     var annotation = SyntaxNode.source(owner.sourceFileKey(), owner.structuralPath().child(SyntaxRole.ANNOTATION, 0),
         JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
