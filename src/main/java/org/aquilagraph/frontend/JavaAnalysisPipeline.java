@@ -13,6 +13,7 @@ import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.JavaProgram;
+import org.aquilagraph.model.LanguageFeatureOccurrence;
 import org.aquilagraph.syntax.SyntaxAnalysisInput;
 import org.aquilagraph.syntax.JavaAstAggregate;
 
@@ -40,6 +41,7 @@ final class JavaAnalysisPipeline {
     SyntaxAnalysisInput result;
     try (var session = openCompilerSession(compiler, invocation, sources)) {
       var parsedSource = session.parse();
+      var annotationInventory = JavaAnnotationSourceInventory.capture(parsedSource, sources);
       var kindEvidence = new JavaCompilerKindDiagnostics(sources, parsedSource.sourceEvidence(), languageFeatureCoverage)
           .observe(parsedSource.units());
       var compilation = session.analyze(parsedSource);
@@ -47,16 +49,23 @@ final class JavaAnalysisPipeline {
           compilation.treeInventory(), languageFeatureCoverage).observe(compilation.units());
       var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
           compilation.treeInventory(), languageFeatureCoverage).translate(snapshot, compilation.units());
+      var annotationCompleteness = new JavaAnnotationCompleteness(annotationInventory, compilation.semantics(), translation.diagnostics());
+      var annotationProperties = annotationCompleteness.propertyObservations(languageFeatureCoverage);
       var occurrences = new ArrayList<>(kindEvidence.occurrences());
       occurrences.addAll(typeEvidence.occurrences());
       occurrences.addAll(translation.featureOccurrences());
+      occurrences.addAll(annotationProperties.stream().map(
+          observation -> new LanguageFeatureOccurrence(observation.sourceFileKey(), observation.classification(), observation.origins()))
+          .toList());
       var observations = new ArrayList<>(kindEvidence.observations());
       observations.addAll(typeEvidence.observations());
       observations.addAll(translation.featureObservations());
+      observations.addAll(annotationProperties);
       var kindDiagnostics = kindEvidence.observations().stream().flatMap(observation -> observation.diagnostic().stream()).toList();
       var typeUseDiagnostics = JavaTypeUseCompleteness.diagnostics(snapshot, kindEvidence.observations(), translation.value().aggregate());
       var diagnostics = combineDiagnostics(new CompilerDiagnosticTranslator(sources).translate(compilation.diagnostics()), kindDiagnostics,
-          typeEvidence.diagnostics(), translation.diagnostics(), typeUseDiagnostics);
+          typeEvidence.diagnostics(), translation.diagnostics(), typeUseDiagnostics,
+          annotationCompleteness.diagnostics(translation.value().aggregate()));
       var coverageResult = JavaLanguageFeatureCoverage.result(languageFeatureCoverage, occurrences, observations, diagnostics);
       result = new SyntaxAnalysisInput(snapshot, environment, translation.value().program(), translation.value().aggregate(), diagnostics,
           coverageResult);

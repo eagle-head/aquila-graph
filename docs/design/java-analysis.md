@@ -257,8 +257,8 @@ Selected external types remain keyed references without fabricated source bodies
 Explicit receiver validation uses compiler-selected owner and simple-name facts, while
 constructor receiver ownership uses the attributed enclosing type. None of
 these facts is recovered by parsing display or erasure strings.[33]
-E04 header type-use annotations have exact application targets; E05's remaining
-reconciliation work checks those facts against the complete source occurrence set.
+Header type-use annotations have exact application targets. Independent pre-attribution
+annotation obligations are reconciled with retained source facts before the compiler session closes.[39]
 Public type-use completion checks
 the seven E04-valid distinct written type-tree kinds against retained source
 type-use nodes at the same source file and range; unmatched occurrences block completion.
@@ -462,6 +462,52 @@ source form. Modular roots and their directive children represent
 `CompilationUnitTree.getModule()`; recursive annotation values follow the same
 source-owned pair contract, while unsupported locations retain diagnostics.[23][24][25][37]
 
+The exact `MethodTree::MethodTree#getDefaultValue()`,
+`ExecutableElement::ExecutableElement#getDefaultValue()`,
+`TypeElement::Element#getAnnotationMirrors()`, and
+`ExecutableElement::Element#getAnnotationMirrors()` rows are represented.
+`JavaAnnotationCompleteness.propertyObservations` records each supported written type/executable
+surface, including empty annotation lists and absent defaults, with its captured declaration range.
+Source mirror observations do not materialize compiler-added repeatable containers or omitted
+use-site defaults. Runtime annotation-proxy lookup remains an explicitly irrelevant protocol.[23][39]
+
+`JavaAnnotationSourceInventory.capture` runs after parsing and before attribution. It copies
+written annotation forms, pair/name/value ranges, child roles and ordinals, expression operators,
+type-operand structure, physical owner ranges and ancestor kinds/ranges, written attachment
+ordinals, and annotation-element default obligations. Equal-span array wrappers therefore
+remain distinguishable by captured ancestor topology rather than range alone.
+Tree paths remain inside the frontend solely for attribution queries. The ledger is independent
+of emitted nodes, feature observations, and diagnostics; it is not a second published AST.
+`JavaAnnotationCompleteness.diagnostics` matches each obligation by source/range and native kind,
+checks exact ordered child topology, selected annotation/element/constant/type references,
+expression and element types, typed values, actual compiler defaults, and compiler-derived
+target sets. Physical owners are checked against captured owners; the aggregate independently
+validates complete application endpoints and derived counterpart provenance. Reverse checks
+resolve ownership through the aggregate's complete captured source catalog, including package/module
+sources with no annotation or type/executable obligations, and reject annotation facts without
+written obligations. Application construction requires every applicable declaration destination as
+well as every applicable closest-type destination, so either half of a dual application cannot be
+omitted while retaining plausible node or edge counts. Missing facts and missing failure outcomes
+produce blocking diagnostics even if their whole observation/diagnostic bundle was removed.
+Missing and invalid ranges preserve source/context without a fabricated span. Unresolved or failed
+projection states require their explicit blocking outcome.[39]
+
+The source partitions below identify complementary executable oracles. Their successful cases
+do not imply that body-local or initialization syntax is complete.
+
+| Source obligation | Behavioral oracle |
+| --- | --- |
+| All four written forms; primitive/String, enum, class-literal, nested and array values; explicit/default separation | `JavaAnnotationCompletionTest.givenCompleteAnnotationFormsAndValueFamilies_whenPublicAnalysisRuns_thenSourceFactsPermitCompletion`; `JavaAnnotationValueEvaluationTest` independently compares all primitive/String families with actual javac values |
+| Package/module/type/type-parameter/executable/parameter/receiver/field/enum/record and recursive type sites; repeated/container and retention distinctions | `JavaAnnotationAstTest`, `JavaAnnotationTargetAstTest`, `JavaAnnotationValueAstTest`; their exact source rows preserve source forms and application endpoints |
+| Empty annotation lists and default surfaces | `JavaAnnotationCompletionTest.givenEmptyAndDefaultedDeclarationSurfaces_whenObserved_thenFourExactPropertyManifestsIncludeEmptyLists` |
+| Missing annotation with whole bundle removed; default removed; changed value; unwritten fact; missing pair/nested/reference/target; duplicates and foreign source | `JavaAnnotationCompletionTest` isolated reconciliation and construction controls |
+| Annotation-free package/module source with an unwritten fact; declaration half omitted from a dual application | `JavaAnnotationCompletionTest.givenAnnotationFreePackageSourceWithAnExtraFact_whenReconciled_thenCapturedSourceOwnsTheBlockingOutcome`, `givenAnnotationFreeModuleSourceWithAnExtraFact_whenReconciled_thenCapturedSourceOwnsTheBlockingOutcome`, `givenDualAnnotationWithItsDeclarationApplicationOmitted_whenApplicationsAreRecomputed_thenConstructionRejectsTheLoss` |
+| Missing/invalid positions; malformed or unresolved source; deferred body annotation and array | `JavaAnnotationAstTest` missing-position control; `JavaAnnotationCompletionTest` invalid-position control; `JavaAnnotationTargetAstTest`, `JavaLanguageCompletionContractTest`, `JavaTypeUseCompletionTest` boundary controls |
+| Exact repeated-input facts and independent-source stability | `JavaAnnotationCompletionTest` full ordered graph/type/value/coverage/diagnostic comparison and independent-source control; existing value/default/target equality controls distinguish changed facts |
+
+These oracles verify the in-memory boundary. The Neo4j schema and mappers continue to publish
+`AnalysisRun`, which excludes the AST; annotation AST publication remains a separate boundary.[39][12]
+
 The declaration-property catalog represents method type parameters, written and attributed thrown types,
 receiver syntax, attributed receiver types, and variable arity in source-owned
 executable headers. Formal parameters carry compiler-correlated declaration keys
@@ -630,7 +676,8 @@ matches the written component occurrence; same-named record parameters retain
 their own annotation mirrors. Modifier-position type annotations correlate with the
 closest admissible type, traversing array components and enclosing declared types;
 a dimension mirror cannot supply the element annotation's value. Written values
-are evaluated once into domain values for all sites, including constructors.
+use one domain evaluation contract for all sites, including constructors; completion checks
+revalidate retained values against the independently captured source obligations.
 Record propagation consumes those projected source annotations as expectations,
 compares explicit values on actual declaration mirrors, and recursively
 compares annotation values at each array, declared-type, enclosing-type, and
@@ -1119,3 +1166,18 @@ implements its bounded model and has no runtime dependency on
     [§8.10.4](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.10.4), derived canonical parameters,
     [§9.6.4.1](https://docs.oracle.com/javase/specs/jls/se25/html/jls-9.html#jls-9.6.4.1), target restrictions, and
     [§9.7.4](https://docs.oracle.com/javase/specs/jls/se25/html/jls-9.html#jls-9.7.4), applicability at declaration and type sites.
+39. [JavaAnnotationSourceInventory](../../src/main/java/org/aquilagraph/frontend/JavaAnnotationSourceInventory.java),
+    `capture`, immutable written topology and declaration/default obligations;
+    [JavaAnnotationCompleteness](../../src/main/java/org/aquilagraph/frontend/JavaAnnotationCompleteness.java),
+    `diagnostics`, source/semantic reconciliation, and `propertyObservations`, exact contextual manifests;
+    [SyntaxSemanticTarget.AnnotationApplication](../../src/main/java/org/aquilagraph/syntax/SyntaxSemanticTarget.java),
+    `forAttachment`, complete declaration and closest-type application requirements;
+    [JavaAnalysisPipeline](../../src/main/java/org/aquilagraph/frontend/JavaAnalysisPipeline.java), capture before attribution and checks before close;
+    [JavaAnnotationCompletionTest](../../src/test/java/org/aquilagraph/frontend/JavaAnnotationCompletionTest.java),
+    public completion, whole-bundle omission, default omission, altered-value and extra-fact controls, aggregate fault rejection,
+    invalid positions, exact determinism and independent-source stability;
+    [JavaLanguageCompletionContractTest](../../src/test/java/org/aquilagraph/frontend/JavaLanguageCompletionContractTest.java),
+    `givenAnnotationArrayAndDeferredBodyArray_whenAnalysisRuns_thenSharedKindPolicyKeepsContextualCompletionTruthful`;
+    [JavaTypeUseCompletionTest](../../src/test/java/org/aquilagraph/frontend/JavaTypeUseCompletionTest.java),
+    `givenAnnotatedHeaderAndBodyCast_whenAnalyzed_thenHeaderFactsCompleteWhileBodySiteKeepsItsIndependentFailure`;
+    [Neo4j schema](../repository/neo4j-schema.md), unchanged run publication boundary.

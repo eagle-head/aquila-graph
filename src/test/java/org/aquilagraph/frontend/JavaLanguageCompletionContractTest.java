@@ -36,6 +36,8 @@ import org.aquilagraph.model.StableId;
 import org.aquilagraph.syntax.AnnotationScalar;
 import org.aquilagraph.syntax.SyntaxAnalysisInput;
 import org.aquilagraph.syntax.SyntaxValue;
+import org.aquilagraph.syntax.JavaSourceKind;
+import org.aquilagraph.syntax.SyntaxKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -471,6 +473,26 @@ class JavaLanguageCompletionContractTest {
 
   private SyntaxAnalysisInput analyze() throws IOException {
     return new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory, JAVA_25_CONFIGURATION);
+  }
+
+  @Test
+  void givenAnnotationArrayAndDeferredBodyArray_whenAnalysisRuns_thenSharedKindPolicyKeepsContextualCompletionTruthful() throws IOException {
+    // Arrange
+    writeSource("Arrays.java", "@interface A { int[] value(); } @A({1,2}) class Arrays { int[] values() { return new int[] {3,4}; } }");
+
+    // Act
+    var input = analyze();
+    var arrays = input.aggregate().orElseThrow().nodes().stream().filter(node -> node.sourceKind() == JavaSourceKind.NEW_ARRAY).toList();
+
+    // Assert
+    assertEquals(LanguageFeaturePolicy.REPRESENTED, classification(input, LanguageFeatureCategory.COMPILER_TREE_KIND, "NEW_ARRAY").policy());
+    assertEquals(List.of(SyntaxKind.ANNOTATION_ARGUMENT, SyntaxKind.ANNOTATION_ARRAY, SyntaxKind.UNSUPPORTED),
+        arrays.stream().map(node -> node.syntaxKind()).toList());
+    assertTrue(input.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unsupported-syntax")
+        && item.message().contains("NEW_ARRAY") && item.origins().equals(arrays.getLast().origin().stream().toList())));
+    assertFalse(input.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unrepresented-source-annotation")
+        || item.code().equals("frontend.inconsistent-annotation-source-fact")));
+    assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(input).completion());
   }
 
   private void writeSource(String relativePath, String content) throws IOException {

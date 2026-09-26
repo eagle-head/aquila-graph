@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend;
 
+import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.Tree;
+import com.sun.source.util.SourcePositions;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -15,9 +18,6 @@ import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.AnalysisOutcomeKind;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.LanguageFeature;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeatureObservation;
 import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.syntax.SyntaxSemanticRelation;
 import org.aquilagraph.syntax.SyntaxSemanticTarget;
@@ -505,25 +505,37 @@ class JavaAnnotationAstTest {
     // Arrange
     Files.writeString(sourceRoot.resolve("Missing.java"), "@A @A class Missing {}\n");
     var snapshot = new JavaSourceLoader().discover(sourceRoot);
-    var classification = JavaCompilerKindCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25))
-        .classificationOf(new LanguageFeature(LanguageFeatureCategory.COMPILER_TREE_KIND, "ANNOTATION")).orElseThrow();
-    var first = new LanguageFeatureObservation(snapshot.sourceFiles().getFirst().sourceFileKey(), classification, List.of(),
-        Optional.empty());
-    var second = new LanguageFeatureObservation(snapshot.sourceFiles().getFirst().sourceFileKey(), classification, List.of(),
-        Optional.empty());
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+    var sources = new SnapshotSourceCatalog(snapshot);
+    var missingPositions = new JavaSourceEvidence(new SourcePositions() {
+      @Override
+      public long getStartPosition(CompilationUnitTree unit, Tree tree) {
+        return -1;
+      }
 
-    // Act
-    var diagnostics = JavaTypeUseCompleteness.diagnostics(snapshot, List.of(first, second), Optional.empty());
+      @Override
+      public long getEndPosition(CompilationUnitTree unit, Tree tree) {
+        return -1;
+      }
+    });
 
-    // Assert
-    assertEquals(2, diagnostics.size());
-    assertEquals(List.of("frontend.unavailable-source-annotation-range", "frontend.unavailable-source-annotation-range"),
-        diagnostics.stream().map(diagnostic -> diagnostic.code()).toList());
-    assertTrue(diagnostics.stream().allMatch(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
-    assertTrue(!diagnostics.getFirst().diagnosticKey().equals(diagnostics.getLast().diagnosticKey()));
-    assertTrue(diagnostics.getFirst().message().contains("Missing.java at ANNOTATION occurrence 1"));
-    assertTrue(diagnostics.getLast().message().contains("Missing.java at ANNOTATION occurrence 2"));
-    assertTrue(diagnostics.stream().allMatch(diagnostic -> diagnostic.origins().isEmpty()));
+    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
+      var parsed = session.parse();
+      var captured = JavaAnnotationSourceInventory.capture(new ParsedJavaSource(parsed.units(), missingPositions, parsed.treeInventory()), sources);
+      var compilation = session.analyze(parsed);
+
+      // Act
+      var diagnostics = new JavaAnnotationCompleteness(captured, compilation.semantics(), List.of()).diagnostics(Optional.empty()).stream()
+          .filter(diagnostic -> diagnostic.code().equals("frontend.unavailable-source-annotation-range")).toList();
+
+      // Assert
+      assertEquals(2, diagnostics.size());
+      assertTrue(diagnostics.stream().allMatch(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
+      assertTrue(!diagnostics.getFirst().diagnosticKey().equals(diagnostics.getLast().diagnosticKey()));
+      assertTrue(diagnostics.getFirst().message().contains("ANNOTATION occurrence 1"));
+      assertTrue(diagnostics.getLast().message().contains("ANNOTATION occurrence 2"));
+      assertTrue(diagnostics.stream().allMatch(diagnostic -> diagnostic.message().contains("Missing.java") && diagnostic.origins().isEmpty()));
+    }
   }
 
   private static String annotationExcerpt(String source, SyntaxNode annotation) {

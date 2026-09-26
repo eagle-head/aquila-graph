@@ -142,7 +142,7 @@ class JavaDeclarationCompletenessRegressionTest {
         run.diagnostics().stream().map(diagnostic -> diagnostic.code())
             .filter(code -> code.startsWith("frontend.unsupported-local-")).toList());
     assertTrue(run.diagnostics().stream()
-        .noneMatch(diagnostic -> diagnostic.code().equals(JavaDeclarationPropertyCoverage.DECLARATION_ANNOTATIONS_DIAGNOSTIC)));
+        .noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-declaration-annotations")));
     assertTrue(run.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
   }
 
@@ -218,7 +218,7 @@ class JavaDeclarationCompletenessRegressionTest {
     assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
     assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     assertTrue(run.diagnostics().stream()
-        .noneMatch(diagnostic -> JavaDeclarationPropertyCoverage.isDeclarationPropertyDiagnostic(diagnostic.code())));
+        .noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-declaration-annotations")));
   }
 
   private static List<SourceCase> unrepresentedDeclarationFacts() {

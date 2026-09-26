@@ -217,7 +217,7 @@ final class JavaAnnotationProjector {
     return values.defaultValue(unit, sourceFile, method, element, path, diagnostics);
   }
 
-  private static Optional<Set<ElementType>> applicableTargets(TypeElement annotationType) {
+  static Optional<Set<ElementType>> applicableTargets(TypeElement annotationType) {
     var targetMirrors = annotationType.getAnnotationMirrors().stream()
         .filter(mirror -> mirror.getAnnotationType().asElement() instanceof TypeElement targetType
             && targetType.getQualifiedName().contentEquals("java.lang.annotation.Target"))

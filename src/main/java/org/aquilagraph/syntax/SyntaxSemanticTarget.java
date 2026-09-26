@@ -151,7 +151,8 @@ public sealed interface SyntaxSemanticTarget {
     }
 
     /**
-     * Derives an application including all declarators of a shared source field header.
+     * Derives an application including all declarators of a shared source field header. Requires every applicable declaration and
+     * closest-type destination at the written site.
      *
      * @param parent
      *          annotation's structural owner
@@ -186,6 +187,9 @@ public sealed interface SyntaxSemanticTarget {
       }
       if (declaration && !declarationApplicable(parent, targets)) {
         throw new IllegalArgumentException("The annotation cannot apply to its source declaration");
+      }
+      if (!declaration && declarationApplicable(parent, targets)) {
+        throw new IllegalArgumentException("An annotation cannot omit its applicable source declaration");
       }
       if (type && !targets.contains(ElementType.TYPE_USE)) {
         throw new IllegalArgumentException("The annotation interface is not applicable to a type use");

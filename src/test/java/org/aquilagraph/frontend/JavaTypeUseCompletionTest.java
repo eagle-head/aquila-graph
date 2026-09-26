@@ -194,6 +194,30 @@ class JavaTypeUseCompletionTest {
     return new PrimitiveFact(role, parent, kind, kind, start, start + length);
   }
 
+  @Test
+  void givenAnnotatedHeaderAndBodyCast_whenAnalyzed_thenHeaderFactsCompleteWhileBodySiteKeepsItsIndependentFailure() throws IOException {
+    // Arrange
+    var source = "import java.lang.annotation.*; @Target(ElementType.TYPE_USE) @interface A {} class Header { String @A [] field; Object body(Object value) { return (@A String)value; } }";
+    Files.writeString(sourceRoot.resolve("Header.java"), source);
+    var headerOffset = source.indexOf("@A []");
+    var bodyOffset = source.indexOf("(@A") + 1;
+
+    // Act
+    var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
+    var aggregate = input.aggregate().orElseThrow();
+
+    // Assert
+    assertEquals(1, aggregate.nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION
+        && node.origin().orElseThrow().startOffset() == headerOffset).count());
+    assertEquals(0, aggregate.nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION
+        && node.origin().orElseThrow().startOffset() == bodyOffset).count());
+    assertTrue(input.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unrepresented-source-annotation")
+        && item.origins().getFirst().startOffset() == bodyOffset));
+    assertTrue(input.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unrepresented-source-type-use")));
+    assertTrue(input.diagnostics().stream().noneMatch(item -> item.code().equals("frontend.inconsistent-annotation-source-owner")));
+    assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(input).completion());
+  }
+
   private static LanguageFeaturePolicy policy(LanguageFeatureCoverage coverage, LanguageFeatureCategory category, String identifier) {
     return coverage.classificationOf(new LanguageFeature(category, identifier)).orElseThrow().policy();
   }

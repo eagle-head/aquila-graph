@@ -114,9 +114,7 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::Element#getAnnotationsByType(java.lang.Class)",
       "ExecutableElement::Element#getEnclosedElements()",
       "ExecutableElement::Element#hashCode()");
-  private static final Set<String> EXPECTED_DIAGNOSED_PROPERTIES = Set.of(
-      "TypeElement::Element#getAnnotationMirrors()",
-      "ExecutableElement::Element#getAnnotationMirrors()");
+  private static final Set<String> EXPECTED_DIAGNOSED_PROPERTIES = Set.of();
 
   @Test
   void givenJava25DeclarationApis_whenPropertyCoverageIsCreated_thenEveryAccessorHasExactlyOnePolicy() {
@@ -150,6 +148,13 @@ class JavaDeclarationPropertyCoverageTest {
     // Assert
     assertEquals(EXPECTED_IRRELEVANT_PROPERTIES, irrelevantProperties);
     assertEquals(EXPECTED_DIAGNOSED_PROPERTIES, diagnosedProperties);
+    for (var identifier : List.of(JavaDeclarationPropertyCoverage.METHOD_DEFAULT_VALUE,
+        JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_DEFAULT_VALUE, JavaDeclarationPropertyCoverage.TYPE_ELEMENT_ANNOTATION_MIRRORS,
+        JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_ANNOTATION_MIRRORS)) {
+      assertEquals(LanguageFeaturePolicy.REPRESENTED, policyOf(coverage, identifier));
+      assertEquals(Optional.empty(), classificationOf(coverage, identifier).diagnosticCode());
+      assertTrue(classificationOf(coverage, identifier).representationBoundary().orElseThrow().contains("JavaAstAggregate"));
+    }
     assertEquals(LanguageFeaturePolicy.REPRESENTED,
         policyOf(coverage, JavaDeclarationPropertyCoverage.COMPILATION_UNIT_IMPORTS));
     assertEquals(LanguageFeaturePolicy.REPRESENTED,
@@ -294,7 +299,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:6ac8ebf60ce5ef0d5288124f5353204579b4efd9cd2767b0da7acc983df7ea8e",
+    assertEquals("java-language-feature-coverage:e0968b3e0d4da804090dff9f60d557181733dff543864f096e1a854a0e0d3ac2",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 

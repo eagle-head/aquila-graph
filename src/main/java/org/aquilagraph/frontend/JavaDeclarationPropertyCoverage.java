@@ -44,8 +44,6 @@ final class JavaDeclarationPropertyCoverage {
   static final String EXECUTABLE_ELEMENT_THROWN_TYPES = "ExecutableElement::ExecutableElement#getThrownTypes()";
   static final String EXECUTABLE_ELEMENT_TYPE_PARAMETERS = "ExecutableElement::ExecutableElement#getTypeParameters()";
   static final String EXECUTABLE_ELEMENT_VARARGS = "ExecutableElement::ExecutableElement#isVarArgs()";
-  static final String DECLARATION_ANNOTATIONS_DIAGNOSTIC = "frontend.unsupported-declaration-annotations";
-  private static final Set<String> DECLARATION_PROPERTY_DIAGNOSTICS = Set.of(DECLARATION_ANNOTATIONS_DIAGNOSTIC);
 
   private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
       VariableTree.class, TypeElement.class, ExecutableElement.class);
@@ -97,10 +95,6 @@ final class JavaDeclarationPropertyCoverage {
     return coverage;
   }
 
-  static boolean isDeclarationPropertyDiagnostic(String code) {
-    return DECLARATION_PROPERTY_DIAGNOSTICS.contains(Objects.requireNonNull(code, "code"));
-  }
-
   private static List<LanguageFeatureClassification> classifications() {
     var classifications = new ArrayList<LanguageFeatureClassification>();
     classifications.addAll(compilationUnitClassifications());
@@ -136,7 +130,7 @@ final class JavaDeclarationPropertyCoverage {
         represented("ClassTree::ClassTree#getImplementsClause()", "JavaType direct interface references"),
         represented("ClassTree::Tree#getKind()", "JavaType declaration kind"),
         represented("ClassTree::ClassTree#getMembers()", "JavaType field, method, and nested-type declarations"),
-        represented("ClassTree::ClassTree#getModifiers()", "JavaType modifier set and declaration-annotation diagnostics"),
+        represented("ClassTree::ClassTree#getModifiers()", "JavaType modifier set and source annotation attachments"),
         represented("ClassTree::ClassTree#getPermitsClause()", "JavaType permitted-subclass references"),
         represented("ClassTree::ClassTree#getSimpleName()", "JavaType qualified name and declaration identity"),
         represented("ClassTree::ClassTree#getTypeParameters()", "JavaType type-parameter aggregates"));
@@ -148,7 +142,7 @@ final class JavaDeclarationPropertyCoverage {
         represented("MethodTree::MethodTree#getBody()", "MethodSyntax body occurrence and JavaMethod body-presence flag"),
         represented(METHOD_DEFAULT_VALUE, "JavaAstAggregate declaration-owned typed annotation default"),
         represented("MethodTree::Tree#getKind()", "JavaMethod declaration aggregate"),
-        represented("MethodTree::MethodTree#getModifiers()", "JavaMethod modifier set and declaration-annotation diagnostics"),
+        represented("MethodTree::MethodTree#getModifiers()", "JavaMethod modifier set and source annotation attachments"),
         represented("MethodTree::MethodTree#getName()", "JavaMethod name and declaration identity"),
         represented("MethodTree::MethodTree#getParameters()", "JavaMethod ordered JavaParameter aggregates"),
         represented(METHOD_RECEIVER_PARAMETER, "JavaAstAggregate explicit receiver syntax occurrence"),
@@ -179,7 +173,7 @@ final class JavaDeclarationPropertyCoverage {
             ELEMENT_API + "Element.html#equals(java.lang.Object)"),
         irrelevant("TypeElement::Element#getAnnotation(java.lang.Class)", ANNOTATION_PROXY_REASON,
             ANNOTATED_CONSTRUCT_API + "#getAnnotation(java.lang.Class)"),
-        diagnosed(TYPE_ELEMENT_ANNOTATION_MIRRORS, DECLARATION_ANNOTATIONS_DIAGNOSTIC),
+        represented(TYPE_ELEMENT_ANNOTATION_MIRRORS, "JavaAstAggregate reconciled written type annotations"),
         irrelevant("TypeElement::Element#getAnnotationsByType(java.lang.Class)", ANNOTATION_PROXY_REASON,
             ANNOTATED_CONSTRUCT_API + "#getAnnotationsByType(java.lang.Class)"),
         represented(TYPE_ELEMENT_ENCLOSED_ELEMENTS, "JavaType direct declaration inventory with typed synthesized counterparts"),
@@ -210,7 +204,7 @@ final class JavaDeclarationPropertyCoverage {
             ELEMENT_API + "Element.html#equals(java.lang.Object)"),
         irrelevant("ExecutableElement::Element#getAnnotation(java.lang.Class)", ANNOTATION_PROXY_REASON,
             ANNOTATED_CONSTRUCT_API + "#getAnnotation(java.lang.Class)"),
-        diagnosed(EXECUTABLE_ELEMENT_ANNOTATION_MIRRORS, DECLARATION_ANNOTATIONS_DIAGNOSTIC),
+        represented(EXECUTABLE_ELEMENT_ANNOTATION_MIRRORS, "JavaAstAggregate reconciled written executable annotations"),
         irrelevant("ExecutableElement::Element#getAnnotationsByType(java.lang.Class)", ANNOTATION_PROXY_REASON,
             ANNOTATED_CONSTRUCT_API + "#getAnnotationsByType(java.lang.Class)"),
         represented(EXECUTABLE_ELEMENT_DEFAULT_VALUE, "JavaAstAggregate attributed annotation default value"),
@@ -250,10 +244,6 @@ final class JavaDeclarationPropertyCoverage {
 
   private static LanguageFeatureClassification irrelevant(String identifier, String rationale, String sourceLocator) {
     return LanguageFeatureClassification.irrelevant(feature(identifier), rationale, sourceLocator);
-  }
-
-  private static LanguageFeatureClassification diagnosed(String identifier, String diagnosticCode) {
-    return LanguageFeatureClassification.diagnosed(feature(identifier), diagnosticCode);
   }
 
   private static LanguageFeature feature(String identifier) {

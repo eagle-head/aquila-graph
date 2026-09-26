@@ -13,7 +13,6 @@ import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.syntax.JavaAstAggregate;
 import org.aquilagraph.syntax.JavaSourceKind;
 import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxValue;
 
 /** Checks that declaration-header type tree forms have retained occurrences at their written ranges. */
 final class JavaTypeUseCompleteness {
@@ -28,15 +27,11 @@ final class JavaTypeUseCompleteness {
     Objects.requireNonNull(observations, "observations");
     Objects.requireNonNull(aggregate, "aggregate");
     var retained = new HashMap<TypeOccurrence, Integer>();
-    var retainedAnnotations = new HashMap<SourceSpan, Integer>();
     aggregate.ifPresent(value -> {
       for (var node : value.nodes()) {
         if (node.syntaxKind() == SyntaxKind.TYPE_USE && requiresOccurrence(node.sourceKind())) {
           var occurrence = occurrence(node.sourceFileKey(), node.sourceKind(), node.origin().orElseThrow());
           retained.merge(occurrence, 1, Integer::sum);
-        }
-        if (node.sourceKind() == JavaSourceKind.ANNOTATION && node.value() instanceof SyntaxValue.Annotation) {
-          retainedAnnotations.merge(node.origin().orElseThrow(), 1, Integer::sum);
         }
       }
     });
@@ -52,24 +47,6 @@ final class JavaTypeUseCompleteness {
       var sourceKind = observation.sourceFileKey() + ':' + kind.name();
       var ordinal = sourceKindOrdinals.merge(sourceKind, 1, Integer::sum);
       var context = sourceKind + ':' + ordinal;
-      if (kind == JavaSourceKind.ANNOTATION || kind == JavaSourceKind.TYPE_ANNOTATION) {
-        if (observation.origins().size() != EXACT_SOURCE_RANGE_COUNT) {
-          diagnostics.add(FrontendDiagnosticFactory.otherError(context, "frontend.unavailable-source-annotation-range",
-              "A written annotation in " + sourcePath(snapshot, observation.sourceFileKey()) + " at " + kind + " occurrence " + ordinal
-                  + " has no exact source range",
-              Optional.empty()));
-        } else {
-          var origin = observation.origins().getFirst();
-          var count = retainedAnnotations.getOrDefault(origin, 0);
-          if (count == 0) {
-            diagnostics.add(FrontendDiagnosticFactory.capabilityError(context, "frontend.unrepresented-source-annotation",
-                "A written annotation has no supported declaration attachment", Optional.of(origin)));
-          } else {
-            retainedAnnotations.put(origin, count - 1);
-          }
-        }
-        continue;
-      }
       if (!requiresOccurrence(kind)) {
         continue;
       }
