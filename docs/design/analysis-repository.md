@@ -1,89 +1,50 @@
 # Analysis Repository Design
 
-## Decision
+The application owns the repository port and publication eligibility. The Neo4j adapter owns mapping, schema inspection, replacement, and database resources. The [analysis contract](../contracts/analysis.md#publication-eligibility) defines caller outcomes; the [schema](../repository/neo4j-schema.md) defines the stored surface.[1][2]
 
-The analysis-storage boundary is the logical `repository` module. Its public
-contract is `AnalysisRunRepository`, which stores a completed `AnalysisRun` and
-owns repository-resource shutdown. The application depends on that contract and
-its lazy factory; it does not depend on a database driver, graph projection,
-storage schema, or storage-specific metrics.[1][2]
+## Responsibilities and dependencies
 
-Neo4j is one realization in `repository.neo4j`. A future implementation may
-realize the same repository contract without reusing Neo4j configuration,
-projection records, mapping collaborators, or transaction code. The composition
-root remains the only class that selects the concrete repository.[1][3]
-
-This boundary follows responsibility distribution and delegation: the application
-service coordinates the use case, the repository owns saving, and the Neo4j
-adapter delegates aggregate mapping to collaborators that have direct knowledge
-of each source aggregate. Storage technology remains separate from analysis
-and delivery logic.[6]
-
-## Responsibilities
-
-| Type | Responsibility |
+| Owner | Responsibility |
 | --- | --- |
-| `AnalysisRunRepository` | Define the technology-neutral `save` and lifecycle contract. |
-| `AnalysisRunRepositoryFactory` | Open a repository only when a completed run must be saved. |
-| `RepositoryException` | Report repository-access failure without exposing driver exceptions as the application contract. |
-| `Neo4jAnalysisRunRepository` | Own Neo4j driver lifecycle, schema preparation, and the replacement transaction. |
-| `Neo4jAnalysisRunMapper` | Validate a completed run and coordinate one isolated mapping operation. |
-| `Neo4jInputMapper` | Map input snapshot and captured source files. |
-| `Neo4jEnvironmentMapper` | Map compiler configuration and dependency snapshots. |
-| `Neo4jProgramMapper` | Map durable type, field, method, and parameter declarations. |
-| `Neo4jControlFlowMapper` | Map method analyses, values, CFG nodes, and transfer relationships. |
-| `Neo4jEvidenceMapper` | Map diagnostics plus semantic references and source origins retained by durable owners. |
-| `Neo4jProjectionBuilder` | Own mutable node and relationship accumulation for exactly one run. |
+| `AnalysisApplicationService` | Compute a run, retain save intent, open lazily for requested completed runs, save, and close before returning `SAVED`. |
+| `application.port` | Own `AnalysisRunRepository`, its factory, and `RepositoryException` independently of Neo4j. |
+| Composition root | Supply the concrete adapter and connection settings. |
+| `Neo4jAnalysisRunRepository` | Own driver and sessions, exact constraint inspection, managed replacement, and exception translation in its declared regions. |
+| `Neo4jAnalysisRunMapper` and focused mappers | Convert a completed run into a projection without accessing the driver. |
+| `Neo4jProjectionBuilder` and projection values | Confine mutation to one mapping operation and validate identities, properties, ordering, and endpoints before publication. |
+| Direct repository caller | Supply a truthful completed run and close the repository it opened. |
 
-## Dependency Rules
+Application and CLI code depend on application-owned ports rather than the concrete storage package. Adapter dependencies and the remaining permitted package directions are enforced by the [build architecture policy](../build-quality.md#architecture-policy).[1][2]
 
-1. `application` may depend on `repository`, but not on `repository.neo4j`.
-2. `cli`, `core`, `frontend`, and `model` may not depend on any repository package.
-3. Only `repository.neo4j` may import the Neo4j driver.
-4. `repository.neo4j` may depend on `repository` and `model`; it may not depend on
-   `application`, `cli`, `core`, or `frontend`.
-5. The composition root may depend on the repository contract and the selected
-   Neo4j realization.[1][3][4]
+## Publication phases and failures
 
-## Operation Contracts
+`save` first maps the run outside its database-exception translation region. The mapper refuses null or noncompleted input. The adapter then prepares schema in one session, inspects both required named constraints, and closes that session before replacement. Definition inspection checks name, uniqueness type, node entity type, label, and ordered properties.[2][3]
 
-### `AnalysisRunRepository.save(run)`
+Replacement opens a separate session and executes a managed write callback. Each attempt deletes existing `AnalysisEntity` nodes for the supplied `runId`, creates the replacement nodes, and creates their relationships. The immutable projection is created before the callback, so driver replay does not remap the input.[2]
 
-- Precondition: `run` is non-null and has completion `COMPLETED`.
-- Postcondition on success: the repository contains the complete saved form for
-  `run.runId()` according to the selected implementation.
-- Neo4j realization: any prior projection with the same run identifier is replaced
-  atomically by the complete new projection.[3][5]
-- Failure: repository or driver failures are reported as `RepositoryException`.
-  The application associates that failure with the already completed run through
-  `AnalysisRepositoryException`; analysis completion is unchanged.[2][3]
+| Phase | Failure or partial-effect boundary |
+| --- | --- |
+| Driver acquisition | If later setup fails after returning an accessible driver, attempt driver close and preserve the original failure with cleanup evidence. |
+| Mapping and projection validation | No schema or replacement effect has started. Preserve the actual throwable family. |
+| Schema creation and inspection | Constraint effects may remain after a later failure. Missing, incompatible, or unreadable required definitions prevent replacement. |
+| Schema-session close | Close must finish normally before opening the replacement session. |
+| Managed replacement | Delete and recreate belong to one transaction per attempt. An established noncommit preserves the old projection; missing commit acknowledgement leaves whole-run commit unknown. |
+| Publication-session close | A failure after known commit does not undo the committed projection. |
+| Repository close | The application attempts close before returning `SAVED`; close failure does not prove rollback or resource release. |
 
-The contract returns no node count, relationship count, query language value, or
-driver object. Those values describe one implementation rather than the result
-owed by every repository.[1][2]
+`Neo4jException` from the adapter's schema/replacement region becomes `RepositoryException`. The application retains the completed run for an effective `RepositoryException`. Mapping exceptions outside that region, unmatched runtime failures, and errors are not given an invented successful result or a universal CLI translation.[1][2]
 
-## Invariants
+The replacement contract provides no additional simultaneous-publisher isolation, public commit-state result, or automatic legacy-data migration. Required behavior and observed results remain distinct: the source scopes establish operation ordering, while deployed database effects require the relevant integration observation.[2][4]
 
-- A repository save is never attempted for an incomplete or rejected run.[2]
-- A successful `AnalysisExecution` with status `SAVED` always contains a completed
-  run; `NOT_ATTEMPTED` always contains a non-completed run.[2]
-- Every Neo4j projection contains unique node and relationship keys, and every
-  relationship endpoint belongs to the same projection.[3]
-- Every Neo4j node and relationship carries the mapped run identifier.[3][5]
-- A `Neo4jAnalysisRunMapper` invocation creates a new builder, so concurrent calls
-  cannot share mutable projection state.[3]
+## Stored projection and verification scope
+
+Publication retains run/version identity, captured input and environment, declarations, diagnostics, source origins, method analyses, and CFG entities. The source aggregate and its annotation/type-use trees are transient and excluded from the stored projection. Stored names and identity algorithms are compatibility contracts, not implementation conveniences.[3][4]
+
+Neo4j Community is the supported verification baseline. Selective role-based denial of constraint inspection is outside that baseline and remains unexecuted; this scope does not waive `SHOW CONSTRAINTS`, definition validation, tests, or quality rules. Deployment and credentials are defined in the [runbook](../../deployment/neo4j/README.md#supported-verification-scope).
 
 ## References
 
-1. [Analysis repository class model](../../diagrams/class/analysis-repository.puml).
-2. [AnalysisApplicationService](../../src/main/java/org/aquilagraph/application/AnalysisApplicationService.java), `execute`; [AnalysisExecution](../../src/main/java/org/aquilagraph/application/AnalysisExecution.java), repository-status invariants.
-3. [Neo4jAnalysisRunRepository](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunRepository.java), `save`; [Neo4jAnalysisRunMapper](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunMapper.java), `map`.
-4. [Import-control architecture](../../config/checkstyle/import-control.xml).
-5. [Neo4j schema](../repository/neo4j-schema.md).
-6. Raul Sidnei Wazlawick, *Object-Oriented Analysis and Design for Information
-   Systems* (2014), §9.2, PDF pp. 286–289, responsibility distribution; §9.6,
-   PDF pp. 316–319, delegation and low coupling; and §13.1, PDF pp. 426–427,
-   separation of persistence from domain and interface logic.
-7. OMG, *Unified Modeling Language 2.5.1*, §10.4.3, PDF pp. 213–214,
-   interfaces as contracts; and §11.6.3, PDF pp. 250–252, replaceable components
-   and their provided and required interfaces.
+1. [AnalysisApplicationService](../../src/main/java/org/aquilagraph/application/AnalysisApplicationService.java), `execute`; [AnalysisRunRepository](../../src/main/java/org/aquilagraph/application/port/AnalysisRunRepository.java), save/close contract; [composition root](../../src/main/java/org/aquilagraph/AquilaGraphApplication.java).
+2. [Neo4jAnalysisRunRepository](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunRepository.java), acquisition, `save`, `ensureSchema`, `saveProjection`, and `close`; [import policy](../../config/checkstyle/import-control.xml).
+3. [Neo4jSchema](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jSchema.java), `requireIdentityConstraints`; [Neo4jAnalysisRunMapper](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunMapper.java), `map`; [Neo4jProjectionBuilder](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jProjectionBuilder.java), validation; [Neo4jGraphProjection](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jGraphProjection.java), immutable result.
+4. [Neo4j schema](../repository/neo4j-schema.md), publication surface and compatibility; [repository integration tests](../../src/test/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunRepositoryNeo4jIT.java), executable observation cases.

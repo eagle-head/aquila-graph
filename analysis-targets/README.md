@@ -14,6 +14,6 @@ classes are not Aquila Graph production classes.
 
 ## References
 
-- [Static analysis foundation](../docs/milestones/static-analysis-foundation.md), implemented
-  packages and deferred capabilities.
+- [Java analysis design](../docs/design/java-analysis.md), the supported source profile.
+- [Development roadmap](../docs/roadmap.md), remaining capabilities.
 - [Root Maven build](../pom.xml), standalone Aquila Graph project without target modules.

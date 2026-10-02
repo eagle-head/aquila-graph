@@ -43,6 +43,7 @@ distribution checksum:
 | Produce unit-test coverage reports | `make coverage` | `.\Invoke-Build.ps1 coverage` |
 | Format production Java | `make format` | `.\Invoke-Build.ps1 format` |
 | Check production Java formatting | `make format-check` | `.\Invoke-Build.ps1 format-check` |
+| Check LF in Git text and reachable commits | `make line-endings-check` | `.\Invoke-Build.ps1 line-endings-check` |
 | Run static quality gates without tests | `make quality` | `.\Invoke-Build.ps1 quality` |
 | Run supply-chain gates without tests | `make supply-chain-check` | `.\Invoke-Build.ps1 supply-chain-check` |
 
@@ -52,6 +53,31 @@ Neo4j instance. The integration-only targets still compile test sources and pack
 Surefire execution. The `quality` and `supply-chain-check` targets skip test compilation and execution, so
 run the relevant test targets separately when validating behavior.
 
+## Text Line Endings
+
+The versioned [.gitattributes](../.gitattributes) normalizes tracked text to LF
+in Git. Known text extensions are explicitly classified so that files previously
+tracked with CRLF are normalized too. The [.editorconfig](../.editorconfig)
+leaves `end_of_line` unspecified; each developer may choose the working-tree
+style in local Git and editor settings. For example,
+`git config --local core.autocrlf true` selects CRLF on checkout, while
+`git config --local core.autocrlf input` keeps LF on checkout. The Unix Maven wrapper is fixed to LF
+because it must run as a shell script. Git converts text when files enter the
+index and when they are checked out, not during push.
+
+Checkstyle still requires a final newline in Java source, accepting the local
+checkout's LF or CRLF. The Git index and history check owns the stricter LF
+requirement for versioned text.
+Spotless preserves each Java file's local line endings while checking its
+formatting rules; it does not require every developer's checkout to use the
+same line-ending style.
+
+The `line-endings-check` target rejects CRLF or mixed line endings in the Git
+index and carriage returns in text blobs reachable from the current commit.
+`quality` runs this check before Maven. A remote build must run the same target
+and protect the publishing branch to enforce the policy centrally; this
+repository does not configure remote CI.
+
 ## Responsibility Boundaries
 
 | Gate | Responsibility |
@@ -60,7 +86,7 @@ run the relevant test targets separately when validating behavior.
 | Error Prone | Detect compiler-integrated Java correctness defects. |
 | NullAway with JSpecify | Enforce explicit package nullness and reject unsafe null flows in production code. |
 | Spotless with Eclipse JDT | Own Java formatting and the 140-character line limit. |
-| Checkstyle | Enforce production import hygiene, naming, structural rules, and package dependency boundaries, plus unnecessary fully qualified type references in tests. |
+| Checkstyle | Enforce production import hygiene, naming, structural rules, final newlines, and package dependency boundaries, plus unnecessary fully qualified type references in tests. |
 | PMD | Detect source-level correctness, maintainability, performance, and security patterns. |
 | CPD | Reject substantial duplicated production Java blocks. |
 | SpotBugs | Inspect compiled production bytecode at maximum effort and low confidence threshold. |
@@ -77,16 +103,22 @@ different analysis representations; overlap is retained only when independently 
 
 ## Architecture Policy
 
-`config/checkstyle/import-control.xml` enforces the source dependency direction documented by the
-component model:
+`config/checkstyle/import-control.xml` enforces the current import permissions.
+The [Java analysis design](design/java-analysis.md#architecture-and-ownership) and
+[repository design](design/analysis-repository.md#responsibilities-and-dependencies)
+define the responsibility direction. In particular:
 
-- `model` has no dependency on another Aquila Graph package;
-- `core` and `frontend` depend on `model`;
-- `application` may depend on `core`, `frontend`, and `model`;
-- `cli` may depend on `application` and `model`;
-- `repository` exposes a technology-neutral contract and may depend on `model`;
-- `repository.neo4j` may depend on `repository`, `model`, and the Neo4j driver; and
-- the root package is the composition boundary.
+- `model` and `syntax` cannot import application, CLI, core, frontend, or repository packages;
+- `core` cannot import application, CLI, frontend, or repository packages;
+- `frontend` may import `application.port` but not other application packages, CLI, core, or repository packages;
+- `application` cannot import CLI, frontend, or repository packages, so the accepted application-owned repository ports do not require an application-to-storage dependency;
+- `cli` cannot import core, frontend, or repository packages;
+- the general `repository` package cannot import application, CLI, core, or frontend, while `repository.neo4j` may import `application.port` and the Neo4j driver; and
+- the root package is the composition boundary that selects the concrete adapter.
+
+These are the configured package restrictions, not proof that every allowed
+import expresses an accepted model dependency. The repository port and factory
+are defined in `application.port`; the storage adapter realizes that port.
 
 Only `frontend` may import the supported compiler-tree APIs in `com.sun.source` and `javax.tools`.
 Imports from `com.sun.tools.javac`, `jdk.internal`, and `sun` are rejected throughout production
@@ -106,6 +138,10 @@ repository only owns its policy configuration.
 
 ## References
 
+- [Git attributes and line-ending conversion](https://git-scm.com/docs/gitattributes).
+- [Git configuration for checkout line endings](https://git-scm.com/docs/git-config).
+- [Checkstyle final newline options](https://checkstyle.org/checks/misc/newlineatendoffile.html).
+- [Spotless Maven line-ending modes](https://github.com/diffplug/spotless/blob/main/plugin-maven/README.md#line-endings-and-encodings-invisible-stuff).
 - [Maven Surefire test inclusion](https://maven.apache.org/surefire/maven-surefire-plugin/examples/inclusion-exclusion.html)
 - [Maven Failsafe test inclusion](https://maven.apache.org/surefire/maven-failsafe-plugin/examples/inclusion-exclusion.html)
 - [Maven Failsafe test skipping](https://maven.apache.org/surefire/maven-failsafe-plugin/examples/skipping-tests.html)

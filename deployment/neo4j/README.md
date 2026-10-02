@@ -5,6 +5,34 @@ Docker and retains its database in the `aquila-graph-neo4j-data` named volume.
 The pinned `neo4j:2026.08.1` image exposes Browser only on local port `7474` and
 Bolt only on local port `7687`.
 
+## Supported verification scope
+
+Neo4j Community Edition is the required database verification baseline for this
+open-source project. The maintainer confirmed that paid-edition verification is
+outside the project scope on October 1, 2026. A selective role-based account that
+can create constraints while being denied constraint inspection is not applicable
+to this baseline: Community has no roles and its users have implied administrator
+privileges. That authorization-specific observation remains unexecuted; it is not
+a passing test or a claim of Enterprise compatibility. [Neo4j user administration](https://neo4j.com/docs/operations-manual/current/authentication-authorization/manage-users/)
+documents the edition distinction.
+
+Constraint creation, `SHOW CONSTRAINTS`, and exact required-definition validation
+remain part of the publication contract. Both identity constraints must be
+verified before any analysis projection is written. Metadata query failures,
+missing or incompatible definitions, and schema-session close failures still
+prevent publication. `CREATE CONSTRAINT ... IF NOT EXISTS` alone cannot establish
+the required definitions when an existing constraint blocks creation.
+[Constraint creation](https://neo4j.com/docs/cypher-manual/current/schema/constraints/create-constraints/)
+and [constraint inspection](https://neo4j.com/docs/cypher-manual/current/schema/constraints/list-constraints/)
+describe those commands; the [adapter](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunRepository.java:100)
+and [definition validator](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jSchema.java:36)
+own the executable checks.
+
+All configured unit, static-analysis, packaged-process, and Community integration
+gates remain required. The [build quality guide](../../docs/build-quality.md)
+defines those gates; the [publication contract](../../docs/design/analysis-repository.md#stored-projection-and-verification-scope)
+records the supported verification boundary.
+
 ## Credentials
 
 Copy `.env.example` to `.env`, choose a local password, and keep `.env`

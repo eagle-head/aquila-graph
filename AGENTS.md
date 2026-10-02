@@ -25,6 +25,7 @@ These instructions apply to the entire directory tree rooted at this file. More 
 ## Platform-Specific Build Commands
 
 - When showing repository build commands, use `make <target>` for Linux and macOS and `.\Invoke-Build.ps1 <target>` for Windows.
+- Use the [build quality guide](docs/build-quality.md#commands) for the available targets and their validation responsibilities.
 
 ## Diagram Paths and Filenames
 
@@ -40,6 +41,13 @@ These instructions apply to the entire directory tree rooted at this file. More 
 - Use the routing triggers in the index to identify the appropriate view, its model, and its companion documentation.
 - Update the index in the same change whenever a diagram is added, renamed, moved, or removed, or when its routing triggers or scope change materially.
 - Keep the index limited to navigation and scope discrimination. Record model-specific explanations in the companion documentation located with the diagram.
+
+## Repository Content
+
+- Keep versioned documentation limited to current contracts, design decisions, build and deployment instructions, navigation, and outstanding product requirements.
+- Keep one canonical source for each diagram. Put generated previews and exports under ignored build output such as `target/diagrams/`.
+- Use Git history for previous source and model versions. Do not commit source snapshots, copied repository trees, review packets, session logs, or repeated historical exports.
+- When removing or consolidating documentation, preserve applicable contracts and outstanding requirements in their owning documents and update inbound links.
 
 ## Evidence and Inference
 

@@ -1,89 +1,36 @@
 # Source Snapshot Identity and Ordering
 
-## Decision and scope
+Source capture produces immutable values with a canonical order and content-derived identity. The factories derive identities; public constructors validate supplied values within their declared bounds. Capture and identity are distinct from language acceptance and run completion.[1][2]
 
-A captured source set has one platform-independent order: the case-sensitive
-lexicographic order of normalized root-relative path strings with `/` separators.
-This preserves the ordering and identity material already used by source discovery.
-The snapshot must validate that same order instead of the native `Path` order.[1][2]
+## Canonical sources
 
-The defect is an ownership disagreement: `JavaSourceLoader` creates canonical
-strings for sorting and hashing, while `InputSnapshot` validates `Path.compareTo`.
-The installed JDK documents path comparison as provider/platform-specific, and its
-Windows implementation folds case. Its `String.compareTo` contract preserves case.[3]
-The recorded package/module tests reached this disagreement before parsing.[4]
+`SourceFile.fromContent` normalizes a root-relative path, rejects absolute or escaping paths, captures decoded UTF-8 content, computes its SHA-256 digest, and derives the framed source key from canonical path and content digest. `canonicalRelativePath` preserves case and uses `/` separators without reading the filesystem.[1]
 
-## Domain responsibilities and Java design
+`InputSnapshot.fromSources` sorts a copy by case-sensitive lexicographic canonical path and derives the snapshot digest from ordered path/digest pairs. Duplicate keys or canonical paths are rejected. Empty and singleton snapshots are valid. The absolute checkout root is not a snapshot-digest component.[1]
 
-| Object | Responsibility | Collaborations |
-| --- | --- | --- |
-| `SourceFile` | Own immutable source content, normalized relative path, canonical path query, and content-derived source identity. `fromContent(Path, String)` constructs a captured value. | JDK UTF-8/SHA-256 and the existing `StableId` framing contract. |
-| `InputSnapshot` | Own the immutable ordered source collection, its ordering invariant and aggregate digest. `fromSources(Path, List<SourceFile>)` orders captured values and computes their digest. | One private `Comparator<SourceFile>` derived from `SourceFile.canonicalRelativePath`, shared by factory and constructor validation. |
-| `JavaSourceLoader` | Discover Java files, read UTF-8 content, and preserve I/O failure causes. | Delegate source creation and snapshot construction to their domain owners. |
+## Supplied values and discovery
 
-Design judgment: apply Wazlawick's allocation of derived knowledge and coordination
-to the objects that own the relevant information (§9.2, PDF pp. 286–289).[5]
-This is an extrapolation from information-systems design to a Java source analyzer.
-Existing records remain immutable domain values with behavior; no adapter, wrapper,
-strategy hierarchy, or platform branch is required. The comparator belongs to the
-collection invariant; `SourceFile` does not implement `Comparable`, because ordering
-by path alone is not its complete record equality. Java-specific guidance favors
-named factories, explicit invariants, and one canonical model for identities.[6]
-
-## Operation contracts
-
-- `SourceFile.fromContent`: normalize and validate a root-relative path, capture
-  non-null decoded content, compute the existing raw UTF-8 SHA-256 content digest,
-  and derive the existing framed source key from canonical path and content digest.
-- `SourceFile.canonicalRelativePath`: expose the existing canonical spelling without
-  changing case or depending on default locale. This query does not access disk.
-- `InputSnapshot.fromSources`: accept captured values in any encounter order,
-  defensively produce canonical order, and derive the existing framed snapshot
-  digest from ordered `(canonical path, content digest)` pairs. Do not mutate the
-  caller's list. Reject duplicate source keys and duplicate canonical paths.
-- The public `InputSnapshot` constructor remains a validation boundary for already
-  ordered facts: reject a noncanonical order instead of silently repairing it.
-- `JavaSourceLoader.discover`: return the canonical snapshot for every discovered
-  Java file, independently of traversal order. Preserve malformed UTF-8 and missing
-  root errors and their causes. File-system traversal and reading remain frontend work.
-
-## Compatibility and boundaries
-
-Keep the existing record components, public constructors, source-key namespace,
-snapshot namespace, length framing, UTF-8 content bytes, and SHA-256 algorithms.
-For the same canonical source paths and content, source keys and snapshot digest
-remain unchanged. Absolute checkout roots are not digest inputs. Previously rejected
-mixed-case source sets gain the same canonical order already intended by discovery.
-Native paths remain available for actual filesystem/compiler access; their native
-comparison no longer defines snapshot validity. No case folding or filesystem-alias
-deduplication is introduced. Cross-provider record equality is not promised.
-
-The change does not publish annotation AST data, change CFG construction, or change
-the Neo4j schema. Existing stored identities must remain compatible; exact digest
-regressions and the broader suites check the affected boundaries.[1][2]
-
-## Behavioral obligations
-
-| Obligation | Observable evidence |
+| Boundary | Validation and responsibility |
 | --- | --- |
-| Original Windows failure | Public discovery with `Sample.java`, `package-info.java`, and `module-info.java`; restore both annotation completion controls to their original root-level companion layout. |
-| Portable order | Literal expected order including uppercase/lowercase, a directory separator versus punctuation, and non-ASCII names; no expected order computed by the production comparator. |
-| Collection invariant | Constructor accepts canonical order and rejects reversed order, duplicate canonical paths, and duplicate source keys; empty and singleton boundaries remain valid. |
-| Identity compatibility | Fixed independently calculated content/source/snapshot digest values; changed content/path changes identity and reordered input preserves it. |
-| Ownership | Factories and constructors do not retain mutable input collections; rejected input is not silently sorted by the validating constructor. |
-| Integration | Existing annotation, compiler, CFG, process and repository tests retain their behavioral assertions. |
+| `SourceFile` constructor | Nonnull fields and a normalized, relative, non-escaping path. It retains the supplied key, digest, and content without authenticating them or requiring a `.java` suffix. |
+| `InputSnapshot` constructor | Normalized absolute root, copied list, unique source keys, and strictly increasing canonical paths. It rejects incorrect ordering rather than repairing it. It does not check root existence or rederive supplied identities. |
+| `InputSnapshot.fromSources` | Canonical ordering and snapshot derivation from the supplied source facts; it does not rederive each source content digest. |
+| `JavaSourceLoader.discover` | Directory admission, recursive discovery of regular `.java` files, UTF-8 reads, path-aware I/O causes, and traversal closure. Partial capture is not returned after failure. |
+| `JavaFrontend` path facade | Source-capture failures become `AnalysisInputException`; analysis-environment I/O becomes `AnalysisEnvironmentException`. The snapshot overload retains checked I/O. |
 
-Tests exercise public contracts with real files or immutable domain values. The
-red-first witness establishes the actual failure; passing assertions establish only
-the exercised partitions, not exhaustive filesystem behavior.[7] Timing, concurrency,
-fuzzing and remote service failure injection do not discriminate this ordering defect.
+These validation limits matter for callers that construct records directly. Production capture derives the content identities; accepting a supplied record does not certify its provenance.[1][2]
+
+## Compiler environment and software version
+
+The environment snapshot records the compiler implementation, runtime and vendor, actual analysis options, compiler configuration, and ordered dependency snapshots. Dependency capture includes content fingerprints and entry/byte counts. The pipeline recaptures the environment before returning and rejects detected changes.[3]
+
+The production environment digest includes compiler identity, ordered options, dependency roles and fingerprints. Separate dependency-location metadata is excluded, but an option containing a location remains an input. The stored compiler-configuration key includes its configured paths. Relocating a checkout therefore does not change the source digest, while relocating configured options can change the environment digest.[3]
+
+`SoftwareVersion` combines source and environment signatures. The production run key derives from that combined signature and excludes the analyzer build version. The schema preserves these identities; changing an identity algorithm or migrating old stored projections requires an explicit compatibility decision.[4]
 
 ## References
 
-1. [JavaSourceLoader](../../src/main/java/org/aquilagraph/frontend/JavaSourceLoader.java), `discover` and `readSource`.
-2. [SourceFile](../../src/main/java/org/aquilagraph/model/SourceFile.java), [InputSnapshot](../../src/main/java/org/aquilagraph/model/InputSnapshot.java), and [StableId](../../src/main/java/org/aquilagraph/model/StableId.java).
-3. Installed Temurin 25.0.4+101.0.LTS `lib/src.zip`: `java.base/java/nio/file/Path.java`, `compareTo` contract, lines 1000–1020; `java.base/java/lang/String.java`, `compareTo`, lines 2072–2113; `java.base/sun/nio/fs/WindowsPath.java`, `compareTo`, lines 785–805. The internal implementation was read as platform evidence only; production code imports no internal API.
-4. [Original failing execution](../../.tmp/verification/annotation-completion-review-corrections-focused-second.log), package/module failures; [historical disposition](../../.tmp/java-ast-epics/ast-e05-annotation-occurrences-and-values-tasks.md), Source snapshot ordering reopening supersedes the earlier deferral.
-5. Wazlawick, *Object-Oriented Analysis and Design for Information Systems* (2014), §9.2, physical PDF pp. 286–289. Local source verified: SHA-256 `d4cf6fe75c7a42d470091bc2b0023d0b1117682fe6a407d544464f76c3f47aee`, 469 pages, 26,449,687 bytes. The complete subsection was read before this decision.
-6. Local `java-engineering` skill, `references/style-and-design.md` (Encapsulation and object design; Canonical and content-addressed outputs), `references/language-and-api.md` (Equality, hashing, ordering, and identity), and `references/build-testing-quality.md`.
-7. Local `comprehensive-testing` skill, `references/writing-tests.md` (behavioral seam, observable oracles, partitions, red-first verification).
+1. [SourceFile](../../src/main/java/org/aquilagraph/model/SourceFile.java), constructor, `fromContent`, and `canonicalRelativePath`; [InputSnapshot](../../src/main/java/org/aquilagraph/model/InputSnapshot.java), constructor and `fromSources`; [StableId](../../src/main/java/org/aquilagraph/model/StableId.java), framing.
+2. [JavaSourceLoader](../../src/main/java/org/aquilagraph/frontend/JavaSourceLoader.java), `discover` and `readSource`; [JavaFrontend](../../src/main/java/org/aquilagraph/frontend/JavaFrontend.java), overload boundaries.
+3. [AnalysisEnvironmentCapture](../../src/main/java/org/aquilagraph/frontend/AnalysisEnvironmentCapture.java), capture and `verifyUnchanged`; [CompilerDependencyCapture](../../src/main/java/org/aquilagraph/frontend/CompilerDependencyCapture.java), dependency fingerprints; [AnalysisEnvironmentSnapshot](../../src/main/java/org/aquilagraph/model/AnalysisEnvironmentSnapshot.java), derivation; [CompilerConfiguration](../../src/main/java/org/aquilagraph/model/CompilerConfiguration.java), `canonicalForm`; [JavaAnalysisPipeline](../../src/main/java/org/aquilagraph/frontend/JavaAnalysisPipeline.java), capture and return lifecycle.
+4. [SoftwareVersion](../../src/main/java/org/aquilagraph/model/SoftwareVersion.java), `from` and `signature`; [AnalysisEngine](../../src/main/java/org/aquilagraph/core/AnalysisEngine.java), run identity; [Neo4j schema](../repository/neo4j-schema.md#stable-keys-and-constraints).
