@@ -1,2 +1,22 @@
-# Normalize every detected text file to LF in the index and working tree.
-* text=auto eol=lf
+# Store text with LF in Git; let each developer choose local line endings.
+* text=auto
+
+# Explicit text classification also normalizes files already tracked with CRLF.
+*.md text
+*.java text
+*.puml text
+*.txt text
+*.json text
+*.xml text
+*.svg text
+*.properties text
+*.yaml text
+*.ps1 text
+*.cmd text
+
+# The Unix Maven wrapper must remain executable with LF in the working tree.
+mvnw text eol=lf
+
+# Binary review archives are not subject to line-ending conversion.
+*.zip -text
+*.gz -text

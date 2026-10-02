@@ -41,7 +41,7 @@ Arguments included in targets that skip test compilation and execution.
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('compile', 'test', 'integration-test', 'integration-test-neo4j', 'coverage', 'format', 'format-check', 'quality', 'supply-chain-check')]
+    [ValidateSet('compile', 'test', 'integration-test', 'integration-test-neo4j', 'coverage', 'format', 'format-check', 'line-endings-check', 'quality', 'supply-chain-check')]
     [string] $Target = 'compile',
 
     [string] $MavenCommand,
@@ -52,6 +52,52 @@ param(
 )
 
 Set-StrictMode -Version Latest
+
+if ($Target -in @('line-endings-check', 'quality')) {
+    Push-Location -LiteralPath $PSScriptRoot
+    try {
+        $indexLines = @(& git ls-files --eol)
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to inspect Git index line endings.'
+        }
+
+        $violations = @($indexLines | Where-Object { $_ -match '^i/(crlf|mixed)\s' })
+        if ($violations.Count -gt 0) {
+            throw "Non-LF text in Git index:`n$($violations -join "`n")"
+        }
+
+        $stagedCarriageReturns = @(& git grep --cached -I -l "`r")
+        if ($LASTEXITCODE -eq 0) {
+            throw "Carriage returns in staged text:`n$($stagedCarriageReturns -join "`n")"
+        }
+        if ($LASTEXITCODE -ne 1) {
+            throw 'Unable to inspect staged text for carriage returns.'
+        }
+
+        $commits = @(& git rev-list HEAD)
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to list reachable commits.'
+        }
+
+        foreach ($commit in $commits) {
+            $matchingPaths = @(& git grep -I -l "`r" $commit)
+            if ($LASTEXITCODE -eq 0) {
+                throw "Non-LF text in commit ${commit}:`n$($matchingPaths -join "`n")"
+            }
+            if ($LASTEXITCODE -ne 1) {
+                throw "Unable to inspect commit $commit for carriage returns."
+            }
+        }
+        Write-Output 'LF-only Git text verified in the index and reachable commits.'
+    }
+    finally {
+        Pop-Location
+    }
+
+    if ($Target -eq 'line-endings-check') {
+        exit 0
+    }
+}
 
 if ([string]::IsNullOrWhiteSpace($MavenCommand)) {
     $MavenCommand = Join-Path -Path $PSScriptRoot -ChildPath 'mvnw.cmd'

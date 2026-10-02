@@ -220,6 +220,7 @@
         <version>${spotless-maven-plugin.version}</version>
         <configuration>
           <java>
+            <lineEndings>PRESERVE</lineEndings>
             <includes>
               <include>src/main/java/**/*.java</include>
             </includes>
