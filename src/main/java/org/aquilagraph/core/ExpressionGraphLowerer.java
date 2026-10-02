@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import org.aquilagraph.model.FlowValue;
 import org.aquilagraph.model.InvocationForm;
+import org.aquilagraph.model.InvocationMode;
 import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.JavaTypeIdentity;
 import org.aquilagraph.model.OperationKind;
@@ -27,6 +28,7 @@ final class ExpressionGraphLowerer {
   private final FlowValueScope values;
   private final FieldReceiverLowerer fieldReceivers;
   private final AssignmentLocationLowerer locations;
+  private final CallArgumentLowerer arguments;
 
   ExpressionGraphLowerer(SyntaxGraphLowerer syntax, ControlFlowGraphConstruction graph, FlowValueScope values) {
     this.syntax = Objects.requireNonNull(syntax, "syntax");
@@ -34,6 +36,7 @@ final class ExpressionGraphLowerer {
     this.values = Objects.requireNonNull(values, "values");
     fieldReceivers = new FieldReceiverLowerer(syntax, graph);
     locations = new AssignmentLocationLowerer(syntax, graph, values, fieldReceivers);
+    arguments = new CallArgumentLowerer(syntax, graph);
   }
 
   GraphFragment lower(SyntaxNode node) {
@@ -44,8 +47,7 @@ final class ExpressionGraphLowerer {
       case RECEIVER -> buildReceiver(node);
       case ARRAY_LENGTH ->
         buildUnaryLike(node, SyntaxRole.QUALIFIER, OperationKind.ARRAY_LENGTH, runtimeExceptions(NULL_POINTER_EXCEPTION));
-      case ARRAY_ACCESS -> buildNary(node, List.of(node.requiredChild(SyntaxRole.ARRAY), node.requiredChild(SyntaxRole.INDEX)),
-          OperationKind.ARRAY_ACCESS, runtimeExceptions(NULL_POINTER_EXCEPTION, "java.lang.ArrayIndexOutOfBoundsException"));
+      case ARRAY_ACCESS -> buildArrayRead(node);
       case INVOCATION -> buildInvocation(node);
       case OBJECT_CREATION -> buildObjectCreation(node);
       case UNARY -> buildUnaryLike(node, SyntaxRole.OPERAND, OperationKind.UNARY, List.of());
@@ -54,7 +56,7 @@ final class ExpressionGraphLowerer {
       case CONDITIONAL_OR -> buildShortCircuit(node, false);
       case ASSIGNMENT -> buildAssignment(node);
       case PARENTHESIZED -> syntax.lower(node.requiredChild(SyntaxRole.EXPRESSION));
-      case TYPE_CAST -> buildUnaryLike(node, SyntaxRole.EXPRESSION, OperationKind.CAST, runtimeExceptions("java.lang.ClassCastException"));
+      case TYPE_CAST -> buildCast(node);
       case CONDITIONAL_EXPRESSION -> buildConditionalExpression(node);
       case SWITCH_EXPRESSION -> buildSwitchExpression(node);
       default -> throw new IllegalArgumentException("Expected expression syntax but found " + node.syntaxKind());
@@ -84,12 +86,19 @@ final class ExpressionGraphLowerer {
   private GraphFragment buildFieldRead(SyntaxNode node) {
     var access = node.value(SyntaxValue.FieldAccess.class);
     var receiver = fieldReceivers.lower(node);
+    var evaluation = receiver.evaluation();
+    if (staticField(node)) {
+      var selected = syntax.staticAccess(node);
+      if (selected.triggersInitialization()) {
+        evaluation = graph.sequence(evaluation, graph.classInitialization(node, selected.declaringType()));
+      }
+    }
     var operationNodeId = graph.operationNodeId(node, "field-read");
     var result = graph.temporaryValue(operationNodeId, access.name(), node.resolvedType());
     var operation = graph.addOperationWithId(operationNodeId, node, OperationKind.MEMBER_ACCESS, access.name(), receiver.operands(),
         Optional.of(result), receiver.accessExceptions());
-    graph.connectExits(receiver.evaluation(), operation.nodeId(), TransferKind.NORMAL, Optional.empty());
-    return new GraphFragment(receiver.evaluation().entry().or(() -> Optional.of(operation.nodeId())), List.of(operation.nodeId()),
+    graph.connectExits(evaluation, operation.nodeId(), TransferKind.NORMAL, Optional.empty());
+    return new GraphFragment(evaluation.entry().or(() -> Optional.of(operation.nodeId())), List.of(operation.nodeId()),
         Optional.of(result));
   }
 
@@ -112,24 +121,27 @@ final class ExpressionGraphLowerer {
       if (invocation.form().consumesReceiver()) {
         operands.add(receiver.value().orElseThrow());
       }
+      if (invocation.form() == InvocationForm.QUALIFIED_SUPER_CONSTRUCTOR) {
+        evaluation = graph.sequence(evaluation, enclosingInstanceCheck(node, receiver.value().orElseThrow()));
+      }
     } else if (invocation.form().consumesReceiver()) {
       operands.add(graph.receiverValue(node, receiverName(invocation.form()), Optional.empty()));
     }
-    for (var argumentNode : node.children(SyntaxRole.ARGUMENT)) {
-      var argument = syntax.lower(argumentNode);
-      evaluation = graph.sequence(evaluation, argument);
-      argument.value().ifPresent(operands::add);
+    var selectedArguments = arguments.lower(node, evaluation, operands);
+    evaluation = selectedArguments.fragment();
+    if (invocation.semantics().orElseThrow().mode() == InvocationMode.STATIC) {
+      evaluation = graph.sequence(evaluation, graph.classInitialization(node, syntax.staticAccess(node).declaringType()));
     }
     var exceptions = new ArrayList<ExceptionType>();
-    if (invocation.form().canFailOnNullReceiver()) {
+    if (invocation.form().canFailOnNullReceiver() && invocation.form() != InvocationForm.QUALIFIED_SUPER_CONSTRUCTOR) {
       exceptions.add(ExceptionType.runtime(NULL_POINTER_EXCEPTION));
     }
     exceptions.add(ExceptionType.unknown(ExceptionTarget.UNKNOWN_INVOCATION_EXCEPTION));
     var operationNodeId = graph.operationNodeId(node, "invoke");
     var result = node.resolvedType().filter(type -> type.category() != JavaTypeCategory.VOID)
         .map(type -> graph.temporaryValue(operationNodeId, invocation.name(), Optional.of(type)));
-    var operation = graph.addInvocationOperationWithId(operationNodeId, node, OperationKind.INVOKE, invocation.name(), operands, result,
-        exceptions, invocation.semantics().orElseThrow());
+    var operation = graph.addInvocationOperationWithId(operationNodeId, node, OperationKind.INVOKE, invocation.name(),
+        selectedArguments.operands(), result, exceptions, invocation.semantics().orElseThrow());
     graph.connectExits(evaluation, operation.nodeId(), TransferKind.NORMAL, Optional.empty());
     return new GraphFragment(evaluation.entry().or(() -> Optional.of(operation.nodeId())), List.of(operation.nodeId()), result);
   }
@@ -137,25 +149,40 @@ final class ExpressionGraphLowerer {
   private GraphFragment buildObjectCreation(SyntaxNode node) {
     var invocation = node.value(SyntaxValue.Invocation.class);
     var evaluation = GraphFragment.empty();
-    var operands = new ArrayList<FlowValue>();
-    for (var child : constructionOperands(node)) {
-      var childGraphFragment = syntax.lower(child);
-      evaluation = graph.sequence(evaluation, childGraphFragment);
-      childGraphFragment.value().ifPresent(operands::add);
+    var enclosingOperands = new ArrayList<FlowValue>();
+    if (invocation.form() == InvocationForm.QUALIFIED_OBJECT_CREATION) {
+      var enclosing = syntax.lower(node.requiredChild(SyntaxRole.ENCLOSING_INSTANCE));
+      var value = enclosing.value().orElseThrow();
+      enclosingOperands.add(value);
+      evaluation = graph.sequence(enclosing, enclosingInstanceCheck(node, value));
     }
+    evaluation = graph.sequence(evaluation, graph.classInitialization(node, invocation.semantics().orElseThrow().qualifyingType()));
+    var allocationId = graph.operationNodeId(node, "new-allocation");
+    var allocated = graph.temporaryValue(allocationId, invocation.name(), node.resolvedType());
+    var allocation = graph.addOperationWithId(allocationId, node, OperationKind.NEW_ALLOCATION, invocation.name(), enclosingOperands,
+        Optional.of(allocated), List.of(UseConversionLowerer.allocationFailure()), List.of());
+    evaluation = graph.sequence(evaluation, GraphFragment.value(allocation.nodeId(), allocated));
+    var selectedArguments = arguments.lower(node, evaluation, List.of(allocated));
+    evaluation = selectedArguments.fragment();
     var operationNodeId = graph.operationNodeId(node, "new_object");
-    var result = graph.temporaryValue(operationNodeId, invocation.name(), node.resolvedType());
     var exceptions = List.of(ExceptionType.unknown(ExceptionTarget.UNKNOWN_CONSTRUCTOR_EXCEPTION));
-    var operation = graph.addInvocationOperationWithId(operationNodeId, node, OperationKind.NEW_OBJECT, invocation.name(), operands,
-        Optional.of(result), exceptions, invocation.semantics().orElseThrow());
+    var operation = graph.addInvocationOperationWithId(operationNodeId, node, OperationKind.NEW_OBJECT, invocation.name(),
+        selectedArguments.operands(), Optional.of(allocated), exceptions, invocation.semantics().orElseThrow());
     graph.connectExits(evaluation, operation.nodeId(), TransferKind.NORMAL, Optional.empty());
     return new GraphFragment(evaluation.entry().or(() -> Optional.of(operation.nodeId())), List.of(operation.nodeId()),
-        Optional.of(result));
+        Optional.of(allocated));
+  }
+
+  private GraphFragment enclosingInstanceCheck(SyntaxNode node, FlowValue value) {
+    var id = graph.operationNodeId(node, "enclosing-instance-check");
+    var operation = graph.addOperationWithId(id, node, OperationKind.ENCLOSING_INSTANCE_CHECK, "enclosing instance", List.of(value),
+        Optional.empty(), runtimeExceptions(NULL_POINTER_EXCEPTION), List.of());
+    return new GraphFragment(Optional.of(operation.nodeId()), List.of(operation.nodeId()), Optional.empty());
   }
 
   private GraphFragment buildUnaryLike(SyntaxNode node, SyntaxRole operandRole, OperationKind kind,
       List<ExceptionType> possibleExceptions) {
-    var input = syntax.lower(node.requiredChild(operandRole));
+    var input = operandRole == SyntaxRole.QUALIFIER ? syntax.lower(node.requiredChild(operandRole)) : syntax.lowerUse(node, operandRole);
     var operationNodeId = graph.operationNodeId(node, kind.name().toLowerCase(Locale.ROOT));
     var description = describe(node);
     var result = graph.temporaryValue(operationNodeId, description, node.resolvedType());
@@ -165,12 +192,12 @@ final class ExpressionGraphLowerer {
     return new GraphFragment(input.entry().or(() -> Optional.of(operation.nodeId())), List.of(operation.nodeId()), Optional.of(result));
   }
 
-  private GraphFragment buildNary(SyntaxNode node, List<SyntaxNode> operandNodes, OperationKind kind,
+  private GraphFragment buildNary(SyntaxNode node, List<SyntaxRole> operandRoles, OperationKind kind,
       List<ExceptionType> possibleExceptions) {
     var evaluation = GraphFragment.empty();
     var operands = new ArrayList<FlowValue>();
-    for (var child : operandNodes) {
-      var childGraphFragment = syntax.lower(child);
+    for (var role : operandRoles) {
+      var childGraphFragment = syntax.lowerUse(node, role);
       evaluation = graph.sequence(evaluation, childGraphFragment);
       childGraphFragment.value().ifPresent(operands::add);
     }
@@ -185,28 +212,101 @@ final class ExpressionGraphLowerer {
 
   private GraphFragment buildBinary(SyntaxNode node) {
     var operator = node.value(SyntaxValue.Operator.class).operator();
-    var exceptions = operator == SyntaxOperator.DIVIDE || operator == SyntaxOperator.REMAINDER
-        ? runtimeExceptions("java.lang.ArithmeticException")
-        : List.<ExceptionType>of();
-    return buildNary(node, List.of(node.requiredChild(SyntaxRole.LEFT_OPERAND), node.requiredChild(SyntaxRole.RIGHT_OPERAND)),
-        OperationKind.BINARY, exceptions);
+    if (operator == SyntaxOperator.PLUS && node.resolvedType().map(type -> "java.lang.String".equals(type.erasedName())).orElse(false)) {
+      return buildStringConcatenation(node);
+    }
+    var exceptions = List.<ExceptionType>of();
+    if (operator == SyntaxOperator.DIVIDE || operator == SyntaxOperator.REMAINDER) {
+      var resultType = node.resolvedType()
+          .orElseThrow(() -> new IllegalStateException("Arithmetic lowering requires a resolved promoted result type"));
+      exceptions = switch (resultType.category()) {
+        case INT, LONG -> runtimeExceptions("java.lang.ArithmeticException");
+        case FLOAT, DOUBLE -> List.of();
+        default -> throw new IllegalStateException("Arithmetic lowering requires an integral or floating promoted result type");
+      };
+    }
+    return buildNary(node, List.of(SyntaxRole.LEFT_OPERAND, SyntaxRole.RIGHT_OPERAND), OperationKind.BINARY, exceptions);
   }
 
-  private static List<SyntaxNode> constructionOperands(SyntaxNode node) {
-    var operands = new ArrayList<SyntaxNode>();
-    node.optionalChild(SyntaxRole.ENCLOSING_INSTANCE).ifPresent(operands::add);
-    operands.addAll(node.children(SyntaxRole.ARGUMENT));
-    return List.copyOf(operands);
+  private GraphFragment buildArrayRead(SyntaxNode node) {
+    var array = syntax.lower(node.requiredChild(SyntaxRole.ARRAY));
+    var index = syntax.lowerUse(node, SyntaxRole.INDEX);
+    var evaluation = graph.sequence(array, index);
+    var operationId = graph.operationNodeId(node, "array_access");
+    var result = graph.temporaryValue(operationId, describe(node), node.resolvedType());
+    var operation = graph.addOperationWithId(operationId, node, OperationKind.ARRAY_ACCESS, describe(node),
+        List.of(array.value().orElseThrow(), index.value().orElseThrow()), Optional.of(result),
+        runtimeExceptions(NULL_POINTER_EXCEPTION, "java.lang.ArrayIndexOutOfBoundsException"));
+    graph.connectExits(evaluation, operation.nodeId(), TransferKind.NORMAL, Optional.empty());
+    return new GraphFragment(evaluation.entry(), List.of(operation.nodeId()), Optional.of(result), evaluation.yieldExits());
+  }
+
+  private GraphFragment buildCast(SyntaxNode node) {
+    var decision = syntax.useDecision(node, SyntaxRole.EXPRESSION, 0);
+    var input = syntax.lowerUse(node, SyntaxRole.EXPRESSION);
+    if (decision.checkedReferenceTarget().isPresent()) {
+      return input;
+    }
+    var target = node.resolvedType().orElseThrow();
+    var exceptions = List.<ExceptionType>of();
+    if (decision.referenceCheckRequired().orElse(false)) {
+      exceptions = runtimeExceptions("java.lang.ClassCastException");
+    }
+    var operationId = graph.operationNodeId(node, "cast");
+    var result = graph.temporaryValue(operationId, target.displayName(), Optional.of(target));
+    var operation = graph.addOperationWithId(operationId, node, OperationKind.CAST, target.displayName(),
+        List.of(input.value().orElseThrow()), Optional.of(result), exceptions);
+    graph.connectExits(input, operation.nodeId(), TransferKind.NORMAL, Optional.empty());
+    return new GraphFragment(input.entry(), List.of(operation.nodeId()), Optional.of(result), input.yieldExits());
+  }
+
+  private GraphFragment buildStringConcatenation(SyntaxNode node) {
+    var selected = syntax.stringConcatenation(node);
+    var left = syntax.lowerUse(node, SyntaxRole.LEFT_OPERAND);
+    var right = syntax.lowerUse(node, SyntaxRole.RIGHT_OPERAND);
+    var evaluation = graph.sequence(left, right);
+    var operands = new ArrayList<>(List.of(left.value().orElseThrow(), right.value().orElseThrow()));
+    if (selected.convertedSide().isPresent()) {
+      var side = selected.convertedSide().orElseThrow();
+      var position = side == SyntaxRole.LEFT_OPERAND ? 0 : 1;
+      var operationId = graph.operationNodeId(node, position == 0 ? "string-conversion:left" : "string-conversion:right");
+      var result = graph.temporaryValue(operationId, "string conversion", Optional.of(selected.stringType()));
+      var exceptions = selected.compileTimeConstant() || definitelyNull(node.requiredChild(side))
+          ? List.<ExceptionType>of()
+          : List.of(ExceptionType.unknown("unchecked-string-conversion"));
+      var conversion = graph.addOperationWithId(operationId, node, OperationKind.STRING_CONVERSION, "string conversion",
+          List.of(operands.get(position)), Optional.of(result), exceptions, List.of());
+      evaluation = graph.sequence(evaluation, GraphFragment.value(conversion.nodeId(), result));
+      operands.set(position, result);
+    }
+    var operationId = graph.operationNodeId(node, "binary");
+    var result = graph.temporaryValue(operationId, "PLUS", Optional.of(selected.stringType()));
+    var concat = graph.addOperationWithId(operationId, node, OperationKind.STRING_CONCAT, "PLUS", operands, Optional.of(result),
+        selected.compileTimeConstant() ? List.of() : List.of(UseConversionLowerer.allocationFailure()), List.of());
+    graph.connectExits(evaluation, concat.nodeId(), TransferKind.NORMAL, Optional.empty());
+    return new GraphFragment(evaluation.entry(), List.of(concat.nodeId()), Optional.of(result), evaluation.yieldExits());
+  }
+
+  private static boolean definitelyNull(SyntaxNode node) {
+    return switch (node.syntaxKind()) {
+      case LITERAL -> node.resolvedType().map(type -> type.category() == JavaTypeCategory.NULL).orElse(false);
+      case PARENTHESIZED, TYPE_CAST -> definitelyNull(node.requiredChild(SyntaxRole.EXPRESSION));
+      default -> false;
+    };
+  }
+
+  private static boolean staticField(SyntaxNode node) {
+    return node.value() instanceof SyntaxValue.FieldAccess access && !access.receiver().consumesReceiver();
   }
 
   private GraphFragment buildShortCircuit(SyntaxNode node, boolean and) {
-    var left = syntax.lower(node.requiredChild(SyntaxRole.LEFT_OPERAND));
+    var left = syntax.lowerUse(node, SyntaxRole.LEFT_OPERAND);
     var description = node.value(SyntaxValue.Operator.class).operator().name();
     var decision = graph.addOperation(node, and ? "and-decision" : "or-decision", OperationKind.DECISION, description,
         left.value().map(List::of).orElseGet(List::of), Optional.empty(), List.of());
     graph.connectExits(left, decision.nodeId(), TransferKind.NORMAL, Optional.empty());
 
-    var right = syntax.lower(node.requiredChild(SyntaxRole.RIGHT_OPERAND));
+    var right = syntax.lowerUse(node, SyntaxRole.RIGHT_OPERAND);
     var shortCircuitLiteral = and ? "false" : "true";
     var constantId = graph.operationNodeId(node, and ? "and-false" : "or-true");
     var constantValue = graph.constantValue(constantId, shortCircuitLiteral, node.resolvedType());
@@ -234,9 +334,22 @@ final class ExpressionGraphLowerer {
   }
 
   private GraphFragment buildAssignment(SyntaxNode node) {
-    var location = locations.lower(node.requiredChild(SyntaxRole.LOCATION));
-    var value = syntax.lower(node.requiredChild(SyntaxRole.VALUE));
-    var evaluation = graph.sequence(location.evaluation(), value);
+    var locationNode = node.requiredChild(SyntaxRole.LOCATION);
+    var location = locations.lower(locationNode);
+    var rawValue = syntax.lower(node.requiredChild(SyntaxRole.VALUE));
+    var evaluation = graph.sequence(location.evaluation(), rawValue);
+    if (locationNode.syntaxKind() == SyntaxKind.ARRAY_LOCATION) {
+      var checkId = graph.operationNodeId(node, "array-target-check");
+      var check = graph.addOperationWithId(checkId, node, OperationKind.ARRAY_TARGET_CHECK, "array target", location.operands(),
+          Optional.empty(), runtimeExceptions(NULL_POINTER_EXCEPTION, "java.lang.ArrayIndexOutOfBoundsException"), List.of());
+      evaluation = graph.sequence(evaluation, new GraphFragment(Optional.of(check.nodeId()), List.of(check.nodeId()), Optional.empty()));
+    }
+    var value = syntax.convertUse(node, SyntaxRole.VALUE, 0,
+        new GraphFragment(evaluation.entry(), evaluation.normalExits(), rawValue.value(), evaluation.yieldExits()));
+    evaluation = value;
+    if (staticField(locationNode)) {
+      evaluation = graph.sequence(evaluation, graph.classInitialization(locationNode, syntax.staticAccess(locationNode).declaringType()));
+    }
     var operationNodeId = graph.operationNodeId(node, "assignment");
     var result = graph.temporaryValue(operationNodeId, "assignment", node.resolvedType());
     var operands = new ArrayList<>(location.operands());
@@ -249,12 +362,12 @@ final class ExpressionGraphLowerer {
   }
 
   private GraphFragment buildConditionalExpression(SyntaxNode node) {
-    var condition = syntax.lower(node.requiredChild(SyntaxRole.CONDITION));
+    var condition = syntax.lowerUse(node, SyntaxRole.CONDITION);
     var decision = graph.addOperation(node, "conditional-decision", OperationKind.DECISION, "?:",
         condition.value().map(List::of).orElseGet(List::of), Optional.empty(), List.of());
     graph.connectExits(condition, decision.nodeId(), TransferKind.NORMAL, Optional.empty());
-    var whenTrue = syntax.lower(node.requiredChild(SyntaxRole.TRUE_EXPRESSION));
-    var whenFalse = syntax.lower(node.requiredChild(SyntaxRole.FALSE_EXPRESSION));
+    var whenTrue = syntax.lowerUse(node, SyntaxRole.TRUE_EXPRESSION);
+    var whenFalse = syntax.lowerUse(node, SyntaxRole.FALSE_EXPRESSION);
     graph.addTransfer(CfgEndpoint.operation(decision.nodeId()), CfgEndpoint.operation(whenTrue.entry().orElseThrow()),
         TransferKind.TRUE_BRANCH, Optional.empty());
     graph.addTransfer(CfgEndpoint.operation(decision.nodeId()), CfgEndpoint.operation(whenFalse.entry().orElseThrow()),
@@ -269,7 +382,11 @@ final class ExpressionGraphLowerer {
   }
 
   private GraphFragment buildSwitchExpression(SyntaxNode node) {
-    var selector = syntax.lower(node.requiredChild(SyntaxRole.SELECTOR));
+    return syntax.withSwitchTarget(node.nodeId(), () -> buildSwitchAlternatives(node));
+  }
+
+  private GraphFragment buildSwitchAlternatives(SyntaxNode node) {
+    var selector = syntax.lowerUse(node, SyntaxRole.SELECTOR);
     var switchOperation = graph.addOperation(node, "switch-selector", OperationKind.SWITCH_SELECTOR, "switch",
         selector.value().map(List::of).orElseGet(List::of), Optional.empty(),
         runtimeExceptions(NULL_POINTER_EXCEPTION, "java.lang.MatchException"));
@@ -277,10 +394,18 @@ final class ExpressionGraphLowerer {
     var caseNodes = node.children(SyntaxRole.CASE);
     var cases = new ArrayList<GraphFragment>();
     var caseValues = new ArrayList<FlowValue>();
+    var escapingYields = new ArrayList<YieldExit>();
     for (var caseNode : caseNodes) {
       var caseGraphFragment = buildCaseBody(caseNode);
       cases.add(caseGraphFragment);
       caseGraphFragment.value().ifPresent(caseValues::add);
+      for (var yield : caseGraphFragment.yieldExits()) {
+        if (yield.targetSwitchNodeId().equals(node.nodeId())) {
+          caseValues.add(yield.value());
+        } else {
+          escapingYields.add(yield);
+        }
+      }
       if (caseGraphFragment.entry().isPresent()) {
         graph.addTransfer(CfgEndpoint.operation(switchOperation.nodeId()), CfgEndpoint.operation(caseGraphFragment.entry().orElseThrow()),
             TransferKind.SWITCH_ALTERNATIVE, Optional.of(caseLabels(caseNode)));
@@ -297,15 +422,25 @@ final class ExpressionGraphLowerer {
       } else {
         graph.connectExits(caseGraphFragment, merge.nodeId(), TransferKind.NORMAL, Optional.empty());
       }
+      for (var yield : caseGraphFragment.yieldExits()) {
+        if (yield.targetSwitchNodeId().equals(node.nodeId())) {
+          graph.addTransfer(CfgEndpoint.operation(yield.sourceEndpointId()), CfgEndpoint.operation(merge.nodeId()), TransferKind.NORMAL,
+              Optional.empty());
+        }
+      }
     }
-    return new GraphFragment(selector.entry().or(() -> Optional.of(switchOperation.nodeId())), List.of(merge.nodeId()),
-        Optional.of(result));
+    return new GraphFragment(selector.entry().or(() -> Optional.of(switchOperation.nodeId())),
+        caseValues.isEmpty() ? List.of() : List.of(merge.nodeId()), Optional.of(result), escapingYields);
   }
 
   private GraphFragment buildCaseBody(SyntaxNode caseNode) {
     var body = caseNode.optionalChild(SyntaxRole.BODY);
     if (body.isPresent()) {
-      return syntax.lower(body.orElseThrow());
+      var ruleBody = body.orElseThrow();
+      return switch (ruleBody.syntaxKind()) {
+        case BLOCK, THROW -> syntax.lower(ruleBody);
+        default -> syntax.lowerUse(caseNode, SyntaxRole.BODY);
+      };
     }
     var result = GraphFragment.empty();
     for (var statement : caseNode.children(SyntaxRole.STATEMENT)) {
@@ -334,6 +469,7 @@ final class ExpressionGraphLowerer {
   private static String describe(SyntaxNode node) {
     return switch (node.value()) {
       case SyntaxValue.None ignored -> node.syntaxKind().name().toLowerCase(Locale.ROOT);
+      case SyntaxValue.DiamondType ignored -> "<>";
       case SyntaxValue.LocalDeclaration declaration -> declaration.name();
       case SyntaxValue.Symbol symbol -> symbol.name();
       case SyntaxValue.FieldAccess field -> field.name();

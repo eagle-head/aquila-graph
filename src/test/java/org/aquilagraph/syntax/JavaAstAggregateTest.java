@@ -1279,15 +1279,16 @@ class JavaAstAggregateTest {
         SyntaxType.NotApplicable.INSTANCE, typeValue(1), List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, method)),
         Optional.empty(), new SourceSpan("a", 1, 2));
     var root = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, type)));
+    var methodKey = constructorValue().declarationKey();
 
     // Act
     var aggregate = JavaAstAggregate.builder(snapshot("a")).add(contribution(root))
-        .addMethodBody("method", body, MethodBodyOrigin.SOURCE_AST).seal();
+        .addMethodBody(methodKey, body, MethodBodyOrigin.SOURCE_AST).seal();
 
     // Assert
-    assertSame(body, aggregate.methodSyntax("method").orElseThrow().root());
+    assertSame(body, aggregate.methodSyntax(methodKey).orElseThrow().root());
     assertSame(body, aggregate.node(body.nodeId()).orElseThrow());
-    assertEquals(MethodBodyOrigin.SOURCE_AST, aggregate.methodBodyOrigin("method").orElseThrow());
+    assertEquals(MethodBodyOrigin.SOURCE_AST, aggregate.methodBodyOrigin(methodKey).orElseThrow());
   }
 
   @Test
@@ -1312,11 +1313,12 @@ class JavaAstAggregateTest {
         SyntaxType.NotApplicable.INSTANCE, typeValue(1), List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, method)),
         Optional.empty(), new SourceSpan("a", 1, 2));
     var root = root("a", List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, owner)));
+    var methodKey = constructorValue().declarationKey();
     var aggregate = JavaAstAggregate.builder(snapshot("a")).add(contribution(root))
-        .addMethodBody("method", body, MethodBodyOrigin.SOURCE_AST).seal();
+        .addMethodBody(methodKey, body, MethodBodyOrigin.SOURCE_AST).seal();
 
     // Act
-    var readiness = aggregate.methodSyntax("method").orElseThrow().readiness();
+    var readiness = aggregate.methodSyntax(methodKey).orElseThrow().readiness();
 
     // Assert
     assertEquals(SyntaxReadiness.UNRESOLVED_SEMANTICS, readiness);

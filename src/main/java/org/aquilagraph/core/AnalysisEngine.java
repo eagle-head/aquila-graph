@@ -4,12 +4,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.AnalysisRun;
 import org.aquilagraph.model.DiagnosticSeverity;
 import org.aquilagraph.model.DiagnosticStage;
 import org.aquilagraph.model.MethodAnalysis;
+import org.aquilagraph.model.JavaMethod;
 import org.aquilagraph.model.ProgramRepresentation;
 import org.aquilagraph.model.SoftwareVersion;
 import org.aquilagraph.model.StableId;
@@ -80,8 +82,13 @@ public final class AnalysisEngine {
     }
 
     var representation = new ProgramRepresentation(input.program(), analyses);
-    var concreteMethodCount = input.program().methods().stream().filter(method -> method.hasBody()).count();
-    var complete = diagnostics.stream().noneMatch(AnalysisDiagnostic::isError) && analyses.size() == concreteMethodCount;
+    var requiredMethodKeys = input.program().methods().stream().filter(JavaMethod::hasBody).map(JavaMethod::methodKey)
+        .collect(Collectors.toSet());
+    var analyzedMethodKeys = analyses.stream().map(analysis -> analysis.sourceMethod().methodKey()).collect(Collectors.toSet());
+    var fullyCovered = input.languageFeatureCoverageResult().observations().stream()
+        .noneMatch(observation -> observation.classification().blocksCompletion());
+    var complete = fullyCovered && diagnostics.stream().noneMatch(AnalysisDiagnostic::isError)
+        && analyzedMethodKeys.equals(requiredMethodKeys);
     return new AnalysisRun(runId, input.snapshot(), input.environmentSnapshot(), Optional.of(representation), diagnostics,
         complete ? AnalysisCompletion.COMPLETED : AnalysisCompletion.INCOMPLETE);
   }

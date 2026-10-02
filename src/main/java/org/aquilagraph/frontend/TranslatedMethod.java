@@ -3,17 +3,19 @@ package org.aquilagraph.frontend;
 import java.util.Objects;
 import java.util.Optional;
 import org.aquilagraph.model.JavaMethod;
-import org.aquilagraph.syntax.SyntaxNode;
 
-record TranslatedMethod(JavaMethod method, Optional<SyntaxNode> syntax) {
+record TranslatedMethod(JavaMethod method, Optional<TranslatedMethodBody> body) {
   TranslatedMethod {
     Objects.requireNonNull(method, "method");
-    Objects.requireNonNull(syntax, "syntax");
-    if (method.hasBody() != syntax.isPresent()) {
+    Objects.requireNonNull(body, "body");
+    if (method.hasBody() != body.isPresent()) {
       throw new IllegalArgumentException("Method declaration and syntax body presence must agree");
     }
-    syntax.ifPresent(value -> {
-      value.descendantsAndSelf();
+    body.ifPresent(value -> {
+      if (!method.methodKey().equals(value.methodKey())) {
+        throw new IllegalArgumentException("Method declaration and body identity must agree");
+      }
+      value.root().descendantsAndSelf();
     });
   }
 }

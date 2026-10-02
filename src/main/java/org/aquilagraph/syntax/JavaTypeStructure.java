@@ -141,6 +141,53 @@ public sealed interface JavaTypeStructure {
   }
 
   /**
+   * An implicit type variable with bounds copied from compiler attribution.
+   *
+   * @param ordinal
+   *          deterministic first-encounter ordinal within this complete type structure
+   * @param upperBound
+   *          complete attributed upper bound, including recursive references
+   * @param lowerBound
+   *          complete attributed lower bound; empty denotes the null type
+   */
+  record Captured(int ordinal, JavaTypeStructure upperBound, Optional<JavaTypeStructure> lowerBound) implements JavaTypeStructure {
+    /** Validates the local binder and its attributed bounds. */
+    public Captured {
+      if (ordinal < 0) {
+        throw new IllegalArgumentException("A captured type variable requires a nonnegative ordinal");
+      }
+      Objects.requireNonNull(upperBound, "upperBound");
+      Objects.requireNonNull(lowerBound, "lowerBound");
+      validateBound(upperBound);
+      lowerBound.ifPresent(Captured::validateBound);
+    }
+
+    private static void validateBound(JavaTypeStructure bound) {
+      if (bound instanceof Primitive || bound instanceof Wildcard || bound instanceof Union) {
+        throw new IllegalArgumentException("Captured variable bounds must be reference-type structures");
+      }
+      if (bound instanceof Intersection intersection) {
+        intersection.bounds().forEach(Captured::validateBound);
+      }
+    }
+  }
+
+  /**
+   * A reference to a captured variable already bound in the same complete structure.
+   *
+   * @param ordinal
+   *          first-encounter ordinal of the matching captured variable
+   */
+  record CaptureReference(int ordinal) implements JavaTypeStructure {
+    /** Validates the local reference ordinal. */
+    public CaptureReference {
+      if (ordinal < 0) {
+        throw new IllegalArgumentException("A captured variable reference requires a nonnegative ordinal");
+      }
+    }
+  }
+
+  /**
    * One array dimension with a recursive compiler component.
    *
    * @param component

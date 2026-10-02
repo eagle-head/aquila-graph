@@ -2,7 +2,7 @@ package org.aquilagraph.frontend;
 
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.Tree;
-import com.sun.source.util.TreeScanner;
+import com.sun.source.util.TreePathScanner;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -37,11 +37,12 @@ final class JavaCompilerKindDiagnostics {
     Objects.requireNonNull(units, "units");
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
-    var scanner = new DiagnosticScanner(occurrences, observations);
+    var diagnostics = new TranslationDiagnosticEvidence("JavaCompilerKindDiagnostics", "input-tree-scan");
+    var scanner = new DiagnosticScanner(occurrences, observations, diagnostics);
     for (var unit : units) {
       scanUnit(scanner, unit);
     }
-    return new ObservedLanguageFeatures(occurrences, observations);
+    return new ObservedLanguageFeatures(occurrences, observations, diagnostics);
   }
 
   private void scanUnit(DiagnosticScanner scanner, CompilationUnitTree unit) {
@@ -49,19 +50,25 @@ final class JavaCompilerKindDiagnostics {
     scanner.scan(unit, new ScanContext(unit, sourceFile));
   }
 
-  private final class DiagnosticScanner extends TreeScanner<Void, ScanContext> {
+  private final class DiagnosticScanner extends TreePathScanner<Void, ScanContext> {
     private final List<LanguageFeatureOccurrence> occurrences;
     private final List<LanguageFeatureObservation> observations;
     private final Set<SourceSpan> observedAnnotationRanges = new HashSet<>();
+    private final List<AnalysisDiagnostic> diagnostics;
 
-    private DiagnosticScanner(List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
+    private DiagnosticScanner(List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations,
+        List<AnalysisDiagnostic> diagnostics) {
       this.occurrences = occurrences;
       this.observations = observations;
+      this.diagnostics = diagnostics;
     }
 
     @Override
     public Void scan(@Nullable Tree tree, ScanContext context) {
       if (tree == null) {
+        return null;
+      }
+      if (JavaCoverageTopology.isDerivedCompactParameter(tree, getCurrentPath(), context.unit(), context.sourceFile(), sourceEvidence)) {
         return null;
       }
       var kind = tree.getKind();
@@ -82,6 +89,7 @@ final class JavaCompilerKindDiagnostics {
         diagnostic = Optional.of(FrontendDiagnosticFactory.error(context.sourceFile().sourceFileKey(), code,
             "Java compiler tree kind " + kind + " is outside the supported semantic graph profile", origins.stream().findFirst(),
             outcomeKind));
+        TranslationDiagnosticEvidence.emit(diagnostics, "JavaCompilerKindDiagnostics", diagnostic.orElseThrow());
       }
       occurrences.add(new LanguageFeatureOccurrence(context.sourceFile().sourceFileKey(), classification, origins));
       observations.add(new LanguageFeatureObservation(context.sourceFile().sourceFileKey(), classification, origins, diagnostic));

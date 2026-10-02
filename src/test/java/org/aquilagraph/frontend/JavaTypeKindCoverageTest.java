@@ -265,7 +265,7 @@ class JavaTypeKindCoverageTest {
     var snapshot = new JavaSourceLoader().discover(temporaryDirectory);
     var sources = new SnapshotSourceCatalog(snapshot);
     var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION);
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
       var unit = compilation.units().getFirst();
@@ -330,7 +330,7 @@ class JavaTypeKindCoverageTest {
   private List<String> diagnosedKeysWithSharedClassSpan() throws IOException {
     var snapshot = new JavaSourceLoader().discover(temporaryDirectory);
     var sources = new SnapshotSourceCatalog(snapshot);
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
       var bUnit = compilation.units().stream()

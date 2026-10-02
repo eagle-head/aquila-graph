@@ -17,6 +17,7 @@ import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.TypeKind;
 import org.aquilagraph.model.AnalysisDiagnostic;
+import org.aquilagraph.model.DiagnosticEmission;
 import org.aquilagraph.model.LanguageFeature;
 import org.aquilagraph.model.LanguageFeatureCategory;
 import org.aquilagraph.model.LanguageFeatureCoverage;
@@ -40,7 +41,8 @@ final class JavaAnnotationCompleteness {
   private final SemanticResolver semantics;
   private final JavaAnnotationValues values;
   private final List<AnalysisDiagnostic> priorDiagnostics;
-  private final List<AnalysisDiagnostic> reconciliationDiagnostics = new ArrayList<>();
+  private final List<AnalysisDiagnostic> reconciliationDiagnostics = new TranslationDiagnosticEvidence("JavaAnnotationCompleteness",
+      "input-annotation-reconciliation");
   private final Set<String> checked = new HashSet<>();
 
   JavaAnnotationCompleteness(JavaAnnotationSourceInventory inventory, SemanticResolver semantics,
@@ -70,8 +72,8 @@ final class JavaAnnotationCompleteness {
                 : "frontend.unavailable-source-annotation-range",
             "Written " + expected.sourceKind() + " occurrence " + ordinal + " has no exact source range", Optional.empty());
       } else if (matches.size() != UNIQUE_OCCURRENCE_COUNT) {
-        reconciliationDiagnostics
-            .add(FrontendDiagnosticFactory.capabilityError(occurrence.source().sourceFileKey() + ":annotation:" + ordinal,
+        TranslationDiagnosticEvidence.emit(reconciliationDiagnostics, "JavaAnnotationCompleteness",
+            FrontendDiagnosticFactory.capabilityError(occurrence.source().sourceFileKey() + ":annotation:" + ordinal,
                 "frontend.unrepresented-source-annotation", "A written annotation has no unique retained occurrence", expected.range()));
       } else {
         var annotation = matches.getFirst();
@@ -90,7 +92,11 @@ final class JavaAnnotationCompleteness {
             "An annotation fact has no matching written obligation", node.origin());
       }
     }
-    return List.copyOf(reconciliationDiagnostics);
+    return TranslationDiagnosticEvidence.copyOf(reconciliationDiagnostics);
+  }
+
+  List<DiagnosticEmission> reconcileWithEvents(Optional<JavaAstAggregate> aggregate) {
+    return TranslationDiagnosticEvidence.events(diagnostics(aggregate));
   }
 
   List<LanguageFeatureObservation> propertyObservations(LanguageFeatureCoverage coverage) {
@@ -340,7 +346,7 @@ final class JavaAnnotationCompleteness {
   }
 
   private void report(SourceFile source, String context, String code, String message, Optional<SourceSpan> range) {
-    reconciliationDiagnostics.add(FrontendDiagnosticFactory.otherError(source.sourceFileKey() + ':' + context, code,
-        message + " in " + source.relativePath(), range));
+    TranslationDiagnosticEvidence.emit(reconciliationDiagnostics, "JavaAnnotationCompleteness", FrontendDiagnosticFactory
+        .otherError(source.sourceFileKey() + ':' + context, code, message + " in " + source.relativePath(), range));
   }
 }

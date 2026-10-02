@@ -8,6 +8,7 @@ import java.util.stream.Collectors;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
 import org.aquilagraph.model.AnalysisDiagnostic;
+import org.aquilagraph.model.DiagnosticEmission;
 import org.aquilagraph.model.AnalysisOutcomeKind;
 import org.aquilagraph.model.DiagnosticSeverity;
 import org.aquilagraph.model.DiagnosticStage;
@@ -23,7 +24,14 @@ final class CompilerDiagnosticTranslator {
 
   List<AnalysisDiagnostic> translate(List<Diagnostic<? extends JavaFileObject>> compilerDiagnostics) {
     Objects.requireNonNull(compilerDiagnostics, "compilerDiagnostics");
-    return compilerDiagnostics.stream().map(this::translate).toList();
+    var diagnostics = new TranslationDiagnosticEvidence("CompilerDiagnosticTranslator", "input-compiler-diagnostics");
+    compilerDiagnostics
+        .forEach(diagnostic -> TranslationDiagnosticEvidence.emit(diagnostics, "CompilerDiagnosticTranslator", translate(diagnostic)));
+    return TranslationDiagnosticEvidence.copyOf(diagnostics);
+  }
+
+  List<DiagnosticEmission> translateWithEvents(List<Diagnostic<? extends JavaFileObject>> compilerDiagnostics) {
+    return TranslationDiagnosticEvidence.events(translate(compilerDiagnostics));
   }
 
   private AnalysisDiagnostic translate(Diagnostic<? extends JavaFileObject> diagnostic) {

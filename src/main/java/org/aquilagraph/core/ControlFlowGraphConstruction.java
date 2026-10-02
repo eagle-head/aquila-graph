@@ -19,11 +19,15 @@ import org.aquilagraph.model.FlowValue;
 import org.aquilagraph.model.JavaMethod;
 import org.aquilagraph.model.JavaParameter;
 import org.aquilagraph.model.JavaTypeIdentity;
+import org.aquilagraph.model.JavaTypeCategory;
+import org.aquilagraph.model.JavaTypeReference;
 import org.aquilagraph.model.InvocationSemantics;
 import org.aquilagraph.model.OperationKind;
 import org.aquilagraph.model.OperationNode;
 import org.aquilagraph.model.OperationOperand;
 import org.aquilagraph.model.SemanticReference;
+import org.aquilagraph.model.ReferenceKind;
+import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.StableId;
 import org.aquilagraph.model.TransferKind;
 import org.aquilagraph.model.ValueKind;
@@ -54,6 +58,11 @@ final class ControlFlowGraphConstruction {
     Objects.requireNonNull(parameter, "parameter");
     return value(StableId.sha256(VALUE_ID_NAMESPACE, parameter.parameterKey()), ValueKind.PARAMETER, Optional.of(parameter.name()),
         Optional.empty(), Optional.of(parameter.staticType()));
+  }
+
+  FlowValue enumContextValue(String enumOwnerKey, String role, JavaTypeIdentity staticType) {
+    return value(StableId.sha256(VALUE_ID_NAMESPACE, method.methodKey(), enumOwnerKey, "enum-context", role), ValueKind.IMPLICIT_PARAMETER,
+        Optional.of(role), Optional.empty(), Optional.of(staticType));
   }
 
   FlowValue localValue(String declarationKey, String name, Optional<JavaTypeIdentity> staticType) {
@@ -112,6 +121,18 @@ final class ControlFlowGraphConstruction {
         Optional.of(Objects.requireNonNull(invocationSemantics, "invocationSemantics")), node.semanticReference().stream().toList());
   }
 
+  GraphFragment classInitialization(SyntaxNode site, JavaTypeReference target) {
+    if (target.identity().category() != JavaTypeCategory.DECLARED || target.declarationKey().isEmpty()) {
+      throw new IllegalStateException("An admitted initialization target requires its selected declaring type identity");
+    }
+    var reference = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, target.declarationKey(),
+        Optional.of(target.identity().erasedName()), List.of(), List.of());
+    var operationId = operationNodeId(site, "class-initialization");
+    var operation = addOperationWithId(operationId, site, OperationKind.CLASS_INITIALIZATION, target.identity().displayName(), List.of(),
+        Optional.empty(), List.of(ExceptionType.unknown("unchecked-class-initialization")), List.of(reference));
+    return new GraphFragment(Optional.of(operation.nodeId()), List.of(operation.nodeId()), Optional.empty());
+  }
+
   private OperationNode addOperationWithSemantics(String operationNodeId, SyntaxNode node, OperationKind kind, String detail,
       List<FlowValue> operands, Optional<FlowValue> definedValue, List<ExceptionType> possibleExceptions,
       Optional<InvocationSemantics> invocationSemantics, List<SemanticReference> semanticReferences) {
@@ -121,11 +142,12 @@ final class ControlFlowGraphConstruction {
       addValue(operands.get(index));
       orderedOperands.add(new OperationOperand(index, operands.get(index)));
     }
-    var exceptionTypeNames = possibleExceptions.stream().map(ExceptionType::typeName).toList();
+    var exceptionOutcomes = possibleExceptions.stream().flatMap(exception -> exception.outcomes().stream()).toList();
+    var exceptionTypeNames = exceptionOutcomes.stream().map(ExceptionType::typeName).distinct().toList();
     var operation = new OperationNode(operationNodeId, graphId, kind, detail, orderedOperands, definedValue, invocationSemantics,
         semanticReferences, exceptionTypeNames, node.origin().stream().toList());
     operationNodes.add(operation);
-    addExceptionTransfers(operation, possibleExceptions);
+    addExceptionTransfers(operation, exceptionOutcomes);
     return operation;
   }
 
@@ -156,10 +178,12 @@ final class ControlFlowGraphConstruction {
       return first;
     }
     if (first.normalExits().isEmpty()) {
-      return new GraphFragment(first.entry(), List.of(), second.value());
+      return new GraphFragment(first.entry(), List.of(), first.value(), first.yieldExits());
     }
     connectExits(first, second.entry().orElseThrow(), TransferKind.NORMAL, Optional.empty());
-    return new GraphFragment(first.entry(), second.normalExits(), second.value());
+    var yields = new ArrayList<>(first.yieldExits());
+    yields.addAll(second.yieldExits());
+    return new GraphFragment(first.entry(), second.normalExits(), second.value(), yields);
   }
 
   GraphFragment withExceptionHandlers(List<ExceptionHandler> handlers, Supplier<GraphFragment> action) {
@@ -175,6 +199,9 @@ final class ControlFlowGraphConstruction {
 
   ControlFlowGraph complete(GraphFragment fragment) {
     Objects.requireNonNull(fragment, "fragment");
+    if (!fragment.yieldExits().isEmpty()) {
+      throw new IllegalStateException("Method assembly cannot retain unconsumed switch yields");
+    }
     if (fragment.entry().isPresent()) {
       addTransfer(CfgEndpoint.entry(), CfgEndpoint.operation(fragment.entry().orElseThrow()), TransferKind.NORMAL, Optional.empty());
       for (var source : fragment.normalExits()) {
@@ -200,7 +227,10 @@ final class ControlFlowGraphConstruction {
     if (!value.graphId().equals(graphId)) {
       throw new IllegalArgumentException("A flow value belongs to another CFG");
     }
-    values.putIfAbsent(value.valueId(), value);
+    var previous = values.putIfAbsent(value.valueId(), value);
+    if (previous != null && !previous.equals(value)) {
+      throw new IllegalArgumentException("A flow value identity cannot denote unequal typed values");
+    }
   }
 
   private void addExceptionTransfers(OperationNode operation, List<ExceptionType> possibleExceptions) {

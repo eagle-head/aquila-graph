@@ -3,6 +3,7 @@ package org.aquilagraph.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -14,12 +15,15 @@ import java.util.stream.IntStream;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.model.DiagnosticSeverity;
+import org.aquilagraph.model.DiagnosticStage;
 import org.aquilagraph.model.JavaMethod;
 import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.JavaTypeIdentity;
 import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.OperationKind;
 import org.aquilagraph.model.SemanticReference;
+import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.model.TransferKind;
 import org.aquilagraph.model.ValueKind;
 import org.aquilagraph.syntax.JavaSourceKind;
@@ -33,6 +37,7 @@ import org.aquilagraph.syntax.SyntaxRole;
 import org.aquilagraph.syntax.SyntaxStructuralPath;
 import org.aquilagraph.syntax.SyntaxType;
 import org.aquilagraph.syntax.SyntaxValue;
+import org.aquilagraph.syntax.TypedUseDecision;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -120,6 +125,93 @@ class ControlFlowGraphBuilderTest {
   }
 
   @Test
+  void givenNullAndMismatchedOrBodylessInputs_whenCfgIsRequested_thenInvalidInputPrecedesReadinessRefusal() {
+    // Arrange
+    var unresolved = syntheticMethod(SyntaxType.Unresolved.INSTANCE);
+    var declaration = unresolved.declaration();
+    var mismatch = new JavaMethod("type:Other#value()", "type:Other", "value", "value()", "int", List.of(), Set.of(),
+        false, true, true, List.of());
+    var bodyless = new JavaMethod(declaration.methodKey(), declaration.ownerTypeKey(), declaration.name(), declaration.signature(),
+        declaration.returnType(), declaration.parameters(), declaration.modifiers(), declaration.constructor(), declaration.sourceDeclared(), false,
+        declaration.origins());
+    var builder = new ControlFlowGraphBuilder();
+
+    // Act
+    var missingMethod = assertThrows(NullPointerException.class, () -> builder.build(null, unresolved.syntax()));
+    var missingSyntax = assertThrows(NullPointerException.class, () -> builder.build(declaration, null));
+    var mismatchedMethod = assertThrows(IllegalArgumentException.class, () -> builder.build(mismatch, unresolved.syntax()));
+    var bodylessMethod = assertThrows(IllegalArgumentException.class, () -> builder.build(bodyless, unresolved.syntax()));
+
+    // Assert
+    assertEquals("method", missingMethod.getMessage());
+    assertEquals("syntax", missingSyntax.getMessage());
+    assertEquals("Control-flow syntax must belong to the declared method body", mismatchedMethod.getMessage());
+    assertEquals("Control-flow syntax must belong to the declared method body", bodylessMethod.getMessage());
+  }
+
+  @Test
+  void givenErroneousAndUnresolvedFacts_whenCfgIsRequested_thenOneStableErroneousDiagnosticRetainsMethodOrigins() {
+    // Arrange
+    var erroneous = syntheticMethod(SyntaxType.Erroneous.INSTANCE);
+    var unresolvedLiteral = syntaxNode("mixed-unresolved-literal", JavaSourceKind.INT_LITERAL, SyntaxKind.LITERAL,
+        SyntaxType.Unresolved.INSTANCE, new SyntaxValue.Literal("2"), List.of(), Optional.empty());
+    var unresolvedReturn = syntaxNode("mixed-unresolved-return", JavaSourceKind.RETURN, SyntaxKind.RETURN,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.EXPRESSION, 0, unresolvedLiteral)), Optional.empty());
+    var root = syntaxNode("mixed-root", JavaSourceKind.BLOCK, SyntaxKind.BLOCK, SyntaxType.NotApplicable.INSTANCE,
+        SyntaxValue.None.INSTANCE,
+        List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, erroneous.syntax().root().children(SyntaxRole.STATEMENT).getFirst()),
+            new SyntaxChild(SyntaxRole.STATEMENT, 1, unresolvedReturn)), Optional.empty());
+    var original = erroneous.declaration();
+    var method = new JavaMethod(original.methodKey(), original.ownerTypeKey(), original.name(), original.signature(),
+        original.returnType(), original.parameters(), original.modifiers(), original.constructor(), original.sourceDeclared(), original.hasBody(),
+        List.of(new SourceSpan("source", 0, 1)));
+    var syntax = MethodSyntaxFixture.view(method.methodKey(), root);
+    var builder = new ControlFlowGraphBuilder();
+
+    // Act
+    var result = builder.build(method, syntax);
+    var repeated = builder.build(method, syntax);
+
+    // Assert
+    assertTrue(result.graph().isEmpty());
+    assertEquals(result, repeated);
+    assertEquals(1, result.diagnostics().size());
+    var diagnostic = result.diagnostics().getFirst();
+    assertEquals("control-flow.erroneous-semantics", diagnostic.code());
+    assertEquals("Method body contains erroneous compiler semantics", diagnostic.message());
+    assertEquals(DiagnosticStage.CONTROL_FLOW, diagnostic.stage());
+    assertEquals(DiagnosticSeverity.ERROR, diagnostic.severity());
+    assertEquals(method.origins(), diagnostic.origins());
+  }
+
+  @Test
+  void givenUnsupportedBodyWithErroneousFacts_whenCfgIsRequested_thenUnsupportedDiagnosticHasPrecedence() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("UnsupportedReadiness.java"), """
+        class UnsupportedReadiness {
+          int execute() {
+            while (true) { return missingValue; }
+          }
+        }
+        """);
+    var method = method("execute");
+
+    // Act
+    var result = build(method);
+
+    // Assert
+    assertTrue(result.graph().isEmpty());
+    assertEquals(1, result.diagnostics().size());
+    var diagnostic = result.diagnostics().getFirst();
+    assertEquals("control-flow.unsupported-method", diagnostic.code());
+    assertEquals("Method body contains a Java construct outside the supported subset", diagnostic.message());
+    assertEquals(DiagnosticStage.CONTROL_FLOW, diagnostic.stage());
+    assertEquals(DiagnosticSeverity.ERROR, diagnostic.severity());
+    assertEquals(method.declaration().origins(), diagnostic.origins());
+  }
+
+  @Test
   void givenBinaryChildrenStoredOutOfOrder_whenCfgIsBuilt_thenTypedRolesDetermineEvaluationOrder() {
     // Arrange
     var left = syntaxLeaf("left", SyntaxKind.LITERAL, new SyntaxValue.Literal("1"));
@@ -166,7 +258,17 @@ class ControlFlowGraphBuilderTest {
             true,
             true,
             List.of());
-    var syntax = MethodSyntaxFixture.view(declaration.methodKey(), root);
+    var integer = new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int");
+    var syntax = MethodSyntaxFixture.view(declaration.methodKey(), root, execution -> {
+      var statement = execution.requiredChild(SyntaxRole.STATEMENT);
+      var expression = statement.requiredChild(SyntaxRole.EXPRESSION);
+      return List.of(new TypedUseDecision(declaration.methodKey(), expression.nodeId(), SyntaxRole.LEFT_OPERAND, 0, integer, integer,
+          Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
+          new TypedUseDecision(declaration.methodKey(), expression.nodeId(), SyntaxRole.RIGHT_OPERAND, 0, integer, integer,
+              Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
+          new TypedUseDecision(declaration.methodKey(), statement.nodeId(), SyntaxRole.EXPRESSION, 0, integer, integer,
+              Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
+    });
 
     // Act
     var graph = new ControlFlowGraphBuilder().build(declaration, syntax).graph().orElseThrow();
@@ -347,7 +449,7 @@ class ControlFlowGraphBuilderTest {
   }
 
   @Test
-  void givenMultiCatchWithoutACompatibleAlternative_whenCfgIsBuilt_thenCommonSupertypeDoesNotCauseFalseCatch()
+  void givenMultiCatchWithUnprovenAlternativeRelationships_whenCfgIsBuilt_thenCommonSupertypeCannotRemoveTheResidualExit()
       throws IOException {
     // Arrange
     Files.writeString(
@@ -370,7 +472,12 @@ class ControlFlowGraphBuilderTest {
     // Assert
     var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
     var catchNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.CATCH).findFirst().orElseThrow();
-    assertFalse(graph.edges().stream()
+    assertEquals(List.of("java.lang.NullPointerException"), throwNode.possibleExceptions());
+    assertEquals(List.of("java.lang.IllegalArgumentException", "java.lang.IllegalStateException"),
+        method.syntax().root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.CATCH)
+            .findFirst().orElseThrow().requiredChild(SyntaxRole.PARAMETER).requiredReference().typeAlternativeNames());
+    assertEquals(2, graph.edges().stream().filter(edge -> edge.sourceNodeId().equals(throwNode.nodeId())).count());
+    assertTrue(graph.edges().stream()
         .anyMatch(edge -> edge.sourceNodeId().equals(throwNode.nodeId()) && edge.targetNodeId().equals(catchNode.nodeId())
             && edge.transferKind() == TransferKind.EXCEPTIONAL));
     assertTrue(graph.edges().stream()
@@ -379,7 +486,7 @@ class ControlFlowGraphBuilderTest {
   }
 
   @Test
-  void givenUnrelatedExceptionsWithTheSameSimpleName_whenCfgIsBuilt_thenQualifiedTypesPreventFalseCatch()
+  void givenQualifiedHomonymousExceptionsWithUnprovenRelationship_whenCfgIsBuilt_thenPossibleCatchCannotRemoveTheResidualExit()
       throws IOException {
     // Arrange
     Files.writeString(
@@ -412,7 +519,12 @@ class ControlFlowGraphBuilderTest {
     // Assert
     var throwNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.THROW).findFirst().orElseThrow();
     var catchNode = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.CATCH).findFirst().orElseThrow();
-    assertFalse(graph.edges().stream()
+    assertEquals(List.of("QualifiedException.Right.Failure"), throwNode.possibleExceptions());
+    assertEquals(List.of("QualifiedException.Left.Failure"), method.syntax().root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.CATCH).findFirst().orElseThrow()
+        .requiredChild(SyntaxRole.PARAMETER).requiredReference().typeAlternativeNames());
+    assertEquals(2, graph.edges().stream().filter(edge -> edge.sourceNodeId().equals(throwNode.nodeId())).count());
+    assertTrue(graph.edges().stream()
         .anyMatch(edge -> edge.sourceNodeId().equals(throwNode.nodeId()) && edge.targetNodeId().equals(catchNode.nodeId())
             && edge.transferKind() == TransferKind.EXCEPTIONAL));
     assertTrue(graph.edges().stream()

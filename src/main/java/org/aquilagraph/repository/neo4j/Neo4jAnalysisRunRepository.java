@@ -34,8 +34,16 @@ public final class Neo4jAnalysisRunRepository implements AnalysisRunRepository {
    *           if driver initialization fails
    */
   public Neo4jAnalysisRunRepository(Neo4jConnectionSettings settings) {
-    this(createDriver(Objects.requireNonNull(settings, "settings")), SessionConfig.forDatabase(settings.database()),
-        new Neo4jAnalysisRunMapper()::map);
+    this(acquire(settings, Neo4jAnalysisRunRepository::createDriver, value -> SessionConfig.forDatabase(value.database())));
+  }
+
+  Neo4jAnalysisRunRepository(Neo4jConnectionSettings settings, Function<Neo4jConnectionSettings, Driver> driverFactory,
+      Function<Neo4jConnectionSettings, SessionConfig> sessionConfigFactory) {
+    this(acquire(settings, driverFactory, sessionConfigFactory));
+  }
+
+  private Neo4jAnalysisRunRepository(RepositoryResources resources) {
+    this(resources.driver(), resources.sessionConfig(), resources.mapper());
   }
 
   Neo4jAnalysisRunRepository(Driver driver, SessionConfig sessionConfig, Function<AnalysisRun, Neo4jGraphProjection> mapper) {
@@ -94,6 +102,55 @@ public final class Neo4jAnalysisRunRepository implements AnalysisRunRepository {
       session.run("CREATE CONSTRAINT analysis_entity_identity IF NOT EXISTS "
           + "FOR (entity:AnalysisEntity) REQUIRE (entity.runId, entity.key) IS UNIQUE").consume();
       session.run("CREATE CONSTRAINT analysis_run_identity IF NOT EXISTS " + "FOR (run:AnalysisRun) REQUIRE run.runId IS UNIQUE").consume();
+      var definitions = session.run(
+          "SHOW CONSTRAINTS YIELD name, type, entityType, labelsOrTypes, properties "
+              + "WHERE name IN $names RETURN name, type, entityType, labelsOrTypes, properties",
+          Values.parameters("names", List.of("analysis_entity_identity", "analysis_run_identity"))).list();
+      Neo4jSchema.requireIdentityConstraints(definitions);
+    }
+  }
+
+  private static RepositoryResources acquire(Neo4jConnectionSettings settings, Function<Neo4jConnectionSettings, Driver> driverFactory,
+      Function<Neo4jConnectionSettings, SessionConfig> sessionConfigFactory) {
+    Objects.requireNonNull(settings, "settings");
+    Objects.requireNonNull(driverFactory, "driverFactory");
+    Objects.requireNonNull(sessionConfigFactory, "sessionConfigFactory");
+    try (var acquisition = new DriverAcquisition(driverFactory.apply(settings))) {
+      try {
+        var config = Objects.requireNonNull(sessionConfigFactory.apply(settings), "sessionConfig");
+        var resources = new RepositoryResources(acquisition.driver, config, new Neo4jAnalysisRunMapper()::map);
+        acquisition.transferred = true;
+        return resources;
+      } catch (Neo4jException exception) {
+        throw new RepositoryException("Neo4j driver initialization failed", exception);
+      }
+    }
+  }
+
+  private static void closeDriver(Driver acquiredDriver) {
+    try {
+      acquiredDriver.close();
+    } catch (Neo4jException exception) {
+      throw new RepositoryException("Neo4j driver shutdown failed", exception);
+    }
+  }
+
+  private record RepositoryResources(Driver driver, SessionConfig sessionConfig, Function<AnalysisRun, Neo4jGraphProjection> mapper) {
+  }
+
+  private static final class DriverAcquisition implements AutoCloseable {
+    private final Driver driver;
+    private boolean transferred;
+
+    private DriverAcquisition(Driver driver) {
+      this.driver = Objects.requireNonNull(driver, "driver");
+    }
+
+    @Override
+    public void close() {
+      if (!transferred) {
+        closeDriver(driver);
+      }
     }
   }
 
@@ -114,10 +171,6 @@ public final class Neo4jAnalysisRunRepository implements AnalysisRunRepository {
    */
   @Override
   public void close() {
-    try {
-      driver.close();
-    } catch (Neo4jException exception) {
-      throw new RepositoryException("Neo4j driver shutdown failed", exception);
-    }
+    closeDriver(driver);
   }
 }

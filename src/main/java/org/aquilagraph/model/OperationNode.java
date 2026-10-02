@@ -52,5 +52,21 @@ public record OperationNode(String nodeId, String graphId, OperationKind kind, S
     if (invocationOperation != invocationSemantics.isPresent()) {
       throw new IllegalArgumentException("Invocation semantics must be present exactly for invocation and construction operations");
     }
+    if (kind == OperationKind.CLASS_INITIALIZATION) {
+      validateInitialization(operands, definedValue, semanticReferences);
+    }
+  }
+
+  private static void validateInitialization(List<OperationOperand> operands, Optional<FlowValue> definedValue,
+      List<SemanticReference> semanticReferences) {
+    if (!operands.isEmpty() || definedValue.isPresent() || semanticReferences.size() != 1) {
+      throw new IllegalArgumentException("Class initialization requires one declaring type reference and no value operands or definition");
+    }
+    var target = semanticReferences.getFirst();
+    if (target.referenceKind() != ReferenceKind.TYPE || target.status() != ResolutionStatus.RESOLVED || target.symbolKey().isEmpty()
+        || target.typeName().isEmpty() || target.typeName().filter(String::isBlank).isPresent() || !target.typeAlternativeNames().isEmpty()
+        || !target.assignableToTypeNames().isEmpty()) {
+      throw new IllegalArgumentException("Class initialization requires a resolved declaring type identity without inferred hierarchy");
+    }
   }
 }

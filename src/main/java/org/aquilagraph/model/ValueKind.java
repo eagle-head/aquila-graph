@@ -4,6 +4,8 @@ package org.aquilagraph.model;
 public enum ValueKind {
   /** Method parameter value. */
   PARAMETER,
+  /** Compiler-supplied incoming construction value with no source parameter declaration. */
+  IMPLICIT_PARAMETER,
   /** Local variable value. */
   LOCAL,
   /** Intermediate operation result. */

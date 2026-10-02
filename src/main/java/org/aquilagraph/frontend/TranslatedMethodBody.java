@@ -1,16 +1,22 @@
 package org.aquilagraph.frontend;
 
 import java.util.Objects;
+import org.aquilagraph.frontend.JavaMethodBodyTranslator.BodyProjection;
 import org.aquilagraph.syntax.SyntaxKind;
 import org.aquilagraph.syntax.SyntaxNode;
 
-/** Compiler-neutral body awaiting source-AST contribution assembly. */
-record TranslatedMethodBody(String methodKey, SyntaxNode root) {
+/** Session-local body projection awaiting independent executable correlation. */
+record TranslatedMethodBody(String methodKey, SyntaxNode root, BodyProjection projection) {
   TranslatedMethodBody {
     Objects.requireNonNull(methodKey, "methodKey");
     Objects.requireNonNull(root, "root");
+    Objects.requireNonNull(projection, "projection");
     if (methodKey.isBlank() || root.syntaxKind() != SyntaxKind.BLOCK) {
       throw new IllegalArgumentException("A translated method body requires a method identity and block root");
     }
+  }
+
+  JavaBodyDecisions decisions() {
+    return projection.decisions();
   }
 }

@@ -16,6 +16,24 @@ public enum OperationKind {
   BINARY,
   /** Applies a type cast. */
   CAST,
+  /** Converts a primitive value to the selected wrapper and reference target. */
+  BOX,
+  /** Converts a wrapper value to the selected primitive target. */
+  UNBOX,
+  /** Converts one operand to its String concatenation value. */
+  STRING_CONVERSION,
+  /** Concatenates two String values. */
+  STRING_CONCAT,
+  /** Checks the enclosing instance before qualified construction or delegation. */
+  ENCLOSING_INSTANCE_CHECK,
+  /** Models possible initialization of the selected declaring class or interface. */
+  CLASS_INITIALIZATION,
+  /** Allocates the instance before constructor argument evaluation. */
+  NEW_ALLOCATION,
+  /** Checks an array assignment target after the raw right operand. */
+  ARRAY_TARGET_CHECK,
+  /** Allocates the selected variable-arity argument array. */
+  VARARGS_ARRAY,
   /** Reads or writes an array element. */
   ARRAY_ACCESS,
   /** Reads an array length. */

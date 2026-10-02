@@ -36,7 +36,7 @@ final class JavaSyntaxStructuralPath {
         path = path.child(SyntaxRole.TYPE_DECLARATION, identityIndex(unit.getTypeDecls(), child));
       } else if (parent instanceof ClassTree type) {
         path = path.child(SyntaxRole.MEMBER, identityIndex(type.getMembers(), child));
-      } else if (parent instanceof MethodTree method && method.getBody().equals(child)) {
+      } else if (parent instanceof MethodTree method && JavaProjectionIdentity.sameInstance(method.getBody(), child)) {
         path = path.child(SyntaxRole.BODY, 0);
       } else {
         throw new IllegalArgumentException("A method-body structural path contains an unsupported declaration step");
@@ -48,7 +48,7 @@ final class JavaSyntaxStructuralPath {
 
   private static int identityIndex(List<? extends Tree> values, Tree expected) {
     for (var index = 0; index < values.size(); index++) {
-      if (values.get(index).equals(expected)) {
+      if (JavaProjectionIdentity.sameInstance(values.get(index), expected)) {
         return index;
       }
     }

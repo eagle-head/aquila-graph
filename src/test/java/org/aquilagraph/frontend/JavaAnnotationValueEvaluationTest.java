@@ -92,7 +92,7 @@ class JavaAnnotationValueEvaluationTest {
     // Assert
     assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
         () -> result.diagnostics().toString());
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration),
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration),
         new SnapshotSourceCatalog(result.snapshot()))) {
       var compilation = session.analyze(session.parse());
       var unit = compilation.units().getFirst();
@@ -147,7 +147,7 @@ class JavaAnnotationValueEvaluationTest {
         .findFirst().orElseThrow().requiredChild(SyntaxRole.ANNOTATION);
 
     // Act
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration),
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration),
         new SnapshotSourceCatalog(result.snapshot()))) {
       var compilation = session.analyze(session.parse());
       var unit = compilation.units().getFirst();

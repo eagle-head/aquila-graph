@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -13,16 +14,23 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.aquilagraph.core.AnalysisEngine;
+import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.ResolutionStatus;
+import org.aquilagraph.model.SemanticReference;
+import org.aquilagraph.model.SourceSpan;
+import org.aquilagraph.model.SourceOwnerPath;
 import org.aquilagraph.syntax.MethodSyntax;
 import org.aquilagraph.syntax.JavaTypeStructure;
 import org.aquilagraph.syntax.SyntaxAnalysisInput;
 import org.aquilagraph.syntax.SyntaxChild;
 import org.aquilagraph.syntax.SyntaxKind;
+import org.aquilagraph.syntax.SyntaxNode;
+import org.aquilagraph.syntax.JavaSourceKind;
 import org.aquilagraph.syntax.SyntaxReadiness;
 import org.aquilagraph.syntax.SyntaxRole;
 import org.aquilagraph.syntax.SyntaxType;
@@ -149,11 +157,22 @@ class JavaFrontendTest {
     var second = frontend.analyze(snapshot, configuration);
 
     // Assert
-    assertDiagnosticCodes(first, List.of("frontend.unrepresented-source-type-use"));
+    assertDiagnosticCodes(first, List.of());
+    assertDiagnosticCodes(second, List.of());
     var firstBody = methodBody(first, "evaluate");
     var secondBody = methodBody(second, "evaluate");
     assertEquals(SyntaxReadiness.LOWERABLE, firstBody.readiness());
     assertEquals(firstBody.root(), secondBody.root());
+    var local = firstBody.root().children(SyntaxRole.STATEMENT).getFirst();
+    var writtenType = assertSourceOccurrence(first, firstBody, local).requiredChild(SyntaxRole.DECLARED_TYPE);
+    assertEquals(SyntaxKind.TYPE_USE, writtenType.syntaxKind());
+    assertEquals(JavaSourceKind.PRIMITIVE_TYPE, writtenType.sourceKind());
+    assertEquals(new JavaTypeStructure.Primitive(JavaTypeCategory.INT),
+        assertInstanceOf(SyntaxType.Resolved.class, writtenType.type()).structure().orElseThrow());
+    var source = first.snapshot().sourceFiles().getFirst();
+    var start = source.content().indexOf("int sum");
+    assertEquals(Optional.of(new SourceSpan(source.sourceFileKey(), start, start + 3)), writtenType.origin());
+    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(first).completion());
     assertEquals(
         List.of(SyntaxKind.LOCAL_DECLARATION, SyntaxKind.IF, SyntaxKind.RETURN),
         firstBody.root().children(SyntaxRole.STATEMENT).stream().map(node -> node.syntaxKind()).toList());
@@ -420,6 +439,11 @@ class JavaFrontendTest {
     assertTrue(local.declarationKey().startsWith("type:LocalCreation#create():type:"), local.declarationKey());
     assertEquals(Optional.of(new JavaTypeStructure.Declared("type:LocalCreation", Optional.empty(), List.of())),
         local.enclosingType());
+    var writtenType = assertSourceOccurrence(result, body, creation).requiredChild(SyntaxRole.TYPE_OPERAND);
+    assertEquals(local, assertInstanceOf(SyntaxType.Resolved.class, writtenType.type()).structure().orElseThrow());
+    assertEquals(ReferenceKind.TYPE, writtenType.requiredReference().referenceKind());
+    assertEquals(Optional.of(local.declarationKey()), writtenType.requiredReference().symbolKey());
+    assertEquals("Local", writtenText(result, writtenType));
   }
 
   @Test
@@ -457,6 +481,16 @@ class JavaFrontendTest {
     assertEquals(member, localMemberCreationType(secondRun, "create"));
     assertEquals(anotherMember, localMemberCreationType(secondRun, "createAgain"));
     assertTrue(firstRun.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unavailable-type-structure")));
+    var body = methodBody(firstRun, "create");
+    var creations = body.root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION).toList();
+    var sourceCreations = creations.stream().map(node -> assertSourceOccurrence(firstRun, body, node)).toList();
+    assertEquals(List.of("Member", "Local"), sourceCreations.stream()
+        .map(node -> writtenText(firstRun, node.requiredChild(SyntaxRole.TYPE_OPERAND))).toList());
+    for (var sourceCreation : sourceCreations) {
+      assertEquals(assertInstanceOf(SyntaxType.Resolved.class, sourceCreation.type()).structure(),
+          assertInstanceOf(SyntaxType.Resolved.class, sourceCreation.requiredChild(SyntaxRole.TYPE_OPERAND).type()).structure());
+    }
   }
 
   @Test
@@ -483,6 +517,44 @@ class JavaFrontendTest {
     assertNotEquals(firstKey, secondKey);
     assertEquals(firstKey, localCreationType(secondRun, "first").declarationKey());
     assertEquals(secondKey, localCreationType(secondRun, "second").declarationKey());
+    for (var methodName : List.of("first", "second")) {
+      var body = methodBody(firstRun, methodName);
+      var creation = body.root().descendantsAndSelf().stream()
+          .filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION).findFirst().orElseThrow();
+      var written = assertSourceOccurrence(firstRun, body, creation).requiredChild(SyntaxRole.TYPE_OPERAND);
+      assertEquals(Optional.of(localCreationType(firstRun, methodName).declarationKey()),
+          written.requiredReference().symbolKey());
+      assertEquals("Local", writtenText(firstRun, written));
+    }
+  }
+
+  @Test
+  void givenWrittenLocalType_whenItsSelectedDeclarationIsForged_thenTypeUseConstructionRejectsTheWrongTarget() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("LocalTarget.java"), """
+        class LocalTarget {
+          Object create() { class Local { } return new Local(); }
+        }
+        """);
+    var input = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory,
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var body = methodBody(input, "create");
+    var creation = body.root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION).findFirst().orElseThrow();
+    var sourceCreation = assertSourceOccurrence(input, body, creation);
+    var written = sourceCreation.requiredChild(SyntaxRole.TYPE_OPERAND);
+    var selected = written.requiredReference();
+    var foreign = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of("type:Foreign"), selected.typeName(),
+        selected.typeAlternativeNames(), selected.assignableToTypeNames());
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source(written.sourceFileKey(), written.structuralPath(),
+        written.sourceKind(), written.syntaxKind(), written.type(), written.value(), written.children(), Optional.of(foreign),
+        written.origin().orElseThrow()));
+
+    // Assert
+    assertEquals(sourceCreation, assertSourceOccurrence(input, body, creation));
+    assertEquals("A type use requires its compiler-selected declaration target", failure.getMessage());
   }
 
   @Test
@@ -672,6 +744,48 @@ class JavaFrontendTest {
     return result.methodSyntax(method.methodKey()).orElseThrow();
   }
 
+  private static SyntaxNode assertSourceOccurrence(SyntaxAnalysisInput input, MethodSyntax body, SyntaxNode executionNode) {
+    var aggregate = input.aggregate().orElseThrow();
+    var declarations = aggregate.nodes().stream()
+        .filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration declaration
+            && declaration.declarationKey().equals(body.methodKey()))
+        .toList();
+    assertEquals(1, declarations.size());
+    var declaration = declarations.getFirst();
+    var sourceBody = declaration.requiredChild(SyntaxRole.BODY);
+    var matches = sourceBody.descendantsAndSelf().stream()
+        .filter(node -> node.sourceFileKey().equals(executionNode.sourceFileKey())
+            && node.sourceKind() == executionNode.sourceKind() && node.syntaxKind() == executionNode.syntaxKind()
+            && node.origin().equals(executionNode.origin()) && node.value().equals(executionNode.value())
+            && node.type().equals(executionNode.type()) && node.semanticReference().equals(executionNode.semanticReference()))
+        .toList();
+    assertEquals(1, matches.size());
+    var source = matches.getFirst();
+    assertEquals(source, aggregate.node(source.nodeId()).orElseThrow());
+    var executionSteps = executionNode.structuralPath().steps();
+    var executionRootSteps = body.root().structuralPath().steps();
+    var sourceSteps = source.structuralPath().steps();
+    var sourceRootSteps = sourceBody.structuralPath().steps();
+    assertEquals(executionRootSteps, executionSteps.subList(0, executionRootSteps.size()));
+    assertEquals(sourceRootSteps, sourceSteps.subList(0, sourceRootSteps.size()));
+    assertEquals(executionSteps.subList(executionRootSteps.size(), executionSteps.size()),
+        sourceSteps.subList(sourceRootSteps.size(), sourceSteps.size()));
+    var owner = aggregate.writtenSourceAssociation(declaration.nodeId()).orElseThrow();
+    var sourceBodyOwner = aggregate.writtenSourceAssociation(sourceBody.nodeId()).orElseThrow();
+    var sourceOwner = aggregate.writtenSourceAssociation(source.nodeId()).orElseThrow();
+    assertEquals(owner.ownerPath().child(SourceOwnerPath.Role.BODY, 0), sourceBodyOwner.ownerPath());
+    assertTrue(sourceBodyOwner.ownerPath().isAncestorOf(sourceOwner.ownerPath()));
+    assertEquals(source.nodeId(), sourceOwner.nodeKey());
+    assertEquals(executionNode.sourceFileKey(), sourceOwner.sourceFileKey());
+    assertEquals(executionNode.sourceKind(), sourceOwner.sourceKind());
+    assertEquals(executionNode.origin(), sourceOwner.origin());
+    assertTrue(body.root().descendantsAndSelf().stream()
+        .allMatch(node -> node.children(SyntaxRole.DECLARED_TYPE).isEmpty() && node.children(SyntaxRole.TYPE_OPERAND).isEmpty()));
+    assertTrue(body.root().descendantsAndSelf().stream()
+        .noneMatch(node -> node.syntaxKind() == SyntaxKind.TYPE_USE || node.syntaxKind() == SyntaxKind.ANNOTATION));
+    return source;
+  }
+
   private static JavaTypeStructure.LocalDeclared localCreationType(SyntaxAnalysisInput result, String methodName) {
     var creation = methodBody(result, methodName).root().descendantsAndSelf().stream()
         .filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION).findFirst().orElseThrow();
@@ -688,5 +802,11 @@ class JavaFrontendTest {
 
   private static void assertDiagnosticCodes(SyntaxAnalysisInput result, List<String> expected) {
     assertEquals(expected, result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
+  }
+
+  private static String writtenText(SyntaxAnalysisInput input, SyntaxNode node) {
+    var source = input.snapshot().sourceFiles().stream().filter(file -> file.sourceFileKey().equals(node.sourceFileKey())).findFirst().orElseThrow();
+    var origin = node.origin().orElseThrow();
+    return source.content().substring(Math.toIntExact(origin.startOffset()), Math.toIntExact(origin.endOffsetExclusive()));
   }
 }

@@ -97,12 +97,14 @@ class JavaAnnotationCompletionTest {
     // Act
     var input = analyze();
     var properties = input.languageFeatureCoverageResult().observations().stream()
-        .filter(item -> item.classification().feature().category() == LanguageFeatureCategory.DECLARATION_PROPERTY).toList();
+        .filter(item -> item.classification().feature().category() == LanguageFeatureCategory.DECLARATION_PROPERTY
+            && List.of(JavaDeclarationPropertyCoverage.TYPE_ELEMENT_ANNOTATION_MIRRORS, JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_ANNOTATION_MIRRORS,
+                JavaDeclarationPropertyCoverage.METHOD_DEFAULT_VALUE, JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_DEFAULT_VALUE).contains(item.classification().feature().identifier())).toList();
 
     // Assert
-    assertEquals(List.of(JavaDeclarationPropertyCoverage.TYPE_ELEMENT_ANNOTATION_MIRRORS,
-        JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_ANNOTATION_MIRRORS, JavaDeclarationPropertyCoverage.METHOD_DEFAULT_VALUE,
-        JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_DEFAULT_VALUE, JavaDeclarationPropertyCoverage.TYPE_ELEMENT_ANNOTATION_MIRRORS),
+    assertEquals(List.of(JavaDeclarationPropertyCoverage.METHOD_DEFAULT_VALUE, JavaDeclarationPropertyCoverage.TYPE_ELEMENT_ANNOTATION_MIRRORS,
+        JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_ANNOTATION_MIRRORS, JavaDeclarationPropertyCoverage.EXECUTABLE_ELEMENT_DEFAULT_VALUE,
+        JavaDeclarationPropertyCoverage.TYPE_ELEMENT_ANNOTATION_MIRRORS),
         properties.stream().map(item -> item.classification().feature().identifier()).toList());
     assertTrue(properties.stream().allMatch(item -> item.origins().size() == 1 && item.classification().policy() == LanguageFeaturePolicy.REPRESENTED
         && item.diagnostic().isEmpty()));
@@ -131,16 +133,17 @@ class JavaAnnotationCompletionTest {
       var range = annotation.origin().orElseThrow();
       var remaining = original.languageFeatureCoverageResult().observations().stream().filter(item -> item.origins().stream()
           .noneMatch(span -> span.startOffset() >= range.startOffset() && span.endOffsetExclusive() <= range.endOffsetExclusive())).toList();
-      var removedBundle = JavaLanguageFeatureCoverage.result(original.languageFeatureCoverage(), remaining.stream()
-          .map(item -> new LanguageFeatureOccurrence(item.sourceFileKey(), item.classification(), item.origins())).toList(), remaining, List.of());
+      // Act
+      var removedBundle = assertThrows(IllegalArgumentException.class, () -> JavaCoverageTestSupport.alteredResult(original, remaining.stream()
+          .map(item -> new LanguageFeatureOccurrence(item.sourceFileKey(), item.classification(), item.origins())).toList(), remaining, List.of()));
 
       // Act
       var diagnostics = reconcile(fixture, damaged);
-      var input = new SyntaxAnalysisInput(original.snapshot(), original.environmentSnapshot(), original.program(), Optional.of(damaged),
-          diagnostics, removedBundle);
+      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(damaged), diagnostics);
 
       // Assert
-      assertFalse(removedBundle.observations().stream().anyMatch(item -> item.classification().feature().identifier().equals("ANNOTATION")));
+      assertEquals("Coverage outcomes must exactly match the independent context inventory in order", removedBundle.getMessage());
+      assertTrue(input.languageFeatureCoverageResult().observations().stream().anyMatch(item -> item.classification().feature().identifier().equals("ANNOTATION")));
       assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(input).completion());
       assertEquals(List.of("frontend.unrepresented-source-annotation"), diagnostics.stream().map(AnalysisDiagnostic::code).toList());
       assertEquals(List.of(annotation.origin().orElseThrow()), diagnostics.getFirst().origins());
@@ -459,8 +462,7 @@ class JavaAnnotationCompletionTest {
 
       // Act
       var diagnostics = reconcile(fixture, damaged);
-      var input = new SyntaxAnalysisInput(original.snapshot(), original.environmentSnapshot(), original.program(), Optional.of(damaged),
-          diagnostics, original.languageFeatureCoverageResult());
+      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(damaged), diagnostics);
 
       // Assert
       assertEquals(List.of(), fixture.inventory().annotations());
@@ -484,8 +486,7 @@ class JavaAnnotationCompletionTest {
 
       // Act
       var diagnostics = reconcile(fixture, damaged);
-      var input = new SyntaxAnalysisInput(original.snapshot(), original.environmentSnapshot(), original.program(), Optional.of(damaged),
-          diagnostics, original.languageFeatureCoverageResult());
+      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(damaged), diagnostics);
 
       // Assert
       assertEquals(List.of(), fixture.inventory().annotations());
@@ -550,7 +551,7 @@ class JavaAnnotationCompletionTest {
     Files.writeString(sourceRoot.resolve(filename), source);
     var snapshot = new JavaSourceLoader().discover(sourceRoot);
     var sources = new SnapshotSourceCatalog(snapshot);
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
       var parsed = session.parse();
       var inventory = JavaAnnotationSourceInventory.capture(parsed, sources);
       var compilation = session.analyze(parsed);

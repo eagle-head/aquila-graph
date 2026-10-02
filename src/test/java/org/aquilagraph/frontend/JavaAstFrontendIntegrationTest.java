@@ -18,8 +18,10 @@ import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.syntax.JavaSourceKind;
 import org.aquilagraph.syntax.MethodBodyOrigin;
+import org.aquilagraph.syntax.PackageQualifierEvidence;
 import org.aquilagraph.syntax.SyntaxKind;
 import org.aquilagraph.syntax.SyntaxRole;
 import org.aquilagraph.syntax.SyntaxSemanticRelation;
@@ -54,7 +56,8 @@ class JavaAstFrontendIntegrationTest {
     assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), empty.value());
     assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), named.value());
     assertTrue(empty.children().isEmpty());
-    assertEquals(new SyntaxValue.PackageDeclaration("sample"), packageNode.value());
+    assertEquals(new SyntaxValue.PackageDeclaration("sample", Optional.of(new PackageQualifierEvidence(JavaSourceKind.IDENTIFIER,
+        new SourceSpan(named.sourceFileKey(), 8, 14)))), packageNode.value());
     assertEquals(named.sourceFileKey(), packageNode.sourceFileKey());
     assertEquals("package sample;", source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive())));
     assertEquals(List.of(), named.children(SyntaxRole.IMPORT_DECLARATION));
@@ -433,7 +436,7 @@ class JavaAstFrontendIntegrationTest {
     var sources = new SnapshotSourceCatalog(snapshot);
     var invocation = JavaCompilerInvocation.from(JAVA_25);
     var compiler = ToolProvider.getSystemJavaCompiler();
-    try (var session = CompilerSession.open(compiler, invocation, sources)) {
+    try (var session = CompilerSessionAcquisition.open(compiler, invocation, sources)) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
       var reversed = new ArrayList<>(compilation.units());

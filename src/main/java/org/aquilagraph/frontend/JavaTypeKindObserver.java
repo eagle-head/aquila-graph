@@ -45,7 +45,7 @@ final class JavaTypeKindObserver {
     Objects.requireNonNull(units, "units");
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
-    var diagnostics = new ArrayList<AnalysisDiagnostic>();
+    var diagnostics = new TranslationDiagnosticEvidence("JavaTypeKindObserver", "input-type-scan");
     var scanner = new HeaderScanner(occurrences, observations, diagnostics);
     for (var unit : units) {
       scanner.observeUnit(unit, sourceFor(unit));
@@ -105,7 +105,8 @@ final class JavaTypeKindObserver {
       }
       declaration.getThrows().forEach(tree -> observeType(tree, source));
       declaration.getTypeParameters().forEach(parameter -> scan(parameter, source));
-      declaration.getParameters().forEach(parameter -> scan(parameter, source));
+      declaration.getParameters().stream().filter(parameter -> !JavaCoverageTopology.isDerivedCompactParameter(parameter, getCurrentPath(),
+          getCurrentPath().getCompilationUnit(), source, sourceEvidence)).forEach(parameter -> scan(parameter, source));
       return null;
     }
 
@@ -135,8 +136,8 @@ final class JavaTypeKindObserver {
       var nearestOrigin = nearestOrigin(unit, source, path, origin);
       var attribution = semantics.attributedType(path);
       if (attribution == JavaTypeAttribution.Unresolved.INSTANCE) {
-        diagnostics.add(FrontendDiagnosticFactory.otherError(diagnosticContext, "frontend.unresolved-attributed-type-kind",
-            "A written declaration-header type has no compiler attribution", nearestOrigin));
+        TranslationDiagnosticEvidence.emit(diagnostics, "JavaTypeKindObserver", FrontendDiagnosticFactory.otherError(diagnosticContext,
+            "frontend.unresolved-attributed-type-kind", "A written declaration-header type has no compiler attribution", nearestOrigin));
         return;
       }
       var kind = switch (attribution) {
@@ -172,7 +173,7 @@ final class JavaTypeKindObserver {
             : AnalysisOutcomeKind.UNSUPPORTED_LANGUAGE_FEATURE;
         diagnostic = Optional.of(FrontendDiagnosticFactory.error(diagnosticContext, classification.diagnosticCode().orElseThrow(),
             "Java attributed type kind " + kind + " is not a supported declaration-header type", diagnosticOrigin, outcome));
-        diagnostics.add(diagnostic.orElseThrow());
+        TranslationDiagnosticEvidence.emit(diagnostics, "JavaTypeKindObserver", diagnostic.orElseThrow());
       }
       occurrences.add(new LanguageFeatureOccurrence(source.sourceFileKey(), classification, origins));
       observations.add(new LanguageFeatureObservation(source.sourceFileKey(), classification, origins, diagnostic));
@@ -184,7 +185,7 @@ final class JavaTypeKindObserver {
     ObservedTypeKinds {
       occurrences = List.copyOf(occurrences);
       observations = List.copyOf(observations);
-      diagnostics = List.copyOf(diagnostics);
+      diagnostics = TranslationDiagnosticEvidence.copyOf(diagnostics);
     }
   }
 }

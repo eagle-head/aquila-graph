@@ -59,7 +59,13 @@ final class JavaDeclarationPropertyCoverage {
   }
 
   static LanguageFeatureCoverage fromConfiguration(CompilerConfiguration configuration) {
-    return fromClassifications(configuration, classifications());
+    var coverage = fromClassifications(configuration, classifications());
+    JavaDeclarationAccessor.validateCatalog(DECLARATION_SURFACES, coverage);
+    return coverage;
+  }
+
+  static boolean isDeclarationSurface(Class<?> surface) {
+    return DECLARATION_SURFACES.contains(surface);
   }
 
   static LanguageFeatureCoverage fromClassifications(CompilerConfiguration configuration,
@@ -233,7 +239,7 @@ final class JavaDeclarationPropertyCoverage {
         .collect(Collectors.toUnmodifiableSet());
   }
 
-  private static String accessorIdentifier(Class<?> surface, Method method) {
+  static String accessorIdentifier(Class<?> surface, Method method) {
     var parameters = Arrays.stream(method.getParameterTypes()).map(Class::getName).collect(Collectors.joining(","));
     return surface.getSimpleName() + "::" + method.getDeclaringClass().getSimpleName() + '#' + method.getName() + '(' + parameters + ')';
   }

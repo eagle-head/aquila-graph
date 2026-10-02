@@ -454,7 +454,7 @@ class JavaAnnotationValueAstTest {
     var source = snapshot.sourceFiles().getFirst();
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var catalog = new SnapshotSourceCatalog(snapshot);
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(),
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(),
         JavaCompilerInvocation.from(configuration), catalog)) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);

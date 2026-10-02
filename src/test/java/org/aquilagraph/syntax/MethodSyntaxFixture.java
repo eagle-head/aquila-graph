@@ -3,6 +3,7 @@ package org.aquilagraph.syntax;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.SourceSpan;
@@ -14,6 +15,13 @@ public final class MethodSyntaxFixture {
 
   /** Returns a method view whose execution tree belongs to a minimal sealed aggregate. */
   public static MethodSyntax view(String methodKey, SyntaxNode body) {
+    return view(methodKey, body, ignored -> List.of());
+  }
+
+  /** Returns a method view with explicitly supplied selected uses bound to its copied execution tree. */
+  public static MethodSyntax view(String methodKey, SyntaxNode body, Function<SyntaxNode, List<TypedUseDecision>> selectedUses) {
+    body.descendantsAndSelf();
+    var executionBody = withChildPaths(body, body.structuralPath());
     var sourceFile = new SourceFile("source", Path.of("Source.java"), "fixture-content", "x");
     var snapshot = new InputSnapshot(Path.of("."), "fixture-digest", "fixture-snapshot", List.of(sourceFile));
     var sourceRoot = SyntaxNode.source("source", SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.COMPILATION_UNIT,
@@ -22,6 +30,15 @@ public final class MethodSyntaxFixture {
         new SourceSpan("source", 0, 1));
     var contribution = new SyntaxSourceContribution("source", sourceRoot, List.of(sourceRoot), List.of(), List.of());
     return JavaAstAggregate.builder(snapshot).add(contribution)
-        .addMethodBody(methodKey, body, MethodBodyOrigin.EXECUTION_PROJECTION).seal().methodSyntax(methodKey).orElseThrow();
+        .addMethodBody(methodKey, executionBody, MethodBodyOrigin.EXECUTION_PROJECTION, selectedUses.apply(executionBody), List.of(),
+            List.of(), List.of()).seal().methodSyntax(methodKey).orElseThrow();
+  }
+
+  private static SyntaxNode withChildPaths(SyntaxNode node, SyntaxStructuralPath path) {
+    var children = node.children().stream().map(child -> new SyntaxChild(child.role(), child.position(),
+        withChildPaths(child.node(), path.child(child.role(), child.position())))).toList();
+    return node.origin().map(origin -> SyntaxNode.source(node.sourceFileKey(), path, node.sourceKind(), node.syntaxKind(), node.type(),
+        node.value(), children, node.semanticReference(), origin)).orElseGet(() -> SyntaxNode.withoutDirectSource(node.sourceFileKey(),
+            path, node.sourceKind(), node.syntaxKind(), node.type(), node.value(), children, node.semanticReference()));
   }
 }

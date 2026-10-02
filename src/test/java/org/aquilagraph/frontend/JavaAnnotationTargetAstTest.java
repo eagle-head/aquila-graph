@@ -27,6 +27,7 @@ import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.ReferenceKind;
+import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.syntax.AnnotationScalar;
 import org.aquilagraph.syntax.AnnotationElementValue;
 import org.aquilagraph.syntax.JavaAstAggregate;
@@ -40,6 +41,8 @@ import org.aquilagraph.syntax.SyntaxSemanticTarget;
 import org.aquilagraph.syntax.SyntaxSourceContribution;
 import org.aquilagraph.syntax.SyntaxValue;
 import org.aquilagraph.syntax.SharedFieldDeclarations;
+import org.aquilagraph.syntax.JavaSourceKind;
+import org.aquilagraph.syntax.SyntaxType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -753,7 +756,7 @@ class JavaAnnotationTargetAstTest {
     var sources = new SnapshotSourceCatalog(snapshot);
 
     // Act
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(),
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(),
         JavaCompilerInvocation.from(configuration), sources)) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
@@ -823,7 +826,7 @@ class JavaAnnotationTargetAstTest {
         () -> valid.diagnostics().toString());
 
     // Act
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration),
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration),
         new SnapshotSourceCatalog(valid.snapshot()))) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
@@ -917,7 +920,7 @@ class JavaAnnotationTargetAstTest {
     var valid = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, configuration);
 
     // Act
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration),
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration),
         new SnapshotSourceCatalog(valid.snapshot()))) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
@@ -1463,7 +1466,7 @@ class JavaAnnotationTargetAstTest {
   }
 
   @Test
-  void givenBodyLocalAnnotatedCast_whenAnalyzed_thenDeferredBodySiteRetainsSourceDiagnostic() throws IOException {
+  void givenBodyLocalAnnotatedCast_whenAnalyzed_thenTheExactWrittenAnnotationAndTypeApplicationComplete() throws IOException {
     // Arrange
     var source = """
         import java.lang.annotation.ElementType;
@@ -1478,10 +1481,22 @@ class JavaAnnotationTargetAstTest {
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
-    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unrepresented-source-annotation")
-        && diagnostic.origins().stream().anyMatch(origin -> source.substring(Math.toIntExact(origin.startOffset()),
-            Math.toIntExact(origin.endOffsetExclusive())).equals("@Mark"))));
-    assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(result).completion());
+    assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.isError()), result.diagnostics().toString());
+    var aggregate = result.aggregate().orElseThrow();
+    var cast = aggregate.nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_CAST).findFirst().orElseThrow();
+    var writtenType = cast.requiredChild(SyntaxRole.TYPE_OPERAND);
+    assertEquals(SyntaxKind.TYPE_USE, writtenType.syntaxKind());
+    assertEquals(JavaSourceKind.ANNOTATED_TYPE, writtenType.sourceKind());
+    assertEquals("java.lang.Integer", assertInstanceOf(SyntaxType.Resolved.class, writtenType.type()).identity().erasedName());
+    var start = source.indexOf("@Mark Integer");
+    assertEquals(Optional.of(new SourceSpan(writtenType.sourceFileKey(), start, start + "@Mark Integer".length())), writtenType.origin());
+    var mark = annotation(aggregate, source, "@Mark");
+    assertEquals(List.of(mark), writtenType.children(SyntaxRole.ANNOTATION));
+    assertEquals(SyntaxValue.AnnotationLocation.TYPE_USE, mark.value(SyntaxValue.Annotation.class).location());
+    var target = application(aggregate, mark);
+    assertTrue(target.declarationNodeKey().isEmpty());
+    assertEquals(writtenType, writtenLocationNode(aggregate, target));
+    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion());
   }
 
   @Test

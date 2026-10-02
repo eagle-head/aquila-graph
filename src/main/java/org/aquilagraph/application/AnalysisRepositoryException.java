@@ -8,7 +8,7 @@ import java.util.Objects;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.model.AnalysisRun;
 
-/** Associates a repository failure with the completed analysis run that could not be stored. */
+/** Associates a repository operation failure with the completed analysis run retained for presentation or recovery. */
 public final class AnalysisRepositoryException extends RuntimeException {
   @Serial
   private static final long serialVersionUID = 1L;
@@ -16,10 +16,10 @@ public final class AnalysisRepositoryException extends RuntimeException {
   private final transient AnalysisRun failedRun;
 
   /**
-   * Creates a repository failure for a completed analysis run.
+   * Creates a repository operation failure associated with a completed analysis run.
    *
    * @param analysisRun
-   *          run that could not be stored
+   *          completed run associated with the repository operation failure
    * @param cause
    *          repository failure
    */
@@ -39,9 +39,9 @@ public final class AnalysisRepositoryException extends RuntimeException {
   }
 
   /**
-   * Returns the repository failure that prevented storage.
+   * Returns the effective repository failure from publication or cleanup.
    *
-   * @return repository boundary failure
+   * @return repository operation failure
    */
   public RepositoryException repositoryFailure() {
     return (RepositoryException) Objects.requireNonNull(getCause(), "repository failure");

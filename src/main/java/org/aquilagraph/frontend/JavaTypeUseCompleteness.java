@@ -1,11 +1,11 @@
 package org.aquilagraph.frontend;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import org.aquilagraph.model.AnalysisDiagnostic;
+import org.aquilagraph.model.DiagnosticEmission;
 import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.LanguageFeatureCategory;
 import org.aquilagraph.model.LanguageFeatureObservation;
@@ -36,7 +36,7 @@ final class JavaTypeUseCompleteness {
       }
     });
 
-    var diagnostics = new ArrayList<AnalysisDiagnostic>();
+    var diagnostics = new TranslationDiagnosticEvidence("JavaTypeUseCompleteness", "input-type-use-reconciliation");
     var sourceKindOrdinals = new HashMap<String, Integer>();
     for (var observation : observations) {
       var feature = observation.classification().feature();
@@ -51,22 +51,29 @@ final class JavaTypeUseCompleteness {
         continue;
       }
       if (observation.origins().size() != EXACT_SOURCE_RANGE_COUNT) {
-        diagnostics.add(FrontendDiagnosticFactory.otherError(context, "frontend.unavailable-source-type-range",
-            "A written type tree in " + sourcePath(snapshot, observation.sourceFileKey()) + " has no exact source range: " + kind,
-            Optional.empty()));
+        TranslationDiagnosticEvidence.emit(diagnostics, "JavaTypeUseCompleteness",
+            FrontendDiagnosticFactory.otherError(context, "frontend.unavailable-source-type-range",
+                "A written type tree in " + sourcePath(snapshot, observation.sourceFileKey()) + " has no exact source range: " + kind,
+                Optional.empty()));
         continue;
       }
       var origin = observation.origins().getFirst();
       var occurrence = occurrence(observation.sourceFileKey(), kind, origin);
       var count = retained.getOrDefault(occurrence, 0);
       if (count == 0) {
-        diagnostics.add(FrontendDiagnosticFactory.capabilityError(context, "frontend.unrepresented-source-type-use",
-            "A written type tree has no retained type-use occurrence: " + kind, Optional.of(origin)));
+        TranslationDiagnosticEvidence.emit(diagnostics, "JavaTypeUseCompleteness",
+            FrontendDiagnosticFactory.capabilityError(context, "frontend.unrepresented-source-type-use",
+                "A written type tree has no retained type-use occurrence: " + kind, Optional.of(origin)));
       } else {
         retained.put(occurrence, count - 1);
       }
     }
-    return List.copyOf(diagnostics);
+    return TranslationDiagnosticEvidence.copyOf(diagnostics);
+  }
+
+  static List<DiagnosticEmission> diagnosticsWithEvents(InputSnapshot snapshot, List<LanguageFeatureObservation> observations,
+      Optional<JavaAstAggregate> aggregate) {
+    return TranslationDiagnosticEvidence.events(diagnostics(snapshot, observations, aggregate));
   }
 
   private static boolean requiresOccurrence(JavaSourceKind kind) {

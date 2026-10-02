@@ -23,11 +23,18 @@ import java.util.Optional;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
+import javax.lang.model.element.Modifier;
 import org.aquilagraph.model.SourceFile;
+import org.aquilagraph.model.SourceOwnerPath;
+import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.syntax.SyntaxValue;
+import org.aquilagraph.syntax.SyntaxNode;
+import org.aquilagraph.syntax.JavaSourceKind;
+import org.aquilagraph.syntax.WrittenSourceAssociation;
 
 /** Identifies written syntax before compiler attribution can insert tree nodes. */
 final class ParsedTreeInventory {
+  private static final int SINGLE_ORIGINAL_OWNER_COUNT = 1;
   private final Set<Tree> writtenTrees;
   private final Map<AnnotationTree, SyntaxValue.Annotation> annotations;
   private final Map<AnnotationTree, TreePath> annotationTypePaths;
@@ -35,11 +42,14 @@ final class ParsedTreeInventory {
   private final Map<AnnotationTree, List<WrittenAnnotationArgument>> capturedArguments;
   private final Map<Tree, List<AnnotationTree>> annotationsByOwner;
   private final Map<VariableTree, List<AnnotationTree>> variableAnnotationAttachments;
+  private final Map<ModifiersTree, Set<Modifier>> capturedModifiers;
+  private final Map<Tree, List<ParsedSourceOwner>> capturedOwners;
 
   private ParsedTreeInventory(Set<Tree> writtenTrees, Map<AnnotationTree, SyntaxValue.Annotation> annotations,
       Map<AnnotationTree, TreePath> annotationTypePaths, Map<AnnotationTree, TreePath> annotationPaths,
       Map<AnnotationTree, List<WrittenAnnotationArgument>> annotationArguments, Map<Tree, List<AnnotationTree>> annotationsByOwner,
-      Map<VariableTree, List<AnnotationTree>> variableAnnotations) {
+      Map<VariableTree, List<AnnotationTree>> variableAnnotations, Map<ModifiersTree, Set<Modifier>> modifiers,
+      Map<Tree, List<ParsedSourceOwner>> owners) {
     this.writtenTrees = writtenTrees;
     this.annotations = annotations;
     this.annotationTypePaths = annotationTypePaths;
@@ -47,6 +57,8 @@ final class ParsedTreeInventory {
     this.capturedArguments = annotationArguments;
     this.annotationsByOwner = annotationsByOwner;
     this.variableAnnotationAttachments = variableAnnotations;
+    this.capturedModifiers = modifiers;
+    this.capturedOwners = owners;
   }
 
   static ParsedTreeInventory capture(List<CompilationUnitTree> units, Function<CompilationUnitTree, Optional<SourceFile>> sources,
@@ -61,19 +73,27 @@ final class ParsedTreeInventory {
     var annotationArguments = new IdentityHashMap<AnnotationTree, List<WrittenAnnotationArgument>>();
     var annotationsByOwner = new IdentityHashMap<Tree, List<AnnotationTree>>();
     var variableAnnotations = new IdentityHashMap<VariableTree, List<AnnotationTree>>();
+    var modifiers = new IdentityHashMap<ModifiersTree, Set<Modifier>>();
+    var owners = new IdentityHashMap<Tree, List<ParsedSourceOwner>>();
+    JavaCoverageTopology.owners(units, sources, evidence)
+        .forEach(owner -> owners.computeIfAbsent(owner.tree(), ignored -> new ArrayList<>()).add(new ParsedSourceOwner(owner.treePath(),
+            owner.source().sourceFileKey(), owner.path(), JavaSourceKind.valueOf(owner.tree().getKind().name()), owner.origin())));
+    owners.replaceAll((tree, values) -> List.copyOf(values));
     for (var unit : units) {
       scanUnit(unit, sources.apply(unit), evidence, writtenTrees, annotations, annotationTypePaths, annotationPaths, annotationArguments,
-          annotationsByOwner, variableAnnotations);
+          annotationsByOwner, variableAnnotations, modifiers);
     }
     return new ParsedTreeInventory(writtenTrees, Collections.unmodifiableMap(annotations), Collections.unmodifiableMap(annotationTypePaths),
         Collections.unmodifiableMap(annotationPaths), Collections.unmodifiableMap(annotationArguments),
-        Collections.unmodifiableMap(annotationsByOwner), Collections.unmodifiableMap(variableAnnotations));
+        Collections.unmodifiableMap(annotationsByOwner), Collections.unmodifiableMap(variableAnnotations),
+        Collections.unmodifiableMap(modifiers), Collections.unmodifiableMap(owners));
   }
 
   private static void scanUnit(CompilationUnitTree unit, Optional<SourceFile> source, JavaSourceEvidence evidence, Set<Tree> writtenTrees,
       Map<AnnotationTree, SyntaxValue.Annotation> annotations, Map<AnnotationTree, TreePath> annotationTypePaths,
       Map<AnnotationTree, TreePath> annotationPaths, Map<AnnotationTree, List<WrittenAnnotationArgument>> annotationArguments,
-      Map<Tree, List<AnnotationTree>> annotationsByOwner, Map<VariableTree, List<AnnotationTree>> variableAnnotations) {
+      Map<Tree, List<AnnotationTree>> annotationsByOwner, Map<VariableTree, List<AnnotationTree>> variableAnnotations,
+      Map<ModifiersTree, Set<Modifier>> modifiers) {
     var scanner = new TreePathScanner<Void, Void>() {
       @Override
       public Void scan(Tree tree, Void unused) {
@@ -85,7 +105,7 @@ final class ParsedTreeInventory {
 
       @Override
       public Void visitAnnotation(AnnotationTree annotation, Void unused) {
-        annotationPaths.put(annotation, getCurrentPath());
+        annotationPaths.putIfAbsent(annotation, getCurrentPath());
         var owner = getCurrentPath().getParentPath();
         while (owner != null && owner.getLeaf() instanceof ModifiersTree) {
           owner = owner.getParentPath();
@@ -93,11 +113,17 @@ final class ParsedTreeInventory {
         if (owner != null) {
           annotationsByOwner.computeIfAbsent(owner.getLeaf(), ignored -> new ArrayList<>()).add(annotation);
         }
-        annotationTypePaths.put(annotation, new TreePath(getCurrentPath(), annotation.getAnnotationType()));
-        annotationArguments.put(annotation,
+        annotationTypePaths.putIfAbsent(annotation, new TreePath(getCurrentPath(), annotation.getAnnotationType()));
+        annotationArguments.putIfAbsent(annotation,
             annotation.getArguments().stream().map(argument -> writtenArgument(getCurrentPath(), argument)).toList());
         source.flatMap(file -> annotationValue(unit, file, annotation, evidence)).ifPresent(value -> annotations.put(annotation, value));
         return super.visitAnnotation(annotation, null);
+      }
+
+      @Override
+      public Void visitModifiers(ModifiersTree tree, Void unused) {
+        modifiers.put(tree, Set.copyOf(tree.getFlags()));
+        return super.visitModifiers(tree, null);
       }
 
       @Override
@@ -123,6 +149,48 @@ final class ParsedTreeInventory {
 
   List<AnnotationTree> ownerAnnotations(Tree owner) {
     return List.copyOf(annotationsByOwner.getOrDefault(Objects.requireNonNull(owner), List.of()));
+  }
+
+  Set<Modifier> writtenModifiers(ModifiersTree owner) {
+    var flags = capturedModifiers.get(Objects.requireNonNull(owner, "owner"));
+    if (flags == null) {
+      throw new IllegalArgumentException("Written modifier evidence requires an actual parsed modifier owner");
+    }
+    return flags;
+  }
+
+  Optional<WrittenSourceAssociation> sourceAssociation(SyntaxNode node, Tree tree) {
+    var owners = capturedOwners.getOrDefault(Objects.requireNonNull(tree, "tree"), List.of());
+    if (owners.size() > SINGLE_ORIGINAL_OWNER_COUNT) {
+      throw new IllegalArgumentException("A shared parsed tree requires its exact creating owner path");
+    }
+    return owners.stream().findFirst().map(owner -> association(node, owner));
+  }
+
+  Optional<WrittenSourceAssociation> sourceAssociation(SyntaxNode node, TreePath path) {
+    return capturedOwners.getOrDefault(Objects.requireNonNull(path, "path").getLeaf(), List.of()).stream()
+        .filter(owner -> samePath(owner.treePath(), path)).findFirst().map(owner -> association(node, owner));
+  }
+
+  private static WrittenSourceAssociation association(SyntaxNode node, ParsedSourceOwner owner) {
+    return new WrittenSourceAssociation(node.nodeId(), owner.sourceFileKey(), owner.path(), owner.sourceKind(), owner.origin());
+  }
+
+  private record ParsedSourceOwner(TreePath treePath, String sourceFileKey, SourceOwnerPath path, JavaSourceKind sourceKind,
+      Optional<SourceSpan> origin) {
+  }
+
+  private static boolean samePath(TreePath first, TreePath second) {
+    var left = first;
+    var right = second;
+    while (left != null && right != null) {
+      if (!JavaProjectionIdentity.sameInstance(left.getLeaf(), right.getLeaf())) {
+        return false;
+      }
+      left = left.getParentPath();
+      right = right.getParentPath();
+    }
+    return left == null && right == null;
   }
 
   Optional<List<WrittenAnnotationArgument>> annotationArguments(AnnotationTree tree) {

@@ -13,6 +13,12 @@ import org.aquilagraph.model.InvocationSemantics;
 
 /** Typed source facts required while syntax is lowered directly to semantic graphs. */
 public sealed interface SyntaxValue {
+  /** Written diamond syntax with compiler-inferred arguments and no written argument children. */
+  enum DiamondType implements SyntaxValue {
+    /** Diamond source form. */
+    INSTANCE
+  }
+
   /**
    * Previously owned physical annotations reused by another compiler tree for the same field header.
    *
@@ -437,11 +443,39 @@ public sealed interface SyntaxValue {
    *
    * @param name
    *          source declaration name
+   * @param writtenType
+   *          independently copied written type source and compiler semantics, when available
+   * @param writtenModifiers
+   *          copied written flags in sorted public modifier-name order
    */
-  record LocalDeclaration(String name) implements SyntaxValue {
-    /** Validates the declaration name. */
+  record LocalDeclaration(String name, Optional<WrittenTypeEvidence> writtenType, List<String> writtenModifiers) implements SyntaxValue {
+    /** Validates the declaration name and copied written type. */
     public LocalDeclaration {
       SyntaxValueSupport.requireName(name);
+      Objects.requireNonNull(writtenType, "writtenType");
+      writtenModifiers = List.copyOf(Objects.requireNonNull(writtenModifiers, "writtenModifiers"));
+    }
+
+    /**
+     * Creates a declaration without separately retained written type evidence.
+     *
+     * @param name
+     *          declaration name
+     */
+    public LocalDeclaration(String name) {
+      this(name, Optional.empty(), List.of());
+    }
+
+    /**
+     * Creates a declaration with copied written type evidence and no written flags.
+     *
+     * @param name
+     *          declaration name
+     * @param writtenType
+     *          copied written type
+     */
+    public LocalDeclaration(String name, Optional<WrittenTypeEvidence> writtenType) {
+      this(name, writtenType, List.of());
     }
   }
 
@@ -557,13 +591,16 @@ public sealed interface SyntaxValue {
   /** Exact written form and ordered argument headers of one annotation occurrence. */
   final class Annotation extends Symbol {
     private record AnnotationDetails(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location,
-        Set<ElementType> applicableTargets, boolean closestTypeAdmissible, Optional<String> argumentFailureCode) {
+        Set<ElementType> applicableTargets, boolean closestTypeAdmissible, Optional<String> argumentFailureCode,
+        Optional<String> repeatableContainerKey) {
       private AnnotationDetails {
         Objects.requireNonNull(form, "form");
         Objects.requireNonNull(location, "location");
         applicableTargets = Set.copyOf(Objects.requireNonNull(applicableTargets, "applicableTargets"));
         Objects.requireNonNull(argumentFailureCode, "argumentFailureCode")
             .ifPresent(code -> SyntaxValueSupport.requireText(code, "argumentFailureCode"));
+        Objects.requireNonNull(repeatableContainerKey, "repeatableContainerKey")
+            .ifPresent(key -> SyntaxValueSupport.requireText(key, "repeatableContainerKey"));
         arguments = List.copyOf(Objects.requireNonNull(arguments, "arguments"));
         if (!closestTypeAdmissible && (location == AnnotationLocation.TYPE_USE || location == AnnotationLocation.DUAL)) {
           throw new IllegalArgumentException("An inadmissible closest type cannot receive an annotation");
@@ -621,7 +658,7 @@ public sealed interface SyntaxValue {
      */
     public Annotation(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location,
         Set<ElementType> applicableTargets, boolean closestTypeAdmissible) {
-      this(new AnnotationDetails(form, arguments, location, applicableTargets, closestTypeAdmissible, Optional.empty()));
+      this(new AnnotationDetails(form, arguments, location, applicableTargets, closestTypeAdmissible, Optional.empty(), Optional.empty()));
     }
 
     /**
@@ -677,13 +714,34 @@ public sealed interface SyntaxValue {
      */
     public static Annotation withArgumentFailure(AnnotationForm form, List<AnnotationArgumentHeader> arguments, AnnotationLocation location,
         Set<ElementType> applicableTargets, boolean closestTypeAdmissible, String diagnosticCode) {
-      return new Annotation(
-          new AnnotationDetails(form, arguments, location, applicableTargets, closestTypeAdmissible, Optional.of(diagnosticCode)));
+      return new Annotation(new AnnotationDetails(form, arguments, location, applicableTargets, closestTypeAdmissible,
+          Optional.of(diagnosticCode), Optional.empty()));
     }
 
     private Annotation(AnnotationDetails details) {
       super("annotation", Form.ANNOTATION, details);
       this.details = details;
+    }
+
+    /**
+     * Adds independently copied compiler metadata for the annotation's repeatable container.
+     *
+     * @param containerKey
+     *          canonical container annotation type, when declared
+     * @return an immutable annotation with the same source and value facts
+     */
+    public Annotation withRepeatableContainer(Optional<String> containerKey) {
+      return new Annotation(new AnnotationDetails(details.form(), details.arguments(), details.location(), details.applicableTargets(),
+          details.closestTypeAdmissible(), details.argumentFailureCode(), containerKey));
+    }
+
+    /**
+     * Returns the compiler-declared repeatable container type.
+     *
+     * @return canonical container type identity, when declared
+     */
+    public Optional<String> repeatableContainerKey() {
+      return details.repeatableContainerKey();
     }
 
     /**
@@ -1629,6 +1687,10 @@ public sealed interface SyntaxValue {
       return details.attributed().receiverSimpleName();
     }
 
+    AttributedHeader attributedHeader() {
+      return details.attributed();
+    }
+
     /**
      * Returns the compiler-attributed thrown types in source declaration order.
      *
@@ -1872,6 +1934,8 @@ public sealed interface SyntaxValue {
 
   /** Qualified name written in a package declaration. */
   final class PackageDeclaration extends Symbol {
+    private final Optional<PackageQualifierEvidence> sourceQualifier;
+
     /**
      * Creates a qualified package name value.
      *
@@ -1879,8 +1943,30 @@ public sealed interface SyntaxValue {
      *          the written package name
      */
     public PackageDeclaration(String qualifiedName) {
-      super(qualifiedName, Form.PACKAGE_DECLARATION, None.INSTANCE);
+      this(qualifiedName, Optional.empty());
+    }
+
+    /**
+     * Creates a package name with its independently copied written qualifier.
+     *
+     * @param qualifiedName
+     *          canonical qualified package name
+     * @param qualifier
+     *          exact source-tree kind and range when supplied by a source producer
+     */
+    public PackageDeclaration(String qualifiedName, Optional<PackageQualifierEvidence> qualifier) {
+      super(qualifiedName, Form.PACKAGE_DECLARATION, Objects.requireNonNull(qualifier, "qualifier"));
       SyntaxValueSupport.requireName(qualifiedName);
+      sourceQualifier = qualifier;
+    }
+
+    /**
+     * Returns the copied written name attachment when present.
+     *
+     * @return exact package qualifier source evidence
+     */
+    public Optional<PackageQualifierEvidence> qualifier() {
+      return sourceQualifier;
     }
 
     /**

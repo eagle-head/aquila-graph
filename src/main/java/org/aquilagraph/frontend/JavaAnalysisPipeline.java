@@ -5,23 +5,32 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
 import org.aquilagraph.application.port.AnalysisEnvironmentException;
 import org.aquilagraph.application.port.AnalysisInputException;
-import org.aquilagraph.model.AnalysisDiagnostic;
+import org.aquilagraph.model.AttributedCoverageExpectations;
+import org.aquilagraph.model.DiagnosticEmission;
+import org.aquilagraph.model.LanguageFeatureCoverageResult;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
 import org.aquilagraph.syntax.SyntaxAnalysisInput;
 import org.aquilagraph.syntax.JavaAstAggregate;
+import org.jspecify.annotations.Nullable;
 
 final class JavaAnalysisPipeline {
   private final AnalysisEnvironmentCapture environmentCapture;
+  private final Supplier<@Nullable JavaCompiler> compilerSupplier;
 
   JavaAnalysisPipeline(AnalysisEnvironmentCapture environmentCapture) {
+    this(environmentCapture, ToolProvider::getSystemJavaCompiler);
+  }
+
+  JavaAnalysisPipeline(AnalysisEnvironmentCapture environmentCapture, Supplier<@Nullable JavaCompiler> compilerSupplier) {
     this.environmentCapture = Objects.requireNonNull(environmentCapture, "environmentCapture");
+    this.compilerSupplier = Objects.requireNonNull(compilerSupplier, "compilerSupplier");
   }
 
   SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
@@ -32,7 +41,9 @@ final class JavaAnalysisPipeline {
     var environment = environmentCapture.capture(compiler, configuration, invocation.analysisOptions());
     var languageFeatureCoverage = JavaLanguageFeatureCoverage.fromConfiguration(configuration);
     if (snapshot.sourceFiles().isEmpty()) {
-      var coverageResult = JavaLanguageFeatureCoverage.result(languageFeatureCoverage, List.of(), List.of(), List.of());
+      var written = JavaSourceCoverageCapture.empty(snapshot, languageFeatureCoverage);
+      var coverageResult = LanguageFeatureCoverageResult.fromEvidence(languageFeatureCoverage, written,
+          new AttributedCoverageExpectations(written, List.of()), List.of(), List.of(), List.of());
       return new SyntaxAnalysisInput(snapshot, environment, new JavaProgram(List.of()),
           Optional.of(JavaAstAggregate.builder(snapshot).seal()), List.of(), coverageResult);
     }
@@ -41,34 +52,32 @@ final class JavaAnalysisPipeline {
     SyntaxAnalysisInput result;
     try (var session = openCompilerSession(compiler, invocation, sources)) {
       var parsedSource = session.parse();
+      var coverageCapture = JavaSourceCoverageCapture.capture(snapshot, parsedSource, sources, languageFeatureCoverage);
+      var propertyProducer = new JavaDeclarationPropertyEncounterProducer(parsedSource.units(), sources, parsedSource.sourceEvidence(),
+          languageFeatureCoverage);
+      var writtenProperties = propertyProducer.observeWritten();
       var annotationInventory = JavaAnnotationSourceInventory.capture(parsedSource, sources);
       var kindEvidence = new JavaCompilerKindDiagnostics(sources, parsedSource.sourceEvidence(), languageFeatureCoverage)
           .observe(parsedSource.units());
       var compilation = session.analyze(parsedSource);
+      var attributedExpectations = coverageCapture.captureAttributed(compilation.semantics());
+      var attributedProperties = propertyProducer.observeAttributed(compilation.semantics());
       var typeEvidence = new JavaTypeKindObserver(sources, compilation.semantics(), compilation.sourceEvidence(),
           compilation.treeInventory(), languageFeatureCoverage).observe(compilation.units());
       var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
           compilation.treeInventory(), languageFeatureCoverage).translate(snapshot, compilation.units());
       var annotationCompleteness = new JavaAnnotationCompleteness(annotationInventory, compilation.semantics(), translation.diagnostics());
-      var annotationProperties = annotationCompleteness.propertyObservations(languageFeatureCoverage);
-      var occurrences = new ArrayList<>(kindEvidence.occurrences());
-      occurrences.addAll(typeEvidence.occurrences());
-      occurrences.addAll(translation.featureOccurrences());
-      occurrences.addAll(annotationProperties.stream().map(
-          observation -> new LanguageFeatureOccurrence(observation.sourceFileKey(), observation.classification(), observation.origins()))
-          .toList());
-      var observations = new ArrayList<>(kindEvidence.observations());
-      observations.addAll(typeEvidence.observations());
-      observations.addAll(translation.featureObservations());
-      observations.addAll(annotationProperties);
-      var kindDiagnostics = kindEvidence.observations().stream().flatMap(observation -> observation.diagnostic().stream()).toList();
-      var typeUseDiagnostics = JavaTypeUseCompleteness.diagnostics(snapshot, kindEvidence.observations(), translation.value().aggregate());
-      var diagnostics = combineDiagnostics(new CompilerDiagnosticTranslator(sources).translate(compilation.diagnostics()), kindDiagnostics,
-          typeEvidence.diagnostics(), translation.diagnostics(), typeUseDiagnostics,
-          annotationCompleteness.diagnostics(translation.value().aggregate()));
-      var coverageResult = JavaLanguageFeatureCoverage.result(languageFeatureCoverage, occurrences, observations, diagnostics);
-      result = new SyntaxAnalysisInput(snapshot, environment, translation.value().program(), translation.value().aggregate(), diagnostics,
-          coverageResult);
+      var typeUseEvents = JavaTypeUseCompleteness.diagnosticsWithEvents(snapshot, kindEvidence.observations(),
+          translation.value().aggregate());
+      var emissions = combineEmissions(new CompilerDiagnosticTranslator(sources).translateWithEvents(compilation.diagnostics()),
+          TranslationDiagnosticEvidence.events(kindEvidence.diagnostics()),
+          TranslationDiagnosticEvidence.events(typeEvidence.diagnostics()), translation.diagnosticEmissions(), typeUseEvents,
+          annotationCompleteness.reconcileWithEvents(translation.value().aggregate()));
+      var reconciled = new JavaSourceCoverageReconciler(coverageCapture.inventory(), attributedExpectations, translation.value().program(),
+          translation.value().aggregate(), emissions)
+          .reconcile(languageFeatureCoverage, kindEvidence, typeEvidence, translation, writtenProperties, attributedProperties);
+      result = new SyntaxAnalysisInput(snapshot, environment, translation.value().program(), translation.value().aggregate(),
+          reconciled.diagnostics(), reconciled.coverageResult());
     }
 
     environmentCapture.verifyUnchanged(compiler, configuration, invocation.analysisOptions(), environment);
@@ -76,16 +85,16 @@ final class JavaAnalysisPipeline {
   }
 
   private static CompilerSession openCompilerSession(JavaCompiler compiler, JavaCompilerInvocation invocation,
-      SnapshotSourceCatalog sources) {
+      SnapshotSourceCatalog sources) throws IOException {
     try {
-      return CompilerSession.open(compiler, invocation, sources);
+      return CompilerSessionAcquisition.open(compiler, invocation, sources);
     } catch (IllegalArgumentException exception) {
       throw new AnalysisInputException("The compiler rejected the analysis configuration", exception);
     }
   }
 
-  private static JavaCompiler systemCompiler(CompilerConfiguration configuration) {
-    var compiler = ToolProvider.getSystemJavaCompiler();
+  private JavaCompiler systemCompiler(CompilerConfiguration configuration) {
+    var compiler = compilerSupplier.get();
     if (compiler == null) {
       throw new AnalysisEnvironmentException("A JDK system compiler is required for Java release " + configuration.release().feature());
     }
@@ -99,11 +108,18 @@ final class JavaAnalysisPipeline {
   }
 
   @SafeVarargs
-  private static List<AnalysisDiagnostic> combineDiagnostics(List<AnalysisDiagnostic>... diagnosticGroups) {
-    var diagnostics = new ArrayList<AnalysisDiagnostic>();
+  private static List<DiagnosticEmission> combineEmissions(List<DiagnosticEmission>... diagnosticGroups) {
+    var emissions = new ArrayList<DiagnosticEmission>();
     for (var diagnosticGroup : diagnosticGroups) {
-      diagnostics.addAll(diagnosticGroup);
+      for (var emission : diagnosticGroup) {
+        var existing = emissions.stream().filter(value -> value.address().equals(emission.address())).findFirst();
+        if (existing.isEmpty()) {
+          emissions.add(emission);
+        } else if (!existing.orElseThrow().equals(emission)) {
+          throw new IllegalArgumentException("One creating address cannot identify different transported events");
+        }
+      }
     }
-    return List.copyOf(diagnostics);
+    return List.copyOf(emissions);
   }
 }

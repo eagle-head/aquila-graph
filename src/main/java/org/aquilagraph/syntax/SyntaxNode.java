@@ -54,6 +54,9 @@ public final class SyntaxNode {
     validateChildPositions(childNodes);
     validateAnnotationChildLocations(childNodes);
     validateShape(syntaxKind, sourceKind, value, childNodes);
+    if (value instanceof SyntaxValue.LocalDeclaration local) {
+      validateWrittenLocalType(local, sourceOwner, sourceOrigin, type);
+    }
     if (syntaxKind == SyntaxKind.ANNOTATION_ARGUMENT) {
       validateAnnotationArgumentType((SyntaxValue.AnnotationArgument) value, type, childNodes);
       validateAnnotationArgumentSource((SyntaxValue.AnnotationArgument) value, sourceKind, sourceOrigin, childNodes);
@@ -495,6 +498,22 @@ public final class SyntaxNode {
     }
   }
 
+  private static void validateWrittenLocalType(SyntaxValue.LocalDeclaration local, String sourceFileKey, Optional<SourceSpan> origin,
+      SyntaxType type) {
+    local.writtenType().ifPresent(written -> {
+      var declaration = origin
+          .orElseThrow(() -> new IllegalArgumentException("A copied local type requires its written declaration range"));
+      var range = written.origin();
+      var sameType = (type instanceof SyntaxType.Resolved resolved && written.type() instanceof SyntaxType.Resolved copied)
+          ? resolved.identity().equals(copied.identity())
+          : type.equals(written.type());
+      if (!range.sourceFileKey().equals(sourceFileKey) || range.startOffset() < declaration.startOffset()
+          || range.endOffsetExclusive() > declaration.endOffsetExclusive() || !sameType) {
+        throw new IllegalArgumentException("A copied local type must belong to its actual source declaration and attributed type");
+      }
+    });
+  }
+
   private static void validateType(SyntaxKind kind, SyntaxType type, SyntaxValue value) {
     if (kind == SyntaxKind.UNSUPPORTED) {
       return;
@@ -545,8 +564,9 @@ public final class SyntaxNode {
       return;
     }
     if (kind == SyntaxKind.TYPE_CAST) {
-      if (reference.isPresent() && reference.orElseThrow().referenceKind() != ReferenceKind.TYPE) {
-        throw new IllegalArgumentException("TYPE_CAST permits only a type declaration reference");
+      if (reference.isPresent()
+          && !Set.of(ReferenceKind.TYPE, ReferenceKind.TYPE_PARAMETER).contains(reference.orElseThrow().referenceKind())) {
+        throw new IllegalArgumentException("TYPE_CAST permits only a type or type-parameter declaration reference");
       }
       return;
     }
@@ -602,6 +622,7 @@ public final class SyntaxNode {
         case IDENTIFIER, MEMBER_SELECT -> SyntaxValue.Symbol.class;
         case ANNOTATED_TYPE ->
           value instanceof SyntaxValue.SharedTypeAnnotations ? SyntaxValue.SharedTypeAnnotations.class : SyntaxValue.None.class;
+        case PARAMETERIZED_TYPE -> value instanceof SyntaxValue.DiamondType ? SyntaxValue.DiamondType.class : SyntaxValue.None.class;
         default -> SyntaxValue.None.class;
       };
       case METHOD_DECLARATION -> SyntaxValue.ExecutableDeclaration.class;
@@ -753,9 +774,15 @@ public final class SyntaxNode {
         validateRecordComponentDeclaration(SyntaxValue.RecordComponentDeclaration.class.cast(value), children);
       case METHOD_DECLARATION -> validateExecutableDeclaration(SyntaxValue.ExecutableDeclaration.class.cast(value), children);
       case BLOCK -> requireShape(children, Set.of(SyntaxRole.STATEMENT));
-      case LOCAL_DECLARATION -> requireShape(children, Set.of(SyntaxRole.INITIALIZER), SyntaxRole.INITIALIZER, 0, 1);
-      case EXPRESSION_STATEMENT, THROW, PARENTHESIZED, TYPE_CAST ->
-        requireShape(children, Set.of(SyntaxRole.EXPRESSION), SyntaxRole.EXPRESSION, 1, 1);
+      case LOCAL_DECLARATION -> {
+        requireShape(children, Set.of(SyntaxRole.INITIALIZER, SyntaxRole.DECLARED_TYPE), SyntaxRole.INITIALIZER, 0, 1);
+        validateBodyTypeAttachment(children, SyntaxRole.DECLARED_TYPE);
+      }
+      case TYPE_CAST -> {
+        requireShape(children, Set.of(SyntaxRole.EXPRESSION, SyntaxRole.TYPE_OPERAND), SyntaxRole.EXPRESSION, 1, 1);
+        validateBodyTypeAttachment(children, SyntaxRole.TYPE_OPERAND);
+      }
+      case EXPRESSION_STATEMENT, THROW, PARENTHESIZED -> requireShape(children, Set.of(SyntaxRole.EXPRESSION), SyntaxRole.EXPRESSION, 1, 1);
       case RETURN -> requireShape(children, Set.of(SyntaxRole.EXPRESSION), SyntaxRole.EXPRESSION, 0, 1);
       case IF -> {
         requireShape(children, Set.of(SyntaxRole.CONDITION, SyntaxRole.THEN_BRANCH, SyntaxRole.ELSE_BRANCH));
@@ -1001,7 +1028,8 @@ public final class SyntaxNode {
       case PARAMETERIZED_TYPE -> {
         requireShape(children, Set.of(SyntaxRole.TYPE_NAME, SyntaxRole.TYPE_ARGUMENT));
         requireCount(children, SyntaxRole.TYPE_NAME, 1, 1);
-        requireCount(children, SyntaxRole.TYPE_ARGUMENT, 1, Integer.MAX_VALUE);
+        requireCount(children, SyntaxRole.TYPE_ARGUMENT, value instanceof SyntaxValue.DiamondType ? 0 : 1,
+            value instanceof SyntaxValue.DiamondType ? 0 : Integer.MAX_VALUE);
       }
       case ARRAY_TYPE -> requireShape(children, Set.of(SyntaxRole.COMPONENT_TYPE), SyntaxRole.COMPONENT_TYPE, 1, 1);
       case EXTENDS_WILDCARD -> requireShape(children, Set.of(SyntaxRole.UPPER_BOUND), SyntaxRole.UPPER_BOUND, 1, 1);
@@ -1045,12 +1073,13 @@ public final class SyntaxNode {
     }
     var structure = resolved.structure()
         .orElseThrow(() -> new IllegalArgumentException("A resolved type use requires recursive attributed structure"));
+    var declarationType = typeUseDeclaration(structure);
     var matchingSource = switch (sourceKind) {
       case PRIMITIVE_TYPE ->
         structure instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == ((SyntaxValue.PrimitiveType) value).kind();
       case ARRAY_TYPE -> structure instanceof JavaTypeStructure.Array;
-      case PARAMETERIZED_TYPE, MEMBER_SELECT -> structure instanceof JavaTypeStructure.Declared;
-      case IDENTIFIER -> structure instanceof JavaTypeStructure.Declared || structure instanceof JavaTypeStructure.Variable;
+      case PARAMETERIZED_TYPE, MEMBER_SELECT -> declarationType.isPresent();
+      case IDENTIFIER -> declarationType.isPresent() || structure instanceof JavaTypeStructure.Variable;
       case UNBOUNDED_WILDCARD ->
         structure instanceof JavaTypeStructure.Wildcard wildcard && wildcard.kind() == JavaTypeStructure.Wildcard.BoundKind.UNBOUNDED;
       case EXTENDS_WILDCARD ->
@@ -1065,7 +1094,8 @@ public final class SyntaxNode {
       throw new IllegalArgumentException("Written type-use kind conflicts with attributed structure");
     }
     if ((sourceKind == JavaSourceKind.IDENTIFIER || sourceKind == JavaSourceKind.MEMBER_SELECT)
-        && structure instanceof JavaTypeStructure.Declared declared && !declared.arguments().isEmpty()) {
+        && declarationType.filter(declared -> !declared.arguments().isEmpty()).isPresent()
+        && path.steps().getLast().role() != SyntaxRole.TYPE_NAME) {
       throw new IllegalArgumentException("A written raw type name cannot carry attributed type arguments");
     }
     if (sourceKind == JavaSourceKind.ARRAY_TYPE
@@ -1101,7 +1131,8 @@ public final class SyntaxNode {
         && !structure.equals(requiredTypeUseStructure(children, SyntaxRole.UNDERLYING_TYPE, 0))) {
       throw new IllegalArgumentException("Annotated source type conflicts with its attributed underlying type");
     }
-    if (sourceKind == JavaSourceKind.MEMBER_SELECT && structure instanceof JavaTypeStructure.Declared declared) {
+    if (sourceKind == JavaSourceKind.MEMBER_SELECT && declarationType.isPresent()) {
+      var declared = declarationType.orElseThrow();
       var qualifier = children.getFirst().node();
       if (qualifier.value() instanceof SyntaxValue.PackageQualifier) {
         if (declared.lexicalOwnerKey().isPresent() || declared.enclosingType().isPresent()) {
@@ -1109,24 +1140,29 @@ public final class SyntaxNode {
         }
       } else {
         var written = requiredTypeUseStructure(children, SyntaxRole.TYPE_QUALIFIER, 0);
-        if (!(written instanceof JavaTypeStructure.Declared || written instanceof JavaTypeStructure.Variable)) {
+        var writtenDeclaration = typeUseDeclaration(written);
+        if (writtenDeclaration.isEmpty() && !(written instanceof JavaTypeStructure.Variable)) {
           throw new IllegalArgumentException("A written type qualifier requires a declared or type-variable type");
         }
-        if (written instanceof JavaTypeStructure.Declared selected
-            && declared.lexicalOwnerKey().equals(Optional.of(selected.declarationKey())) && declared.enclosingType().isPresent()
+        if (writtenDeclaration.isPresent()
+            && declared.lexicalOwnerKey().equals(Optional.of(writtenDeclaration.orElseThrow().declarationKey()))
+            && declared.enclosingType().isPresent()
             && (path.steps().getLast().role() == SyntaxRole.TYPE_NAME
-                ? !((JavaTypeStructure.Declared) declared.enclosingType().orElseThrow()).declarationKey().equals(selected.declarationKey())
-                : !declared.enclosingType().orElseThrow().equals(selected))) {
+                ? !typeUseDeclaration(declared.enclosingType().orElseThrow()).orElseThrow().declarationKey()
+                    .equals(writtenDeclaration.orElseThrow().declarationKey())
+                : !declared.enclosingType().orElseThrow().equals(written))) {
           throw new IllegalArgumentException("Written type qualifier conflicts with selected enclosing declaration");
         }
       }
     }
-    if (sourceKind == JavaSourceKind.PARAMETERIZED_TYPE && structure instanceof JavaTypeStructure.Declared declared) {
+    if (sourceKind == JavaSourceKind.PARAMETERIZED_TYPE && declarationType.isPresent()) {
+      var declared = declarationType.orElseThrow();
       var name = requiredTypeUseStructure(children, SyntaxRole.TYPE_NAME, 0);
-      if (!(name instanceof JavaTypeStructure.Declared selected) || !selected.declarationKey().equals(declared.declarationKey())) {
+      var selected = typeUseDeclaration(name);
+      if (selected.isEmpty() || !selected.orElseThrow().declarationKey().equals(declared.declarationKey())) {
         throw new IllegalArgumentException("Written type name conflicts with selected declaration");
       }
-      if (!declared.lexicalOwnerKey().equals(selected.lexicalOwnerKey())) {
+      if (!declared.lexicalOwnerKey().equals(selected.orElseThrow().lexicalOwnerKey())) {
         throw new IllegalArgumentException("Written type name conflicts with selected lexical owner");
       }
       var writtenName = children.stream().filter(child -> child.role() == SyntaxRole.TYPE_NAME).findFirst().orElseThrow().node();
@@ -1135,8 +1171,8 @@ public final class SyntaxNode {
             .node();
         if (!(qualifier.value() instanceof SyntaxValue.PackageQualifier) && declared.enclosingType().isPresent()) {
           var writtenQualifier = requiredTypeUseStructure(writtenName.children(), SyntaxRole.TYPE_QUALIFIER, 0);
-          if (writtenQualifier instanceof JavaTypeStructure.Declared qualifierType
-              && declared.lexicalOwnerKey().equals(Optional.of(qualifierType.declarationKey()))
+          var qualifierType = typeUseDeclaration(writtenQualifier);
+          if (qualifierType.isPresent() && declared.lexicalOwnerKey().equals(Optional.of(qualifierType.orElseThrow().declarationKey()))
               && !declared.enclosingType().equals(Optional.of(writtenQualifier))) {
             throw new IllegalArgumentException("Written type qualifier conflicts with attributed enclosing type");
           }
@@ -1144,15 +1180,29 @@ public final class SyntaxNode {
       }
       var arguments = children.stream().filter(child -> child.role() == SyntaxRole.TYPE_ARGUMENT)
           .map(child -> requiredTypeUseStructure(children, SyntaxRole.TYPE_ARGUMENT, child.position())).toList();
-      if (!arguments.equals(declared.arguments())) {
+      if (!(value instanceof SyntaxValue.DiamondType) && !arguments.equals(declared.arguments())) {
         throw new IllegalArgumentException("Written type arguments conflict with attributed arguments");
       }
     }
-    if (structure instanceof JavaTypeStructure.Declared declared) {
-      requireTypeUseTarget(reference, ReferenceKind.TYPE, declared.declarationKey());
+    if (declarationType.isPresent()) {
+      requireTypeUseTarget(reference, ReferenceKind.TYPE, declarationType.orElseThrow().declarationKey());
     } else if (structure instanceof JavaTypeStructure.Variable variable) {
       requireTypeUseTarget(reference, ReferenceKind.TYPE_PARAMETER, variable.parameterKey());
     }
+  }
+
+  private static Optional<TypeUseDeclaration> typeUseDeclaration(JavaTypeStructure structure) {
+    return switch (structure) {
+      case JavaTypeStructure.Declared declared -> Optional.of(
+          new TypeUseDeclaration(declared.declarationKey(), declared.lexicalOwnerKey(), declared.enclosingType(), declared.arguments()));
+      case JavaTypeStructure.LocalDeclared local -> Optional.of(
+          new TypeUseDeclaration(local.declarationKey(), Optional.of(local.lexicalOwnerKey()), local.enclosingType(), local.arguments()));
+      default -> Optional.empty();
+    };
+  }
+
+  private record TypeUseDeclaration(String declarationKey, Optional<String> lexicalOwnerKey, Optional<JavaTypeStructure> enclosingType,
+      List<JavaTypeStructure> arguments) {
   }
 
   private static JavaTypeStructure requiredTypeUseStructure(List<SyntaxChild> children, SyntaxRole role, int position) {
@@ -1451,18 +1501,35 @@ public final class SyntaxNode {
   }
 
   private static void validateInvocation(SyntaxValue.Invocation invocation, List<SyntaxChild> children) {
-    requireShape(children, Set.of(SyntaxRole.RECEIVER, SyntaxRole.ARGUMENT));
+    requireShape(children, Set.of(SyntaxRole.RECEIVER, SyntaxRole.ARGUMENT, SyntaxRole.TYPE_ARGUMENT));
     requireCount(children, SyntaxRole.RECEIVER, invocation.form().evaluatesExpression() ? 1 : 0,
         invocation.form().evaluatesExpression() ? 1 : 0);
+    validateBodyTypeArguments(children);
   }
 
   private static void validateObjectCreation(SyntaxValue.Invocation invocation, List<SyntaxChild> children) {
-    requireShape(children, Set.of(SyntaxRole.ENCLOSING_INSTANCE, SyntaxRole.ARGUMENT));
+    requireShape(children, Set.of(SyntaxRole.ENCLOSING_INSTANCE, SyntaxRole.ARGUMENT, SyntaxRole.TYPE_OPERAND, SyntaxRole.TYPE_ARGUMENT));
     var expectedEnclosingInstances = invocation.form() == InvocationForm.QUALIFIED_OBJECT_CREATION ? 1 : 0;
     if (invocation.form() != InvocationForm.OBJECT_CREATION && invocation.form() != InvocationForm.QUALIFIED_OBJECT_CREATION) {
       throw new IllegalArgumentException("OBJECT_CREATION requires a construction invocation form");
     }
     requireCount(children, SyntaxRole.ENCLOSING_INSTANCE, expectedEnclosingInstances, expectedEnclosingInstances);
+    validateBodyTypeAttachment(children, SyntaxRole.TYPE_OPERAND);
+    validateBodyTypeArguments(children);
+  }
+
+  private static void validateBodyTypeAttachment(List<SyntaxChild> children, SyntaxRole role) {
+    requireCount(children, role, 0, 1);
+    if (children.stream().filter(child -> child.role() == role).anyMatch(child -> child.node().syntaxKind() != SyntaxKind.TYPE_USE)) {
+      throw new IllegalArgumentException("A written body type attachment requires a type-use occurrence");
+    }
+  }
+
+  private static void validateBodyTypeArguments(List<SyntaxChild> children) {
+    if (children.stream().filter(child -> child.role() == SyntaxRole.TYPE_ARGUMENT)
+        .anyMatch(child -> child.node().syntaxKind() != SyntaxKind.TYPE_USE)) {
+      throw new IllegalArgumentException("Written invocation type arguments require type-use occurrences");
+    }
   }
 
   private static void validateFieldAccess(SyntaxValue.FieldAccess access, List<SyntaxChild> children) {

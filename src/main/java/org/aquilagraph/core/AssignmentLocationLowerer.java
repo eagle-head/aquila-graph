@@ -8,7 +8,6 @@ import org.aquilagraph.syntax.SyntaxRole;
 
 /** Evaluates storage locations without reading the values currently stored in them. */
 final class AssignmentLocationLowerer {
-  private static final String NULL_POINTER_EXCEPTION = "java.lang.NullPointerException";
   private final SyntaxGraphLowerer syntax;
   private final ControlFlowGraphConstruction graph;
   private final FlowValueScope values;
@@ -47,11 +46,9 @@ final class AssignmentLocationLowerer {
 
   private AssignmentLocation array(SyntaxNode node) {
     var array = syntax.lower(node.requiredChild(SyntaxRole.ARRAY));
-    var index = syntax.lower(node.requiredChild(SyntaxRole.INDEX));
+    var index = syntax.lowerUse(node, SyntaxRole.INDEX);
     var evaluation = graph.sequence(array, index);
     var exceptions = new ArrayList<ExceptionType>();
-    exceptions.add(ExceptionType.runtime(NULL_POINTER_EXCEPTION));
-    exceptions.add(ExceptionType.runtime("java.lang.ArrayIndexOutOfBoundsException"));
     if (node.resolvedType().map(type -> switch (type.category()) {
       case BOOLEAN, BYTE, SHORT, INT, LONG, CHAR, FLOAT, DOUBLE -> false;
       default -> true;

@@ -32,14 +32,22 @@ import org.aquilagraph.frontend.JavaAnnotationProjector.DeclarationSite;
 
 /** Projects one written Java module declaration into source-owned AST facts. */
 final class JavaModuleTranslator {
+  private static final String DIAGNOSTIC_PRODUCER = "JavaModuleTranslator";
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
   private final JavaAnnotationProjector annotationProjector;
+  private final JavaWrittenSourceAssociations sourceAssociations;
 
   JavaModuleTranslator(JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory, JavaAnnotationProjector annotationProjector) {
+    this(sourceEvidence, treeInventory, annotationProjector, new JavaWrittenSourceAssociations(treeInventory));
+  }
+
+  JavaModuleTranslator(JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory, JavaAnnotationProjector annotationProjector,
+      JavaWrittenSourceAssociations sourceAssociations) {
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
     this.annotationProjector = Objects.requireNonNull(annotationProjector, "annotationProjector");
+    this.sourceAssociations = Objects.requireNonNull(sourceAssociations, "sourceAssociations");
   }
 
   Optional<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, ModuleTree declaration, SyntaxStructuralPath rootPath,
@@ -48,8 +56,8 @@ final class JavaModuleTranslator {
     var range = requiredRange(unit, sourceFile, declaration, path, diagnostics);
     var name = requiredName(declaration.getName(), sourceFile, path, "module name", range, diagnostics);
     if (!treeInventory.isWritten(declaration)) {
-      diagnostics
-          .add(error(sourceFile, path, "frontend.missing-written-module", "Module declaration has no written source occurrence", range));
+      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+          error(sourceFile, path, "frontend.missing-written-module", "Module declaration has no written source occurrence", range));
     }
     var children = new ArrayList<SyntaxChild>();
     var complete = range.isPresent() && name.isPresent() && treeInventory.isWritten(declaration);
@@ -82,8 +90,9 @@ final class JavaModuleTranslator {
       return Optional.empty();
     }
     var value = new SyntaxValue.ModuleDeclaration(name.orElseThrow(), declaration.getModuleType() == ModuleTree.ModuleKind.OPEN);
-    return Optional.of(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.MODULE, SyntaxKind.COMPILATION_UNIT,
-        SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), range.orElseThrow()));
+    return Optional.of(
+        sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.MODULE, SyntaxKind.COMPILATION_UNIT,
+            SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), range.orElseThrow()), declaration));
   }
 
   private Optional<SyntaxNode> annotation(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
@@ -104,7 +113,7 @@ final class JavaModuleTranslator {
           .map(name -> (SyntaxValue.ModuleDirective) new SyntaxValue.Uses(name));
       case ProvidesTree provides -> providedService(provides, sourceFile, path, range, diagnostics);
       default -> {
-        diagnostics.add(
+        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
             error(sourceFile, path, "frontend.unknown-module-directive", "A written module directive has no supported source form", range));
         yield Optional.empty();
       }
@@ -112,9 +121,9 @@ final class JavaModuleTranslator {
     if (range.isEmpty() || value.isEmpty()) {
       return Optional.empty();
     }
-    return Optional.of(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.valueOf(declaration.getKind().name()),
-        SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE, value.orElseThrow(), List.of(), Optional.empty(),
-        range.orElseThrow()));
+    return Optional.of(sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), path,
+        JavaSourceKind.valueOf(declaration.getKind().name()), SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
+        value.orElseThrow(), List.of(), Optional.empty(), range.orElseThrow()), declaration));
   }
 
   private Optional<SyntaxValue.ModuleDirective> packageTargets(Tree packageTree, List<? extends Tree> targetTrees, SourceFile sourceFile,
@@ -147,7 +156,8 @@ final class JavaModuleTranslator {
   private Optional<List<SyntaxValue.QualifiedName>> requiredNames(List<? extends Tree> trees, SourceFile sourceFile,
       SyntaxStructuralPath path, String label, Optional<SourceSpan> range, List<AnalysisDiagnostic> diagnostics) {
     if (trees == null || trees.isEmpty()) {
-      diagnostics.add(error(sourceFile, path, "frontend.missing-module-operand", "Module directive has no " + label, range));
+      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+          error(sourceFile, path, "frontend.missing-module-operand", "Module directive has no " + label, range));
       return Optional.empty();
     }
     var names = new ArrayList<SyntaxValue.QualifiedName>();
@@ -162,7 +172,8 @@ final class JavaModuleTranslator {
       Optional<SourceSpan> range, List<AnalysisDiagnostic> diagnostics) {
     var name = qualifiedName(tree);
     if (name.isEmpty()) {
-      diagnostics.add(error(sourceFile, path, "frontend.missing-module-operand", "Module declaration has no " + label, range));
+      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+          error(sourceFile, path, "frontend.missing-module-operand", "Module declaration has no " + label, range));
     }
     return name;
   }
@@ -189,13 +200,13 @@ final class JavaModuleTranslator {
     return switch (sourceEvidence.position(unit, sourceFile, tree)) {
       case JavaSourceEvidence.Position.Available available -> Optional.of(available.span());
       case JavaSourceEvidence.Position.Missing ignored -> {
-        diagnostics.add(FrontendDiagnosticFactory.sourcePositionError(sourceFile, path, "frontend.missing-source-position",
-            "A required module occurrence has no compiler position"));
+        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.sourcePositionError(sourceFile, path,
+            "frontend.missing-source-position", "A required module occurrence has no compiler position"));
         yield Optional.empty();
       }
       case JavaSourceEvidence.Position.Invalid ignored -> {
-        diagnostics.add(FrontendDiagnosticFactory.sourcePositionError(sourceFile, path, "frontend.invalid-source-range",
-            "A required module occurrence has an invalid compiler range"));
+        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.sourcePositionError(sourceFile, path,
+            "frontend.invalid-source-range", "A required module occurrence has an invalid compiler range"));
         yield Optional.empty();
       }
     };

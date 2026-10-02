@@ -15,13 +15,18 @@ import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.InvocationForm;
 import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.JavaTypeModifier;
+import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.SourceSpan;
+import org.aquilagraph.model.SourceOwnerPath;
 import org.aquilagraph.syntax.MethodSyntax;
 import org.aquilagraph.syntax.SyntaxAnalysisInput;
 import org.aquilagraph.syntax.SyntaxKind;
+import org.aquilagraph.syntax.SyntaxNode;
 import org.aquilagraph.syntax.SyntaxRole;
 import org.aquilagraph.syntax.SyntaxValue;
+import org.aquilagraph.syntax.SyntaxType;
+import org.aquilagraph.syntax.JavaSourceKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -233,12 +238,36 @@ class JavaAstBoundaryRegressionTest {
     var second = frontend.analyze(snapshot, configuration);
 
     // Assert
-    assertEquals(List.of("frontend.unrepresented-source-type-use", "frontend.unrepresented-source-type-use"),
+    assertEquals(List.of(),
         first.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
+    assertEquals(List.of(), second.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
+    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(first).completion());
+    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(second).completion());
     var firstKeys = localDeclarationKeys(first, Set.of("repeated", "problem"));
     var secondKeys = localDeclarationKeys(second, Set.of("repeated", "problem"));
     assertEquals(5, firstKeys.size());
     assertEquals(firstKeys, secondKeys);
+    var locals = first.methodSyntax().stream()
+        .flatMap(method -> method.root().descendantsAndSelf().stream()
+            .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION)
+            .map(node -> assertSourceLocal(first, method, node))).toList();
+    assertEquals(5, locals.size());
+    assertEquals(List.of("IllegalArgumentException", "IllegalStateException", "String", "int", "int"),
+        locals.stream().map(node -> {
+          var origin = node.requiredChild(SyntaxRole.DECLARED_TYPE).origin().orElseThrow();
+          return snapshot.sourceFiles().getFirst().content().substring(Math.toIntExact(origin.startOffset()), Math.toIntExact(origin.endOffsetExclusive()));
+        }).sorted().toList());
+    for (var local : locals) {
+      var written = local.value(SyntaxValue.LocalDeclaration.class).writtenType().orElseThrow();
+      var retained = local.requiredChild(SyntaxRole.DECLARED_TYPE);
+      assertEquals(SyntaxKind.TYPE_USE, retained.syntaxKind());
+      assertEquals(written.sourceKind(), retained.sourceKind());
+      assertEquals(written.origin(), retained.origin().orElseThrow());
+      assertEquals(written.type(), retained.type());
+      var resolved = (SyntaxType.Resolved) retained.type();
+      assertEquals(retained.sourceKind() == JavaSourceKind.PRIMITIVE_TYPE ? JavaTypeCategory.INT : JavaTypeCategory.DECLARED,
+          resolved.identity().category());
+    }
     for (var method : first.program().methods().stream().filter(candidate -> candidate.name().equals("overloaded")).toList()) {
       assertTrue(first.methodSyntax(method.methodKey()).orElseThrow().root().descendantsAndSelf().stream()
           .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION)
@@ -409,6 +438,47 @@ class JavaAstBoundaryRegressionTest {
         .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION)
         .filter(node -> names.contains(node.value(SyntaxValue.LocalDeclaration.class).name()))
         .map(node -> node.requiredReference().symbolKey().orElseThrow()).collect(Collectors.toSet());
+  }
+
+  private static SyntaxNode assertSourceLocal(SyntaxAnalysisInput input, MethodSyntax method, SyntaxNode executionLocal) {
+    var aggregate = input.aggregate().orElseThrow();
+    var declarations = aggregate.nodes().stream()
+        .filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration declaration
+            && declaration.declarationKey().equals(method.methodKey())).toList();
+    assertEquals(1, declarations.size());
+    var sourceMethod = declarations.getFirst();
+    var sourceBody = sourceMethod.requiredChild(SyntaxRole.BODY);
+    var matches = sourceBody.descendantsAndSelf().stream()
+        .filter(node -> node.sourceFileKey().equals(executionLocal.sourceFileKey())
+            && node.sourceKind() == executionLocal.sourceKind() && node.syntaxKind() == executionLocal.syntaxKind()
+            && node.origin().equals(executionLocal.origin()) && node.value().equals(executionLocal.value())
+            && node.type().equals(executionLocal.type()) && node.semanticReference().equals(executionLocal.semanticReference()))
+        .toList();
+    assertEquals(1, matches.size());
+    var local = matches.getFirst();
+    assertEquals(local, aggregate.node(local.nodeId()).orElseThrow());
+    var executionSteps = executionLocal.structuralPath().steps();
+    var executionRootSteps = method.root().structuralPath().steps();
+    var sourceSteps = local.structuralPath().steps();
+    var sourceRootSteps = sourceBody.structuralPath().steps();
+    assertEquals(executionRootSteps, executionSteps.subList(0, executionRootSteps.size()));
+    assertEquals(sourceRootSteps, sourceSteps.subList(0, sourceRootSteps.size()));
+    assertEquals(executionSteps.subList(executionRootSteps.size(), executionSteps.size()),
+        sourceSteps.subList(sourceRootSteps.size(), sourceSteps.size()));
+    var owner = aggregate.writtenSourceAssociation(sourceMethod.nodeId()).orElseThrow();
+    var bodyOwner = aggregate.writtenSourceAssociation(sourceBody.nodeId()).orElseThrow();
+    var localOwner = aggregate.writtenSourceAssociation(local.nodeId()).orElseThrow();
+    assertEquals(owner.ownerPath().child(SourceOwnerPath.Role.BODY, 0), bodyOwner.ownerPath());
+    assertTrue(bodyOwner.ownerPath().isAncestorOf(localOwner.ownerPath()));
+    assertEquals(local.nodeId(), localOwner.nodeKey());
+    assertEquals(executionLocal.sourceFileKey(), localOwner.sourceFileKey());
+    assertEquals(executionLocal.sourceKind(), localOwner.sourceKind());
+    assertEquals(executionLocal.origin(), localOwner.origin());
+    assertTrue(method.root().descendantsAndSelf().stream()
+        .allMatch(node -> node.children(SyntaxRole.DECLARED_TYPE).isEmpty() && node.children(SyntaxRole.TYPE_OPERAND).isEmpty()));
+    assertTrue(method.root().descendantsAndSelf().stream()
+        .noneMatch(node -> node.syntaxKind() == SyntaxKind.TYPE_USE || node.syntaxKind() == SyntaxKind.ANNOTATION));
+    return local;
   }
 
   private static String sourceText(String content, SourceSpan origin) {

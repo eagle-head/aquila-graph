@@ -36,7 +36,7 @@ final class JavaDeclarationPropertyObserver {
     }
     var classifications = Arrays.stream(featureIdentifiers).map(identifier -> validatedClassification(identifier, code)).toList();
     var diagnostic = FrontendDiagnosticFactory.capabilityError(context, code, message, origin);
-    diagnostics.add(diagnostic);
+    TranslationDiagnosticEvidence.emit(diagnostics, "JavaDeclarationPropertyObserver", diagnostic);
     occurrences.addAll(classifications.stream()
         .map(classification -> new LanguageFeatureOccurrence(sourceFile.sourceFileKey(), classification, diagnostic.origins())).toList());
     observations.addAll(classifications.stream().map(classification -> new LanguageFeatureObservation(sourceFile.sourceFileKey(),

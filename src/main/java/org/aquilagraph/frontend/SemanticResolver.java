@@ -9,8 +9,8 @@ import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.Trees;
+import org.aquilagraph.frontend.JavaConstructorSelection.SelectedConstructorFacts;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -20,17 +20,15 @@ import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
-import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.type.IntersectionType;
-import javax.lang.model.type.ArrayType;
+import javax.lang.model.type.PrimitiveType;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.TypeVariable;
 import javax.lang.model.type.UnionType;
-import javax.lang.model.type.WildcardType;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import org.aquilagraph.model.InvocationForm;
@@ -49,18 +47,29 @@ import org.jspecify.annotations.Nullable;
 final class SemanticResolver {
   private static final String PATH_ARGUMENT = "path";
   private static final String ELEMENT_ARGUMENT = "element";
+  private static final String TYPE_ARGUMENT = "type";
   private static final String EXECUTABLE_ARGUMENT = "executable";
-  private static final int MIN_COMPOSITE_COMPONENTS = 2;
   private final Trees trees;
   private final Types types;
   private final Elements elements;
   private final DeclarationIdentityRegistry identities;
+  private final Optional<JavaConstructorSelection> constructorSelection;
 
   SemanticResolver(Trees trees, Types types, Elements elements, DeclarationIdentityRegistry identities) {
+    this(trees, types, elements, identities, Optional.empty());
+  }
+
+  SemanticResolver(Trees trees, Types types, Elements elements, DeclarationIdentityRegistry identities,
+      Optional<JavaConstructorSelection> constructorSelection) {
     this.trees = Objects.requireNonNull(trees, "trees");
     this.types = Objects.requireNonNull(types, "types");
     this.elements = Objects.requireNonNull(elements, "elements");
     this.identities = Objects.requireNonNull(identities, "identities");
+    this.constructorSelection = Objects.requireNonNull(constructorSelection, "constructorSelection");
+  }
+
+  Optional<SelectedConstructorFacts> selectedConstructor(TreePath path, ExecutableElement selected) {
+    return constructorSelection.flatMap(selection -> selection.select(path, selected));
   }
 
   Element element(TreePath path) {
@@ -86,8 +95,41 @@ final class SemanticResolver {
     return elements.getOrigin(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
   }
 
+  Elements.Origin annotationOrigin(Element owner, AnnotationMirror mirror) {
+    return elements.getOrigin(Objects.requireNonNull(owner, ELEMENT_ARGUMENT), Objects.requireNonNull(mirror, "mirror"));
+  }
+
   boolean sameType(TypeMirror first, TypeMirror second) {
     return types.isSameType(Objects.requireNonNull(first, "first"), Objects.requireNonNull(second, "second"));
+  }
+
+  boolean assignable(TypeMirror source, TypeMirror target) {
+    return types.isAssignable(Objects.requireNonNull(source, "source"), Objects.requireNonNull(target, "target"));
+  }
+
+  TypeMirror erasedType(TypeMirror type) {
+    return types.erasure(Objects.requireNonNull(type, TYPE_ARGUMENT));
+  }
+
+  PrimitiveType primitiveType(TypeKind kind) {
+    return types.getPrimitiveType(Objects.requireNonNull(kind, "kind"));
+  }
+
+  TypeMirror boxedType(PrimitiveType type) {
+    return types.boxedClass(Objects.requireNonNull(type, TYPE_ARGUMENT)).asType();
+  }
+
+  Optional<PrimitiveType> unboxedType(TypeMirror type) {
+    Objects.requireNonNull(type, TYPE_ARGUMENT);
+    try {
+      return Optional.of(types.unboxedType(type));
+    } catch (IllegalArgumentException noUnboxingConversion) {
+      return Optional.empty();
+    }
+  }
+
+  TypeMirror memberType(DeclaredType owner, Element member) {
+    return types.asMemberOf(Objects.requireNonNull(owner, "owner"), Objects.requireNonNull(member, "member"));
   }
 
   boolean isCompactConstructor(ExecutableElement element) {
@@ -155,7 +197,7 @@ final class SemanticResolver {
   }
 
   SyntaxType declarationType(TypeMirror type) {
-    return projectType(Objects.requireNonNull(type, "type"), true);
+    return projectType(Objects.requireNonNull(type, TYPE_ARGUMENT), true);
   }
 
   private SyntaxType projectType(@Nullable TypeMirror type, boolean includeStructure) {
@@ -177,90 +219,7 @@ final class SemanticResolver {
   }
 
   private Optional<JavaTypeStructure> structuredType(TypeMirror type) {
-    return switch (type.getKind()) {
-      case BOOLEAN, BYTE, SHORT, INT, LONG, CHAR, FLOAT, DOUBLE, VOID ->
-        Optional.of(new JavaTypeStructure.Primitive(typeKind(type.getKind())));
-      case ARRAY -> structuredType(((ArrayType) type).getComponentType()).map(JavaTypeStructure.Array::new);
-      case TYPEVAR -> identities.keyOf(((TypeVariable) type).asElement()).map(JavaTypeStructure.Variable::new);
-      case DECLARED -> structuredDeclaredType((DeclaredType) type);
-      case WILDCARD -> structuredWildcardType((WildcardType) type);
-      case INTERSECTION -> structuredComponents(((IntersectionType) type).getBounds(), true);
-      case UNION -> structuredComponents(((UnionType) type).getAlternatives(), false);
-      default -> Optional.empty();
-    };
-  }
-
-  private Optional<JavaTypeStructure> structuredWildcardType(WildcardType type) {
-    var upper = type.getExtendsBound();
-    var lower = type.getSuperBound();
-    if (upper != null && lower != null) {
-      return Optional.empty();
-    }
-    if (upper != null) {
-      return structuredType(upper)
-          .map(bound -> new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.EXTENDS, Optional.of(bound)));
-    }
-    if (lower != null) {
-      return structuredType(lower)
-          .map(bound -> new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.SUPER, Optional.of(bound)));
-    }
-    return Optional.of(new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.UNBOUNDED, Optional.empty()));
-  }
-
-  private Optional<JavaTypeStructure> structuredComponents(List<? extends TypeMirror> mirrors, boolean intersection) {
-    var components = new ArrayList<JavaTypeStructure>();
-    for (var mirror : mirrors) {
-      var component = structuredType(mirror);
-      if (component.isEmpty()) {
-        return Optional.empty();
-      }
-      components.add(component.orElseThrow());
-    }
-    if (components.size() < MIN_COMPOSITE_COMPONENTS) {
-      return Optional.empty();
-    }
-    return Optional.of(intersection ? new JavaTypeStructure.Intersection(components) : new JavaTypeStructure.Union(components));
-  }
-
-  private Optional<JavaTypeStructure> structuredDeclaredType(DeclaredType type) {
-    var element = (TypeElement) type.asElement();
-    var key = identities.keyOf(element);
-    if (key.isEmpty()) {
-      return Optional.empty();
-    }
-    Optional<String> lexicalOwner = Optional.empty();
-    var nesting = element.getNestingKind();
-    if (nesting != NestingKind.TOP_LEVEL) {
-      var owner = element.getEnclosingElement();
-      if (owner == null || (nesting == NestingKind.MEMBER && !(owner instanceof TypeElement))) {
-        return Optional.empty();
-      }
-      lexicalOwner = identities.keyOf(owner);
-      if (lexicalOwner.isEmpty()) {
-        return Optional.empty();
-      }
-    }
-    Optional<JavaTypeStructure> enclosing = Optional.empty();
-    var enclosingMirror = type.getEnclosingType();
-    if (enclosingMirror.getKind() != TypeKind.NONE) {
-      enclosing = structuredType(enclosingMirror);
-      if (enclosing.isEmpty()) {
-        return Optional.empty();
-      }
-    }
-    var arguments = new ArrayList<JavaTypeStructure>();
-    for (var argument : type.getTypeArguments()) {
-      var component = structuredType(argument);
-      if (component.isEmpty()) {
-        return Optional.empty();
-      }
-      arguments.add(component.orElseThrow());
-    }
-    if (nesting == NestingKind.LOCAL || nesting == NestingKind.ANONYMOUS) {
-      var kind = nesting == NestingKind.LOCAL ? JavaTypeStructure.LocalDeclared.Kind.LOCAL : JavaTypeStructure.LocalDeclared.Kind.ANONYMOUS;
-      return Optional.of(new JavaTypeStructure.LocalDeclared(key.orElseThrow(), lexicalOwner.orElseThrow(), kind, enclosing, arguments));
-    }
-    return Optional.of(new JavaTypeStructure.Declared(key.orElseThrow(), lexicalOwner, enclosing, arguments));
+    return new JavaTypeStructureProjection(identities).project(type);
   }
 
   SyntaxType receiverType(ExecutableElement executable) {
@@ -294,7 +253,8 @@ final class SemanticResolver {
   }
 
   Optional<String> enclosingTypeKey(TypeElement type) {
-    for (var owner = Objects.requireNonNull(type, "type").getEnclosingElement(); owner != null; owner = owner.getEnclosingElement()) {
+    for (var owner = Objects.requireNonNull(type, TYPE_ARGUMENT).getEnclosingElement(); owner != null; owner = owner
+        .getEnclosingElement()) {
       if (owner instanceof TypeElement enclosing) {
         return identities.keyOf(enclosing);
       }
@@ -309,7 +269,9 @@ final class SemanticResolver {
   Optional<SemanticReference> typeReference(TreePath path) {
     Objects.requireNonNull(path, PATH_ARGUMENT);
     var element = trees.getElement(path);
-    return element == null ? Optional.empty() : reference(path, ReferenceKind.TYPE);
+    return element == null
+        ? Optional.empty()
+        : reference(path, element.getKind() == ElementKind.TYPE_PARAMETER ? ReferenceKind.TYPE_PARAMETER : ReferenceKind.TYPE);
   }
 
   Optional<SemanticReference> typeUseReference(TreePath path) {
@@ -532,7 +494,7 @@ final class SemanticResolver {
     return List.copyOf(names);
   }
 
-  private JavaTypeIdentity typeIdentity(TypeMirror type) {
+  JavaTypeIdentity typeIdentity(TypeMirror type) {
     return new JavaTypeIdentity(typeKind(type.getKind()), type.toString(), types.erasure(type).toString());
   }
 

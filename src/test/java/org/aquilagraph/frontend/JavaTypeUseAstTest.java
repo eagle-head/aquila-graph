@@ -888,7 +888,7 @@ class JavaTypeUseAstTest {
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
         .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
 
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(JAVA_25), sources)) {
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(JAVA_25), sources)) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
       var unit = compilation.units().getFirst();
@@ -897,7 +897,7 @@ class JavaTypeUseAstTest {
 
       // Act and Assert
       for (var index = 0; index < states.size(); index++) {
-        var diagnostics = new ArrayList<AnalysisDiagnostic>(baseline.diagnostics());
+        var diagnostics = JavaCoverageTestSupport.diagnostics(baseline, "type-use-observation");
         var baselineCount = diagnostics.size();
         var translated = translator.translateAttributed(unit, sources.find(unit).orElseThrow(), typeTree,
             TreePath.getPath(unit, typeTree), path, path, states.get(index), diagnostics).orElseThrow();
@@ -906,8 +906,7 @@ class JavaTypeUseAstTest {
         assertEquals(expectedCodes.get(index), diagnostics.getLast().code());
         assertEquals(List.of(expectedSpan), diagnostics.getLast().origins());
         assertEquals(DiagnosticSeverity.ERROR, diagnostics.getLast().severity());
-        var analysisInput = new SyntaxAnalysisInput(baseline.snapshot(), baseline.environmentSnapshot(), baseline.program(),
-            baseline.aggregate(), diagnostics, baseline.languageFeatureCoverageResult());
+        var analysisInput = JavaCoverageTestSupport.withFacts(baseline, baseline.program(), baseline.aggregate(), diagnostics);
         assertNotEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(analysisInput).completion());
       }
     }
@@ -928,19 +927,18 @@ class JavaTypeUseAstTest {
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
         .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
 
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(JAVA_25), sources)) {
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(JAVA_25), sources)) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
       var unit = compilation.units().getFirst();
       var typeTree = unit.getPackageName();
       var translator = new JavaTypeUseTranslator(compilation.semantics(), compilation.sourceEvidence(), parsed.treeInventory());
-      var diagnostics = new ArrayList<AnalysisDiagnostic>(baseline.diagnostics());
+      var diagnostics = JavaCoverageTestSupport.diagnostics(baseline, "type-use-observation");
 
       // Act
       var translated = translator.translateAttributed(unit, sources.find(unit).orElseThrow(), typeTree,
           TreePath.getPath(unit, typeTree), path, path, type, diagnostics);
-      var analysisInput = new SyntaxAnalysisInput(baseline.snapshot(), baseline.environmentSnapshot(), baseline.program(),
-          baseline.aggregate(), diagnostics, baseline.languageFeatureCoverageResult());
+      var analysisInput = JavaCoverageTestSupport.withFacts(baseline, baseline.program(), baseline.aggregate(), diagnostics);
       var completion = new AnalysisEngine().analyze(analysisInput).completion();
 
       // Assert

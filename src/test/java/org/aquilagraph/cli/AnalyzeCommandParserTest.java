@@ -3,6 +3,7 @@ package org.aquilagraph.cli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
 import org.aquilagraph.application.RepositorySavePolicy;
@@ -105,5 +106,83 @@ class AnalyzeCommandParserTest {
     // Assert
     var rejected = assertInstanceOf(AnalyzeCommandParser.Rejected.class, result);
     assertEquals("Exactly one source root is required", rejected.message());
+  }
+
+  @Test
+  void givenEarlierUnknownOptionAndLaterNullToken_whenArgumentsAreParsed_thenWholeArrayValidationPrecedesRefusal() {
+    // Arrange
+    var arguments = new String[] {"--unknown", null};
+
+    // Act
+    var failure = assertThrows(NullPointerException.class, () -> parser.parse(arguments));
+
+    // Assert
+    assertEquals("argument", failure.getMessage());
+  }
+
+  @Test
+  void givenTwoRootsAndLaterUnknownOption_whenArgumentsAreParsed_thenTokenRefusalPrecedesRootCardinality() {
+    // Arrange
+    var arguments = new String[] {"first", "second", "--unknown"};
+
+    // Act
+    var result = parser.parse(arguments);
+
+    // Assert
+    assertEquals("Unknown option: --unknown", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+  }
+
+  @Test
+  void givenDuplicateReleaseWithoutFollowingValue_whenArgumentsAreParsed_thenDuplicatePrecedesMissingValue() {
+    // Arrange
+    var arguments = new String[] {"source", "--release", "25", "--release"};
+
+    // Act
+    var result = parser.parse(arguments);
+
+    // Assert
+    assertEquals("--release may be supplied only once", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+  }
+
+  @Test
+  void givenOverflowReleaseNumber_whenArgumentsAreParsed_thenUnchangedTokenIsReported() {
+    // Arrange
+    var arguments = new String[] {"source", "--release", "2147483648"};
+
+    // Act
+    var result = parser.parse(arguments);
+
+    // Assert
+    assertEquals("Invalid Java release: 2147483648", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+  }
+
+  @Test
+  void givenOptionTerminatorOrEqualsForm_whenArgumentsAreParsed_thenEachExactTokenRemainsUnknown() {
+    // Arrange
+    var unknownTokens = new String[] {"--", "--release=25"};
+
+    for (var unknownToken : unknownTokens) {
+      // Act
+      var result = parser.parse("source", unknownToken);
+
+      // Assert
+      assertEquals("Unknown option: " + unknownToken, assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+    }
+  }
+
+  @Test
+  void givenSingleDashBlankOrLeadingPaddedRoot_whenArgumentsAreParsed_thenEachPositionalValueIsPreserved() {
+    // Arrange
+    var roots = new String[] {"-", "", " source"};
+
+    for (var root : roots) {
+      // Act
+      var result = parser.parse(root);
+
+      // Assert
+      var parsed = assertInstanceOf(AnalyzeCommandParser.Parsed.class, result);
+      assertEquals(Path.of(root), parsed.arguments().sourceRoot());
+      assertSame(RepositorySavePolicy.DO_NOT_SAVE, parsed.arguments().repositorySavePolicy());
+    }
   }
 }

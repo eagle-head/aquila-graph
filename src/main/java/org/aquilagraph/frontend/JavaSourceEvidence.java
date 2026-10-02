@@ -51,13 +51,13 @@ final class JavaSourceEvidence {
     return switch (position(unit, sourceFile, tree)) {
       case Position.Available available -> Optional.of(available.span());
       case Position.Missing ignored -> {
-        diagnostics.add(FrontendDiagnosticFactory.sourcePositionError(sourceFile, path, "frontend.missing-source-position",
-            "A required source occurrence has no compiler position"));
+        TranslationDiagnosticEvidence.emit(diagnostics, "JavaSourceEvidence", FrontendDiagnosticFactory.sourcePositionError(sourceFile,
+            path, "frontend.missing-source-position", "A required source occurrence has no compiler position"));
         yield Optional.empty();
       }
       case Position.Invalid ignored -> {
-        diagnostics.add(FrontendDiagnosticFactory.sourcePositionError(sourceFile, path, "frontend.invalid-source-range",
-            "A required source occurrence has an invalid compiler range"));
+        TranslationDiagnosticEvidence.emit(diagnostics, "JavaSourceEvidence", FrontendDiagnosticFactory.sourcePositionError(sourceFile,
+            path, "frontend.invalid-source-range", "A required source occurrence has an invalid compiler range"));
         yield Optional.empty();
       }
     };

@@ -22,6 +22,11 @@ import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.AnalysisRun;
+import org.aquilagraph.model.AnalysisDiagnostic;
+import org.aquilagraph.model.AnalysisOutcomeKind;
+import org.aquilagraph.model.DiagnosticSeverity;
+import org.aquilagraph.model.DiagnosticStage;
+import org.aquilagraph.model.SourceSpan;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.JavaRelease;
 import org.aquilagraph.model.StableId;
@@ -30,6 +35,64 @@ import org.junit.jupiter.api.io.TempDir;
 
 class Neo4jAnalysisRunMapperTest {
   @TempDir Path temporaryDirectory;
+
+  @Test
+  void givenEqualDiagnosticValuesInTwoSlots_whenRunIsMapped_thenOneValueAndBothOrderedSlotsArePreserved() throws IOException {
+    // Arrange
+    var sourceRoot = completedSourceRoot("diagnostics");
+    var original = completedMapperFixture(new AnalysisEngine().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot,
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25))));
+    var origin = new SourceSpan(original.inputSnapshot().sourceFiles().getFirst().sourceFileKey(), 0, 1);
+    var first = diagnostic("diagnostic", "Observed source", List.of(origin));
+    var second = diagnostic("diagnostic", "Observed source", List.of(origin));
+    var run = new AnalysisRun(original.runId(), original.inputSnapshot(), original.environmentSnapshot(), original.representation(),
+        List.of(first, second), AnalysisCompletion.COMPLETED);
+
+    // Act
+    var projection = new Neo4jAnalysisRunMapper().map(run);
+
+    // Assert
+    assertEquals(1, projection.nodes().stream().filter(node -> node.label().equals("Diagnostic")).count());
+    assertEquals(List.of(0, 1), projection.relationships().stream().filter(relation -> relation.type().equals("HAS_DIAGNOSTIC"))
+        .map(relation -> relation.properties().get("position")).toList());
+    assertEquals(1, projection.relationships().stream().filter(relation -> relation.type().equals("HAS_ORIGIN")
+        && relation.sourceKey().equals(first.diagnosticKey())).count());
+  }
+
+  @Test
+  void givenUnequalDiagnosticValuesWithOneKey_whenRunIsMapped_thenCollisionIsRejected() throws IOException {
+    // Arrange
+    var original = completedMapperFixture(new AnalysisEngine().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(
+        completedSourceRoot("collision"), CompilerConfiguration.forRelease(JavaRelease.JAVA_25))));
+    var run = new AnalysisRun(original.runId(), original.inputSnapshot(), original.environmentSnapshot(), original.representation(),
+        List.of(diagnostic("diagnostic", "First observation", List.of()), diagnostic("diagnostic", "Second observation", List.of())),
+        AnalysisCompletion.COMPLETED);
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> new Neo4jAnalysisRunMapper().map(run));
+
+    // Assert
+    assertEquals("Equal diagnostic keys require equal diagnostic values and ordered origins", failure.getMessage());
+  }
+
+  @Test
+  void givenDiagnosticKeyWithReorderedOrigins_whenRunIsMapped_thenUnequalOrderedEvidenceIsRejected() throws IOException {
+    // Arrange
+    var original = completedMapperFixture(new AnalysisEngine().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(
+        completedSourceRoot("ordered-origins"), CompilerConfiguration.forRelease(JavaRelease.JAVA_25))));
+    var sourceFileKey = original.inputSnapshot().sourceFiles().getFirst().sourceFileKey();
+    var first = new SourceSpan(sourceFileKey, 0, 1);
+    var second = new SourceSpan(sourceFileKey, 1, 2);
+    var run = new AnalysisRun(original.runId(), original.inputSnapshot(), original.environmentSnapshot(), original.representation(),
+        List.of(diagnostic("diagnostic", "Observed source", List.of(first, second)),
+            diagnostic("diagnostic", "Observed source", List.of(second, first))), AnalysisCompletion.COMPLETED);
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> new Neo4jAnalysisRunMapper().map(run));
+
+    // Assert
+    assertEquals("Equal diagnostic keys require equal diagnostic values and ordered origins", failure.getMessage());
+  }
 
   @Test
   void givenSharedMapper_whenDifferentRunsMappedConcurrently_thenEachProjectionIsIsolated()
@@ -378,5 +441,10 @@ class Neo4jAnalysisRunMapperTest {
   private static AnalysisRun completedMapperFixture(AnalysisRun analyzedRun) {
     return new AnalysisRun(analyzedRun.runId(), analyzedRun.inputSnapshot(), analyzedRun.environmentSnapshot(),
         analyzedRun.representation(), List.of(), AnalysisCompletion.COMPLETED);
+  }
+
+  private static AnalysisDiagnostic diagnostic(String key, String message, List<SourceSpan> origins) {
+    return new AnalysisDiagnostic(key, "frontend.observation", DiagnosticStage.FRONTEND, DiagnosticSeverity.WARNING, message, origins,
+        AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
   }
 }

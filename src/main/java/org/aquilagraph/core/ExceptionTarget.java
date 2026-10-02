@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.HashSet;
+import org.aquilagraph.core.ExceptionHandler.Alternative;
 
 record ExceptionTarget(List<ExceptionHandler> handlers, Optional<ExceptionTarget> outer) {
   static final String UNKNOWN_INVOCATION_EXCEPTION = "unchecked-invocation";
@@ -24,35 +26,52 @@ record ExceptionTarget(List<ExceptionHandler> handlers, Optional<ExceptionTarget
 
   ExceptionRoute route(ExceptionType exceptionType) {
     Objects.requireNonNull(exceptionType, "exceptionType");
+    var orderedHandlers = orderedHandlers();
+    orderedHandlers.forEach(ExceptionHandler::requireResolved);
+    if (exceptionType.mayBeNull()) {
+      return nullableRoute(exceptionType, orderedHandlers);
+    }
     if (exceptionType.unknown()) {
       return unknownRoute();
     }
-    var unresolvedHandlerNodeIds = new ArrayList<String>();
-    for (var handler : handlers) {
-      if (handler.unresolved()) {
-        unresolvedHandlerNodeIds.add(handler.operationNodeId());
-        continue;
+    var selectedHandlers = new ArrayList<String>();
+    var earlierAlternatives = new ArrayList<Alternative>();
+    for (var handler : orderedHandlers) {
+      var residualAlternatives = handler.alternatives().stream().filter(alternative -> !alternative.shadowedBy(earlierAlternatives))
+          .toList();
+      if (residualAlternatives.stream().anyMatch(alternative -> alternative.mayCatch(exceptionType))) {
+        selectedHandlers.add(handler.operationNodeId());
       }
-      if (handler.catches(exceptionType)) {
-        unresolvedHandlerNodeIds.add(handler.operationNodeId());
-        return new ExceptionRoute(unresolvedHandlerNodeIds, false);
+      if (residualAlternatives.stream().anyMatch(alternative -> alternative.covers(exceptionType))) {
+        return new ExceptionRoute(selectedHandlers, false);
       }
+      earlierAlternatives.addAll(handler.alternatives());
     }
-    var outerRoute = outer.map(target -> target.route(exceptionType)).orElseGet(ExceptionRoute::methodExit);
-    unresolvedHandlerNodeIds.addAll(outerRoute.handlerOperationNodeIds());
-    return new ExceptionRoute(unresolvedHandlerNodeIds, outerRoute.exitsMethod());
+    return new ExceptionRoute(selectedHandlers, true);
   }
 
-  private ExceptionRoute unknownRoute() {
-    var handlerNodeIds = new ArrayList<String>();
+  private ExceptionRoute nullableRoute(ExceptionType exceptionType, List<ExceptionHandler> orderedHandlers) {
+    var routes = exceptionType.outcomes().stream().map(this::route).toList();
+    var selected = new HashSet<String>();
+    routes.forEach(route -> selected.addAll(route.handlerOperationNodeIds()));
+    var handlerIds = orderedHandlers.stream().map(ExceptionHandler::operationNodeId).filter(selected::contains).distinct().toList();
+    return new ExceptionRoute(handlerIds, routes.stream().anyMatch(ExceptionRoute::exitsMethod));
+  }
+
+  private List<ExceptionHandler> orderedHandlers() {
+    var ordered = new ArrayList<ExceptionHandler>();
     ExceptionTarget target = this;
     while (true) {
-      target.handlers().stream().map(ExceptionHandler::operationNodeId).forEach(handlerNodeIds::add);
+      ordered.addAll(target.handlers());
       if (target.outer().isEmpty()) {
-        return new ExceptionRoute(handlerNodeIds, true);
+        return List.copyOf(ordered);
       }
       target = target.outer().orElseThrow();
     }
+  }
+
+  private ExceptionRoute unknownRoute() {
+    return new ExceptionRoute(orderedHandlers().stream().map(ExceptionHandler::operationNodeId).toList(), true);
   }
 
 }

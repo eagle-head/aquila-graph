@@ -1,9 +1,5 @@
 package org.aquilagraph.syntax;
 
-import org.aquilagraph.syntax.SyntaxSemanticTarget.AnnotationApplication;
-import org.aquilagraph.syntax.SyntaxSemanticTarget.AnnotationTypeLocation;
-import org.aquilagraph.syntax.SyntaxSemanticTarget.Declaration;
-import org.aquilagraph.syntax.SyntaxSemanticTarget.SourceOccurrence;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -16,12 +12,19 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+import org.aquilagraph.model.DeclarationMemberOrder;
+import org.aquilagraph.model.DeclarationTypeEvidence;
 import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.ReferenceKind;
 import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.SemanticReference;
 import org.aquilagraph.model.SourceFile;
 import org.aquilagraph.model.SourceSpan;
+import org.aquilagraph.syntax.SyntaxSemanticTarget.AnnotationApplication;
+import org.aquilagraph.syntax.SyntaxSemanticTarget.AnnotationTypeLocation;
+import org.aquilagraph.syntax.SyntaxSemanticTarget.Declaration;
+import org.aquilagraph.syntax.SyntaxSemanticTarget.SourceOccurrence;
 
 /** Package-local validator for one captured source AST. */
 final class JavaAstAggregateBuilder {
@@ -35,6 +38,10 @@ final class JavaAstAggregateBuilder {
   private final Map<String, SourceFile> sources = new HashMap<>();
   private final Map<String, SyntaxSourceContribution> contributions = new HashMap<>();
   private final Map<String, BodyRegistration> methodBodies = new HashMap<>();
+  private final Map<String, MethodDecisionRegistration> methodDecisions = new HashMap<>();
+  private final Map<String, DeclarationMemberOrder> declarationMemberOrders = new HashMap<>();
+  private final Map<String, WrittenSourceAssociation> writtenSourceAssociations = new HashMap<>();
+  private final Map<String, DeclarationTypeEvidence> declarationTypes = new HashMap<>();
   private boolean sealed;
 
   JavaAstAggregateBuilder(InputSnapshot inputSnapshot) {
@@ -58,6 +65,18 @@ final class JavaAstAggregateBuilder {
   }
 
   JavaAstAggregateBuilder addMethodBody(String methodKey, SyntaxNode root, MethodBodyOrigin origin) {
+    return addMethodBody(methodKey, root, origin, List.of(), List.of(), List.of(), List.of());
+  }
+
+  JavaAstAggregateBuilder addMethodBody(String methodKey, SyntaxNode root, MethodBodyOrigin origin, List<TypedUseDecision> uses,
+      List<InvocationArityDecision> invocations, List<StaticAccessDecision> staticAccesses,
+      List<StringConcatenationDecision> concatenations) {
+    return addMethodBody(methodKey, root, origin, uses, invocations, staticAccesses, concatenations, List.of());
+  }
+
+  JavaAstAggregateBuilder addMethodBody(String methodKey, SyntaxNode root, MethodBodyOrigin origin, List<TypedUseDecision> uses,
+      List<InvocationArityDecision> invocations, List<StaticAccessDecision> staticAccesses,
+      List<StringConcatenationDecision> concatenations, List<EnumConstructorContextDecision> enumContexts) {
     requireOpen();
     Objects.requireNonNull(methodKey, "methodKey");
     if (methodKey.isBlank()) {
@@ -69,8 +88,38 @@ final class JavaAstAggregateBuilder {
       throw new IllegalArgumentException("A method body root must be a block");
     }
     root.descendantsAndSelf();
+    var decisions = new MethodDecisionRegistration(uses, invocations, staticAccesses, concatenations, enumContexts);
     if (methodBodies.putIfAbsent(methodKey, new BodyRegistration(root, origin)) != null) {
       throw new IllegalArgumentException("Duplicate method body identity: " + methodKey);
+    }
+    methodDecisions.put(methodKey, decisions);
+    return this;
+  }
+
+  JavaAstAggregateBuilder addDeclarationMemberOrder(DeclarationMemberOrder order) {
+    requireOpen();
+    Objects.requireNonNull(order, "order");
+    if (!sources.containsKey(order.sourceFileKey()) || declarationMemberOrders.putIfAbsent(order.ownerTypeKey(), order) != null) {
+      throw new IllegalArgumentException("Declaration member order requires a captured source and unique type owner");
+    }
+    return this;
+  }
+
+  JavaAstAggregateBuilder addWrittenSourceAssociation(WrittenSourceAssociation association) {
+    requireOpen();
+    Objects.requireNonNull(association, "association");
+    if (!sources.containsKey(association.sourceFileKey())
+        || writtenSourceAssociations.putIfAbsent(association.nodeKey(), association) != null) {
+      throw new IllegalArgumentException("Written source associations require a captured source and unique actual node");
+    }
+    return this;
+  }
+
+  JavaAstAggregateBuilder addDeclarationTypeEvidence(DeclarationTypeEvidence evidence) {
+    requireOpen();
+    Objects.requireNonNull(evidence, "evidence");
+    if (!sources.containsKey(evidence.sourceFileKey()) || declarationTypes.putIfAbsent(evidence.ownerTypeKey(), evidence) != null) {
+      throw new IllegalArgumentException("Declaration type evidence requires a captured source and unique actual owner");
     }
     return this;
   }
@@ -98,6 +147,7 @@ final class JavaAstAggregateBuilder {
       semantic.addAll(contribution.semanticEdges());
     }
     validateContributionEdgeOwners(nodes);
+    validateWrittenSourceAssociations(nodes);
     validateRoots(roots, nodes);
     var outgoing = validateStructuralEdges(structural, nodes, roots);
     var orderedNodes = orderNodes(roots, nodes, outgoing);
@@ -105,28 +155,138 @@ final class JavaAstAggregateBuilder {
     validateAnnotationRanges(orderedNodes);
     validateSemanticEdges(semantic, nodes);
     validateMethodBodies(nodes);
+    validateDeclarationMemberOrders(orderedNodes);
+    validateDeclarationTypes(orderedNodes);
+    var decisionIndexes = new HashMap<String, MethodDecisionIndex>();
+    for (var body : methodBodies.entrySet()) {
+      decisionIndexes.put(body.getKey(), MethodDecisionValidation.validate(body.getKey(), body.getValue().root(),
+          Objects.requireNonNull(methodDecisions.get(body.getKey()), "method decision registration"), nodes));
+    }
     var orderedStructural = new ArrayList<SyntaxStructuralEdge>();
     for (var node : orderedNodes) {
       orderedStructural.addAll(outgoing.getOrDefault(node.nodeId(), List.of()));
     }
     semantic.sort(SEMANTIC_ORDER);
     sealed = true;
-    return new ValidatedAggregate(snapshot, roots, orderedNodes, nodes, orderedStructural, semantic, methodBodies);
+    return new ValidatedAggregate(snapshot, roots, orderedNodes, nodes, orderedStructural, semantic, methodBodies, declarationMemberOrders,
+        decisionIndexes, writtenSourceAssociations, declarationTypes);
+  }
+
+  private void validateDeclarationTypes(List<SyntaxNode> nodes) {
+    for (var evidence : declarationTypes.values()) {
+      var actual = nodes.stream().filter(node -> node.sourceFileKey().equals(evidence.sourceFileKey()))
+          .anyMatch(node -> (node.value() instanceof SyntaxValue.TypeDeclaration declaration
+              && declaration.declarationKey().equals(evidence.ownerTypeKey()))
+              || (node.value() instanceof SyntaxValue.CompilationUnit unit && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT
+                  && node.children(SyntaxRole.COMPACT_MEMBER).stream()
+                      .anyMatch(member -> member.value() instanceof SyntaxValue.ExecutableDeclaration declaration
+                          && declaration.ownerKey().equals(evidence.ownerTypeKey()))));
+      if (!actual) {
+        throw new IllegalArgumentException("Declaration type evidence requires an actual source-owned canonical declaration");
+      }
+    }
+  }
+
+  private void validateWrittenSourceAssociations(Map<String, SyntaxNode> nodes) {
+    for (var association : writtenSourceAssociations.values()) {
+      var node = nodes.get(association.nodeKey());
+      if (node == null || !node.sourceFileKey().equals(association.sourceFileKey()) || !associationRangeMatches(node, association)
+          || (node.sourceKind() != association.sourceKind()
+              && !(node.value() instanceof SyntaxValue.Annotation && association.sourceKind() == JavaSourceKind.TYPE_ANNOTATION))) {
+        throw new IllegalArgumentException("Written source associations must bind exact actual source nodes, kinds, and ranges");
+      }
+    }
+  }
+
+  private boolean associationRangeMatches(SyntaxNode node, WrittenSourceAssociation association) {
+    if (node.origin().equals(association.origin())) {
+      return true;
+    }
+    var source = sources.get(node.sourceFileKey());
+    return source != null && node.value() instanceof SyntaxValue.CompilationUnit unit
+        && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT && association.sourceKind() == JavaSourceKind.COMPILATION_UNIT
+        && association.ownerPath().isEmpty()
+        && node.origin().filter(span -> span.startOffset() == 0 && span.endOffsetExclusive() == source.content().length()).isPresent()
+        && association.origin().map(span -> span.startOffset() >= 0 && span.endOffsetExclusive() <= source.content().length()).orElse(true);
+  }
+
+  private void validateDeclarationMemberOrders(List<SyntaxNode> nodes) {
+    for (var order : declarationMemberOrders.values()) {
+      var owner = nodes.stream().filter(node -> node.sourceFileKey().equals(order.sourceFileKey())
+          && node.value() instanceof SyntaxValue.TypeDeclaration declaration && declaration.declarationKey().equals(order.ownerTypeKey()))
+          .findFirst();
+      var compactOwner = nodes.stream()
+          .filter(node -> node.sourceFileKey().equals(order.sourceFileKey()) && node.value() instanceof SyntaxValue.CompilationUnit unit
+              && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT)
+          .anyMatch(node -> node.children(SyntaxRole.COMPACT_MEMBER).stream()
+              .anyMatch(member -> member.value() instanceof SyntaxValue.ExecutableDeclaration declaration
+                  && declaration.ownerKey().equals(order.ownerTypeKey())));
+      if (owner.isEmpty() && !compactOwner) {
+        throw new IllegalArgumentException("Declaration member order requires an actual source-owned declaration");
+      }
+    }
   }
 
   private void validateMethodBodies(Map<String, SyntaxNode> nodes) {
     var sourceInstances = ownedInstances(nodes);
+    var sourceExecutables = nodes.values().stream().filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration)
+        .collect(Collectors.groupingBy(node -> node.value(SyntaxValue.ExecutableDeclaration.class).declarationKey()));
+    var sourceBodyOwners = new IdentityHashMap<SyntaxNode, String>();
+    sourceExecutables.forEach((methodKey, declarations) -> declarations
+        .forEach(declaration -> declaration.children(SyntaxRole.BODY).forEach(body -> sourceBodyOwners.put(body, methodKey))));
+    var rootOwners = new IdentityHashMap<SyntaxNode, String>();
+    var auxiliaryOwners = new IdentityHashMap<SyntaxNode, String>();
     for (var entry : methodBodies.entrySet()) {
+      var methodKey = entry.getKey();
       var registration = entry.getValue();
       var root = registration.root();
       if (!sources.containsKey(root.sourceFileKey())) {
-        throw new IllegalArgumentException("Method body source is not in the captured snapshot: " + entry.getKey());
+        throw new IllegalArgumentException("Method body source is not in the captured snapshot: " + methodKey);
       }
-      if (registration.origin() == MethodBodyOrigin.SOURCE_AST && !sourceInstances.contains(root)) {
-        throw new IllegalArgumentException("Source method body must be the identical aggregate occurrence: " + entry.getKey());
+      var previousRootOwner = rootOwners.putIfAbsent(root, methodKey);
+      if (previousRootOwner != null) {
+        throw new IllegalArgumentException(
+            "Method body root is shared by executable declarations: " + previousRootOwner + " and " + methodKey);
       }
-      if (registration.origin() != MethodBodyOrigin.SOURCE_AST && sourceInstances.contains(root)) {
-        throw new IllegalArgumentException("Auxiliary execution body cannot also be a source AST occurrence: " + entry.getKey());
+      if (registration.origin() == MethodBodyOrigin.SOURCE_AST) {
+        if (!sourceInstances.contains(root)) {
+          throw new IllegalArgumentException("Source method body must be the identical aggregate occurrence: " + methodKey);
+        }
+        var declarations = sourceExecutables.getOrDefault(methodKey, List.of());
+        if (declarations.size() != 1 || declarations.getFirst().children(SyntaxRole.BODY).size() != 1
+            || !methodKey.equals(sourceBodyOwners.get(root))) {
+          throw new IllegalArgumentException("Source method body must belong to its unique executable declaration: " + methodKey);
+        }
+      }
+      for (var node : root.descendantsAndSelf()) {
+        if (registration.origin() != MethodBodyOrigin.SOURCE_AST) {
+          var previousOwner = auxiliaryOwners.putIfAbsent(node, methodKey);
+          if (previousOwner != null) {
+            throw new IllegalArgumentException(
+                "Auxiliary method body occurrence is shared by executable declarations: " + previousOwner + " and " + methodKey);
+          }
+          if (sourceInstances.contains(node)) {
+            throw new IllegalArgumentException("Auxiliary execution body cannot also be a source AST occurrence: " + methodKey);
+          }
+          validateAuxiliaryBodyNode(node, root.sourceFileKey(), methodKey);
+        }
+      }
+    }
+  }
+
+  private void validateAuxiliaryBodyNode(SyntaxNode node, String sourceFileKey, String methodKey) {
+    if (!node.sourceFileKey().equals(sourceFileKey)) {
+      throw new IllegalArgumentException("Auxiliary method body descendants must retain their root source: " + methodKey);
+    }
+    var source = Objects.requireNonNull(sources.get(sourceFileKey), "captured body source");
+    node.origin().ifPresent(origin -> {
+      if (!origin.sourceFileKey().equals(sourceFileKey) || origin.endOffsetExclusive() > source.content().length()) {
+        throw new IllegalArgumentException("Auxiliary method body origin is outside its captured source: " + methodKey);
+      }
+    });
+    for (var child : node.children()) {
+      if (!child.node().structuralPath().equals(node.structuralPath().child(child.role(), child.position()))) {
+        throw new IllegalArgumentException("Auxiliary method body child path does not match its attachment: " + methodKey);
       }
     }
   }
@@ -586,7 +746,9 @@ final class JavaAstAggregateBuilder {
   }
 
   record ValidatedAggregate(InputSnapshot snapshot, List<SyntaxNode> roots, List<SyntaxNode> nodes, Map<String, SyntaxNode> ownedNodes,
-      List<SyntaxStructuralEdge> structuralEdges, List<SyntaxSemanticEdge> semanticEdges, Map<String, BodyRegistration> methodBodies) {
+      List<SyntaxStructuralEdge> structuralEdges, List<SyntaxSemanticEdge> semanticEdges, Map<String, BodyRegistration> methodBodies,
+      Map<String, DeclarationMemberOrder> declarationMemberOrders, Map<String, MethodDecisionIndex> methodDecisions,
+      Map<String, WrittenSourceAssociation> writtenSourceAssociations, Map<String, DeclarationTypeEvidence> declarationTypes) {
   }
 
   record BodyRegistration(SyntaxNode root, MethodBodyOrigin origin) {

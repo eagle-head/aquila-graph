@@ -4,10 +4,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import org.aquilagraph.model.FlowValue;
+import org.aquilagraph.core.ExceptionHandler.Alternative;
 import org.aquilagraph.model.JavaTypeIdentity;
 import org.aquilagraph.model.OperationKind;
-import org.aquilagraph.model.SemanticReference;
+import org.aquilagraph.model.ResolutionStatus;
 import org.aquilagraph.model.TransferKind;
 import org.aquilagraph.syntax.SyntaxNode;
 import org.aquilagraph.syntax.SyntaxRole;
@@ -33,7 +33,7 @@ final class StatementGraphLowerer {
       case THROW -> buildThrow(node);
       case IF -> buildIf(node);
       case TRY -> buildTry(node);
-      case YIELD -> syntax.lower(node.requiredChild(SyntaxRole.VALUE));
+      case YIELD -> buildYield(node);
       case EMPTY -> GraphFragment.empty();
       default -> throw new IllegalArgumentException("Expected statement syntax but found " + node.syntaxKind());
     };
@@ -54,7 +54,8 @@ final class StatementGraphLowerer {
     var name = declaration.name();
     var declarationKey = node.requiredReference().symbolKey().orElseThrow();
     var local = graph.localValue(declarationKey, name, node.resolvedType());
-    var initializer = node.optionalChild(SyntaxRole.INITIALIZER).map(syntax::lower).orElseGet(GraphFragment::empty);
+    var initializer = node.optionalChild(SyntaxRole.INITIALIZER).map(ignored -> syntax.lowerUse(node, SyntaxRole.INITIALIZER))
+        .orElseGet(GraphFragment::empty);
     var operands = initializer.value().map(List::of).orElseGet(List::of);
     var write = graph.addOperation(node, "declare-" + name, OperationKind.WRITE, name, operands, Optional.of(local), List.of());
     graph.connectExits(initializer, write.nodeId(), TransferKind.NORMAL, Optional.empty());
@@ -63,7 +64,8 @@ final class StatementGraphLowerer {
   }
 
   private GraphFragment buildReturn(SyntaxNode node) {
-    var value = node.optionalChild(SyntaxRole.EXPRESSION).map(syntax::lower).orElseGet(GraphFragment::empty);
+    var value = node.optionalChild(SyntaxRole.EXPRESSION).map(ignored -> syntax.lowerUse(node, SyntaxRole.EXPRESSION))
+        .orElseGet(GraphFragment::empty);
     var operation = graph.addOperation(node, "return", OperationKind.RETURN, "return", value.value().map(List::of).orElseGet(List::of),
         Optional.empty(), List.of());
     graph.connectExits(value, operation.nodeId(), TransferKind.NORMAL, Optional.empty());
@@ -74,15 +76,26 @@ final class StatementGraphLowerer {
   private GraphFragment buildThrow(SyntaxNode node) {
     var expression = node.requiredChild(SyntaxRole.EXPRESSION);
     var value = syntax.lower(expression);
-    var exceptionType = value.value().flatMap(FlowValue::staticType).map(JavaTypeIdentity::erasedName).orElse("java.lang.Throwable");
+    var exceptionType = expression.resolvedType()
+        .orElseThrow(() -> new IllegalStateException("An admitted throw requires its attributed reference type")).erasedName();
     var operation = graph.addOperation(node, "throw", OperationKind.THROW, "throw", value.value().map(List::of).orElseGet(List::of),
         Optional.empty(), List.of(ExceptionType.fromSyntax(expression, exceptionType)));
     graph.connectExits(value, operation.nodeId(), TransferKind.NORMAL, Optional.empty());
     return new GraphFragment(value.entry().or(() -> Optional.of(operation.nodeId())), List.of(), Optional.empty());
   }
 
+  private GraphFragment buildYield(SyntaxNode node) {
+    var target = syntax.yieldTarget();
+    var value = syntax.lowerUse(node, SyntaxRole.VALUE);
+    var yields = new ArrayList<>(value.yieldExits());
+    for (var source : value.normalExits()) {
+      yields.add(new YieldExit(target, source, value.value().orElseThrow()));
+    }
+    return new GraphFragment(value.entry(), List.of(), Optional.empty(), yields);
+  }
+
   private GraphFragment buildIf(SyntaxNode node) {
-    var condition = syntax.lower(node.requiredChild(SyntaxRole.CONDITION));
+    var condition = syntax.lowerUse(node, SyntaxRole.CONDITION);
     var decision = graph.addOperation(node, "if-decision", OperationKind.DECISION, "if",
         condition.value().map(List::of).orElseGet(List::of), Optional.empty(), List.of());
     graph.connectExits(condition, decision.nodeId(), TransferKind.NORMAL, Optional.empty());
@@ -91,8 +104,10 @@ final class StatementGraphLowerer {
     var merge = graph.addOperation(node, "if-merge", OperationKind.MERGE, "if", List.of(), Optional.empty(), List.of());
     var thenReachesMerge = connectBranch(decision.nodeId(), thenGraphFragment, merge.nodeId(), true);
     var elseReachesMerge = connectBranch(decision.nodeId(), elseGraphFragment, merge.nodeId(), false);
+    var yields = new ArrayList<>(thenGraphFragment.yieldExits());
+    yields.addAll(elseGraphFragment.yieldExits());
     return new GraphFragment(condition.entry().or(() -> Optional.of(decision.nodeId())),
-        thenReachesMerge || elseReachesMerge ? List.of(merge.nodeId()) : List.of(), Optional.empty());
+        thenReachesMerge || elseReachesMerge ? List.of(merge.nodeId()) : List.of(), Optional.empty(), yields);
   }
 
   private boolean connectBranch(String decisionId, GraphFragment branch, String mergeId, boolean trueBranch) {
@@ -112,8 +127,8 @@ final class StatementGraphLowerer {
   private GraphFragment buildTry(SyntaxNode node) {
     var tryBlock = node.requiredChild(SyntaxRole.TRY_BLOCK);
     var catches = node.children(SyntaxRole.CATCH_CLAUSE);
-    var handlerDescriptors = catches.stream()
-        .map(catchNode -> new ExceptionHandler(catchTypeNames(catchNode), graph.operationNodeId(catchNode, "catch-entry"))).toList();
+    var handlerDescriptors = catches.stream().map(catchNode -> catchHandler(catchNode, graph.operationNodeId(catchNode, "catch-entry")))
+        .toList();
     var body = graph.withExceptionHandlers(handlerDescriptors, () -> syntax.lower(tryBlock));
 
     var catchGraphFragments = new ArrayList<GraphFragment>();
@@ -122,12 +137,13 @@ final class StatementGraphLowerer {
     }
     var merge = graph.addOperation(node, "try-merge", OperationKind.MERGE, "try", List.of(), Optional.empty(), List.of());
     var reachesMerge = graph.connectNormalToMerge(body, merge.nodeId());
+    var yields = new ArrayList<>(body.yieldExits());
     for (var catchGraphFragment : catchGraphFragments) {
       reachesMerge |= graph.connectNormalToMerge(catchGraphFragment, merge.nodeId());
+      yields.addAll(catchGraphFragment.yieldExits());
     }
-    var entry = body.entry().or(() -> catchGraphFragments.stream().map(GraphFragment::entry).flatMap(Optional::stream).findFirst());
-    return new GraphFragment(entry.or(() -> Optional.of(merge.nodeId())),
-        reachesMerge || entry.isEmpty() ? List.of(merge.nodeId()) : List.of(), Optional.empty());
+    var entry = body.entry().or(() -> Optional.of(merge.nodeId()));
+    return new GraphFragment(entry, reachesMerge ? List.of(merge.nodeId()) : List.of(), Optional.empty(), yields);
   }
 
   private GraphFragment buildCatch(SyntaxNode node, String catchOperationId) {
@@ -146,12 +162,27 @@ final class StatementGraphLowerer {
             Optional.empty());
       }
       return new GraphFragment(Optional.of(operation.nodeId()), body.entry().isEmpty() ? List.of(operation.nodeId()) : body.normalExits(),
-          Optional.empty());
+          Optional.empty(), body.yieldExits());
     });
   }
 
   private static List<String> catchTypeNames(SyntaxNode catchNode) {
     var declaration = catchNode.requiredChild(SyntaxRole.PARAMETER);
-    return declaration.semanticReference().stream().map(SemanticReference::typeAlternativeNames).flatMap(List::stream).distinct().toList();
+    var reference = declaration.semanticReference()
+        .orElseThrow(() -> new IllegalStateException("An admitted catch requires resolved qualified reference evidence"));
+    var names = reference.typeAlternativeNames();
+    if (declaration.resolvedType().isEmpty() || reference.status() != ResolutionStatus.RESOLVED || names.isEmpty()
+        || names.stream().anyMatch(String::isBlank)) {
+      throw new IllegalStateException("An admitted catch requires resolved qualified alternatives");
+    }
+    return names;
+  }
+
+  private static ExceptionHandler catchHandler(SyntaxNode catchNode, String operationNodeId) {
+    var names = catchTypeNames(catchNode);
+    var reference = catchNode.requiredChild(SyntaxRole.PARAMETER).requiredReference();
+    var alternatives = names.stream().map(name -> new Alternative(name, names.size() == 1 ? reference.assignableToTypeNames() : List.of()))
+        .toList();
+    return new ExceptionHandler(names, operationNodeId, alternatives);
   }
 }

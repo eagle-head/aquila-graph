@@ -179,15 +179,15 @@ class JavaAstSourcePositionTest {
         new PositionCase(-2, 1, "frontend.invalid-source-range"),
         new PositionCase(5, 4, "frontend.invalid-source-range"),
         new PositionCase(0, CONTENT.length() + 1L, "frontend.invalid-source-range"));
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
       for (var position : cases) {
         var evidence = new JavaSourceEvidence(new FixedPositions(position.start(), position.end()));
         var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
             baseline.languageFeatureCoverage()).translate(snapshot, compilation.units());
-        var input = new SyntaxAnalysisInput(snapshot, baseline.environmentSnapshot(), translated.value().program(),
-            translated.value().aggregate(), translated.diagnostics(), baseline.languageFeatureCoverageResult());
+        var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
+            translated.value().aggregate(), translated.diagnostics());
         var run = new AnalysisEngine().analyze(input);
 
         assertTrue(input.aggregate().isEmpty());
@@ -214,9 +214,13 @@ class JavaAstSourcePositionTest {
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), bodyTranslator);
       var method = methodTranslator.translate(fixture.unit(), new TreePath(new TreePath(fixture.unit()), type), fixture.sourceFile(),
           "type:Example", constructor);
-      var body = new TranslatedMethodBody(method.value().method().methodKey(), method.value().syntax().orElseThrow());
+      var body = method.value().body().orElseThrow();
+      var typeTranslator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), propertyObserver,
+          methodTranslator);
+      var declaredTypes = typeTranslator.translate(fixture.unit(), new TreePath(fixture.unit()), fixture.sourceFile(), type)
+          .value().orElseThrow().types();
       var contribution = new JavaAstContributionTranslator(fixture.semantics(), evidence, fixture.inventory())
-          .translate(fixture.unit(), fixture.sourceFile(), List.of(body), List.of());
+          .translate(fixture.unit(), fixture.sourceFile(), List.of(body), declaredTypes);
 
       var missing = method.diagnostics().stream().filter(diagnostic -> diagnostic.code().equals("frontend.missing-source-position"))
           .toList();
@@ -405,7 +409,7 @@ class JavaAstSourcePositionTest {
     var snapshot = loader.discover(sourceRoot);
     var baseline = new JavaFrontend(loader).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
     var sources = new SnapshotSourceCatalog(snapshot);
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(),
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(),
         JavaCompilerInvocation.from(CompilerConfiguration.forRelease(JavaRelease.JAVA_25)), sources)) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
@@ -430,18 +434,21 @@ class JavaAstSourcePositionTest {
       var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
           baseline.languageFeatureCoverage()).translate(snapshot, compilation.units());
       var aggregate = translated.value().aggregate().orElseThrow();
-      var diagnostics = new ArrayList<>(baseline.diagnostics());
+      var diagnostics = JavaCoverageTestSupport.diagnostics(baseline, "source-position-observation");
       diagnostics.addAll(translated.diagnostics());
-      var input = new SyntaxAnalysisInput(snapshot, baseline.environmentSnapshot(), translated.value().program(),
-          translated.value().aggregate(), diagnostics, baseline.languageFeatureCoverageResult());
+      var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
+          translated.value().aggregate(), diagnostics);
       var run = new AnalysisEngine().analyze(input);
 
       // Assert
       assertTrue(aggregate.roots().getFirst().children(SyntaxRole.TYPE_DECLARATION).stream()
           .noneMatch(type -> type.value(SyntaxValue.TypeDeclaration.class).name().equals("Example")));
       assertTrue(aggregate.semanticEdges().stream().allMatch(edge -> aggregate.node(edge.sourceKey()).isPresent()));
-      var action = translated.value().program().types().stream().filter(type -> type.qualifiedName().equals("Example"))
-          .flatMap(type -> type.methods().stream()).filter(method -> method.name().equals("action")).findFirst().orElseThrow();
+      var example = translated.value().program().types().stream().filter(type -> type.qualifiedName().equals("Example")).findFirst().orElseThrow();
+      var first = translated.value().program().types().stream().filter(type -> type.qualifiedName().equals("First")).findFirst().orElseThrow();
+      assertTrue(aggregate.declarationTypeEvidence(example.typeKey()).isEmpty());
+      assertEquals(List.of(first.typeKey()), aggregate.declarationTypeEvidence().stream().map(evidenceValue -> evidenceValue.ownerTypeKey()).toList());
+      var action = example.methods().stream().filter(method -> method.name().equals("action")).findFirst().orElseThrow();
       assertEquals(MethodBodyOrigin.EXECUTION_PROJECTION, aggregate.methodBodyOrigin(action.methodKey()).orElseThrow());
       assertTrue(translated.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.missing-source-position")
           && diagnostic.severity() == DiagnosticSeverity.ERROR));
@@ -550,7 +557,7 @@ class JavaAstSourcePositionTest {
     var sources = new SnapshotSourceCatalog(snapshot);
     assertEquals(1, baseline.program().types().size());
     assertTrue(baseline.aggregate().isPresent());
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
       var unit = compilation.units().getFirst();
@@ -845,7 +852,7 @@ class JavaAstSourcePositionTest {
     var baseline = new JavaFrontend(loader).analyze(snapshot, configuration);
     var sources = new SnapshotSourceCatalog(snapshot);
     assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(baseline).completion());
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
       var unit = compilation.units().stream().filter(candidate -> candidate.getModule() != null).findFirst().orElseThrow();
@@ -875,8 +882,8 @@ class JavaAstSourcePositionTest {
         var evidence = new JavaSourceEvidence(new MissingPositions(actualPositions, List.of(position.tree())));
         var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
             baseline.languageFeatureCoverage()).translate(snapshot, compilation.units());
-        var input = new SyntaxAnalysisInput(snapshot, baseline.environmentSnapshot(), translated.value().program(),
-            translated.value().aggregate(), translated.diagnostics(), baseline.languageFeatureCoverageResult());
+        var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
+            translated.value().aggregate(), translated.diagnostics());
         var run = new AnalysisEngine().analyze(input);
 
         // Assert

@@ -24,6 +24,6 @@ record Neo4jRelationship(String key, String type, String sourceKey, String targe
     Objects.requireNonNull(type, "type");
     Objects.requireNonNull(sourceKey, "sourceKey");
     Objects.requireNonNull(targetKey, "targetKey");
-    properties = Map.copyOf(Objects.requireNonNull(properties, "properties"));
+    properties = Neo4jPropertyValues.copyOf(properties);
   }
 }

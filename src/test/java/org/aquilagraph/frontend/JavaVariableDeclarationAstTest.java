@@ -384,12 +384,22 @@ class JavaVariableDeclarationAstTest {
       throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("First.java"), "class Duplicate {}");
+    var loader = new JavaSourceLoader();
+    var retainedSnapshot = loader.discover(temporaryDirectory);
     Files.writeString(temporaryDirectory.resolve("Second.java"), "class Duplicate {}");
+    var duplicateSnapshot = loader.discover(temporaryDirectory);
 
     // Act
-    var result = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory, JAVA_25);
+    var retained = new JavaFrontend(loader).analyze(retainedSnapshot, JAVA_25);
+    var result = new JavaFrontend(loader).analyze(duplicateSnapshot, JAVA_25);
 
     // Assert
+    var retainedType = retained.program().types().getFirst();
+    var retainedEvidence = retained.aggregate().orElseThrow().declarationTypeEvidence(retainedType.typeKey()).orElseThrow();
+    assertEquals(retainedSnapshot.sourceFiles().getFirst().sourceFileKey(), retainedEvidence.sourceFileKey());
+    assertEquals(retainedType.typeKey(), retainedEvidence.ownerTypeKey());
+    assertEquals(retainedType.qualifiedName(), retainedEvidence.identity().erasedName());
+    assertEquals(1, retained.aggregate().orElseThrow().declarationTypeEvidence().size());
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.duplicate-type-declaration")
         && !diagnostic.origins().isEmpty()));

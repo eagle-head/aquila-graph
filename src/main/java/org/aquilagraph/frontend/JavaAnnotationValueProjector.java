@@ -64,12 +64,19 @@ final class JavaAnnotationValueProjector {
   private final JavaTypeUseTranslator typeUses;
   private final JavaAnnotationValues values;
   private final JavaAnnotationMirrorCorrelation correlation;
+  private final JavaWrittenSourceAssociations sourceAssociations;
 
   JavaAnnotationValueProjector(SemanticResolver semantics, JavaSourceEvidence evidence, ParsedTreeInventory inventory) {
+    this(semantics, evidence, inventory, new JavaWrittenSourceAssociations(inventory));
+  }
+
+  JavaAnnotationValueProjector(SemanticResolver semantics, JavaSourceEvidence evidence, ParsedTreeInventory inventory,
+      JavaWrittenSourceAssociations sourceAssociations) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.evidence = Objects.requireNonNull(evidence, "evidence");
     this.inventory = Objects.requireNonNull(inventory, "inventory");
-    typeUses = new JavaTypeUseTranslator(semantics, evidence, inventory);
+    this.sourceAssociations = Objects.requireNonNull(sourceAssociations, "sourceAssociations");
+    typeUses = new JavaTypeUseTranslator(semantics, evidence, inventory, Optional.empty(), sourceAssociations);
     values = new JavaAnnotationValues(semantics);
     correlation = new JavaAnnotationMirrorCorrelation(semantics);
   }
@@ -314,6 +321,9 @@ final class JavaAnnotationValueProjector {
           diagnostics);
       return Optional.empty();
     }
+    var argumentPath = Objects.requireNonNull(JavaProjectionIdentity.sameInstance(written.argument(), written.value())
+        ? written.valuePath()
+        : written.valuePath().getParentPath());
     var children = new ArrayList<SyntaxChild>();
     if (written.name().isPresent()) {
       var namePath = path.child(SyntaxRole.ANNOTATION_ELEMENT_NAME, 0);
@@ -322,9 +332,9 @@ final class JavaAnnotationValueProjector {
         return Optional.empty();
       }
       children.add(new SyntaxChild(SyntaxRole.ANNOTATION_ELEMENT_NAME, 0,
-          SyntaxNode.source(source.sourceFileKey(), namePath, JavaSourceKind.IDENTIFIER, SyntaxKind.ANNOTATION_ELEMENT_NAME,
-              SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol(selectedName), List.of(), Optional.empty(),
-              nameRange.orElseThrow())));
+          sourceAssociations.created(SyntaxNode.source(source.sourceFileKey(), namePath, JavaSourceKind.IDENTIFIER,
+              SyntaxKind.ANNOTATION_ELEMENT_NAME, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.SourceSymbol(selectedName), List.of(),
+              Optional.empty(), nameRange.orElseThrow()), new TreePath(argumentPath, written.name().orElseThrow()))));
     }
     var projected = value(unit, source, written.value(), written.valuePath(), selected.getReturnType(), path.child(SyntaxRole.VALUE, 0),
         diagnostics);
@@ -342,9 +352,10 @@ final class JavaAnnotationValueProjector {
       return Optional.empty();
     }
     var reference = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED, key, Optional.empty(), List.of(), List.of());
-    return Optional.of(SyntaxNode.source(source.sourceFileKey(), path, JavaSourceKind.valueOf(written.argument().getKind().name()),
-        SyntaxKind.ANNOTATION_ARGUMENT, selectedType, new SyntaxValue.AnnotationArgument(name, key.orElseThrow(), result.value()), children,
-        Optional.of(reference), range.orElseThrow()));
+    return Optional.of(sourceAssociations.created(SyntaxNode.source(source.sourceFileKey(), path,
+        JavaSourceKind.valueOf(written.argument().getKind().name()), SyntaxKind.ANNOTATION_ARGUMENT, selectedType,
+        new SyntaxValue.AnnotationArgument(name, key.orElseThrow(), result.value()), children, Optional.of(reference), range.orElseThrow()),
+        argumentPath));
   }
 
   private Optional<ProjectedValue> value(CompilationUnitTree unit, SourceFile source, ExpressionTree tree, TreePath treePath,
@@ -375,6 +386,7 @@ final class JavaAnnotationValueProjector {
         }
         var node = SyntaxNode.source(source.sourceFileKey(), path, JavaSourceKind.NEW_ARRAY, SyntaxKind.ANNOTATION_ARRAY,
             SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, children, Optional.empty(), range.orElseThrow());
+        sourceAssociations.created(node, treePath);
         return Optional.of(new ProjectedValue(new AnnotationElementValue.Array(values), node));
       }
       var child = value(unit, source, tree, treePath, arrayType.getComponentType(), path, diagnostics);
@@ -443,6 +455,7 @@ final class JavaAnnotationValueProjector {
         SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(written.form(), written.arguments(), SyntaxValue.AnnotationLocation.VALUE), children, reference,
         range.orElseThrow());
+    inventory.annotationPath(tree).ifPresent(annotationPath -> sourceAssociations.created(node, annotationPath));
     return Optional.of(new ProjectedValue(new AnnotationElementValue.Nested(key.orElseThrow()), node));
   }
 
@@ -571,8 +584,9 @@ final class JavaAnnotationValueProjector {
       }
       return Optional.empty();
     }
-    return Optional
-        .of(SyntaxNode.source(source.sourceFileKey(), path, sourceKind, kind, type, value, children, reference, range.orElseThrow()));
+    return Optional.of(sourceAssociations.created(
+        SyntaxNode.source(source.sourceFileKey(), path, sourceKind, kind, type, value, children, reference, range.orElseThrow()),
+        treePath));
   }
 
   private Optional<SemanticReference> constantReference(TreePath path) {
@@ -634,6 +648,7 @@ final class JavaAnnotationValueProjector {
 
   private static void report(SourceFile source, SyntaxStructuralPath path, String code, String message, Optional<SourceSpan> range,
       List<AnalysisDiagnostic> diagnostics) {
-    diagnostics.add(FrontendDiagnosticFactory.capabilityError(source.sourceFileKey() + ':' + path, code, message, range));
+    TranslationDiagnosticEvidence.emit(diagnostics, "JavaAnnotationValueProjector",
+        FrontendDiagnosticFactory.capabilityError(source.sourceFileKey() + ':' + path, code, message, range));
   }
 }

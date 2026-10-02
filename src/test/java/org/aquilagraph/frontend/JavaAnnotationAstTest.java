@@ -519,7 +519,7 @@ class JavaAnnotationAstTest {
       }
     });
 
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
       var parsed = session.parse();
       var captured = JavaAnnotationSourceInventory.capture(new ParsedJavaSource(parsed.units(), missingPositions, parsed.treeInventory()), sources);
       var compilation = session.analyze(parsed);

@@ -198,7 +198,7 @@ class JavaAnnotationDefaultAstTest {
     var snapshot = new JavaSourceLoader().discover(sourceRoot);
     var source = snapshot.sourceFiles().getFirst();
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
-    try (var session = CompilerSession.open(ToolProvider.getSystemJavaCompiler(),
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(),
         JavaCompilerInvocation.from(configuration), new SnapshotSourceCatalog(snapshot))) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);

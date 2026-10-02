@@ -18,6 +18,6 @@ record Neo4jNode(String key, String label, Map<String, Object> properties) {
   Neo4jNode {
     Objects.requireNonNull(key, "key");
     Objects.requireNonNull(label, "label");
-    properties = Map.copyOf(Objects.requireNonNull(properties, "properties"));
+    properties = Neo4jPropertyValues.copyOf(properties);
   }
 }

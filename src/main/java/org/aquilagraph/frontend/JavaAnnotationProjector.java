@@ -40,6 +40,7 @@ import org.aquilagraph.syntax.SyntaxValue;
 
 /** Projects parsed annotation evidence onto attributed declaration and type sites. */
 final class JavaAnnotationProjector {
+  private static final String DIAGNOSTIC_PRODUCER = "JavaAnnotationProjector";
   enum DeclarationSite {
     MODULE(ElementType.MODULE, false, false), PACKAGE(ElementType.PACKAGE, false, false), TYPE(ElementType.TYPE, false, true),
     ANNOTATION_TYPE(ElementType.ANNOTATION_TYPE, false, true), TYPE_PARAMETER(ElementType.TYPE_PARAMETER, false, true),
@@ -63,12 +64,19 @@ final class JavaAnnotationProjector {
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory inventory;
   private final JavaAnnotationValueProjector values;
+  private final JavaWrittenSourceAssociations sourceAssociations;
 
   JavaAnnotationProjector(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory inventory) {
+    this(semantics, sourceEvidence, inventory, new JavaWrittenSourceAssociations(inventory));
+  }
+
+  JavaAnnotationProjector(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory inventory,
+      JavaWrittenSourceAssociations sourceAssociations) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.inventory = Objects.requireNonNull(inventory, "inventory");
-    values = new JavaAnnotationValueProjector(semantics, sourceEvidence, inventory);
+    this.sourceAssociations = Objects.requireNonNull(sourceAssociations, "sourceAssociations");
+    values = new JavaAnnotationValueProjector(semantics, sourceEvidence, inventory, sourceAssociations);
   }
 
   Optional<SyntaxNode> declaration(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation, SyntaxStructuralPath path,
@@ -87,8 +95,9 @@ final class JavaAnnotationProjector {
     var range = sourceEvidence.requiredRange(unit, sourceFile, annotation, occurrencePath, diagnostics);
     var written = inventory.annotation(annotation);
     if (!inventory.isWritten(annotation) || written.isEmpty()) {
-      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath,
-          "frontend.missing-annotation-source-evidence", "A written annotation has no complete pre-attribution form evidence", range));
+      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+          FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath,
+              "frontend.missing-annotation-source-evidence", "A written annotation has no complete pre-attribution form evidence", range));
     }
     if (range.isEmpty() || written.isEmpty() || !inventory.isWritten(annotation)) {
       return Optional.empty();
@@ -104,8 +113,9 @@ final class JavaAnnotationProjector {
     var location = SyntaxValue.AnnotationLocation.UNRESOLVED;
     var closestTypeAdmissible = site.map(candidate -> closestTypeAdmissible(annotation, candidate)).orElse(true);
     if (!validType) {
-      diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath,
-          "frontend.unresolved-annotation-type", "The written annotation does not select a resolved annotation type", range));
+      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+          FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath, "frontend.unresolved-annotation-type",
+              "The written annotation does not select a resolved annotation type", range));
       reference = Optional.of(
           new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of()));
     } else {
@@ -130,8 +140,10 @@ final class JavaAnnotationProjector {
                 : typeApplicable ? SyntaxValue.AnnotationLocation.TYPE_USE : SyntaxValue.AnnotationLocation.UNRESOLVED;
       }
       if (location == SyntaxValue.AnnotationLocation.UNRESOLVED) {
-        diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath,
-            "frontend.unresolved-annotation-location", "The written annotation has no applicable declaration or exact type site", range));
+        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+            FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath,
+                "frontend.unresolved-annotation-location", "The written annotation has no applicable declaration or exact type site",
+                range));
         targets = Set.of();
       }
     }
@@ -144,8 +156,9 @@ final class JavaAnnotationProjector {
         children = values.arguments(unit, sourceFile, annotation, (TypeElement) Objects.requireNonNull(element), path, diagnostics);
         if (children.isEmpty()) {
           if (diagnostics.size() == diagnosticCount) {
-            diagnostics.add(FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath,
-                "frontend.unavailable-annotation-attribution", "The written annotation arguments could not be projected", range));
+            TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+                FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath,
+                    "frontend.unavailable-annotation-attribution", "The written annotation arguments could not be projected", range));
           }
           argumentFailureCode = diagnostics.get(diagnosticCount).code();
         }
@@ -157,8 +170,14 @@ final class JavaAnnotationProjector {
         ? new SyntaxValue.Annotation(parsed.form(), parsed.arguments(), location, targets, closestTypeAdmissible)
         : SyntaxValue.Annotation.withArgumentFailure(parsed.form(), parsed.arguments(), location, targets, closestTypeAdmissible,
             argumentFailureCode);
-    return Optional.of(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION,
-        SyntaxType.NotApplicable.INSTANCE, value, children, reference, range.orElseThrow()));
+    if (validType) {
+      value = value.withRepeatableContainer(
+          JavaCoverageAnnotationProjection.repeatableContainer((TypeElement) Objects.requireNonNull(element), semantics));
+    }
+    var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION,
+        SyntaxType.NotApplicable.INSTANCE, value, children, reference, range.orElseThrow());
+    inventory.annotationPath(annotation).ifPresent(annotationPath -> sourceAssociations.created(node, annotationPath));
+    return Optional.of(node);
   }
 
   private boolean closestTypeAdmissible(AnnotationTree annotation, DeclarationSite site) {

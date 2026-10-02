@@ -26,6 +26,11 @@ public final class JavaFrontend implements SourceAnalyzer {
     analysisPipeline = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture()));
   }
 
+  JavaFrontend(JavaSourceLoader sourceLoader, JavaAnalysisPipeline analysisPipeline) {
+    this.sourceLoader = Objects.requireNonNull(sourceLoader, "sourceLoader");
+    this.analysisPipeline = Objects.requireNonNull(analysisPipeline, "analysisPipeline");
+  }
+
   /**
    * Discovers and analyzes sources beneath a root directory.
    *

@@ -26,6 +26,7 @@ class AnalysisRepositoryExceptionTest {
     // Assert
     assertSame(run, exception.analysisRun());
     assertSame(cause, exception.getCause());
+    assertSame(cause, exception.repositoryFailure());
     assertEquals("Repository save failed for analysis run " + run.runId(), exception.getMessage());
   }
 
@@ -49,5 +50,34 @@ class AnalysisRepositoryExceptionTest {
 
     // Assert
     assertEquals("AnalysisRepositoryException cannot be deserialized without its analysis run", exception.getMessage());
+  }
+
+  @Test
+  void givenNullRunAndCause_whenRepositoryFailureIsConstructed_thenRunValidationPrecedesCauseValidation() {
+    // Arrange
+    var run = TestAnalysisRuns.completed();
+
+    // Act
+    var missingRun = assertThrows(NullPointerException.class, () -> new AnalysisRepositoryException(null, null));
+    var missingCause = assertThrows(NullPointerException.class, () -> new AnalysisRepositoryException(run, null));
+
+    // Assert
+    assertEquals("analysisRun", missingRun.getMessage());
+    assertEquals("cause", missingCause.getMessage());
+  }
+
+  @Test
+  void givenDirectRejectedRun_whenRepositoryFailureIsConstructed_thenSuppliedRunIsRetainedWithoutQualification() {
+    // Arrange
+    var run = TestAnalysisRuns.rejected();
+    var cause = new RepositoryException("publication failed", new IllegalStateException("operation failed"));
+
+    // Act
+    var failure = new AnalysisRepositoryException(run, cause);
+
+    // Assert
+    assertSame(run, failure.analysisRun());
+    assertSame(cause, failure.repositoryFailure());
+    assertEquals("Repository save failed for analysis run " + run.runId(), failure.getMessage());
   }
 }

@@ -2,12 +2,15 @@ package org.aquilagraph.frontend;
 
 import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import javax.lang.model.element.ExecutableElement;
 import org.aquilagraph.model.AnalysisDiagnostic;
 import org.aquilagraph.model.AnalysisOutcomeKind;
 import org.aquilagraph.model.DiagnosticSeverity;
@@ -24,8 +27,11 @@ import org.aquilagraph.syntax.SyntaxNode;
 import org.aquilagraph.syntax.SyntaxStructuralPath;
 import org.aquilagraph.syntax.SyntaxType;
 import org.aquilagraph.syntax.SyntaxValue;
+import org.aquilagraph.syntax.WrittenSourceAssociation;
+import org.aquilagraph.syntax.WrittenTypeEvidence;
 
 final class JavaMethodBodyTranslator {
+  private static final String DIAGNOSTIC_PRODUCER = "JavaMethodBodyTranslator";
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
@@ -38,43 +44,116 @@ final class JavaMethodBodyTranslator {
     syntaxProfile = new MethodBodySyntaxProfile(semantics);
   }
 
-  TranslationResult<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, BlockTree body,
+  TranslationResult<TranslatedMethodBody> translate(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, BlockTree body,
       TreePath bodyPath, boolean constructor, boolean implicitDeclaration) {
     Objects.requireNonNull(unit, "unit");
     Objects.requireNonNull(sourceFile, "sourceFile");
     Objects.requireNonNull(methodKey, "methodKey");
     Objects.requireNonNull(body, "body");
     Objects.requireNonNull(bodyPath, "bodyPath");
+    var methodPath = bodyPath.getParentPath();
+    if (!JavaProjectionIdentity.sameInstance(bodyPath.getCompilationUnit(), unit)
+        || !JavaProjectionIdentity.sameInstance(bodyPath.getLeaf(), body) || methodPath == null
+        || !(methodPath.getLeaf() instanceof MethodTree declaration) || !JavaProjectionIdentity.sameInstance(declaration.getBody(), body)
+        || !(semantics.element(methodPath) instanceof ExecutableElement executable)
+        || !semantics.declarationKey(executable).equals(Optional.of(methodKey))) {
+      throw new IllegalArgumentException("A method body projection requires its attributed executable and exact body path");
+    }
+    var nodeProjections = new ArrayList<NodeProjection>();
     var translation = translateTree(unit, sourceFile, methodKey, body, bodyPath, JavaSyntaxStructuralPath.methodBody(bodyPath),
-        SyntaxUse.VALUE, constructor, implicitDeclaration);
-    return new TranslationResult<>(translation.node(), translation.diagnostics(), translation.featureOccurrences(),
-        translation.featureObservations());
+        SyntaxUse.VALUE, constructor, implicitDeclaration, nodeProjections);
+    var decisions = new JavaBodyDecisionProducer(semantics).produce(methodKey, translation.node(), nodeProjections);
+    var bodyProjection = new BodyProjection(declaration, bodyPath, translation.node(), nodeProjections, decisions);
+    return new TranslationResult<>(new TranslatedMethodBody(methodKey, translation.node(), bodyProjection), translation.diagnostics(),
+        translation.featureOccurrences(), translation.featureObservations());
+  }
+
+  static final class BodyProjection {
+    private final MethodTree capturedDeclaration;
+    private final TreePath capturedBodyPath;
+    private final SyntaxNode createdRoot;
+    private final List<NodeProjection> retainedNodeProjections;
+    private final JavaBodyDecisions selectedDecisions;
+
+    private BodyProjection(MethodTree declaration, TreePath bodyPath, SyntaxNode producedRoot, List<NodeProjection> nodeProjections,
+        JavaBodyDecisions decisions) {
+      this.capturedDeclaration = declaration;
+      this.capturedBodyPath = bodyPath;
+      this.createdRoot = producedRoot;
+      this.retainedNodeProjections = List.copyOf(nodeProjections);
+      this.selectedDecisions = decisions;
+    }
+
+    MethodTree declaration() {
+      return capturedDeclaration;
+    }
+
+    TreePath bodyPath() {
+      return capturedBodyPath;
+    }
+
+    SyntaxNode producedRoot() {
+      return createdRoot;
+    }
+
+    List<NodeProjection> nodeProjections() {
+      return retainedNodeProjections;
+    }
+
+    JavaBodyDecisions decisions() {
+      return selectedDecisions;
+    }
+  }
+
+  record NodeProjection(SyntaxNode node, TreePath path, List<SyntaxChildMapping> children,
+      Optional<WrittenSourceAssociation> sourceAssociation) {
+    NodeProjection {
+      Objects.requireNonNull(node, "node");
+      Objects.requireNonNull(path, "path");
+      children = List.copyOf(children);
+      Objects.requireNonNull(sourceAssociation, "sourceAssociation");
+    }
   }
 
   private SyntaxTreeTranslation translateTree(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, Tree tree, TreePath path,
-      SyntaxStructuralPath structuralPath, SyntaxUse use, boolean constructor, boolean compilerGenerated) {
+      SyntaxStructuralPath structuralPath, SyntaxUse use, boolean constructor, boolean compilerGenerated,
+      List<NodeProjection> nodeProjections) {
     var generated = compilerGenerated || (constructor && treeInventory.isCompilerInsertedSuperCall(path));
     var mapping = syntaxProfile.describe(tree, path, structuralPath, use);
-    var children = translateChildren(unit, sourceFile, methodKey, mapping.children(), constructor, generated);
+    var children = translateChildren(unit, sourceFile, methodKey, mapping.children(), constructor, generated, nodeProjections);
     var origin = sourceEvidence.origin(unit, sourceFile, tree);
+    var value = mapping.value();
+    if (value instanceof SyntaxValue.LocalDeclaration local && tree instanceof VariableTree variable) {
+      var writtenType = variable.getType();
+      var typeEvidence = writtenType == null
+          ? Optional.<WrittenTypeEvidence>empty()
+          : sourceEvidence.origin(unit, sourceFile, writtenType)
+              .map(range -> new WrittenTypeEvidence(JavaSourceKind.valueOf(writtenType.getKind().name()), range,
+                  semantics.explicitType(new TreePath(path, writtenType))));
+      value = new SyntaxValue.LocalDeclaration(local.name(), typeEvidence,
+          treeInventory.writtenModifiers(variable.getModifiers()).stream().map(Object::toString).sorted().toList());
+    }
     var sourceKind = JavaSourceKind.valueOf(tree.getKind().name());
     var childNodes = new ArrayList<SyntaxChild>(children.size());
     for (var index = 0; index < children.size(); index++) {
       var childMapping = mapping.children().get(index);
       childNodes.add(new SyntaxChild(childMapping.role(), childMapping.position(), children.get(index).node()));
     }
-    var node = origin
-        .map(source -> SyntaxNode.source(sourceFile.sourceFileKey(), structuralPath, sourceKind, mapping.kind(), semantics.type(path),
-            mapping.value(), childNodes, mapping.semanticReference(), source))
-        .orElseGet(() -> SyntaxNode.withoutDirectSource(sourceFile.sourceFileKey(), structuralPath, sourceKind, mapping.kind(),
-            semantics.type(path), mapping.value(), childNodes, mapping.semanticReference()));
-    var diagnostics = new ArrayList<>(diagnostics(methodKey, node, children));
+    var node = origin.isPresent()
+        ? SyntaxNode.source(sourceFile.sourceFileKey(), structuralPath, sourceKind, mapping.kind(), semantics.type(path), value, childNodes,
+            mapping.semanticReference(), origin.orElseThrow())
+        : SyntaxNode.withoutDirectSource(sourceFile.sourceFileKey(), structuralPath, sourceKind, mapping.kind(), semantics.type(path),
+            value, childNodes, mapping.semanticReference());
+    nodeProjections.add(new NodeProjection(node, path, mapping.children(), treeInventory.sourceAssociation(node, path)));
+    var diagnostics = mutableDiagnostics(diagnostics(methodKey, node, children), methodKey + ':' + structuralPath);
     if (!generated) {
       switch (sourceEvidence.position(unit, sourceFile, tree)) {
-        case JavaSourceEvidence.Position.Missing ignored -> diagnostics.add(FrontendDiagnosticFactory.sourcePositionError(sourceFile,
-            node.structuralPath(), "frontend.missing-source-position", "A required source occurrence has no compiler position"));
-        case JavaSourceEvidence.Position.Invalid ignored -> diagnostics.add(FrontendDiagnosticFactory.sourcePositionError(sourceFile,
-            node.structuralPath(), "frontend.invalid-source-range", "A required source occurrence has an invalid compiler range"));
+        case JavaSourceEvidence.Position.Missing ignored ->
+          TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.sourcePositionError(sourceFile,
+              node.structuralPath(), "frontend.missing-source-position", "A required source occurrence has no compiler position"));
+        case JavaSourceEvidence.Position.Invalid ignored ->
+          TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.sourcePositionError(sourceFile,
+              node.structuralPath(), "frontend.invalid-source-range", "A required source occurrence has an invalid compiler range"));
         case JavaSourceEvidence.Position.Available ignored -> {
         }
       }
@@ -94,62 +173,75 @@ final class JavaMethodBodyTranslator {
     }
     var origin = sourceEvidence.origin(unit, sourceFile, variableTree);
     if (!variableTree.getModifiers().getFlags().isEmpty()) {
-      diagnostics.add(FrontendDiagnosticFactory.capabilityError(methodKey, "frontend.unsupported-local-declaration-modifiers",
-          "Local declaration modifiers are outside the supported semantic graph profile", origin));
+      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+          FrontendDiagnosticFactory.capabilityError(methodKey, "frontend.unsupported-local-declaration-modifiers",
+              "Local declaration modifiers are outside the supported semantic graph profile", origin));
     }
     for (var annotation : variableTree.getModifiers().getAnnotations()) {
-      diagnostics.add(FrontendDiagnosticFactory.capabilityError(methodKey, "frontend.unsupported-local-annotation-content",
-          "Local declaration annotation content is outside the supported semantic graph profile",
-          sourceEvidence.origin(unit, sourceFile, annotation)));
+      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+          FrontendDiagnosticFactory.capabilityError(methodKey, "frontend.unsupported-local-annotation-content",
+              "Local declaration annotation content is outside the supported semantic graph profile",
+              sourceEvidence.origin(unit, sourceFile, annotation)));
     }
     if (variableTree.getNameExpression() != null) {
-      diagnostics.add(FrontendDiagnosticFactory.otherError(methodKey, "frontend.invalid-local-name-expression",
-          "A local declaration cannot have a receiver name expression",
-          sourceEvidence.origin(unit, sourceFile, variableTree.getNameExpression())));
+      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+          FrontendDiagnosticFactory.otherError(methodKey, "frontend.invalid-local-name-expression",
+              "A local declaration cannot have a receiver name expression",
+              sourceEvidence.origin(unit, sourceFile, variableTree.getNameExpression())));
     }
   }
 
   private List<SyntaxTreeTranslation> translateChildren(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,
-      List<SyntaxChildMapping> children, boolean constructor, boolean compilerGenerated) {
+      List<SyntaxChildMapping> children, boolean constructor, boolean compilerGenerated, List<NodeProjection> nodeProjections) {
     var translations = new ArrayList<SyntaxTreeTranslation>(children.size());
     for (var child : children) {
       translations.add(translateTree(unit, sourceFile, methodKey, child.tree(), child.treePath(), child.structuralPath(), child.use(),
-          constructor, compilerGenerated));
+          constructor, compilerGenerated, nodeProjections));
     }
     return List.copyOf(translations);
   }
 
+  private static List<AnalysisDiagnostic> mutableDiagnostics(List<AnalysisDiagnostic> retained, String producingOwner) {
+    var result = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, producingOwner);
+    result.addAll(retained);
+    return result;
+  }
+
   private List<AnalysisDiagnostic> diagnostics(String methodKey, SyntaxNode node, List<SyntaxTreeTranslation> children) {
-    var diagnostics = new ArrayList<AnalysisDiagnostic>();
+    List<AnalysisDiagnostic> diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, methodKey + ':' + node.structuralPath());
     if (node.syntaxKind() == SyntaxKind.UNSUPPORTED) {
-      diagnostics.add(unsupportedDiagnostic(methodKey, node));
+      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, unsupportedDiagnostic(methodKey, node));
     } else {
       if (node.type() == SyntaxType.Erroneous.INSTANCE) {
-        diagnostics.add(semanticDiagnostic(methodKey, node, "frontend.error-type", "javac reported an error type for retained syntax",
-            AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE));
+        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, semanticDiagnostic(methodKey, node, "frontend.error-type",
+            "javac reported an error type for retained syntax", AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE));
       } else if (node.type() == SyntaxType.Unresolved.INSTANCE) {
-        diagnostics.add(semanticDiagnostic(methodKey, node, "frontend.unresolved-type",
+        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, semanticDiagnostic(methodKey, node, "frontend.unresolved-type",
             "A compiler type required for graph lowering is unavailable", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
       } else if (node.type() instanceof SyntaxType.NoType noType) {
-        diagnostics.add(semanticDiagnostic(methodKey, node, "frontend.no-type-in-required-syntax",
-            "A required syntax type resolved to compiler pseudo-type " + noType.kind(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
+        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+            semanticDiagnostic(methodKey, node, "frontend.no-type-in-required-syntax",
+                "A required syntax type resolved to compiler pseudo-type " + noType.kind(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
       } else if (node.type() == SyntaxType.Unsupported.INSTANCE) {
-        diagnostics.add(semanticDiagnostic(methodKey, node, "frontend.unsupported-attributed-type",
-            "A required syntax type has an implementation-reserved compiler kind", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
+        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+            semanticDiagnostic(methodKey, node, "frontend.unsupported-attributed-type",
+                "A required syntax type has an implementation-reserved compiler kind", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
       } else if (node.type() instanceof SyntaxType.StructureUnavailable) {
-        diagnostics.add(semanticDiagnostic(methodKey, node, "frontend.unavailable-type-structure",
-            "A required syntax type has no complete compiler-derived structure", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
+        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+            semanticDiagnostic(methodKey, node, "frontend.unavailable-type-structure",
+                "A required syntax type has no complete compiler-derived structure", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
       }
       if (node.semanticReference().isPresent() && node.semanticReference().orElseThrow().status() == ResolutionStatus.ERROR) {
-        diagnostics.add(semanticDiagnostic(methodKey, node, "frontend.error-reference",
+        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, semanticDiagnostic(methodKey, node, "frontend.error-reference",
             "javac reported an erroneous declaration reference for retained syntax", AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE));
       } else if (node.semanticReference().isPresent() && node.semanticReference().orElseThrow().status() == ResolutionStatus.UNRESOLVED) {
-        diagnostics.add(semanticDiagnostic(methodKey, node, "frontend.unresolved-reference",
-            "A declaration identity required for graph lowering is unavailable", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
+        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+            semanticDiagnostic(methodKey, node, "frontend.unresolved-reference",
+                "A declaration identity required for graph lowering is unavailable", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
       }
     }
     children.forEach(child -> diagnostics.addAll(child.diagnostics()));
-    return List.copyOf(diagnostics);
+    return TranslationDiagnosticEvidence.copyOf(diagnostics);
   }
 
   private static AnalysisDiagnostic unsupportedDiagnostic(String methodKey, SyntaxNode node) {
@@ -170,7 +262,7 @@ final class JavaMethodBodyTranslator {
       List<LanguageFeatureOccurrence> featureOccurrences, List<LanguageFeatureObservation> featureObservations) {
     private SyntaxTreeTranslation {
       Objects.requireNonNull(node, "node");
-      diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics"));
+      diagnostics = TranslationDiagnosticEvidence.copyOf(Objects.requireNonNull(diagnostics, "diagnostics"));
       featureOccurrences = List.copyOf(Objects.requireNonNull(featureOccurrences, "featureOccurrences"));
       featureObservations = List.copyOf(Objects.requireNonNull(featureObservations, "featureObservations"));
     }

@@ -26,6 +26,23 @@ class AnalysisEngineTest {
   @TempDir Path temporaryDirectory;
 
   @Test
+  void givenAcceptedBodylessProgram_whenAnalysisRuns_thenEmptyRequiredBodySetCanComplete() throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("Bodyless.java"), "interface Bodyless { int value(); }");
+    var input = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory,
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Act
+    var run = new AnalysisEngine().analyze(input);
+
+    // Assert
+    assertEquals(AnalysisCompletion.COMPLETED, run.completion());
+    assertEquals(1, run.representation().orElseThrow().program().methodCount());
+    assertEquals(List.of(), run.representation().orElseThrow().methodAnalyses());
+    assertFalse(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.isError()));
+  }
+
+  @Test
   void givenSupportedBranchingSource_whenAnalysisRuns_thenCfgPreservesTypedFlow()
       throws IOException {
     // Arrange

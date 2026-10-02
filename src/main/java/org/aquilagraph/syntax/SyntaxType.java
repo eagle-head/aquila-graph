@@ -2,6 +2,8 @@ package org.aquilagraph.syntax;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.HashSet;
+import java.util.Set;
 import org.aquilagraph.model.JavaTypeCategory;
 import org.aquilagraph.model.JavaTypeIdentity;
 
@@ -90,6 +92,8 @@ public sealed interface SyntaxType {
           case JavaTypeStructure.Declared ignored -> identity.category() == JavaTypeCategory.DECLARED;
           case JavaTypeStructure.LocalDeclared ignored -> identity.category() == JavaTypeCategory.DECLARED;
           case JavaTypeStructure.Variable ignored -> identity.category() == JavaTypeCategory.TYPE_VARIABLE;
+          case JavaTypeStructure.Captured ignored -> identity.category() == JavaTypeCategory.TYPE_VARIABLE;
+          case JavaTypeStructure.CaptureReference ignored -> identity.category() == JavaTypeCategory.TYPE_VARIABLE;
           case JavaTypeStructure.Array ignored -> identity.category() == JavaTypeCategory.ARRAY;
           case JavaTypeStructure.Wildcard ignored -> identity.category() == JavaTypeCategory.WILDCARD;
           case JavaTypeStructure.Intersection ignored -> identity.category() == JavaTypeCategory.INTERSECTION;
@@ -98,7 +102,41 @@ public sealed interface SyntaxType {
         if (!matches) {
           throw new IllegalArgumentException("Resolved type category conflicts with recursive structure");
         }
+        validateCaptureScope(value, new HashSet<>());
       });
+    }
+
+    private static void validateCaptureScope(JavaTypeStructure value, Set<Integer> captures) {
+      switch (value) {
+        case JavaTypeStructure.Captured captured -> {
+          if (captured.ordinal() != captures.size() || !captures.add(captured.ordinal())) {
+            throw new IllegalArgumentException("Captured variable binders must have distinct first-encounter ordinals");
+          }
+          validateCaptureScope(captured.upperBound(), captures);
+          captured.lowerBound().ifPresent(bound -> validateCaptureScope(bound, captures));
+        }
+        case JavaTypeStructure.CaptureReference reference -> {
+          if (!captures.contains(reference.ordinal())) {
+            throw new IllegalArgumentException("A captured variable reference requires a preceding binder in the same type structure");
+          }
+        }
+        case JavaTypeStructure.Declared declared -> {
+          declared.enclosingType().ifPresent(enclosing -> validateCaptureScope(enclosing, captures));
+          declared.arguments().forEach(argument -> validateCaptureScope(argument, captures));
+        }
+        case JavaTypeStructure.LocalDeclared local -> {
+          local.enclosingType().ifPresent(enclosing -> validateCaptureScope(enclosing, captures));
+          local.arguments().forEach(argument -> validateCaptureScope(argument, captures));
+        }
+        case JavaTypeStructure.Array array -> validateCaptureScope(array.component(), captures);
+        case JavaTypeStructure.Wildcard wildcard -> wildcard.bound().ifPresent(bound -> validateCaptureScope(bound, captures));
+        case JavaTypeStructure.Intersection intersection -> intersection.bounds().forEach(bound -> validateCaptureScope(bound, captures));
+        case JavaTypeStructure.Union union -> union.alternatives().forEach(alternative -> validateCaptureScope(alternative, captures));
+        case JavaTypeStructure.Primitive ignored -> {
+        }
+        case JavaTypeStructure.Variable ignored -> {
+        }
+      }
     }
 
     /**

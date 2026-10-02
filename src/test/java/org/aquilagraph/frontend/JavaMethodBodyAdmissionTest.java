@@ -1,0 +1,350 @@
+package org.aquilagraph.frontend;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.sun.source.tree.CatchTree;
+import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.Scope;
+import com.sun.source.tree.Tree;
+import com.sun.source.util.JavacTask;
+import com.sun.source.util.SourcePositions;
+import com.sun.source.util.TreePath;
+import com.sun.source.util.Trees;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
+import javax.lang.model.element.AnnotationMirror;
+import javax.lang.model.element.AnnotationValue;
+import javax.lang.model.element.Element;
+import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.TypeElement;
+import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.ErrorType;
+import javax.lang.model.type.TypeMirror;
+import javax.tools.Diagnostic;
+import javax.tools.DiagnosticCollector;
+import javax.tools.JavaFileObject;
+import javax.tools.ToolProvider;
+import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.model.InputSnapshot;
+import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.model.SourceFile;
+import org.aquilagraph.syntax.JavaAstAggregate;
+import org.aquilagraph.syntax.MethodBodyOrigin;
+import org.aquilagraph.syntax.SyntaxNode;
+import org.aquilagraph.syntax.SyntaxRole;
+import org.aquilagraph.syntax.SyntaxValue;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class JavaMethodBodyAdmissionTest {
+  private static final String SOURCE = "class Example { Example() {} void action() { {} } void other() { {} } }";
+
+  @TempDir
+  Path sourceRoot;
+
+  @Test
+  void givenRealAttributedBodies_whenContributedAndSealed_thenSourceAndAuxiliaryProofsRemainDistinct() throws IOException {
+    // Arrange
+    withCompiledSource("valid", fixture -> {
+      var action = fixture.body("action");
+      var constructor = fixture.body("<init>");
+
+      // Act
+      var contribution = fixture.contribute(fixture.translated().methodBodies(), fixture.semantics());
+      var builder = JavaAstAggregate.builder(fixture.snapshot()).add(contribution.contribution().orElseThrow());
+      contribution.bodies().forEach(body -> builder.addMethodBody(body.methodKey(), body.root(), body.origin()));
+      var aggregate = builder.seal();
+
+      // Assert
+      assertSame(action.root(), action.projection().producedRoot());
+      assertSame(action.projection().declaration().getBody(), action.projection().bodyPath().getLeaf());
+      assertSame(action.root(), aggregate.methodSyntax(action.methodKey()).orElseThrow().root());
+      assertSame(action.root(), aggregate.node(action.root().nodeId()).orElseThrow());
+      assertEquals(MethodBodyOrigin.SOURCE_AST, aggregate.methodBodyOrigin(action.methodKey()).orElseThrow());
+      assertSame(constructor.root(), aggregate.methodSyntax(constructor.methodKey()).orElseThrow().root());
+      assertEquals(MethodBodyOrigin.EXECUTION_PROJECTION, aggregate.methodBodyOrigin(constructor.methodKey()).orElseThrow());
+      var sourceConstructor = aggregate.nodes().stream()
+          .filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration declaration
+              && declaration.declarationKey().equals(constructor.methodKey()))
+          .findFirst().orElseThrow().requiredChild(SyntaxRole.BODY);
+      assertNotSame(constructor.root(), sourceConstructor);
+      Set<SyntaxNode> sourceInstances = Collections.newSetFromMap(new IdentityHashMap<>());
+      sourceInstances.addAll(aggregate.nodes());
+      assertTrue(constructor.root().descendantsAndSelf().stream().noneMatch(sourceInstances::contains));
+    });
+  }
+
+  @Test
+  void givenSwappedRootWithOriginalProjection_whenContributed_thenProducedInstanceMismatchIsRejected() throws IOException {
+    // Arrange
+    withCompiledSource("swapped-root", fixture -> {
+      var original = fixture.body("action");
+      var root = original.root();
+      var replacement = SyntaxNode.source(root.sourceFileKey(), root.structuralPath(), root.sourceKind(), root.syntaxKind(), root.type(),
+          root.value(), root.children(), root.semanticReference(), root.origin().orElseThrow());
+      var swapped = new TranslatedMethodBody(original.methodKey(), replacement, original.projection());
+
+      // Act
+      var error = assertThrows(IllegalArgumentException.class, () -> fixture.contribute(fixture.replace(original, swapped), fixture.semantics()));
+
+      // Assert
+      assertEquals(root, replacement);
+      assertNotSame(root, replacement);
+      assertTrue(error.getMessage().contains("does not retain its executable body projection"));
+    });
+  }
+
+  @Test
+  void givenBodyPathFromAnotherMethod_whenProduced_thenExactExecutableBodyPathIsRejected() throws IOException {
+    // Arrange
+    withCompiledSource("swapped-path", fixture -> {
+      var original = fixture.body("action");
+      var other = fixture.body("other");
+      var translator = new JavaMethodBodyTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory());
+
+      // Act
+      var error = assertThrows(IllegalArgumentException.class,
+          () -> translator.translate(fixture.unit(), fixture.source(), original.methodKey(), original.projection().declaration().getBody(),
+              other.projection().bodyPath(), false, false));
+
+      // Assert
+      assertTrue(error.getMessage().contains("requires its attributed executable and exact body path"));
+    });
+  }
+
+  @Test
+  void givenAnotherCanonicalKeyOnBody_whenContributed_thenAttributedExecutableCorrespondenceIsRejected() throws IOException {
+    // Arrange
+    withCompiledSource("swapped-key", fixture -> {
+      var original = fixture.body("action");
+      var swapped = new TranslatedMethodBody(fixture.body("other").methodKey(), original.root(), original.projection());
+
+      // Act
+      var error = assertThrows(IllegalArgumentException.class, () -> fixture.contribute(fixture.replace(original, swapped), fixture.semantics()));
+
+      // Assert
+      assertTrue(error.getMessage().contains("does not match its canonical executable"));
+    });
+  }
+
+  @Test
+  void givenSameKeyFromAnotherCompilerExecutable_whenContributed_thenSourceTreeIdentityIsRejected() throws IOException {
+    // Arrange
+    withCompiledSource("first-executable", first -> withCompiledSource("second-executable", second -> {
+      var original = first.body("action");
+      var foreign = second.body("action");
+      var swapped = new TranslatedMethodBody(original.methodKey(), original.root(), foreign.projection());
+
+      // Act
+      var error = assertThrows(IllegalArgumentException.class, () -> first.contribute(first.replace(original, swapped), first.semantics()));
+
+      // Assert
+      assertEquals(original.methodKey(), foreign.methodKey());
+      assertNotSame(original.projection().declaration(), foreign.projection().declaration());
+      assertTrue(error.getMessage().contains("no independently attributed source executable"));
+    }));
+  }
+
+  @Test
+  void givenCanonicalMethodMissingFromContribution_whenCorrelated_thenBodyIsRejected() throws IOException {
+    // Arrange
+    withCompiledSource("missing-method", fixture -> {
+      var contributor = new JavaAstContributionTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory());
+
+      // Act
+      var error = assertThrows(IllegalArgumentException.class,
+          () -> contributor.translate(fixture.unit(), fixture.source(), fixture.translated().methodBodies(), List.of()));
+
+      // Assert
+      assertTrue(error.getMessage().contains("does not match its canonical executable"));
+    });
+  }
+
+  @Test
+  void givenUnavailableAttributedOwner_whenContributed_thenIndependentOwnerProofIsRejected() throws IOException {
+    // Arrange
+    withCompiledSource("missing-owner", fixture -> {
+      var unavailable = new MissingOwnerTrees(fixture.trees(), (ClassTree) fixture.unit().getTypeDecls().getFirst());
+      var semantics = new SemanticResolver(unavailable, fixture.task().getTypes(), fixture.task().getElements(),
+          new DeclarationIdentityRegistry(unavailable, fixture.task().getTypes()));
+
+      // Act
+      var error = assertThrows(IllegalArgumentException.class, () -> fixture.contribute(fixture.translated().methodBodies(), semantics));
+
+      // Assert
+      assertTrue(error.getMessage().contains("no independently attributed source owner"));
+    });
+  }
+
+  @Test
+  void givenBodyAndKeyFromDifferentExecutables_whenProduced_thenMismatchedCompilerProjectionIsRejected() throws IOException {
+    // Arrange
+    withCompiledSource("producer-key", fixture -> {
+      var action = fixture.body("action");
+      var other = fixture.body("other");
+      var translator = new JavaMethodBodyTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory());
+
+      // Act
+      var error = assertThrows(IllegalArgumentException.class,
+          () -> translator.translate(fixture.unit(), fixture.source(), action.methodKey(), other.projection().declaration().getBody(),
+              other.projection().bodyPath(), false, false));
+
+      // Assert
+      assertTrue(error.getMessage().contains("requires its attributed executable and exact body path"));
+    });
+  }
+
+  @Test
+  void givenRealBodylessMethod_whenTranslatedAndContributed_thenNoEmptyBodyIsInvented() throws IOException {
+    // Arrange
+    withCompiledSource("bodyless", "interface Example { void action(); }", fixture -> {
+      var type = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var methodTree = (MethodTree) type.getMembers().getFirst();
+      var translator = new JavaMethodTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory(),
+          new JavaMethodBodyTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory()));
+
+      // Act
+      var method = translator.translate(fixture.unit(), new TreePath(new TreePath(fixture.unit()), type), fixture.source(),
+          "type:Example", methodTree).value();
+      var contribution = fixture.contribute(fixture.translated().methodBodies(), fixture.semantics());
+      var aggregate = JavaAstAggregate.builder(fixture.snapshot()).add(contribution.contribution().orElseThrow()).seal();
+
+      // Assert
+      assertFalse(method.method().hasBody());
+      assertTrue(method.body().isEmpty());
+      assertTrue(fixture.translated().methodBodies().isEmpty());
+      assertTrue(aggregate.methodSyntax(method.method().methodKey()).isEmpty());
+      assertTrue(aggregate.methodBodyOrigin(method.method().methodKey()).isEmpty());
+      assertTrue(aggregate.methodBodyKeys().isEmpty());
+    });
+  }
+
+  @Test
+  void givenJava25ImplicitAndGeneratedExecutables_whenContributed_thenEveryRetainedBodyHasLiveCompilerCorrelation() throws IOException {
+    // Arrange
+    var sources = List.of("void main() {}", "record Example(int value) {}", "enum Example { FIRST }");
+    var directories = List.of("compact-unit", "record-declaration", "enum-declaration");
+    for (var index = 0; index < sources.size(); index++) {
+      withCompiledSource(directories.get(index), sources.get(index), fixture -> {
+        var constructor = fixture.body("<init>");
+
+        // Act
+        var contribution = fixture.contribute(fixture.translated().methodBodies(), fixture.semantics());
+        var builder = JavaAstAggregate.builder(fixture.snapshot()).add(contribution.contribution().orElseThrow());
+        contribution.bodies().forEach(body -> builder.addMethodBody(body.methodKey(), body.root(), body.origin()));
+        var aggregate = builder.seal();
+
+        // Assert
+        assertEquals(MethodBodyOrigin.EXECUTION_PROJECTION, aggregate.methodBodyOrigin(constructor.methodKey()).orElseThrow());
+        assertSame(constructor.root(), aggregate.methodSyntax(constructor.methodKey()).orElseThrow().root());
+        for (var body : fixture.translated().methodBodies()) {
+          var path = TreePath.getPath(fixture.unit(), body.projection().declaration());
+          var executable = fixture.semantics().element(path);
+          assertSame(body.projection().declaration(), fixture.semantics().sourceTree(executable));
+          assertSame(body.projection().declaration().getBody(), body.projection().bodyPath().getLeaf());
+          assertEquals(fixture.semantics().declarationKey(executable).orElseThrow(), aggregate.methodSyntax(body.methodKey()).orElseThrow().methodKey());
+          assertSame(body.root(), aggregate.methodSyntax(body.methodKey()).orElseThrow().root());
+        }
+      });
+    }
+  }
+
+  private void withCompiledSource(String directory, FixtureAction action) throws IOException {
+    withCompiledSource(directory, SOURCE, action);
+  }
+
+  private void withCompiledSource(String directory, String sourceText, FixtureAction action) throws IOException {
+    var root = Files.createDirectories(sourceRoot.resolve(directory));
+    var file = root.resolve("Example.java");
+    Files.writeString(file, sourceText);
+    var snapshot = new JavaSourceLoader().discover(root);
+    var source = snapshot.sourceFiles().getFirst();
+    var compiler = ToolProvider.getSystemJavaCompiler();
+    var diagnostics = new DiagnosticCollector<JavaFileObject>();
+    try (var manager = compiler.getStandardFileManager(diagnostics, Locale.ROOT, null)) {
+      var task = (JavacTask) compiler.getTask(null, manager, diagnostics, List.of("-proc:none", "--release", "25"), null,
+          manager.getJavaFileObjects(file));
+      var units = new ArrayList<CompilationUnitTree>();
+      task.parse().forEach(units::add);
+      var unit = units.getFirst();
+      var trees = Trees.instance(task);
+      var evidence = new JavaSourceEvidence(trees.getSourcePositions());
+      var inventory = ParsedTreeInventory.capture(units, ignored -> Optional.of(source), evidence);
+      task.analyze();
+      assertTrue(diagnostics.getDiagnostics().stream().noneMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
+      var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(), new DeclarationIdentityRegistry(trees, task.getTypes()));
+      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+      var methodTranslator = new JavaMethodTranslator(semantics, evidence, inventory, new JavaMethodBodyTranslator(semantics, evidence, inventory));
+      var typeTranslator = new JavaTypeTranslator(semantics, evidence, inventory, new JavaDeclarationPropertyObserver(coverage), methodTranslator);
+      var translated = typeTranslator.translate(unit, new TreePath(unit), source, (ClassTree) unit.getTypeDecls().getFirst())
+          .value().orElseThrow();
+      action.accept(new Fixture(snapshot, source, unit, task, trees, semantics, evidence, inventory, translated));
+    }
+  }
+
+  @FunctionalInterface
+  private interface FixtureAction {
+    void accept(Fixture fixture) throws IOException;
+  }
+
+  private record Fixture(InputSnapshot snapshot, SourceFile source, CompilationUnitTree unit, JavacTask task, Trees trees,
+      SemanticResolver semantics, JavaSourceEvidence evidence, ParsedTreeInventory inventory, TranslatedType translated) {
+    TranslatedMethodBody body(String name) {
+      var key = translated.types().getFirst().methods().stream().filter(method -> method.name().equals(name)).findFirst().orElseThrow().methodKey();
+      return translated.methodBodies().stream().filter(body -> body.methodKey().equals(key)).findFirst().orElseThrow();
+    }
+
+    List<TranslatedMethodBody> replace(TranslatedMethodBody original, TranslatedMethodBody replacement) {
+      return translated.methodBodies().stream().map(body -> body == original ? replacement : body).toList();
+    }
+
+    JavaAstContributionTranslator.UnitTranslation contribute(List<TranslatedMethodBody> bodies, SemanticResolver resolver) {
+      return new JavaAstContributionTranslator(resolver, evidence, inventory).translate(unit, source, bodies, translated.types());
+    }
+  }
+
+  private static final class MissingOwnerTrees extends Trees {
+    private final Trees delegate;
+    private final ClassTree owner;
+
+    private MissingOwnerTrees(Trees delegate, ClassTree owner) {
+      this.delegate = delegate;
+      this.owner = owner;
+    }
+
+    @Override public SourcePositions getSourcePositions() { return delegate.getSourcePositions(); }
+    @Override public Tree getTree(Element element) { return delegate.getTree(element); }
+    @Override public ClassTree getTree(TypeElement element) { return delegate.getTree(element); }
+    @Override public MethodTree getTree(ExecutableElement element) { return delegate.getTree(element); }
+    @Override public Tree getTree(Element element, AnnotationMirror mirror) { return delegate.getTree(element, mirror); }
+    @Override public Tree getTree(Element element, AnnotationMirror mirror, AnnotationValue value) { return delegate.getTree(element, mirror, value); }
+    @Override public TreePath getPath(CompilationUnitTree unit, Tree tree) { return delegate.getPath(unit, tree); }
+    @Override public TreePath getPath(Element element) { return delegate.getPath(element); }
+    @Override public TreePath getPath(Element element, AnnotationMirror mirror) { return delegate.getPath(element, mirror); }
+    @Override public TreePath getPath(Element element, AnnotationMirror mirror, AnnotationValue value) { return delegate.getPath(element, mirror, value); }
+    @Override public Element getElement(TreePath path) { return path.getLeaf() == owner ? null : delegate.getElement(path); }
+    @Override public TypeMirror getTypeMirror(TreePath path) { return delegate.getTypeMirror(path); }
+    @Override public Scope getScope(TreePath path) { return delegate.getScope(path); }
+    @Override public String getDocComment(TreePath path) { return delegate.getDocComment(path); }
+    @Override public boolean isAccessible(Scope scope, TypeElement type) { return delegate.isAccessible(scope, type); }
+    @Override public boolean isAccessible(Scope scope, Element element, DeclaredType type) { return delegate.isAccessible(scope, element, type); }
+    @Override public TypeMirror getOriginalType(ErrorType type) { return delegate.getOriginalType(type); }
+    @Override public void printMessage(Diagnostic.Kind kind, CharSequence message, Tree tree, CompilationUnitTree unit) { delegate.printMessage(kind, message, tree, unit); }
+    @Override public TypeMirror getLub(CatchTree tree) { return delegate.getLub(tree); }
+  }
+}

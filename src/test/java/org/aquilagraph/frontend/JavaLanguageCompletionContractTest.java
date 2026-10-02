@@ -18,6 +18,8 @@ import javax.tools.JavaFileObject;
 import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.model.AnalysisCompletion;
 import org.aquilagraph.model.AnalysisDiagnostic;
+import org.aquilagraph.model.DiagnosticEmission;
+import org.aquilagraph.model.InputSnapshot;
 import org.aquilagraph.model.AnalysisOutcomeKind;
 import org.aquilagraph.model.CompilerConfiguration;
 import org.aquilagraph.model.DiagnosticSeverity;
@@ -89,11 +91,11 @@ class JavaLanguageCompletionContractTest {
 
     // Act
     var reducedException = assertThrows(IllegalArgumentException.class,
-        () -> new LanguageFeatureCoverageResult(reducedCoverage, List.of(), List.of(), List.of()));
+        () -> JavaCoverageTestSupport.emptyResult(reducedCoverage, InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/empty"), List.of())));
     var augmentedException = assertThrows(IllegalArgumentException.class,
-        () -> new LanguageFeatureCoverageResult(augmentedCoverage, List.of(), List.of(), List.of()));
+        () -> JavaCoverageTestSupport.emptyResult(augmentedCoverage, InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/empty"), List.of())));
     var reclassifiedException = assertThrows(IllegalArgumentException.class,
-        () -> new LanguageFeatureCoverageResult(reclassifiedCoverage, List.of(), List.of(), List.of()));
+        () -> JavaCoverageTestSupport.emptyResult(reclassifiedCoverage, InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/empty"), List.of())));
 
     // Assert
     var expectedMessage = "Language-feature coverage must match the authoritative release contract";
@@ -270,12 +272,10 @@ class JavaLanguageCompletionContractTest {
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> new LanguageFeatureCoverageResult(input.languageFeatureCoverage(),
-            input.languageFeatureCoverageResult().occurrences(), input.languageFeatureCoverageResult().observations(),
-            capabilityDiagnostics));
+        () -> JavaCoverageTestSupport.alteredResult(input, input.languageFeatureCoverageResult().occurrences(), input.languageFeatureCoverageResult().observations(), capabilityDiagnostics));
 
     // Assert
-    assertEquals("Observed capability diagnostic is absent from the coverage result", exception.getMessage());
+    assertEquals("Diagnosed policy pair requires its creating-site diagnostic association", exception.getMessage());
   }
 
   @Test
@@ -292,12 +292,10 @@ class JavaLanguageCompletionContractTest {
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> new LanguageFeatureCoverageResult(input.languageFeatureCoverage(), input.languageFeatureCoverageResult().occurrences(),
-            observations,
-            input.languageFeatureCoverageResult().capabilityDiagnostics()));
+        () -> JavaCoverageTestSupport.alteredResult(input, input.languageFeatureCoverageResult().occurrences(), observations, input.languageFeatureCoverageResult().capabilityDiagnostics()));
 
     // Assert
-    assertEquals("Language-feature observations must exactly match the source occurrence manifest", exception.getMessage());
+    assertEquals("Coverage outcomes must exactly match the independent context inventory in order", exception.getMessage());
     assertTrue(input.languageFeatureCoverageResult().observations().stream()
         .anyMatch(observation -> observation.diagnostic().filter(diagnostic::equals).isPresent()));
   }
@@ -315,11 +313,10 @@ class JavaLanguageCompletionContractTest {
         .filter(candidate -> !candidate.equals(diagnostic)).toList();
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> new LanguageFeatureCoverageResult(input.languageFeatureCoverage(), input.languageFeatureCoverageResult().occurrences(),
-            observations, capabilityDiagnostics));
+        () -> JavaCoverageTestSupport.alteredResult(input, input.languageFeatureCoverageResult().occurrences(), observations, capabilityDiagnostics));
 
     // Assert
-    assertEquals("Language-feature observations must exactly match the source occurrence manifest", exception.getMessage());
+    assertEquals("Coverage outcomes must exactly match the independent context inventory in order", exception.getMessage());
   }
 
   @Test
@@ -372,13 +369,16 @@ class JavaLanguageCompletionContractTest {
     var mismatched = new AnalysisDiagnostic(StableId.sha256("diagnostic", original.diagnosticKey(), "mismatched-outcome"),
         original.code(), original.stage(), original.severity(), original.message(), original.origins(),
         AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE);
-    var diagnostics = new ArrayList<>(input.languageFeatureCoverageResult().capabilityDiagnostics());
-    diagnostics.add(mismatched);
+    var evidence = input.languageFeatureCoverageResult().validationEvidence();
+    var events = new ArrayList<>(evidence.diagnosticEmissions());
+    var extraEvent = new DiagnosticEmission(new DiagnosticEmission.Address("capability-outcome-test", "while-context", 0), mismatched,
+        mismatched.outcomeKind(), List.of(), events.size());
+    events.add(extraEvent);
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> new LanguageFeatureCoverageResult(input.languageFeatureCoverage(),
-            input.languageFeatureCoverageResult().occurrences(), input.languageFeatureCoverageResult().observations(), diagnostics));
+        () -> LanguageFeatureCoverageResult.fromEvidence(input.languageFeatureCoverage(), evidence.writtenInventory(), evidence.attributedExpectations(),
+            evidence.outcomes(), evidence.unmatchedFacts(), events));
 
     // Assert
     assertEquals("Language feature capability diagnostic has an inconsistent outcome kind", exception.getMessage());
@@ -400,7 +400,7 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenNonemptySnapshotWithoutCompilationUnitObservation_whenSyntaxBoundaryIsBuilt_thenInputIsRejected() throws IOException {
+  void givenNonemptySnapshotWithoutCompilationUnitObservation_whenCoverageFactoryIsCalled_thenEvidenceIsRejected() throws IOException {
     // Arrange
     writeSource("Example.java", "final class Example { }");
     var input = analyze();
@@ -408,20 +408,18 @@ class JavaLanguageCompletionContractTest {
         .filter(observation -> !observation.classification().feature().identifier().equals("COMPILATION_UNIT")).toList();
     var occurrences = input.languageFeatureCoverageResult().occurrences().stream()
         .filter(occurrence -> !occurrence.classification().feature().identifier().equals("COMPILATION_UNIT")).toList();
-    var incompleteResult = new LanguageFeatureCoverageResult(input.languageFeatureCoverage(), occurrences, observations,
-        input.languageFeatureCoverageResult().capabilityDiagnostics());
+
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), input.aggregate(),
-            input.diagnostics(), incompleteResult));
+        () -> JavaCoverageTestSupport.alteredResult(input, occurrences, observations, input.languageFeatureCoverageResult().capabilityDiagnostics()));
 
     // Assert
-    assertEquals("Every source file requires exactly one COMPILATION_UNIT coverage observation", exception.getMessage());
+    assertEquals("Coverage outcomes must exactly match the independent context inventory in order", exception.getMessage());
   }
 
   @Test
-  void givenForeignRepresentedObservation_whenSyntaxBoundaryIsBuilt_thenInputIsRejected() throws IOException {
+  void givenForeignRepresentedObservation_whenCoverageFactoryIsCalled_thenEvidenceIsRejected() throws IOException {
     // Arrange
     writeSource("Example.java", "final class Example { }");
     var input = analyze();
@@ -430,20 +428,18 @@ class JavaLanguageCompletionContractTest {
     occurrences.add(new LanguageFeatureOccurrence("foreign-source", classification, List.of()));
     var observations = new ArrayList<>(input.languageFeatureCoverageResult().observations());
     observations.add(new LanguageFeatureObservation("foreign-source", classification, List.of(), Optional.empty()));
-    var result = new LanguageFeatureCoverageResult(input.languageFeatureCoverage(), occurrences, observations,
-        input.languageFeatureCoverageResult().capabilityDiagnostics());
+
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), input.aggregate(),
-            input.diagnostics(), result));
+        () -> JavaCoverageTestSupport.alteredResult(input, occurrences, observations, input.languageFeatureCoverageResult().capabilityDiagnostics()));
 
     // Assert
-    assertEquals("Language feature observations must belong to the input snapshot", exception.getMessage());
+    assertEquals("Coverage outcomes must exactly match the independent context inventory in order", exception.getMessage());
   }
 
   @Test
-  void givenForeignDiagnosedObservation_whenSyntaxBoundaryIsBuilt_thenInputIsRejected() throws IOException {
+  void givenForeignDiagnosedObservation_whenCoverageFactoryIsCalled_thenEvidenceIsRejected() throws IOException {
     // Arrange
     writeSource("Example.java", "final class Example { }");
     var input = analyze();
@@ -458,17 +454,16 @@ class JavaLanguageCompletionContractTest {
     observations.add(new LanguageFeatureObservation("foreign-source", classification, List.of(origin), Optional.of(diagnostic)));
     var capabilityDiagnostics = new ArrayList<>(input.languageFeatureCoverageResult().capabilityDiagnostics());
     capabilityDiagnostics.add(diagnostic);
-    var result = new LanguageFeatureCoverageResult(input.languageFeatureCoverage(), occurrences, observations, capabilityDiagnostics);
+
     var frontendDiagnostics = new ArrayList<>(input.diagnostics());
     frontendDiagnostics.add(diagnostic);
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), input.aggregate(),
-            frontendDiagnostics, result));
+        () -> JavaCoverageTestSupport.alteredResult(input, occurrences, observations, capabilityDiagnostics));
 
     // Assert
-    assertEquals("Language feature observations must belong to the input snapshot", exception.getMessage());
+    assertEquals("Coverage outcomes must exactly match the independent context inventory in order", exception.getMessage());
   }
 
   private SyntaxAnalysisInput analyze() throws IOException {

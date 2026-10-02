@@ -126,7 +126,7 @@ class JavaTypeUseCompletionTest {
   }
 
   @Test
-  void givenBodyLocalTypeWithoutSourceTypeOccurrence_whenFrontendAnalyzes_thenLocatedDiagnosticBlocksCompletion() throws IOException {
+  void givenWrittenBodyLocalType_whenFrontendAnalyzes_thenLocatedTypeOccurrenceCompletesAnalysis() throws IOException {
     // Arrange
     var source = "class LocalTypes { void execute() { int value = 1; } }";
     Files.writeString(sourceRoot.resolve("LocalTypes.java"), source);
@@ -137,15 +137,19 @@ class JavaTypeUseCompletionTest {
     var run = new AnalysisEngine().analyze(input);
 
     // Assert
-    assertEquals(List.of("frontend.unrepresented-source-type-use"),
-        input.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
-    var range = input.diagnostics().getFirst().origins().getFirst();
+    assertEquals(List.of(), input.diagnostics());
+    var local = input.aggregate().orElseThrow().nodes().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).findFirst().orElseThrow();
+    var type = local.requiredChild(SyntaxRole.DECLARED_TYPE);
+    assertEquals(JavaSourceKind.PRIMITIVE_TYPE, type.sourceKind());
+    assertEquals(JavaTypeCategory.INT, type.resolvedType().orElseThrow().category());
+    var range = type.origin().orElseThrow();
     assertEquals("int", source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive())));
-    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+    assertEquals(AnalysisCompletion.COMPLETED, run.completion());
   }
 
   @Test
-  void givenEarlierIndependentSource_whenFrontendAnalyzes_thenLocalTypeDiagnosticIdentityIsStable() throws IOException {
+  void givenEarlierIndependentSource_whenFrontendAnalyzes_thenLocalTypeOccurrenceAndMissingOccurrenceDiagnosticAreStable() throws IOException {
     // Arrange
     Files.writeString(sourceRoot.resolve("B.java"), "class B { void execute() { int value = 1; } }");
     var frontend = new JavaFrontend(new JavaSourceLoader());
@@ -154,14 +158,27 @@ class JavaTypeUseCompletionTest {
     var before = frontend.analyze(sourceRoot, JAVA_25);
     Files.writeString(sourceRoot.resolve("A.java"), "class A {}");
     var after = frontend.analyze(sourceRoot, JAVA_25);
+    var beforeType = before.aggregate().orElseThrow().nodes().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).findFirst().orElseThrow().requiredChild(SyntaxRole.DECLARED_TYPE);
+    var afterType = after.aggregate().orElseThrow().nodes().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).findFirst().orElseThrow().requiredChild(SyntaxRole.DECLARED_TYPE);
+    var beforeMissing = JavaTypeUseCompleteness.diagnostics(before.snapshot(), before.languageFeatureCoverageResult().observations().stream()
+        .filter(item -> item.origins().equals(List.of(beforeType.origin().orElseThrow()))).toList(),
+        Optional.empty());
+    var afterMissing = JavaTypeUseCompleteness.diagnostics(after.snapshot(), after.languageFeatureCoverageResult().observations().stream()
+        .filter(item -> item.origins().equals(List.of(afterType.origin().orElseThrow()))).toList(),
+        Optional.empty());
 
     // Assert
-    assertEquals(List.of("frontend.unrepresented-source-type-use"),
-        before.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
-    assertEquals(List.of("frontend.unrepresented-source-type-use"),
-        after.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
-    assertEquals(before.diagnostics().getFirst().diagnosticKey(), after.diagnostics().getFirst().diagnosticKey());
-    assertEquals(before.diagnostics().getFirst().origins(), after.diagnostics().getFirst().origins());
+    assertEquals(List.of(), before.diagnostics());
+    assertEquals(List.of(), after.diagnostics());
+    assertEquals(beforeType.nodeTuple(), afterType.nodeTuple());
+    assertEquals(beforeType.rangeTuple(), afterType.rangeTuple());
+    assertEquals(beforeType.type(), afterType.type());
+    assertEquals(List.of("frontend.unrepresented-source-type-use"), beforeMissing.stream().map(item -> item.code()).toList());
+    assertEquals(List.of("frontend.unrepresented-source-type-use"), afterMissing.stream().map(item -> item.code()).toList());
+    assertEquals(beforeMissing.getFirst().diagnosticKey(), afterMissing.getFirst().diagnosticKey());
+    assertEquals(beforeMissing.getFirst().origins(), afterMissing.getFirst().origins());
   }
 
   @Test
@@ -195,7 +212,7 @@ class JavaTypeUseCompletionTest {
   }
 
   @Test
-  void givenAnnotatedHeaderAndBodyCast_whenAnalyzed_thenHeaderFactsCompleteWhileBodySiteKeepsItsIndependentFailure() throws IOException {
+  void givenAnnotatedHeaderAndBodyCast_whenAnalyzed_thenEachWrittenAnnotationHasItsOwnTypeOccurrence() throws IOException {
     // Arrange
     var source = "import java.lang.annotation.*; @Target(ElementType.TYPE_USE) @interface A {} class Header { String @A [] field; Object body(Object value) { return (@A String)value; } }";
     Files.writeString(sourceRoot.resolve("Header.java"), source);
@@ -209,13 +226,14 @@ class JavaTypeUseCompletionTest {
     // Assert
     assertEquals(1, aggregate.nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION
         && node.origin().orElseThrow().startOffset() == headerOffset).count());
-    assertEquals(0, aggregate.nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION
+    assertEquals(1, aggregate.nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION
         && node.origin().orElseThrow().startOffset() == bodyOffset).count());
-    assertTrue(input.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unrepresented-source-annotation")
-        && item.origins().getFirst().startOffset() == bodyOffset));
-    assertTrue(input.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unrepresented-source-type-use")));
-    assertTrue(input.diagnostics().stream().noneMatch(item -> item.code().equals("frontend.inconsistent-annotation-source-owner")));
-    assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(input).completion());
+    var cast = aggregate.nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_CAST).findFirst().orElseThrow();
+    var castType = cast.requiredChild(SyntaxRole.TYPE_OPERAND);
+    assertEquals(JavaSourceKind.ANNOTATED_TYPE, castType.sourceKind());
+    assertEquals(bodyOffset, castType.requiredChild(SyntaxRole.ANNOTATION).origin().orElseThrow().startOffset());
+    assertEquals(List.of(), input.diagnostics());
+    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(input).completion());
   }
 
   private static LanguageFeaturePolicy policy(LanguageFeatureCoverage coverage, LanguageFeatureCategory category, String identifier) {

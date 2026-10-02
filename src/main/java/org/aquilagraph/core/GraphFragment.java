@@ -5,11 +5,16 @@ import java.util.Objects;
 import java.util.Optional;
 import org.aquilagraph.model.FlowValue;
 
-record GraphFragment(Optional<String> entry, List<String> normalExits, Optional<FlowValue> value) {
+record GraphFragment(Optional<String> entry, List<String> normalExits, Optional<FlowValue> value, List<YieldExit> yieldExits) {
   GraphFragment {
     Objects.requireNonNull(entry, "entry");
     normalExits = List.copyOf(Objects.requireNonNull(normalExits, "normalExits"));
     Objects.requireNonNull(value, "value");
+    yieldExits = List.copyOf(Objects.requireNonNull(yieldExits, "yieldExits"));
+  }
+
+  GraphFragment(Optional<String> entry, List<String> normalExits, Optional<FlowValue> value) {
+    this(entry, normalExits, value, List.of());
   }
 
   static GraphFragment empty() {
@@ -21,6 +26,6 @@ record GraphFragment(Optional<String> entry, List<String> normalExits, Optional<
   }
 
   GraphFragment withoutValue() {
-    return new GraphFragment(entry, normalExits, Optional.empty());
+    return new GraphFragment(entry, normalExits, Optional.empty(), yieldExits);
   }
 }
