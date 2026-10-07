@@ -401,8 +401,8 @@ public final class CoverageActualFacts {
     var role = context.address().role();
     var method = role.substring(role.indexOf('#') + 1, role.indexOf('('));
     var sourceSyntax = owned.stream().flatMap(actualFacts::syntaxValues).filter(value -> matchingOwner(role, value)).findFirst();
-    if (CoverageIterationFacts.isSurface(role)) {
-      return sourceSyntax.map(value -> CoverageIterationFacts.supports(method, expected, value, actualFacts, snapshot)).orElse(false);
+    if (CoverageStatementFacts.isSurface(role)) {
+      return sourceSyntax.map(value -> CoverageStatementFacts.supports(method, expected, value, actualFacts, snapshot)).orElse(false);
     }
     if (role.startsWith("NewArrayTree")) {
       return sourceSyntax.map(value -> CoverageArrayFacts.supports(method, expected, value, actualFacts, snapshot)).orElse(false);
@@ -863,8 +863,8 @@ public final class CoverageActualFacts {
   }
 
   private static boolean matchingOwner(String role, CoverageSyntaxFactValue value) {
-    if (CoverageIterationFacts.isSurface(role)) {
-      return CoverageIterationFacts.matches(role, value);
+    if (CoverageStatementFacts.isSurface(role)) {
+      return CoverageStatementFacts.matches(role, value);
     }
     if (role.startsWith("NewArrayTree")) {
       return value.sourceKind() == JavaSourceKind.NEW_ARRAY

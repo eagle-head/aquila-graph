@@ -87,13 +87,29 @@ public final class SourceAnalysisFixture {
     return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.ARRAY_SOURCE_MODEL_VERSION);
   }
 
+  /**
+   * Admits compatible iteration values in the preceding retained format and coverage catalog.
+   * @param original source values without assertions or synchronized statements
+   * @return format-six result retaining its qualified identity
+   */
+  public static AstResult iterationResult(AstResult original) {
+    var compatible = withCoverage(original, true, true, true);
+    var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
+        compatible.diagnostics(), compatible.coverage());
+    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.ITERATION_SOURCE_MODEL_VERSION);
+  }
+
   private static AstResult withCoverage(AstResult original, boolean updates) {
     return withCoverage(original, updates, false);
   }
 
   private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays) {
-    var iterationKinds = Set.of("WHILE_LOOP", "DO_WHILE_LOOP", "FOR_LOOP", "ENHANCED_FOR_LOOP", "LABELED_STATEMENT", "BREAK", "CONTINUE");
-    var iterationSurfaces = Set.of("WhileLoopTree", "DoWhileLoopTree", "ForLoopTree", "EnhancedForLoopTree", "LabeledStatementTree", "BreakTree", "ContinueTree");
+    return withCoverage(original, updates, arrays, false);
+  }
+
+  private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays, boolean iteration) {
+    var iterationKinds = iteration ? Set.of("ASSERT", "SYNCHRONIZED") : Set.of("ASSERT", "SYNCHRONIZED", "WHILE_LOOP", "DO_WHILE_LOOP", "FOR_LOOP", "ENHANCED_FOR_LOOP", "LABELED_STATEMENT", "BREAK", "CONTINUE");
+    var iterationSurfaces = iteration ? Set.of("AssertTree", "SynchronizedTree") : Set.of("AssertTree", "SynchronizedTree", "WhileLoopTree", "DoWhileLoopTree", "ForLoopTree", "EnhancedForLoopTree", "LabeledStatementTree", "BreakTree", "ContinueTree");
     var changedKinds = Set.of("MULTIPLY_ASSIGNMENT", "DIVIDE_ASSIGNMENT", "REMAINDER_ASSIGNMENT", "PLUS_ASSIGNMENT",
         "MINUS_ASSIGNMENT", "LEFT_SHIFT_ASSIGNMENT", "RIGHT_SHIFT_ASSIGNMENT", "UNSIGNED_RIGHT_SHIFT_ASSIGNMENT",
         "AND_ASSIGNMENT", "XOR_ASSIGNMENT", "OR_ASSIGNMENT", "PREFIX_INCREMENT", "PREFIX_DECREMENT", "POSTFIX_INCREMENT",

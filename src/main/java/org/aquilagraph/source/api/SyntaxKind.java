@@ -54,6 +54,10 @@ public enum SyntaxKind {
   THROW,
   /** Conditional statement. */
   IF,
+  /** Written assertion with a condition and optional detail expression. */
+  ASSERT,
+  /** Written monitor expression and synchronized statement block. */
+  SYNCHRONIZED,
   /** Written while loop. */
   WHILE_LOOP,
   /** Written do-while loop with its body before its condition. */
@@ -170,6 +174,8 @@ public enum SyntaxKind {
       case RETURN -> sourceKind == JavaSourceKind.RETURN;
       case THROW -> sourceKind == JavaSourceKind.THROW;
       case IF -> sourceKind == JavaSourceKind.IF;
+      case ASSERT -> sourceKind == JavaSourceKind.ASSERT;
+      case SYNCHRONIZED -> sourceKind == JavaSourceKind.SYNCHRONIZED;
       case WHILE_LOOP -> sourceKind == JavaSourceKind.WHILE_LOOP;
       case DO_WHILE_LOOP -> sourceKind == JavaSourceKind.DO_WHILE_LOOP;
       case FOR_LOOP -> sourceKind == JavaSourceKind.FOR_LOOP;

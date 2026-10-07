@@ -23,6 +23,24 @@ import org.junit.jupiter.api.Test;
 
 class AnalysisDiagnosticProjectionTest {
   @Test
+  void givenNestedAssertionsAndMonitor_whenBoundedPresentationRuns_thenCatalogAndOuterBodyBoundariesRemainDistinct() throws IOException {
+    // Arrange
+    var run = analyze("class Example { void value(Object lock, boolean flag) { assert flag; synchronized (lock) { assert flag; } } }", AstProfile.JAVA_SOURCE_BOUNDED);
+    var nativeDiagnostics = run.diagnostics();
+    // Act
+    var projected = AnalysisRunSummary.from(run).diagnostics();
+    // Assert
+    assertEquals(List.of(
+        "Java compiler tree kind ASSERT is outside the supported semantic graph profile",
+        "Java compiler tree kind SYNCHRONIZED is outside the supported semantic graph profile",
+        "Java compiler tree kind ASSERT is outside the supported semantic graph profile",
+        "Unsupported Java construct in method body: ASSERT",
+        "Unsupported Java construct in method body: SYNCHRONIZED"), projected.stream().map(DiagnosticSummary::message).toList());
+    assertEquals(nativeDiagnostics, run.diagnostics());
+    assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
+  }
+
+  @Test
   void givenNestedIterationInBothProfiles_whenPresented_thenOnlyBoundedPresentationKeepsTheHistoricalStatementBoundary() throws IOException {
     // Arrange
     var source = "class Example { void value(int n) { outer: while (n > 0) { for (int i = 0; i < n; i++) { continue outer; } break; } } }";

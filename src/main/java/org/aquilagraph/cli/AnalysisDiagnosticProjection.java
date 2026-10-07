@@ -31,8 +31,8 @@ final class AnalysisDiagnosticProjection {
   private static final String UNSUPPORTED_SYNTAX = "frontend.unsupported-syntax";
   private static final String UNSUPPORTED_MESSAGE = "Unsupported Java construct in method body: ";
   private static final String TREE_DIAGNOSTIC_PREFIX = "frontend.unsupported-tree-kind.";
-  private static final Set<String> ITERATION_KINDS = Set.of("WHILE_LOOP", "DO_WHILE_LOOP", "FOR_LOOP", "ENHANCED_FOR_LOOP",
-      "LABELED_STATEMENT", "BREAK", "CONTINUE");
+  private static final Set<String> EXPANDED_STATEMENT_KINDS = Set.of("WHILE_LOOP", "DO_WHILE_LOOP", "FOR_LOOP", "ENHANCED_FOR_LOOP",
+      "LABELED_STATEMENT", "BREAK", "CONTINUE", "ASSERT", "SYNCHRONIZED");
 
   private AnalysisDiagnosticProjection() {
   }
@@ -47,7 +47,7 @@ final class AnalysisDiagnosticProjection {
     }
     var source = ast.orElseThrow();
     var bodies = bodyPositions(source);
-    var iterationRoots = iterationRoots(source);
+    var statementRoots = statementRoots(source);
     var catalog = catalogProjection(source);
     var insertions = new ArrayList<Insertion>();
     var representedGraphEvents = new HashMap<String, Integer>();
@@ -60,9 +60,9 @@ final class AnalysisDiagnosticProjection {
           continue;
         }
         var node = occurrence.orElseThrow();
-        var iteration = iterationRoots.stream().filter(root -> within(root, node.origin())).findFirst();
-        if (iteration.isPresent() && blocker.kind() == MethodCfgState.UNSUPPORTED) {
-          if (node.equals(iteration.orElseThrow())) {
+        var statement = statementRoots.stream().filter(root -> within(root, node.origin())).findFirst();
+        if (statement.isPresent() && blocker.kind() == MethodCfgState.UNSUPPORTED) {
+          if (node.equals(statement.orElseThrow())) {
             insertions.add(new Insertion(body.orElseThrow().ordinal(), node.origin().orElseThrow(), new DiagnosticSummary(
                 DiagnosticSeverity.ERROR, "FRONTEND", UNSUPPORTED_SYNTAX, UNSUPPORTED_MESSAGE + node.sourceKind().name())));
           }
@@ -91,7 +91,7 @@ final class AnalysisDiagnosticProjection {
         catalogInserted = true;
       }
       if ((!catalog.isEmpty() && diagnostic.code().startsWith(TREE_DIAGNOSTIC_PREFIX))
-          || (UNSUPPORTED_SYNTAX.equals(diagnostic.code()) && iterationRoots.stream()
+          || (UNSUPPORTED_SYNTAX.equals(diagnostic.code()) && statementRoots.stream()
               .anyMatch(root -> diagnostic.origins().stream().anyMatch(origin -> within(root, Optional.of(origin)))))) {
         continue;
       }
@@ -128,10 +128,11 @@ final class AnalysisDiagnosticProjection {
     return List.copyOf(result);
   }
 
-  private static List<SyntaxNode> iterationRoots(AstResult source) {
+  private static List<SyntaxNode> statementRoots(AstResult source) {
     var nodes = source.program().methods().stream().flatMap(method -> source.body(method.methodKey()).stream())
-        .flatMap(body -> body.root().descendantsAndSelf().stream()).filter(node -> ITERATION_KINDS.contains(node.sourceKind().name())
-            && node.syntaxKind() != SyntaxKind.UNSUPPORTED && node.origin().isPresent())
+        .flatMap(body -> body.root().descendantsAndSelf().stream())
+        .filter(node -> EXPANDED_STATEMENT_KINDS.contains(node.sourceKind().name()) && node.syntaxKind() != SyntaxKind.UNSUPPORTED
+            && node.origin().isPresent())
         .toList();
     return nodes.stream().filter(node -> nodes.stream().noneMatch(parent -> !parent.equals(node) && within(parent, node.origin())))
         .toList();
@@ -155,7 +156,7 @@ final class AnalysisDiagnosticProjection {
       var classification = occurrence.classification();
       var feature = classification.feature();
       if (feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND && classification.policy() == LanguageFeaturePolicy.REPRESENTED
-          && ITERATION_KINDS.contains(feature.identifier())) {
+          && EXPANDED_STATEMENT_KINDS.contains(feature.identifier())) {
         var kind = feature.identifier();
         projectedKind = true;
         occurrences.add(new CatalogDiagnostic(occurrence.origins().stream().findFirst(),

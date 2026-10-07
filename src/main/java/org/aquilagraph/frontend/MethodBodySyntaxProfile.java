@@ -2,6 +2,8 @@ package org.aquilagraph.frontend;
 
 import com.sun.source.tree.ArrayAccessTree;
 import com.sun.source.tree.AssignmentTree;
+import com.sun.source.tree.AssertTree;
+import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.BinaryTree;
 import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.BreakTree;
@@ -128,6 +130,22 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     return statement.getResources().isEmpty() && statement.getFinallyBlock() == null
         ? accepted(SyntaxKind.TRY, children)
         : unsupported(statement, children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitAssert(AssertTree statement, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.add(SyntaxRole.CONDITION, statement.getCondition());
+    children.add(SyntaxRole.DETAIL, statement.getDetail());
+    return accepted(SyntaxKind.ASSERT, children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitSynchronized(SynchronizedTree statement, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.add(SyntaxRole.MONITOR, statement.getExpression());
+    children.add(SyntaxRole.BODY, statement.getBlock());
+    return accepted(SyntaxKind.SYNCHRONIZED, children);
   }
 
   @Override

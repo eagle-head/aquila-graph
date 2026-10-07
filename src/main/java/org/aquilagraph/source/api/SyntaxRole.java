@@ -80,6 +80,10 @@ public enum SyntaxRole {
   VALUE("value"),
   /** Conditional predicate. */
   CONDITION("condition"),
+  /** Optional expression describing an assertion failure. */
+  DETAIL("detail"),
+  /** Reference expression whose monitor protects a synchronized block. */
+  MONITOR("monitor"),
   /** Branch evaluated when a condition is true. */
   THEN_BRANCH("then"),
   /** Optional branch evaluated when a condition is false. */

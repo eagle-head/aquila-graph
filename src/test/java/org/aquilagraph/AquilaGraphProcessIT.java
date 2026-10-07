@@ -16,6 +16,26 @@ class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
 
   @Test
+  void givenPackagedAssertionsAndMonitors_whenBoundedProcessRuns_thenHistoricalRefusalAndDiagnosticsRemainObservable()
+      throws IOException, InterruptedException {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
+    Files.writeString(sourceRoot.resolve("Statements.java"),
+        "class Statements { void value(Object lock, boolean flag) { assert flag; synchronized (lock) {} } }");
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertEquals(List.of(
+        "ERROR FRONTEND frontend.unsupported-tree-kind.assert: Java compiler tree kind ASSERT is outside the supported semantic graph profile",
+        "ERROR FRONTEND frontend.unsupported-tree-kind.synchronized: Java compiler tree kind SYNCHRONIZED is outside the supported semantic graph profile",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: ASSERT",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: SYNCHRONIZED"), result.error().lines().toList());
+  }
+
+  @Test
   void givenPackagedJarWithSupportedHeaderTypes_whenProcessRuns_thenCompletionIsReported()
       throws IOException, InterruptedException {
     // Arrange

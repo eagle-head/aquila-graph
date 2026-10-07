@@ -181,25 +181,25 @@ class ExpandedProfileTest {
   }
 
   @Test
-  void givenUnsupportedMonitorOrCompilerError_whenRequestingExpanded_thenIncompleteSourcePreservesTheActualGap() {
+  void givenUnsupportedSwitchOrCompilerError_whenRequestingExpanded_thenIncompleteSourcePreservesTheActualGap() {
     // Arrange
     AstProducer producer = new JavaFrontend(new JavaSourceLoader());
-    var unsupported = snapshot("class Stored { int value(int x) { synchronized (this) { x = 0; } return x; } }");
+    var unsupported = snapshot("class Stored { int value(int x) { switch (0) { default -> x = 0; } return x; } }");
     var erroneous = snapshot("class Stored { int value() { return missing; } }");
 
     // Act
-    var monitor = producer.produce(new AstProductionRequest(unsupported, configuration(), AstProfile.JAVA_SOURCE_EXPANDED));
+    var selection = producer.produce(new AstProductionRequest(unsupported, configuration(), AstProfile.JAVA_SOURCE_EXPANDED));
     var error = producer.produce(new AstProductionRequest(erroneous, configuration(), AstProfile.JAVA_SOURCE_EXPANDED));
 
     // Assert
-    assertEquals(AstCompletion.INCOMPLETE, monitor.completion());
-    assertTrue(monitor.result().orElseThrow().aggregate().nodes().stream()
-        .anyMatch(node -> node.sourceKind() == JavaSourceKind.SYNCHRONIZED && node.syntaxKind() == SyntaxKind.UNSUPPORTED));
-    assertTrue(monitor.diagnostics().stream().anyMatch(value -> value.isError()));
+    assertEquals(AstCompletion.INCOMPLETE, selection.completion());
+    assertTrue(selection.result().orElseThrow().aggregate().nodes().stream()
+        .anyMatch(node -> node.sourceKind() == JavaSourceKind.SWITCH && node.syntaxKind() == SyntaxKind.UNSUPPORTED));
+    assertTrue(selection.diagnostics().stream().anyMatch(value -> value.isError()));
     assertEquals(AstCompletion.INCOMPLETE, error.completion());
     assertTrue(error.diagnostics().stream().anyMatch(value -> value.code().contains("cant.resolve")), error.diagnostics().toString());
-    var copied = AstCodec.decode(AstCodec.encode(monitor.result().orElseThrow()), monitor.result().orElseThrow().identity());
-    assertEquals(monitor.diagnostics(), copied.diagnostics());
+    var copied = AstCodec.decode(AstCodec.encode(selection.result().orElseThrow()), selection.result().orElseThrow().identity());
+    assertEquals(selection.diagnostics(), copied.diagnostics());
     assertEquals(AstCompletion.INCOMPLETE, copied.completion());
   }
 

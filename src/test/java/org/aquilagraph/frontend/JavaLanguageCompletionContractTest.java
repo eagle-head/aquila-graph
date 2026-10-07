@@ -46,7 +46,7 @@ import org.junit.jupiter.api.Test;
 
 class JavaLanguageCompletionContractTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
-  private static final String MONITOR_DIAGNOSTIC = "frontend.unsupported-tree-kind.synchronized";
+  private static final String SWITCH_DIAGNOSTIC = "frontend.unsupported-tree-kind.switch";
 
   @TempDir Path temporaryDirectory;
 
@@ -121,14 +121,14 @@ class JavaLanguageCompletionContractTest {
   @Test
   void givenDiagnosedCompilerKind_whenFrontendRuns_thenExactCoverageDiagnosticPreventsCompletion() throws IOException {
     // Arrange
-    writeSource("Monitoring.java", "final class Monitoring { void run() { synchronized (this) { } } }");
+    writeSource("Switching.java", "final class Switching { void run() { switch (0) { default -> {} } } }");
 
     // Act
     var input = analyze();
     var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
-    var diagnostic = diagnostic(input, MONITOR_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, SWITCH_DIAGNOSTIC);
     assertEquals(DiagnosticStage.FRONTEND, diagnostic.stage());
     assertEquals(DiagnosticSeverity.ERROR, diagnostic.severity());
     assertEquals(AnalysisOutcomeKind.UNSUPPORTED_LANGUAGE_FEATURE, diagnostic.outcomeKind());
@@ -148,7 +148,7 @@ class JavaLanguageCompletionContractTest {
     assertEquals(LanguageFeaturePolicy.REPRESENTED,
         classification(input, LanguageFeatureCategory.COMPILER_TREE_KIND, "COMPILATION_UNIT").policy());
     assertEquals(1, input.aggregate().orElseThrow().roots().size());
-    assertFalse(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(MONITOR_DIAGNOSTIC)));
+    assertFalse(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(SWITCH_DIAGNOSTIC)));
   }
 
   @Test
@@ -243,31 +243,31 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenDiagnosedMonitorSyntax_whenFrontendRuns_thenContextualOccurrenceOwnsTheExactDiagnostic()
+  void givenDiagnosedSwitchSyntax_whenFrontendRuns_thenContextualOccurrenceOwnsTheExactDiagnostic()
       throws IOException {
     // Arrange
-    writeSource("Monitoring.java", "final class Monitoring { void run() { synchronized (this) { } } }");
+    writeSource("Switching.java", "final class Switching { void run() { switch (0) { default -> {} } } }");
 
     // Act
     var input = analyze();
-    var diagnostic = diagnostic(input, MONITOR_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, SWITCH_DIAGNOSTIC);
     var propertyObservations = input.languageFeatureCoverageResult().observations().stream()
         .filter(observation -> observation.diagnostic().filter(diagnostic::equals).isPresent()).toList();
 
     // Assert
-    assertEquals(List.of("SYNCHRONIZED"), propertyObservations.stream()
+    assertEquals(List.of("SWITCH"), propertyObservations.stream()
             .map(observation -> observation.classification().feature().identifier()).sorted().toList());
     assertTrue(propertyObservations.stream()
         .allMatch(observation -> observation.sourceFileKey().equals(diagnostic.origins().getFirst().sourceFileKey())));
   }
 
   @Test
-  void givenDiagnosedMonitorOccurrence_whenItsDiagnosticIsRemoved_thenCoverageRejectsTheDetachment()
+  void givenDiagnosedSwitchOccurrence_whenItsDiagnosticIsRemoved_thenCoverageRejectsTheDetachment()
       throws IOException {
     // Arrange
-    writeSource("Monitoring.java", "final class Monitoring { void run() { synchronized (this) { } } }");
+    writeSource("Switching.java", "final class Switching { void run() { switch (0) { default -> {} } } }");
     var input = analyze();
-    var diagnostic = diagnostic(input, MONITOR_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, SWITCH_DIAGNOSTIC);
     var capabilityDiagnostics = input.languageFeatureCoverageResult().capabilityDiagnostics().stream()
         .filter(candidate -> !candidate.equals(diagnostic)).toList();
 
@@ -280,15 +280,15 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenDiagnosedMonitorOccurrence_whenItsObservationIsRemoved_thenCoverageRejectsThePartialInventory()
+  void givenDiagnosedSwitchOccurrence_whenItsObservationIsRemoved_thenCoverageRejectsThePartialInventory()
       throws IOException {
     // Arrange
-    writeSource("Monitoring.java", "final class Monitoring { void run() { synchronized (this) { } } }");
+    writeSource("Switching.java", "final class Switching { void run() { switch (0) { default -> {} } } }");
     var input = analyze();
-    var diagnostic = diagnostic(input, MONITOR_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, SWITCH_DIAGNOSTIC);
     var observations = input.languageFeatureCoverageResult().observations().stream()
         .filter(observation -> !observation.classification().feature().identifier()
-            .equals("SYNCHRONIZED"))
+            .equals("SWITCH"))
         .toList();
 
     // Act
@@ -302,12 +302,12 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenDiagnosedMonitorOccurrence_whenItsObservationAndDiagnosticAreRemoved_thenCoverageRejectsMissingFact()
+  void givenDiagnosedSwitchOccurrence_whenItsObservationAndDiagnosticAreRemoved_thenCoverageRejectsMissingFact()
       throws IOException {
     // Arrange
-    writeSource("Monitoring.java", "final class Monitoring { void run() { synchronized (this) { } } }");
+    writeSource("Switching.java", "final class Switching { void run() { switch (0) { default -> {} } } }");
     var input = analyze();
-    var diagnostic = diagnostic(input, MONITOR_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, SWITCH_DIAGNOSTIC);
     var observations = input.languageFeatureCoverageResult().observations().stream()
         .filter(observation -> observation.diagnostic().filter(diagnostic::equals).isEmpty()).toList();
     var capabilityDiagnostics = input.languageFeatureCoverageResult().capabilityDiagnostics().stream()
@@ -323,13 +323,13 @@ class JavaLanguageCompletionContractTest {
   @Test
   void givenUnsupportedMethodSyntax_whenAnalysisRuns_thenFrontendAndControlFlowOutcomesRemainDistinct() throws IOException {
     // Arrange
-    writeSource("Monitoring.java", "final class Monitoring { void run() { synchronized (this) { } } }");
+    writeSource("Switching.java", "final class Switching { void run() { switch (0) { default -> {} } } }");
 
     // Act
     var run = new SourceAnalysisFixture().analyze(analyze());
 
     // Assert
-    assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(MONITOR_DIAGNOSTIC)
+    assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(SWITCH_DIAGNOSTIC)
         && diagnostic.stage() == DiagnosticStage.FRONTEND));
     var controlFlowDiagnostic = run.diagnostics().stream()
         .filter(diagnostic -> diagnostic.code().equals("control-flow.source-unavailable")).findFirst().orElseThrow();
@@ -342,7 +342,7 @@ class JavaLanguageCompletionContractTest {
   @Test
   void givenSameSnapshot_whenFrontendRunsTwice_thenCoverageDiagnosticsAndCompletionAreDeterministic() throws IOException {
     // Arrange
-    writeSource("Monitoring.java", "final class Monitoring { void run() { synchronized (this) { } } }");
+    writeSource("Switching.java", "final class Switching { void run() { switch (0) { default -> {} } } }");
     var loader = new JavaSourceLoader();
     var snapshot = loader.discover(temporaryDirectory);
     var frontend = new JavaFrontend(loader);
@@ -362,17 +362,17 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenMonitorDiagnosticWithErroneousOutcome_whenCoverageResultIsBuilt_thenOutcomeMismatchIsRejected() throws IOException {
+  void givenSwitchDiagnosticWithErroneousOutcome_whenCoverageResultIsBuilt_thenOutcomeMismatchIsRejected() throws IOException {
     // Arrange
-    writeSource("Monitoring.java", "final class Monitoring { void run() { synchronized (this) { } } }");
+    writeSource("Switching.java", "final class Switching { void run() { switch (0) { default -> {} } } }");
     var input = analyze();
-    var original = diagnostic(input, MONITOR_DIAGNOSTIC);
+    var original = diagnostic(input, SWITCH_DIAGNOSTIC);
     var mismatched = new AnalysisDiagnostic(StableId.sha256("diagnostic", original.diagnosticKey(), "mismatched-outcome"),
         original.code(), original.stage(), original.severity(), original.message(), original.origins(),
         AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE);
     var evidence = input.languageFeatureCoverageResult().validationEvidence();
     var events = new ArrayList<>(evidence.diagnosticEmissions());
-    var extraEvent = new DiagnosticEmission(new DiagnosticEmission.Address("capability-outcome-test", "monitor-context", 0), mismatched,
+    var extraEvent = new DiagnosticEmission(new DiagnosticEmission.Address("capability-outcome-test", "selection-context", 0), mismatched,
         mismatched.outcomeKind(), List.of(), events.size());
     events.add(extraEvent);
 
@@ -388,7 +388,7 @@ class JavaLanguageCompletionContractTest {
   @Test
   void givenDiagnosedCoverageOutcome_whenItsDiagnosticIsRemoved_thenSyntaxBoundaryRejectsTheInput() throws IOException {
     // Arrange
-    writeSource("Example.java", "final class Example { void run() { synchronized (this) { } } }");
+    writeSource("Example.java", "final class Example { void run() { switch (0) { default -> {} } } }");
     var input = analyze();
 
     // Act
@@ -444,7 +444,7 @@ class JavaLanguageCompletionContractTest {
     // Arrange
     writeSource("Example.java", "final class Example { }");
     var input = analyze();
-    var classification = classification(input, LanguageFeatureCategory.COMPILER_TREE_KIND, "SYNCHRONIZED");
+    var classification = classification(input, LanguageFeatureCategory.COMPILER_TREE_KIND, "SWITCH");
     var origin = new SourceSpan("foreign-source", 0, 1);
     var code = classification.diagnosticCode().orElseThrow();
     var diagnostic = new AnalysisDiagnostic(StableId.sha256("diagnostic", "foreign-source", code), code, DiagnosticStage.FRONTEND,

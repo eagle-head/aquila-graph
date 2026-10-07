@@ -7,13 +7,14 @@ import org.aquilagraph.source.api.CoveragePropertyValue.Item;
 import org.aquilagraph.source.api.CoveragePropertyValue.Provenance;
 import org.aquilagraph.source.api.CoveragePropertyValue.State;
 
-/** Reconciles independent parsed iteration accessors against canonical written source values. */
-final class CoverageIterationFacts {
+/** Reconciles independent parsed statement accessors against canonical written source values. */
+final class CoverageStatementFacts {
   private static final Map<String, JavaSourceKind> SURFACES = Map.of("WhileLoopTree", JavaSourceKind.WHILE_LOOP, "DoWhileLoopTree",
       JavaSourceKind.DO_WHILE_LOOP, "ForLoopTree", JavaSourceKind.FOR_LOOP, "EnhancedForLoopTree", JavaSourceKind.ENHANCED_FOR_LOOP,
-      "LabeledStatementTree", JavaSourceKind.LABELED_STATEMENT, "BreakTree", JavaSourceKind.BREAK, "ContinueTree", JavaSourceKind.CONTINUE);
+      "LabeledStatementTree", JavaSourceKind.LABELED_STATEMENT, "BreakTree", JavaSourceKind.BREAK, "ContinueTree", JavaSourceKind.CONTINUE,
+      "AssertTree", JavaSourceKind.ASSERT, "SynchronizedTree", JavaSourceKind.SYNCHRONIZED);
 
-  private CoverageIterationFacts() {
+  private CoverageStatementFacts() {
   }
 
   static boolean isSurface(String role) {
@@ -34,12 +35,16 @@ final class CoverageIterationFacts {
           .equals(label.name().map(name -> new CoveragePropertyValue(State.SCALAR, List.of(new Item("item:0", name, Provenance.WRITTEN))))
               .orElse(new CoveragePropertyValue(State.ABSENT, List.of())));
       case "getCondition" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.CONDITION), facts, snapshot, true);
-      case "getStatement" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.BODY), facts, snapshot, true);
+      case "getStatement", "getBlock" ->
+        CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.BODY), facts, snapshot, true);
       case "getInitializer" ->
         CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.INITIALIZER), facts, snapshot, false);
       case "getUpdate" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.UPDATE), facts, snapshot, false);
       case "getVariable" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.PARAMETER), facts, snapshot, true);
-      case "getExpression" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.ITERABLE), facts, snapshot, true);
+      case "getExpression" -> CoverageActualFacts.writtenAttachments(expected, owner,
+          List.of(owner.sourceKind() == JavaSourceKind.ENHANCED_FOR_LOOP ? SyntaxRole.ITERABLE : SyntaxRole.MONITOR), facts, snapshot,
+          true);
+      case "getDetail" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.DETAIL), facts, snapshot, true);
       default -> false;
     };
   }

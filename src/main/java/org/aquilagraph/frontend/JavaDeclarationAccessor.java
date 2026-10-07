@@ -1,6 +1,8 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.WhileLoopTree;
+import com.sun.source.tree.AssertTree;
+import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.DoWhileLoopTree;
 import com.sun.source.tree.ForLoopTree;
 import com.sun.source.tree.EnhancedForLoopTree;
@@ -32,6 +34,7 @@ import org.jspecify.annotations.Nullable;
 /** Dispatches the closed declaration-property API through statically typed calls. */
 final class JavaDeclarationAccessor {
   private static final String STATEMENT = "getStatement";
+  private static final String CONDITION = "getCondition";
   private static final String MODIFIERS = "getModifiers";
   private static final String TYPE_PARAMETERS = "getTypeParameters";
   private static final Map<Method, Function<Object, @Nullable Object>> READERS = Map.ofEntries(
@@ -54,12 +57,15 @@ final class JavaDeclarationAccessor {
       reader(MethodTree.class, "getReceiverParameter", MethodTree::getReceiverParameter),
       reader(MethodTree.class, "getReturnType", MethodTree::getReturnType), reader(MethodTree.class, "getThrows", MethodTree::getThrows),
       reader(MethodTree.class, TYPE_PARAMETERS, MethodTree::getTypeParameters), reader(Tree.class, "getKind", Tree::getKind),
-      reader(WhileLoopTree.class, "getCondition", WhileLoopTree::getCondition),
+      reader(AssertTree.class, CONDITION, AssertTree::getCondition), reader(AssertTree.class, "getDetail", AssertTree::getDetail),
+      reader(SynchronizedTree.class, "getExpression", SynchronizedTree::getExpression),
+      reader(SynchronizedTree.class, "getBlock", SynchronizedTree::getBlock),
+      reader(WhileLoopTree.class, CONDITION, WhileLoopTree::getCondition),
       reader(WhileLoopTree.class, STATEMENT, WhileLoopTree::getStatement),
-      reader(DoWhileLoopTree.class, "getCondition", DoWhileLoopTree::getCondition),
+      reader(DoWhileLoopTree.class, CONDITION, DoWhileLoopTree::getCondition),
       reader(DoWhileLoopTree.class, STATEMENT, DoWhileLoopTree::getStatement),
       reader(ForLoopTree.class, "getInitializer", ForLoopTree::getInitializer),
-      reader(ForLoopTree.class, "getCondition", ForLoopTree::getCondition), reader(ForLoopTree.class, "getUpdate", ForLoopTree::getUpdate),
+      reader(ForLoopTree.class, CONDITION, ForLoopTree::getCondition), reader(ForLoopTree.class, "getUpdate", ForLoopTree::getUpdate),
       reader(ForLoopTree.class, STATEMENT, ForLoopTree::getStatement),
       reader(EnhancedForLoopTree.class, "getVariable", EnhancedForLoopTree::getVariable),
       reader(EnhancedForLoopTree.class, "getExpression", EnhancedForLoopTree::getExpression),

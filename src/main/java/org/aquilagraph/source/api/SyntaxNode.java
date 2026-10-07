@@ -861,6 +861,22 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.CONDITION, 1, 1);
         requireCount(children, SyntaxRole.BODY, 1, 1);
       }
+      case ASSERT -> {
+        requireShape(children, Set.of(SyntaxRole.CONDITION, SyntaxRole.DETAIL));
+        requireCount(children, SyntaxRole.CONDITION, 1, 1);
+        requireCount(children, SyntaxRole.DETAIL, 0, 1);
+        if (children.getFirst().role() != SyntaxRole.CONDITION) {
+          throw new IllegalArgumentException("An assertion retains its condition before its detail");
+        }
+      }
+      case SYNCHRONIZED -> {
+        requireShape(children, Set.of(SyntaxRole.MONITOR, SyntaxRole.BODY));
+        requireCount(children, SyntaxRole.MONITOR, 1, 1);
+        requireCount(children, SyntaxRole.BODY, 1, 1);
+        if (children.getFirst().role() != SyntaxRole.MONITOR) {
+          throw new IllegalArgumentException("A synchronized statement retains its monitor before its block");
+        }
+      }
       case FOR_LOOP -> {
         requireShape(children, Set.of(SyntaxRole.INITIALIZER, SyntaxRole.CONDITION, SyntaxRole.UPDATE, SyntaxRole.BODY));
         requireCount(children, SyntaxRole.CONDITION, 0, 1);
@@ -987,10 +1003,12 @@ public final class SyntaxNode {
         case BLOCK -> isStatement(node);
         case LOCAL_DECLARATION -> child.role() != SyntaxRole.INITIALIZER || isExpression(node);
         case TYPE_CAST -> child.role() != SyntaxRole.EXPRESSION || isExpression(node);
-        case EXPRESSION_STATEMENT, RETURN, THROW, PARENTHESIZED, YIELD, ARRAY_LENGTH, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR,
-            ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, CONDITIONAL_EXPRESSION ->
+        case ASSERT, EXPRESSION_STATEMENT, RETURN, THROW, PARENTHESIZED, YIELD, ARRAY_LENGTH, UNARY, BINARY, CONDITIONAL_AND,
+            CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, CONDITIONAL_EXPRESSION ->
           isExpression(node);
         case IF -> child.role() == SyntaxRole.CONDITION ? isExpression(node) : isStatement(node);
+        case SYNCHRONIZED ->
+          child.role() == SyntaxRole.MONITOR ? isExpression(node) : isCategory(node, SyntaxKind.BLOCK, JavaSourceKind.BLOCK);
         case WHILE_LOOP, DO_WHILE_LOOP -> child.role() == SyntaxRole.CONDITION ? isExpression(node) : isStatementBody(node);
         case FOR_LOOP -> switch (child.role()) {
           case INITIALIZER -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION || node.syntaxKind() == SyntaxKind.EXPRESSION_STATEMENT;
@@ -1070,7 +1088,7 @@ public final class SyntaxNode {
   private static boolean isStatement(SyntaxNode node) {
     return switch (node.syntaxKind()) {
       case BLOCK, LOCAL_DECLARATION, EXPRESSION_STATEMENT, RETURN, THROW, IF, WHILE_LOOP, DO_WHILE_LOOP, FOR_LOOP, ENHANCED_FOR_LOOP,
-          LABELED_STATEMENT, BREAK, CONTINUE, TRY, YIELD, EMPTY, TYPE_DECLARATION ->
+          LABELED_STATEMENT, BREAK, CONTINUE, ASSERT, SYNCHRONIZED, TRY, YIELD, EMPTY, TYPE_DECLARATION ->
         true;
       case UNSUPPORTED -> switch (node.sourceKind()) {
         case ASSERT, BLOCK, BREAK, CONTINUE, DO_WHILE_LOOP, ENHANCED_FOR_LOOP, EXPRESSION_STATEMENT, FOR_LOOP, IF, LABELED_STATEMENT,

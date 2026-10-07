@@ -18,7 +18,8 @@ public final class LanguageFeatureCoverageResult {
       Set.of("java-language-feature-coverage:1aa72c351c5b0c6af37bed7951ef08eb038cdb214148b933ac6a6bf93db97bb5",
           "java-language-feature-coverage:e0968b3e0d4da804090dff9f60d557181733dff543864f096e1a854a0e0d3ac2",
           "java-language-feature-coverage:307ae3a6c3bf92cbb9cae296574a250b2558b403e949f57d534a1ef141a17e0e",
-          "java-language-feature-coverage:6661250f922a3b0bb0f7aa7a01dc27b8f2c3bdc880b95cd781b0e15a32b017e4"));
+          "java-language-feature-coverage:6661250f922a3b0bb0f7aa7a01dc27b8f2c3bdc880b95cd781b0e15a32b017e4",
+          "java-language-feature-coverage:0acd09f319196e03148af21d885419a440820cc7506a081b9f8cad0222eecb91"));
   private final LanguageFeatureCoverage coverageContract;
   private final List<LanguageFeatureOccurrence> occurrenceValues;
   private final List<LanguageFeatureObservation> observationValues;
@@ -345,7 +346,7 @@ public final class LanguageFeatureCoverageResult {
         || context.address().partition() == SourceContext.Partition.ATTRIBUTED_PROPERTY) {
       var accessor = feature.orElseThrow().identifier();
       var written = List.of("CompilationUnitTree::", "ClassTree::", "MethodTree::", "VariableTree::", "NewArrayTree::").stream()
-          .anyMatch(accessor::startsWith) || CoverageIterationFacts.isSurface(accessor);
+          .anyMatch(accessor::startsWith) || CoverageStatementFacts.isSurface(accessor);
       var attributed = List.of("TypeElement::", "ExecutableElement::").stream().anyMatch(accessor::startsWith);
       var correctSurface = context.address().partition() == SourceContext.Partition.WRITTEN_PROPERTY ? written : attributed;
       if (!accessor.equals(context.address().role()) || !correctSurface

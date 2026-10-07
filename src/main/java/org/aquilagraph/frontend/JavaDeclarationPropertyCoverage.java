@@ -1,6 +1,8 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.WhileLoopTree;
+import com.sun.source.tree.AssertTree;
+import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.DoWhileLoopTree;
 import com.sun.source.tree.ForLoopTree;
 import com.sun.source.tree.EnhancedForLoopTree;
@@ -54,8 +56,9 @@ final class JavaDeclarationPropertyCoverage {
   static final String EXECUTABLE_ELEMENT_VARARGS = "ExecutableElement::ExecutableElement#isVarArgs()";
 
   private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
-      VariableTree.class, NewArrayTree.class, WhileLoopTree.class, DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class,
-      LabeledStatementTree.class, BreakTree.class, ContinueTree.class, TypeElement.class, ExecutableElement.class);
+      VariableTree.class, NewArrayTree.class, AssertTree.class, SynchronizedTree.class, WhileLoopTree.class, DoWhileLoopTree.class,
+      ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class, ContinueTree.class, TypeElement.class,
+      ExecutableElement.class);
   private static final String STATEMENT_KIND_BOUNDARY = "Canonical written statement kind";
   private static final String STATEMENT_VALUE_BOUNDARY = "Canonical written statement value and ordered children";
   private static final String TREE_API = "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/";
@@ -120,9 +123,23 @@ final class JavaDeclarationPropertyCoverage {
     classifications.addAll(variableClassifications());
     classifications.addAll(arrayClassifications());
     classifications.addAll(iterationClassifications());
+    classifications.addAll(assertionMonitorClassifications());
     classifications.addAll(typeElementClassifications());
     classifications.addAll(executableElementClassifications());
     return List.copyOf(classifications);
+  }
+
+  private static List<LanguageFeatureClassification> assertionMonitorClassifications() {
+    return List.of(
+        irrelevant("AssertTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
+        represented("AssertTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY),
+        represented("AssertTree::AssertTree#getCondition()", STATEMENT_VALUE_BOUNDARY),
+        represented("AssertTree::AssertTree#getDetail()", STATEMENT_VALUE_BOUNDARY),
+        irrelevant("SynchronizedTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
+            TREE_ACCEPT_SOURCE),
+        represented("SynchronizedTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY),
+        represented("SynchronizedTree::SynchronizedTree#getExpression()", STATEMENT_VALUE_BOUNDARY),
+        represented("SynchronizedTree::SynchronizedTree#getBlock()", STATEMENT_VALUE_BOUNDARY));
   }
 
   private static List<LanguageFeatureClassification> iterationClassifications() {

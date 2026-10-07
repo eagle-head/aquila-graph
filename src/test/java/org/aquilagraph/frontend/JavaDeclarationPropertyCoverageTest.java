@@ -21,6 +21,10 @@ import org.junit.jupiter.api.Test;
 class JavaDeclarationPropertyCoverageTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final Set<String> EXPECTED_PROPERTIES = Set.of(
+      "AssertTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "AssertTree::Tree#getKind()", "AssertTree::AssertTree#getCondition()", "AssertTree::AssertTree#getDetail()",
+      "SynchronizedTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "SynchronizedTree::Tree#getKind()", "SynchronizedTree::SynchronizedTree#getExpression()", "SynchronizedTree::SynchronizedTree#getBlock()",
       "WhileLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "WhileLoopTree::Tree#getKind()",
       "WhileLoopTree::WhileLoopTree#getCondition()",
@@ -131,6 +135,8 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::ExecutableElement#isDefault()",
       "ExecutableElement::ExecutableElement#isVarArgs()");
   private static final Set<String> EXPECTED_IRRELEVANT_PROPERTIES = Set.of(
+      "AssertTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "SynchronizedTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "WhileLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "DoWhileLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "ForLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
@@ -341,7 +347,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:1aa72c351c5b0c6af37bed7951ef08eb038cdb214148b933ac6a6bf93db97bb5",
+    assertEquals("java-language-feature-coverage:0acd09f319196e03148af21d885419a440820cc7506a081b9f8cad0222eecb91",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 
