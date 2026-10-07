@@ -26,7 +26,7 @@ The command accepts one source root, optional `--release 25`, and optional `--pe
 
 The command reports source, declaration, and graph counts on standard output and diagnostics on standard error. Exit codes are `0` for completed analysis, `1` for incomplete analysis or a named environment failure, `2` for rejected input or usage, and `3` for a named repository failure. The [analysis contract](docs/contracts/analysis.md#command-line-results) defines the exact boundaries.
 
-Unsupported constructs block completion. The analyzer does not execute the analyzed program, run annotation processors, provide whole-program analysis, or accept bytecode as an input. The source aggregate is transient and is not currently published to Neo4j; the durable result contains declarations and accepted method graphs. Expansion beyond that boundary is tracked in the [roadmap](docs/roadmap.md).
+Unsupported constructs block completion. The analyzer does not execute the analyzed program, run annotation processors, provide whole-program analysis, or accept bytecode as an input. Completed-run publication and explicit AST retention have separate [contracts](docs/contracts/analysis.md#target-publication-and-retention). The [Java AST epics](docs/epics/java-ast-epics.md) define the current expansion round; the [roadmap](docs/roadmap.md) retains open prerequisites.
 
 ## Project documentation
 
@@ -35,16 +35,20 @@ Unsupported constructs block completion. The analyzer does not execute the analy
 | Analysis inputs, completion, publication, and failures | [Analysis contract](docs/contracts/analysis.md) |
 | Java frontend, source profile, coverage, and graph semantics | [Java analysis design](docs/design/java-analysis.md) |
 | Captured source and environment identity | [Source snapshots](docs/design/source-snapshots.md) |
+| Retained AST and captured-value formats | [AST value format](docs/design/ast-value-format.md) · [Captured-value encoding](docs/design/captured-value-encoding.md) |
 | Repository responsibilities and lifecycle | [Repository design](docs/design/analysis-repository.md) |
 | Neo4j labels, relationships, keys, and constraints | [Stored schema](docs/repository/neo4j-schema.md) |
 | Build, tests, and quality requirements | [Build quality](docs/build-quality.md) |
 | Models by question and responsibility | [Diagram index](diagrams/README.md) |
 | Examples and local database operations | [Analysis targets](analysis-targets/README.md) · [Neo4j runbook](deployment/neo4j/README.md) |
-| Remaining development scope | [Roadmap](docs/roadmap.md) |
+| Current expansion requirements | [Java AST epics](docs/epics/java-ast-epics.md) |
+| Executable construct implementation tasks | [Task index and dependencies](docs/tasks/java-executable-constructs/README.md) |
+| Open prerequisites and scope boundaries | [Roadmap](docs/roadmap.md) |
+| Paired review and acceptance procedure | [Independent review protocol](docs/review-protocol.md) |
 
 ## References
 
-- [AnalysisEngine](src/main/java/org/aquilagraph/core/AnalysisEngine.java), `analyze`, program assembly and completion.
+- [SourceAnalysisRunner](src/main/java/org/aquilagraph/application/SourceAnalysisRunner.java), independent port coordination; [AnalysisQualification](src/main/java/org/aquilagraph/application/AnalysisQualification.java), request completion; [CompletedRunPublicationService](src/main/java/org/aquilagraph/application/CompletedRunPublicationService.java), publication eligibility and closure.
 - [AnalyzeCommandParser](src/main/java/org/aquilagraph/cli/AnalyzeCommandParser.java), `parse`; [AnalyzeCommandPresenter](src/main/java/org/aquilagraph/cli/AnalyzeCommandPresenter.java), outcome presentation.
-- [JavaRelease](src/main/java/org/aquilagraph/model/JavaRelease.java), supported feature releases; [project build](pom.xml), toolchain and packaging configuration.
+- [JavaRelease](src/main/java/org/aquilagraph/identity/api/JavaRelease.java), supported feature releases; [project build](pom.xml), toolchain and packaging configuration.
 - [Neo4jAnalysisRunMapper](src/main/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunMapper.java), durable publication surface.
