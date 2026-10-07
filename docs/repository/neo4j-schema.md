@@ -4,9 +4,9 @@ This document defines the current stored projection: labels, relationships, prop
 
 ## Publication Contract
 
-The mapper accepts a completed `AnalysisRun` and constructs an immutable projection before database work. Constraint creation and inspection use a separate schema session. Same-run deletion and replacement use one managed write transaction per attempt; retry consumes the same projection. The application closes its returned repository before reporting `SAVED`.[1][2][4]
+The completed-run mapper accepts an `AnalysisRun` only when `isPublishable()` holds and constructs an immutable projection before database work. Constraint creation and inspection use a separate schema session. Same-run deletion and replacement use one managed write transaction per attempt; retry consumes the same projection. The application closes its returned repository before reporting `SAVED`.[1][2][4]
 
-Every persisted node has `AnalysisEntity` and one domain label, plus `runId` and `key`. Relationships also carry `runId` and `key`. Domain keys may recur across runs without creating cross-run relationships. The transient source aggregate is not included in publication, and no simultaneous-publisher isolation guarantee is added.[1][2]
+Every node in the completed-run projection has `AnalysisEntity` and one domain label, plus `runId` and `key`. Its relationships also carry `runId` and `key`. Domain keys may recur across runs without creating cross-run relationships. This projection excludes the full source aggregate; independent AST storage uses the separate namespace below. No simultaneous-publisher isolation guarantee is added.[1][2]
 
 ## Node Labels
 
@@ -24,15 +24,14 @@ Every persisted node has `AnalysisEntity` and one domain label, plus `runId` and
 `HAS_ENVIRONMENT`. The run separately owns `HAS_DIAGNOSTIC` and `HAS_PROGRAM`.
 The [run mapper](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunMapper.java) defines this direction. Its focused mapping collaborators define exact node properties and key sources.[2]
 
-The sealed, project-owned `JavaAstAggregate` retains validated source occurrences
-and aggregate-owned method bodies in `SyntaxAnalysisInput`. It is deliberately
-absent from this schema and from `ProgramRepresentation` and `AnalysisRun`; AST
-projection and publication remain deferred in the [roadmap](../roadmap.md#remaining-source-model-work). Aggregate-derived
-`MethodSyntax` views supply the current CFG construction. `JavaMethod.hasBody`
-records whether the
-declaration has a body without retaining that body. Semantic references and
-source spans needed after lowering are copied to their owning `OperationNode`
-entities and persisted through `HAS_REFERENCE` and `HAS_ORIGIN`.[2]
+The project-owned `JavaAstAggregate` retains source occurrences and canonical body structure. `ProgramRepresentation` and `AnalysisRun` retain the independent AST outcome, while the completed-run `AnalysisEntity` projection stores declarations and selected graphs without serializing the full aggregate. `AnalysisRun` and `Program` nodes carry `astResultKey`; the run also stores application `completion` and `operation`. These references do not imply that an independently retained AST exists. Semantic references and source spans needed by graph consumers are persisted through `HAS_REFERENCE` and `HAS_ORIGIN`.[2][4]
+
+Current `ProgramRepresentation` and `AnalysisRun` retain the independent
+`AstOutcome`. Complete qualified ASTs are explicitly retainable and queryable
+through the [independent AST retention schema](#target-ast-retention-schema),
+without requiring CFG publication. The bounded capability is implemented;
+complete independent migration acceptance remains pending, and broader source
+requirements remain in the [roadmap](../roadmap.md#remaining-source-model-work).[7]
 
 Each `JavaType` stores its qualified name, declaration kind,
 compiler-derived modifiers, and source-declaration state. Type declaration
@@ -148,7 +147,7 @@ reference, origin and graph-membership relationships as emitted by their
 mappers. `HAS_SOURCE` and CFG transfer edges have discriminators but no stored
 position, so mapper iteration does not promise database query order for them
 (see the mapping source in reference 2).
-Production `AnalysisEngine` derives `runId` from the source/environment software-version signature. It does not include an analyzer build or stored-model version. A directly constructed completed run can supply a nonnull identity under caller assurance; repository mapping does not requalify production completion or rederive that identity. Republishing the same ID replaces its projection. Removing legacy identities requires an explicit data migration.[1][2][3][4]
+`Neo4jAnalysisRunMapper` uses `AnalysisRequestIdentity.key()` as `runId`, after enforcing `AnalysisRun.isPublishable()`. The request key qualifies the operation, source subject, and selection; it is not the software-version signature. Republishing the same exact request identity replaces that completed-run projection. Previously stored identity formats must not be silently reinterpreted; migrating them requires an explicit compatibility decision.[1][2][3][4]
 
 The adapter creates and verifies these named uniqueness constraints before replacement:
 
@@ -168,11 +167,44 @@ An established noncommit retains the old projection. Missing commit acknowledgem
 
 Neo4j Community is the supported verification baseline. Credentials, health checks, startup, shutdown, and deliberate volume removal are documented in the [runbook](../../deployment/neo4j/README.md). This schema describes the adapter's source surface rather than an inspection of a live deployment.[6]
 
+## Target AST retention schema
+
+The independent completed-AST adapter uses the namespace below. Existing labels and constraints above remain the legacy completed-run format. Focused database verification is recorded in the repository design. Eligibility belongs to the [analysis contract](../contracts/analysis.md#target-publication-and-retention); mapping/query phases belong to the [repository design](../design/analysis-repository.md#target-ast-retention).
+
+Each target retained AST entity has label `AstEntity`, a domain label, `astResultKey` and `key`; AST relationships carry the same scope and stable relationship key. The root `AstResult` stores the qualified identity components, canonical content digest, format/profile/semantic-production versions, completion, and software signature. It references captured input/environment and its canonical source files under that scope. Do not use `AnalysisEntity` on AST-retention entities: legacy same-run deletion must not remove them.
+
+| Target domain family | Required retained distinctions / relationships |
+| --- | --- |
+| `AstResult`, `AstInput`, `AstEnvironment`, `AstSourceFile` | Complete snapshots/configuration/dependencies/content and assurance/provenance; `HAS_AST_INPUT`, `HAS_AST_ENVIRONMENT`, ordered dependency links, canonical source identities. |
+| `AstDeclaration` | Tagged canonical declaration variants for types/members/generics/components/synthesized facts, exact external/owned references, modifiers, hierarchy, parameters and counterpart identities; ordered `DECLARES_AST`. |
+| `AstOccurrence`, `AstType`, `AstAnnotationValue` | Full tagged source values, recursive types/capture scope and annotation values/defaults; source-kind/path/source identity, optional bounded ranges, explicit written/implicit provenance; ordered `AST_CHILD` with role and position; typed `AST_SEMANTIC` targets. |
+| `AstBody`, `AstEvidence` | Canonical executable/body-origin association without synthetic evaluation topology; keyed typed evidence variants, `KNOWN`/`MISSING`/`ERRONEOUS`/`NOT_APPLICABLE`, all selected facts and provenance; `HAS_AST_BODY`, ordered `HAS_AST_EVIDENCE`. |
+| `AstCoverage`, `AstDiagnostic` | Both expectation stages, policies, source-owner addresses, positive/negative/gap/unmatched support and diagnostic creating addresses; ordered `HAS_AST_COVERAGE`/`HAS_AST_DIAGNOSTIC`, exact event-slot links. |
+
+Versioned tagged encodings must preserve every public contract field and variant, not merely these table summaries. Canonical graph/source type values remain typed; display text is not a semantic channel. Existing ordered/unique/negative-state distinctions survive round trips. The [source value format](../design/ast-value-format.md) specifies the exact implemented field encoding; adding tags or changing field interpretation increments the source-model storage format and qualified identity. No supplied record or stored completion label authenticates source/compiler provenance.
+
+Required target uniqueness definitions are `ast_entity_identity` on `(AstEntity.astResultKey, AstEntity.key)` and `ast_result_identity` on `AstResult.astResultKey`. As for the legacy constraints, exact name/type/entity/label/ordered-property inspection must precede replacement. Same-AST replacement deletes only `AstEntity` with that `astResultKey`, then recreates the complete immutable projection in one attempt. `find` addresses the exact key/version and validates decoded content/identity before returning it; unknown formats are incompatible, missing keys absent, invalid stored correlations failures.
+
+### Complete retained value materialization
+
+`Neo4jAstResultCodec` stores the full `java-source/2` envelope as Base64 in the result root's `payload` property. The [source value format](../design/ast-value-format.md) owns its exact field and variant encoding. The root also stores every `AstIdentity` component, `formatVersion`, and derived `COMPLETE` qualification. An envelope alone is insufficient: `AstCodec.materialize` emits every field of the same closed schema as ordered value nodes and component links. `AstValue` is the auxiliary label for scalar, collection, optional, identity, and structural values outside the domain families above.
+
+Value keys are `StableId.sha256("ast-value", astResultKey, decimalEncounterOrdinal)`. Each value node stores its closed `tag` and a `long` encounter `ordinal`. A scalar stores `scalarEncoding`, the Base64 encoding of its full tagged `source-value/1` value. This preserves UTF-16 code units, numeric widths, raw floating-point bits, enum variants, and paths without relying on database display conversions. An owned source occurrence also stores its exact `sourceNodeKey`; repeated references to the same canonical source object resolve to the same value node. Other repeated value occurrences have distinct ordered slots.
+
+Links store exact `field` and `long` `position` properties. Their keys are `StableId.sha256("ast-field", astResultKey, sourceKey, targetKey, relationshipType, field, decimalPosition)`. `HAS_AST_VALUES` links the result root to the complete `SyntaxAnalysisInput` materialization. Closed family relationships in the table identify matching fields; `AST_FIELD` retains all other named components. Lists and sets use ordered `item` links, with sets ordered by their retained tagged byte encoding. Optional presence is explicit in `optional/present` and `optional/absent` tags. Schema field order and repeated list positions remain visible through these links.
+
+Supported lookup decodes the envelope through intrinsic Source admission, rematerializes the admitted result, and requires exact equality of every node and relationship by key, including labels, tags, properties, scope, endpoints, field names, and positions. This rejects altered materialization even when the envelope remains valid, and rejects an invalid envelope even when individual stored nodes look plausible. Unknown formats bypass full materialization loading and decoding. Neither path acquires a compiler or constructs a CFG. These are executable format rules; actual database observations remain separate verification evidence.
+
+Target CFG persistence, when implemented, uses a separate derivation scope qualified by `derivationKey` and stores exact `astResultKey`, canonical method/body provenance, optional occurrence keys and graph/profile versions. Association validation rejects foreign/incompatible identity before mapping and after decoding. AST query does not traverse CFG. Do not silently add a graph-retention policy as part of this AST decision. Retained graph references require an existing compatible AST subject; AST replacement must preserve its content identity or reject the replacement. Deletion of referenced ASTs requires a separately defined operation, which this task does not introduce.
+
+The implemented AST path uses its own allowlists, codecs, constraints/inspection, qualified endpoint validation, canonical encoding and schema-version handling. Completed-run `AnalysisRun` entities reference the source result but do not serialize its full AST; graph reconstruction cannot backfill that value. Preserve older stored identities and separate projection namespaces; an explicit production operation can create a qualified AST from captured sources/environment where reproducible. Required database round trips and schema-failure observations are defined in the repository design, without claiming that current executions passed. Complete independent migration acceptance remains pending; the roadmap retains the broader source-profile requirements.[4][7]
+
 ## References
 
 1. [Neo4jAnalysisRunRepository](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunRepository.java), `save`, `ensureSchema`, and `saveProjection`; [Neo4jSchema](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jSchema.java), label/type allowlists and `requireIdentityConstraints`.
 2. [Neo4jAnalysisRunMapper](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunMapper.java), `map`, and its focused mapping collaborators; [Neo4jProjectionBuilder](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jProjectionBuilder.java), ordered properties and relationship keys; [Neo4jGraphProjection](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jGraphProjection.java), identity and endpoint validation.
-3. [StableId](../../src/main/java/org/aquilagraph/model/StableId.java), `sha256`; [source and environment identities](../design/source-snapshots.md#compiler-environment-and-software-version).
-4. [AnalysisEngine](../../src/main/java/org/aquilagraph/core/AnalysisEngine.java), run derivation; [AnalysisRun](../../src/main/java/org/aquilagraph/model/AnalysisRun.java), constructor limits; [AnalysisApplicationService](../../src/main/java/org/aquilagraph/application/AnalysisApplicationService.java), publication eligibility and closure.
+3. [StableId](../../src/main/java/org/aquilagraph/identity/api/StableId.java), `sha256`; [source and environment identities](../design/source-snapshots.md#compiler-environment-and-software-version).
+4. [AnalysisRequestIdentity](../../src/main/java/org/aquilagraph/application/AnalysisRequestIdentity.java), `key`; [ProgramRepresentation](../../src/main/java/org/aquilagraph/application/ProgramRepresentation.java) and [AnalysisRun](../../src/main/java/org/aquilagraph/application/AnalysisRun.java), native outcomes and admission; [CompletedRunPublicationEligibility](../../src/main/java/org/aquilagraph/application/CompletedRunPublicationEligibility.java), `accepts`; [CompletedRunPublicationService](../../src/main/java/org/aquilagraph/application/CompletedRunPublicationService.java), eligibility, publication, and closure.
 5. [AquilaGraphApplication](../../src/main/java/org/aquilagraph/AquilaGraphApplication.java), concrete composition; [analysis contract](../contracts/analysis.md), caller outcomes.
 6. [Compose deployment](../../deployment/neo4j/compose.yaml) and [Neo4j runbook](../../deployment/neo4j/README.md), configured database and operations.
+7. [ProgramRepresentation](../../src/main/java/org/aquilagraph/application/ProgramRepresentation.java) and [AnalysisRun](../../src/main/java/org/aquilagraph/application/AnalysisRun.java), independent domain outcomes; [Neo4jAstResultRepository](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jAstResultRepository.java), `saveComplete` and `find`; [Neo4jAstResultCodec](../../src/main/java/org/aquilagraph/repository/neo4j/Neo4jAstResultCodec.java), complete projection and validated decoding; [bounded implementation and remaining requirements](../roadmap.md#remaining-source-model-work).
