@@ -6,8 +6,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Objects;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.SourceFile;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.SourceFile;
 
 /** Discovers Java sources and captures their normalized immutable snapshot. */
 public final class JavaSourceLoader {

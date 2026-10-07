@@ -1,7 +1,7 @@
 package org.aquilagraph.frontend;
 
-import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.AnnotatedTypeTree;
+import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.BinaryTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.ConditionalExpressionTree;
@@ -30,29 +30,29 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
-import javax.lang.model.type.TypeMirror;
-import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.ReferenceKind;
-import org.aquilagraph.model.ResolutionStatus;
-import org.aquilagraph.model.SemanticReference;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.syntax.AnnotationScalar;
-import org.aquilagraph.syntax.AnnotationElementValue;
-import org.aquilagraph.syntax.JavaTypeStructure;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxChild;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxOperator;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxStructuralPath;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.SyntaxValue;
+import javax.lang.model.type.TypeKind;
+import javax.lang.model.type.TypeMirror;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.SemanticReference;
+import org.aquilagraph.source.api.AnnotationElementValue;
+import org.aquilagraph.source.api.AnnotationScalar;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.JavaTypeStructure;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxOperator;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
 
 /** Projects written annotation values and checks available compiler attribution independently. */
 final class JavaAnnotationValueProjector {
@@ -461,27 +461,26 @@ final class JavaAnnotationValueProjector {
 
   private static boolean valueMatchesElement(AnnotationElementValue value, JavaTypeStructure type) {
     return switch (value) {
-      case AnnotationScalar.BooleanValue ignored ->
+      case AnnotationScalar.BooleanValue _ ->
         type instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == JavaTypeCategory.BOOLEAN;
-      case AnnotationScalar.ByteValue ignored ->
+      case AnnotationScalar.ByteValue _ ->
         type instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == JavaTypeCategory.BYTE;
-      case AnnotationScalar.ShortValue ignored ->
+      case AnnotationScalar.ShortValue _ ->
         type instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == JavaTypeCategory.SHORT;
-      case AnnotationScalar.CharValue ignored ->
+      case AnnotationScalar.CharValue _ ->
         type instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == JavaTypeCategory.CHAR;
-      case AnnotationScalar.IntValue ignored ->
-        type instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == JavaTypeCategory.INT;
-      case AnnotationScalar.LongValue ignored ->
+      case AnnotationScalar.IntValue _ -> type instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == JavaTypeCategory.INT;
+      case AnnotationScalar.LongValue _ ->
         type instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == JavaTypeCategory.LONG;
-      case AnnotationScalar.FloatValue ignored ->
+      case AnnotationScalar.FloatValue _ ->
         type instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == JavaTypeCategory.FLOAT;
-      case AnnotationScalar.DoubleValue ignored ->
+      case AnnotationScalar.DoubleValue _ ->
         type instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == JavaTypeCategory.DOUBLE;
-      case AnnotationScalar.StringValue ignored ->
+      case AnnotationScalar.StringValue _ ->
         type instanceof JavaTypeStructure.Declared declared && "type:java.lang.String".equals(declared.declarationKey());
       case AnnotationScalar.EnumConstant constant ->
         type instanceof JavaTypeStructure.Declared declared && declared.declarationKey().equals(constant.enumTypeKey());
-      case AnnotationScalar.ClassLiteral ignored ->
+      case AnnotationScalar.ClassLiteral _ ->
         type instanceof JavaTypeStructure.Declared declared && "type:java.lang.Class".equals(declared.declarationKey());
       case AnnotationElementValue.Nested nested ->
         type instanceof JavaTypeStructure.Declared declared && declared.declarationKey().equals(nested.annotationTypeKey());

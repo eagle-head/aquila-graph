@@ -1,29 +1,36 @@
 MAVEN ?= ./mvnw
+.DEFAULT_GOAL := compile
 MAVEN_FLAGS ?= -B --no-transfer-progress
 SKIP_TESTS ?= -Dmaven.test.skip=true
+BUILD_REPOSITORY = "-Dmaven.repo.local=$(CURDIR)/target/maven-repository"
 
-.PHONY: compile test integration-test integration-test-neo4j coverage format format-check line-endings-check quality supply-chain-check
+.PHONY: build-plugins compile test integration-test integration-test-neo4j coverage format format-check line-endings-check quality supply-chain-check
+
+build-plugins:
+	$(MAVEN) -B --no-transfer-progress $(BUILD_REPOSITORY) -f tools/maven-pmd-plugin/pom.xml install
+
+compile test integration-test integration-test-neo4j coverage format format-check quality supply-chain-check: build-plugins
 
 compile:
-	$(MAVEN) $(MAVEN_FLAGS) $(SKIP_TESTS) compile
+	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) $(SKIP_TESTS) compile
 
 test:
-	$(MAVEN) $(MAVEN_FLAGS) test
+	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) test
 
 integration-test:
-	$(MAVEN) $(MAVEN_FLAGS) -DskipTests=true verify
+	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) -DskipTests=true verify
 
 integration-test-neo4j:
-	$(MAVEN) $(MAVEN_FLAGS) -DskipTests=true -Pneo4j-integration verify
+	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) -DskipTests=true -Pneo4j-integration verify
 
 coverage:
-	$(MAVEN) $(MAVEN_FLAGS) jacoco:prepare-agent test jacoco:report
+	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) jacoco:prepare-agent test jacoco:report
 
 format:
-	$(MAVEN) $(MAVEN_FLAGS) spotless:apply
+	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) spotless:apply
 
 format-check:
-	$(MAVEN) $(MAVEN_FLAGS) spotless:check
+	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) spotless:check
 
 line-endings-check:
 	@cr="$$(printf '\r')"; \
@@ -39,7 +46,7 @@ line-endings-check:
 	printf 'LF-only Git text verified in the index and reachable commits.\n'
 
 quality: line-endings-check
-	$(MAVEN) $(MAVEN_FLAGS) $(SKIP_TESTS) verify
+	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) $(SKIP_TESTS) verify
 
 supply-chain-check:
-	$(MAVEN) $(MAVEN_FLAGS) $(SKIP_TESTS) -Psupply-chain verify
+	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) $(SKIP_TESTS) -Psupply-chain verify

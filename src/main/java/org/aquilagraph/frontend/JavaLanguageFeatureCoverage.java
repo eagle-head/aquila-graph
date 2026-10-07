@@ -2,8 +2,8 @@ package org.aquilagraph.frontend;
 
 import java.util.ArrayList;
 import java.util.Objects;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.LanguageFeatureCoverage;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
 
 /** Provides the complete release-bound language-feature contract used by the Java frontend. */
 final class JavaLanguageFeatureCoverage {

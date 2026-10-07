@@ -6,8 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
-import org.aquilagraph.application.RepositorySavePolicy;
-import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.identity.api.JavaRelease;
 import org.junit.jupiter.api.Test;
 
 class AnalyzeCommandParserTest {
@@ -25,7 +25,7 @@ class AnalyzeCommandParserTest {
     var parsed = assertInstanceOf(AnalyzeCommandParser.Parsed.class, result);
     assertEquals(Path.of("source"), parsed.arguments().sourceRoot());
     assertSame(JavaRelease.JAVA_25, parsed.arguments().release());
-    assertSame(RepositorySavePolicy.DO_NOT_SAVE, parsed.arguments().repositorySavePolicy());
+    assertSame(PublicationIntent.DO_NOT_SAVE, parsed.arguments().publicationIntent());
   }
 
   @Test
@@ -40,7 +40,7 @@ class AnalyzeCommandParserTest {
     var parsed = assertInstanceOf(AnalyzeCommandParser.Parsed.class, result);
     assertEquals(Path.of("source"), parsed.arguments().sourceRoot());
     assertSame(JavaRelease.JAVA_25, parsed.arguments().release());
-    assertSame(RepositorySavePolicy.SAVE_COMPLETED, parsed.arguments().repositorySavePolicy());
+    assertSame(PublicationIntent.SAVE_COMPLETED, parsed.arguments().publicationIntent());
   }
 
   @Test
@@ -182,7 +182,7 @@ class AnalyzeCommandParserTest {
       // Assert
       var parsed = assertInstanceOf(AnalyzeCommandParser.Parsed.class, result);
       assertEquals(Path.of(root), parsed.arguments().sourceRoot());
-      assertSame(RepositorySavePolicy.DO_NOT_SAVE, parsed.arguments().repositorySavePolicy());
+      assertSame(PublicationIntent.DO_NOT_SAVE, parsed.arguments().publicationIntent());
     }
   }
 }

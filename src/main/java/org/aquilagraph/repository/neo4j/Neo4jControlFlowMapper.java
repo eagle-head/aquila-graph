@@ -2,12 +2,14 @@ package org.aquilagraph.repository.neo4j;
 
 import java.util.List;
 import java.util.Objects;
-import org.aquilagraph.model.CfgNode;
-import org.aquilagraph.model.EntryNode;
-import org.aquilagraph.model.ExitNode;
-import org.aquilagraph.model.MethodAnalysis;
-import org.aquilagraph.model.OperationNode;
-import org.aquilagraph.model.TransferKind;
+import org.aquilagraph.cfg.api.CfgNode;
+import org.aquilagraph.cfg.api.EntryNode;
+import org.aquilagraph.cfg.api.ExitNode;
+import org.aquilagraph.cfg.api.MethodCfgOutcome;
+import org.aquilagraph.cfg.api.ControlFlowGraph;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.cfg.api.OperationNode;
+import org.aquilagraph.cfg.api.TransferKind;
 
 /** Maps method analyses and control-flow graphs into a Neo4j projection. */
 final class Neo4jControlFlowMapper {
@@ -17,21 +19,36 @@ final class Neo4jControlFlowMapper {
     this.evidenceMapper = Objects.requireNonNull(evidenceMapper, "evidenceMapper");
   }
 
-  void map(String programKey, List<MethodAnalysis> analyses, Neo4jProjectionBuilder projection) {
+  void map(String programKey, List<MethodCfgOutcome> analyses, Neo4jProjectionBuilder projection) {
     for (var analysisPosition = 0; analysisPosition < analyses.size(); analysisPosition++) {
       var analysis = analyses.get(analysisPosition);
-      projection.node("MethodAnalysis", analysis.analysisKey(), "methodKey", analysis.sourceMethod().methodKey());
-      projection.relate("HAS_METHOD_ANALYSIS", programKey, analysis.analysisKey(), Integer.toString(analysisPosition),
-          Neo4jSchema.POSITION_PROPERTY, analysisPosition);
-      projection.relate("ANALYZES_METHOD", analysis.analysisKey(), analysis.sourceMethod().methodKey(), "method");
-      mapGraph(analysis, projection);
+      if (analysis.graph().isEmpty()) {
+        continue;
+      }
+      var graph = analysis.graph().orElseThrow();
+      var analysisKey = StableId.sha256("method-analysis", graph.graphId());
+      projection.node("MethodAnalysis", analysisKey, "methodKey", analysis.methodKey(), "state", analysis.state().name());
+      projection.relate("HAS_METHOD_ANALYSIS", programKey, analysisKey, Integer.toString(analysisPosition), Neo4jSchema.POSITION_PROPERTY,
+          analysisPosition);
+      projection.relate("ANALYZES_METHOD", analysisKey, analysis.methodKey(), "method");
+      mapGraph(analysisKey, graph, projection);
     }
   }
 
-  private void mapGraph(MethodAnalysis analysis, Neo4jProjectionBuilder projection) {
-    var graph = analysis.controlFlowGraph();
-    projection.node("ControlFlowGraph", graph.graphId(), "methodKey", graph.methodKey());
-    projection.relate("HAS_CFG", analysis.analysisKey(), graph.graphId(), "cfg");
+  private void mapGraph(String analysisKey, ControlFlowGraph graph, Neo4jProjectionBuilder projection) {
+    var identity = graph.identity().orElseThrow();
+    var body = graph.body().orElseThrow();
+    var graphProperties = Neo4jProjectionBuilder.properties("methodKey", graph.methodKey(), "astResultKey",
+        identity.astIdentity().astResultKey(), "cfgProfileVersion", identity.cfgProfileVersion(), "graphModelVersion",
+        identity.graphModelVersion(), "canonicalContentDigest", identity.canonicalContentDigest());
+    body.sourceOccurrenceKey().ifPresent(key -> graphProperties.put("sourceOccurrenceKey", key));
+    body.nonwrittenProvenance().ifPresent(origin -> {
+      graphProperties.put("nonwrittenProvenance", origin.origin());
+      graphProperties.put("bodySourceFileKey", origin.sourceFileKey());
+      graphProperties.put("bodyOwnerDeclarationKey", origin.ownerDeclarationKey());
+    });
+    projection.node("ControlFlowGraph", graph.graphId(), graphProperties);
+    projection.relate("HAS_CFG", analysisKey, graph.graphId(), "cfg");
 
     for (var valuePosition = 0; valuePosition < graph.values().size(); valuePosition++) {
       var value = graph.values().get(valuePosition);
@@ -84,9 +101,9 @@ final class Neo4jControlFlowMapper {
 
   private static String cfgNodeLabel(CfgNode node) {
     return switch (node) {
-      case EntryNode ignored -> "EntryNode";
-      case OperationNode ignored -> "OperationNode";
-      case ExitNode ignored -> "ExitNode";
+      case EntryNode _ -> "EntryNode";
+      case OperationNode _ -> "OperationNode";
+      case ExitNode _ -> "ExitNode";
     };
   }
 

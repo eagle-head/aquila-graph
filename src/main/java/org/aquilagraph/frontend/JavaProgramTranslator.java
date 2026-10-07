@@ -9,21 +9,24 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.DeclarationMemberOrder;
-import org.aquilagraph.model.DeclarationTypeEvidence;
-import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.model.JavaType;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.LanguageFeatureCoverage;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxSourceContribution;
-import org.aquilagraph.syntax.SyntaxNode;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.DeclarationMemberOrder;
+import org.aquilagraph.source.api.DeclarationTypeEvidence;
+import org.aquilagraph.source.api.JavaProgram;
+import org.aquilagraph.source.api.JavaType;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
+import org.aquilagraph.source.admission.AstValueAdmission;
+import org.aquilagraph.source.admission.CopiedAstValues;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxSourceContribution;
+import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.WrittenSourceAssociation;
 
 final class JavaProgramTranslator {
   private final SnapshotSourceCatalog sources;
@@ -61,7 +64,11 @@ final class JavaProgramTranslator {
         throw new IllegalArgumentException("Duplicate parsed compilation unit for source " + source.sourceFileKey());
       }
     }
-    var builder = JavaAstAggregate.builder(snapshot);
+    var sourceContributions = new ArrayList<SyntaxSourceContribution>();
+    var retainedBodies = new ArrayList<CopiedAstValues.Body>();
+    var retainedOrders = new ArrayList<DeclarationMemberOrder>();
+    var retainedAssociations = new ArrayList<WrittenSourceAssociation>();
+    var retainedTypes = new ArrayList<DeclarationTypeEvidence>();
     var incompleteRoot = false;
     for (var source : snapshot.sourceFiles()) {
       var unit = Objects.requireNonNull(unitsBySource.get(source.sourceFileKey()), "parsed compilation unit");
@@ -90,25 +97,28 @@ final class JavaProgramTranslator {
       var ast = astTranslator.translate(unit, source, methodBodies.subList(firstBody, methodBodies.size()), unitTypes);
       diagnostics.addAll(ast.diagnostics());
       if (ast.contribution().isPresent()) {
-        builder.add(ast.contribution().orElseThrow());
-        ast.sourceAssociations().forEach(builder::addWrittenSourceAssociation);
+        sourceContributions.add(ast.contribution().orElseThrow());
+        retainedAssociations.addAll(ast.sourceAssociations());
         var retainedSource = ast.contribution().orElseThrow();
         declarationTypes.subList(firstDeclarationType, declarationTypes.size()).stream()
             .filter(evidence -> retainsTypeOwner(retainedSource, evidence.sourceFileKey(), evidence.ownerTypeKey()))
-            .forEach(builder::addDeclarationTypeEvidence);
+            .forEach(retainedTypes::add);
         memberOrders.subList(firstOrder, memberOrders.size()).stream()
             .filter(order -> retainsTypeOwner(retainedSource, order.sourceFileKey(), order.ownerTypeKey()))
-            .map(order -> attachWrittenOrder(order, retainedSource)).forEach(builder::addDeclarationMemberOrder);
+            .map(order -> attachWrittenOrder(order, retainedSource)).forEach(retainedOrders::add);
         ast.bodies()
-            .forEach(body -> builder.addMethodBody(body.methodKey(), body.root(), body.origin(), body.decisions().uses(),
-                body.decisions().invocations(), body.decisions().staticAccesses(), body.decisions().concatenations(),
-                body.decisions().enumContexts()));
+            .forEach(body -> retainedBodies.add(new CopiedAstValues.Body(body.methodKey(), body.root(), body.origin(),
+                body.decisions().uses(), body.decisions().invocations(), body.decisions().staticAccesses(),
+                body.decisions().concatenations(), body.decisions().constructors(), body.attributedOccurrences())));
       } else {
         incompleteRoot = true;
       }
     }
     var program = incompleteRoot ? new JavaProgram(List.of()) : new JavaProgram(types);
-    var aggregate = incompleteRoot ? Optional.<JavaAstAggregate>empty() : Optional.of(builder.seal());
+    var aggregate = incompleteRoot
+        ? Optional.<JavaAstAggregate>empty()
+        : Optional.of(AstValueAdmission.admit(
+            new CopiedAstValues(snapshot, sourceContributions, retainedBodies, retainedOrders, retainedAssociations, retainedTypes)));
     return new TranslationResult<>(new TranslatedProgram(program, aggregate), diagnostics, occurrences, observations);
   }
 

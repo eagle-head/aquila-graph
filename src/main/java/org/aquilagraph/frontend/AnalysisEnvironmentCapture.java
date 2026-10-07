@@ -4,9 +4,9 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
 import javax.tools.JavaCompiler;
-import org.aquilagraph.application.port.AnalysisEnvironmentException;
-import org.aquilagraph.model.AnalysisEnvironmentSnapshot;
-import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.source.api.AnalysisEnvironmentException;
+import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
+import org.aquilagraph.identity.api.CompilerConfiguration;
 
 final class AnalysisEnvironmentCapture {
   private final CompilerDependencyCapture dependencyCapture;

@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -9,26 +10,26 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InvocationForm;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaTypeModifier;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.ReferenceKind;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.SourceOwnerPath;
-import org.aquilagraph.syntax.MethodSyntax;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.InvocationForm;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.JavaTypeModifier;
+import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.SourceOwnerPath;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.MethodSyntax;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaAstBoundaryRegressionTest {
   @TempDir Path temporaryDirectory;
@@ -241,8 +242,8 @@ class JavaAstBoundaryRegressionTest {
     assertEquals(List.of(),
         first.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
     assertEquals(List.of(), second.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(first).completion());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(second).completion());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(first).completion());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(second).completion());
     var firstKeys = localDeclarationKeys(first, Set.of("repeated", "problem"));
     var secondKeys = localDeclarationKeys(second, Set.of("repeated", "problem"));
     assertEquals(5, firstKeys.size());
@@ -382,12 +383,12 @@ class JavaAstBoundaryRegressionTest {
 
     // Act
     var input = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
     var codes = input.diagnostics().stream().map(diagnostic -> diagnostic.code()).collect(Collectors.toSet());
     assertTrue(codes.isEmpty(), () -> input.diagnostics().toString());
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion());
   }
 
   @Test
@@ -474,10 +475,11 @@ class JavaAstBoundaryRegressionTest {
     assertEquals(executionLocal.sourceFileKey(), localOwner.sourceFileKey());
     assertEquals(executionLocal.sourceKind(), localOwner.sourceKind());
     assertEquals(executionLocal.origin(), localOwner.origin());
-    assertTrue(method.root().descendantsAndSelf().stream()
-        .allMatch(node -> node.children(SyntaxRole.DECLARED_TYPE).isEmpty() && node.children(SyntaxRole.TYPE_OPERAND).isEmpty()));
-    assertTrue(method.root().descendantsAndSelf().stream()
-        .noneMatch(node -> node.syntaxKind() == SyntaxKind.TYPE_USE || node.syntaxKind() == SyntaxKind.ANNOTATION));
+    assertSame(sourceBody, method.root());
+    assertSame(local, executionLocal);
+    for (var node : method.root().descendantsAndSelf()) {
+      assertSame(aggregate.node(node.nodeId()).orElseThrow(), node);
+    }
     return local;
   }
 

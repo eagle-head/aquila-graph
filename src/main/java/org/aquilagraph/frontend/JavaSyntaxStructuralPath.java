@@ -8,8 +8,8 @@ import com.sun.source.util.TreePath;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Objects;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
 
 /** Maps the currently represented declaration/body chain to a typed source-root-relative path. */
 final class JavaSyntaxStructuralPath {

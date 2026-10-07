@@ -2,22 +2,26 @@ package org.aquilagraph.frontend;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.function.Supplier;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
-import org.aquilagraph.application.port.AnalysisEnvironmentException;
-import org.aquilagraph.application.port.AnalysisInputException;
-import org.aquilagraph.model.AttributedCoverageExpectations;
-import org.aquilagraph.model.DiagnosticEmission;
-import org.aquilagraph.model.LanguageFeatureCoverageResult;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
-import org.aquilagraph.syntax.JavaAstAggregate;
+import org.aquilagraph.source.api.AnalysisEnvironmentException;
+import org.aquilagraph.source.api.AnalysisInputException;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.source.api.AttributedCoverageExpectations;
+import org.aquilagraph.source.api.DiagnosticEmission;
+import org.aquilagraph.source.api.JavaProgram;
+import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
+import org.aquilagraph.source.admission.AstValueAdmission;
+import org.aquilagraph.source.admission.CopiedAstValues;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.AstOutcome;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.admission.AstResultAdmission;
 import org.jspecify.annotations.Nullable;
 
 final class JavaAnalysisPipeline {
@@ -33,6 +37,21 @@ final class JavaAnalysisPipeline {
     this.compilerSupplier = Objects.requireNonNull(compilerSupplier, "compilerSupplier");
   }
 
+  AstOutcome produce(InputSnapshot snapshot, CompilerConfiguration configuration, AstProfile profile, String semanticRevision)
+      throws IOException {
+    Objects.requireNonNull(snapshot, "snapshot");
+    Objects.requireNonNull(configuration, "configuration");
+    Objects.requireNonNull(profile, "profile");
+    if (snapshot.sourceFiles().isEmpty()) {
+      var contract = JavaLanguageFeatureCoverage.fromConfiguration(configuration);
+      var written = JavaSourceCoverageCapture.empty(snapshot, contract);
+      var coverage = LanguageFeatureCoverageResult.fromEvidence(contract, written, new AttributedCoverageExpectations(written, List.of()),
+          List.of(), List.of(), List.of());
+      return AstResultAdmission.empty(snapshot, configuration, profile, coverage);
+    }
+    return AstResultAdmission.outcome(analyze(snapshot, configuration), profile, semanticRevision);
+  }
+
   SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(configuration, "configuration");
@@ -45,7 +64,7 @@ final class JavaAnalysisPipeline {
       var coverageResult = LanguageFeatureCoverageResult.fromEvidence(languageFeatureCoverage, written,
           new AttributedCoverageExpectations(written, List.of()), List.of(), List.of(), List.of());
       return new SyntaxAnalysisInput(snapshot, environment, new JavaProgram(List.of()),
-          Optional.of(JavaAstAggregate.builder(snapshot).seal()), List.of(), coverageResult);
+          Optional.of(AstValueAdmission.admit(CopiedAstValues.empty(snapshot))), List.of(), coverageResult);
     }
 
     var sources = new SnapshotSourceCatalog(snapshot);

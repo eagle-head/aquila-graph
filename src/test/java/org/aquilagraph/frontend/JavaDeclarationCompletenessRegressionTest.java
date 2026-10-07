@@ -11,20 +11,20 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.LanguageFeature;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeaturePolicy;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxValue;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.LanguageFeature;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeaturePolicy;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
-import org.junit.jupiter.api.io.TempDir;
 
 class JavaDeclarationCompletenessRegressionTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
@@ -39,10 +39,10 @@ class JavaDeclarationCompletenessRegressionTest {
       var frontend = new JavaFrontend(new JavaSourceLoader());
 
       // Act
-      var run = new AnalysisEngine().analyze(frontend.analyze(caseDirectory, JAVA_25_CONFIGURATION));
+      var run = new SourceAnalysisFixture().analyze(frontend.analyze(caseDirectory, JAVA_25_CONFIGURATION));
 
       // Assert
-      assertNotEquals(AnalysisCompletion.COMPLETED, run.completion(), sourceCase.description());
+      assertNotEquals(AnalysisCompletion.COMPLETE, run.completion(), sourceCase.description());
       assertTrue(run.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")),
           () -> sourceCase + ": " + run.diagnostics());
       var matchingDiagnostics = run.diagnostics().stream()
@@ -67,10 +67,10 @@ class JavaDeclarationCompletenessRegressionTest {
 
     // Act
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory, JAVA_25_CONFIGURATION);
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion(), () -> run.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().toString());
     assertEquals(6, input.aggregate().orElseThrow().nodes().stream()
         .filter(node -> node.value() instanceof SyntaxValue.Annotation).count());
   }
@@ -134,10 +134,10 @@ class JavaDeclarationCompletenessRegressionTest {
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var run = new AnalysisEngine().analyze(frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION));
+    var run = new SourceAnalysisFixture().analyze(frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION));
 
     // Assert
-    assertNotEquals(AnalysisCompletion.COMPLETED, run.completion());
+    assertNotEquals(AnalysisCompletion.COMPLETE, run.completion());
     assertEquals(List.of("frontend.unsupported-local-declaration-modifiers", "frontend.unsupported-local-annotation-content"),
         run.diagnostics().stream().map(diagnostic -> diagnostic.code())
             .filter(code -> code.startsWith("frontend.unsupported-local-")).toList());
@@ -193,10 +193,10 @@ class JavaDeclarationCompletenessRegressionTest {
 
     // Act
     var result = frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION);
-    var run = new AnalysisEngine().analyze(result);
+    var run = new SourceAnalysisFixture().analyze(result);
 
     // Assert
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion(), () -> run.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().toString());
     assertFalse(result.program().types().getFirst().synthesizedDeclarations().isEmpty());
     assertTrue(result.program().types().getFirst().synthesizedDeclarations().stream()
         .allMatch(declaration -> declaration.ownerTypeKey().equals(result.program().types().getFirst().typeKey())));
@@ -212,10 +212,10 @@ class JavaDeclarationCompletenessRegressionTest {
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var run = new AnalysisEngine().analyze(frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION));
+    var run = new SourceAnalysisFixture().analyze(frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION));
 
     // Assert
-    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+    assertEquals(AnalysisCompletion.PARTIAL, run.completion());
     assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     assertTrue(run.diagnostics().stream()
         .noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-declaration-annotations")));

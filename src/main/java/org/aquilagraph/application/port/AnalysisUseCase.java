@@ -3,15 +3,15 @@ package org.aquilagraph.application.port;
 import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRequest;
 
-/** Input port for executing one source-analysis request. */
+/** Coordinates independently owned source, control-flow, and publication outcomes. */
 @FunctionalInterface
 public interface AnalysisUseCase {
   /**
-   * Executes one analysis request and applies its repository policy.
+   * Executes the requested computation and independent publication intent.
    *
    * @param request
-   *          analysis input and repository policy
-   * @return analysis execution and repository status
+   *          exact caller request
+   * @return computation and publication outcomes
    */
   AnalysisExecution execute(AnalysisRequest request);
 }

@@ -11,7 +11,7 @@ import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.TypeVariable;
 import javax.lang.model.type.UnionType;
 import javax.lang.model.type.WildcardType;
-import org.aquilagraph.model.CoverageTypeStructure;
+import org.aquilagraph.source.api.CoverageTypeStructure;
 
 /** Copies recursive public mirror selections without retaining compiler objects. */
 final class JavaCoverageTypeProjection {

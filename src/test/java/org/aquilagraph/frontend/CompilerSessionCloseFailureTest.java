@@ -5,37 +5,37 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.IOException;
 import java.io.InputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Writer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
+import java.nio.file.FileSystems;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.jar.JarEntry;
-import java.util.jar.JarOutputStream;
 import javax.lang.model.SourceVersion;
 import javax.tools.DiagnosticListener;
 import javax.tools.JavaCompiler;
-import javax.tools.JavaCompiler.CompilationTask;
+
 import javax.tools.JavaFileManager;
 import javax.tools.JavaFileObject;
 import javax.tools.JavaFileObject.Kind;
 import javax.tools.StandardJavaFileManager;
 import javax.tools.StandardLocation;
 import javax.tools.ToolProvider;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.SourceFile;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class CompilerSessionCloseFailureTest {
   @TempDir Path temporaryDirectory;
@@ -47,7 +47,7 @@ class CompilerSessionCloseFailureTest {
     var archive = temporaryDirectory.resolve("dependency.jar");
     writeArchive(archive);
     var delegate = ToolProvider.getSystemJavaCompiler();
-    try (var disposal = new ArchiveDisposal(archive);
+    try (var _ = new ArchiveDisposal(archive);
         var manager = delegate.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8)) {
       manager.setLocationFromPaths(StandardLocation.CLASS_PATH, List.of(archive));
       var entry = manager.list(StandardLocation.CLASS_PATH, "dependency", Set.of(Kind.CLASS), false).iterator().next();

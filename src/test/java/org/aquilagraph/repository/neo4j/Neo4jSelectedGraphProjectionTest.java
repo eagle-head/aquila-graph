@@ -14,24 +14,24 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.aquilagraph.core.AnalysisEngine;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisRun;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.ControlFlowGraph;
-import org.aquilagraph.model.FlowValue;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.OperationKind;
-import org.aquilagraph.model.OperationNode;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.StableId;
-import org.aquilagraph.model.TransferKind;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.cfg.api.ControlFlowGraph;
+import org.aquilagraph.cfg.api.FlowValue;
+import org.aquilagraph.cfg.api.OperationKind;
+import org.aquilagraph.cfg.api.OperationNode;
+import org.aquilagraph.cfg.api.TransferKind;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class Neo4jSelectedGraphProjectionTest {
   private static final Set<String> TRANSFER_TYPES = Set.of("NORMAL_FLOW", "TRUE_FLOW", "FALSE_FLOW", "SWITCH_FLOW", "RETURN_FLOW",
@@ -445,12 +445,12 @@ class Neo4jSelectedGraphProjectionTest {
   private ProducedGraph analyze(String source, String owner, String name) throws IOException {
     var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-    var run = new AnalysisEngine().analyze(input);
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion(), () -> run.diagnostics().toString());
+    var run = new SourceAnalysisFixture().analyze(input);
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().toString());
     assertTrue(run.diagnostics().stream().noneMatch(AnalysisDiagnostic::isError));
-    var graph = run.representation().orElseThrow().methodAnalyses().stream()
-        .filter(analysis -> analysis.sourceMethod().ownerTypeKey().equals(owner) && analysis.sourceMethod().name().equals(name))
-        .map(analysis -> analysis.controlFlowGraph()).findFirst().orElseThrow();
+    var graph = run.representation().cfg().orElseThrow().methods().stream()
+        .filter(analysis -> run.representation().ast().result().orElseThrow().method(analysis.methodKey()).orElseThrow().ownerTypeKey().equals(owner) && run.representation().ast().result().orElseThrow().method(analysis.methodKey()).orElseThrow().name().equals(name))
+        .map(analysis -> analysis.graph().orElseThrow()).findFirst().orElseThrow();
     return new ProducedGraph(run, graph);
   }
 
@@ -474,7 +474,7 @@ class Neo4jSelectedGraphProjectionTest {
 
   private static void assertOperation(ProducedGraph produced, Neo4jGraphProjection projection, OperationNode operation, String kind,
       String detail, List<String> exceptions) {
-    var expected = headers(produced.run().runId(), operation.nodeId(), "graphId", produced.graph().graphId(), "kind", kind, "detail", detail,
+    var expected = headers(produced.run().identity().key(), operation.nodeId(), "graphId", produced.graph().graphId(), "kind", kind, "detail", detail,
         "possibleExceptions", exceptions);
     assertEquals(new NodeExpectation("OperationNode", expected), new NodeExpectation(node(projection, operation.nodeId()).label(),
         node(projection, operation.nodeId()).properties()));
@@ -482,7 +482,7 @@ class Neo4jSelectedGraphProjectionTest {
 
   private static void assertInvocation(ProducedGraph produced, Neo4jGraphProjection projection, OperationNode operation, String kind,
       String detail, List<String> exceptions, String mode, String form, String typeDisplay, String typeErasure, String declaration) {
-    var expected = headers(produced.run().runId(), operation.nodeId(), "graphId", produced.graph().graphId(), "kind", kind, "detail", detail,
+    var expected = headers(produced.run().identity().key(), operation.nodeId(), "graphId", produced.graph().graphId(), "kind", kind, "detail", detail,
         "possibleExceptions", exceptions, "invocationMode", mode, "invocationForm", form, "qualifyingTypeDeclarationKey", declaration);
     addType(expected, "qualifyingType", "DECLARED", typeDisplay, typeErasure);
     assertEquals(new NodeExpectation("OperationNode", expected), new NodeExpectation(node(projection, operation.nodeId()).label(),
@@ -504,7 +504,7 @@ class Neo4jSelectedGraphProjectionTest {
       String valueText, String category, String typeDisplay, String erasure) {
     var position = produced.graph().values().indexOf(value);
     assertTrue(position >= 0);
-    var expected = headers(produced.run().runId(), value.valueId(), "graphId", produced.graph().graphId(), "kind", kind, "position", position,
+    var expected = headers(produced.run().identity().key(), value.valueId(), "graphId", produced.graph().graphId(), "kind", kind, "position", position,
         valueProperty, valueText);
     addType(expected, "staticType", category, typeDisplay, erasure);
     assertEquals(new NodeExpectation("FlowValue", expected), new NodeExpectation(node(projection, value.valueId()).label(),
@@ -535,10 +535,10 @@ class Neo4jSelectedGraphProjectionTest {
     assertOperands(initialization, List.of());
     assertNoDefinition(projection, initialization);
     var key = StableId.sha256("semantic-reference", initialization.nodeId(), "0");
-    var expected = headers(produced.run().runId(), key, "kind", "TYPE", "status", "RESOLVED", "position", 0, "symbolKey", declaration,
+    var expected = headers(produced.run().identity().key(), key, "kind", "TYPE", "status", "RESOLVED", "position", 0, "symbolKey", declaration,
         "typeName", typeName, "typeAlternativeNames", List.of(), "assignableToTypeNames", List.of());
     assertEquals(new NodeExpectation("SemanticReference", expected), new NodeExpectation(node(projection, key).label(), node(projection, key).properties()));
-    assertEquals(List.of(expectedRelation(produced.run().runId(), "HAS_REFERENCE", initialization.nodeId(), key, "0", "position", 0)),
+    assertEquals(List.of(expectedRelation(produced.run().identity().key(), "HAS_REFERENCE", initialization.nodeId(), key, "0", "position", 0)),
         projection.relationships().stream().filter(relation -> relation.type().equals("HAS_REFERENCE")
             && relation.sourceKey().equals(initialization.nodeId())).map(Neo4jSelectedGraphProjectionTest::relationship).toList());
     assertExceptional(produced, projection, initialization, "unchecked-class-initialization");
@@ -555,9 +555,9 @@ class Neo4jSelectedGraphProjectionTest {
     assertEquals(1, matches.size());
     var edge = matches.getFirst();
     var expected = discriminator.isPresent()
-        ? expectedRelation(produced.run().runId(), transferType(kind), source, target, edge.edgeId(), "edgeId", edge.edgeId(), "discriminator",
+        ? expectedRelation(produced.run().identity().key(), transferType(kind), source, target, edge.edgeId(), "edgeId", edge.edgeId(), "discriminator",
             discriminator.orElseThrow())
-        : expectedRelation(produced.run().runId(), transferType(kind), source, target, edge.edgeId(), "edgeId", edge.edgeId());
+        : expectedRelation(produced.run().identity().key(), transferType(kind), source, target, edge.edgeId(), "edgeId", edge.edgeId());
     assertEquals(expected, projection.relationships().stream().filter(relation -> relation.key().equals(expected.properties().get("key")))
         .map(Neo4jSelectedGraphProjectionTest::relationship).findFirst().orElseThrow());
   }
@@ -568,28 +568,28 @@ class Neo4jSelectedGraphProjectionTest {
     var expected = new HashSet<RelationshipExpectation>();
     for (var position = 0; position < graph.nodes().size(); position++) {
       var graphNode = graph.nodes().get(position);
-      expected.add(expectedRelation(produced.run().runId(), "HAS_NODE", graph.graphId(), graphNode.nodeId(), Integer.toString(position),
+      expected.add(expectedRelation(produced.run().identity().key(), "HAS_NODE", graph.graphId(), graphNode.nodeId(), Integer.toString(position),
           "position", position));
     }
     for (var position = 0; position < graph.values().size(); position++) {
       var value = graph.values().get(position);
-      expected.add(expectedRelation(produced.run().runId(), "HAS_VALUE", graph.graphId(), value.valueId(), Integer.toString(position),
+      expected.add(expectedRelation(produced.run().identity().key(), "HAS_VALUE", graph.graphId(), value.valueId(), Integer.toString(position),
           "position", position));
     }
     for (var operation : graph.operationNodes()) {
       for (var operand : operation.operands()) {
-        expected.add(expectedRelation(produced.run().runId(), "USES_VALUE", operation.nodeId(), operand.value().valueId(),
+        expected.add(expectedRelation(produced.run().identity().key(), "USES_VALUE", operation.nodeId(), operand.value().valueId(),
             Integer.toString(operand.position()), "position", operand.position()));
       }
-      operation.definedValue().ifPresent(value -> expected.add(expectedRelation(produced.run().runId(), "DEFINES_VALUE", operation.nodeId(),
+      operation.definedValue().ifPresent(value -> expected.add(expectedRelation(produced.run().identity().key(), "DEFINES_VALUE", operation.nodeId(),
           value.valueId(), "definition")));
       assertReferencesAndOrigins(produced, projection, operation);
     }
     for (var edge : graph.edges()) {
       expected.add(edge.discriminator().isPresent()
-          ? expectedRelation(produced.run().runId(), transferType(edge.transferKind()), edge.sourceNodeId(), edge.targetNodeId(), edge.edgeId(),
+          ? expectedRelation(produced.run().identity().key(), transferType(edge.transferKind()), edge.sourceNodeId(), edge.targetNodeId(), edge.edgeId(),
               "edgeId", edge.edgeId(), "discriminator", edge.discriminator().orElseThrow())
-          : expectedRelation(produced.run().runId(), transferType(edge.transferKind()), edge.sourceNodeId(), edge.targetNodeId(), edge.edgeId(),
+          : expectedRelation(produced.run().identity().key(), transferType(edge.transferKind()), edge.sourceNodeId(), edge.targetNodeId(), edge.edgeId(),
               "edgeId", edge.edgeId()));
     }
     var actual = projection.relationships().stream().filter(relation ->
@@ -610,12 +610,12 @@ class Neo4jSelectedGraphProjectionTest {
     for (var position = 0; position < operation.semanticReferences().size(); position++) {
       var reference = operation.semanticReferences().get(position);
       var key = StableId.sha256("semantic-reference", operation.nodeId(), Integer.toString(position));
-      var properties = headers(produced.run().runId(), key, "kind", reference.referenceKind().name(), "status", reference.status().name(),
+      var properties = headers(produced.run().identity().key(), key, "kind", reference.referenceKind().name(), "status", reference.status().name(),
           "position", position, "typeAlternativeNames", reference.typeAlternativeNames(), "assignableToTypeNames", reference.assignableToTypeNames());
       reference.symbolKey().ifPresent(value -> properties.put("symbolKey", value));
       reference.typeName().ifPresent(value -> properties.put("typeName", value));
       assertEquals(new NodeExpectation("SemanticReference", properties), new NodeExpectation(node(projection, key).label(), node(projection, key).properties()));
-      expectedReferences.add(expectedRelation(produced.run().runId(), "HAS_REFERENCE", operation.nodeId(), key, Integer.toString(position),
+      expectedReferences.add(expectedRelation(produced.run().identity().key(), "HAS_REFERENCE", operation.nodeId(), key, Integer.toString(position),
           "position", position));
     }
     assertEquals(expectedReferences, projection.relationships().stream().filter(relation -> relation.type().equals("HAS_REFERENCE")
@@ -625,11 +625,11 @@ class Neo4jSelectedGraphProjectionTest {
       var origin = operation.origins().get(position);
       var key = StableId.sha256("source-origin", operation.nodeId(), Integer.toString(position), origin.sourceFileKey(),
           Long.toString(origin.startOffset()), Long.toString(origin.endOffsetExclusive()));
-      var properties = headers(produced.run().runId(), key, "position", position, "startOffset", origin.startOffset(), "endOffsetExclusive",
+      var properties = headers(produced.run().identity().key(), key, "position", position, "startOffset", origin.startOffset(), "endOffsetExclusive",
           origin.endOffsetExclusive());
       assertEquals(new NodeExpectation("SourceOrigin", properties), new NodeExpectation(node(projection, key).label(), node(projection, key).properties()));
-      expectedOrigins.add(expectedRelation(produced.run().runId(), "HAS_ORIGIN", operation.nodeId(), key, Integer.toString(position), "position", position));
-      assertEquals(List.of(expectedRelation(produced.run().runId(), "IN_SOURCE", key, origin.sourceFileKey(), "source")),
+      expectedOrigins.add(expectedRelation(produced.run().identity().key(), "HAS_ORIGIN", operation.nodeId(), key, Integer.toString(position), "position", position));
+      assertEquals(List.of(expectedRelation(produced.run().identity().key(), "IN_SOURCE", key, origin.sourceFileKey(), "source")),
           projection.relationships().stream().filter(relation -> relation.type().equals("IN_SOURCE") && relation.sourceKey().equals(key))
               .map(Neo4jSelectedGraphProjectionTest::relationship).toList());
     }

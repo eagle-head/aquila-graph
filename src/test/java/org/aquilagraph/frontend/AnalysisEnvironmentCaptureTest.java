@@ -1,8 +1,8 @@
 package org.aquilagraph.frontend;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
@@ -10,13 +10,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import javax.tools.ToolProvider;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.DependencyKind;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.SourceFile;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.DependencyKind;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class AnalysisEnvironmentCaptureTest {
   @TempDir Path temporaryDirectory;

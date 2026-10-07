@@ -1,12 +1,10 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.ClassTree;
-import com.sun.source.tree.CatchTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.TypeParameterTree;
-import com.sun.source.tree.UnionTypeTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.TreePathScanner;
@@ -14,30 +12,31 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
-import org.aquilagraph.model.AttributedCoverageExpectations;
-import org.aquilagraph.model.CoveragePropertyValue;
-import org.aquilagraph.model.CoveragePropertyValue.Item;
-import org.aquilagraph.model.CoveragePropertyValue.Provenance;
-import org.aquilagraph.model.CoveragePropertyValue.State;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.LanguageFeature;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeatureCoverage;
-import org.aquilagraph.model.SourceContext;
-import org.aquilagraph.model.SourceContext.Partition;
-import org.aquilagraph.model.SourceCoverageInventory;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceOwnerPath.Role;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AttributedCoverageExpectations;
+import org.aquilagraph.source.api.CoveragePropertyValue;
+import org.aquilagraph.source.api.CoveragePropertyValue.Item;
+import org.aquilagraph.source.api.CoveragePropertyValue.Provenance;
+import org.aquilagraph.source.api.CoveragePropertyValue.State;
+import org.aquilagraph.source.api.LanguageFeature;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.SourceContext;
+import org.aquilagraph.source.api.SourceContext.Partition;
+import org.aquilagraph.source.api.SourceCoverageInventory;
+import org.aquilagraph.source.api.SourceOwnerPath.Role;
 
 /** Captures written then attributed obligations before either corresponding output producer runs. */
 final class JavaSourceCoverageCapture {
   private static final Set<Role> RECURSIVE_TYPE_ROLES = Set.of(Role.TYPE_NAME, Role.TYPE_ARGUMENT, Role.COMPONENT_TYPE,
       Role.UNDERLYING_TYPE, Role.UPPER_BOUND, Role.LOWER_BOUND, Role.INTERSECTION_BOUND, Role.UNION_ALTERNATIVE, Role.TYPE_QUALIFIER);
+  private static final Set<Role> BODY_TYPE_ROLES = Set.of(Role.DECLARED_TYPE, Role.CAST_TYPE, Role.CONSTRUCTED_TYPE, Role.TYPE_ARGUMENT);
   private final SourceCoverageInventory writtenInventory;
   private final Map<SourceContext.Address, SemanticDescriptor> descriptors;
   private final JavaSourceEvidence sourceEvidence;
@@ -61,7 +60,7 @@ final class JavaSourceCoverageCapture {
     var descriptors = new LinkedHashMap<SourceContext.Address, SemanticDescriptor>();
     var typeUses = new ArrayList<SourceContext>();
     captureHeaderTypes(parsed, sources, owners, contexts, descriptors, typeUses);
-    captureCatchUnionTypeUses(owners, typeUses);
+    captureBodyTypeUses(parsed, owners, typeUses);
     contexts.addAll(typeUses);
     for (var owner : owners) {
       JavaCoverageTopology.surface(owner.tree()).ifPresent(surface -> {
@@ -130,9 +129,9 @@ final class JavaSourceCoverageCapture {
     var kind = switch (attribution) {
       case JavaTypeAttribution.Resolved resolved -> Optional.of(resolved.kind().name());
       case JavaTypeAttribution.NoType noType -> Optional.of(noType.kind().name());
-      case JavaTypeAttribution.Erroneous ignored -> Optional.of("ERROR");
-      case JavaTypeAttribution.Unsupported ignored -> Optional.of("OTHER");
-      case JavaTypeAttribution.Unresolved ignored -> Optional.<String>empty();
+      case JavaTypeAttribution.Erroneous _ -> Optional.of("ERROR");
+      case JavaTypeAttribution.Unsupported _ -> Optional.of("OTHER");
+      case JavaTypeAttribution.Unresolved _ -> Optional.<String>empty();
     };
     return kind.map(value -> new CoveragePropertyValue(State.SCALAR, List.of(new Item("type-kind", value, Provenance.WRITTEN))))
         .orElseGet(() -> new CoveragePropertyValue(State.UNAVAILABLE, List.of()));
@@ -226,12 +225,17 @@ final class JavaSourceCoverageCapture {
     }
   }
 
-  private static void captureCatchUnionTypeUses(List<JavaCoverageTopology.Owner> owners, List<SourceContext> contexts) {
+  private static void captureBodyTypeUses(ParsedJavaSource parsed, List<JavaCoverageTopology.Owner> owners, List<SourceContext> contexts) {
     for (var owner : owners) {
-      var parent = owner.treePath().getParentPath();
-      if (owner.tree() instanceof VariableTree variable && variable.getType() instanceof UnionTypeTree && parent != null
-          && parent.getLeaf() instanceof CatchTree) {
-        captureWrittenTypeUses(writtenTypeChild(owner, variable.getType(), owners), owners, contexts);
+      for (var child : JavaParsedChildRoles.children(owner.tree())) {
+        if (!BODY_TYPE_ROLES.contains(child.step().role()) || !parsed.treeInventory().isWritten(child.tree())) {
+          continue;
+        }
+        var childOwner = writtenTypeChild(owner, child.tree(), owners);
+        var address = address(childOwner, Partition.WRITTEN_TYPE_USE, "written-type-use", 0);
+        if (contexts.stream().noneMatch(context -> context.address().equals(address))) {
+          captureWrittenTypeUses(childOwner, owners, contexts);
+        }
       }
     }
   }

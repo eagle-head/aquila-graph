@@ -2,8 +2,8 @@ package org.aquilagraph.frontend;
 
 import java.util.Objects;
 import org.aquilagraph.frontend.JavaMethodBodyTranslator.BodyProjection;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
 
 /** Session-local body projection awaiting independent executable correlation. */
 record TranslatedMethodBody(String methodKey, SyntaxNode root, BodyProjection projection) {

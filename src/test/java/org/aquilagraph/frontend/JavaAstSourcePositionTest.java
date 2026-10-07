@@ -17,16 +17,16 @@ import com.sun.source.util.Trees;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.function.Consumer;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Consumer;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.util.Elements;
@@ -34,31 +34,109 @@ import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
 import javax.tools.SimpleJavaFileObject;
 import javax.tools.ToolProvider;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaType;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.StableId;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.syntax.MethodBodyOrigin;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
-import org.aquilagraph.core.AnalysisEngine;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.JavaType;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.MethodBodyOrigin;
+import org.aquilagraph.source.admission.AstResultAdmission;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.AstOutcome;
+import org.aquilagraph.cfg.CfgDerivers;
+import org.aquilagraph.cfg.api.CfgRequest;
+import org.aquilagraph.cfg.api.CfgProfile;
+import org.aquilagraph.cfg.api.CfgState;
+import org.aquilagraph.cfg.api.MethodCfgState;
+import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.application.AnalysisCompletion;
+
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaAstSourcePositionTest {
   private static final String CONTENT = "class Example { }";
   @TempDir Path sourceRoot;
+
+  @Test
+  void givenInjectedMissingBodyPosition_whenDerivingAdmittedSource_thenSourceUnavailableHasNoInventedBodyAndOtherGraphsSurvive()
+      throws IOException {
+    // Arrange
+    Files.writeString(sourceRoot.resolve("Example.java"), "class Example { int unavailable() { return 1; } int available() { return 2; } }");
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+    var loader = new JavaSourceLoader();
+    var snapshot = loader.discover(sourceRoot);
+    var baseline = new JavaFrontend(loader).analyze(snapshot, configuration);
+    var sources = new SnapshotSourceCatalog(snapshot);
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
+      var compilation = session.analyze(session.parse());
+      var unit = compilation.units().getFirst();
+      var type = (ClassTree) unit.getTypeDecls().getFirst();
+      var declaration = (MethodTree) type.getMembers().stream().filter(MethodTree.class::isInstance)
+          .filter(member -> ((MethodTree) member).getName().contentEquals("unavailable")).findFirst().orElseThrow();
+      var sourceFile = snapshot.sourceFiles().getFirst();
+      var positions = new SourcePositions() {
+        @Override
+        public long getStartPosition(CompilationUnitTree owner, Tree tree) {
+          return JavaProjectionIdentity.sameInstance(tree, declaration.getBody()) ? Diagnostic.NOPOS
+              : compilation.sourceEvidence().origin(owner, sourceFile, tree).map(SourceSpan::startOffset).orElse(Diagnostic.NOPOS);
+        }
+
+        @Override
+        public long getEndPosition(CompilationUnitTree owner, Tree tree) {
+          return JavaProjectionIdentity.sameInstance(tree, declaration.getBody()) ? Diagnostic.NOPOS
+              : compilation.sourceEvidence().origin(owner, sourceFile, tree).map(SourceSpan::endOffsetExclusive).orElse(Diagnostic.NOPOS);
+        }
+      };
+      var translated = new JavaProgramTranslator(sources, compilation.semantics(), new JavaSourceEvidence(positions),
+          compilation.treeInventory(), baseline.languageFeatureCoverage()).translate(snapshot, compilation.units());
+      var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(), translated.value().aggregate(), translated.diagnostics());
+      var ast = AstResultAdmission.admit(input, AstProfile.JAVA_SOURCE_BOUNDED, "javac-public/1");
+      var unavailable = ast.program().methods().stream().filter(method -> method.name().equals("unavailable")).findFirst().orElseThrow();
+      var available = ast.program().methods().stream().filter(method -> method.name().equals("available")).findFirst().orElseThrow();
+      var request = new CfgRequest(ast.identity(), List.of(unavailable.methodKey(), available.methodKey()), CfgProfile.JAVA_BOUNDED);
+
+      // Act
+      var cfg = CfgDerivers.standard().derive(ast, request);
+      var run = new SourceAnalysisRunner(ignored -> {
+        throw new AssertionError("Existing derivation must not produce source");
+      }, CfgDerivers.standard()).deriveExisting(AstOutcome.available(ast), request);
+
+      // Assert
+      assertEquals(AstCompletion.INCOMPLETE, ast.completion());
+      assertEquals(MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION, ast.aggregate().methodBodyOrigin(unavailable.methodKey()).orElseThrow());
+      assertEquals(CfgState.PARTIAL, cfg.state());
+      assertEquals(List.of(MethodCfgState.SOURCE_UNAVAILABLE, MethodCfgState.AVAILABLE), cfg.methods().stream().map(method -> method.state()).toList());
+      var refusal = cfg.methods().getFirst();
+      assertTrue(refusal.body().isEmpty());
+      assertTrue(refusal.graph().isEmpty());
+      assertEquals(List.of(MethodCfgState.SOURCE_UNAVAILABLE), refusal.blockers().stream().map(blocker -> blocker.kind()).toList());
+      var blocker = refusal.blockers().getFirst();
+      assertTrue(blocker.occurrence().isEmpty());
+      assertEquals("body", blocker.slot());
+      assertEquals(ast.identity(), blocker.astIdentity());
+      assertEquals(unavailable.methodKey(), blocker.methodKey());
+      assertEquals("control-flow.source-unavailable", blocker.diagnostic().code());
+      assertTrue(blocker.diagnostic().origins().isEmpty());
+      assertEquals(List.of(blocker.diagnostic()), cfg.diagnostics());
+      assertEquals(ast.bodyRef(available.methodKey()), cfg.methods().getLast().graph().orElseThrow().body());
+      assertEquals(AnalysisCompletion.PARTIAL, run.completion());
+      assertEquals(ast, run.representation().ast().result().orElseThrow());
+    }
+  }
 
   @Test
   void givenUnavailableAndInvalidRootPositions_whenContributionIsTranslated_thenSpecificBlockingDiagnosticsAreReturned()
@@ -188,11 +266,11 @@ class JavaAstSourcePositionTest {
             baseline.languageFeatureCoverage()).translate(snapshot, compilation.units());
         var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
             translated.value().aggregate(), translated.diagnostics());
-        var run = new AnalysisEngine().analyze(input);
+        var run = new SourceAnalysisFixture().analyze(input);
 
         assertTrue(input.aggregate().isEmpty());
         assertTrue(input.program().types().isEmpty());
-        assertTrue(run.completion() != AnalysisCompletion.COMPLETED);
+        assertTrue(run.completion() != AnalysisCompletion.COMPLETE);
         assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(position.code())
             && diagnostic.message().contains("Example.java at source-file-root:0")));
       }
@@ -438,7 +516,7 @@ class JavaAstSourcePositionTest {
       diagnostics.addAll(translated.diagnostics());
       var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
           translated.value().aggregate(), diagnostics);
-      var run = new AnalysisEngine().analyze(input);
+      var run = new SourceAnalysisFixture().analyze(input);
 
       // Assert
       assertTrue(aggregate.roots().getFirst().children(SyntaxRole.TYPE_DECLARATION).stream()
@@ -449,10 +527,10 @@ class JavaAstSourcePositionTest {
       assertTrue(aggregate.declarationTypeEvidence(example.typeKey()).isEmpty());
       assertEquals(List.of(first.typeKey()), aggregate.declarationTypeEvidence().stream().map(evidenceValue -> evidenceValue.ownerTypeKey()).toList());
       var action = example.methods().stream().filter(method -> method.name().equals("action")).findFirst().orElseThrow();
-      assertEquals(MethodBodyOrigin.EXECUTION_PROJECTION, aggregate.methodBodyOrigin(action.methodKey()).orElseThrow());
+      assertEquals(MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY, aggregate.methodBodyOrigin(action.methodKey()).orElseThrow());
       assertTrue(translated.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.missing-source-position")
           && diagnostic.severity() == DiagnosticSeverity.ERROR));
-      assertTrue(run.completion() != AnalysisCompletion.COMPLETED);
+      assertTrue(run.completion() != AnalysisCompletion.COMPLETE);
     }
   }
 
@@ -507,10 +585,10 @@ class JavaAstSourcePositionTest {
           }
           assertEquals(Elements.Origin.EXPLICIT, origin);
           var syntaxKind = switch (member) {
-            case MethodTree ignored -> SyntaxKind.METHOD_DECLARATION;
-            case VariableTree ignored -> fixture.semantics().element(memberPath).getKind() == ElementKind.ENUM_CONSTANT
+            case MethodTree _ -> SyntaxKind.METHOD_DECLARATION;
+            case VariableTree _ -> fixture.semantics().element(memberPath).getKind() == ElementKind.ENUM_CONSTANT
                 ? SyntaxKind.ENUM_CONSTANT_DECLARATION : SyntaxKind.FIELD_DECLARATION;
-            case ClassTree ignored -> SyntaxKind.TYPE_DECLARATION;
+            case ClassTree _ -> SyntaxKind.TYPE_DECLARATION;
             default -> throw new IllegalStateException("Unexpected source member kind: " + member.getKind());
           };
           var start = fixture.positions().getStartPosition(fixture.unit(), member);
@@ -851,7 +929,7 @@ class JavaAstSourcePositionTest {
     var snapshot = loader.discover(sourceRoot);
     var baseline = new JavaFrontend(loader).analyze(snapshot, configuration);
     var sources = new SnapshotSourceCatalog(snapshot);
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(baseline).completion());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(baseline).completion());
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
@@ -884,12 +962,12 @@ class JavaAstSourcePositionTest {
             baseline.languageFeatureCoverage()).translate(snapshot, compilation.units());
         var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
             translated.value().aggregate(), translated.diagnostics());
-        var run = new AnalysisEngine().analyze(input);
+        var run = new SourceAnalysisFixture().analyze(input);
 
         // Assert
         assertTrue(input.aggregate().isEmpty());
         assertTrue(input.program().types().isEmpty());
-        assertTrue(run.completion() != AnalysisCompletion.COMPLETED);
+        assertTrue(run.completion() != AnalysisCompletion.COMPLETE);
         assertEquals(1, translated.diagnostics().size());
         var diagnostic = translated.diagnostics().getFirst();
         assertEquals("frontend.missing-source-position", diagnostic.code());

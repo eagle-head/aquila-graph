@@ -7,8 +7,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.DiagnosticEmission;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.DiagnosticEmission;
 
 /** Transports creating-site diagnostic addresses through nested translator returns. */
 final class TranslationDiagnosticEvidence extends AbstractList<AnalysisDiagnostic> implements DiagnosticEmissionTransport {

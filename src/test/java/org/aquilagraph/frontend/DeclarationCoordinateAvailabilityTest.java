@@ -32,12 +32,12 @@ import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
 import javax.tools.Diagnostic.Kind;
 import javax.tools.ToolProvider;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.SourceFile;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class DeclarationCoordinateAvailabilityTest {
   @TempDir Path temporaryDirectory;

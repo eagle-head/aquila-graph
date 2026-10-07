@@ -35,16 +35,16 @@ import java.util.Objects;
 import java.util.Optional;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
-import org.aquilagraph.model.InvocationForm;
-import org.aquilagraph.model.InvocationSemantics;
-import org.aquilagraph.model.ReferenceKind;
-import org.aquilagraph.model.SemanticReference;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxOperator;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxStructuralPath;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.SyntaxValue;
+import org.aquilagraph.source.api.InvocationForm;
+import org.aquilagraph.source.api.InvocationSemantics;
+import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.SemanticReference;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxOperator;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.jspecify.annotations.Nullable;
 
 final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping, MethodBodySyntaxProfile.MappingContext> {
@@ -57,12 +57,11 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     this.semantics = Objects.requireNonNull(semantics, "semantics");
   }
 
-  SyntaxNodeMapping describe(Tree tree, TreePath treePath, SyntaxStructuralPath structuralPath, SyntaxUse use) {
+  SyntaxNodeMapping describe(Tree tree, TreePath treePath, SyntaxStructuralPath structuralPath) {
     Objects.requireNonNull(tree, "tree");
     Objects.requireNonNull(treePath, "treePath");
     Objects.requireNonNull(structuralPath, "structuralPath");
-    Objects.requireNonNull(use, "use");
-    return tree.accept(this, new MappingContext(treePath, structuralPath, use));
+    return tree.accept(this, new MappingContext(treePath, structuralPath));
   }
 
   @Override
@@ -170,7 +169,7 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     var labelPath = new TreePath(context.treePath(), label);
     var expression = constantLabel.getConstantExpression();
     var expressionPath = new TreePath(labelPath, expression);
-    var childPosition = children.addMultiple(SyntaxRole.LABEL, expression, expressionPath, SyntaxUse.VALUE);
+    var childPosition = children.addMultiple(SyntaxRole.LABEL, expression, expressionPath);
     labels.add(new SyntaxValue.SwitchLabel.Expression(childPosition));
     return (expression instanceof LiteralTree && expression.getKind() != Tree.Kind.NULL_LITERAL)
         || semantics.isEnumConstant(expressionPath);
@@ -210,13 +209,15 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     var qualifier = selection.getExpression();
     var qualifierPath = new TreePath(new TreePath(context.treePath(), selector), qualifier);
     if (selection.getIdentifier().contentEquals(SUPER_NAME) && executable != null && executable.getKind() == ElementKind.CONSTRUCTOR) {
-      children.add(SyntaxRole.RECEIVER, qualifier, qualifierPath, SyntaxUse.VALUE);
+      children.add(SyntaxRole.RECEIVER, qualifier, qualifierPath);
       return invocationValue(CONSTRUCTOR_NAME, InvocationForm.QUALIFIED_SUPER_CONSTRUCTOR, context, executable);
     }
     if (isSuper(qualifier)) {
+      children.add(SyntaxRole.QUALIFIER, qualifier, qualifierPath);
       return invocationValue(name, InvocationForm.SUPER, context, executable);
     }
     if (isQualifiedSuper(qualifier)) {
+      children.add(SyntaxRole.QUALIFIER, qualifier, qualifierPath);
       return executable != null && executable.getKind() == ElementKind.CONSTRUCTOR
           ? invocationValue(CONSTRUCTOR_NAME, InvocationForm.QUALIFIED_SUPER_CONSTRUCTOR, context, executable)
           : invocationValue(name, InvocationForm.QUALIFIED_SUPER, context, executable);
@@ -225,16 +226,18 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
       if (semantics.isTypeOrPackage(qualifierPath)) {
         return invocationValue(name, InvocationForm.STATIC_TYPE, context, executable);
       }
-      children.add(SyntaxRole.RECEIVER, qualifier, qualifierPath, SyntaxUse.VALUE);
+      children.add(SyntaxRole.RECEIVER, qualifier, qualifierPath);
       return invocationValue(name, InvocationForm.STATIC_EXPRESSION, context, executable);
     }
     if (isThis(qualifier)) {
+      children.add(SyntaxRole.QUALIFIER, qualifier, qualifierPath);
       return invocationValue(name, InvocationForm.INSTANCE_THIS, context, executable);
     }
     if (isQualifiedThis(qualifier)) {
+      children.add(SyntaxRole.QUALIFIER, qualifier, qualifierPath);
       return invocationValue(name, InvocationForm.INSTANCE_QUALIFIED_THIS, context, executable);
     }
-    children.add(SyntaxRole.RECEIVER, qualifier, qualifierPath, SyntaxUse.VALUE);
+    children.add(SyntaxRole.RECEIVER, qualifier, qualifierPath);
     return invocationValue(name, InvocationForm.INSTANCE_EXPRESSION, context, executable);
   }
 
@@ -287,21 +290,25 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
         receiver = SyntaxValue.FieldReceiver.STATIC_TYPE;
       } else {
         receiver = SyntaxValue.FieldReceiver.STATIC_EXPRESSION;
-        children.add(SyntaxRole.RECEIVER, qualifier, qualifierPath, SyntaxUse.VALUE);
+        children.add(SyntaxRole.RECEIVER, qualifier, qualifierPath);
       }
     } else if (isThis(qualifier)) {
       receiver = SyntaxValue.FieldReceiver.INSTANCE_THIS;
+      children.add(SyntaxRole.QUALIFIER, qualifier, qualifierPath);
     } else if (isQualifiedThis(qualifier)) {
       receiver = SyntaxValue.FieldReceiver.INSTANCE_QUALIFIED_THIS;
+      children.add(SyntaxRole.QUALIFIER, qualifier, qualifierPath);
     } else if (isSuper(qualifier)) {
       receiver = SyntaxValue.FieldReceiver.SUPER;
+      children.add(SyntaxRole.QUALIFIER, qualifier, qualifierPath);
     } else if (isQualifiedSuper(qualifier)) {
       receiver = SyntaxValue.FieldReceiver.QUALIFIED_SUPER;
+      children.add(SyntaxRole.QUALIFIER, qualifier, qualifierPath);
     } else {
       receiver = SyntaxValue.FieldReceiver.INSTANCE_EXPRESSION;
-      children.add(SyntaxRole.RECEIVER, qualifier, qualifierPath, SyntaxUse.VALUE);
+      children.add(SyntaxRole.RECEIVER, qualifier, qualifierPath);
     }
-    var kind = context.use() == SyntaxUse.ASSIGNMENT_LOCATION ? SyntaxKind.FIELD_LOCATION : SyntaxKind.FIELD_ACCESS;
+    var kind = SyntaxKind.FIELD_ACCESS;
     var referenceKind = element != null && element.getKind() == ElementKind.ENUM_CONSTANT
         ? ReferenceKind.ENUM_CONSTANT
         : ReferenceKind.FIELD;
@@ -336,7 +343,7 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
   @Override
   public SyntaxNodeMapping visitAssignment(AssignmentTree assignment, MappingContext context) {
     var children = new ChildMappings(context);
-    children.add(SyntaxRole.LOCATION, assignment.getVariable(), SyntaxUse.ASSIGNMENT_LOCATION);
+    children.add(SyntaxRole.LOCATION, assignment.getVariable());
     children.add(SyntaxRole.VALUE, assignment.getExpression());
     return accepted(SyntaxKind.ASSIGNMENT, children);
   }
@@ -346,15 +353,12 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     var children = new ChildMappings(context);
     children.add(SyntaxRole.ARRAY, access.getExpression());
     children.add(SyntaxRole.INDEX, access.getIndex());
-    var kind = context.use() == SyntaxUse.ASSIGNMENT_LOCATION ? SyntaxKind.ARRAY_LOCATION : SyntaxKind.ARRAY_ACCESS;
+    var kind = SyntaxKind.ARRAY_ACCESS;
     return accepted(kind, children);
   }
 
   @Override
   public SyntaxNodeMapping visitParenthesized(ParenthesizedTree expression, MappingContext context) {
-    if (context.use() == SyntaxUse.ASSIGNMENT_LOCATION) {
-      return unsupported(expression, new ChildMappings(context));
-    }
     return acceptedWithChild(SyntaxKind.PARENTHESIZED, context, SyntaxRole.EXPRESSION, expression.getExpression());
   }
 
@@ -389,12 +393,12 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
       var receiver = semantics.isStatic(element)
           ? SyntaxValue.FieldReceiver.STATIC_UNQUALIFIED
           : SyntaxValue.FieldReceiver.INSTANCE_IMPLICIT;
-      var kind = context.use() == SyntaxUse.ASSIGNMENT_LOCATION ? SyntaxKind.FIELD_LOCATION : SyntaxKind.FIELD_ACCESS;
+      var kind = SyntaxKind.FIELD_ACCESS;
       var referenceKind = element.getKind() == ElementKind.ENUM_CONSTANT ? ReferenceKind.ENUM_CONSTANT : ReferenceKind.FIELD;
       return accepted(kind, new SyntaxValue.FieldAccess(identifier.getName().toString(), receiver), List.of(),
           semantics.reference(context.treePath(), referenceKind));
     }
-    var kind = context.use() == SyntaxUse.ASSIGNMENT_LOCATION ? SyntaxKind.VARIABLE_LOCATION : SyntaxKind.VARIABLE_ACCESS;
+    var kind = SyntaxKind.VARIABLE_ACCESS;
     var referenceKind = element != null && element.getKind() == ElementKind.PARAMETER ? ReferenceKind.PARAMETER : ReferenceKind.LOCAL;
     return accepted(kind, new SyntaxValue.SourceSymbol(identifier.getName().toString()), List.of(),
         semantics.reference(context.treePath(), referenceKind));
@@ -505,11 +509,10 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     return tree instanceof MemberSelectTree selection && selection.getIdentifier().contentEquals(SUPER_NAME);
   }
 
-  record MappingContext(TreePath treePath, SyntaxStructuralPath structuralPath, SyntaxUse use) {
+  record MappingContext(TreePath treePath, SyntaxStructuralPath structuralPath) {
     MappingContext {
       Objects.requireNonNull(treePath, "treePath");
       Objects.requireNonNull(structuralPath, "structuralPath");
-      Objects.requireNonNull(use, "use");
     }
   }
 
@@ -525,22 +528,18 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     }
 
     private void add(SyntaxRole role, @Nullable Tree tree) {
-      add(role, tree, SyntaxUse.VALUE);
-    }
-
-    private void add(SyntaxRole role, @Nullable Tree tree, SyntaxUse use) {
       if (tree != null) {
-        add(role, tree, new TreePath(parentTreePath, tree), use);
+        add(role, tree, new TreePath(parentTreePath, tree));
       }
     }
 
-    private void add(SyntaxRole role, Tree tree, TreePath treePath, SyntaxUse use) {
-      children.add(new SyntaxChildMapping(role, 0, tree, treePath, parentPath.child(role, 0), use));
+    private void add(SyntaxRole role, Tree tree, TreePath treePath) {
+      children.add(new SyntaxChildMapping(role, 0, tree, treePath, parentPath.child(role, 0)));
     }
 
-    private int addMultiple(SyntaxRole role, Tree tree, TreePath treePath, SyntaxUse use) {
+    private int addMultiple(SyntaxRole role, Tree tree, TreePath treePath) {
       var position = (int) children.stream().filter(child -> child.role() == role).count();
-      children.add(new SyntaxChildMapping(role, position, tree, treePath, parentPath.child(role, position), use));
+      children.add(new SyntaxChildMapping(role, position, tree, treePath, parentPath.child(role, position)));
       return position;
     }
 
@@ -548,8 +547,7 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
       Objects.requireNonNull(trees, "trees");
       for (var index = 0; index < trees.size(); index++) {
         var tree = trees.get(index);
-        children.add(
-            new SyntaxChildMapping(role, index, tree, new TreePath(parentTreePath, tree), parentPath.child(role, index), SyntaxUse.VALUE));
+        children.add(new SyntaxChildMapping(role, index, tree, new TreePath(parentTreePath, tree), parentPath.child(role, index)));
       }
     }
 
@@ -557,8 +555,7 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
       Objects.requireNonNull(trees, "trees");
       for (var index = 0; index < trees.size(); index++) {
         var tree = trees.get(index);
-        children.add(
-            new SyntaxChildMapping(role, index, tree, new TreePath(parentTreePath, tree), parentPath.child(role, index), SyntaxUse.VALUE));
+        children.add(new SyntaxChildMapping(role, index, tree, new TreePath(parentTreePath, tree), parentPath.child(role, index)));
       }
     }
 

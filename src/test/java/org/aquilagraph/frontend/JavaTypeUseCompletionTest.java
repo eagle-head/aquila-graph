@@ -11,25 +11,25 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.LanguageFeature;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeatureCoverage;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeaturePolicy;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.LanguageFeature;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeaturePolicy;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaTypeUseCompletionTest {
   private static final CompilerConfiguration JAVA_25 = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
@@ -58,13 +58,13 @@ class JavaTypeUseCompletionTest {
 
     // Act
     var input = frontend.analyze(sourceRoot, JAVA_25);
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
     var aggregate = input.aggregate().orElseThrow();
     var coverage = input.languageFeatureCoverageResult().coverage();
 
     // Assert
     assertEquals(List.of(), input.diagnostics());
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion());
     assertEquals(Set.of(JavaSourceKind.ARRAY_TYPE, JavaSourceKind.EXTENDS_WILDCARD, JavaSourceKind.PARAMETERIZED_TYPE,
         JavaSourceKind.PRIMITIVE_TYPE, JavaSourceKind.SUPER_WILDCARD, JavaSourceKind.UNBOUNDED_WILDCARD),
         aggregate.nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_USE).map(node -> node.sourceKind())
@@ -134,7 +134,7 @@ class JavaTypeUseCompletionTest {
 
     // Act
     var input = frontend.analyze(sourceRoot, JAVA_25);
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
     assertEquals(List.of(), input.diagnostics());
@@ -145,7 +145,7 @@ class JavaTypeUseCompletionTest {
     assertEquals(JavaTypeCategory.INT, type.resolvedType().orElseThrow().category());
     var range = type.origin().orElseThrow();
     assertEquals("int", source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive())));
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion());
   }
 
   @Test
@@ -233,7 +233,7 @@ class JavaTypeUseCompletionTest {
     assertEquals(JavaSourceKind.ANNOTATED_TYPE, castType.sourceKind());
     assertEquals(bodyOffset, castType.requiredChild(SyntaxRole.ANNOTATION).origin().orElseThrow().startOffset());
     assertEquals(List.of(), input.diagnostics());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(input).completion());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(input).completion());
   }
 
   private static LanguageFeaturePolicy policy(LanguageFeatureCoverage coverage, LanguageFeatureCategory category, String identifier) {

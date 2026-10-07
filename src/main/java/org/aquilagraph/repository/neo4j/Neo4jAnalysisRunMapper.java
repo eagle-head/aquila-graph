@@ -1,8 +1,8 @@
 package org.aquilagraph.repository.neo4j;
 
 import java.util.Objects;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisRun;
+import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.identity.api.SoftwareVersion;
 
 /** Coordinates deterministic mapping of a completed analysis aggregate into Neo4j records. */
 final class Neo4jAnalysisRunMapper {
@@ -20,21 +20,24 @@ final class Neo4jAnalysisRunMapper {
 
   Neo4jGraphProjection map(AnalysisRun run) {
     Objects.requireNonNull(run, "run");
-    if (run.completion() != AnalysisCompletion.COMPLETED) {
+    if (!run.isPublishable()) {
       throw new IllegalArgumentException("Only completed analysis runs may be stored");
     }
 
-    var projection = new Neo4jProjectionBuilder(run.runId());
-    projection.node("AnalysisRun", run.runId(), "completion", run.completion().name());
-    var softwareVersion = run.softwareVersion();
+    var runId = run.identity().key();
+    var ast = run.representation().ast().result().orElseThrow();
+    var projection = new Neo4jProjectionBuilder(runId);
+    projection.node("AnalysisRun", runId, "completion", run.completion().name(), "astResultKey", ast.identity().astResultKey(), "operation",
+        run.identity().operation().name());
+    var softwareVersion = SoftwareVersion.from(ast.snapshot(), ast.environment());
     projection.node("SoftwareVersion", softwareVersion.signature(), "signatureAlgorithm", softwareVersion.signatureAlgorithm(), "signature",
         softwareVersion.signature(), "sourceSignature", softwareVersion.sourceSignature(), "environmentSignature",
         softwareVersion.environmentSignature());
-    projection.relate("ANALYZED_SOFTWARE", run.runId(), softwareVersion.signature(), "software-version");
-    inputMapper.map(softwareVersion.signature(), run.inputSnapshot(), projection);
-    environmentMapper.map(softwareVersion.signature(), run.environmentSnapshot(), projection);
-    evidenceMapper.mapDiagnostics(run.runId(), run.diagnostics(), projection);
-    programMapper.map(run.runId(), run.representation().orElseThrow(), projection);
+    projection.relate("ANALYZED_SOFTWARE", runId, softwareVersion.signature(), "software-version");
+    inputMapper.map(softwareVersion.signature(), ast.snapshot(), projection);
+    environmentMapper.map(softwareVersion.signature(), ast.environment(), projection);
+    evidenceMapper.mapDiagnostics(runId, run.diagnostics(), projection);
+    programMapper.map(runId, run.representation(), projection);
     return projection.build();
   }
 }

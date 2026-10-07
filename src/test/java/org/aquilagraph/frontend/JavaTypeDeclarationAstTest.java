@@ -10,21 +10,21 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.IntStream;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaTypeModifier;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxSemanticRelation;
-import org.aquilagraph.syntax.SyntaxSemanticTarget;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.JavaTypeModifier;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxSemanticRelation;
+import org.aquilagraph.source.api.SyntaxSemanticTarget;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaTypeDeclarationAstTest {
   private static final CompilerConfiguration JAVA_25 = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
@@ -195,7 +195,7 @@ class JavaTypeDeclarationAstTest {
 
     // Act
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
     var type = input.aggregate().orElseThrow().roots().getFirst().requiredChild(SyntaxRole.TYPE_DECLARATION);
     var superclass = type.requiredChild(SyntaxRole.SUPERCLASS);
 
@@ -206,7 +206,7 @@ class JavaTypeDeclarationAstTest {
     assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.erroneous-type-use")
         || diagnostic.code().equals("frontend.unavailable-type-use-attribution")));
     assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
-    assertFalse(run.completion() == AnalysisCompletion.COMPLETED);
+    assertFalse(run.completion() == AnalysisCompletion.COMPLETE);
   }
 
   @Test

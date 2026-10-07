@@ -1,0 +1,110 @@
+package org.aquilagraph.source.api;
+
+import static org.aquilagraph.source.api.MethodDecisionFixtures.builder;
+import static org.aquilagraph.source.api.MethodDecisionFixtures.expression;
+import static org.aquilagraph.source.api.MethodDecisionFixtures.expressionBody;
+import static org.aquilagraph.source.api.MethodDecisionFixtures.literal;
+import static org.aquilagraph.source.api.MethodDecisionFixtures.METHOD;
+import static org.aquilagraph.source.api.MethodDecisionFixtures.node;
+import static org.aquilagraph.source.api.MethodDecisionFixtures.returnedBody;
+import static org.aquilagraph.source.api.MethodDecisionFixtures.STRING;
+import static org.aquilagraph.source.api.MethodDecisionFixtures.type;
+import static org.aquilagraph.source.api.MethodDecisionFixtures.use;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import java.util.List;
+import java.util.Optional;
+import org.aquilagraph.cfg.internal.CfgAdmission;
+import org.aquilagraph.cfg.internal.CfgReadiness;
+import org.junit.jupiter.api.Test;
+
+class ReferenceCastAdmissionTest {
+  @Test
+  void givenAReferenceCastWithoutClassification_whenSealed_thenReadinessRefusesItWithoutChangingSyntaxIdentity() {
+    // Arrange
+    var target = type(JavaTypeCategory.DECLARED, "java.lang.Object");
+    var body = castBody(target);
+    var cast = expression(body);
+    var legacy = use(cast, SyntaxRole.EXPRESSION, 0, target);
+    var classified = classified(cast.nodeId(), STRING, target, Optional.of(false));
+
+    // Act
+    var missing = builder().addMethodBody(METHOD, body, MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY, List.of(legacy)).seal();
+    var present = builder().addChildUseBody(METHOD, body, MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY, List.of(classified)).seal();
+
+    // Assert
+    assertEquals(CfgReadiness.UNRESOLVED_SEMANTICS, CfgAdmission.classify(missing.methodSyntax(METHOD).orElseThrow()));
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(present.methodSyntax(METHOD).orElseThrow()));
+    assertEquals(Optional.of(false), present.methodSyntax(METHOD).orElseThrow()
+        .useEvidence(cast.nodeId(), SyntaxRole.EXPRESSION, 0).orElseThrow().referenceCheck().knownValue());
+    assertNotEquals(missing, present);
+    assertNotEquals(missing.methodSyntax(METHOD), present.methodSyntax(METHOD));
+    assertEquals(missing.nodes(), present.nodes());
+    assertEquals(missing.nodeTuples(), present.nodeTuples());
+    assertEquals(missing.rangeTuples(), present.rangeTuples());
+    assertSame(body, missing.methodSyntax(METHOD).orElseThrow().root());
+    assertSame(body, present.methodSyntax(METHOD).orElseThrow().root());
+  }
+
+  @Test
+  void givenAClassificationOnAReturnOperand_whenSealed_thenTheNonCastConsumerIsRejected() {
+    // Arrange
+    var body = returnedBody(new SyntaxType.Resolved(STRING));
+    var returned = body.requiredChild(SyntaxRole.STATEMENT);
+    var decision = classified(returned.nodeId(), STRING, STRING, Optional.of(false));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> builder().addChildUseBody(METHOD, body, MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY, List.of(decision)).seal());
+
+    // Assert
+    assertEquals("A reference-cast classification requires a cast operand", exception.getMessage());
+  }
+
+  @Test
+  void givenConflictingClassificationsForTheSameCast_whenSealed_thenDuplicateUseEvidenceIsRejected() {
+    // Arrange
+    var target = type(JavaTypeCategory.DECLARED, "java.lang.Object");
+    var body = castBody(target);
+    var cast = expression(body);
+    var first = classified(cast.nodeId(), STRING, target, Optional.of(false));
+    var conflicting = classified(cast.nodeId(), STRING, target, Optional.of(true));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> builder().addChildUseBody(METHOD, body, MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY, List.of(first, conflicting)).seal());
+
+    // Assert
+    assertEquals("Duplicate typed-use decision key", exception.getMessage());
+  }
+
+  @Test
+  void givenAnImpossibleNullCastFailure_whenTheDecisionIsConstructed_thenTheContradictionIsRejected() {
+    // Arrange
+    var source = type(JavaTypeCategory.NULL, "null");
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> classified("cast", source, STRING, Optional.of(true)));
+
+    // Assert
+    assertEquals("A null reference cast cannot fail its validity check", exception.getMessage());
+  }
+
+  private static SyntaxNode castBody(JavaTypeIdentity target) {
+    return expressionBody(path -> node(path, JavaSourceKind.TYPE_CAST, SyntaxKind.TYPE_CAST, new SyntaxType.Resolved(target),
+        new SyntaxValue.TypeName(target.displayName()), List.of(new SyntaxChild(SyntaxRole.EXPRESSION, 0,
+            literal(path.child(SyntaxRole.EXPRESSION, 0), STRING))), Optional.empty()));
+  }
+
+  private static ChildUseEvidence classified(String consumer, JavaTypeIdentity source, JavaTypeIdentity target, Optional<Boolean> check) {
+    var classification = new ConversionEvidence(METHOD, consumer, SyntaxRole.EXPRESSION, 0, source, target, Optional.empty(), Optional.empty(),
+        Optional.empty(), Optional.empty(), Optional.empty());
+    var retained = ChildUseEvidence.known(classification, SyntaxKind.TYPE_CAST, Optional.empty());
+    return new ChildUseEvidence(METHOD, consumer, SyntaxRole.EXPRESSION, 0, source, target, retained.conversion(),
+        EvidenceValue.known(check.orElseThrow(), retained.referenceCheck().origin()));
+  }
+}

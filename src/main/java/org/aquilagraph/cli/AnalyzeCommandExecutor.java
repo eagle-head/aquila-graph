@@ -2,8 +2,8 @@ package org.aquilagraph.cli;
 
 import java.util.Objects;
 import org.aquilagraph.application.AnalysisRepositoryException;
-import org.aquilagraph.application.port.AnalysisEnvironmentException;
-import org.aquilagraph.application.port.AnalysisInputException;
+import org.aquilagraph.source.api.AnalysisEnvironmentException;
+import org.aquilagraph.source.api.AnalysisInputException;
 import org.aquilagraph.application.port.AnalysisUseCase;
 
 /** Invokes the analysis input port and translates application failures into CLI outcomes. */

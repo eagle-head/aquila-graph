@@ -16,35 +16,36 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.ArrayList;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
-import javax.tools.Diagnostic;
-import javax.tools.DiagnosticCollector;
-import javax.tools.JavaFileObject;
-import javax.tools.ToolProvider;
+import java.util.List;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeVariable;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.syntax.InvocationArityMode;
-import org.aquilagraph.syntax.MethodSyntax;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxReadiness;
-import org.aquilagraph.syntax.TypedUseDecision;
-import org.junit.jupiter.api.Test;
+import javax.tools.Diagnostic;
+import javax.tools.DiagnosticCollector;
+import javax.tools.JavaFileObject;
+import javax.tools.ToolProvider;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.cfg.internal.CfgAdmission;
+import org.aquilagraph.cfg.internal.CfgReadiness;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.InvocationApplicabilityMode;
+import org.aquilagraph.source.api.MethodSyntax;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.ConversionEvidence;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaConstructorSelectionTest {
   @Test
@@ -100,15 +101,15 @@ class JavaConstructorSelectionTest {
     assertCompleted(input);
     var variable = body(input, "arrayElement");
     var variableArity = variable.invocationArity(creation(variable).nodeId()).orElseThrow();
-    assertEquals(InvocationArityMode.VARIABLE, variableArity.mode());
+    assertEquals(InvocationApplicabilityMode.VARIABLE, variableArity.mode());
     assertEquals("java.lang.Object[][]", variableArity.varargArrayType().orElseThrow().displayName());
     assertEquals("java.lang.Object[]", argument(input, "arrayElement", 0).selectedTarget().displayName());
     var fixed = body(input, "arrayFixed");
-    assertEquals(InvocationArityMode.FIXED, fixed.invocationArity(creation(fixed).nodeId()).orElseThrow().mode());
+    assertEquals(InvocationApplicabilityMode.FIXED, fixed.invocationArity(creation(fixed).nodeId()).orElseThrow().mode());
     assertEquals("java.lang.Integer[]", argument(input, "arrayFixed", 0).selectedTarget().displayName());
     var zero = body(input, "zero");
     var zeroArity = zero.invocationArity(creation(zero).nodeId()).orElseThrow();
-    assertEquals(InvocationArityMode.VARIABLE, zeroArity.mode());
+    assertEquals(InvocationApplicabilityMode.VARIABLE, zeroArity.mode());
     assertEquals(1, zeroArity.formalCount());
     assertEquals("java.lang.Number[]", zeroArity.varargArrayType().orElseThrow().displayName());
     assertEquals("java.lang.Integer", argument(input, "tail", 0).selectedTarget().displayName());
@@ -352,7 +353,7 @@ class JavaConstructorSelectionTest {
     assertTrue(selected.isPresent(), () -> method.root().descendantsAndSelf().toString());
     assertEquals(JavaTypeCategory.TYPE_VARIABLE, selected.orElseThrow().selectedTarget().category());
     assertEquals("java.lang.Number", selected.orElseThrow().selectedTarget().erasedName());
-    assertEquals(SyntaxReadiness.LOWERABLE, method.readiness(), () -> method.root().descendantsAndSelf().toString());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(method), () -> method.root().descendantsAndSelf().toString());
     assertCompleted(input);
   }
 
@@ -380,7 +381,7 @@ class JavaConstructorSelectionTest {
     assertTrue(selected.isPresent(), () -> method.root().descendantsAndSelf().toString());
     assertEquals(JavaTypeCategory.TYPE_VARIABLE, selected.orElseThrow().selectedTarget().category());
     assertEquals("java.lang.Number", selected.orElseThrow().selectedTarget().erasedName());
-    assertEquals(SyntaxReadiness.LOWERABLE, method.readiness(), () -> method.root().descendantsAndSelf().toString());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(method), () -> method.root().descendantsAndSelf().toString());
     assertEquals(List.of(), input.diagnostics());
     assertCompleted(input);
   }
@@ -408,7 +409,7 @@ class JavaConstructorSelectionTest {
     assertTrue(selected.isPresent(), () -> method.root().descendantsAndSelf().toString());
     assertEquals(JavaTypeCategory.TYPE_VARIABLE, selected.orElseThrow().selectedTarget().category());
     assertEquals("java.lang.Number", selected.orElseThrow().selectedTarget().erasedName());
-    assertEquals(SyntaxReadiness.LOWERABLE, method.readiness(), () -> method.root().descendantsAndSelf().toString());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(method), () -> method.root().descendantsAndSelf().toString());
     assertEquals(List.of(), input.diagnostics());
     assertCompleted(input);
   }
@@ -429,7 +430,7 @@ class JavaConstructorSelectionTest {
     // Assert
     assertEquals("java.lang.Object", argument(input, "create", 0).selectedTarget().displayName());
     assertEquals("java.lang.String", argument(input, "create", 0).sourceType().displayName());
-    assertEquals(InvocationArityMode.FIXED,
+    assertEquals(InvocationApplicabilityMode.FIXED,
         body(input, "create").invocationArity(creation(body(input, "create")).nodeId()).orElseThrow().mode());
     assertCompleted(input);
   }
@@ -532,11 +533,11 @@ class JavaConstructorSelectionTest {
     // Assert
     assertCompleted(input);
     var fixed = body(input, "arrayNull");
-    assertEquals(InvocationArityMode.FIXED, fixed.invocationArity(creation(fixed).nodeId()).orElseThrow().mode());
+    assertEquals(InvocationApplicabilityMode.FIXED, fixed.invocationArity(creation(fixed).nodeId()).orElseThrow().mode());
     assertEquals("java.lang.Number[]", argument(input, "arrayNull", 0).selectedTarget().displayName());
     var expanded = body(input, "componentNull");
     var arity = expanded.invocationArity(creation(expanded).nodeId()).orElseThrow();
-    assertEquals(InvocationArityMode.VARIABLE, arity.mode());
+    assertEquals(InvocationApplicabilityMode.VARIABLE, arity.mode());
     assertEquals(1, arity.formalCount());
     assertEquals("java.lang.Number[]", arity.varargArrayType().orElseThrow().displayName());
     assertEquals("java.lang.Number", argument(input, "componentNull", 0).selectedTarget().displayName());
@@ -574,8 +575,8 @@ class JavaConstructorSelectionTest {
     var component = argument(input, "componentNull", 1);
     assertEquals("java.lang.Object", component.sourceType().displayName());
     assertEquals("java.lang.Object", component.selectedTarget().displayName());
-    assertEquals(InvocationArityMode.VARIABLE, componentNull.invocationArity(componentCreation.nodeId()).orElseThrow().mode());
-    assertEquals(SyntaxReadiness.LOWERABLE, componentNull.readiness(),
+    assertEquals(InvocationApplicabilityMode.VARIABLE, componentNull.invocationArity(componentCreation.nodeId()).orElseThrow().mode());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(componentNull),
         () -> componentNull.root().descendantsAndSelf() + " arguments=" + component + " arity="
             + componentNull.invocationArity(componentCreation.nodeId()));
     var delegation = input.methodSyntax("type:Selection#<init>(java.lang.Integer,boolean)").orElseThrow();
@@ -587,10 +588,10 @@ class JavaConstructorSelectionTest {
     assertEquals("java.lang.Integer", argument(input, "fixed", 0).selectedTarget().displayName());
     assertEquals("java.lang.Object[]", argument(input, "fixed", 1).selectedTarget().displayName());
     var fixed = body(input, "fixed");
-    assertEquals(InvocationArityMode.FIXED, fixed.invocationArity(creation(fixed).nodeId()).orElseThrow().mode());
+    assertEquals(InvocationApplicabilityMode.FIXED, fixed.invocationArity(creation(fixed).nodeId()).orElseThrow().mode());
     var zero = body(input, "zero");
     var zeroArity = zero.invocationArity(creation(zero).nodeId()).orElseThrow();
-    assertEquals(InvocationArityMode.VARIABLE, zeroArity.mode());
+    assertEquals(InvocationApplicabilityMode.VARIABLE, zeroArity.mode());
     assertEquals(2, zeroArity.formalCount());
     assertEquals("java.lang.Object[]", zeroArity.varargArrayType().orElseThrow().displayName());
     assertEquals("java.lang.Object", argument(input, "expanded", 1).selectedTarget().displayName());
@@ -911,13 +912,13 @@ class JavaConstructorSelectionTest {
     assertEquals("java.util.List<java.lang.String>", argument(input, "poly", 1).selectedTarget().displayName());
     var poly = body(input, "poly");
     var array = poly.invocationArity(creation(poly).nodeId()).orElseThrow();
-    assertEquals(InvocationArityMode.VARIABLE, array.mode());
+    assertEquals(InvocationApplicabilityMode.VARIABLE, array.mode());
     assertEquals("java.util.List<java.lang.String>[]", array.varargArrayType().orElseThrow().displayName());
     var captured = argument(input, "capture", 0);
     assertEquals(captured.sourceType(), captured.selectedTarget());
     var capture = body(input, "capture");
     var captureArity = capture.invocationArity(creation(capture).nodeId()).orElseThrow();
-    assertEquals(InvocationArityMode.VARIABLE, captureArity.mode());
+    assertEquals(InvocationApplicabilityMode.VARIABLE, captureArity.mode());
     assertEquals(captured.selectedTarget(), captureArity.elementType().orElseThrow());
   }
 
@@ -943,8 +944,8 @@ class JavaConstructorSelectionTest {
 
   private static void assertCompleted(SyntaxAnalysisInput input) {
     assertTrue(input.diagnostics().stream().noneMatch(diagnostic -> diagnostic.isError()), input.diagnostics().toString());
-    var run = new AnalysisEngine().analyze(input);
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion(), run.diagnostics().toString());
+    var run = new SourceAnalysisFixture().analyze(input);
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), run.diagnostics().toString());
   }
 
   private static MethodSyntax body(SyntaxAnalysisInput input, String name) {
@@ -957,7 +958,7 @@ class JavaConstructorSelectionTest {
         .orElseThrow();
   }
 
-  private static TypedUseDecision argument(SyntaxAnalysisInput input, String name, int position) {
+  private static ConversionEvidence argument(SyntaxAnalysisInput input, String name, int position) {
     var method = body(input, name);
     return method.useDecision(creation(method).nodeId(), SyntaxRole.ARGUMENT, position).orElseThrow();
   }

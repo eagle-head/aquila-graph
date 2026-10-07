@@ -2,8 +2,9 @@ package org.aquilagraph.repository.neo4j;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -11,67 +12,49 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisEnvironmentSnapshot;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.AnalysisRun;
-import org.aquilagraph.model.CfgEdge;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.ControlFlowGraph;
-import org.aquilagraph.model.DependencyKind;
-import org.aquilagraph.model.DependencySnapshot;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.EntryNode;
-import org.aquilagraph.model.ExitNode;
-import org.aquilagraph.model.FlowValue;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.InvocationForm;
-import org.aquilagraph.model.InvocationMode;
-import org.aquilagraph.model.InvocationSemantics;
-import org.aquilagraph.model.JavaField;
-import org.aquilagraph.model.JavaMethod;
-import org.aquilagraph.model.JavaParameter;
-import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.model.JavaRecordComponent;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaSynthesizedDeclaration;
-import org.aquilagraph.model.JavaType;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.JavaTypeIdentity;
-import org.aquilagraph.model.JavaTypeKind;
-import org.aquilagraph.model.JavaTypeModifier;
-import org.aquilagraph.model.JavaTypeParameter;
-import org.aquilagraph.model.JavaTypeReference;
-import org.aquilagraph.model.MethodAnalysis;
-import org.aquilagraph.model.OperationKind;
-import org.aquilagraph.model.OperationNode;
-import org.aquilagraph.model.OperationOperand;
-import org.aquilagraph.model.ProgramRepresentation;
-import org.aquilagraph.model.ReferenceKind;
-import org.aquilagraph.model.ResolutionStatus;
-import org.aquilagraph.model.SemanticReference;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.SoftwareVersion;
-import org.aquilagraph.model.StableId;
-import org.aquilagraph.model.TransferKind;
-import org.aquilagraph.model.ValueKind;
+import org.aquilagraph.application.AnalysisRequest;
+import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.CfgSelection;
+import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.cfg.CfgDerivers;
+import org.aquilagraph.cfg.api.CfgProfile;
+import org.aquilagraph.cfg.api.ControlFlowGraph;
+import org.aquilagraph.cfg.api.EntryNode;
+import org.aquilagraph.cfg.api.ExitNode;
+import org.aquilagraph.cfg.api.FlowValue;
+import org.aquilagraph.cfg.api.OperationNode;
+import org.aquilagraph.frontend.JavaFrontend;
+import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.DependencySnapshot;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SoftwareVersion;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.JavaField;
+import org.aquilagraph.source.api.JavaMethod;
+import org.aquilagraph.source.api.JavaParameter;
+import org.aquilagraph.source.api.JavaRecordComponent;
+import org.aquilagraph.source.api.JavaSynthesizedDeclaration;
+import org.aquilagraph.source.api.JavaType;
+import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.JavaTypeParameter;
+import org.aquilagraph.source.api.JavaTypeReference;
+import org.aquilagraph.source.api.SemanticReference;
+import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class Neo4jStoredSurfaceContractTest {
-  private static final String RUN_ID = "supplied-run";
-  private static final String OWNER = "type:Owner";
-  private static final String RECORD = "type:Owner.Record";
-  private static final String MODE = "type:Mode";
-  private static final String METHOD = RECORD + "#evaluate";
-  private static final String CONSTRUCTOR = RECORD + "#constructor";
-  private static final String ACCESSOR = RECORD + "#value";
-  private static final String GRAPH = "supplied-graph";
-  private static final String SOURCE = "source:main";
-  private static final String SUPPORT = "source:support";
   private static final Set<String> RUN_LABELS = Set.of("AnalysisRun", "SoftwareVersion");
   private static final Set<String> INPUT_LABELS = Set.of("InputSnapshot", "SourceFile");
   private static final Set<String> ENVIRONMENT_LABELS = Set.of("AnalysisEnvironmentSnapshot", "CompilerConfiguration", "DependencySnapshot");
@@ -109,15 +92,26 @@ class Neo4jStoredSurfaceContractTest {
   }
 
   @Test
-  void givenOrderedCompilerDependencies_whenMapped_thenConfigurationProvenanceRolesCountsAndPositionsArePreserved() {
+  void givenOrderedCompilerDependencies_whenMapped_thenConfigurationProvenanceRolesCountsAndPositionsArePreserved() throws IOException {
     // Arrange
-    var run = suppliedRun();
+    var first = Files.createDirectory(temporaryDirectory.resolve("first-dependency"));
+    var second = Files.createDirectory(temporaryDirectory.resolve("second-dependency"));
+    Files.writeString(first.resolve("marker.txt"), "alpha");
+    Files.writeString(second.resolve("marker.txt"), "beta");
+    var run = producedRun(temporaryDirectory.resolve("source-root"), List.of(first, second, first), List.of(first));
     var expected = expectedSurface(run);
 
     // Act
     var projection = new Neo4jAnalysisRunMapper().map(run);
 
     // Assert
+    var environment = run.representation().ast().capturedEnvironment().orElseThrow();
+    assertEquals(List.of(5L, 4L, 5L), environment.classPath().stream().map(value -> value.byteCount()).toList());
+    assertEquals(List.of(1, 1, 1), environment.classPath().stream().map(value -> value.entryCount()).toList());
+    assertEquals(environment.classPath().getFirst(), environment.modulePath().getFirst());
+    assertEquals(4, nodesWithLabel(projection, "DependencySnapshot").size());
+    assertEquals(3, projection.relationships().stream().filter(value -> value.type().equals("HAS_CLASS_PATH_ENTRY")).count());
+    assertEquals(1, projection.relationships().stream().filter(value -> value.type().equals("HAS_MODULE_PATH_ENTRY")).count());
     assertFamily(expected, projection, ENVIRONMENT_LABELS,
         Set.of("HAS_ENVIRONMENT", "HAS_CONFIGURATION", "HAS_CLASS_PATH_ENTRY", "HAS_MODULE_PATH_ENTRY"));
   }
@@ -174,15 +168,15 @@ class Neo4jStoredSurfaceContractTest {
     var projection = new Neo4jAnalysisRunMapper().map(run);
 
     // Assert
-    assertEquals(RUN_ID, projection.runId());
+    assertEquals(run.identity().key(), projection.runId());
     assertEquals(expected.nodes, actualNodes(projection));
     assertEquals(expected.relationships, actualRelationships(projection));
   }
 
   @Test
-  void givenRelocatedInputsWithUnchangedOptions_whenMapped_thenIdentityIsRetainedWhileStoredLocationsAndConfigurationKeysChange() {
+  void givenRelocatedInputsWithUnchangedOptions_whenMapped_thenIdentityIsRetainedWhileCapturedRootChanges() throws IOException {
     // Arrange
-    var original = withDerivedIdentity(suppliedRun());
+    var original = suppliedRun();
     var relocated = relocate(original, false);
 
     // Act
@@ -190,25 +184,25 @@ class Neo4jStoredSurfaceContractTest {
     var relocatedProjection = new Neo4jAnalysisRunMapper().map(relocated);
 
     // Assert
-    assertEquals(original.environmentSnapshot().environmentDigest(), relocated.environmentSnapshot().environmentDigest());
-    assertEquals(original.softwareVersion(), relocated.softwareVersion());
-    assertEquals(original.runId(), relocated.runId());
-    assertEquals(original.inputSnapshot().snapshotDigest(), relocated.inputSnapshot().snapshotDigest());
+    assertEquals(original.representation().ast().capturedEnvironment().orElseThrow().environmentDigest(), relocated.representation().ast().capturedEnvironment().orElseThrow().environmentDigest());
+    assertEquals(SoftwareVersion.from(original.representation().ast().capturedInput().orElseThrow(), original.representation().ast().capturedEnvironment().orElseThrow()), SoftwareVersion.from(relocated.representation().ast().capturedInput().orElseThrow(), relocated.representation().ast().capturedEnvironment().orElseThrow()));
+    assertEquals(original.identity().key(), relocated.identity().key());
+    assertEquals(original.representation().ast().capturedInput().orElseThrow().snapshotDigest(), relocated.representation().ast().capturedInput().orElseThrow().snapshotDigest());
     assertEquals(nodesWithLabel(originalProjection, "SourceFile"), nodesWithLabel(relocatedProjection, "SourceFile"));
     assertNotEquals(nodesWithLabel(originalProjection, "InputSnapshot"), nodesWithLabel(relocatedProjection, "InputSnapshot"));
-    assertNotEquals(nodesWithLabel(originalProjection, "CompilerConfiguration").keySet(),
+    assertEquals(nodesWithLabel(originalProjection, "CompilerConfiguration").keySet(),
         nodesWithLabel(relocatedProjection, "CompilerConfiguration").keySet());
     assertEquals(nodesWithLabel(originalProjection, "DependencySnapshot").keySet(),
         nodesWithLabel(relocatedProjection, "DependencySnapshot").keySet());
-    assertNotEquals(nodesWithLabel(originalProjection, "DependencySnapshot"), nodesWithLabel(relocatedProjection, "DependencySnapshot"));
+    assertEquals(nodesWithLabel(originalProjection, "DependencySnapshot"), nodesWithLabel(relocatedProjection, "DependencySnapshot"));
     assertEquals(expectedSurface(relocated).nodes, actualNodes(relocatedProjection));
     assertEquals(expectedSurface(relocated).relationships, actualRelationships(relocatedProjection));
   }
 
   @Test
-  void givenRelocatedPathBearingOptionText_whenMapped_thenEnvironmentVersionAndDerivedRunIdentitiesChange() {
+  void givenRelocatedPathBearingOptionText_whenMapped_thenEnvironmentVersionAndDerivedRunIdentitiesChange() throws IOException {
     // Arrange
-    var original = withDerivedIdentity(suppliedRun());
+    var original = suppliedRun();
     var relocated = relocate(original, true);
 
     // Act
@@ -216,320 +210,269 @@ class Neo4jStoredSurfaceContractTest {
     var relocatedProjection = new Neo4jAnalysisRunMapper().map(relocated);
 
     // Assert
-    assertNotEquals(original.environmentSnapshot().environmentDigest(), relocated.environmentSnapshot().environmentDigest());
-    assertNotEquals(original.softwareVersion(), relocated.softwareVersion());
-    assertNotEquals(original.runId(), relocated.runId());
+    assertNotEquals(original.representation().ast().capturedEnvironment().orElseThrow().environmentDigest(), relocated.representation().ast().capturedEnvironment().orElseThrow().environmentDigest());
+    assertNotEquals(SoftwareVersion.from(original.representation().ast().capturedInput().orElseThrow(), original.representation().ast().capturedEnvironment().orElseThrow()), SoftwareVersion.from(relocated.representation().ast().capturedInput().orElseThrow(), relocated.representation().ast().capturedEnvironment().orElseThrow()));
+    assertNotEquals(original.identity().key(), relocated.identity().key());
     assertNotEquals(nodesWithLabel(originalProjection, "AnalysisEnvironmentSnapshot").keySet(),
         nodesWithLabel(relocatedProjection, "AnalysisEnvironmentSnapshot").keySet());
     assertNotEquals(nodesWithLabel(originalProjection, "SoftwareVersion").keySet(), nodesWithLabel(relocatedProjection, "SoftwareVersion").keySet());
-    assertEquals(original.inputSnapshot().snapshotDigest(), relocated.inputSnapshot().snapshotDigest());
+    assertEquals(original.representation().ast().capturedInput().orElseThrow().snapshotDigest(), relocated.representation().ast().capturedInput().orElseThrow().snapshotDigest());
     assertEquals(expectedSurface(relocated).nodes, actualNodes(relocatedProjection));
     assertEquals(expectedSurface(relocated).relationships, actualRelationships(relocatedProjection));
   }
 
   private AnalysisRun suppliedRun() {
-    var source = new SourceFile(SOURCE, Path.of("z", "Main.java"), "main-content-digest", "record Record(String value, String... rest) {}");
-    var support = new SourceFile(SUPPORT, Path.of("a", "Support.java"), "support-content-digest", "sealed interface Owner permits Record {}");
-    var input = new InputSnapshot(temporaryDirectory.resolve("source-root"), "SHA-256", "supplied-source-digest", List.of(support, source));
-    var classFirst = temporaryDirectory.resolve("dependencies", "first.jar");
-    var classSecond = temporaryDirectory.resolve("dependencies", "missing");
-    var module = temporaryDirectory.resolve("modules", "compiled");
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(classFirst, classSecond), List.of(module), List.of("-Xlint:all"));
-    var environment = new AnalysisEnvironmentSnapshot(configuration, "supplied.Compiler", "Supplied Vendor", "25-supplied",
-        List.of("--release", "25", "--class-path", classFirst.toString(), "-Xlint:all"),
-        List.of(new DependencySnapshot(classFirst, DependencyKind.REGULAR_FILE, 17L, 1, "class-first-fingerprint"),
-            new DependencySnapshot(classSecond, DependencyKind.MISSING, 0L, 0, "class-missing-fingerprint")),
-        List.of(new DependencySnapshot(module, DependencyKind.DIRECTORY, 23L, 2, "module-fingerprint")));
-    var mainOrigin = new SourceSpan(SOURCE, 0L, 12L);
-    var supportOrigin = new SourceSpan(SUPPORT, 1L, 9L);
-    var integer = new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int");
-    var string = new JavaTypeIdentity(JavaTypeCategory.DECLARED, "java.lang.String", "java.lang.String");
-    var array = new JavaTypeIdentity(JavaTypeCategory.ARRAY, "java.lang.String[]", "java.lang.String[]");
-    var inputParameter = new JavaParameter(METHOD + ":input", "input", integer, true, List.of(mainOrigin));
-    var method = new JavaMethod(METHOD, RECORD, "evaluate", "evaluate(int)", "int", List.of(inputParameter), Set.of("static", "public"),
-        false, true, true, List.of(mainOrigin));
-    var constructor = new JavaMethod(CONSTRUCTOR, RECORD, "Record", "Record(java.lang.String,java.lang.String[])", "void",
-        List.of(new JavaParameter(CONSTRUCTOR + ":value", "value", string, false, List.of()),
-            new JavaParameter(CONSTRUCTOR + ":rest", "rest", array, false, List.of())), Set.of("public"), true, false, false, List.of());
-    var accessor = new JavaMethod(ACCESSOR, RECORD, "value", "value()", "java.lang.String", List.of(), Set.of("public"), false, false, false,
-        List.of());
-    var ownerReference = new JavaTypeReference(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Owner", "Owner"), Optional.of(OWNER));
-    var recordReference = new JavaTypeReference(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Owner.Record<T>", "Owner.Record"),
-        Optional.of(RECORD));
-    var owner = new JavaType(OWNER, "Owner", JavaTypeKind.INTERFACE, Set.of(JavaTypeModifier.SEALED, JavaTypeModifier.PUBLIC), Optional.empty(),
-        Optional.empty(), List.of(), List.of(recordReference), List.of(), true, List.of(), List.of(), List.of(), List.of(), List.of(supportOrigin));
-    var parameter = new JavaTypeParameter(RECORD + ":T", RECORD, "T",
-        List.of(reference("java.lang.Number", "java.lang.Number", Optional.of("type:java.lang.Number")),
-            reference("java.lang.Comparable<T>", "java.lang.Comparable", Optional.empty())), true, List.of(mainOrigin));
-    var implicitParameter = new JavaTypeParameter(RECORD + ":U", RECORD, "U",
-        List.of(reference("java.lang.Object", "java.lang.Object", Optional.of("type:java.lang.Object"))), false, List.of());
-    var record = new JavaType(RECORD, "Owner.Record", JavaTypeKind.RECORD, Set.of(JavaTypeModifier.PUBLIC, JavaTypeModifier.FINAL),
-        Optional.of(ownerReference), Optional.of(reference("java.lang.Record", "java.lang.Record", Optional.of("type:java.lang.Record"))),
-        List.of(ownerReference, reference("java.io.Serializable", "java.io.Serializable", Optional.empty())), List.of(),
-        List.of(parameter, implicitParameter), true,
-        List.of(new JavaField(RECORD + "#count", RECORD, "count", integer, Set.of("static", "public"), false, true, List.of(mainOrigin)),
-            new JavaField(RECORD + "#backing", RECORD, "value", string, Set.of("private", "final"), false, false, List.of())),
-        List.of(new JavaRecordComponent(RECORD + "#record-component:0", RECORD, 0, "value", string, Set.of(), Set.of(JavaTypeModifier.FINAL),
-            false, Optional.of(ACCESSOR), Optional.of(RECORD + "#backing"), Optional.of(CONSTRUCTOR + ":value"), mainOrigin),
-            new JavaRecordComponent(RECORD + "#record-component:1", RECORD, 1, "rest", array, Set.of(), Set.of(), true, Optional.empty(),
-                Optional.empty(), Optional.empty(), supportOrigin)),
-        List.of(method, constructor, accessor), List.of(new JavaSynthesizedDeclaration(RECORD + "#equals", RECORD,
-            JavaSynthesizedDeclaration.Kind.METHOD)), List.of(mainOrigin));
-    var mode = new JavaType(MODE, "Mode", JavaTypeKind.ENUM, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), true,
-        List.of(new JavaField(MODE + "#READY", MODE, "READY", new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Mode", "Mode"),
-            Set.of("static", "public", "final"), true, true, List.of(supportOrigin))), List.of(), List.of(),
-        List.of(new JavaSynthesizedDeclaration(MODE + "#values", MODE, JavaSynthesizedDeclaration.Kind.METHOD)), List.of(supportOrigin));
-    var implicitType = new JavaType("type:Implicit", "Implicit", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(),
-        List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of());
-    var graph = suppliedGraph(integer, mainOrigin, supportOrigin);
-    var representation = new ProgramRepresentation(new JavaProgram(List.of(owner, record, mode, implicitType)),
-        List.of(new MethodAnalysis("supplied-analysis", method, graph)));
-    var diagnostic = new AnalysisDiagnostic("diagnostic:source", "frontend.observation", DiagnosticStage.FRONTEND, DiagnosticSeverity.WARNING,
-        "Supplied source observation", List.of(mainOrigin, supportOrigin), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+    return producedRun(temporaryDirectory.resolve("source-root"), List.of(), List.of());
+  }
+
+  private AnalysisRun producedRun(Path root, List<Path> dependencies, List<Path> modules) {
+    var main = SourceFile.fromContent(Path.of("z", "Owner.java"), """
+        sealed interface Owner permits Owner.Record {
+          record Record<T extends Number & Comparable<T>>(String value, String... rest) implements Owner {
+            public Record(String value, String... rest) { this.value = value; this.rest = rest; }
+            static int count;
+            static int evaluate(int input, int divisor) {
+              if (input > 0) return input / divisor;
+              return switch (input) { case 0 -> 7; default -> Math.max(input, 1); };
+            }
+          }
+        }
+        """);
+    var support = SourceFile.fromContent(Path.of("a", "Support.java"), "enum Mode { ; Mode() {} } class Implicit {}");
+    var input = InputSnapshot.fromSources(root, List.of(main, support));
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, dependencies, modules, List.of("-Xlint:all"));
+    var request = new AnalysisRequest(new SourceInput.Snapshot(input), configuration, AstProfile.JAVA_SOURCE_BOUNDED,
+        Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE);
+    var original = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()).analyze(request);
+    var origin = original.representation().ast().result().orElseThrow().program().types().stream()
+        .filter(type -> type.qualifiedName().equals("Owner")).findFirst().orElseThrow().origins().getFirst();
+    var warning = new AnalysisDiagnostic("diagnostic:source", "frontend.observation", DiagnosticStage.FRONTEND, DiagnosticSeverity.WARNING,
+        "Supplied source observation", List.of(origin), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
     var noOrigin = new AnalysisDiagnostic("diagnostic:implicit", "frontend.observation", DiagnosticStage.FRONTEND, DiagnosticSeverity.WARNING,
         "Supplied observation without origin", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
-    return new AnalysisRun(RUN_ID, input, environment, Optional.of(representation), List.of(diagnostic, noOrigin, diagnostic),
-        AnalysisCompletion.COMPLETED);
+    return new AnalysisRun(original.identity(), original.representation(), original.completion(), List.of(warning, noOrigin, warning));
   }
 
-  private static ControlFlowGraph suppliedGraph(JavaTypeIdentity integer, SourceSpan mainOrigin, SourceSpan supportOrigin) {
-    var parameter = new FlowValue("value:parameter", GRAPH, ValueKind.PARAMETER, Optional.of("input"), Optional.empty(), Optional.of(integer));
-    var constant = new FlowValue("value:constant", GRAPH, ValueKind.CONSTANT, Optional.empty(), Optional.of("7"), Optional.of(integer));
-    var unknown = new FlowValue("value:unknown", GRAPH, ValueKind.TEMPORARY, Optional.empty(), Optional.empty(), Optional.empty());
-    var resolved = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED, Optional.of("type:External#compute"), Optional.of("int"),
-        List.of("int"), List.of("int"));
-    var unresolved = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of());
-    var symbolOnly = new SemanticReference(ReferenceKind.PACKAGE, ResolutionStatus.RESOLVED, Optional.of("package:external"), Optional.empty(),
-        List.of(), List.of());
-    var typeOnly = new SemanticReference(ReferenceKind.FIELD, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.of("java.lang.String"),
-        List.of("java.lang.String"), List.of("java.lang.Object", "java.lang.String"));
-    var invoke = new OperationNode("node:invoke", GRAPH, OperationKind.INVOKE, "External.compute",
-        List.of(new OperationOperand(0, parameter), new OperationOperand(1, constant)), Optional.of(unknown),
-        Optional.of(new InvocationSemantics(InvocationMode.STATIC, reference("External", "External", Optional.of("type:External")),
-            InvocationForm.STATIC_TYPE)), List.of(resolved, unresolved, symbolOnly, typeOnly),
-        List.of("java.lang.ArithmeticException", "java.lang.OutOfMemoryError"),
-        List.of(mainOrigin, supportOrigin));
-    var construct = new OperationNode("node:construct", GRAPH, OperationKind.NEW_OBJECT, "new External", List.of(), Optional.empty(),
-        Optional.of(new InvocationSemantics(InvocationMode.CONSTRUCTOR, reference("External", "External", Optional.empty()),
-            InvocationForm.OBJECT_CREATION)), List.of(), List.of("java.lang.OutOfMemoryError"), List.of());
-    var returning = new OperationNode("node:return", GRAPH, OperationKind.RETURN, "return", List.of(), Optional.empty(), Optional.empty(),
-        List.of(), List.of(), List.of());
-    return new ControlFlowGraph(GRAPH, METHOD, new EntryNode("node:entry", GRAPH), List.of(invoke, construct, returning),
-        List.of(parameter, constant, unknown), new ExitNode("node:exit", GRAPH),
-        List.of(new CfgEdge("edge:normal", GRAPH, "node:entry", "node:invoke", TransferKind.NORMAL, Optional.empty()),
-            new CfgEdge("edge:true", GRAPH, "node:invoke", "node:return", TransferKind.TRUE_BRANCH, Optional.of("condition")),
-            new CfgEdge("edge:false", GRAPH, "node:invoke", "node:construct", TransferKind.FALSE_BRANCH, Optional.of("condition")),
-            new CfgEdge("edge:switch", GRAPH, "node:construct", "node:return", TransferKind.SWITCH_ALTERNATIVE, Optional.of("case:7")),
-            new CfgEdge("edge:return", GRAPH, "node:return", "node:exit", TransferKind.RETURN, Optional.empty()),
-            new CfgEdge("edge:exception", GRAPH, "node:invoke", "node:exit", TransferKind.EXCEPTIONAL,
-                Optional.of("java.lang.ArithmeticException"))));
-  }
-
-  private static JavaTypeReference reference(String display, String erasure, Optional<String> declaration) {
-    return new JavaTypeReference(new JavaTypeIdentity(JavaTypeCategory.DECLARED, display, erasure), declaration);
-  }
-
-  private AnalysisRun relocate(AnalysisRun run, boolean changeOptionText) {
-    var location = temporaryDirectory.resolve("relocated");
-    var input = new InputSnapshot(location.resolve("source-root"), "SHA-256", run.inputSnapshot().snapshotDigest(), run.inputSnapshot().sourceFiles());
-    var classFirst = location.resolve("first.jar");
-    var classSecond = location.resolve("missing");
-    var module = location.resolve("compiled");
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(classFirst, classSecond), List.of(module), List.of("-Xlint:all"));
-    var options = changeOptionText ? List.of("--release", "25", "--class-path", classFirst.toString(), "-Xlint:all")
-        : run.environmentSnapshot().analysisOptions();
-    var environment = new AnalysisEnvironmentSnapshot(configuration, "supplied.Compiler", "Supplied Vendor", "25-supplied", options,
-        List.of(new DependencySnapshot(classFirst, DependencyKind.REGULAR_FILE, 17L, 1, "class-first-fingerprint"),
-            new DependencySnapshot(classSecond, DependencyKind.MISSING, 0L, 0, "class-missing-fingerprint")),
-        List.of(new DependencySnapshot(module, DependencyKind.DIRECTORY, 23L, 2, "module-fingerprint")));
-    var runId = StableId.sha256("analysis-run", SoftwareVersion.from(input, environment).signature());
-    return new AnalysisRun(runId, input, environment, run.representation(), run.diagnostics(), AnalysisCompletion.COMPLETED);
-  }
-
-  private static AnalysisRun withDerivedIdentity(AnalysisRun run) {
-    return new AnalysisRun(StableId.sha256("analysis-run", run.softwareVersion().signature()), run.inputSnapshot(), run.environmentSnapshot(),
-        run.representation(), run.diagnostics(), AnalysisCompletion.COMPLETED);
+  private AnalysisRun relocate(AnalysisRun run, boolean changeOptionText) throws IOException {
+    var root = temporaryDirectory.resolve("relocated");
+    Files.createDirectories(root);
+    var dependencies = changeOptionText ? List.of(Files.createDirectory(root.resolve("dependency"))) : List.<Path>of();
+    return producedRun(root, dependencies, List.of());
   }
 
   private static ExpectedSurface expectedSurface(AnalysisRun run) {
-    var runId = run.runId();
+    var runId = run.identity().key();
+    var ast = run.representation().ast().result().orElseThrow();
+    var snapshot = ast.snapshot();
+    var environment = ast.environment();
+    var version = SoftwareVersion.from(snapshot, environment);
     var expected = new ExpectedSurface(runId);
-    var version = run.softwareVersion();
-    var input = StableId.sha256("input-snapshot", "supplied-source-digest");
-    var environment = run.environmentSnapshot().environmentDigest();
-    var configuration = StableId.sha256("compiler-configuration", run.compilerConfiguration().canonicalForm());
-    var program = StableId.sha256("program", runId);
-    expected.node("AnalysisRun", runId, properties("completion", "COMPLETED"));
-    expected.node("SoftwareVersion", version.signature(), properties("signatureAlgorithm", "SHA-256", "signature", version.signature(),
-        "sourceSignature", "supplied-source-digest", "environmentSignature", environment));
+    expected.node("AnalysisRun", runId, properties("completion", "COMPLETE", "astResultKey", ast.identity().astResultKey(),
+        "operation", "PRODUCTION_WITH_CFG"));
+    expected.node("SoftwareVersion", version.signature(), properties("signatureAlgorithm", version.signatureAlgorithm(), "signature",
+        version.signature(), "sourceSignature", snapshot.snapshotDigest(), "environmentSignature", environment.environmentDigest()));
     expected.edge("ANALYZED_SOFTWARE", runId, version.signature(), "software-version");
-    expected.node("InputSnapshot", input, properties("sourceRoot", run.inputSnapshot().sourceRoot().toString(), "digestAlgorithm", "SHA-256",
-        "snapshotDigest", "supplied-source-digest"));
-    expected.node("SourceFile", SUPPORT, properties("relativePath", "a/Support.java", "contentDigest", "support-content-digest", "content",
-        "sealed interface Owner permits Record {}"));
-    expected.node("SourceFile", SOURCE, properties("relativePath", "z/Main.java", "contentDigest", "main-content-digest", "content",
-        "record Record(String value, String... rest) {}"));
-    expected.edge("HAS_INPUT", version.signature(), input, "input");
-    expected.edge("HAS_SOURCE", input, SUPPORT, Path.of("a", "Support.java").toString());
-    expected.edge("HAS_SOURCE", input, SOURCE, Path.of("z", "Main.java").toString());
-    expected.node("AnalysisEnvironmentSnapshot", environment, properties("digestAlgorithm", "SHA-256", "environmentDigest", environment,
-        "compilerImplementation", "supplied.Compiler", "compilerVendor", "Supplied Vendor", "compilerVersion", "25-supplied", "analysisOptions",
-        run.environmentSnapshot().analysisOptions()));
-    expected.node("CompilerConfiguration", configuration, properties("release", 25, "classPath",
-        run.compilerConfiguration().classPath().stream().map(Path::toString).toList(), "modulePath",
-        run.compilerConfiguration().modulePath().stream().map(Path::toString).toList(), "options", List.of("-Xlint:all")));
-    expected.edge("HAS_ENVIRONMENT", version.signature(), environment, "environment");
-    expected.edge("HAS_CONFIGURATION", environment, configuration, "configuration");
-    var first = StableId.sha256("dependency-snapshot", environment, "class-path", "0", "class-first-fingerprint");
-    var second = StableId.sha256("dependency-snapshot", environment, "class-path", "1", "class-missing-fingerprint");
-    var module = StableId.sha256("dependency-snapshot", environment, "module-path", "0", "module-fingerprint");
-    expected.node("DependencySnapshot", first, properties("location", run.compilerConfiguration().classPath().getFirst().toString(), "kind",
-        "REGULAR_FILE", "byteCount", 17L, "entryCount", 1, "fingerprint", "class-first-fingerprint", "position", 0));
-    expected.node("DependencySnapshot", second, properties("location", run.compilerConfiguration().classPath().getLast().toString(), "kind",
-        "MISSING", "byteCount", 0L, "entryCount", 0, "fingerprint", "class-missing-fingerprint", "position", 1));
-    expected.node("DependencySnapshot", module, properties("location", run.compilerConfiguration().modulePath().getFirst().toString(), "kind",
-        "DIRECTORY", "byteCount", 23L, "entryCount", 2, "fingerprint", "module-fingerprint", "position", 0));
-    expected.edge("HAS_CLASS_PATH_ENTRY", environment, first, "0", "position", 0);
-    expected.edge("HAS_CLASS_PATH_ENTRY", environment, second, "1", "position", 1);
-    expected.edge("HAS_MODULE_PATH_ENTRY", environment, module, "0", "position", 0);
-    expected.node("Diagnostic", "diagnostic:source", properties("code", "frontend.observation", "stage", "FRONTEND", "severity", "WARNING",
-        "message", "Supplied source observation"));
-    expected.node("Diagnostic", "diagnostic:implicit", properties("code", "frontend.observation", "stage", "FRONTEND", "severity", "WARNING",
-        "message", "Supplied observation without origin"));
-    expected.edge("HAS_DIAGNOSTIC", runId, "diagnostic:source", "0", "position", 0);
-    expected.edge("HAS_DIAGNOSTIC", runId, "diagnostic:implicit", "1", "position", 1);
-    expected.edge("HAS_DIAGNOSTIC", runId, "diagnostic:source", "2", "position", 2);
-    expected.origin("diagnostic:source", 0, SOURCE, 0L, 12L);
-    expected.origin("diagnostic:source", 1, SUPPORT, 1L, 9L);
-    expected.node("Program", program, properties("typeCount", 4));
+    var inputKey = StableId.sha256("input-snapshot", snapshot.snapshotDigest());
+    expected.node("InputSnapshot", inputKey, properties("sourceRoot", snapshot.sourceRoot().toString(), "digestAlgorithm", "SHA-256",
+        "snapshotDigest", snapshot.snapshotDigest()));
+    expected.edge("HAS_INPUT", version.signature(), inputKey, "input");
+    for (var file : snapshot.sourceFiles()) {
+      expected.node("SourceFile", file.sourceFileKey(), properties("relativePath", file.canonicalRelativePath(), "contentDigest",
+          file.contentDigest(), "content", file.content()));
+      expected.edge("HAS_SOURCE", inputKey, file.sourceFileKey(), file.relativePath().toString());
+    }
+    var environmentKey = environment.environmentDigest();
+    expected.node("AnalysisEnvironmentSnapshot", environmentKey, properties("digestAlgorithm", environment.digestAlgorithm(),
+        "environmentDigest", environmentKey, "compilerImplementation", environment.compilerImplementation(), "compilerVendor",
+        environment.compilerVendor(), "compilerVersion", environment.compilerVersion(), "analysisOptions", environment.analysisOptions()));
+    expected.edge("HAS_ENVIRONMENT", version.signature(), environmentKey, "environment");
+    var config = environment.compilerConfiguration();
+    var configKey = StableId.sha256("compiler-configuration", config.canonicalForm());
+    expected.node("CompilerConfiguration", configKey, properties("release", 25, "classPath", config.classPath().stream().map(Path::toString).toList(),
+        "modulePath", config.modulePath().stream().map(Path::toString).toList(), "options", List.of("-Xlint:all")));
+    expected.edge("HAS_CONFIGURATION", environmentKey, configKey, "configuration");
+    expectedDependencies(expected, environmentKey, "class-path", "HAS_CLASS_PATH_ENTRY", environment.classPath());
+    expectedDependencies(expected, environmentKey, "module-path", "HAS_MODULE_PATH_ENTRY", environment.modulePath());
+    for (var position = 0; position < run.diagnostics().size(); position++) {
+      var diagnostic = run.diagnostics().get(position);
+      expected.node("Diagnostic", diagnostic.diagnosticKey(), properties("code", diagnostic.code(), "stage", diagnostic.stage().name(),
+          "severity", diagnostic.severity().name(), "message", diagnostic.message()));
+      expected.edge("HAS_DIAGNOSTIC", runId, diagnostic.diagnosticKey(), Integer.toString(position), "position", position);
+      expectedOrigins(expected, diagnostic.diagnosticKey(), diagnostic.origins());
+    }
+    var program = StableId.sha256("program", runId);
+    expected.node("Program", program, properties("typeCount", ast.program().types().size(), "astResultKey", ast.identity().astResultKey()));
     expected.edge("HAS_PROGRAM", runId, program, "program");
-    expected.node("JavaType", OWNER, properties("qualifiedName", "Owner", "kind", "INTERFACE", "modifiers", List.of("PUBLIC", "SEALED"),
-        "sourceDeclared", true));
-    expected.node("JavaType", RECORD, properties("qualifiedName", "Owner.Record", "kind", "RECORD", "modifiers", List.of("FINAL", "PUBLIC"),
-        "sourceDeclared", true));
-    expected.node("JavaType", MODE, properties("qualifiedName", "Mode", "kind", "ENUM", "modifiers", List.of(), "sourceDeclared", true));
-    expected.node("JavaType", "type:Implicit", properties("qualifiedName", "Implicit", "kind", "CLASS", "modifiers", List.of(),
-        "sourceDeclared", false));
-    expected.edge("DECLARES_TYPE", program, OWNER, "0", "position", 0);
-    expected.edge("DECLARES_TYPE", program, RECORD, "1", "position", 1);
-    expected.edge("DECLARES_TYPE", program, MODE, "2", "position", 2);
-    expected.edge("DECLARES_TYPE", program, "type:Implicit", "3", "position", 3);
-    expected.origin(OWNER, 0, SUPPORT, 1L, 9L);
-    expected.origin(RECORD, 0, SOURCE, 0L, 12L);
-    expected.origin(MODE, 0, SUPPORT, 1L, 9L);
-    expected.typeReference(OWNER, "PERMITS_SUBCLASS", 0, "Owner.Record<T>", "Owner.Record", Optional.of(RECORD));
-    expected.typeReference(RECORD, "ENCLOSED_BY", 0, "Owner", "Owner", Optional.of(OWNER));
-    expected.typeReference(RECORD, "HAS_DIRECT_SUPERCLASS", 0, "java.lang.Record", "java.lang.Record", Optional.of("type:java.lang.Record"));
-    expected.typeReference(RECORD, "HAS_DIRECT_INTERFACE", 0, "Owner", "Owner", Optional.of(OWNER));
-    expected.typeReference(RECORD, "HAS_DIRECT_INTERFACE", 1, "java.io.Serializable", "java.io.Serializable", Optional.empty());
-    expected.node("JavaTypeParameter", RECORD + ":T", properties("name", "T", "position", 0, "sourceDeclared", true));
-    expected.edge("DECLARES_TYPE_PARAMETER", RECORD, RECORD + ":T", "0", "position", 0);
-    expected.origin(RECORD + ":T", 0, SOURCE, 0L, 12L);
-    expected.typeReference(RECORD + ":T", "HAS_TYPE_BOUND", 0, "java.lang.Number", "java.lang.Number", Optional.of("type:java.lang.Number"));
-    expected.typeReference(RECORD + ":T", "HAS_TYPE_BOUND", 1, "java.lang.Comparable<T>", "java.lang.Comparable", Optional.empty());
-    expected.node("JavaTypeParameter", RECORD + ":U", properties("name", "U", "position", 1, "sourceDeclared", false));
-    expected.edge("DECLARES_TYPE_PARAMETER", RECORD, RECORD + ":U", "1", "position", 1);
-    expected.typeReference(RECORD + ":U", "HAS_TYPE_BOUND", 0, "java.lang.Object", "java.lang.Object", Optional.of("type:java.lang.Object"));
-    expected.node("JavaField", RECORD + "#count", typed("staticType", "INT", "int", "int", "name", "count", "modifiers",
-        List.of("public", "static"), "enumConstant", false, "sourceDeclared", true));
-    expected.node("JavaField", RECORD + "#backing", typed("staticType", "DECLARED", "java.lang.String", "java.lang.String", "name", "value",
-        "modifiers", List.of("final", "private"), "enumConstant", false, "sourceDeclared", false));
-    expected.node("JavaField", MODE + "#READY", typed("staticType", "DECLARED", "Mode", "Mode", "name", "READY", "modifiers",
-        List.of("final", "public", "static"), "enumConstant", true, "sourceDeclared", true));
-    expected.edge("DECLARES_FIELD", RECORD, RECORD + "#count", "0", "position", 0);
-    expected.edge("DECLARES_FIELD", RECORD, RECORD + "#backing", "1", "position", 1);
-    expected.edge("DECLARES_FIELD", MODE, MODE + "#READY", "0", "position", 0);
-    expected.origin(RECORD + "#count", 0, SOURCE, 0L, 12L);
-    expected.origin(MODE + "#READY", 0, SUPPORT, 1L, 9L);
-    expected.node("JavaRecordComponent", RECORD + "#record-component:0", typed("staticType", "DECLARED", "java.lang.String", "java.lang.String",
-        "name", "value", "position", 0, "varArgs", false, "writtenModifiers", List.of(), "effectiveModifiers", List.of("FINAL"),
-        "accessorKey", ACCESSOR, "backingFieldKey", RECORD + "#backing", "canonicalParameterKey", CONSTRUCTOR + ":value"));
-    expected.node("JavaRecordComponent", RECORD + "#record-component:1", typed("staticType", "ARRAY", "java.lang.String[]", "java.lang.String[]",
-        "name", "rest", "position", 1, "varArgs", true, "writtenModifiers", List.of(), "effectiveModifiers", List.of()));
-    expected.edge("DECLARES_RECORD_COMPONENT", RECORD, RECORD + "#record-component:0", "0", "position", 0);
-    expected.edge("DECLARES_RECORD_COMPONENT", RECORD, RECORD + "#record-component:1", "1", "position", 1);
-    expected.origin(RECORD + "#record-component:0", 0, SOURCE, 0L, 12L);
-    expected.origin(RECORD + "#record-component:1", 0, SUPPORT, 1L, 9L);
-    expected.node("JavaSynthesizedDeclaration", RECORD + "#equals", properties("kind", "METHOD", "sourceDeclared", false));
-    expected.node("JavaSynthesizedDeclaration", MODE + "#values", properties("kind", "METHOD", "sourceDeclared", false));
-    expected.edge("DECLARES_SYNTHESIZED", RECORD, RECORD + "#equals", "0", "position", 0);
-    expected.edge("DECLARES_SYNTHESIZED", MODE, MODE + "#values", "0", "position", 0);
-    expected.node("JavaMethod", METHOD, properties("name", "evaluate", "signature", "evaluate(int)", "returnType", "int", "modifiers",
-        List.of("public", "static"), "constructor", false, "sourceDeclared", true, "hasBody", true));
-    expected.node("JavaMethod", CONSTRUCTOR, properties("name", "Record", "signature", "Record(java.lang.String,java.lang.String[])", "returnType",
-        "void", "modifiers", List.of("public"), "constructor", true, "sourceDeclared", false, "hasBody", false));
-    expected.node("JavaMethod", ACCESSOR, properties("name", "value", "signature", "value()", "returnType", "java.lang.String", "modifiers",
-        List.of("public"), "constructor", false, "sourceDeclared", false, "hasBody", false));
-    expected.edge("DECLARES_METHOD", RECORD, METHOD, "0", "position", 0);
-    expected.edge("DECLARES_METHOD", RECORD, CONSTRUCTOR, "1", "position", 1);
-    expected.edge("DECLARES_METHOD", RECORD, ACCESSOR, "2", "position", 2);
-    expected.origin(METHOD, 0, SOURCE, 0L, 12L);
-    expected.node("JavaParameter", METHOD + ":input", typed("staticType", "INT", "int", "int", "name", "input", "position", 0,
-        "sourceDeclared", true));
-    expected.node("JavaParameter", CONSTRUCTOR + ":value", typed("staticType", "DECLARED", "java.lang.String", "java.lang.String", "name", "value",
-        "position", 0, "sourceDeclared", false));
-    expected.node("JavaParameter", CONSTRUCTOR + ":rest", typed("staticType", "ARRAY", "java.lang.String[]", "java.lang.String[]", "name", "rest",
-        "position", 1, "sourceDeclared", false));
-    expected.edge("DECLARES_PARAMETER", METHOD, METHOD + ":input", "0", "position", 0);
-    expected.edge("DECLARES_PARAMETER", CONSTRUCTOR, CONSTRUCTOR + ":value", "0", "position", 0);
-    expected.edge("DECLARES_PARAMETER", CONSTRUCTOR, CONSTRUCTOR + ":rest", "1", "position", 1);
-    expected.origin(METHOD + ":input", 0, SOURCE, 0L, 12L);
-    expected.node("MethodAnalysis", "supplied-analysis", properties("methodKey", METHOD));
-    expected.node("ControlFlowGraph", GRAPH, properties("methodKey", METHOD));
-    expected.edge("HAS_METHOD_ANALYSIS", program, "supplied-analysis", "0", "position", 0);
-    expected.edge("ANALYZES_METHOD", "supplied-analysis", METHOD, "method");
-    expected.edge("HAS_CFG", "supplied-analysis", GRAPH, "cfg");
-    expected.node("FlowValue", "value:parameter", typed("staticType", "INT", "int", "int", "graphId", GRAPH, "kind", "PARAMETER", "position", 0,
-        "displayName", "input"));
-    expected.node("FlowValue", "value:constant", typed("staticType", "INT", "int", "int", "graphId", GRAPH, "kind", "CONSTANT", "position", 1,
-        "literal", "7"));
-    expected.node("FlowValue", "value:unknown", properties("graphId", GRAPH, "kind", "TEMPORARY", "position", 2));
-    expected.edge("HAS_VALUE", GRAPH, "value:parameter", "0", "position", 0);
-    expected.edge("HAS_VALUE", GRAPH, "value:constant", "1", "position", 1);
-    expected.edge("HAS_VALUE", GRAPH, "value:unknown", "2", "position", 2);
-    expected.node("EntryNode", "node:entry", properties("graphId", GRAPH));
-    expected.node("OperationNode", "node:invoke", typed("qualifyingType", "DECLARED", "External", "External", "graphId", GRAPH, "kind", "INVOKE",
-        "detail", "External.compute", "possibleExceptions", List.of("java.lang.ArithmeticException", "java.lang.OutOfMemoryError"), "invocationMode",
-        "STATIC", "invocationForm", "STATIC_TYPE", "qualifyingTypeDeclarationKey", "type:External"));
-    expected.node("OperationNode", "node:construct", typed("qualifyingType", "DECLARED", "External", "External", "graphId", GRAPH, "kind",
-        "NEW_OBJECT", "detail", "new External", "possibleExceptions", List.of("java.lang.OutOfMemoryError"), "invocationMode", "CONSTRUCTOR",
-        "invocationForm", "OBJECT_CREATION"));
-    expected.node("OperationNode", "node:return", properties("graphId", GRAPH, "kind", "RETURN", "detail", "return", "possibleExceptions", List.of()));
-    expected.node("ExitNode", "node:exit", properties("graphId", GRAPH));
-    expected.edge("HAS_NODE", GRAPH, "node:entry", "0", "position", 0);
-    expected.edge("HAS_NODE", GRAPH, "node:invoke", "1", "position", 1);
-    expected.edge("HAS_NODE", GRAPH, "node:construct", "2", "position", 2);
-    expected.edge("HAS_NODE", GRAPH, "node:return", "3", "position", 3);
-    expected.edge("HAS_NODE", GRAPH, "node:exit", "4", "position", 4);
-    expected.edge("USES_VALUE", "node:invoke", "value:parameter", "0", "position", 0);
-    expected.edge("USES_VALUE", "node:invoke", "value:constant", "1", "position", 1);
-    expected.edge("DEFINES_VALUE", "node:invoke", "value:unknown", "definition");
-    expected.origin("node:invoke", 0, SOURCE, 0L, 12L);
-    expected.origin("node:invoke", 1, SUPPORT, 1L, 9L);
-    var resolved = StableId.sha256("semantic-reference", "node:invoke", "0");
-    var unresolved = StableId.sha256("semantic-reference", "node:invoke", "1");
-    var symbolOnly = StableId.sha256("semantic-reference", "node:invoke", "2");
-    var typeOnly = StableId.sha256("semantic-reference", "node:invoke", "3");
-    expected.node("SemanticReference", resolved, properties("kind", "METHOD", "status", "RESOLVED", "position", 0, "symbolKey",
-        "type:External#compute", "typeName", "int", "typeAlternativeNames", List.of("int"), "assignableToTypeNames", List.of("int")));
-    expected.node("SemanticReference", unresolved, properties("kind", "TYPE", "status", "UNRESOLVED", "position", 1, "typeAlternativeNames",
-        List.of(), "assignableToTypeNames", List.of()));
-    expected.node("SemanticReference", symbolOnly, properties("kind", "PACKAGE", "status", "RESOLVED", "position", 2, "symbolKey",
-        "package:external", "typeAlternativeNames", List.of(), "assignableToTypeNames", List.of()));
-    expected.node("SemanticReference", typeOnly, properties("kind", "FIELD", "status", "UNRESOLVED", "position", 3, "typeName",
-        "java.lang.String", "typeAlternativeNames", List.of("java.lang.String"), "assignableToTypeNames", List.of("java.lang.Object", "java.lang.String")));
-    expected.edge("HAS_REFERENCE", "node:invoke", resolved, "0", "position", 0);
-    expected.edge("HAS_REFERENCE", "node:invoke", unresolved, "1", "position", 1);
-    expected.edge("HAS_REFERENCE", "node:invoke", symbolOnly, "2", "position", 2);
-    expected.edge("HAS_REFERENCE", "node:invoke", typeOnly, "3", "position", 3);
-    expected.edge("NORMAL_FLOW", "node:entry", "node:invoke", "edge:normal", "edgeId", "edge:normal");
-    expected.edge("TRUE_FLOW", "node:invoke", "node:return", "edge:true", "edgeId", "edge:true", "discriminator", "condition");
-    expected.edge("FALSE_FLOW", "node:invoke", "node:construct", "edge:false", "edgeId", "edge:false", "discriminator", "condition");
-    expected.edge("SWITCH_FLOW", "node:construct", "node:return", "edge:switch", "edgeId", "edge:switch", "discriminator", "case:7");
-    expected.edge("RETURN_FLOW", "node:return", "node:exit", "edge:return", "edgeId", "edge:return");
-    expected.edge("EXCEPTIONAL_FLOW", "node:invoke", "node:exit", "edge:exception", "edgeId", "edge:exception", "discriminator",
-        "java.lang.ArithmeticException");
+    for (var index = 0; index < ast.program().types().size(); index++) {
+      var type = ast.program().types().get(index);
+      expected.node("JavaType", type.typeKey(), properties("qualifiedName", type.qualifiedName(), "kind", type.kind().name(), "modifiers",
+          type.modifiers().stream().map(Enum::name).sorted().toList(), "sourceDeclared", type.sourceDeclared()));
+      expected.edge("DECLARES_TYPE", program, type.typeKey(), Integer.toString(index), "position", index);
+      expectedOrigins(expected, type.typeKey(), type.origins());
+      type.enclosingType().ifPresent(value -> expected.typeReference(type.typeKey(), "ENCLOSED_BY", 0, value.identity().displayName(),
+          value.identity().erasedName(), value.declarationKey()));
+      type.directSuperclass().ifPresent(value -> expected.typeReference(type.typeKey(), "HAS_DIRECT_SUPERCLASS", 0,
+          value.identity().displayName(), value.identity().erasedName(), value.declarationKey()));
+      expectedTypeReferences(expected, type.typeKey(), "HAS_DIRECT_INTERFACE", type.directInterfaces());
+      expectedTypeReferences(expected, type.typeKey(), "PERMITS_SUBCLASS", type.permittedSubclasses());
+      for (var position = 0; position < type.typeParameters().size(); position++) {
+        var parameter = type.typeParameters().get(position);
+        expected.node("JavaTypeParameter", parameter.typeParameterKey(), properties("name", parameter.name(), "position", position,
+            "sourceDeclared", parameter.sourceDeclared()));
+        expected.edge("DECLARES_TYPE_PARAMETER", type.typeKey(), parameter.typeParameterKey(), Integer.toString(position), "position", position);
+        expectedOrigins(expected, parameter.typeParameterKey(), parameter.origins());
+        expectedTypeReferences(expected, parameter.typeParameterKey(), "HAS_TYPE_BOUND", parameter.bounds());
+      }
+      for (var position = 0; position < type.fields().size(); position++) {
+        var field = type.fields().get(position);
+        expected.node("JavaField", field.fieldKey(), expectedType(field.staticType(), "name", field.name(), "modifiers",
+            field.modifiers().stream().sorted().toList(), "enumConstant", field.enumConstant(), "sourceDeclared", field.sourceDeclared()));
+        expected.edge("DECLARES_FIELD", type.typeKey(), field.fieldKey(), Integer.toString(position), "position", position);
+        expectedOrigins(expected, field.fieldKey(), field.origins());
+      }
+      for (var component : type.recordComponents()) {
+        var values = expectedType(component.staticType(), "name", component.name(), "position", component.ordinal(), "varArgs", component.varArgs(),
+            "writtenModifiers", component.writtenModifiers().stream().map(Enum::name).sorted().toList(), "effectiveModifiers",
+            component.effectiveModifiers().stream().map(Enum::name).sorted().toList());
+        component.accessorKey().ifPresent(key -> values.put("accessorKey", key));
+        component.backingFieldKey().ifPresent(key -> values.put("backingFieldKey", key));
+        component.canonicalParameterKey().ifPresent(key -> values.put("canonicalParameterKey", key));
+        expected.node("JavaRecordComponent", component.componentKey(), values);
+        expected.edge("DECLARES_RECORD_COMPONENT", type.typeKey(), component.componentKey(), Integer.toString(component.ordinal()),
+            "position", component.ordinal());
+        expectedOrigins(expected, component.componentKey(), component.origins());
+      }
+      for (var position = 0; position < type.synthesizedDeclarations().size(); position++) {
+        var declaration = type.synthesizedDeclarations().get(position);
+        expected.node("JavaSynthesizedDeclaration", declaration.declarationKey(), properties("kind", declaration.kind().name(), "sourceDeclared", false));
+        expected.edge("DECLARES_SYNTHESIZED", type.typeKey(), declaration.declarationKey(), Integer.toString(position), "position", position);
+      }
+      for (var position = 0; position < type.methods().size(); position++) {
+        var method = type.methods().get(position);
+        expected.node("JavaMethod", method.methodKey(), properties("name", method.name(), "signature", method.signature(), "returnType", method.returnType(),
+            "modifiers", method.modifiers().stream().sorted().toList(), "constructor", method.constructor(), "sourceDeclared", method.sourceDeclared(),
+            "hasBody", method.hasBody()));
+        expected.edge("DECLARES_METHOD", type.typeKey(), method.methodKey(), Integer.toString(position), "position", position);
+        expectedOrigins(expected, method.methodKey(), method.origins());
+        for (var ordinal = 0; ordinal < method.parameters().size(); ordinal++) {
+          var parameter = method.parameters().get(ordinal);
+          expected.node("JavaParameter", parameter.parameterKey(), expectedType(parameter.staticType(), "name", parameter.name(), "position", ordinal,
+              "sourceDeclared", parameter.sourceDeclared()));
+          expected.edge("DECLARES_PARAMETER", method.methodKey(), parameter.parameterKey(), Integer.toString(ordinal), "position", ordinal);
+          expectedOrigins(expected, parameter.parameterKey(), parameter.origins());
+        }
+      }
+    }
+    for (var position = 0; position < run.representation().cfg().orElseThrow().methods().size(); position++) {
+      var outcome = run.representation().cfg().orElseThrow().methods().get(position);
+      var graph = outcome.graph().orElseThrow();
+      var identity = graph.identity().orElseThrow();
+      var analysis = StableId.sha256("method-analysis", graph.graphId());
+      expected.node("MethodAnalysis", analysis, properties("methodKey", graph.methodKey(), "state", "AVAILABLE"));
+      expected.edge("HAS_METHOD_ANALYSIS", program, analysis, Integer.toString(position), "position", position);
+      expected.edge("ANALYZES_METHOD", analysis, graph.methodKey(), "method");
+      var values = properties("methodKey", graph.methodKey(), "astResultKey", ast.identity().astResultKey(), "cfgProfileVersion", identity.cfgProfileVersion(),
+          "graphModelVersion", "java-cfg/2", "canonicalContentDigest", identity.canonicalContentDigest());
+      var body = graph.body().orElseThrow();
+      body.sourceOccurrenceKey().ifPresent(key -> values.put("sourceOccurrenceKey", key));
+      body.nonwrittenProvenance().ifPresent(origin -> {
+        values.put("nonwrittenProvenance", origin.origin());
+        values.put("bodySourceFileKey", origin.sourceFileKey());
+        values.put("bodyOwnerDeclarationKey", origin.ownerDeclarationKey());
+      });
+      expected.node("ControlFlowGraph", graph.graphId(), values);
+      expected.edge("HAS_CFG", analysis, graph.graphId(), "cfg");
+      for (var ordinal = 0; ordinal < graph.values().size(); ordinal++) {
+        var value = graph.values().get(ordinal);
+        var props = properties("graphId", graph.graphId(), "kind", value.kind().name(), "position", ordinal);
+        value.displayName().ifPresent(text -> props.put("displayName", text));
+        value.literal().ifPresent(text -> props.put("literal", text));
+        value.staticType().ifPresent(type -> putType(props, "staticType", type));
+        expected.node("FlowValue", value.valueId(), props);
+        expected.edge("HAS_VALUE", graph.graphId(), value.valueId(), Integer.toString(ordinal), "position", ordinal);
+      }
+      for (var ordinal = 0; ordinal < graph.nodes().size(); ordinal++) {
+        var node = graph.nodes().get(ordinal);
+        var props = properties("graphId", graph.graphId());
+        var label = node instanceof EntryNode ? "EntryNode" : node instanceof ExitNode ? "ExitNode" : "OperationNode";
+        if (node instanceof OperationNode operation) {
+          props.putAll(properties("kind", operation.kind().name(), "detail", operation.detail(), "possibleExceptions", operation.possibleExceptions()));
+          operation.invocationSemantics().ifPresent(semantics -> {
+            props.put("invocationMode", semantics.mode().name());
+            props.put("invocationForm", semantics.form().name());
+            putType(props, "qualifyingType", semantics.qualifyingType().identity());
+            semantics.qualifyingType().declarationKey().ifPresent(key -> props.put("qualifyingTypeDeclarationKey", key));
+          });
+          for (var operand : operation.operands()) expected.edge("USES_VALUE", node.nodeId(), operand.value().valueId(), Integer.toString(operand.position()),
+              "position", operand.position());
+          operation.definedValue().ifPresent(value -> expected.edge("DEFINES_VALUE", node.nodeId(), value.valueId(), "definition"));
+          for (var slot = 0; slot < operation.semanticReferences().size(); slot++) {
+            var reference = operation.semanticReferences().get(slot);
+            var key = StableId.sha256("semantic-reference", node.nodeId(), Integer.toString(slot));
+            var referenceValues = properties("kind", reference.referenceKind().name(), "status", reference.status().name(), "position", slot,
+                "typeAlternativeNames", reference.typeAlternativeNames(), "assignableToTypeNames", reference.assignableToTypeNames());
+            reference.symbolKey().ifPresent(text -> referenceValues.put("symbolKey", text));
+            reference.typeName().ifPresent(text -> referenceValues.put("typeName", text));
+            expected.node("SemanticReference", key, referenceValues);
+            expected.edge("HAS_REFERENCE", node.nodeId(), key, Integer.toString(slot), "position", slot);
+          }
+        }
+        expected.node(label, node.nodeId(), props);
+        expected.edge("HAS_NODE", graph.graphId(), node.nodeId(), Integer.toString(ordinal), "position", ordinal);
+        expectedOrigins(expected, node.nodeId(), node.origins());
+      }
+      for (var edge : graph.edges()) {
+        var label = switch (edge.transferKind()) {
+          case NORMAL -> "NORMAL_FLOW";
+          case TRUE_BRANCH -> "TRUE_FLOW";
+          case FALSE_BRANCH -> "FALSE_FLOW";
+          case SWITCH_ALTERNATIVE -> "SWITCH_FLOW";
+          case RETURN -> "RETURN_FLOW";
+          case EXCEPTIONAL -> "EXCEPTIONAL_FLOW";
+        };
+        if (edge.discriminator().isPresent()) expected.edge(label, edge.sourceNodeId(), edge.targetNodeId(), edge.edgeId(), "edgeId", edge.edgeId(),
+            "discriminator", edge.discriminator().orElseThrow());
+        else expected.edge(label, edge.sourceNodeId(), edge.targetNodeId(), edge.edgeId(), "edgeId", edge.edgeId());
+      }
+    }
     return expected;
+  }
+
+  private static void expectedDependencies(ExpectedSurface expected, String environment, String role, String relation, List<DependencySnapshot> dependencies) {
+    for (var position = 0; position < dependencies.size(); position++) {
+      var dependency = dependencies.get(position);
+      var key = StableId.sha256("dependency-snapshot", environment, role, Integer.toString(position), dependency.fingerprint());
+      expected.node("DependencySnapshot", key, properties("location", dependency.location().toString(), "kind", dependency.kind().name(),
+          "byteCount", dependency.byteCount(), "entryCount", dependency.entryCount(), "fingerprint", dependency.fingerprint(), "position", position));
+      expected.edge(relation, environment, key, Integer.toString(position), "position", position);
+    }
+  }
+
+  private static void expectedTypeReferences(ExpectedSurface expected, String owner, String relation, List<JavaTypeReference> references) {
+    for (var index = 0; index < references.size(); index++) {
+      var reference = references.get(index);
+      expected.typeReference(owner, relation, index, reference.identity().displayName(), reference.identity().erasedName(), reference.declarationKey());
+    }
+  }
+
+  private static void expectedOrigins(ExpectedSurface expected, String owner, List<SourceSpan> origins) {
+    for (var index = 0; index < origins.size(); index++) {
+      var origin = origins.get(index);
+      expected.origin(owner, index, origin.sourceFileKey(), origin.startOffset(), origin.endOffsetExclusive());
+    }
+  }
+
+  private static Map<String, Object> expectedType(JavaTypeIdentity type, Object... values) {
+    var result = properties(values);
+    putType(result, "staticType", type);
+    return result;
+  }
+
+  private static void putType(Map<String, Object> result, String name, JavaTypeIdentity type) {
+    result.put(name, type.displayName());
+    result.put(name + "Key", type.typeKey());
+    result.put(name + "Erasure", type.erasedName());
+    result.put(name + "Category", type.category().name());
   }
 
   private static void assertFamily(ExpectedSurface expected, Neo4jGraphProjection actual, Set<String> labels, Set<String> types) {
@@ -591,7 +534,9 @@ class Neo4jStoredSurfaceContractTest {
       var properties = new LinkedHashMap<>(supplied);
       properties.put("runId", runId);
       properties.put("key", key);
-      assertNull(nodes.put(key, new NodeExpectation(label, Map.copyOf(properties))), "Expected node keys must not be repeated");
+      var value = new NodeExpectation(label, Map.copyOf(properties));
+      var previous = nodes.putIfAbsent(key, value);
+      if (previous != null) assertEquals(previous, value, "Repeated keys require identical node values");
     }
 
     void edge(String type, String source, String target, String discriminator, Object... pairs) {
@@ -599,8 +544,9 @@ class Neo4jStoredSurfaceContractTest {
       var properties = properties(pairs);
       properties.put("runId", runId);
       properties.put("key", key);
-      assertNull(relationships.put(key, new RelationshipExpectation(type, source, target, Map.copyOf(properties))),
-          "Expected relationship keys must not be repeated");
+      var value = new RelationshipExpectation(type, source, target, Map.copyOf(properties));
+      var previous = relationships.putIfAbsent(key, value);
+      if (previous != null) assertEquals(previous, value, "Repeated keys require identical relationship values");
     }
 
     void origin(String owner, int position, String source, long start, long end) {

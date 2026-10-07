@@ -61,8 +61,8 @@ import com.sun.source.tree.WildcardTree;
 import com.sun.source.tree.YieldTree;
 import java.util.ArrayList;
 import java.util.List;
-import org.aquilagraph.model.SourceOwnerPath.Role;
-import org.aquilagraph.model.SourceOwnerPath.Step;
+import org.aquilagraph.source.api.SourceOwnerPath.Role;
+import org.aquilagraph.source.api.SourceOwnerPath.Step;
 import org.jspecify.annotations.Nullable;
 
 /** Enumerates direct parsed child slots in compiler scanner order with explicit parent roles. */

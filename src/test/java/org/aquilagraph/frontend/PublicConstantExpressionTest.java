@@ -29,6 +29,42 @@ import org.junit.jupiter.api.Test;
 
 class PublicConstantExpressionTest {
   @Test
+  void givenBooleanOperandPairs_whenPublicCompilerAttributes_thenCopiedEqualityAndExclusiveOrMatchActualConstantFields() throws IOException {
+    // Arrange
+    var source = """
+        class Constants {
+          static final boolean xorFalseFalse = false ^ false;
+          static final boolean xorFalseTrue = false ^ true;
+          static final boolean xorTrueFalse = true ^ false;
+          static final boolean xorTrueTrue = true ^ true;
+          static final boolean equalFalseFalse = false == false;
+          static final boolean equalFalseTrue = false == true;
+          static final boolean equalTrueFalse = true == false;
+          static final boolean equalTrueTrue = true == true;
+          static final boolean notEqualFalseFalse = false != false;
+          static final boolean notEqualFalseTrue = false != true;
+          static final boolean notEqualTrueFalse = true != false;
+          static final boolean notEqualTrueTrue = true != true;
+        }
+        """;
+    var expected = Map.ofEntries(
+        Map.entry("xorFalseFalse", false), Map.entry("xorFalseTrue", true),
+        Map.entry("xorTrueFalse", true), Map.entry("xorTrueTrue", false),
+        Map.entry("equalFalseFalse", true), Map.entry("equalFalseTrue", false),
+        Map.entry("equalTrueFalse", false), Map.entry("equalTrueTrue", true),
+        Map.entry("notEqualFalseFalse", false), Map.entry("notEqualFalseTrue", true),
+        Map.entry("notEqualTrueFalse", true), Map.entry("notEqualTrueTrue", false));
+
+    // Act
+    var observations = observe(source);
+
+    // Assert
+    assertEquals(expected.keySet(), observations.keySet());
+    expected.forEach((name, value) -> assertEquals(Optional.of(value), observations.get(name).compilerConstant(), name));
+    assertConstantAgreement(observations);
+  }
+
+  @Test
   void givenNumericOverflowShiftsAndFloatingPromotion_whenPublicCompilerAttributes_thenCopiedValuesMatchActualConstantFields() throws IOException {
     // Arrange
     var source = """

@@ -10,8 +10,8 @@ import java.util.Objects;
 import java.util.Optional;
 import javax.tools.JavaFileObject;
 import javax.tools.SimpleJavaFileObject;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.SourceFile;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.SourceFile;
 import org.jspecify.annotations.Nullable;
 
 final class SnapshotSourceCatalog {

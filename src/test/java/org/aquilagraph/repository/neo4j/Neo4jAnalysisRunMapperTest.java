@@ -17,19 +17,19 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import org.aquilagraph.core.AnalysisEngine;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisRun;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.StableId;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -40,13 +40,12 @@ class Neo4jAnalysisRunMapperTest {
   void givenEqualDiagnosticValuesInTwoSlots_whenRunIsMapped_thenOneValueAndBothOrderedSlotsArePreserved() throws IOException {
     // Arrange
     var sourceRoot = completedSourceRoot("diagnostics");
-    var original = completedMapperFixture(new AnalysisEngine().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot,
+    var original = completedMapperFixture(new SourceAnalysisFixture().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot,
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25))));
-    var origin = new SourceSpan(original.inputSnapshot().sourceFiles().getFirst().sourceFileKey(), 0, 1);
+    var origin = new SourceSpan(original.representation().ast().capturedInput().orElseThrow().sourceFiles().getFirst().sourceFileKey(), 0, 1);
     var first = diagnostic("diagnostic", "Observed source", List.of(origin));
     var second = diagnostic("diagnostic", "Observed source", List.of(origin));
-    var run = new AnalysisRun(original.runId(), original.inputSnapshot(), original.environmentSnapshot(), original.representation(),
-        List.of(first, second), AnalysisCompletion.COMPLETED);
+    var run = new AnalysisRun(original.identity(), original.representation(), AnalysisCompletion.COMPLETE, List.of(first, second));
 
     // Act
     var projection = new Neo4jAnalysisRunMapper().map(run);
@@ -62,11 +61,9 @@ class Neo4jAnalysisRunMapperTest {
   @Test
   void givenUnequalDiagnosticValuesWithOneKey_whenRunIsMapped_thenCollisionIsRejected() throws IOException {
     // Arrange
-    var original = completedMapperFixture(new AnalysisEngine().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(
+    var original = completedMapperFixture(new SourceAnalysisFixture().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(
         completedSourceRoot("collision"), CompilerConfiguration.forRelease(JavaRelease.JAVA_25))));
-    var run = new AnalysisRun(original.runId(), original.inputSnapshot(), original.environmentSnapshot(), original.representation(),
-        List.of(diagnostic("diagnostic", "First observation", List.of()), diagnostic("diagnostic", "Second observation", List.of())),
-        AnalysisCompletion.COMPLETED);
+    var run = new AnalysisRun(original.identity(), original.representation(), AnalysisCompletion.COMPLETE, List.of(diagnostic("diagnostic", "First observation", List.of()), diagnostic("diagnostic", "Second observation", List.of())));
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class, () -> new Neo4jAnalysisRunMapper().map(run));
@@ -78,14 +75,13 @@ class Neo4jAnalysisRunMapperTest {
   @Test
   void givenDiagnosticKeyWithReorderedOrigins_whenRunIsMapped_thenUnequalOrderedEvidenceIsRejected() throws IOException {
     // Arrange
-    var original = completedMapperFixture(new AnalysisEngine().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(
+    var original = completedMapperFixture(new SourceAnalysisFixture().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(
         completedSourceRoot("ordered-origins"), CompilerConfiguration.forRelease(JavaRelease.JAVA_25))));
-    var sourceFileKey = original.inputSnapshot().sourceFiles().getFirst().sourceFileKey();
+    var sourceFileKey = original.representation().ast().capturedInput().orElseThrow().sourceFiles().getFirst().sourceFileKey();
     var first = new SourceSpan(sourceFileKey, 0, 1);
     var second = new SourceSpan(sourceFileKey, 1, 2);
-    var run = new AnalysisRun(original.runId(), original.inputSnapshot(), original.environmentSnapshot(), original.representation(),
-        List.of(diagnostic("diagnostic", "Observed source", List.of(first, second)),
-            diagnostic("diagnostic", "Observed source", List.of(second, first))), AnalysisCompletion.COMPLETED);
+    var run = new AnalysisRun(original.identity(), original.representation(), AnalysisCompletion.COMPLETE, List.of(diagnostic("diagnostic", "Observed source", List.of(first, second)),
+            diagnostic("diagnostic", "Observed source", List.of(second, first))));
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class, () -> new Neo4jAnalysisRunMapper().map(run));
@@ -104,7 +100,7 @@ class Neo4jAnalysisRunMapperTest {
     Files.writeString(firstDependency.resolve("marker.txt"), "first");
     Files.writeString(secondDependency.resolve("marker.txt"), "second");
     var firstRun = completedMapperFixture(
-        new AnalysisEngine()
+        new SourceAnalysisFixture()
             .analyze(
                 new JavaFrontend(new JavaSourceLoader())
                     .analyze(
@@ -115,7 +111,7 @@ class Neo4jAnalysisRunMapperTest {
                             List.of(),
                             List.of()))));
     var secondRun = completedMapperFixture(
-        new AnalysisEngine()
+        new SourceAnalysisFixture()
             .analyze(
                 new JavaFrontend(new JavaSourceLoader())
                     .analyze(
@@ -157,7 +153,7 @@ class Neo4jAnalysisRunMapperTest {
       }
 
       // Assert
-      assertNotEquals(firstRun.runId(), secondRun.runId());
+      assertNotEquals(firstRun.identity().key(), secondRun.identity().key());
       for (var worker = 0; worker < workerCount; worker++) {
         assertEquals(
             expectedProjections.get(worker % expectedProjections.size()),
@@ -174,7 +170,7 @@ class Neo4jAnalysisRunMapperTest {
     var sourceRoot = completedSourceRoot("mapped-source");
     var dependency = Files.createDirectory(temporaryDirectory.resolve("dependency"));
     var run = completedMapperFixture(
-        new AnalysisEngine()
+        new SourceAnalysisFixture()
             .analyze(
                 new JavaFrontend(new JavaSourceLoader())
                     .analyze(
@@ -186,10 +182,10 @@ class Neo4jAnalysisRunMapperTest {
     var projection = new Neo4jAnalysisRunMapper().map(run);
 
     // Assert
-    assertTrue(projection.nodes().stream().allMatch(node -> node.properties().get("runId").equals(run.runId())));
+    assertTrue(projection.nodes().stream().allMatch(node -> node.properties().get("runId").equals(run.identity().key())));
     assertTrue(
         projection.relationships().stream()
-            .allMatch(relationship -> relationship.properties().get("runId").equals(run.runId())));
+            .allMatch(relationship -> relationship.properties().get("runId").equals(run.identity().key())));
     assertTrue(projection.nodes().stream().anyMatch(node -> node.label().equals("SourceOrigin")));
     assertTrue(projection.nodes().stream().anyMatch(node -> node.label().equals("FlowValue")));
     assertTrue(projection.nodes().stream().filter(node -> node.label().equals("FlowValue"))
@@ -249,7 +245,7 @@ class Neo4jAnalysisRunMapperTest {
         projection.relationships().stream()
             .anyMatch(relation -> relation.type().equals("HAS_CLASS_PATH_ENTRY")));
     var analysisRunNode = projection.nodes().stream().filter(node -> node.label().equals("AnalysisRun")).findFirst().orElseThrow();
-    assertEquals(Set.of("runId", "key", "completion"), analysisRunNode.properties().keySet());
+    assertEquals(Set.of("runId", "key", "completion", "astResultKey", "operation"), analysisRunNode.properties().keySet());
     assertFalse(
         projection.relationships().stream()
             .anyMatch(
@@ -267,7 +263,7 @@ class Neo4jAnalysisRunMapperTest {
             .filter(type -> type.endsWith("_FLOW"))
             .collect(Collectors.toSet());
     assertTrue(flowTypes.containsAll(Set.of("NORMAL_FLOW", "RETURN_FLOW", "EXCEPTIONAL_FLOW")));
-    assertEquals(run.runId(), projection.runId());
+    assertEquals(run.identity().key(), projection.runId());
   }
 
   @Test
@@ -275,7 +271,7 @@ class Neo4jAnalysisRunMapperTest {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("FieldOwner.java"),
         "final class FieldOwner { private String value; String read() { return value; } }");
-    var run = completedMapperFixture(new AnalysisEngine().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory,
+    var run = completedMapperFixture(new SourceAnalysisFixture().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory,
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25))));
 
     // Act
@@ -300,7 +296,7 @@ class Neo4jAnalysisRunMapperTest {
         """);
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory,
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-    var run = completedMapperFixture(new AnalysisEngine().analyze(input));
+    var run = completedMapperFixture(new SourceAnalysisFixture().analyze(input));
     var record = input.program().types().stream().filter(type -> type.qualifiedName().equals("Name")).findFirst().orElseThrow();
     var enumType = input.program().types().stream().filter(type -> type.qualifiedName().equals("Empty")).findFirst().orElseThrow();
 
@@ -319,7 +315,7 @@ class Neo4jAnalysisRunMapperTest {
       assertEquals(Set.of("runId", "key", "name", "position", "varArgs", "writtenModifiers", "effectiveModifiers", "staticType",
           "staticTypeKey", "staticTypeErasure", "staticTypeCategory", "accessorKey", "backingFieldKey", "canonicalParameterKey"),
           node.properties().keySet());
-      assertEquals(run.runId(), node.properties().get("runId"));
+      assertEquals(run.identity().key(), node.properties().get("runId"));
       assertEquals(component.componentKey(), node.properties().get("key"));
       assertEquals(List.of(component.name(), component.ordinal(), component.varArgs(),
           component.writtenModifiers().stream().map(Enum::name).sorted().toList(),
@@ -380,7 +376,7 @@ class Neo4jAnalysisRunMapperTest {
         """);
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot,
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-    var run = completedMapperFixture(new AnalysisEngine().analyze(input));
+    var run = completedMapperFixture(new SourceAnalysisFixture().analyze(input));
 
     // Act
     var projection = new Neo4jAnalysisRunMapper().map(run);
@@ -408,7 +404,7 @@ class Neo4jAnalysisRunMapperTest {
   void givenRejectedRun_whenMapped_thenRunIsRejected() throws IOException {
     // Arrange
     var run =
-        new AnalysisEngine()
+        new SourceAnalysisFixture()
             .analyze(
                 new JavaFrontend(new JavaSourceLoader())
                     .analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
@@ -439,8 +435,7 @@ class Neo4jAnalysisRunMapperTest {
   }
 
   private static AnalysisRun completedMapperFixture(AnalysisRun analyzedRun) {
-    return new AnalysisRun(analyzedRun.runId(), analyzedRun.inputSnapshot(), analyzedRun.environmentSnapshot(),
-        analyzedRun.representation(), List.of(), AnalysisCompletion.COMPLETED);
+    return new AnalysisRun(analyzedRun.identity(), analyzedRun.representation(), AnalysisCompletion.COMPLETE, List.of());
   }
 
   private static AnalysisDiagnostic diagnostic(String key, String message, List<SourceSpan> origins) {

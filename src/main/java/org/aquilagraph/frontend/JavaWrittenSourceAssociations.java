@@ -7,8 +7,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.WrittenSourceAssociation;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.WrittenSourceAssociation;
 import org.jspecify.annotations.Nullable;
 
 /** Collects copied parsed ownership at the actual source-node creating sites. */

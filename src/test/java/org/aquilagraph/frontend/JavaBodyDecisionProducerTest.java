@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -8,24 +9,26 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.syntax.InvocationArityMode;
-import org.aquilagraph.syntax.MethodBodyOrigin;
-import org.aquilagraph.syntax.MethodSyntax;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxReadiness;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.cfg.internal.CfgAdmission;
+import org.aquilagraph.cfg.internal.CfgReadiness;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.EvidenceState;
+import org.aquilagraph.source.api.InvocationApplicabilityMode;
+import org.aquilagraph.source.api.MethodBodyOrigin;
+import org.aquilagraph.source.api.MethodSyntax;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaBodyDecisionProducerTest {
   @TempDir
@@ -65,9 +68,9 @@ class JavaBodyDecisionProducerTest {
     assertEquals("java.lang.Object", identity.selectedTarget().erasedName());
     assertTrue(identity.checkedReferenceTarget().isEmpty() && identity.unboxedType().isEmpty()
         && identity.effectivePrimitiveType().isEmpty() && identity.preBoxPrimitiveType().isEmpty() && identity.boxedType().isEmpty());
-    assertEquals(SyntaxReadiness.LOWERABLE, unbox.readiness());
-    assertEquals(SyntaxReadiness.LOWERABLE, box.readiness());
-    assertEquals(SyntaxReadiness.LOWERABLE, reference.readiness());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(unbox));
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(box));
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(reference));
   }
 
   @Test
@@ -89,25 +92,25 @@ class JavaBodyDecisionProducerTest {
     // Assert
     var fixed = body(input, "fixed");
     var fixedCall = call(fixed, "asList");
-    assertEquals(InvocationArityMode.FIXED, fixed.invocationArity(fixedCall.nodeId()).orElseThrow().mode());
+    assertEquals(InvocationApplicabilityMode.FIXED, fixed.invocationArity(fixedCall.nodeId()).orElseThrow().mode());
     assertEquals("java.lang.String[]", fixed.useDecision(fixedCall.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow().selectedTarget().erasedName());
     var zero = body(input, "zero");
     var zeroDecision = zero.invocationArity(call(zero, "asList").nodeId()).orElseThrow();
-    assertEquals(InvocationArityMode.VARIABLE, zeroDecision.mode());
+    assertEquals(InvocationApplicabilityMode.VARIABLE, zeroDecision.mode());
     assertEquals("java.lang.String[]", zeroDecision.varargArrayType().orElseThrow().displayName());
     assertEquals("java.lang.String[]", zeroDecision.erasedArrayType().orElseThrow().displayName());
     assertEquals("java.lang.String", zeroDecision.elementType().orElseThrow().displayName());
     var variable = body(input, "variable");
     var variableCall = call(variable, "asList");
-    assertEquals(InvocationArityMode.VARIABLE, variable.invocationArity(variableCall.nodeId()).orElseThrow().mode());
+    assertEquals(InvocationApplicabilityMode.VARIABLE, variable.invocationArity(variableCall.nodeId()).orElseThrow().mode());
     for (var position = 0; position < 2; position++) {
       assertEquals("java.lang.String", variable.useDecision(variableCall.nodeId(), SyntaxRole.ARGUMENT, position).orElseThrow().selectedTarget().displayName());
     }
     var create = body(input, "create");
     var creation = nodes(create, SyntaxKind.OBJECT_CREATION).getFirst();
-    assertEquals(InvocationArityMode.FIXED, create.invocationArity(creation.nodeId()).orElseThrow().mode());
+    assertEquals(InvocationApplicabilityMode.FIXED, create.invocationArity(creation.nodeId()).orElseThrow().mode());
     assertEquals("java.lang.String", create.useDecision(creation.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow().selectedTarget().displayName());
-    assertEquals(SyntaxReadiness.LOWERABLE, create.readiness());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(create));
   }
 
   @Test
@@ -137,15 +140,16 @@ class JavaBodyDecisionProducerTest {
     var external = fields.stream().filter(node -> node.value(SyntaxValue.FieldAccess.class).name().equals("MAX_VALUE")).findFirst().orElseThrow();
     assertEquals("Parent", read.staticAccess(mutable.nodeId()).orElseThrow().declaringType().identity().erasedName());
     assertEquals(Optional.of("type:Parent"), read.staticAccess(mutable.nodeId()).orElseThrow().declaringType().declarationKey());
-    assertTrue(read.staticAccess(mutable.nodeId()).orElseThrow().triggersInitialization());
-    assertFalse(read.staticAccess(inheritedConstant.nodeId()).orElseThrow().triggersInitialization());
+    assertFalse(read.staticAccess(mutable.nodeId()).orElseThrow().constantVariable().knownValue().orElseThrow());
+    assertTrue(read.staticAccess(inheritedConstant.nodeId()).orElseThrow().constantVariable().knownValue().orElseThrow());
     assertEquals("java.lang.Integer", read.staticAccess(external.nodeId()).orElseThrow().declaringType().identity().erasedName());
-    assertFalse(read.staticAccess(external.nodeId()).orElseThrow().triggersInitialization());
+    assertTrue(read.staticAccess(external.nodeId()).orElseThrow().constantVariable().knownValue().orElseThrow());
     var write = body(input, "write");
-    assertTrue(write.staticAccess(nodes(write, SyntaxKind.FIELD_LOCATION).getFirst().nodeId()).orElseThrow().triggersInitialization());
+    assertEquals(EvidenceState.NOT_APPLICABLE,
+        write.staticAccess(nodes(write, SyntaxKind.FIELD_ACCESS).getFirst().nodeId()).orElseThrow().constantVariable().state());
     var invoke = body(input, "invoke");
     assertEquals("Parent", invoke.staticAccess(call(invoke, "selected").nodeId()).orElseThrow().declaringType().identity().erasedName());
-    assertEquals(SyntaxReadiness.LOWERABLE, read.readiness());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(read));
   }
 
   @Test
@@ -168,12 +172,13 @@ class JavaBodyDecisionProducerTest {
     var constant = body(input, "constant");
     var constantDecisions = nodes(constant, SyntaxKind.BINARY).stream().flatMap(node -> constant.stringConcatenation(node.nodeId()).stream()).toList();
     assertEquals(3, constantDecisions.size());
-    assertTrue(constantDecisions.stream().allMatch(decision -> decision.compileTimeConstant()));
+    assertTrue(constantDecisions.stream().allMatch(decision -> decision.compileTimeConstant().knownValue().orElseThrow()));
     var dynamic = body(input, "dynamic");
     var plus = nodes(dynamic, SyntaxKind.BINARY).getFirst();
     var decision = dynamic.stringConcatenation(plus.nodeId()).orElseThrow();
-    assertFalse(decision.compileTimeConstant());
-    assertEquals(Optional.of(SyntaxRole.RIGHT_OPERAND), decision.convertedSide());
+    assertFalse(decision.compileTimeConstant().knownValue().orElseThrow());
+    assertEquals(Optional.of(true), decision.leftIsString().knownValue());
+    assertEquals(Optional.of(false), decision.rightIsString().knownValue());
     var numericUse = dynamic.useDecision(plus.nodeId(), SyntaxRole.RIGHT_OPERAND, 0).orElseThrow();
     assertEquals("int", numericUse.selectedTarget().erasedName());
     assertTrue(numericUse.boxedType().isEmpty() && numericUse.unboxedType().isEmpty());
@@ -181,15 +186,16 @@ class JavaBodyDecisionProducerTest {
     assertTrue(numeric.stringConcatenation(nodes(numeric, SyntaxKind.BINARY).getFirst().nodeId()).isEmpty());
     var bound = body(input, "bound");
     var boundPlus = nodes(bound, SyntaxKind.BINARY).getFirst();
-    assertEquals(Optional.of(SyntaxRole.RIGHT_OPERAND), bound.stringConcatenation(boundPlus.nodeId()).orElseThrow().convertedSide());
+    assertEquals(Optional.of(true), bound.stringConcatenation(boundPlus.nodeId()).orElseThrow().leftIsString().knownValue());
+    assertEquals(Optional.of(false), bound.stringConcatenation(boundPlus.nodeId()).orElseThrow().rightIsString().knownValue());
     var boundUse = bound.useDecision(boundPlus.nodeId(), SyntaxRole.RIGHT_OPERAND, 0).orElseThrow();
     assertEquals(JavaTypeCategory.TYPE_VARIABLE, boundUse.sourceType().category());
     assertEquals(JavaTypeCategory.TYPE_VARIABLE, boundUse.selectedTarget().category());
     assertEquals("java.lang.String", boundUse.sourceType().erasedName());
     assertTrue(boundUse.boxedType().isEmpty() && boundUse.unboxedType().isEmpty());
-    assertEquals(SyntaxReadiness.LOWERABLE, bound.readiness());
-    assertEquals(SyntaxReadiness.LOWERABLE, constant.readiness());
-    assertEquals(SyntaxReadiness.LOWERABLE, dynamic.readiness());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(bound));
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(constant));
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(dynamic));
   }
 
   @Test
@@ -237,9 +243,9 @@ class JavaBodyDecisionProducerTest {
       assertEquals(name.equals("narrowCast") ? "byte" : "char", outerUse.selectedTarget().erasedName());
       assertEquals("int", outerUse.sourceType().erasedName());
       assertTrue(outerUse.unboxedType().isEmpty() && outerUse.checkedReferenceTarget().isEmpty());
-      assertEquals(SyntaxReadiness.LOWERABLE, castBody.readiness());
+      assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(castBody));
     }
-    assertEquals(SyntaxReadiness.LOWERABLE, narrow.readiness());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(narrow));
   }
 
   @Test
@@ -267,7 +273,7 @@ class JavaBodyDecisionProducerTest {
     assertEquals(List.of("long", "int"), boxedResults.stream().map(decision -> decision.selectedTarget().erasedName()).toList());
     assertEquals(List.of("int", "int"), boxedResults.stream().map(decision -> decision.unboxedType().orElseThrow().erasedName()).toList());
     assertEquals("long", result.useDecision(nodes(result, SyntaxKind.YIELD).getFirst().nodeId(), SyntaxRole.VALUE, 0).orElseThrow().selectedTarget().erasedName());
-    assertEquals(SyntaxReadiness.LOWERABLE, result.readiness());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(result));
   }
 
   @Test
@@ -289,8 +295,8 @@ class JavaBodyDecisionProducerTest {
     var aggregate = input.aggregate().orElseThrow();
     var constructor = input.methodSyntax().stream().filter(method -> method.methodKey().equals("type:Example#<init>(java.lang.Integer)")).findFirst().orElseThrow();
     var constructorCall = call(constructor, "consume");
-    assertEquals(MethodBodyOrigin.EXECUTION_PROJECTION, aggregate.methodBodyOrigin(constructor.methodKey()).orElseThrow());
-    assertTrue(aggregate.node(constructorCall.nodeId()).isEmpty());
+    assertEquals(MethodBodyOrigin.SOURCE_AST, aggregate.methodBodyOrigin(constructor.methodKey()).orElseThrow());
+    assertSame(constructorCall, aggregate.node(constructorCall.nodeId()).orElseThrow());
     assertEquals("long", constructor.useDecision(constructorCall.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow().selectedTarget().erasedName());
     var written = body(input, "written");
     var writtenCall = call(written, "consume");
@@ -298,8 +304,8 @@ class JavaBodyDecisionProducerTest {
     assertTrue(aggregate.node(writtenCall.nodeId()).isPresent());
     assertEquals("long", written.useDecision(writtenCall.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow().selectedTarget().erasedName());
     var auxiliary = input.methodSyntax().stream().filter(method -> method.methodKey().equals("type:Auxiliary#<init>()")).findFirst().orElseThrow();
-    assertEquals(SyntaxReadiness.LOWERABLE, auxiliary.readiness());
-    assertEquals(InvocationArityMode.FIXED, auxiliary.invocationArity(nodes(auxiliary, SyntaxKind.INVOCATION).getFirst().nodeId()).orElseThrow().mode());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(auxiliary));
+    assertEquals(InvocationApplicabilityMode.FIXED, auxiliary.invocationArity(nodes(auxiliary, SyntaxKind.INVOCATION).getFirst().nodeId()).orElseThrow().mode());
   }
 
   @Test
@@ -319,7 +325,7 @@ class JavaBodyDecisionProducerTest {
     var create = body(input, "create");
     var creation = nodes(create, SyntaxKind.OBJECT_CREATION).getFirst();
     var arity = create.invocationArity(creation.nodeId()).orElseThrow();
-    assertEquals(InvocationArityMode.FIXED, arity.mode());
+    assertEquals(InvocationApplicabilityMode.FIXED, arity.mode());
     assertEquals(1, arity.formalCount());
     assertEquals(create.methodKey(), arity.methodKey());
     assertEquals(creation.nodeId(), arity.consumerNodeId());
@@ -333,10 +339,10 @@ class JavaBodyDecisionProducerTest {
     assertTrue(use.effectivePrimitiveType().isEmpty());
     assertTrue(use.preBoxPrimitiveType().isEmpty());
     assertTrue(use.boxedType().isEmpty());
-    assertTrue(use.referenceCheckRequired().isEmpty());
-    assertEquals(SyntaxReadiness.LOWERABLE, create.readiness());
+    assertTrue(create.useEvidence(creation.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow().referenceCheck().knownValue().isEmpty());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(create));
     assertTrue(input.diagnostics().stream().noneMatch(diagnostic -> diagnostic.isError()), input.diagnostics().toString());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(input).completion());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(input).completion());
   }
 
   private SyntaxAnalysisInput analyze(String content) throws IOException {

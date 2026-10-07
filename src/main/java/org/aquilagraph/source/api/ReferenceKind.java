@@ -1,0 +1,25 @@
+package org.aquilagraph.source.api;
+
+/** Kind of Java symbol referenced by a syntax node. */
+public enum ReferenceKind {
+  /** Type reference. */
+  TYPE,
+  /** Type parameter declaration referenced by a type-variable use. */
+  TYPE_PARAMETER,
+  /** Constructor reference. */
+  CONSTRUCTOR,
+  /** Method reference. */
+  METHOD,
+  /** Field reference. */
+  FIELD,
+  /** Formal parameter reference. */
+  PARAMETER,
+  /** Local variable reference. */
+  LOCAL,
+  /** Enum constant reference. */
+  ENUM_CONSTANT,
+  /** Record component declaration reference. */
+  RECORD_COMPONENT,
+  /** Package reference. */
+  PACKAGE
+}

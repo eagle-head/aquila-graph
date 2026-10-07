@@ -8,9 +8,9 @@ import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.WildcardType;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.JavaSourceKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.JavaSourceKind;
 
 /** Requires written type annotations at their exact positions in an attributed type. */
 final class JavaWrittenTypeAnnotationCorrelation {

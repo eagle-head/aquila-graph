@@ -1,54 +1,103 @@
 package org.aquilagraph.application;
 
 import java.util.Objects;
-import org.aquilagraph.application.port.AnalysisRunAnalyzer;
-import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import java.util.Optional;
+import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
+import org.aquilagraph.application.port.CompletedRunPublication;
 import org.aquilagraph.application.port.AnalysisUseCase;
-import org.aquilagraph.application.port.RepositoryException;
+import org.aquilagraph.cfg.api.CfgRequest;
+import org.aquilagraph.identity.api.AstIdentity;
+import org.aquilagraph.source.api.AstOutcome;
 
-/** Coordinates source discovery, analysis, and optional repository storage. */
+/** Port-based computation with independently selected AST or completed-run publication. */
 public final class AnalysisApplicationService implements AnalysisUseCase {
-  private final AnalysisRunAnalyzer analysisRunAnalyzer;
-  private final AnalysisRunRepositoryFactory repositoryFactory;
+  private final SourceAnalysisRunner analysis;
+  private final AstRetentionService retention;
+  private final CompletedRunPublication completedRuns;
 
   /**
-   * Creates the application service from its analysis and repository collaborators.
+   * Creates computation and independent AST or completed-run publication coordination.
    *
-   * @param analysisRunAnalyzer
-   *          complete analysis-run operation
-   * @param repositoryFactory
-   *          repository factory
+   * @param analysis
+   *          source and CFG port coordinator
+   * @param retention
+   *          independent AST retention and lookup
+   * @param completedRuns
+   *          native completed-run publication port
    */
-  public AnalysisApplicationService(AnalysisRunAnalyzer analysisRunAnalyzer, AnalysisRunRepositoryFactory repositoryFactory) {
-    this.analysisRunAnalyzer = Objects.requireNonNull(analysisRunAnalyzer, "analysisRunAnalyzer");
-    this.repositoryFactory = Objects.requireNonNull(repositoryFactory, "repositoryFactory");
+  public AnalysisApplicationService(SourceAnalysisRunner analysis, AstRetentionService retention, CompletedRunPublication completedRuns) {
+    this.analysis = Objects.requireNonNull(analysis, "analysis");
+    this.retention = Objects.requireNonNull(retention, "retention");
+    this.completedRuns = Objects.requireNonNull(completedRuns, "completedRuns");
   }
 
   /**
-   * Executes one analysis request and stores only a completed result when requested.
+   * Produces and derives only requested work, then applies independent publication intent.
    *
    * @param request
-   *          analysis input and repository policy
-   * @return analysis execution and repository status
-   * @throws AnalysisRepositoryException
-   *           if the repository fails
+   *          source, optional CFG selection, and explicit publication intent
+   * @return computed run and independently established publication result
    */
   @Override
   public AnalysisExecution execute(AnalysisRequest request) {
     Objects.requireNonNull(request, "request");
-    var run = analysisRunAnalyzer.analyze(request.sourceRoot(), request.compilerConfiguration());
-    if (!run.isComplete()) {
-      return AnalysisExecution.notEligibleForRepository(run, request.repositorySavePolicy());
+    var run = analysis.analyze(request);
+    var publication = switch (request.publicationIntent()) {
+      case DO_NOT_SAVE ->
+        new PublicationOutcome(PublicationIntent.DO_NOT_SAVE, run.representation().ast().result().map(result -> new Ast(result.identity())),
+            PublicationStatus.NOT_REQUESTED, CommitKnowledge.NOT_STARTED, Optional.empty());
+      case SAVE_COMPLETE_AST -> retention.retainAst(run);
+      case SAVE_COMPLETED -> completedRuns.publish(run);
+    };
+    if (publication.intent() != request.publicationIntent()) {
+      throw new IllegalStateException("Publication port returned a different requested intent");
     }
-    if (request.repositorySavePolicy() == RepositorySavePolicy.DO_NOT_SAVE) {
-      return AnalysisExecution.withoutRepositoryRequest(run);
-    }
+    return new AnalysisExecution(run, publication);
+  }
 
-    try (var repository = Objects.requireNonNull(repositoryFactory.open(), "repository")) {
-      repository.save(run);
-      return AnalysisExecution.saved(run);
-    } catch (RepositoryException exception) {
-      throw new AnalysisRepositoryException(run, exception);
-    }
+  /**
+   * Derives existing source without production or publication.
+   *
+   * @param ast
+   *          exact established source outcome
+   * @param request
+   *          exact caller-bound graph request
+   * @return computed run without a repository operation
+   */
+  public AnalysisRun deriveExisting(AstOutcome ast, CfgRequest request) {
+    return analysis.deriveExisting(ast, request);
+  }
+
+  /**
+   * Explicitly retains an independently complete AST without deriving graphs.
+   *
+   * @param ast
+   *          exact established source outcome
+   * @return independent publication decision or result
+   */
+  public PublicationOutcome retainAst(AstOutcome ast) {
+    return retention.retainAst(ast);
+  }
+
+  /**
+   * Applies explicit independent source retention intent.
+   *
+   * @param request
+   *          exact established source and no-save or complete-AST intent
+   * @return independent publication decision or result
+   */
+  public PublicationOutcome retainAst(AstPublicationRequest request) {
+    return retention.retainAst(request);
+  }
+
+  /**
+   * Queries an exact source identity without production or graph loading.
+   *
+   * @param identity
+   *          exact requested source identity
+   * @return normal admitted, absent, or incompatible lookup after closure
+   */
+  public AstLookup findAst(AstIdentity identity) {
+    return retention.findAst(identity);
   }
 }

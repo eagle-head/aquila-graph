@@ -5,8 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
+import java.util.Optional;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.Test;
 
 class AnalysisRequestTest {
@@ -17,12 +20,12 @@ class AnalysisRequestTest {
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
 
     // Act
-    var request = new AnalysisRequest(sourceRoot, configuration, RepositorySavePolicy.SAVE_COMPLETED);
+    var request = new AnalysisRequest(new SourceInput.Root(sourceRoot), configuration, AstProfile.JAVA_SOURCE_BOUNDED, Optional.empty(), PublicationIntent.SAVE_COMPLETED);
 
     // Assert
-    assertEquals(sourceRoot.toAbsolutePath().normalize(), request.sourceRoot());
-    assertSame(configuration, request.compilerConfiguration());
-    assertEquals(RepositorySavePolicy.SAVE_COMPLETED, request.repositorySavePolicy());
+    assertEquals(sourceRoot.toAbsolutePath().normalize(), ((SourceInput.Root) request.input()).path());
+    assertSame(configuration, request.configuration());
+    assertEquals(PublicationIntent.SAVE_COMPLETED, request.publicationIntent());
   }
 
   @Test
@@ -32,10 +35,10 @@ class AnalysisRequestTest {
 
     // Act
     var exception = assertThrows(NullPointerException.class,
-        () -> new AnalysisRequest(null, configuration, RepositorySavePolicy.DO_NOT_SAVE));
+        () -> new AnalysisRequest(null, configuration, AstProfile.JAVA_SOURCE_BOUNDED, Optional.empty(), PublicationIntent.DO_NOT_SAVE));
 
     // Assert
-    assertEquals("sourceRoot", exception.getMessage());
+    assertEquals("input", exception.getMessage());
   }
 
   @Test
@@ -45,10 +48,10 @@ class AnalysisRequestTest {
 
     // Act
     var exception = assertThrows(NullPointerException.class,
-        () -> new AnalysisRequest(sourceRoot, null, RepositorySavePolicy.DO_NOT_SAVE));
+        () -> new AnalysisRequest(new SourceInput.Root(sourceRoot), null, AstProfile.JAVA_SOURCE_BOUNDED, Optional.empty(), PublicationIntent.DO_NOT_SAVE));
 
     // Assert
-    assertEquals("compilerConfiguration", exception.getMessage());
+    assertEquals("configuration", exception.getMessage());
   }
 
   @Test
@@ -58,9 +61,9 @@ class AnalysisRequestTest {
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
 
     // Act
-    var exception = assertThrows(NullPointerException.class, () -> new AnalysisRequest(sourceRoot, configuration, null));
+    var exception = assertThrows(NullPointerException.class, () -> new AnalysisRequest(new SourceInput.Root(sourceRoot), configuration, AstProfile.JAVA_SOURCE_BOUNDED, Optional.empty(), null));
 
     // Assert
-    assertEquals("repositorySavePolicy", exception.getMessage());
+    assertEquals("publicationIntent", exception.getMessage());
   }
 }

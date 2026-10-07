@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.sun.source.tree.ClassTree;
 import java.io.IOException;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
@@ -17,55 +18,54 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 import javax.tools.ToolProvider;
-import com.sun.source.tree.ClassTree;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.AttributedCoverageExpectations;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.CoveragePropertyValue;
-import org.aquilagraph.model.CoverageExecutableType;
-import org.aquilagraph.model.CoverageAnnotationValue;
-import org.aquilagraph.model.CoverageTypeStructure;
-import org.aquilagraph.model.CoverageFactReference;
-import org.aquilagraph.model.CoverageFactValue;
-import org.aquilagraph.model.CoverageEvidenceValue;
-import org.aquilagraph.model.CoverageSourceFact;
-import org.aquilagraph.model.DeclarationMemberOrder;
-import org.aquilagraph.model.DiagnosticEmission;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.FeatureContextOutcome;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.model.JavaTypeIdentity;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeatureCoverageResult;
-import org.aquilagraph.model.SourceContext;
-import org.aquilagraph.model.SourceOwnerPath;
-import org.aquilagraph.model.SourceCoverageInventory;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.StableId;
-import org.aquilagraph.model.UnmatchedSourceFact;
-import org.aquilagraph.syntax.CoverageActualFacts;
-import org.aquilagraph.syntax.WrittenSourceAssociation;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.JavaAstAggregate.Builder;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.PackageQualifierEvidence;
-import org.aquilagraph.syntax.SyntaxChild;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.JavaTypeStructure;
-import org.aquilagraph.syntax.SyntaxSourceContribution;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.AttributedCoverageExpectations;
+import org.aquilagraph.source.api.CoverageAnnotationValue;
+import org.aquilagraph.source.api.CoverageEvidenceValue;
+import org.aquilagraph.source.api.CoverageExecutableType;
+import org.aquilagraph.source.api.CoverageFactReference;
+import org.aquilagraph.source.api.CoverageFactValue;
+import org.aquilagraph.source.api.CoveragePropertyValue;
+import org.aquilagraph.source.api.CoverageSourceFact;
+import org.aquilagraph.source.api.CoverageTypeStructure;
+import org.aquilagraph.source.api.DeclarationMemberOrder;
+import org.aquilagraph.source.api.DiagnosticEmission;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.FeatureContextOutcome;
+import org.aquilagraph.source.api.JavaProgram;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
+import org.aquilagraph.source.api.SourceContext;
+import org.aquilagraph.source.api.SourceCoverageInventory;
+import org.aquilagraph.source.api.SourceOwnerPath;
+import org.aquilagraph.source.api.UnmatchedSourceFact;
+import org.aquilagraph.source.api.CoverageActualFacts;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.AggregateFixture;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.JavaTypeStructure;
+import org.aquilagraph.source.api.PackageQualifierEvidence;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxSourceContribution;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.WrittenSourceAssociation;
 import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 class JavaCoverageAdmissionTest {
@@ -749,7 +749,7 @@ class JavaCoverageAdmissionTest {
     var changedRoot = SyntaxNode.source(root.sourceFileKey(), root.structuralPath(), root.sourceKind(), root.syntaxKind(), root.type(), root.value(), children,
         root.semanticReference(), root.origin().orElseThrow());
     var nodes = changedRoot.descendantsAndSelf();
-    var builder = JavaAstAggregate.builder(original.snapshot()).add(new SyntaxSourceContribution(root.sourceFileKey(), changedRoot, nodes,
+    var builder = AggregateFixture.builder(original.snapshot()).add(new SyntaxSourceContribution(root.sourceFileKey(), changedRoot, nodes,
         nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList(), aggregate.semanticEdges()));
     aggregate.declarationMemberOrders().forEach(builder::addDeclarationMemberOrder);
     aggregate.declarationTypeEvidence().forEach(builder::addDeclarationTypeEvidence);
@@ -1436,7 +1436,7 @@ class JavaCoverageAdmissionTest {
   private static JavaAstAggregate copyAggregate(SyntaxAnalysisInput original, SyntaxNode root, List<DeclarationMemberOrder> memberOrders) {
     var nodes = root.descendantsAndSelf();
     var originalAggregate = original.aggregate().orElseThrow();
-    var builder = JavaAstAggregate.builder(original.snapshot()).add(new SyntaxSourceContribution(root.sourceFileKey(), root, nodes,
+    var builder = AggregateFixture.builder(original.snapshot()).add(new SyntaxSourceContribution(root.sourceFileKey(), root, nodes,
         nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList(), originalAggregate.semanticEdges()));
     memberOrders.forEach(builder::addDeclarationMemberOrder);
     nodes.forEach(node -> originalAggregate.nodes().stream().filter(previous -> previous.sourceKind() == node.sourceKind()
@@ -1449,7 +1449,7 @@ class JavaCoverageAdmissionTest {
     return builder.seal();
   }
 
-  private static void copyMethodBodies(JavaAstAggregate aggregate, Builder builder) {
+  private static void copyMethodBodies(JavaAstAggregate aggregate, AggregateFixture builder) {
     aggregate.methodBodyKeys().forEach(key -> {
       var syntax = aggregate.methodSyntax(key).orElseThrow();
       var bodyNodes = syntax.root().descendantsAndSelf();

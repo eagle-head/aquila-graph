@@ -33,12 +33,12 @@ import javax.tools.DiagnosticCollector;
 import javax.tools.JavaFileObject;
 import javax.tools.SimpleJavaFileObject;
 import javax.tools.ToolProvider;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.core.AnalysisEngine;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.application.AnalysisCompletion;
 import org.junit.jupiter.api.Test;
 
 class PublicCompilerSelectionTest {
@@ -149,11 +149,11 @@ class PublicCompilerSelectionTest {
 
     // Act
     var input = frontend.analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
     assertEquals(List.of(), input.diagnostics());
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion());
     assertTrue(input.methodSyntax().stream().anyMatch(body -> body.methodKey().equals("type:Auxiliary#<init>()")));
   }
 

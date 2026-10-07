@@ -14,54 +14,31 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.aquilagraph.application.AnalysisApplicationService;
+import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.AnalysisRepositoryException;
-import org.aquilagraph.application.AnalysisRequest;
-import org.aquilagraph.application.RepositorySavePolicy;
+import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.CompletedRunPublicationService;
+import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.port.RepositoryException;
-import org.aquilagraph.core.AnalysisEngine;
+import org.aquilagraph.cfg.api.FlowValue;
+import org.aquilagraph.cfg.api.OperationKind;
+import org.aquilagraph.cfg.api.OperationNode;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.AnalysisEnvironmentSnapshot;
-import org.aquilagraph.model.AnalysisRun;
-import org.aquilagraph.model.CfgEdge;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.ControlFlowGraph;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.EntryNode;
-import org.aquilagraph.model.ExitNode;
-import org.aquilagraph.model.FlowValue;
-import org.aquilagraph.model.JavaField;
-import org.aquilagraph.model.JavaMethod;
-import org.aquilagraph.model.JavaParameter;
-import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaType;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.JavaTypeIdentity;
-import org.aquilagraph.model.JavaTypeKind;
-import org.aquilagraph.model.MethodAnalysis;
-import org.aquilagraph.model.OperationKind;
-import org.aquilagraph.model.OperationNode;
-import org.aquilagraph.model.OperationOperand;
-import org.aquilagraph.model.ProgramRepresentation;
-import org.aquilagraph.model.ReferenceKind;
-import org.aquilagraph.model.ResolutionStatus;
-import org.aquilagraph.model.SemanticReference;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.SoftwareVersion;
-import org.aquilagraph.model.StableId;
-import org.aquilagraph.model.TransferKind;
-import org.aquilagraph.model.ValueKind;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.JavaField;
+import org.aquilagraph.source.api.JavaMethod;
+import org.aquilagraph.source.api.JavaParameter;
+import org.aquilagraph.source.api.JavaType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
@@ -83,10 +60,10 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
     Files.writeString(sourceRoot.resolve("Example.java"),
         "class Example { void execute(Exception failure) throws Exception { throw failure; } }");
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-    var run = new AnalysisEngine().analyze(input);
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion(), () -> run.diagnostics().toString());
-    var graph = run.representation().orElseThrow().methodAnalyses().stream()
-        .filter(analysis -> analysis.sourceMethod().name().equals("execute")).findFirst().orElseThrow().controlFlowGraph();
+    var run = new SourceAnalysisFixture().analyze(input);
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().toString());
+    var graph = run.representation().cfg().orElseThrow().methods().stream()
+        .filter(analysis -> run.representation().ast().result().orElseThrow().method(analysis.methodKey()).orElseThrow().name().equals("execute")).findFirst().orElseThrow().graph().orElseThrow();
     var thrown = graph.operationNodes().stream().filter(operation -> operation.kind() == OperationKind.THROW).findFirst().orElseThrow();
 
     try {
@@ -100,11 +77,11 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
           var session = driver.session(SessionConfig.forDatabase(settings.database()))) {
         assertEquals(List.of("java.lang.Exception", "java.lang.NullPointerException"), session.run(
             "MATCH (operation:OperationNode {runId: $runId, key: $key}) RETURN operation.possibleExceptions AS categories",
-            Values.parameters("runId", run.runId(), "key", thrown.nodeId())).single().get("categories").asList(value -> value.asString()));
+            Values.parameters("runId", run.identity().key(), "key", thrown.nodeId())).single().get("categories").asList(value -> value.asString()));
       }
       assertEquals(List.of("java.lang.Exception", "java.lang.NullPointerException"), thrown.possibleExceptions());
     } finally {
-      cleanup(settings, List.of(run.runId()));
+      cleanup(settings, List.of(run.identity().key()));
     }
   }
 
@@ -122,8 +99,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
     final StoredProjection independentState;
     var replacementWarning = new AnalysisDiagnostic("diagnostic:replacement-warning", "publication.replacement-warning",
         DiagnosticStage.FRONTEND, DiagnosticSeverity.WARNING, "Replacement warning", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
-    var replacementRun = new AnalysisRun(primaryRun.runId(), primaryRun.inputSnapshot(), primaryRun.environmentSnapshot(),
-        primaryRun.representation(), List.of(replacementWarning), primaryRun.completion());
+    var replacementRun = new AnalysisRun(primaryRun.identity(), primaryRun.representation(), primaryRun.completion(), List.of(replacementWarning));
 
     try {
       // Act
@@ -140,8 +116,8 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                   settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
           var session = driver.session(sessionConfig)) {
         driver.verifyConnectivity();
-        assertEquals(expectedPrimaryProjection.nodes().size(), nodeCount(session, primaryRun.runId()));
-        assertTrue(nodeCount(session, independentRun.runId()) > 0);
+        assertEquals(expectedPrimaryProjection.nodes().size(), nodeCount(session, primaryRun.identity().key()));
+        assertTrue(nodeCount(session, independentRun.identity().key()) > 0);
         assertEquals(
             0,
             session
@@ -165,7 +141,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                     "MATCH (:AnalysisEntity {runId: $runId})-[relation]->() "
                         + "WHERE relation.runId = $runId AND type(relation) ENDS WITH '_FLOW' "
                         + "RETURN collect(DISTINCT type(relation)) AS types",
-                    Values.parameters("runId", primaryRun.runId()))
+                    Values.parameters("runId", primaryRun.identity().key()))
                 .single()
                 .get("types")
                 .asList(value -> value.asString());
@@ -175,7 +151,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
             session
                     .run(
                         "MATCH (:FlowValue {runId: $runId}) RETURN count(*) AS count",
-                        Values.parameters("runId", primaryRun.runId()))
+                        Values.parameters("runId", primaryRun.identity().key()))
                     .single()
                     .get("count")
                     .asLong()
@@ -188,7 +164,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                             + "AND value.staticTypeErasure IS NOT NULL "
                             + "AND value.staticTypeCategory IS NOT NULL "
                             + "RETURN count(value) AS count",
-                        Values.parameters("runId", primaryRun.runId()))
+                        Values.parameters("runId", primaryRun.identity().key()))
                     .single()
                     .get("count")
                     .asLong()
@@ -201,7 +177,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                             + "AND parameter.staticTypeErasure IS NOT NULL "
                             + "AND parameter.staticTypeCategory IS NOT NULL "
                             + "RETURN count(parameter) AS count",
-                        Values.parameters("runId", primaryRun.runId()))
+                        Values.parameters("runId", primaryRun.identity().key()))
                     .single()
                     .get("count")
                     .asLong()
@@ -216,7 +192,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                             + "AND field.staticTypeErasure IS NOT NULL "
                             + "AND field.staticTypeCategory IS NOT NULL "
                             + "RETURN count(field) AS count",
-                        Values.parameters("runId", primaryRun.runId()))
+                        Values.parameters("runId", primaryRun.identity().key()))
                     .single()
                     .get("count")
                     .asLong()
@@ -226,7 +202,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                     .run(
                         "MATCH (operation:OperationNode {runId: $runId}) "
                             + "WHERE operation.kind IS NOT NULL RETURN count(*) AS count",
-                        Values.parameters("runId", primaryRun.runId()))
+                        Values.parameters("runId", primaryRun.identity().key()))
                     .single()
                     .get("count")
                     .asLong()
@@ -238,7 +214,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                     "MATCH (entity:AnalysisEntity {runId: $runId}) "
                         + "WHERE any(label IN labels(entity) WHERE label IN ['MethodBody', 'SyntaxNode']) "
                         + "RETURN count(entity) AS count",
-                    Values.parameters("runId", primaryRun.runId()))
+                    Values.parameters("runId", primaryRun.identity().key()))
                 .single()
                 .get("count")
                 .asLong());
@@ -249,7 +225,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                     "MATCH (:AnalysisEntity {runId: $runId})-[relation]->() "
                         + "WHERE type(relation) IN ['HAS_BODY', 'HAS_SYNTAX_ROOT', 'CHILD'] "
                         + "RETURN count(relation) AS count",
-                    Values.parameters("runId", primaryRun.runId()))
+                    Values.parameters("runId", primaryRun.identity().key()))
                 .single()
                 .get("count")
                 .asLong());
@@ -258,7 +234,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                     .run(
                         "MATCH (method:JavaMethod {runId: $runId}) "
                             + "WHERE method.hasBody = true RETURN count(method) AS count",
-                        Values.parameters("runId", primaryRun.runId()))
+                        Values.parameters("runId", primaryRun.identity().key()))
                     .single()
                     .get("count")
                     .asLong()
@@ -268,7 +244,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                     .run(
                         "MATCH (operation:OperationNode {runId: $runId})-[:HAS_REFERENCE|HAS_ORIGIN]->() "
                             + "RETURN count(operation) AS count",
-                        Values.parameters("runId", primaryRun.runId()))
+                        Values.parameters("runId", primaryRun.identity().key()))
                     .single()
                     .get("count")
                     .asLong()
@@ -278,7 +254,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                     .run(
                         "MATCH (:SourceOrigin {runId: $runId})-[:IN_SOURCE]->"
                             + "(:SourceFile {runId: $runId}) RETURN count(*) AS count",
-                        Values.parameters("runId", primaryRun.runId()))
+                        Values.parameters("runId", primaryRun.identity().key()))
                     .single()
                     .get("count")
                     .asLong()
@@ -287,25 +263,25 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
 
       try (var verificationDriver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
           var verificationSession = verificationDriver.session(sessionConfig)) {
-        independentState = storedProjection(verificationSession, independentRun.runId());
+        independentState = storedProjection(verificationSession, independentRun.identity().key());
       }
       try (var repository = new Neo4jAnalysisRunRepository(settings)) {
         repository.save(replacementRun);
       }
       try (var verificationDriver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
           var verificationSession = verificationDriver.session(sessionConfig)) {
-        replacementState = storedProjection(verificationSession, primaryRun.runId());
+        replacementState = storedProjection(verificationSession, primaryRun.identity().key());
         assertEquals(1, verificationSession.run("MATCH (:Diagnostic {runId: $runId, code: 'publication.replacement-warning'}) "
-            + "RETURN count(*) AS count", Values.parameters("runId", primaryRun.runId())).single().get("count").asLong());
-        assertEquals(independentState, storedProjection(verificationSession, independentRun.runId()));
+            + "RETURN count(*) AS count", Values.parameters("runId", primaryRun.identity().key())).single().get("count").asLong());
+        assertEquals(independentState, storedProjection(verificationSession, independentRun.identity().key()));
       }
       try (var repository = new Neo4jAnalysisRunRepository(settings)) {
         repository.save(replacementRun);
       }
       try (var verificationDriver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
           var verificationSession = verificationDriver.session(sessionConfig)) {
-        assertEquals(replacementState, storedProjection(verificationSession, primaryRun.runId()));
-        assertEquals(independentState, storedProjection(verificationSession, independentRun.runId()));
+        assertEquals(replacementState, storedProjection(verificationSession, primaryRun.identity().key()));
+        assertEquals(independentState, storedProjection(verificationSession, independentRun.identity().key()));
       }
 
       var invalidProjection = constraintConflictProjection(replacementRun);
@@ -321,11 +297,11 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
               GraphDatabase.driver(
                   settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
           var verificationSession = verificationDriver.session(sessionConfig)) {
-        assertEquals(replacementState, storedProjection(verificationSession, primaryRun.runId()));
-        assertEquals(independentState, storedProjection(verificationSession, independentRun.runId()));
+        assertEquals(replacementState, storedProjection(verificationSession, primaryRun.identity().key()));
+        assertEquals(independentState, storedProjection(verificationSession, independentRun.identity().key()));
       }
     } finally {
-      cleanup(settings, List.of(primaryRun.runId(), independentRun.runId()));
+      cleanup(settings, List.of(primaryRun.identity().key(), independentRun.identity().key()));
     }
   }
 
@@ -336,11 +312,10 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
     var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
     var original = completedRun(Files.createDirectories(temporaryDirectory.resolve("diagnostics")),
         "DiagnosticSample" + UUID.randomUUID().toString().replace("-", ""));
-    var origin = original.representation().orElseThrow().program().types().getFirst().origins().getFirst();
+    var origin = original.representation().ast().result().orElseThrow().program().types().getFirst().origins().getFirst();
     var warning = new AnalysisDiagnostic("diagnostic:publication-warning", "publication.warning", DiagnosticStage.FRONTEND,
         DiagnosticSeverity.WARNING, "Publication warning", List.of(origin), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
-    var run = new AnalysisRun(original.runId(), original.inputSnapshot(), original.environmentSnapshot(), original.representation(),
-        List.of(warning, warning), original.completion());
+    var run = new AnalysisRun(original.identity(), original.representation(), original.completion(), List.of(warning, warning));
 
     try {
       // Act
@@ -352,16 +327,16 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
       try (var driver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
           var session = driver.session(SessionConfig.forDatabase(settings.database()))) {
         assertEquals(1, session.run("MATCH (d:Diagnostic {runId: $runId}) RETURN count(d) AS count",
-            Values.parameters("runId", run.runId())).single().get("count").asLong());
+            Values.parameters("runId", run.identity().key())).single().get("count").asLong());
         assertEquals(List.of(0L, 1L), session.run("MATCH (:AnalysisRun {runId: $runId})-[slot:HAS_DIAGNOSTIC]->"
             + "(d:Diagnostic {runId: $runId}) RETURN slot.position AS position ORDER BY position",
-            Values.parameters("runId", run.runId())).list(record -> record.get("position").asLong()));
+            Values.parameters("runId", run.identity().key())).list(record -> record.get("position").asLong()));
         assertEquals(1, session.run("MATCH (:Diagnostic {runId: $runId})-[origin:HAS_ORIGIN]->"
             + "(:SourceOrigin {runId: $runId}) RETURN count(origin) AS count",
-            Values.parameters("runId", run.runId())).single().get("count").asLong());
+            Values.parameters("runId", run.identity().key())).single().get("count").asLong());
       }
     } finally {
-      cleanup(settings, List.of(run.runId()));
+      cleanup(settings, List.of(run.identity().key()));
     }
   }
 
@@ -385,15 +360,14 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
         }
         final StoredProjection establishedProjection;
         try (var verificationSession = actualDriver.session(sessionConfig)) {
-          establishedProjection = storedProjection(verificationSession, run.runId());
+          establishedProjection = storedProjection(verificationSession, run.identity().key());
         }
         var delegatedDriver = closeSignalingDriver(actualDriver, phase, signal, events);
-        var service = new AnalysisApplicationService((root, configuration) -> run,
+        var publisher = new CompletedRunPublicationService(
             () -> new Neo4jAnalysisRunRepository(delegatedDriver, sessionConfig, ignored -> projection));
-        var request = new AnalysisRequest(sourceRoot, run.compilerConfiguration(), RepositorySavePolicy.SAVE_COMPLETED);
 
         // Act
-        var failure = assertThrows(AnalysisRepositoryException.class, () -> service.execute(request));
+        var failure = assertThrows(AnalysisRepositoryException.class, () -> publisher.publish(run));
 
         // Assert
         assertSame(run, failure.analysisRun());
@@ -401,14 +375,14 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
         assertEquals(List.of("schema.close", "publication.write.returned", "publication.close", "driver.close"), events);
         try (var verificationDriver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
             var verificationSession = verificationDriver.session(sessionConfig)) {
-          assertEquals(projection.nodes().size(), nodeCount(verificationSession, run.runId()));
+          assertEquals(projection.nodes().size(), nodeCount(verificationSession, run.identity().key()));
           assertEquals(projection.relationships().size(), verificationSession.run(
               "MATCH (:AnalysisEntity {runId: $runId})-[relation]->() WHERE relation.runId = $runId RETURN count(relation) AS count",
-              Values.parameters("runId", run.runId())).single().get("count").asLong());
-          assertEquals(establishedProjection, storedProjection(verificationSession, run.runId()));
+              Values.parameters("runId", run.identity().key())).single().get("count").asLong());
+          assertEquals(establishedProjection, storedProjection(verificationSession, run.identity().key()));
         }
       } finally {
-        cleanup(settings, List.of(run.runId()));
+        cleanup(settings, List.of(run.identity().key()));
       }
     }
   }
@@ -471,96 +445,16 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
         """.formatted(typeName);
     Files.writeString(sourceRoot.resolve(typeName + ".java"), source);
     var snapshot = new JavaSourceLoader().discover(sourceRoot);
-    var sourceFile = snapshot.sourceFiles().getFirst();
-    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
-    var environment = new AnalysisEnvironmentSnapshot(configuration, "test-compiler", "test-vendor", "25-test",
-        List.of("--release", "25"), List.of(), List.of());
-    var typeKey = StableId.sha256("type", typeName);
-    var fieldKey = StableId.sha256("field", typeKey, "field");
-    var methodKey = StableId.sha256("method", typeKey, "evaluate(int,int)");
-    var intType = new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int");
-    var field = new JavaField(fieldKey, typeKey, "field", intType, Set.of(), false, true,
-        List.of(span(sourceFile, "int field;")));
-    var parameters = List.of(
-        new JavaParameter(StableId.sha256("parameter", methodKey, "input"), "input", intType, true,
-            List.of(span(sourceFile, "int input"))),
-        new JavaParameter(StableId.sha256("parameter", methodKey, "divisor"), "divisor", intType, true,
-            List.of(span(sourceFile, "int divisor"))));
-    var method = new JavaMethod(methodKey, typeKey, "evaluate", "evaluate(int,int)", "int", parameters, Set.of(), false, true, true,
-        List.of(span(sourceFile, "int evaluate")));
-    var type = new JavaType(typeKey, typeName, JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(),
-        List.of(), true, List.of(field), List.of(), List.of(method), List.of(),
-        List.of(new SourceSpan(sourceFile.sourceFileKey(), 0, source.length())));
-    var graph = controlFlowGraph(sourceFile, methodKey, fieldKey, intType);
-    var representation = new ProgramRepresentation(new JavaProgram(List.of(type)),
-        List.of(new MethodAnalysis(StableId.sha256("method-analysis", methodKey), method, graph)));
-    var runId = StableId.sha256("analysis-run", SoftwareVersion.from(snapshot, environment).signature());
-    return new AnalysisRun(runId, snapshot, environment, Optional.of(representation), List.of(), AnalysisCompletion.COMPLETED);
-  }
-
-  private static ControlFlowGraph controlFlowGraph(SourceFile sourceFile, String methodKey, String fieldKey,
-      JavaTypeIdentity intType) {
-    var graphId = StableId.sha256("cfg", methodKey);
-    var entry = new EntryNode(StableId.sha256("cfg-node", graphId, "entry"), graphId);
-    var exit = new ExitNode(StableId.sha256("cfg-node", graphId, "exit"), graphId);
-    var inputValue = new FlowValue(StableId.sha256("cfg-value", graphId, "input"), graphId, ValueKind.PARAMETER,
-        Optional.of("input"), Optional.empty(), Optional.of(intType));
-    var divisorValue = new FlowValue(StableId.sha256("cfg-value", graphId, "divisor"), graphId, ValueKind.PARAMETER,
-        Optional.of("divisor"), Optional.empty(), Optional.of(intType));
-    var divisionValue = new FlowValue(StableId.sha256("cfg-value", graphId, "division"), graphId, ValueKind.TEMPORARY,
-        Optional.empty(), Optional.empty(), Optional.of(intType));
-    var selector = operation(graphId, "selector", OperationKind.SWITCH_SELECTOR, "switch (input)",
-        List.of(new OperationOperand(0, inputValue)), Optional.empty(), List.of(), List.of(), span(sourceFile, "switch (input)"));
-    var fieldReference = new SemanticReference(ReferenceKind.FIELD, ResolutionStatus.RESOLVED, Optional.of(fieldKey),
-        Optional.of("int"), List.of("int"), List.of("int"));
-    var fieldRead = operation(graphId, "field-read", OperationKind.READ, "field", List.of(), Optional.empty(),
-        List.of(fieldReference), List.of(), span(sourceFile, "case 0 -> field"));
-    var division = operation(graphId, "division", OperationKind.BINARY, "input / divisor",
-        List.of(new OperationOperand(0, inputValue), new OperationOperand(1, divisorValue)), Optional.of(divisionValue), List.of(),
-        List.of("java.lang.ArithmeticException"), span(sourceFile, "input / divisor"));
-    var returning = operation(graphId, "return", OperationKind.RETURN, "return switch", List.of(), Optional.empty(), List.of(),
-        List.of(), span(sourceFile, "return switch"));
-    var edges = List.of(
-        edge(graphId, "entry-selector", entry.nodeId(), selector.nodeId(), TransferKind.NORMAL, Optional.empty()),
-        edge(graphId, "selector-field", selector.nodeId(), fieldRead.nodeId(), TransferKind.SWITCH_ALTERNATIVE,
-            Optional.of("case 0")),
-        edge(graphId, "selector-division", selector.nodeId(), division.nodeId(), TransferKind.SWITCH_ALTERNATIVE,
-            Optional.of("default")),
-        edge(graphId, "field-return", fieldRead.nodeId(), returning.nodeId(), TransferKind.NORMAL, Optional.empty()),
-        edge(graphId, "division-return", division.nodeId(), returning.nodeId(), TransferKind.NORMAL, Optional.empty()),
-        edge(graphId, "division-exception", division.nodeId(), exit.nodeId(), TransferKind.EXCEPTIONAL,
-            Optional.of("java.lang.ArithmeticException")),
-        edge(graphId, "return-exit", returning.nodeId(), exit.nodeId(), TransferKind.RETURN, Optional.empty()));
-    return new ControlFlowGraph(graphId, methodKey, entry, List.of(selector, fieldRead, division, returning),
-        List.of(inputValue, divisorValue, divisionValue), exit, edges);
-  }
-
-  private static OperationNode operation(String graphId, String identity, OperationKind kind, String detail,
-      List<OperationOperand> operands, Optional<FlowValue> definedValue, List<SemanticReference> references,
-      List<String> possibleExceptions, SourceSpan origin) {
-    return new OperationNode(StableId.sha256("cfg-node", graphId, identity), graphId, kind, detail, operands, definedValue,
-        Optional.empty(), references, possibleExceptions, List.of(origin));
-  }
-
-  private static CfgEdge edge(String graphId, String identity, String sourceNodeId, String targetNodeId, TransferKind kind,
-      Optional<String> discriminator) {
-    return new CfgEdge(StableId.sha256("cfg-edge", graphId, identity), graphId, sourceNodeId, targetNodeId, kind, discriminator);
-  }
-
-  private static SourceSpan span(SourceFile sourceFile, String fragment) {
-    var start = sourceFile.content().indexOf(fragment);
-    if (start < 0) {
-      throw new IllegalArgumentException("Missing source fragment: " + fragment);
-    }
-    return new SourceSpan(sourceFile.sourceFileKey(), start, start + fragment.length());
+    return new SourceAnalysisFixture().analyze(new JavaFrontend(new JavaSourceLoader()).analyze(snapshot,
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
   }
 
   private static Neo4jGraphProjection constraintConflictProjection(AnalysisRun run) {
     var valid = new Neo4jAnalysisRunMapper().map(run);
     var nodes = new ArrayList<>(valid.nodes());
-    var duplicateRunKey = run.runId() + "-duplicate";
+    var duplicateRunKey = run.identity().key() + "-duplicate";
     nodes.add(new Neo4jNode(duplicateRunKey, "AnalysisRun",
-        Map.of("runId", run.runId(), "key", duplicateRunKey, "completion", "COMPLETED")));
+        Map.of("runId", run.identity().key(), "key", duplicateRunKey, "completion", "COMPLETE")));
     return new Neo4jGraphProjection(valid.runId(), nodes, valid.relationships());
   }
 

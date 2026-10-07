@@ -44,8 +44,8 @@ import javax.tools.JavaFileObject;
 import javax.tools.SimpleJavaFileObject;
 import javax.tools.StandardJavaFileManager;
 import javax.tools.StandardLocation;
-import org.aquilagraph.model.JavaTypeIdentity;
-import org.aquilagraph.syntax.InvocationArityMode;
+import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.InvocationApplicabilityMode;
 
 /** Copies exact constructor instantiation facts from private public-compiler witnesses. */
 final class JavaConstructorSelection {
@@ -482,7 +482,7 @@ final class JavaConstructorSelection {
     return name;
   }
 
-  record SelectedConstructorFacts(InvocationArityMode mode, int formalCount, List<ArgumentFacts> arguments,
+  record SelectedConstructorFacts(InvocationApplicabilityMode mode, int formalCount, List<ArgumentFacts> arguments,
       Optional<JavaTypeIdentity> varargArrayType, Optional<JavaTypeIdentity> erasedArrayType, Optional<JavaTypeIdentity> elementType) {
     SelectedConstructorFacts {
       Objects.requireNonNull(mode, "mode");

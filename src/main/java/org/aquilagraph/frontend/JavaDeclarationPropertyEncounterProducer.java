@@ -8,12 +8,12 @@ import java.util.List;
 import java.util.Optional;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
-import org.aquilagraph.model.CoveragePropertyValue;
-import org.aquilagraph.model.LanguageFeatureCoverage;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
-import org.aquilagraph.model.SourceContext;
-import org.aquilagraph.model.SourceContext.Partition;
+import org.aquilagraph.source.api.CoveragePropertyValue;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
+import org.aquilagraph.source.api.SourceContext;
+import org.aquilagraph.source.api.SourceContext.Partition;
 
 /** Invokes actual represented accessors before support reconciliation, independently of expectation inventories. */
 final class JavaDeclarationPropertyEncounterProducer {

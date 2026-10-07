@@ -18,8 +18,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.stream.Collectors;
+import java.util.TreeSet;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
@@ -30,28 +30,28 @@ import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.DeclarationMemberOrder;
-import org.aquilagraph.model.DeclarationTypeEvidence;
-import org.aquilagraph.model.CoveragePropertyValue;
-import org.aquilagraph.model.CoverageTypeStructure;
-import org.aquilagraph.model.JavaField;
-import org.aquilagraph.model.JavaMethod;
-import org.aquilagraph.model.JavaRecordComponent;
-import org.aquilagraph.model.JavaSynthesizedDeclaration;
-import org.aquilagraph.model.JavaType;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.JavaTypeIdentity;
-import org.aquilagraph.model.JavaTypeKind;
-import org.aquilagraph.model.JavaTypeModifier;
-import org.aquilagraph.model.JavaTypeParameter;
-import org.aquilagraph.model.JavaTypeReference;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.StableId;
-import org.aquilagraph.syntax.SyntaxType;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.CoveragePropertyValue;
+import org.aquilagraph.source.api.CoverageTypeStructure;
+import org.aquilagraph.source.api.DeclarationMemberOrder;
+import org.aquilagraph.source.api.DeclarationTypeEvidence;
+import org.aquilagraph.source.api.JavaField;
+import org.aquilagraph.source.api.JavaMethod;
+import org.aquilagraph.source.api.JavaRecordComponent;
+import org.aquilagraph.source.api.JavaSynthesizedDeclaration;
+import org.aquilagraph.source.api.JavaType;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.JavaTypeKind;
+import org.aquilagraph.source.api.JavaTypeModifier;
+import org.aquilagraph.source.api.JavaTypeParameter;
+import org.aquilagraph.source.api.JavaTypeReference;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
+import org.aquilagraph.source.api.SyntaxType;
 import org.jspecify.annotations.Nullable;
 
 final class JavaTypeTranslator {
@@ -359,7 +359,7 @@ final class JavaTypeTranslator {
       }
       case BlockTree initializer ->
         TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, initializerDiagnostic(unit, sourceFile, typeKey, initializer));
-      case EmptyStatementTree ignored -> {
+      case EmptyStatementTree _ -> {
         // Empty class-body declarations have no executable or declaration semantics.
       }
       default -> TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,

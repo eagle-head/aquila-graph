@@ -6,31 +6,32 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.function.UnaryOperator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.UnaryOperator;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.CoverageFactReference;
-import org.aquilagraph.model.CoveragePropertyValue;
-import org.aquilagraph.model.DeclarationMemberOrder;
-import org.aquilagraph.model.DiagnosticEmission;
-import org.aquilagraph.model.FeatureContextOutcome;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.LanguageFeatureCoverageResult;
-import org.aquilagraph.model.SourceContext;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceOwnerPath;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.UnmatchedSourceFact;
-import org.aquilagraph.syntax.CoverageActualFacts;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
-import org.aquilagraph.syntax.SyntaxSourceContribution;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.CoverageFactReference;
+import org.aquilagraph.source.api.CoveragePropertyValue;
+import org.aquilagraph.source.api.DeclarationMemberOrder;
+import org.aquilagraph.source.api.DiagnosticEmission;
+import org.aquilagraph.source.api.FeatureContextOutcome;
+import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
+import org.aquilagraph.source.api.SourceContext;
+import org.aquilagraph.source.api.SourceOwnerPath;
+import org.aquilagraph.source.api.UnmatchedSourceFact;
+import org.aquilagraph.source.api.CoverageActualFacts;
+import org.aquilagraph.source.api.AggregateFixture;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.SyntaxSourceContribution;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class CoverageFactOwnershipTest {
   private static final String CLASS_SOURCE = "class First {} class Second { int first; void value() {} int second; }";
@@ -209,7 +210,7 @@ class CoverageFactOwnershipTest {
 
   private static JavaAstAggregate alteredOrder(SyntaxAnalysisInput original, UnaryOperator<DeclarationMemberOrder.Member> change) {
     var actual = original.aggregate().orElseThrow();
-    var builder = JavaAstAggregate.builder(original.snapshot());
+    var builder = AggregateFixture.builder(original.snapshot());
     for (var root : actual.roots()) {
       var nodes = root.descendantsAndSelf();
       builder.add(new SyntaxSourceContribution(root.sourceFileKey(), root, nodes,

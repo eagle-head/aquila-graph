@@ -19,15 +19,16 @@ import javax.tools.DiagnosticCollector;
 import javax.tools.JavaFileObject;
 import javax.tools.SimpleJavaFileObject;
 import javax.tools.ToolProvider;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxReadiness;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.cfg.internal.CfgAdmission;
+import org.aquilagraph.cfg.internal.CfgReadiness;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxRole;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class PublicReferenceCastEvidenceTest {
   @TempDir Path sourceRoot;
@@ -80,10 +81,10 @@ class PublicReferenceCastEvidenceTest {
       var declaration = input.program().methods().stream().filter(method -> method.name().equals(methodName)).findFirst().orElseThrow();
       var syntax = input.methodSyntax(declaration.methodKey()).orElseThrow();
       var cast = syntax.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_CAST).findFirst().orElseThrow();
-      assertEquals(SyntaxReadiness.LOWERABLE, syntax.readiness());
+      assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(syntax));
       assertTrue(cast.requiredChild(SyntaxRole.EXPRESSION).semanticReference().isEmpty());
       assertTrue(syntax.useDecision(cast.nodeId(), SyntaxRole.EXPRESSION, 0).orElseThrow().checkedReferenceTarget().isEmpty());
-      assertEquals(Optional.of(false), syntax.useDecision(cast.nodeId(), SyntaxRole.EXPRESSION, 0).orElseThrow().referenceCheckRequired());
+      assertEquals(Optional.of(false), syntax.useEvidence(cast.nodeId(), SyntaxRole.EXPRESSION, 0).orElseThrow().referenceCheck().knownValue());
     }
   }
 

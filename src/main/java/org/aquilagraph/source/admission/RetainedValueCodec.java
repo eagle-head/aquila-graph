@@ -1,0 +1,367 @@
+package org.aquilagraph.source.admission;
+
+import java.math.BigDecimal;
+import java.lang.annotation.ElementType;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.function.ToIntFunction;
+import org.aquilagraph.identity.api.CanonicalValueReader;
+import org.aquilagraph.identity.api.CanonicalValueWriter;
+import org.aquilagraph.identity.api.DependencySnapshot;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.CoverageValidationEvidence;
+import org.aquilagraph.source.api.CoverageSourceFact;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeatureClassification;
+import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.SemanticReference;
+import org.jspecify.annotations.Nullable;
+
+/** Closed source value encoding; no class name is resolved from retained data. */
+final class RetainedValueCodec {
+  private final boolean canonical;
+  private final Function<SyntaxNode, @Nullable Integer> nodeOrdinal;
+  private final ToIntFunction<SyntaxNode> registerNode;
+  private final List<@Nullable SyntaxNode> readNodes = new ArrayList<>();
+
+  RetainedValueCodec(boolean canonical) {
+    this.canonical = canonical;
+    var nodes = new IdentityHashMap<SyntaxNode, Integer>();
+    nodeOrdinal = nodes::get;
+    registerNode = node -> {
+      var ordinal = nodes.size();
+      nodes.put(node, ordinal);
+      return ordinal;
+    };
+  }
+
+  void write(CanonicalValueWriter writer, Object value) {
+    switch (value) {
+      case String text -> {
+        writer.text("text");
+        writer.text(text);
+      }
+      case Boolean flag -> {
+        writer.text("flag");
+        writer.flag(flag);
+      }
+      case Integer number -> {
+        writer.text("int32");
+        writer.integer(number);
+      }
+      case Long number -> {
+        writer.text("int64");
+        writer.longInteger(number);
+      }
+      case Float number -> {
+        writer.text("float32");
+        writer.floating(number);
+      }
+      case Double number -> {
+        writer.text("float64");
+        writer.floating(number);
+      }
+      case Byte number -> {
+        writer.text("int8");
+        writer.integer(number);
+      }
+      case Short number -> {
+        writer.text("int16");
+        writer.integer(number);
+      }
+      case Character character -> {
+        writer.text("char16");
+        writer.integer(character);
+      }
+      case BigDecimal number -> {
+        writer.text("decimal");
+        writer.text(number.toString());
+      }
+      case Path path -> {
+        writer.text("path");
+        writer.text(path.toString());
+      }
+      case Optional<?> optional -> {
+        writer.text("optional");
+        writer.flag(optional.isPresent());
+        optional.ifPresent(component -> write(writer, component));
+      }
+      case Set<?> set -> {
+        writer.text("set");
+        var ordered = new ArrayList<>(set);
+        ordered.sort((left, right) -> Arrays.compareUnsigned(orderingBytes(left), orderingBytes(right)));
+        writeSequence(writer, ordered);
+      }
+      case List<?> list -> {
+        writer.text("list");
+        writeSequence(writer, list);
+      }
+      case SyntaxNode node -> writeNode(writer, node);
+      case CoverageSourceFact fact when canonical -> writeRegistered(writer, canonicalSourceFact(fact));
+      case JavaAstAggregate aggregate -> {
+        writer.text("source-aggregate");
+        write(writer, CopiedAstValues.capture(aggregate));
+      }
+      case LanguageFeatureCoverage coverage -> {
+        writer.text("source-coverage-contract");
+        write(writer, coverage.release());
+        write(writer, coverage.classifications());
+      }
+      case LanguageFeatureCoverageResult coverage -> {
+        writer.text("source-coverage-result");
+        write(writer, coverage.coverage());
+        write(writer, coverage.validationEvidence());
+      }
+      case SyntaxValue.Annotation annotation -> {
+        writer.text("syntax-value/annotation");
+        writeSequence(writer, List.of(annotation.form(), annotation.arguments(), annotation.location(), annotation.applicableTargets(),
+            annotation.closestTypeAdmissible(), annotation.argumentFailureCode(), annotation.repeatableContainerKey()));
+      }
+      default -> writeRegistered(writer, value);
+    }
+  }
+
+  Object read(CanonicalValueReader reader) {
+    var tag = reader.text();
+    return switch (tag) {
+      case "text" -> reader.text();
+      case "flag" -> reader.flag();
+      case "int32" -> reader.integer();
+      case "int64" -> reader.longInteger();
+      case "float32" -> reader.floating();
+      case "float64" -> reader.doubleFloating();
+      case "int8" -> boundedInteger(reader, Byte.MIN_VALUE, Byte.MAX_VALUE).byteValue();
+      case "int16" -> boundedInteger(reader, Short.MIN_VALUE, Short.MAX_VALUE).shortValue();
+      case "char16" -> (char) boundedInteger(reader, Character.MIN_VALUE, Character.MAX_VALUE).intValue();
+      case "decimal" -> new BigDecimal(reader.text());
+      case "path" -> Path.of(reader.text());
+      case "optional" -> reader.flag() ? Optional.of(read(reader)) : Optional.empty();
+      case "list" -> readSequence(reader);
+      case "set" -> readSet(reader);
+      case "source-node" -> readNode(reader);
+      case "source-node-reference" -> readNodeReference(reader);
+      case "source-aggregate" -> AstValueAdmission.admit(required(read(reader), CopiedAstValues.class));
+      case "source-coverage-contract" -> LanguageFeatureCoverage.forRelease(required(read(reader), JavaRelease.class),
+          sequence(read(reader), LanguageFeatureClassification.class));
+      case "source-coverage-result" -> readCoverage(reader);
+      case "syntax-value/annotation" -> readAnnotation(reader);
+      default -> readRegistered(reader, tag);
+    };
+  }
+
+  private void writeRegistered(CanonicalValueWriter writer, Object value) {
+    var shape = AstValueSchema.type(value.getClass());
+    writer.text(shape.tag());
+    if (value instanceof Enum<?> enumeration) {
+      writer.text(enumeration.name());
+      return;
+    }
+    var components = shape.components(value);
+    var excluded = canonical && (value instanceof InputSnapshot || value instanceof DependencySnapshot);
+    writer.count(components.size() - (excluded ? 1 : 0));
+    for (var index = excluded ? 1 : 0; index < components.size(); index++) {
+      writer.text(shape.fields().get(index));
+      write(writer, components.get(index));
+    }
+  }
+
+  private static CoverageSourceFact canonicalSourceFact(CoverageSourceFact fact) {
+    var children = fact.children().stream()
+        .sorted(Comparator.comparing((CoverageSourceFact.Child child) -> SyntaxRole.valueOf(child.role()).stableId())
+            .thenComparingInt(CoverageSourceFact.Child::ordinal))
+        .toList();
+    return new CoverageSourceFact(fact.structuralPath(), fact.sourceKind(), fact.syntaxKind(), fact.type(), fact.value(), children,
+        fact.semanticReference(), fact.sourceAssociation());
+  }
+
+  private Object readRegistered(CanonicalValueReader reader, String tag) {
+    var shape = AstValueSchema.tag(tag);
+    if (shape.type().isEnum()) {
+      var name = reader.text();
+      return Arrays.stream(Objects.requireNonNull(shape.type().getEnumConstants(), "registered enum constants"))
+          .filter(value -> value instanceof Enum<?> enumeration && enumeration.name().equals(name)).findFirst()
+          .orElseThrow(() -> new IllegalArgumentException("Unknown retained enum value: " + tag + "/" + name));
+    }
+    if (reader.count() != shape.fields().size()) {
+      throw new IllegalArgumentException("Wrong retained field count: " + tag);
+    }
+    var components = new ArrayList<Object>(shape.fields().size());
+    for (var field : shape.fields()) {
+      if (!field.equals(reader.text())) {
+        throw new IllegalArgumentException("Wrong retained field order: " + tag + "/" + field);
+      }
+      components.add(read(reader));
+    }
+    return shape.construct(components);
+  }
+
+  private void writeNode(CanonicalValueWriter writer, SyntaxNode node) {
+    var previous = nodeOrdinal.apply(node);
+    if (previous != null) {
+      writer.text("source-node-reference");
+      writer.integer(previous);
+      return;
+    }
+    var ordinal = registerNode.applyAsInt(node);
+    writer.text("source-node");
+    writer.integer(ordinal);
+    var children = canonical
+        ? node.children().stream()
+            .sorted(Comparator.comparing((SyntaxChild child) -> child.role().stableId()).thenComparingInt(SyntaxChild::position)).toList()
+        : node.children();
+    writeSequence(writer, List.of(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind(), node.type(),
+        node.value(), children, node.semanticReference(), node.origin()));
+  }
+
+  private SyntaxNode readNode(CanonicalValueReader reader) {
+    var ordinal = reader.integer();
+    if (ordinal != readNodes.size()) {
+      throw new IllegalArgumentException("Source occurrence slots must be contiguous");
+    }
+    readNodes.add(null);
+    var values = readSequence(reader);
+    requireSize(values, 9, "source-node");
+    var source = required(values.get(0), String.class);
+    var path = required(values.get(1), SyntaxStructuralPath.class);
+    var sourceKind = required(values.get(2), JavaSourceKind.class);
+    var kind = required(values.get(3), SyntaxKind.class);
+    var type = required(values.get(4), SyntaxType.class);
+    var value = required(values.get(5), SyntaxValue.class);
+    var children = sequence(values.get(6), SyntaxChild.class);
+    var reference = optional(values.get(7), SemanticReference.class);
+    var origin = optional(values.get(8), SourceSpan.class);
+    var node = origin.isPresent()
+        ? SyntaxNode.source(source, path, sourceKind, kind, type, value, children, reference, origin.orElseThrow())
+        : SyntaxNode.withoutDirectSource(source, path, sourceKind, kind, type, value, children, reference);
+    readNodes.set(ordinal, node);
+    return node;
+  }
+
+  private SyntaxNode readNodeReference(CanonicalValueReader reader) {
+    var ordinal = reader.integer();
+    if (ordinal < 0 || ordinal >= readNodes.size() || readNodes.get(ordinal) == null) {
+      throw new IllegalArgumentException("Source occurrence reference requires an earlier complete occurrence");
+    }
+    return Objects.requireNonNull(readNodes.get(ordinal), "owned source occurrence");
+  }
+
+  private LanguageFeatureCoverageResult readCoverage(CanonicalValueReader reader) {
+    var coverage = required(read(reader), LanguageFeatureCoverage.class);
+    var evidence = required(read(reader), CoverageValidationEvidence.class);
+    return LanguageFeatureCoverageResult.fromEvidence(coverage, evidence.writtenInventory(), evidence.attributedExpectations(),
+        evidence.outcomes(), evidence.unmatchedFacts(), evidence.diagnosticEmissions());
+  }
+
+  private SyntaxValue.Annotation readAnnotation(CanonicalValueReader reader) {
+    var values = readSequence(reader);
+    requireSize(values, 7, "syntax-value/annotation");
+    var form = required(values.get(0), SyntaxValue.AnnotationForm.class);
+    var arguments = sequence(values.get(1), SyntaxValue.AnnotationArgumentHeader.class);
+    var location = required(values.get(2), SyntaxValue.AnnotationLocation.class);
+    var targets = set(values.get(3), ElementType.class);
+    var admissible = required(values.get(4), Boolean.class);
+    var failure = optional(values.get(5), String.class);
+    var container = optional(values.get(6), String.class);
+    var annotation = failure.isPresent()
+        ? SyntaxValue.Annotation.withArgumentFailure(form, arguments, location, targets, admissible, failure.orElseThrow())
+        : new SyntaxValue.Annotation(form, arguments, location, targets, admissible);
+    return annotation.withRepeatableContainer(container);
+  }
+
+  private void writeSequence(CanonicalValueWriter writer, List<?> values) {
+    writer.count(values.size());
+    values.forEach(value -> write(writer, value));
+  }
+
+  private List<Object> readSequence(CanonicalValueReader reader) {
+    var count = reader.count();
+    if (count > reader.remaining() / Integer.BYTES) {
+      throw new IllegalArgumentException("Retained sequence count exceeds the remaining payload");
+    }
+    var values = new ArrayList<Object>(count);
+    for (var index = 0; index < count; index++) {
+      values.add(read(reader));
+    }
+    return List.copyOf(values);
+  }
+
+  private Set<Object> readSet(CanonicalValueReader reader) {
+    var values = readSequence(reader);
+    var result = new LinkedHashSet<>(values);
+    if (result.size() != values.size()) {
+      throw new IllegalArgumentException("Retained set cannot contain repeated entries");
+    }
+    return Set.copyOf(result);
+  }
+
+  private byte[] orderingBytes(Object value) {
+    var writer = new CanonicalValueWriter("source-value/1");
+    new RetainedValueCodec(canonical).write(writer, value);
+    return writer.toByteArray();
+  }
+
+  private static Integer boundedInteger(CanonicalValueReader reader, int minimum, int maximum) {
+    var value = reader.integer();
+    if (value < minimum || value > maximum) {
+      throw new IllegalArgumentException("Retained integer is outside its tagged width");
+    }
+    return value;
+  }
+
+  static <T> T required(Object value, Class<T> type) {
+    if (!type.isInstance(value)) {
+      throw new IllegalArgumentException("Unexpected retained value for " + type.getSimpleName());
+    }
+    return Objects.requireNonNull(type.cast(value), "retained value");
+  }
+
+  private static <T> List<T> sequence(Object value, Class<T> type) {
+    if (!(value instanceof List<?> list)) {
+      throw new IllegalArgumentException("Expected an ordered retained sequence");
+    }
+    return list.stream().map(component -> required(component, type)).toList();
+  }
+
+  private static <T> Set<T> set(Object value, Class<T> type) {
+    if (!(value instanceof Set<?> values)) {
+      throw new IllegalArgumentException("Expected a retained set");
+    }
+    var result = new LinkedHashSet<T>();
+    values.forEach(component -> result.add(required(component, type)));
+    return Set.copyOf(result);
+  }
+
+  private static <T> Optional<T> optional(Object value, Class<T> type) {
+    if (!(value instanceof Optional<?> optional)) {
+      throw new IllegalArgumentException("Expected explicit retained presence");
+    }
+    return optional.map(component -> required(component, type));
+  }
+
+  private static void requireSize(List<?> values, int size, String tag) {
+    if (values.size() != size) {
+      throw new IllegalArgumentException("Wrong retained field count: " + tag);
+    }
+  }
+
+}

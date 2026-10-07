@@ -1,22 +1,18 @@
 package org.aquilagraph.application.port;
 
-import org.aquilagraph.model.AnalysisRun;
+import org.aquilagraph.application.AnalysisRun;
 
-/** Stores completed analysis runs without exposing a persistence technology. */
+/** Owns storage of one completed native source and control-flow analysis. */
 public interface AnalysisRunRepository extends AutoCloseable {
   /**
-   * Stores one completed analysis run.
+   * Stores the exact established run without producing or translating domain results.
    *
    * @param run
-   *          completed analysis run
-   * @throws IllegalArgumentException
-   *           if the run is not eligible for storage
-   * @throws RepositoryException
-   *           if the repository cannot store the run
+   *          intrinsically qualified complete analysis
    */
   void save(AnalysisRun run);
 
-  /** Closes resources owned by this repository. */
+  /** Closes the owned repository resources. */
   @Override
   void close();
 }

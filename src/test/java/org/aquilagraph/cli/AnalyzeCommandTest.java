@@ -11,9 +11,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.aquilagraph.application.AnalysisApplicationService;
+import org.aquilagraph.application.AstRetentionService;
+import org.aquilagraph.application.CompletedRunPublicationService;
 import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
-import org.aquilagraph.core.AnalysisEngine;
+import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.junit.jupiter.api.Test;
@@ -42,7 +44,7 @@ class AnalyzeCommandTest {
     assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Completion: INCOMPLETE"));
     assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Java release: 25"));
     assertTrue(
-        capturedOutput.toString(StandardCharsets.UTF_8).contains("Repository: NOT_ELIGIBLE"));
+        capturedOutput.toString(StandardCharsets.UTF_8).contains("Repository: NOT_REQUESTED"));
     assertTrue(capturedError.toString(StandardCharsets.UTF_8)
         .contains("frontend.unsupported-tree-kind.while-loop"));
   }
@@ -231,8 +233,8 @@ class AnalyzeCommandTest {
   }
 
   private static AnalyzeCommand command(AnalysisRunRepositoryFactory repositoryFactory) {
-    var analysisRunner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), new AnalysisEngine());
-    return new AnalyzeCommand(new AnalysisApplicationService(analysisRunner, repositoryFactory));
+    var analysisRunner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    return new AnalyzeCommand(new AnalysisApplicationService(analysisRunner, new AstRetentionService(context -> { throw new AssertionError("AST repository must not open"); }), new CompletedRunPublicationService(repositoryFactory)));
   }
 
   private static AnalysisRunRepositoryFactory repositoryMustNotOpen() {

@@ -8,7 +8,7 @@ import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.ExecutableType;
 import javax.lang.model.type.PrimitiveType;
 import javax.lang.model.type.TypeMirror;
-import org.aquilagraph.syntax.InvocationArityMode;
+import org.aquilagraph.source.api.InvocationApplicabilityMode;
 
 /** Rechecks invocation conversion phases against an attributed selected executable. */
 final class JavaInvocationApplicability {
@@ -102,8 +102,8 @@ final class JavaInvocationApplicability {
       Objects.requireNonNull(variableArray, "variableArray");
     }
 
-    InvocationArityMode mode() {
-      return phase == Phase.VARIABLE ? InvocationArityMode.VARIABLE : InvocationArityMode.FIXED;
+    InvocationApplicabilityMode mode() {
+      return phase == Phase.VARIABLE ? InvocationApplicabilityMode.VARIABLE : InvocationApplicabilityMode.FIXED;
     }
   }
 }

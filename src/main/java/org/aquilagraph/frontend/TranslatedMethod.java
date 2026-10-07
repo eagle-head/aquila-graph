@@ -2,7 +2,7 @@ package org.aquilagraph.frontend;
 
 import java.util.Objects;
 import java.util.Optional;
-import org.aquilagraph.model.JavaMethod;
+import org.aquilagraph.source.api.JavaMethod;
 
 record TranslatedMethod(JavaMethod method, Optional<TranslatedMethodBody> body) {
   TranslatedMethod {

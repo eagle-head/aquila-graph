@@ -17,18 +17,18 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import javax.lang.model.SourceVersion;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxChild;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxStructuralPath;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.SyntaxValue;
 import org.aquilagraph.frontend.JavaAnnotationProjector.DeclarationSite;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
 
 /** Projects one written Java module declaration into source-owned AST facts. */
 final class JavaModuleTranslator {
@@ -199,12 +199,12 @@ final class JavaModuleTranslator {
       List<AnalysisDiagnostic> diagnostics) {
     return switch (sourceEvidence.position(unit, sourceFile, tree)) {
       case JavaSourceEvidence.Position.Available available -> Optional.of(available.span());
-      case JavaSourceEvidence.Position.Missing ignored -> {
+      case JavaSourceEvidence.Position.Missing _ -> {
         TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.sourcePositionError(sourceFile, path,
             "frontend.missing-source-position", "A required module occurrence has no compiler position"));
         yield Optional.empty();
       }
-      case JavaSourceEvidence.Position.Invalid ignored -> {
+      case JavaSourceEvidence.Position.Invalid _ -> {
         TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.sourcePositionError(sourceFile, path,
             "frontend.invalid-source-range", "A required module occurrence has an invalid compiler range"));
         yield Optional.empty();

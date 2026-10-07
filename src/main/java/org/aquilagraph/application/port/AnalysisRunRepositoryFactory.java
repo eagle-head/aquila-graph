@@ -1,14 +1,12 @@
 package org.aquilagraph.application.port;
 
-/** Opens repositories only when a completed analysis run must be stored. */
+/** Acquires completed-run storage only after publication eligibility is established. */
 @FunctionalInterface
 public interface AnalysisRunRepositoryFactory {
   /**
-   * Opens a repository.
+   * Transfers ownership of an acquired repository to its caller.
    *
-   * @return open analysis-run repository
-   * @throws RepositoryException
-   *           if the repository cannot be opened
+   * @return owned repository
    */
   AnalysisRunRepository open();
 }

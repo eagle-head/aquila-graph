@@ -2,9 +2,9 @@ package org.aquilagraph.frontend;
 
 import java.util.List;
 import java.util.Objects;
-import org.aquilagraph.model.JavaType;
-import org.aquilagraph.model.DeclarationMemberOrder;
-import org.aquilagraph.model.DeclarationTypeEvidence;
+import org.aquilagraph.source.api.JavaType;
+import org.aquilagraph.source.api.DeclarationMemberOrder;
+import org.aquilagraph.source.api.DeclarationTypeEvidence;
 
 record TranslatedType(List<JavaType> types, List<TranslatedMethodBody> methodBodies, List<DeclarationMemberOrder> memberOrders,
     List<DeclarationTypeEvidence> declarationTypes) {

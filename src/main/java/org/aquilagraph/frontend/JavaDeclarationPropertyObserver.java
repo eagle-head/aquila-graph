@@ -4,16 +4,16 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.LanguageFeature;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeatureClassification;
-import org.aquilagraph.model.LanguageFeatureCoverage;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
-import org.aquilagraph.model.LanguageFeaturePolicy;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.LanguageFeature;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeatureClassification;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
+import org.aquilagraph.source.api.LanguageFeaturePolicy;
 
 /** Creates inseparable diagnostics and contextual observations for declaration properties. */
 final class JavaDeclarationPropertyObserver {

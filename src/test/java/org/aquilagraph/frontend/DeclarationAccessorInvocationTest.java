@@ -9,19 +9,19 @@ import java.io.IOException;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
+import java.util.function.BooleanSupplier;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Name;
 import javax.tools.ToolProvider;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.CoveragePropertyValue;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.SourceFile;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.CoveragePropertyValue;
 import org.junit.jupiter.api.Test;
 
 /** Exercises invocation failures independently of contextual coverage admission. */

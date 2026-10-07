@@ -31,17 +31,17 @@ import javax.lang.model.type.TypeVariable;
 import javax.lang.model.type.UnionType;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
-import org.aquilagraph.model.InvocationForm;
-import org.aquilagraph.model.InvocationMode;
-import org.aquilagraph.model.InvocationSemantics;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.JavaTypeIdentity;
-import org.aquilagraph.model.JavaTypeReference;
-import org.aquilagraph.model.ReferenceKind;
-import org.aquilagraph.model.ResolutionStatus;
-import org.aquilagraph.model.SemanticReference;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.JavaTypeStructure;
+import org.aquilagraph.source.api.InvocationForm;
+import org.aquilagraph.source.api.InvocationMode;
+import org.aquilagraph.source.api.InvocationSemantics;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.JavaTypeReference;
+import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.SemanticReference;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.JavaTypeStructure;
 import org.jspecify.annotations.Nullable;
 
 final class SemanticResolver {

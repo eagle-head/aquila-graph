@@ -1,56 +1,85 @@
 package org.aquilagraph.cli;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
-import org.aquilagraph.application.RepositorySavePolicy;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.AnalysisEnvironmentSnapshot;
-import org.aquilagraph.model.AnalysisRun;
-import org.aquilagraph.model.CfgEdge;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.ControlFlowGraph;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.EntryNode;
-import org.aquilagraph.model.ExitNode;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaMethod;
-import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaType;
-import org.aquilagraph.model.JavaTypeKind;
-import org.aquilagraph.model.MethodAnalysis;
-import org.aquilagraph.model.ProgramRepresentation;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.StableId;
-import org.aquilagraph.model.TransferKind;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.application.AnalysisExecution;
+import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.CommitKnowledge;
+import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.application.PublicationOutcome;
+import org.aquilagraph.application.PublicationStatus;
+import org.aquilagraph.application.PublicationSubjectIdentity;
+import org.aquilagraph.frontend.JavaFrontend;
+import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
 
 final class CliTestFixtures {
-  private CliTestFixtures() {
-  }
+  private CliTestFixtures() {}
 
   static AnalyzeCommandArguments arguments() {
-    return new AnalyzeCommandArguments(Path.of("source"), JavaRelease.JAVA_25, RepositorySavePolicy.DO_NOT_SAVE);
+    return new AnalyzeCommandArguments(Path.of("source"), JavaRelease.JAVA_25, PublicationIntent.DO_NOT_SAVE);
   }
 
   static AnalysisRun completedRun() {
-    return completedRun(List.of());
+    return analyze("interface Example { static void run() {} }");
   }
 
   static AnalysisRun completedRunWithWarning() {
-    return completedRun(List.of(warningDiagnostic()));
+    var run = completedRun();
+    return new AnalysisRun(run.identity(), run.representation(), run.completion(), List.of(warningDiagnostic()));
   }
 
   static AnalysisRun incompleteRun() {
-    return run("incomplete", inputSnapshot(), Optional.empty(), List.of(errorDiagnostic()), AnalysisCompletion.INCOMPLETE);
+    var run = completedRun();
+    return new AnalysisRun(run.identity(), run.representation(), AnalysisCompletion.FAILED, List.of(errorDiagnostic()));
   }
 
   static AnalysisRun rejectedRun() {
-    return run("rejected", emptyInputSnapshot(), Optional.empty(), List.of(errorDiagnostic()), AnalysisCompletion.REJECTED);
+    var run = analyze("");
+    return new AnalysisRun(run.identity(), run.representation(), AnalysisCompletion.REJECTED, List.of(errorDiagnostic()));
+  }
+
+  static AnalysisRun analyze(String source) {
+    var sources = source.isEmpty() ? List.<SourceFile>of() : List.of(SourceFile.fromContent(Path.of("Example.java"), source));
+    var snapshot = InputSnapshot.fromSources(Path.of("."), sources);
+    try {
+      return new SourceAnalysisFixture().analyze(new JavaFrontend(new JavaSourceLoader()).produce(snapshot,
+          CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED));
+    } catch (IOException exception) {
+      throw new UncheckedIOException(exception);
+    }
+  }
+
+  static AnalysisExecution withoutRepositoryRequest(AnalysisRun run) {
+    return new AnalysisExecution(run, new PublicationOutcome(PublicationIntent.DO_NOT_SAVE,
+        run.representation().ast().result().map(ast -> new PublicationSubjectIdentity.Ast(ast.identity())),
+        PublicationStatus.NOT_REQUESTED, CommitKnowledge.NOT_STARTED, Optional.empty()));
+  }
+
+  static AnalysisExecution notEligibleForRepository(AnalysisRun run, PublicationIntent intent) {
+    return new AnalysisExecution(run, new PublicationOutcome(intent,
+        Optional.of(new PublicationSubjectIdentity.CompletedRun(run.identity().key())), PublicationStatus.NOT_ELIGIBLE,
+        CommitKnowledge.NOT_STARTED, Optional.empty()));
+  }
+
+  static AnalysisExecution saved(AnalysisRun run) {
+    return new AnalysisExecution(run, new PublicationOutcome(PublicationIntent.SAVE_COMPLETED,
+        Optional.of(new PublicationSubjectIdentity.CompletedRun(run.identity().key())), PublicationStatus.SAVED,
+        CommitKnowledge.KNOWN_COMMIT, Optional.empty()));
   }
 
   static AnalysisDiagnostic warningDiagnostic() {
@@ -59,50 +88,6 @@ final class CliTestFixtures {
 
   static AnalysisDiagnostic errorDiagnostic() {
     return diagnostic("cli.error", DiagnosticSeverity.ERROR, "source failed");
-  }
-
-  private static AnalysisRun completedRun(List<AnalysisDiagnostic> diagnostics) {
-    return run("completed", inputSnapshot(), Optional.of(programRepresentation()), diagnostics, AnalysisCompletion.COMPLETED);
-  }
-
-  private static AnalysisRun run(String identity, InputSnapshot inputSnapshot, Optional<ProgramRepresentation> representation,
-      List<AnalysisDiagnostic> diagnostics, AnalysisCompletion completion) {
-    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
-    var environment = new AnalysisEnvironmentSnapshot(configuration, "test-compiler", "test-vendor", "25-test",
-        List.of("--release", "25"), List.of(), List.of());
-    return new AnalysisRun(StableId.sha256("analysis-run", identity), inputSnapshot, environment, representation, diagnostics, completion);
-  }
-
-  private static InputSnapshot inputSnapshot() {
-    var content = "class Example { void run() {} }";
-    var source = new SourceFile(StableId.sha256("source", "Example.java", content), Path.of("Example.java"),
-        StableId.sha256("source-content", content), content);
-    return new InputSnapshot(sourceRoot(), "SHA-256", StableId.sha256("snapshot", source.sourceFileKey()), List.of(source));
-  }
-
-  private static InputSnapshot emptyInputSnapshot() {
-    return new InputSnapshot(sourceRoot(), "SHA-256", StableId.sha256("snapshot", "empty"), List.of());
-  }
-
-  private static Path sourceRoot() {
-    return Path.of(".").toAbsolutePath().normalize();
-  }
-
-  private static ProgramRepresentation programRepresentation() {
-    var typeKey = StableId.sha256("type", "Example");
-    var methodKey = StableId.sha256("method", "Example", "run()");
-    var method = new JavaMethod(methodKey, typeKey, "run", "run()", "void", List.of(), Set.of(), false, true, true, List.of());
-    var type = new JavaType(typeKey, "Example", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(),
-        List.of(), false, List.of(), List.of(), List.of(method), List.of(), List.of());
-
-    var graphId = StableId.sha256("cfg", methodKey);
-    var entry = new EntryNode(StableId.sha256("cfg-node", graphId, "entry"), graphId);
-    var exit = new ExitNode(StableId.sha256("cfg-node", graphId, "exit"), graphId);
-    var edge = new CfgEdge(StableId.sha256("cfg-edge", graphId, "entry-exit"), graphId, entry.nodeId(), exit.nodeId(),
-        TransferKind.NORMAL, Optional.empty());
-    var graph = new ControlFlowGraph(graphId, methodKey, entry, List.of(), List.of(), exit, List.of(edge));
-    var analysis = new MethodAnalysis(StableId.sha256("method-analysis", methodKey), method, graph);
-    return new ProgramRepresentation(new JavaProgram(List.of(type)), List.of(analysis));
   }
 
   private static AnalysisDiagnostic diagnostic(String code, DiagnosticSeverity severity, String message) {

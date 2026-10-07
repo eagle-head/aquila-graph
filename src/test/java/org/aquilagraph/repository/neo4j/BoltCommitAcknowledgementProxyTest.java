@@ -3,6 +3,8 @@ package org.aquilagraph.repository.neo4j;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,9 +13,15 @@ import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
+import org.aquilagraph.repository.neo4j.BoltCommitAcknowledgementProxy.ClientMessageObserver;
 import org.junit.jupiter.api.Test;
 
 class BoltCommitAcknowledgementProxyTest {
@@ -192,6 +200,103 @@ class BoltCommitAcknowledgementProxyTest {
     // Assert
     assertEquals("The configured connection did not send the Bolt protocol magic", magicFailure.getMessage());
     assertEquals("The Bolt handshake manifest version count is outside this observation's bound", countFailure.getMessage());
+  }
+
+  @Test
+  void givenRelayFailureDuringWorkAndClose_whenBothFailuresEscape_thenOriginalCauseAndCleanupRemainObservable() {
+    // Act
+    var failure = assertThrows(IOException.class, () -> {
+      try (var backend = new ServerSocket(0, 1, InetAddress.getLoopbackAddress());
+          var proxy = new BoltCommitAcknowledgementProxy(new InetSocketAddress(backend.getInetAddress(), backend.getLocalPort()));
+          var client = new Socket(proxy.uri().getHost(), proxy.uri().getPort())) {
+        client.setSoTimeout(5_000);
+        client.getOutputStream().write(new byte[20]);
+        client.getOutputStream().flush();
+        assertEquals(-1, client.getInputStream().read());
+        proxy.requireHealthyRelay();
+      }
+    });
+
+    // Assert
+    var original = assertInstanceOf(IOException.class, failure.getCause());
+    assertEquals("The configured connection did not send the Bolt protocol magic", original.getMessage());
+    assertEquals(1, failure.getSuppressed().length);
+    var cleanup = assertInstanceOf(IOException.class, failure.getSuppressed()[0]);
+    assertSame(original, cleanup.getCause());
+  }
+
+  @Test
+  void givenLargeRunWithEmbeddedCommitBytes_whenClientFramesAreRelayed_thenBytesAndRequestBoundariesStayExact() throws Exception {
+    // Arrange
+    var payload = new byte[2_097_159];
+    Arrays.fill(payload, (byte) 0x12);
+    payload[0] = (byte) 0xB3;
+    payload[1] = 0x10;
+    payload[65_536] = (byte) 0xB0;
+    var run = chunked(payload);
+    var commit = bytes("0001b00001120000");
+    var input = new FragmentedInput(concat(bytes("0000"), run, commit));
+    var output = new ByteArrayOutputStream();
+    var tags = new ArrayList<Integer>();
+    var registrationOffsets = new ArrayList<Integer>();
+    ClientMessageObserver observer = prefix -> {
+      tags.add(BoltCommitAcknowledgementProxy.messageTag(prefix));
+      registrationOffsets.add(output.size());
+    };
+
+    // Act
+    assertTrue(BoltCommitAcknowledgementProxy.relayClientFrame(input, output, observer));
+    assertTrue(BoltCommitAcknowledgementProxy.relayClientFrame(input, output, observer));
+    assertTrue(BoltCommitAcknowledgementProxy.relayClientFrame(input, output, observer));
+    assertFalse(BoltCommitAcknowledgementProxy.relayClientFrame(input, output, observer));
+
+    // Assert
+    assertArrayEquals(concat(bytes("0000"), run, commit), output.toByteArray());
+    assertEquals(List.of(0x10, 0x12), tags);
+    assertEquals(List.of(run.length, run.length + commit.length), registrationOffsets);
+  }
+
+  @Test
+  void givenOversizedControlOrMalformedCommit_whenClientFramesAreRelayed_thenExistingObservationBoundsRemainEnforced() {
+    // Arrange
+    var oversized = new byte[1_048_577];
+    oversized[0] = (byte) 0xB1;
+    oversized[1] = 0x11;
+    var observed = new ArrayList<Integer>();
+    var output = new ByteArrayOutputStream();
+
+    // Act
+    var controlFailure = assertThrows(IOException.class, () -> BoltCommitAcknowledgementProxy.relayClientFrame(
+        new ByteArrayInputStream(chunked(oversized)), output, prefix -> observed.add(BoltCommitAcknowledgementProxy.messageTag(prefix))));
+    var commitFailure = assertThrows(IOException.class, () -> BoltCommitAcknowledgementProxy.relayClientFrame(
+        new ByteArrayInputStream(bytes("0003b012000000")), output,
+        prefix -> observed.add(BoltCommitAcknowledgementProxy.messageTag(prefix))));
+    var truncation = assertThrows(EOFException.class, () -> BoltCommitAcknowledgementProxy.relayClientFrame(
+        new ByteArrayInputStream(bytes("0002b3")), output, prefix -> observed.add(BoltCommitAcknowledgementProxy.messageTag(prefix))));
+    var goodbyeFailure = assertThrows(IOException.class, () -> BoltCommitAcknowledgementProxy.relayClientFrame(
+        new ByteArrayInputStream(bytes("0003b002000000")), output,
+        prefix -> observed.add(BoltCommitAcknowledgementProxy.messageTag(prefix))));
+
+    // Assert
+    assertEquals("The Bolt message exceeds this observation's bounded fixture size", controlFailure.getMessage());
+    assertEquals("COMMIT must be an exact zero-field Bolt structure", commitFailure.getMessage());
+    assertEquals("EOF within a Bolt protocol field", truncation.getMessage());
+    assertEquals("GOODBYE must be an exact zero-field Bolt structure", goodbyeFailure.getMessage());
+    assertTrue(observed.isEmpty());
+  }
+
+  private static byte[] chunked(byte[] payload) {
+    var wire = new ByteArrayOutputStream();
+    for (var offset = 0; offset < payload.length;) {
+      var size = offset == 0 ? 1 : Math.min(65_535, payload.length - offset);
+      wire.write(size >> 8);
+      wire.write(size & 0xFF);
+      wire.write(payload, offset, size);
+      offset += size;
+    }
+    wire.write(0);
+    wire.write(0);
+    return wire.toByteArray();
   }
 
   private static byte[] bytes(String hexadecimal) {

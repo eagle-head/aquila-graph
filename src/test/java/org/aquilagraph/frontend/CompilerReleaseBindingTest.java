@@ -3,8 +3,8 @@ package org.aquilagraph.frontend;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.List;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
 import org.junit.jupiter.api.Test;
 
 class CompilerReleaseBindingTest {

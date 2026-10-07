@@ -9,16 +9,16 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.LanguageFeature;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeatureCoverage;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
-import org.aquilagraph.model.LanguageFeaturePolicy;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.LanguageFeature;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
+import org.aquilagraph.source.api.LanguageFeaturePolicy;
 import org.jspecify.annotations.Nullable;
 
 /** Emits exact diagnostics for encountered compiler tree kinds classified as diagnosed. */

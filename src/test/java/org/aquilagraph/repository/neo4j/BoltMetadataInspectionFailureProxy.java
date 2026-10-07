@@ -202,7 +202,7 @@ final class BoltMetadataInspectionFailureProxy implements AutoCloseable {
   @Override
   public void close() throws IOException {
     stopped.set(true);
-    try (var shutdown = new RelayShutdown(this)) {
+    try (var _ = new RelayShutdown(this)) {
       listener.close();
     }
   }

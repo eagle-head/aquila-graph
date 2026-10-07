@@ -2,7 +2,7 @@ package org.aquilagraph.repository.neo4j;
 
 import java.util.Map;
 import java.util.Objects;
-import org.aquilagraph.model.JavaTypeIdentity;
+import org.aquilagraph.source.api.JavaTypeIdentity;
 
 /** Writes one compiler-resolved Java type identity into Neo4j properties. */
 final class Neo4jTypeProperties {

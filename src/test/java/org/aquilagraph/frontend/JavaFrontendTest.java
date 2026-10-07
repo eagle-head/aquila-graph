@@ -1,11 +1,12 @@
 package org.aquilagraph.frontend;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -14,29 +15,30 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.ReferenceKind;
-import org.aquilagraph.model.ResolutionStatus;
-import org.aquilagraph.model.SemanticReference;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.SourceOwnerPath;
-import org.aquilagraph.syntax.MethodSyntax;
-import org.aquilagraph.syntax.JavaTypeStructure;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
-import org.aquilagraph.syntax.SyntaxChild;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxReadiness;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.cfg.internal.CfgAdmission;
+import org.aquilagraph.cfg.internal.CfgReadiness;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.SemanticReference;
+import org.aquilagraph.source.api.SourceOwnerPath;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.JavaTypeStructure;
+import org.aquilagraph.source.api.MethodSyntax;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaFrontendTest {
   @TempDir Path temporaryDirectory;
@@ -124,7 +126,7 @@ class JavaFrontendTest {
     assertTrue(
         result.program().methods().stream()
             .filter(method -> method.name().equals("unsupported"))
-            .allMatch(method -> result.methodSyntax(method.methodKey()).orElseThrow().readiness() == SyntaxReadiness.UNSUPPORTED));
+            .allMatch(method -> CfgAdmission.classify(result.methodSyntax(method.methodKey()).orElseThrow()) == CfgReadiness.UNSUPPORTED));
     assertTrue(
         result.diagnostics().stream()
             .anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
@@ -161,7 +163,7 @@ class JavaFrontendTest {
     assertDiagnosticCodes(second, List.of());
     var firstBody = methodBody(first, "evaluate");
     var secondBody = methodBody(second, "evaluate");
-    assertEquals(SyntaxReadiness.LOWERABLE, firstBody.readiness());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(firstBody));
     assertEquals(firstBody.root(), secondBody.root());
     var local = firstBody.root().children(SyntaxRole.STATEMENT).getFirst();
     var writtenType = assertSourceOccurrence(first, firstBody, local).requiredChild(SyntaxRole.DECLARED_TYPE);
@@ -172,7 +174,7 @@ class JavaFrontendTest {
     var source = first.snapshot().sourceFiles().getFirst();
     var start = source.content().indexOf("int sum");
     assertEquals(Optional.of(new SourceSpan(source.sourceFileKey(), start, start + 3)), writtenType.origin());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(first).completion());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(first).completion());
     assertEquals(
         List.of(SyntaxKind.LOCAL_DECLARATION, SyntaxKind.IF, SyntaxKind.RETURN),
         firstBody.root().children(SyntaxRole.STATEMENT).stream().map(node -> node.syntaxKind()).toList());
@@ -232,7 +234,7 @@ class JavaFrontendTest {
     // Assert
     var body = methodBody(result, "classify");
     assertDiagnosticCodes(result, List.of());
-    assertEquals(SyntaxReadiness.LOWERABLE, body.readiness());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(body));
     var cases = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.CASE).toList();
     assertEquals(2, cases.size());
     var literalCase = cases.getFirst();
@@ -268,7 +270,7 @@ class JavaFrontendTest {
     var body = methodBody(result, "classify");
     assertEquals(List.of("frontend.unsupported-enum-constant-initialization", "frontend.unsupported-enum-constant-initialization"),
         result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
-    assertEquals(SyntaxReadiness.LOWERABLE, body.readiness());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(body));
     var labels = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.CASE)
         .flatMap(node -> node.children(SyntaxRole.LABEL).stream()).toList();
     assertEquals(2, labels.size());
@@ -296,7 +298,7 @@ class JavaFrontendTest {
 
     // Assert
     var body = methodBody(result, "classify");
-    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
+    assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(body));
     assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
   }
@@ -321,7 +323,7 @@ class JavaFrontendTest {
 
     // Assert
     var body = methodBody(result, "classify");
-    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
+    assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(body));
     assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
   }
@@ -346,7 +348,7 @@ class JavaFrontendTest {
 
     // Assert
     var body = methodBody(result, "classify");
-    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
+    assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(body));
     assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
   }
@@ -373,7 +375,7 @@ class JavaFrontendTest {
 
     // Assert
     var body = methodBody(result, "classify");
-    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
+    assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(body));
     assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
   }
@@ -397,7 +399,7 @@ class JavaFrontendTest {
 
     // Assert
     var body = methodBody(result, "create");
-    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
+    assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(body));
     assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED
         && node.value(SyntaxValue.Unsupported.class).compilerKind().equals("NEW_CLASS")));
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
@@ -577,7 +579,7 @@ class JavaFrontendTest {
     // Assert
     assertEquals(JavaTypeCategory.NULL, resolved.identity().category());
     assertTrue(resolved.structure().isEmpty());
-    assertEquals(SyntaxReadiness.LOWERABLE, body.readiness());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(body));
     assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unavailable-type-structure")));
   }
 
@@ -605,7 +607,7 @@ class JavaFrontendTest {
 
     // Assert
     var body = methodBody(result, "read");
-    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
+    assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(body));
     assertEquals(1, result.diagnostics().stream()
         .filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")).count());
     var tryNode = body.root().children(SyntaxRole.STATEMENT).getFirst();
@@ -631,7 +633,7 @@ class JavaFrontendTest {
 
     // Assert
     var body = methodBody(result, "increment");
-    assertEquals(SyntaxReadiness.UNSUPPORTED, body.readiness());
+    assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(body));
     assertEquals(
         List.of(SyntaxKind.BLOCK, SyntaxKind.RETURN, SyntaxKind.UNSUPPORTED, SyntaxKind.VARIABLE_ACCESS),
         body.root().descendantsAndSelf().stream().map(node -> node.syntaxKind()).toList());
@@ -779,10 +781,11 @@ class JavaFrontendTest {
     assertEquals(executionNode.sourceFileKey(), sourceOwner.sourceFileKey());
     assertEquals(executionNode.sourceKind(), sourceOwner.sourceKind());
     assertEquals(executionNode.origin(), sourceOwner.origin());
-    assertTrue(body.root().descendantsAndSelf().stream()
-        .allMatch(node -> node.children(SyntaxRole.DECLARED_TYPE).isEmpty() && node.children(SyntaxRole.TYPE_OPERAND).isEmpty()));
-    assertTrue(body.root().descendantsAndSelf().stream()
-        .noneMatch(node -> node.syntaxKind() == SyntaxKind.TYPE_USE || node.syntaxKind() == SyntaxKind.ANNOTATION));
+    assertSame(sourceBody, body.root());
+    assertSame(source, executionNode);
+    for (var node : body.root().descendantsAndSelf()) {
+      assertSame(aggregate.node(node.nodeId()).orElseThrow(), node);
+    }
     return source;
   }
 

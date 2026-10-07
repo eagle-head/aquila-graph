@@ -12,6 +12,7 @@ import com.sun.source.tree.IdentifierTree;
 import com.sun.source.tree.LiteralTree;
 import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.ModifiersTree;
 import com.sun.source.tree.NewArrayTree;
 import com.sun.source.tree.NewClassTree;
@@ -29,14 +30,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxOperator;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxValue;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxOperator;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxValue;
 
 /** Immutable written obligations captured before attribution, independent of translation and coverage output. */
 record JavaAnnotationSourceInventory(List<Occurrence> annotations, List<Declaration> declarations) {
@@ -141,7 +142,11 @@ record JavaAnnotationSourceInventory(List<Occurrence> annotations, List<Declarat
     List<Ancestor> ancestors(Optional<TreePath> owner) {
       var result = new ArrayList<Ancestor>();
       for (var path = owner.orElse(null); path != null; path = path.getParentPath()) {
-        if (!(path.getLeaf() instanceof ModifiersTree) && !(path.getLeaf() instanceof CompilationUnitTree)) {
+        var parent = path.getParentPath();
+        var methodSelection = path.getLeaf() instanceof MemberSelectTree && parent != null
+            && parent.getLeaf() instanceof MethodInvocationTree invocation
+            && JavaProjectionIdentity.sameInstance(invocation.getMethodSelect(), path.getLeaf());
+        if (!(path.getLeaf() instanceof ModifiersTree) && !(path.getLeaf() instanceof CompilationUnitTree) && !methodSelection) {
           var kind = JavaSourceKind.valueOf(path.getLeaf().getKind().name());
           result.add(new Ancestor(kind == JavaSourceKind.TYPE_ANNOTATION ? JavaSourceKind.ANNOTATION : kind, range(path)));
         }
@@ -192,8 +197,8 @@ record JavaAnnotationSourceInventory(List<Occurrence> annotations, List<Declarat
           }
           yield SyntaxKind.ANNOTATION_ARRAY;
         }
-        case LiteralTree ignored -> SyntaxKind.LITERAL;
-        case IdentifierTree ignored -> SyntaxKind.ANNOTATION_NAME_REFERENCE;
+        case LiteralTree _ -> SyntaxKind.LITERAL;
+        case IdentifierTree _ -> SyntaxKind.ANNOTATION_NAME_REFERENCE;
         case MemberSelectTree selection -> {
           var literal = selection.getIdentifier().contentEquals("class");
           children.add(
@@ -238,12 +243,11 @@ record JavaAnnotationSourceInventory(List<Occurrence> annotations, List<Declarat
         case IdentifierTree identifier -> new SyntaxValue.SourceSymbol(identifier.getName().toString());
         case MemberSelectTree selection when !selection.getIdentifier().contentEquals("class") ->
           new SyntaxValue.SourceSymbol(selection.getIdentifier().toString());
-        case LiteralTree ignored -> range(path)
+        case LiteralTree _ -> range(path)
             .<SyntaxValue>map(span -> new SyntaxValue.Literal(
                 source.content().substring(Math.toIntExact(span.startOffset()), Math.toIntExact(span.endOffsetExclusive()))))
             .orElse(SyntaxValue.None.INSTANCE);
-        case UnaryTree ignored -> new SyntaxValue.Operator(SyntaxOperator.valueOf(path.getLeaf().getKind().name()));
-        case BinaryTree ignored -> new SyntaxValue.Operator(SyntaxOperator.valueOf(path.getLeaf().getKind().name()));
+        case UnaryTree _,BinaryTree _ -> new SyntaxValue.Operator(SyntaxOperator.valueOf(path.getLeaf().getKind().name()));
         default -> SyntaxValue.None.INSTANCE;
       };
     }

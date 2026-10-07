@@ -1,23 +1,19 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+<?xml version="1.0" encoding="utf-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-
   <groupId>org.aquilagraph</groupId>
   <artifactId>aquila-graph</artifactId>
   <version>0.1.0-SNAPSHOT</version>
-
   <properties>
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-
     <checkstyle.version>14.1.0</checkstyle.version>
     <cyclonedx-maven-plugin.version>2.9.3</cyclonedx-maven-plugin.version>
     <eclipse.jdt.formatter.version>4.40</eclipse.jdt.formatter.version>
     <error-prone.version>2.50.0</error-prone.version>
     <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
+    <coverageAgentArguments></coverageAgentArguments>
     <jspecify.version>1.0.1</jspecify.version>
     <junit.version>6.1.2</junit.version>
     <license-maven-plugin.version>2.7.1</license-maven-plugin.version>
@@ -31,7 +27,7 @@
     <maven-install-plugin.version>3.2.0</maven-install-plugin.version>
     <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
     <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
-    <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
+    <maven-pmd-plugin.version>3.28.0.1</maven-pmd-plugin.version>
     <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
     <maven-shade-plugin.version>3.6.1</maven-shade-plugin.version>
     <maven-site-plugin.version>3.22.0</maven-site-plugin.version>
@@ -43,7 +39,6 @@
     <spotbugs-maven-plugin.version>4.10.4.1</spotbugs-maven-plugin.version>
     <spotless-maven-plugin.version>3.10.2</spotless-maven-plugin.version>
   </properties>
-
   <dependencies>
     <dependency>
       <groupId>org.neo4j.driver</groupId>
@@ -70,7 +65,6 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
-
   <build>
     <pluginManagement>
       <plugins>
@@ -80,10 +74,10 @@
           <version>${maven-clean-plugin.version}</version>
         </plugin>
         <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-resources-plugin</artifactId>
-          <version>${maven-resources-plugin.version}</version>
-        </plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>${maven-resources-plugin.version}</version>
+      </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-jar-plugin</artifactId>
@@ -106,15 +100,14 @@
         </plugin>
       </plugins>
     </pluginManagement>
-
-      <plugins>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-jar-plugin</artifactId>
-          <configuration>
-            <forceCreation>true</forceCreation>
-          </configuration>
-        </plugin>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <configuration>
+          <forceCreation>true</forceCreation>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-toolchains-plugin</artifactId>
@@ -131,10 +124,9 @@
         </executions>
         <configuration>
           <version>[25,26)</version>
-          <useJdk>IfMatch</useJdk>
+          <useJdk>Never</useJdk>
         </configuration>
       </plugin>
-
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-enforcer-plugin</artifactId>
@@ -165,7 +157,174 @@
           </execution>
         </executions>
       </plugin>
-
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>${maven-resources-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>export-identity-classpath</id>
+            <phase>initialize</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/partitions/identity/classes</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${project.build.outputDirectory}</directory>
+                  <filtering>false</filtering>
+                  <includes>
+                  <include>org/aquilagraph/identity/api/**/*.class</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+          <execution>
+            <id>export-source-reader-classpath</id>
+            <phase>process-sources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/partitions/source-reader/classes</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${project.build.outputDirectory}</directory>
+                  <filtering>false</filtering>
+                  <includes>
+                  <include>org/aquilagraph/source/api/**/*.class</include>
+                  </includes>
+                <excludes>
+                  <exclude>org/aquilagraph/source/api/AstAggregateAdmission.class</exclude>
+                  <exclude>org/aquilagraph/source/api/AstAggregateAdmission$*.class</exclude>
+                  <exclude>org/aquilagraph/source/api/JavaAstAggregateBuilder.class</exclude>
+                  <exclude>org/aquilagraph/source/api/JavaAstAggregateBuilder$*.class</exclude>
+                  <exclude>org/aquilagraph/source/api/MethodDecisionRegistration.class</exclude>
+                  <exclude>org/aquilagraph/source/api/MethodDecisionRegistration$*.class</exclude>
+                  <exclude>org/aquilagraph/source/api/MethodDecisionValidation.class</exclude>
+                  <exclude>org/aquilagraph/source/api/MethodDecisionValidation$*.class</exclude>
+                </excludes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+          <execution>
+            <id>export-source-admission-classpath</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/partitions/source-admission/classes</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${project.build.outputDirectory}</directory>
+                  <filtering>false</filtering>
+                  <includes>
+                  <include>org/aquilagraph/source/admission/**/*.class</include>
+                  <include>org/aquilagraph/source/api/AstAggregateAdmission.class</include>
+                  <include>org/aquilagraph/source/api/AstAggregateAdmission$*.class</include>
+                  <include>org/aquilagraph/source/api/JavaAstAggregateBuilder.class</include>
+                  <include>org/aquilagraph/source/api/JavaAstAggregateBuilder$*.class</include>
+                  <include>org/aquilagraph/source/api/MethodDecisionRegistration.class</include>
+                  <include>org/aquilagraph/source/api/MethodDecisionRegistration$*.class</include>
+                  <include>org/aquilagraph/source/api/MethodDecisionValidation.class</include>
+                  <include>org/aquilagraph/source/api/MethodDecisionValidation$*.class</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+          <execution>
+            <id>export-cfg-reader-classpath</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/partitions/cfg-reader/classes</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${project.build.outputDirectory}</directory>
+                  <filtering>false</filtering>
+                  <includes>
+                  <include>org/aquilagraph/cfg/api/**/*.class</include>
+                  </includes>
+                <excludes>
+                  <exclude>org/aquilagraph/cfg/api/GraphValueAdmission.class</exclude>
+                  <exclude>org/aquilagraph/cfg/api/GraphValueAdmission$*.class</exclude>
+                  <exclude>org/aquilagraph/cfg/api/CanonicalGraphEncoding.class</exclude>
+                  <exclude>org/aquilagraph/cfg/api/CanonicalGraphEncoding$*.class</exclude>
+                  <exclude>org/aquilagraph/cfg/api/LoweringPlan.class</exclude>
+                  <exclude>org/aquilagraph/cfg/api/LoweringPlan$*.class</exclude>
+                  <exclude>org/aquilagraph/cfg/api/CfgAdmissionResult.class</exclude>
+                  <exclude>org/aquilagraph/cfg/api/CfgAdmissionResult$*.class</exclude>
+                </excludes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+          <execution>
+            <id>export-cfg-classpath</id>
+            <phase>process-resources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/partitions/cfg/classes</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${project.build.outputDirectory}</directory>
+                  <filtering>false</filtering>
+                  <includes>
+                  <include>org/aquilagraph/cfg/**/*.class</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+          <execution>
+            <id>export-frontend-classpath</id>
+            <phase>process-resources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/partitions/frontend/classes</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${project.build.outputDirectory}</directory>
+                  <filtering>false</filtering>
+                  <includes>
+                  <include>org/aquilagraph/frontend/**/*.class</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+          <execution>
+            <id>export-application-classpath</id>
+            <phase>process-resources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/partitions/application/classes</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${project.build.outputDirectory}</directory>
+                  <filtering>false</filtering>
+                  <includes>
+                  <include>org/aquilagraph/application/**/*.class</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
@@ -174,6 +333,395 @@
           <release>${maven.compiler.release}</release>
         </configuration>
         <executions>
+          <execution>
+            <id>compile-source-identity</id>
+            <configuration>
+              <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+              <fork>true</fork>
+              <showWarnings>true</showWarnings>
+              <compilerArgs>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</arg>
+                <arg>-Xlint:all</arg>
+                <arg>-Werror</arg>
+                <arg>-parameters</arg>
+                <arg>-XDcompilePolicy=simple</arg>
+                <arg>--should-stop=ifError=FLOW</arg>
+                <arg>-Xplugin:ErrorProne -Xep:NullAway:ERROR -Xep:RequireExplicitNullMarking:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true</arg>
+                <arg>--class-path</arg>
+                <arg>${settings.localRepository}/org/jspecify/jspecify/${jspecify.version}/jspecify-${jspecify.version}.jar</arg>
+                <arg>--limit-modules</arg>
+                <arg>java.base</arg>
+              </compilerArgs>
+              <annotationProcessorPaths>
+                <path>
+                  <groupId>com.google.errorprone</groupId>
+                  <artifactId>error_prone_core</artifactId>
+                  <version>${error-prone.version}</version>
+                </path>
+                <path>
+                  <groupId>com.uber.nullaway</groupId>
+                  <artifactId>nullaway</artifactId>
+                  <version>${nullaway.version}</version>
+                </path>
+              </annotationProcessorPaths>
+              <compileSourceRoots>
+                <compileSourceRoot>${project.basedir}/src/main/java/org/aquilagraph/identity/api</compileSourceRoot>
+              </compileSourceRoots>
+            </configuration>
+            <phase>validate</phase>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>compile-source-reader</id>
+            <configuration>
+              <fork>true</fork>
+              <showWarnings>true</showWarnings>
+              <compilerArgs>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</arg>
+                <arg>-Xlint:all</arg>
+                <arg>-Werror</arg>
+                <arg>-parameters</arg>
+                <arg>-XDcompilePolicy=simple</arg>
+                <arg>--should-stop=ifError=FLOW</arg>
+                <arg>-Xplugin:ErrorProne -Xep:NullAway:ERROR -Xep:RequireExplicitNullMarking:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true</arg>
+                <arg>--class-path</arg>
+                <arg>${settings.localRepository}/org/jspecify/jspecify/${jspecify.version}/jspecify-${jspecify.version}.jar${path.separator}${project.build.directory}/partitions/identity/classes</arg>
+                <arg>--source-path</arg>
+                <arg>${project.build.directory}/partitions/identity/classes</arg>
+                <arg>--limit-modules</arg>
+                <arg>java.base</arg>
+              </compilerArgs>
+              <annotationProcessorPaths>
+                <path>
+                  <groupId>com.google.errorprone</groupId>
+                  <artifactId>error_prone_core</artifactId>
+                  <version>${error-prone.version}</version>
+                </path>
+                <path>
+                  <groupId>com.uber.nullaway</groupId>
+                  <artifactId>nullaway</artifactId>
+                  <version>${nullaway.version}</version>
+                </path>
+              </annotationProcessorPaths>
+              <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+              <compileSourceRoots>
+                <compileSourceRoot>${project.basedir}/src/main/java</compileSourceRoot>
+              </compileSourceRoots>
+              <includes>
+                <include>org/aquilagraph/source/api/**/*.java</include>
+              </includes>
+              <excludes>
+                <exclude>org/aquilagraph/source/api/AstAggregateAdmission.java</exclude>
+                <exclude>org/aquilagraph/source/api/JavaAstAggregateBuilder.java</exclude>
+                <exclude>org/aquilagraph/source/api/MethodDecisionRegistration.java</exclude>
+                <exclude>org/aquilagraph/source/api/MethodDecisionValidation.java</exclude>
+              </excludes>
+            </configuration>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>compile-source-admission</id>
+            <configuration>
+              <fork>true</fork>
+              <showWarnings>true</showWarnings>
+              <compilerArgs>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</arg>
+                <arg>-Xlint:all</arg>
+                <arg>-Werror</arg>
+                <arg>-parameters</arg>
+                <arg>-XDcompilePolicy=simple</arg>
+                <arg>--should-stop=ifError=FLOW</arg>
+                <arg>-Xplugin:ErrorProne -Xep:NullAway:ERROR -Xep:RequireExplicitNullMarking:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true</arg>
+                <arg>--class-path</arg>
+                <arg>${settings.localRepository}/org/jspecify/jspecify/${jspecify.version}/jspecify-${jspecify.version}.jar${path.separator}${project.build.directory}/partitions/identity/classes${path.separator}${project.build.directory}/partitions/source-reader/classes</arg>
+                <arg>--source-path</arg>
+                <arg>${project.build.directory}/partitions/identity/classes</arg>
+                <arg>--limit-modules</arg>
+                <arg>java.base</arg>
+              </compilerArgs>
+              <annotationProcessorPaths>
+                <path>
+                  <groupId>com.google.errorprone</groupId>
+                  <artifactId>error_prone_core</artifactId>
+                  <version>${error-prone.version}</version>
+                </path>
+                <path>
+                  <groupId>com.uber.nullaway</groupId>
+                  <artifactId>nullaway</artifactId>
+                  <version>${nullaway.version}</version>
+                </path>
+              </annotationProcessorPaths>
+              <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+              <compileSourceRoots>
+                <compileSourceRoot>${project.basedir}/src/main/java</compileSourceRoot>
+              </compileSourceRoots>
+              <includes>
+                <include>org/aquilagraph/source/admission/**/*.java</include>
+                <include>org/aquilagraph/source/api/AstAggregateAdmission.java</include>
+                <include>org/aquilagraph/source/api/JavaAstAggregateBuilder.java</include>
+                <include>org/aquilagraph/source/api/MethodDecisionRegistration.java</include>
+                <include>org/aquilagraph/source/api/MethodDecisionValidation.java</include>
+              </includes>
+            </configuration>
+            <phase>process-sources</phase>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>compile-cfg-reader</id>
+            <configuration>
+              <fork>true</fork>
+              <showWarnings>true</showWarnings>
+              <compilerArgs>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</arg>
+                <arg>-Xlint:all</arg>
+                <arg>-Werror</arg>
+                <arg>-parameters</arg>
+                <arg>-XDcompilePolicy=simple</arg>
+                <arg>--should-stop=ifError=FLOW</arg>
+                <arg>-Xplugin:ErrorProne -Xep:NullAway:ERROR -Xep:RequireExplicitNullMarking:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true</arg>
+                <arg>--class-path</arg>
+                <arg>${settings.localRepository}/org/jspecify/jspecify/${jspecify.version}/jspecify-${jspecify.version}.jar${path.separator}${project.build.directory}/partitions/identity/classes${path.separator}${project.build.directory}/partitions/source-reader/classes</arg>
+                <arg>--source-path</arg>
+                <arg>${project.build.directory}/partitions/identity/classes</arg>
+                <arg>--limit-modules</arg>
+                <arg>java.base</arg>
+              </compilerArgs>
+              <annotationProcessorPaths>
+                <path>
+                  <groupId>com.google.errorprone</groupId>
+                  <artifactId>error_prone_core</artifactId>
+                  <version>${error-prone.version}</version>
+                </path>
+                <path>
+                  <groupId>com.uber.nullaway</groupId>
+                  <artifactId>nullaway</artifactId>
+                  <version>${nullaway.version}</version>
+                </path>
+              </annotationProcessorPaths>
+              <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+              <compileSourceRoots>
+                <compileSourceRoot>${project.basedir}/src/main/java</compileSourceRoot>
+              </compileSourceRoots>
+              <includes>
+                <include>org/aquilagraph/cfg/api/**/*.java</include>
+              </includes>
+              <excludes>
+                <exclude>org/aquilagraph/cfg/api/GraphValueAdmission.java</exclude>
+                <exclude>org/aquilagraph/cfg/api/CanonicalGraphEncoding.java</exclude>
+                <exclude>org/aquilagraph/cfg/api/LoweringPlan.java</exclude>
+                <exclude>org/aquilagraph/cfg/api/CfgAdmissionResult.java</exclude>
+              </excludes>
+            </configuration>
+            <phase>process-sources</phase>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>compile-cfg</id>
+            <configuration>
+              <fork>true</fork>
+              <showWarnings>true</showWarnings>
+              <compilerArgs>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</arg>
+                <arg>-Xlint:all</arg>
+                <arg>-Werror</arg>
+                <arg>-parameters</arg>
+                <arg>-XDcompilePolicy=simple</arg>
+                <arg>--should-stop=ifError=FLOW</arg>
+                <arg>-Xplugin:ErrorProne -Xep:NullAway:ERROR -Xep:RequireExplicitNullMarking:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true</arg>
+                <arg>--class-path</arg>
+                <arg>${settings.localRepository}/org/jspecify/jspecify/${jspecify.version}/jspecify-${jspecify.version}.jar${path.separator}${project.build.directory}/partitions/identity/classes${path.separator}${project.build.directory}/partitions/source-reader/classes</arg>
+                <arg>--source-path</arg>
+                <arg>${project.build.directory}/partitions/identity/classes</arg>
+                <arg>--limit-modules</arg>
+                <arg>java.base</arg>
+              </compilerArgs>
+              <annotationProcessorPaths>
+                <path>
+                  <groupId>com.google.errorprone</groupId>
+                  <artifactId>error_prone_core</artifactId>
+                  <version>${error-prone.version}</version>
+                </path>
+                <path>
+                  <groupId>com.uber.nullaway</groupId>
+                  <artifactId>nullaway</artifactId>
+                  <version>${nullaway.version}</version>
+                </path>
+              </annotationProcessorPaths>
+              <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+              <compileSourceRoots>
+                <compileSourceRoot>${project.basedir}/src/main/java</compileSourceRoot>
+              </compileSourceRoots>
+              <includes>
+                <include>org/aquilagraph/cfg/**/*.java</include>
+              </includes>
+            </configuration>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>compile-frontend</id>
+            <configuration>
+              <fork>true</fork>
+              <showWarnings>true</showWarnings>
+              <compilerArgs>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</arg>
+                <arg>-Xlint:all</arg>
+                <arg>-Werror</arg>
+                <arg>-parameters</arg>
+                <arg>-XDcompilePolicy=simple</arg>
+                <arg>--should-stop=ifError=FLOW</arg>
+                <arg>-Xplugin:ErrorProne -Xep:NullAway:ERROR -Xep:RequireExplicitNullMarking:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true</arg>
+                <arg>--class-path</arg>
+                <arg>${settings.localRepository}/org/jspecify/jspecify/${jspecify.version}/jspecify-${jspecify.version}.jar${path.separator}${project.build.directory}/partitions/identity/classes${path.separator}${project.build.directory}/partitions/source-reader/classes${path.separator}${project.build.directory}/partitions/source-admission/classes</arg>
+                <arg>--source-path</arg>
+                <arg>${project.build.directory}/partitions/identity/classes</arg>
+                <arg>--limit-modules</arg>
+                <arg>java.base,java.compiler,jdk.compiler</arg>
+              </compilerArgs>
+              <annotationProcessorPaths>
+                <path>
+                  <groupId>com.google.errorprone</groupId>
+                  <artifactId>error_prone_core</artifactId>
+                  <version>${error-prone.version}</version>
+                </path>
+                <path>
+                  <groupId>com.uber.nullaway</groupId>
+                  <artifactId>nullaway</artifactId>
+                  <version>${nullaway.version}</version>
+                </path>
+              </annotationProcessorPaths>
+              <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+              <compileSourceRoots>
+                <compileSourceRoot>${project.basedir}/src/main/java</compileSourceRoot>
+              </compileSourceRoots>
+              <includes>
+                <include>org/aquilagraph/frontend/**/*.java</include>
+              </includes>
+            </configuration>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>compile-application</id>
+            <configuration>
+              <fork>true</fork>
+              <showWarnings>true</showWarnings>
+              <compilerArgs>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED</arg>
+                <arg>-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED</arg>
+                <arg>-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</arg>
+                <arg>-Xlint:all</arg>
+                <arg>-Werror</arg>
+                <arg>-parameters</arg>
+                <arg>-XDcompilePolicy=simple</arg>
+                <arg>--should-stop=ifError=FLOW</arg>
+                <arg>-Xplugin:ErrorProne -Xep:NullAway:ERROR -Xep:RequireExplicitNullMarking:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true</arg>
+                <arg>--class-path</arg>
+                <arg>${settings.localRepository}/org/jspecify/jspecify/${jspecify.version}/jspecify-${jspecify.version}.jar${path.separator}${project.build.directory}/partitions/identity/classes${path.separator}${project.build.directory}/partitions/source-reader/classes${path.separator}${project.build.directory}/partitions/cfg-reader/classes</arg>
+                <arg>--source-path</arg>
+                <arg>${project.build.directory}/partitions/identity/classes</arg>
+                <arg>--limit-modules</arg>
+                <arg>java.base</arg>
+              </compilerArgs>
+              <annotationProcessorPaths>
+                <path>
+                  <groupId>com.google.errorprone</groupId>
+                  <artifactId>error_prone_core</artifactId>
+                  <version>${error-prone.version}</version>
+                </path>
+                <path>
+                  <groupId>com.uber.nullaway</groupId>
+                  <artifactId>nullaway</artifactId>
+                  <version>${nullaway.version}</version>
+                </path>
+              </annotationProcessorPaths>
+              <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+              <compileSourceRoots>
+                <compileSourceRoot>${project.basedir}/src/main/java</compileSourceRoot>
+              </compileSourceRoots>
+              <includes>
+                <include>org/aquilagraph/application/**/*.java</include>
+              </includes>
+            </configuration>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+          </execution>
           <execution>
             <id>default-compile</id>
             <configuration>
@@ -196,6 +744,8 @@
                 <arg>-XDcompilePolicy=simple</arg>
                 <arg>--should-stop=ifError=FLOW</arg>
                 <arg>-Xplugin:ErrorProne -Xep:NullAway:ERROR -Xep:RequireExplicitNullMarking:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true</arg>
+                <arg>--source-path</arg>
+                <arg>${project.build.directory}/partitions/identity/classes</arg>
               </compilerArgs>
               <annotationProcessorPaths>
                 <path>
@@ -209,11 +759,16 @@
                   <version>${nullaway.version}</version>
                 </path>
               </annotationProcessorPaths>
+              <includes>
+                <include>org/aquilagraph/AquilaGraphApplication.java</include>
+                <include>org/aquilagraph/package-info.java</include>
+                <include>org/aquilagraph/cli/**/*.java</include>
+                <include>org/aquilagraph/repository/**/*.java</include>
+              </includes>
             </configuration>
           </execution>
         </executions>
       </plugin>
-
       <plugin>
         <groupId>com.diffplug.spotless</groupId>
         <artifactId>spotless-maven-plugin</artifactId>
@@ -245,7 +800,6 @@
           </execution>
         </executions>
       </plugin>
-
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-checkstyle-plugin</artifactId>
@@ -294,10 +848,9 @@
           </execution>
         </executions>
       </plugin>
-
       <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-pmd-plugin</artifactId>
+        <groupId>org.aquilagraph.build</groupId>
+        <artifactId>pmd-runtime-maven-plugin</artifactId>
         <version>${maven-pmd-plugin.version}</version>
         <dependencies>
           <dependency>
@@ -318,6 +871,7 @@
           <targetJdk>${maven.compiler.release}</targetJdk>
           <includeTests>false</includeTests>
           <failOnViolation>true</failOnViolation>
+          <skipPmdError>false</skipPmdError>
           <printFailingErrors>true</printFailingErrors>
           <linkXRef>false</linkXRef>
           <minimumTokens>100</minimumTokens>
@@ -333,7 +887,6 @@
           </execution>
         </executions>
       </plugin>
-
       <plugin>
         <groupId>com.github.spotbugs</groupId>
         <artifactId>spotbugs-maven-plugin</artifactId>
@@ -355,7 +908,6 @@
           </execution>
         </executions>
       </plugin>
-
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-dependency-plugin</artifactId>
@@ -374,7 +926,6 @@
           </execution>
         </executions>
       </plugin>
-
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>license-maven-plugin</artifactId>
@@ -408,7 +959,6 @@
           </execution>
         </executions>
       </plugin>
-
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-javadoc-plugin</artifactId>
@@ -424,17 +974,17 @@
             <id>validate-api-documentation</id>
             <phase>verify</phase>
             <goals>
-              <goal>javadoc</goal>
+              <goal>javadoc-no-fork</goal>
             </goals>
           </execution>
         </executions>
       </plugin>
-
       <plugin>
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>
         <version>${jacoco-maven-plugin.version}</version>
         <configuration>
+          <propertyName>coverageAgentArguments</propertyName>
           <excludes>
             <exclude>**/package-info*</exclude>
           </excludes>
@@ -445,6 +995,7 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>${maven-surefire-plugin.version}</version>
         <configuration>
+          <argLine>@{coverageAgentArguments} -Djava.io.tmpdir="${project.build.directory}"</argLine>
           <useManifestOnlyJar>false</useManifestOnlyJar>
           <includes>
             <include>**/*Test.java</include>
@@ -464,6 +1015,7 @@
           </execution>
         </executions>
         <configuration>
+          <argLine>@{coverageAgentArguments} -Djava.io.tmpdir="${project.build.directory}"</argLine>
           <includes>
             <include>**/*ProcessIT.java</include>
           </includes>
@@ -506,8 +1058,34 @@
       </plugin>
     </plugins>
   </build>
-
   <profiles>
+    <profile>
+      <id>editor-source-model</id>
+      <activation>
+        <property>
+          <name>m2e.version</name>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <version>${maven-compiler-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>default-compile</id>
+                <configuration>
+                  <includes combine.self="override">
+                    <include>**/*.java</include>
+                  </includes>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
     <profile>
       <id>supply-chain</id>
       <build>
@@ -541,7 +1119,6 @@
         </plugins>
       </build>
     </profile>
-
     <profile>
       <id>neo4j-integration</id>
       <build>

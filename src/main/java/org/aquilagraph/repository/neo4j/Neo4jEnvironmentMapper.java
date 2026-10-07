@@ -1,9 +1,9 @@
 package org.aquilagraph.repository.neo4j;
 
 import java.util.List;
-import org.aquilagraph.model.AnalysisEnvironmentSnapshot;
-import org.aquilagraph.model.DependencySnapshot;
-import org.aquilagraph.model.StableId;
+import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
+import org.aquilagraph.identity.api.DependencySnapshot;
+import org.aquilagraph.identity.api.StableId;
 
 /** Maps compiler and dependency identity into a Neo4j projection. */
 final class Neo4jEnvironmentMapper {

@@ -8,16 +8,17 @@ import com.sun.source.tree.EmptyStatementTree;
 import com.sun.source.tree.IdentifierTree;
 import com.sun.source.tree.ImportTree;
 import com.sun.source.tree.MemberSelectTree;
-import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.MethodInvocationTree;
+import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.PackageTree;
 import com.sun.source.tree.PrimitiveTypeTree;
 import com.sun.source.tree.Tree;
-import com.sun.source.tree.TypeParameterTree;
 import com.sun.source.tree.TypeCastTree;
+import com.sun.source.tree.TypeParameterTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
+import java.lang.annotation.ElementType;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -27,47 +28,48 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.lang.annotation.ElementType;
-import javax.lang.model.SourceVersion;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
-import javax.lang.model.util.Elements;
-import javax.lang.model.type.TypeMirror;
+import javax.lang.model.SourceVersion;
 import javax.lang.model.type.TypeKind;
+import javax.lang.model.type.TypeMirror;
+import javax.lang.model.util.Elements;
 import org.aquilagraph.frontend.JavaAnnotationProjector.DeclarationSite;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.JavaMethod;
-import org.aquilagraph.model.JavaRecordComponent;
-import org.aquilagraph.model.JavaType;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.ReferenceKind;
-import org.aquilagraph.model.ResolutionStatus;
-import org.aquilagraph.model.SemanticReference;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.AnnotationElementValue;
-import org.aquilagraph.syntax.JavaTypeStructure;
-import org.aquilagraph.syntax.JavaDeclarationModifier;
-import org.aquilagraph.syntax.MethodBodyOrigin;
-import org.aquilagraph.syntax.PackageQualifierEvidence;
-import org.aquilagraph.syntax.SyntaxChild;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxSemanticEdge;
-import org.aquilagraph.syntax.SyntaxSemanticRelation;
-import org.aquilagraph.syntax.SyntaxSemanticTarget;
-import org.aquilagraph.syntax.SyntaxSourceContribution;
-import org.aquilagraph.syntax.SyntaxStructuralPath;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.aquilagraph.syntax.SharedFieldDeclarations;
-import org.aquilagraph.syntax.WrittenSourceAssociation;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.JavaMethod;
+import org.aquilagraph.source.api.InvocationForm;
+import org.aquilagraph.source.api.JavaRecordComponent;
+import org.aquilagraph.source.api.JavaType;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.SemanticReference;
+import org.aquilagraph.source.api.AnnotationElementValue;
+import org.aquilagraph.source.api.JavaDeclarationModifier;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.JavaTypeStructure;
+import org.aquilagraph.source.api.MethodBodyOrigin;
+import org.aquilagraph.source.api.AttributedBodyOccurrence;
+import org.aquilagraph.source.api.PackageQualifierEvidence;
+import org.aquilagraph.source.api.SharedFieldDeclarations;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxSemanticEdge;
+import org.aquilagraph.source.api.SyntaxSemanticRelation;
+import org.aquilagraph.source.api.SyntaxSemanticTarget;
+import org.aquilagraph.source.api.SyntaxSourceContribution;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.WrittenSourceAssociation;
 import org.jspecify.annotations.Nullable;
 
 /** Assembles the source-only declaration/body tree for one attributed compilation unit. */
@@ -85,6 +87,7 @@ final class JavaAstContributionTranslator {
   private final RecordAnnotationMirrorCorrelation recordMirrorCorrelation;
   private final JavaWrittenSourceAssociations sourceAssociations;
   private final Map<String, Map<SourceSpan, String>> sharedFieldAnnotations = new HashMap<>();
+  private final Map<String, SyntaxNode> canonicalBodyCopies = new HashMap<>();
 
   JavaAstContributionTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory) {
     this(semantics, sourceEvidence, treeInventory, new JavaAnnotationMirrorCorrelation(semantics));
@@ -108,6 +111,7 @@ final class JavaAstContributionTranslator {
     Objects.requireNonNull(sourceFile, "sourceFile");
     Objects.requireNonNull(bodies, "bodies");
     sourceAssociations.clear();
+    canonicalBodyCopies.clear();
     var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, sourceFile.sourceFileKey());
     var typesByKey = new HashMap<String, JavaType>();
     for (var type : Objects.requireNonNull(declaredTypes, "declaredTypes")) {
@@ -227,12 +231,15 @@ final class JavaAstContributionTranslator {
         continue;
       }
       var published = publishedBodies.get(body.methodKey());
-      var origin = published != null && JavaProjectionIdentity.sameInstance(published, body.root())
-          ? MethodBodyOrigin.SOURCE_AST
-          : unavailableBodies.contains(body.methodKey())
-              ? MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION
-              : MethodBodyOrigin.EXECUTION_PROJECTION;
-      registrations.add(new BodyRegistration(body.methodKey(), body.root(), origin, body.decisions()));
+      if (published != null) {
+        registrations.add(new BodyRegistration(body.methodKey(), published, MethodBodyOrigin.SOURCE_AST,
+            body.decisions().rebind(canonicalBodyCopies, published), attributions(body, true)));
+        continue;
+      }
+      var origin = unavailableBodies.contains(body.methodKey())
+          ? MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION
+          : MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY;
+      registrations.add(new BodyRegistration(body.methodKey(), body.root(), origin, body.decisions(), attributions(body, false)));
     }
     return new UnitTranslation(Optional.of(contribution), registrations, diagnostics, sourceAssociations.forNodes(nodes));
   }
@@ -259,6 +266,12 @@ final class JavaAstContributionTranslator {
     if (!key.equals(body.methodKey()) || canonical == null || !canonical.hasBody()
         || !semantics.declarationKey(owner).equals(Optional.of(canonical.ownerTypeKey()))) {
       throw new IllegalArgumentException("Translated body does not match its canonical executable: " + body.methodKey());
+    }
+    var independentDeclaration = new JavaMethodDeclarationTranslator(semantics, sourceEvidence, treeInventory)
+        .translate(unit, ownerPath, sourceFile, canonical.ownerTypeKey(), declaration).value();
+    if (!canonical.equals(independentDeclaration)) {
+      throw new IllegalArgumentException(
+          "Translated body does not match its complete canonical executable declaration: " + body.methodKey());
     }
     var independentBodyPath = new TreePath(methodPath, declaration.getBody());
     if (!sameTreePath(independentBodyPath, projection.bodyPath())
@@ -843,7 +856,7 @@ final class JavaAstContributionTranslator {
           .map(range -> sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), memberPath, JavaSourceKind.BLOCK,
               initializer.isStatic() ? SyntaxKind.STATIC_INITIALIZER_BLOCK : SyntaxKind.INSTANCE_INITIALIZER_BLOCK,
               SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range), memberTreePath));
-      case EmptyStatementTree ignored -> Optional.empty();
+      case EmptyStatementTree _ -> Optional.empty();
       default -> {
         TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
             FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unclassified-type-member",
@@ -1278,15 +1291,7 @@ final class JavaAstContributionTranslator {
     var paths = new HashMap<String, TreePath>();
     body.projection().nodeProjections().forEach(projection -> paths.put(projection.node().nodeId(), projection.path()));
     var context = new BodySourceContext(unit, sourceFile, paths, diagnostics);
-    return project(body.root(), path, omitInsertedCall, true, context)
-        .map(projected -> JavaProjectionIdentity.sameInstance(projected, body.root()) ? body.root() : detachSourceBody(projected));
-  }
-
-  private SyntaxNode detachSourceBody(SyntaxNode node) {
-    var children = node.children().stream().map(child -> new SyntaxChild(child.role(), child.position(), detachSourceBody(child.node())))
-        .toList();
-    return sourceAssociations.copied(node, SyntaxNode.source(node.sourceFileKey(), node.structuralPath(), node.sourceKind(),
-        node.syntaxKind(), node.type(), node.value(), children, node.semanticReference(), node.origin().orElseThrow()));
+    return project(body.root(), path, omitInsertedCall, true, context);
   }
 
   private Optional<SyntaxNode> project(SyntaxNode original, SyntaxStructuralPath path, boolean omitInsertedCall, boolean bodyRoot,
@@ -1315,18 +1320,22 @@ final class JavaAstContributionTranslator {
     }
     var creatingPath = Objects.requireNonNull(context.paths().get(original.nodeId()), "body creating path");
     var previousSize = children.size();
-    if (!appendBodyTypes(creatingPath, path, children, context)) {
+    if (!appendBodySourceAttachments(original, creatingPath, path, children, context)) {
       return Optional.empty();
     }
     unchanged &= children.size() == previousSize;
     if (unchanged) {
+      canonicalBodyCopies.put(original.nodeId(), original);
       return Optional.of(original);
     }
-    return Optional.of(sourceAssociations.copied(original, SyntaxNode.source(original.sourceFileKey(), path, original.sourceKind(),
-        original.syntaxKind(), original.type(), original.value(), children, original.semanticReference(), range.orElseThrow())));
+    var copied = sourceAssociations.copied(original, SyntaxNode.source(original.sourceFileKey(), path, original.sourceKind(),
+        original.syntaxKind(), original.type(), original.value(), children, original.semanticReference(), range.orElseThrow()));
+    canonicalBodyCopies.put(original.nodeId(), copied);
+    return Optional.of(copied);
   }
 
-  private boolean appendBodyTypes(TreePath creatingPath, SyntaxStructuralPath path, List<SyntaxChild> children, BodySourceContext context) {
+  private boolean appendBodySourceAttachments(SyntaxNode original, TreePath creatingPath, SyntaxStructuralPath path,
+      List<SyntaxChild> children, BodySourceContext context) {
     var complete = true;
     switch (creatingPath.getLeaf()) {
       case NewClassTree creation -> {
@@ -1338,6 +1347,17 @@ final class JavaAstContributionTranslator {
       case MethodInvocationTree invocation -> {
         for (var index = 0; index < invocation.getTypeArguments().size(); index++) {
           complete &= appendBodyType(invocation.getTypeArguments().get(index), SyntaxRole.TYPE_ARGUMENT, index, path, children, context);
+        }
+        if (original.value(SyntaxValue.Invocation.class).form() == InvocationForm.STATIC_TYPE
+            && invocation.getMethodSelect() instanceof MemberSelectTree selection) {
+          complete &= appendBodyType(selection.getExpression(), SyntaxRole.QUALIFIER, 0, path, children, context);
+        }
+      }
+      case MemberSelectTree selection -> {
+        if ((original.syntaxKind() == SyntaxKind.FIELD_ACCESS
+            && original.value(SyntaxValue.FieldAccess.class).receiver() == SyntaxValue.FieldReceiver.STATIC_TYPE)
+            || original.syntaxKind() == SyntaxKind.RECEIVER) {
+          complete = appendBodyType(selection.getExpression(), SyntaxRole.QUALIFIER, 0, path, children, context);
         }
       }
       case TypeCastTree cast -> complete = appendBodyType(cast.getType(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
@@ -1412,6 +1432,19 @@ final class JavaAstContributionTranslator {
     }
   }
 
-  record BodyRegistration(String methodKey, SyntaxNode root, MethodBodyOrigin origin, JavaBodyDecisions decisions) {
+  record BodyRegistration(String methodKey, SyntaxNode root, MethodBodyOrigin origin, JavaBodyDecisions decisions,
+      List<AttributedBodyOccurrence> attributedOccurrences) {
+  }
+
+  private List<AttributedBodyOccurrence> attributions(TranslatedMethodBody body, boolean copied) {
+    return body.projection().nodeProjections().stream()
+        .filter(projection -> !copied || canonicalBodyCopies.containsKey(projection.node().nodeId())).map(projection -> {
+          var original = projection.node();
+          var retained = copied
+              ? Objects.requireNonNull(canonicalBodyCopies.get(original.nodeId()), "exact canonical occurrence")
+              : original;
+          return new AttributedBodyOccurrence(body.methodKey(), retained.nodeId(), retained.sourceFileKey(), retained.sourceKind(),
+              original.structuralPath());
+        }).toList();
   }
 }

@@ -8,7 +8,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.aquilagraph.application.port.AnalysisRunRepository;
 import org.aquilagraph.application.port.RepositoryException;
-import org.aquilagraph.model.AnalysisRun;
+import org.aquilagraph.application.AnalysisRun;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;

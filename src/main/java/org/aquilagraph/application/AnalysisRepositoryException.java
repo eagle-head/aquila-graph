@@ -6,7 +6,6 @@ import java.io.InvalidObjectException;
 import java.io.ObjectInputStream;
 import java.util.Objects;
 import org.aquilagraph.application.port.RepositoryException;
-import org.aquilagraph.model.AnalysisRun;
 
 /** Associates a repository operation failure with the completed analysis run retained for presentation or recovery. */
 public final class AnalysisRepositoryException extends RuntimeException {
@@ -24,7 +23,7 @@ public final class AnalysisRepositoryException extends RuntimeException {
    *          repository failure
    */
   public AnalysisRepositoryException(AnalysisRun analysisRun, RepositoryException cause) {
-    super("Repository save failed for analysis run " + Objects.requireNonNull(analysisRun, "analysisRun").runId(),
+    super("Repository save failed for analysis run " + Objects.requireNonNull(analysisRun, "analysisRun").identity().key(),
         Objects.requireNonNull(cause, "cause"));
     failedRun = analysisRun;
   }

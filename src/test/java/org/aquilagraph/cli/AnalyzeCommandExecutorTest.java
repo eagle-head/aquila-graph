@@ -5,24 +5,24 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.aquilagraph.application.AnalysisExecution;
-import org.aquilagraph.application.AnalysisRepositoryException;
-import org.aquilagraph.application.port.AnalysisEnvironmentException;
-import org.aquilagraph.application.port.AnalysisInputException;
-import org.aquilagraph.application.port.AnalysisUseCase;
-import org.aquilagraph.application.port.RepositoryException;
-import org.aquilagraph.application.AnalysisRequest;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.aquilagraph.application.AnalysisRepositoryException;
+import org.aquilagraph.application.AnalysisRequest;
+import org.aquilagraph.application.port.AnalysisUseCase;
+import org.aquilagraph.application.port.RepositoryException;
+import org.aquilagraph.source.api.AnalysisEnvironmentException;
+import org.aquilagraph.source.api.AnalysisInputException;
+import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.Test;
 
 class AnalyzeCommandExecutorTest {
   @Test
   void givenSuccessfulUseCase_whenCommandExecutes_thenExecutionIsReturned() {
     // Arrange
-    var execution = AnalysisExecution.withoutRepositoryRequest(CliTestFixtures.completedRun());
+    var execution = CliTestFixtures.withoutRepositoryRequest(CliTestFixtures.completedRun());
     var executor = new AnalyzeCommandExecutor(request -> execution);
 
     // Act
@@ -89,14 +89,14 @@ class AnalyzeCommandExecutorTest {
     // Arrange
     var invocations = new AtomicInteger();
     var capturedRequest = new AtomicReference<AnalysisRequest>();
-    var execution = AnalysisExecution.withoutRepositoryRequest(CliTestFixtures.completedRun());
+    var execution = CliTestFixtures.withoutRepositoryRequest(CliTestFixtures.completedRun());
     var executor = new AnalyzeCommandExecutor(request -> {
       invocations.incrementAndGet();
       capturedRequest.set(request);
       return execution;
     });
     var arguments = new AnalyzeCommandArguments(Path.of("source", "..", "target-source"),
-        CliTestFixtures.arguments().release(), CliTestFixtures.arguments().repositorySavePolicy());
+        CliTestFixtures.arguments().release(), CliTestFixtures.arguments().publicationIntent());
 
     // Act
     var result = executor.execute(arguments);
@@ -105,12 +105,12 @@ class AnalyzeCommandExecutorTest {
     assertSame(execution, assertInstanceOf(AnalyzeCommandOutcome.Executed.class, result).execution());
     assertEquals(1, invocations.get());
     var request = capturedRequest.get();
-    assertEquals(Path.of("target-source").toAbsolutePath().normalize(), request.sourceRoot());
-    assertEquals(arguments.release(), request.compilerConfiguration().release());
-    assertEquals(arguments.repositorySavePolicy(), request.repositorySavePolicy());
-    assertEquals(List.of(), request.compilerConfiguration().classPath());
-    assertEquals(List.of(), request.compilerConfiguration().modulePath());
-    assertEquals(List.of(), request.compilerConfiguration().options());
+    assertEquals(Path.of("target-source").toAbsolutePath().normalize(), ((SourceInput.Root) request.input()).path());
+    assertEquals(arguments.release(), request.configuration().release());
+    assertEquals(arguments.publicationIntent(), request.publicationIntent());
+    assertEquals(List.of(), request.configuration().classPath());
+    assertEquals(List.of(), request.configuration().modulePath());
+    assertEquals(List.of(), request.configuration().options());
   }
 
   @Test

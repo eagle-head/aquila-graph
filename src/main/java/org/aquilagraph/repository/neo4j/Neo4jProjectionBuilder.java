@@ -5,7 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import org.aquilagraph.model.StableId;
+import org.aquilagraph.identity.api.StableId;
 
 /** Owns mutable Neo4j projection state for exactly one analysis run. */
 final class Neo4jProjectionBuilder {

@@ -2,7 +2,7 @@ package org.aquilagraph.cli;
 
 import java.util.Objects;
 import org.aquilagraph.application.AnalysisExecution;
-import org.aquilagraph.model.AnalysisRun;
+import org.aquilagraph.application.AnalysisRun;
 
 /** Application outcomes translated into the command-line adapter's result vocabulary. */
 sealed interface AnalyzeCommandOutcome {

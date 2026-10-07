@@ -66,7 +66,7 @@ final class JavaConstantExpression {
       return Optional.of(true);
     }
     return switch (path.getLeaf()) {
-      case LiteralTree ignored -> Optional.of(false);
+      case LiteralTree _ -> Optional.of(false);
       case ParenthesizedTree parentheses -> constantStatus(new TreePath(path, parentheses.getExpression()));
       case TypeCastTree cast -> failedEvaluationStatus(path, List.of(cast.getExpression()));
       case UnaryTree unary -> switch (unary.getKind()) {
@@ -157,9 +157,8 @@ final class JavaConstantExpression {
       return Optional.ofNullable(switch (binary.getKind()) {
         case CONDITIONAL_AND, AND -> firstBoolean && secondBoolean;
         case CONDITIONAL_OR, OR -> firstBoolean || secondBoolean;
-        case XOR -> firstBoolean ^ secondBoolean;
+        case XOR, NOT_EQUAL_TO -> firstBoolean ^ secondBoolean;
         case EQUAL_TO -> firstBoolean.booleanValue() == secondBoolean.booleanValue();
-        case NOT_EQUAL_TO -> firstBoolean.booleanValue() != secondBoolean.booleanValue();
         default -> null;
       });
     }

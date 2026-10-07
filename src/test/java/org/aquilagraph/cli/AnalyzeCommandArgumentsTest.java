@@ -6,8 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
-import org.aquilagraph.application.RepositorySavePolicy;
-import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
@@ -16,15 +17,15 @@ class AnalyzeCommandArgumentsTest {
   void givenValidatedCommandArguments_whenConvertedToAnalysisRequest_thenDomainValuesArePreserved() {
     // Arrange
     var sourceRoot = Path.of("source");
-    var arguments = new AnalyzeCommandArguments(sourceRoot, JavaRelease.JAVA_25, RepositorySavePolicy.SAVE_COMPLETED);
+    var arguments = new AnalyzeCommandArguments(sourceRoot, JavaRelease.JAVA_25, PublicationIntent.SAVE_COMPLETED);
 
     // Act
     var request = arguments.toAnalysisRequest();
 
     // Assert
-    assertEquals(sourceRoot.toAbsolutePath().normalize(), request.sourceRoot());
-    assertSame(JavaRelease.JAVA_25, request.compilerConfiguration().release());
-    assertSame(RepositorySavePolicy.SAVE_COMPLETED, request.repositorySavePolicy());
+    assertEquals(sourceRoot.toAbsolutePath().normalize(), ((SourceInput.Root) request.input()).path());
+    assertSame(JavaRelease.JAVA_25, request.configuration().release());
+    assertSame(PublicationIntent.SAVE_COMPLETED, request.publicationIntent());
   }
 
   @Test
@@ -33,8 +34,8 @@ class AnalyzeCommandArgumentsTest {
     var sourceRoot = Path.of("source");
 
     // Act
-    Executable nullSourceRoot = () -> new AnalyzeCommandArguments(null, JavaRelease.JAVA_25, RepositorySavePolicy.DO_NOT_SAVE);
-    Executable nullRelease = () -> new AnalyzeCommandArguments(sourceRoot, null, RepositorySavePolicy.DO_NOT_SAVE);
+    Executable nullSourceRoot = () -> new AnalyzeCommandArguments(null, JavaRelease.JAVA_25, PublicationIntent.DO_NOT_SAVE);
+    Executable nullRelease = () -> new AnalyzeCommandArguments(sourceRoot, null, PublicationIntent.DO_NOT_SAVE);
     Executable nullSavePolicy = () -> new AnalyzeCommandArguments(sourceRoot, JavaRelease.JAVA_25, null);
 
     // Assert

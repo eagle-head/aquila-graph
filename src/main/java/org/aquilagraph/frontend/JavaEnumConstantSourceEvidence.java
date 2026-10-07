@@ -4,8 +4,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
 
 /** Locates the optional written argument list that the attributed enum creation tree does not distinguish. */
 final class JavaEnumConstantSourceEvidence {

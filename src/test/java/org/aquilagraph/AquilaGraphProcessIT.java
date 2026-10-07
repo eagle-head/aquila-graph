@@ -5,14 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -28,7 +24,7 @@ class AquilaGraphProcessIT {
         sourceRoot.resolve("Supported.java"),
         "class Supported { int value(int input) { return input + 1; } }");
     // Act
-    var result = runPackagedJar(sourceRoot, "--release", "25");
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot, "--release", "25");
 
     // Assert
     assertTrue(result.completed(), "The packaged analyzer process did not finish within 30 seconds: " + result.output());
@@ -43,6 +39,70 @@ class AquilaGraphProcessIT {
   }
 
   @Test
+  void givenPackagedJarAndRepeatedParenthesizedTargets_whenProcessRuns_thenHistoricalDiagnosticsRemainRepeated()
+      throws IOException, InterruptedException {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
+    Files.writeString(sourceRoot.resolve("Parenthesized.java"),
+        "class Parenthesized { int value(int a) { (a) = 1; (a) = 2; return a; } }");
+
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(1, result.exitCode(), result.error());
+    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertTrue(result.output().endsWith("Repository: NOT_REQUESTED" + System.lineSeparator()), result.output());
+    assertEquals(List.of(
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: PARENTHESIZED",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: PARENTHESIZED"),
+        result.error().lines().toList());
+  }
+
+  @Test
+  void givenPackagedJarAndParenthesizedTargetBeforeLoop_whenProcessRuns_thenHistoricalSourceOrderIsPreserved()
+      throws IOException, InterruptedException {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
+    Files.writeString(sourceRoot.resolve("Parenthesized.java"),
+        "class Parenthesized { int value(int a) { (a) = 1; while (a > 0) { a = 0; } return a; } }");
+
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(1, result.exitCode(), result.error());
+    assertEquals(List.of(
+        "ERROR FRONTEND frontend.unsupported-tree-kind.while-loop: Java compiler tree kind WHILE_LOOP is outside the supported semantic graph profile",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: PARENTHESIZED",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: WHILE_LOOP"),
+        result.error().lines().toList());
+  }
+
+  @Test
+  void givenPackagedJarAndParenthesizedTargetAfterLoop_whenProcessRuns_thenHistoricalSourceOrderIsPreserved()
+      throws IOException, InterruptedException {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
+    Files.writeString(sourceRoot.resolve("Parenthesized.java"),
+        "class Parenthesized { int value(int a) { while (a > 0) { a = 0; } (a) = 1; return a; } }");
+
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(1, result.exitCode(), result.error());
+    assertEquals(List.of(
+        "ERROR FRONTEND frontend.unsupported-tree-kind.while-loop: Java compiler tree kind WHILE_LOOP is outside the supported semantic graph profile",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: WHILE_LOOP",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: PARENTHESIZED"),
+        result.error().lines().toList());
+  }
+
+  @Test
   void givenPackagedJarCalculator_whenProcessRuns_thenUnsupportedInitializersAreReported()
       throws IOException, InterruptedException {
     // Arrange
@@ -50,7 +110,7 @@ class AquilaGraphProcessIT {
         Path.of("analysis-targets/calculator/src/main/java").toAbsolutePath().normalize();
 
     // Act
-    var result = runPackagedJar(calculator);
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(calculator);
 
     // Assert
     assertTrue(result.completed(), "The packaged analyzer process did not finish within 30 seconds: " + result.output());
@@ -58,7 +118,7 @@ class AquilaGraphProcessIT {
     assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
     assertTrue(result.error().contains("frontend.unsupported-field-initializer"), result.error());
     assertTrue(result.error().contains("frontend.unsupported-enum-constant-initialization"), result.error());
-    assertTrue(result.output().contains("Repository: NOT_ELIGIBLE"), result.output());
+    assertTrue(result.output().contains("Repository: NOT_REQUESTED"), result.output());
   }
 
   @Test
@@ -69,7 +129,7 @@ class AquilaGraphProcessIT {
     Files.write(
         sourceRoot.resolve("Malformed.java"), new byte[] {(byte) 0xC3, (byte) 0x28});
     // Act
-    var result = runPackagedJar(sourceRoot);
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
 
     // Assert
     assertTrue(result.completed(), "The packaged analyzer process did not finish within 30 seconds: " + result.output());
@@ -86,7 +146,7 @@ class AquilaGraphProcessIT {
     var sourceRoot = temporaryDirectory.resolve("unread-source");
 
     // Act
-    var result = runPackagedJar(sourceRoot, "--release", "25", "--release");
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot, "--release", "25", "--release");
 
     // Assert
     assertTrue(result.completed());
@@ -104,7 +164,7 @@ class AquilaGraphProcessIT {
     Files.writeString(sourceRoot.resolve("Supported.java"), "class Supported { int value() { return 1; } }");
 
     // Act
-    var result = runPackagedJar(List.of("--limit-modules", "java.base,java.compiler,java.logging"), Map.of(), sourceRoot);
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(List.of("--limit-modules", "java.base,java.compiler,java.logging"), Map.of(), sourceRoot);
 
     // Assert
     assertTrue(result.completed());
@@ -122,7 +182,7 @@ class AquilaGraphProcessIT {
     Files.writeString(sourceRoot.resolve("Supported.java"), "class Supported { int value() { return 1; } }");
 
     // Act
-    var result = runPackagedJar(List.of(), Map.of("AQUILA_GRAPH_NEO4J_PASSWORD", "", "NEO4J_PASSWORD", ""), sourceRoot);
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(List.of(), Map.of("AQUILA_GRAPH_NEO4J_PASSWORD", "", "NEO4J_PASSWORD", ""), sourceRoot);
 
     // Assert
     assertTrue(result.completed());
@@ -140,7 +200,7 @@ class AquilaGraphProcessIT {
     Files.writeString(sourceRoot.resolve("Supported.java"), "class Supported { int value() { return 1; } }");
 
     // Act
-    var result = runPackagedJar(List.of(), Map.of("AQUILA_GRAPH_NEO4J_PASSWORD", "", "NEO4J_PASSWORD", ""), sourceRoot, "--persist");
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(List.of(), Map.of("AQUILA_GRAPH_NEO4J_PASSWORD", "", "NEO4J_PASSWORD", ""), sourceRoot, "--persist");
 
     // Assert
     assertTrue(result.completed());
@@ -158,7 +218,7 @@ class AquilaGraphProcessIT {
     Files.writeString(sourceRoot.resolve("Unsupported.java"), "class Unsupported { void run() { while (true) { } } }");
 
     // Act
-    var result = runPackagedJar(List.of(), Map.of("AQUILA_GRAPH_NEO4J_PASSWORD", "", "NEO4J_PASSWORD", ""), sourceRoot, "--persist");
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(List.of(), Map.of("AQUILA_GRAPH_NEO4J_PASSWORD", "", "NEO4J_PASSWORD", ""), sourceRoot, "--persist");
 
     // Assert
     assertTrue(result.completed());
@@ -176,7 +236,7 @@ class AquilaGraphProcessIT {
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
 
     // Act
-    var result = runPackagedJar(List.of(), Map.of("AQUILA_GRAPH_NEO4J_PASSWORD", "", "NEO4J_PASSWORD", ""), sourceRoot, "--persist");
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(List.of(), Map.of("AQUILA_GRAPH_NEO4J_PASSWORD", "", "NEO4J_PASSWORD", ""), sourceRoot, "--persist");
 
     // Assert
     assertTrue(result.completed());
@@ -188,38 +248,4 @@ class AquilaGraphProcessIT {
     assertFalse(result.error().contains("Repository save failed:"), result.error());
   }
 
-  private ProcessResult runPackagedJar(Path sourceRoot, String... options) throws IOException, InterruptedException {
-    return runPackagedJar(List.of(), Map.of(), sourceRoot, options);
-  }
-
-  private ProcessResult runPackagedJar(List<String> javaOptions, Map<String, String> environment, Path sourceRoot, String... options)
-      throws IOException, InterruptedException {
-    var javaName = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
-    var javaExecutable = Path.of(System.getProperty("java.home"), "bin", javaName);
-    var jar = Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath().normalize();
-    var command = new ArrayList<>(List.of(javaExecutable.toString()));
-    command.addAll(javaOptions);
-    command.addAll(List.of("-jar", jar.toString(), sourceRoot.toString()));
-    command.addAll(List.of(options));
-    var outputFile = temporaryDirectory.resolve("process-output.txt");
-    var errorFile = temporaryDirectory.resolve("process-error.txt");
-    var builder = new ProcessBuilder(command).redirectOutput(outputFile.toFile()).redirectError(errorFile.toFile());
-    builder.environment().putAll(environment);
-    var process = builder.start();
-    try {
-      var completed = process.waitFor(Duration.ofSeconds(30).toMillis(), TimeUnit.MILLISECONDS);
-      if (!completed) {
-        process.destroyForcibly().waitFor();
-      }
-      return new ProcessResult(completed, process.exitValue(), Files.readString(outputFile, StandardCharsets.UTF_8),
-          Files.readString(errorFile, StandardCharsets.UTF_8));
-    } finally {
-      if (process.isAlive()) {
-        process.destroyForcibly().waitFor();
-      }
-    }
-  }
-
-  private record ProcessResult(boolean completed, int exitCode, String output, String error) {
-  }
 }

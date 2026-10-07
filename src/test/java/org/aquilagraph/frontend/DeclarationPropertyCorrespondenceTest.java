@@ -20,10 +20,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.function.UnaryOperator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.lang.model.element.AnnotationMirror;
@@ -39,31 +39,32 @@ import javax.tools.DiagnosticCollector;
 import javax.tools.JavaFileObject;
 import javax.tools.ToolProvider;
 import org.aquilagraph.frontend.JavaSourceCoverageReconciler.ReconciledCoverage;
-import org.aquilagraph.model.AttributedCoverageExpectations;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.CoveragePropertyValue;
-import org.aquilagraph.model.CoveragePropertyValue.Provenance;
-import org.aquilagraph.model.CoveragePropertyValue.State;
-import org.aquilagraph.model.DeclarationMemberOrder;
-import org.aquilagraph.model.FeatureContextOutcome;
-import org.aquilagraph.model.FeatureContextOutcome.Mode;
-import org.aquilagraph.model.FeatureContextOutcome.Support;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaField;
-import org.aquilagraph.model.JavaMethod;
-import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaType;
-import org.aquilagraph.model.LanguageFeatureCoverageResult;
-import org.aquilagraph.model.SourceContext.Partition;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
-import org.aquilagraph.syntax.SyntaxSourceContribution;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AttributedCoverageExpectations;
+import org.aquilagraph.source.api.CoveragePropertyValue;
+import org.aquilagraph.source.api.CoveragePropertyValue.Provenance;
+import org.aquilagraph.source.api.CoveragePropertyValue.State;
+import org.aquilagraph.source.api.DeclarationMemberOrder;
+import org.aquilagraph.source.api.FeatureContextOutcome;
+import org.aquilagraph.source.api.FeatureContextOutcome.Mode;
+import org.aquilagraph.source.api.FeatureContextOutcome.Support;
+import org.aquilagraph.source.api.JavaField;
+import org.aquilagraph.source.api.JavaMethod;
+import org.aquilagraph.source.api.JavaProgram;
+import org.aquilagraph.source.api.JavaType;
+import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
+import org.aquilagraph.source.api.SourceContext.Partition;
+import org.aquilagraph.source.api.AggregateFixture;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.SyntaxSourceContribution;
 import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
-import org.junit.jupiter.api.io.TempDir;
 
 class DeclarationPropertyCorrespondenceTest {
   private static final CompilerConfiguration CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
@@ -430,7 +431,7 @@ class DeclarationPropertyCorrespondenceTest {
 
   private static JavaAstAggregate copyAggregate(SyntaxAnalysisInput original, DeclarationMemberOrder changedOrder) {
     var actual = original.aggregate().orElseThrow();
-    var builder = JavaAstAggregate.builder(original.snapshot());
+    var builder = AggregateFixture.builder(original.snapshot());
     for (var root : actual.roots()) {
       var nodes = root.descendantsAndSelf();
       builder.add(new SyntaxSourceContribution(root.sourceFileKey(), root, nodes,

@@ -2,10 +2,10 @@ package org.aquilagraph.frontend;
 
 import java.util.List;
 import java.util.Objects;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.DiagnosticEmission;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.DiagnosticEmission;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 
 record TranslationResult<T>(T value, List<AnalysisDiagnostic> diagnostics, List<LanguageFeatureOccurrence> featureOccurrences,
     List<LanguageFeatureObservation> featureObservations) {

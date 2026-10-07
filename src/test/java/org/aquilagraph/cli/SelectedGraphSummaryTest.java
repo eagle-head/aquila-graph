@@ -9,15 +9,15 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
-import org.aquilagraph.application.AnalysisExecution;
-import org.aquilagraph.core.AnalysisEngine;
+import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.SourceFile;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SoftwareVersion;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -30,7 +30,7 @@ class SelectedGraphSummaryTest {
     var source = "class Example { Number box(int input) { return input; } long unbox(Integer input) { return input; } }";
     var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
     var output = new ByteArrayOutputStream();
     var error = new ByteArrayOutputStream();
 
@@ -40,16 +40,16 @@ class SelectedGraphSummaryTest {
     try (var outputStream = new PrintStream(output, true, StandardCharsets.UTF_8);
         var errorStream = new PrintStream(error, true, StandardCharsets.UTF_8)) {
       exitCode = new AnalyzeCommandPresenter().present(
-          new AnalyzeCommandOutcome.Executed(AnalysisExecution.withoutRepositoryRequest(run)), outputStream, errorStream);
+          new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)), outputStream, errorStream);
     }
 
     // Assert
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion());
     assertTrue(run.diagnostics().isEmpty());
     assertEquals(0, exitCode);
     assertEquals(new AnalysisRunSummary.ProgramSummary(1, 3, 3, 7, 13, 13), summary.program().orElseThrow());
-    assertEquals("Run: " + run.runId() + System.lineSeparator()
-        + "Software version: " + run.softwareVersion().signature() + System.lineSeparator()
+    assertEquals("Run: " + run.identity().key() + System.lineSeparator()
+        + "Software version: " + SoftwareVersion.from(run.representation().ast().capturedInput().orElseThrow(), run.representation().ast().capturedEnvironment().orElseThrow()).signature() + System.lineSeparator()
         + "Completion: COMPLETED" + System.lineSeparator()
         + "Java release: 25" + System.lineSeparator()
         + "Java source files: 1" + System.lineSeparator()

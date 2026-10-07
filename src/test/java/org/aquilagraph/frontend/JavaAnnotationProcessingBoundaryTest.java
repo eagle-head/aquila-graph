@@ -11,16 +11,16 @@ import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
+import java.util.List;
 import javax.tools.ToolProvider;
-import jdk.jfr.Recording;
 import jdk.jfr.consumer.RecordingFile;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
+import jdk.jfr.Recording;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
 import org.junit.jupiter.api.Test;
 
 class JavaAnnotationProcessingBoundaryTest {

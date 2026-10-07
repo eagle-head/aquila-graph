@@ -2,7 +2,6 @@ package org.aquilagraph.frontend;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -14,21 +13,21 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import javax.tools.ToolProvider;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.MethodBodyOrigin;
-import org.aquilagraph.syntax.PackageQualifierEvidence;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxSemanticRelation;
-import org.aquilagraph.syntax.SyntaxSemanticTarget;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.MethodBodyOrigin;
+import org.aquilagraph.source.api.PackageQualifierEvidence;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxSemanticRelation;
+import org.aquilagraph.source.api.SyntaxSemanticTarget;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaAstFrontendIntegrationTest {
   private static final CompilerConfiguration JAVA_25 = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
@@ -235,10 +234,10 @@ class JavaAstFrontendIntegrationTest {
 
     // Act
     var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
-    var run = new AnalysisEngine().analyze(result);
+    var run = new SourceAnalysisFixture().analyze(result);
 
     // Assert
-    assertFalse(run.completion() == AnalysisCompletion.COMPLETED);
+    assertFalse(run.completion() == AnalysisCompletion.COMPLETE);
     assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     assertTrue(result.aggregate().stream().flatMap(aggregate -> aggregate.roots().stream())
         .flatMap(root -> root.children(SyntaxRole.MODULE_DECLARATION).stream())
@@ -283,14 +282,14 @@ class JavaAstFrontendIntegrationTest {
 
     // Act
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
     assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     var imports = input.aggregate().stream().flatMap(aggregate -> aggregate.roots().stream())
         .flatMap(root -> root.children(SyntaxRole.IMPORT_DECLARATION).stream()).toList();
     assertTrue(imports.isEmpty(), () -> imports + " diagnostics=" + input.diagnostics());
-    assertFalse(run.completion() == AnalysisCompletion.COMPLETED);
+    assertFalse(run.completion() == AnalysisCompletion.COMPLETE);
   }
 
   @Test
@@ -300,13 +299,13 @@ class JavaAstFrontendIntegrationTest {
 
     // Act
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
     assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     assertTrue(input.aggregate().stream().flatMap(aggregate -> aggregate.roots().stream())
         .noneMatch(root -> !root.children(SyntaxRole.PACKAGE_DECLARATION).isEmpty()));
-    assertFalse(run.completion() == AnalysisCompletion.COMPLETED);
+    assertFalse(run.completion() == AnalysisCompletion.COMPLETE);
   }
 
   @Test
@@ -316,12 +315,12 @@ class JavaAstFrontendIntegrationTest {
 
     // Act
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
     assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     assertTrue(input.aggregate().orElseThrow().roots().getFirst().children(SyntaxRole.IMPORT_DECLARATION).isEmpty());
-    assertFalse(run.completion() == AnalysisCompletion.COMPLETED);
+    assertFalse(run.completion() == AnalysisCompletion.COMPLETE);
   }
 
   @Test
@@ -331,12 +330,12 @@ class JavaAstFrontendIntegrationTest {
 
     // Act
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
     assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     assertTrue(input.aggregate().orElseThrow().roots().getFirst().children(SyntaxRole.PACKAGE_DECLARATION).isEmpty());
-    assertFalse(run.completion() == AnalysisCompletion.COMPLETED);
+    assertFalse(run.completion() == AnalysisCompletion.COMPLETE);
   }
 
   @Test
@@ -492,7 +491,7 @@ class JavaAstFrontendIntegrationTest {
     // Act
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, JAVA_25);
     var aggregate = input.aggregate().orElseThrow();
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
     var constructors = input.program().methods().stream().filter(method -> method.name().equals("<init>")).toList();
     var plain = constructors.stream().filter(method -> method.ownerTypeKey().endsWith("Plain")).findFirst().orElseThrow();
     var written = constructors.stream().filter(method -> method.ownerTypeKey().endsWith("Written")).findFirst().orElseThrow();
@@ -501,15 +500,15 @@ class JavaAstFrontendIntegrationTest {
 
     // Assert
     assertEquals(2, constructors.size());
-    assertEquals(MethodBodyOrigin.EXECUTION_PROJECTION, aggregate.methodBodyOrigin(plain.methodKey()).orElseThrow());
-    assertEquals(MethodBodyOrigin.EXECUTION_PROJECTION, aggregate.methodBodyOrigin(written.methodKey()).orElseThrow());
+    assertEquals(MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY, aggregate.methodBodyOrigin(plain.methodKey()).orElseThrow());
+    assertEquals(MethodBodyOrigin.SOURCE_AST, aggregate.methodBodyOrigin(written.methodKey()).orElseThrow());
     assertTrue(aggregate.nodes().stream().noneMatch(node -> node.sourceKind() == JavaSourceKind.METHOD
         && node.structuralPath().steps().get(1).position() == 0));
     assertTrue(sourceBody.children(SyntaxRole.STATEMENT).isEmpty());
-    assertFalse(writtenBody.children(SyntaxRole.STATEMENT).isEmpty());
-    assertNotSame(sourceBody, writtenBody);
-    assertEquals(List.of(plain.methodKey(), written.methodKey()), run.representation().orElseThrow().methodAnalyses().stream()
-        .map(analysis -> analysis.sourceMethod().methodKey()).toList());
+    assertTrue(writtenBody.children(SyntaxRole.STATEMENT).isEmpty());
+    assertSame(sourceBody, writtenBody);
+    assertEquals(List.of(plain.methodKey(), written.methodKey()), run.representation().cfg().orElseThrow().methods().stream()
+        .map(analysis -> analysis.methodKey()).toList());
   }
 
   private static SyntaxValue.QualifiedName name(String... components) {

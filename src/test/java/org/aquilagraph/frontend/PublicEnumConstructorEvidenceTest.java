@@ -30,17 +30,20 @@ import javax.tools.DiagnosticCollector;
 import javax.tools.JavaFileObject;
 import javax.tools.SimpleJavaFileObject;
 import javax.tools.ToolProvider;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.syntax.InvocationArityMode;
-import org.aquilagraph.syntax.EnumConstructorContextDecision.Target;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxReadiness;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.cfg.internal.CfgAdmission;
+import org.aquilagraph.cfg.internal.CfgReadiness;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.InvocationForm;
+import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.InvocationApplicabilityMode;
+import org.aquilagraph.source.api.EvidenceState;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxRole;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class PublicEnumConstructorEvidenceTest {
   private static final String SOURCE = """
@@ -146,16 +149,16 @@ class PublicEnumConstructorEvidenceTest {
       var constructor = input.program().types().stream().filter(type -> type.qualifiedName().equals(owner)).findFirst().orElseThrow()
           .methods().stream().filter(method -> method.constructor()).findFirst().orElseThrow();
       var body = input.methodSyntax().stream().filter(method -> method.methodKey().equals(constructor.methodKey())).findFirst().orElseThrow();
-      var call = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION).findFirst().orElseThrow();
-      assertEquals(InvocationArityMode.FIXED, body.invocationArity(call.nodeId()).orElseThrow().mode());
-      assertEquals(2, body.invocationArity(call.nodeId()).orElseThrow().formalCount());
-      var context = body.enumConstructorContext(call.nodeId()).orElseThrow();
-      assertEquals(Target.ENUM_SUPERCLASS, context.target());
+      var context = body.evidence().constructors().getFirst();
+      var applicability = context.corroboration().knownValue().orElseThrow().insertedInvocation().orElseThrow().applicability().applicability();
+      assertEquals(EvidenceState.MISSING, applicability.state());
+      assertEquals(InvocationForm.SUPER_CONSTRUCTOR, context.form());
       assertEquals("type:java.lang.Enum#<init>(java.lang.String,int)", context.selectedConstructorKey());
-      assertEquals(List.of("java.lang.String", "int"), List.of(context.nameType().erasedName(), context.ordinalType().erasedName()));
-      assertTrue(call.children(SyntaxRole.ARGUMENT).isEmpty());
+      assertEquals(List.of("java.lang.String", "int"), context.corroboration().knownValue().orElseThrow().superclassParameterTypes().stream().map(JavaTypeIdentity::erasedName).toList());
+      assertTrue(body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION)
+          .allMatch(node -> node.children(SyntaxRole.ARGUMENT).isEmpty()));
       assertEquals(owner.equals("Empty") ? 0 : 1, constructor.parameters().size());
-      assertEquals(SyntaxReadiness.LOWERABLE, body.readiness());
+      assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(body));
     }
   }
 
@@ -253,10 +256,10 @@ class PublicEnumConstructorEvidenceTest {
     assertTrue(observation.ordinaryApplicability());
     assertEquals("(Ljava/lang/String;II)V", selectedCall.type().stringValue());
     assertEquals(List.of(0, 1, 2), loadedSlots);
-    assertEquals(InvocationArityMode.FIXED, body.invocationArity(call.nodeId()).orElseThrow().mode());
+    assertEquals(InvocationApplicabilityMode.FIXED, body.invocationArity(call.nodeId()).orElseThrow().mode());
     assertEquals(1, body.invocationArity(call.nodeId()).orElseThrow().formalCount());
-    assertEquals(Target.THIS_CONSTRUCTOR, body.enumConstructorContext(call.nodeId()).orElseThrow().target());
-    assertEquals(SyntaxReadiness.LOWERABLE, body.readiness());
+    assertEquals(InvocationForm.THIS_CONSTRUCTOR, body.constructorEvidence(call.nodeId()).orElseThrow().form());
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(body));
   }
 
   private Map<String, GeneratedConstructor> generatedConstructors() throws IOException {

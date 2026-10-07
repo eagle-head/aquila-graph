@@ -2,14 +2,14 @@ package org.aquilagraph.frontend;
 
 import java.util.Objects;
 import java.util.Optional;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.StableId;
-import org.aquilagraph.syntax.SyntaxStructuralPath;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
 
 /** Creates source-located frontend diagnostics with occurrence-stable identities. */
 final class FrontendDiagnosticFactory {

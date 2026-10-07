@@ -4,15 +4,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.DiagnosticEmission;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxKind;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.DiagnosticEmission;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.SyntaxKind;
 
 /** Checks that declaration-header type tree forms have retained occurrences at their written ranges. */
 final class JavaTypeUseCompleteness {

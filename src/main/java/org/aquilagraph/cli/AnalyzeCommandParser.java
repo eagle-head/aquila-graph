@@ -5,8 +5,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import org.aquilagraph.application.RepositorySavePolicy;
-import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.identity.api.JavaRelease;
 
 /** Parses command-line tokens into validated analysis arguments. */
 final class AnalyzeCommandParser {
@@ -156,7 +156,7 @@ final class AnalyzeCommandParser {
         return new Rejected("Exactly one source root is required");
       }
       try {
-        var savePolicy = persistenceEnabled ? RepositorySavePolicy.SAVE_COMPLETED : RepositorySavePolicy.DO_NOT_SAVE;
+        var savePolicy = persistenceEnabled ? PublicationIntent.SAVE_COMPLETED : PublicationIntent.DO_NOT_SAVE;
         var sourceRoot = Objects.requireNonNull(Path.of(positionalArguments.getFirst()), "sourceRoot");
         return new Parsed(new AnalyzeCommandArguments(sourceRoot, release, savePolicy));
       } catch (InvalidPathException exception) {

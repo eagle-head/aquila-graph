@@ -9,14 +9,14 @@ import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.TreeScanner;
 import java.util.ArrayList;
+import java.util.function.Function;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceOwnerPath;
-import org.aquilagraph.model.SourceSpan;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.SourceOwnerPath;
 import org.jspecify.annotations.Nullable;
 
 /** Traverses actual parsed owner topology without consulting emitted or expected evidence. */

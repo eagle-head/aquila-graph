@@ -9,35 +9,36 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.function.UnaryOperator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.UnaryOperator;
-import org.aquilagraph.model.CoverageFactReference;
-import org.aquilagraph.model.CoverageFactValue;
-import org.aquilagraph.model.CoverageSourceFact;
-import org.aquilagraph.model.FeatureContextOutcome;
-import org.aquilagraph.model.FeatureContextOutcome.Mode;
-import org.aquilagraph.model.FeatureContextOutcome.Support;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.LanguageFeatureCoverageResult;
-import org.aquilagraph.model.SourceContext;
-import org.aquilagraph.model.SourceContext.Partition;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceOwnerPath;
-import org.aquilagraph.model.SourceOwnerPath.Role;
-import org.aquilagraph.model.SourceOwnerPath.Step;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxSourceContribution;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.aquilagraph.syntax.WrittenSourceAssociation;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.CoverageFactReference;
+import org.aquilagraph.source.api.CoverageFactValue;
+import org.aquilagraph.source.api.CoverageSourceFact;
+import org.aquilagraph.source.api.FeatureContextOutcome;
+import org.aquilagraph.source.api.FeatureContextOutcome.Mode;
+import org.aquilagraph.source.api.FeatureContextOutcome.Support;
+import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
+import org.aquilagraph.source.api.SourceContext;
+import org.aquilagraph.source.api.SourceContext.Partition;
+import org.aquilagraph.source.api.SourceOwnerPath;
+import org.aquilagraph.source.api.SourceOwnerPath.Role;
+import org.aquilagraph.source.api.SourceOwnerPath.Step;
+import org.aquilagraph.source.api.AggregateFixture;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxSourceContribution;
+import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.WrittenSourceAssociation;
 import org.junit.jupiter.api.Test;
 
 class SourceTopologyTest {
@@ -382,7 +383,7 @@ class SourceTopologyTest {
 
   private static JavaAstAggregate changedAssociations(SyntaxAnalysisInput input, UnaryOperator<WrittenSourceAssociation> change) {
     var aggregate = input.aggregate().orElseThrow();
-    var builder = JavaAstAggregate.builder(input.snapshot());
+    var builder = AggregateFixture.builder(input.snapshot());
     for (var root : aggregate.roots()) {
       var nodes = root.descendantsAndSelf();
       builder.add(new SyntaxSourceContribution(root.sourceFileKey(), root, nodes,

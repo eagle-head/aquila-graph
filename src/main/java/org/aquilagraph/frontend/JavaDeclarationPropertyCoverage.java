@@ -11,15 +11,15 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.stream.Collectors;
+import java.util.TreeSet;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.LanguageFeature;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeatureClassification;
-import org.aquilagraph.model.LanguageFeatureCoverage;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.source.api.LanguageFeature;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeatureClassification;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
 
 /** Defines and verifies the closed declaration-property coverage contract for Java 25. */
 final class JavaDeclarationPropertyCoverage {

@@ -13,17 +13,9 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.BiFunction;
+import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.port.RepositoryException;
-import org.aquilagraph.frontend.JavaSourceLoader;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisEnvironmentSnapshot;
-import org.aquilagraph.model.AnalysisRun;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.ProgramRepresentation;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.Driver;
@@ -346,7 +338,7 @@ class Neo4jAnalysisRunRepositoryTest {
     assertEquals(2, backend.attempts.size());
     assertEquals(backend.attempts.getFirst(), backend.attempts.getLast());
     assertTrue(backend.attempts.getFirst().getFirst().statement().startsWith("MATCH (entity:AnalysisEntity"));
-    assertEquals(Map.of("runId", run.runId()), backend.attempts.getFirst().getFirst().parameters());
+    assertEquals(Map.of("runId", run.identity().key()), backend.attempts.getFirst().getFirst().parameters());
     assertEquals(new Neo4jAnalysisRunMapper().map(run).nodes().size() + new Neo4jAnalysisRunMapper().map(run).relationships().size() + 1,
         backend.attempts.getFirst().size());
     assertEquals(List.of("schema.close", "publication.close", "driver.close"), backend.effects);
@@ -357,9 +349,7 @@ class Neo4jAnalysisRunRepositoryTest {
     // Arrange
     var backend = new DriverDouble();
     var repository = repository(backend);
-    var completed = completedRun();
-    var run = new AnalysisRun(completed.runId(), completed.inputSnapshot(), completed.environmentSnapshot(), Optional.empty(), List.of(),
-        AnalysisCompletion.REJECTED);
+    var run = RepositoryTestRuns.analyze(temporaryDirectory, "Example.java", "");
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class, () -> repository.save(run));
@@ -430,12 +420,7 @@ class Neo4jAnalysisRunRepositoryTest {
   }
 
   private AnalysisRun completedRun() throws IOException {
-    var snapshot = new JavaSourceLoader().discover(temporaryDirectory);
-    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
-    var environment = new AnalysisEnvironmentSnapshot(configuration, "fixture-compiler", "fixture-vendor", "25",
-        List.of("--release", "25"), List.of(), List.of());
-    return new AnalysisRun("run", snapshot, environment, Optional.of(new ProgramRepresentation(new JavaProgram(List.of()), List.of())),
-        List.of(), AnalysisCompletion.COMPLETED);
+    return RepositoryTestRuns.analyze(temporaryDirectory, "Example.java", "interface Example {}");
   }
 
   private static Neo4jConnectionSettings settings() {

@@ -1,8 +1,5 @@
 package org.aquilagraph.frontend;
 
-import com.sun.source.tree.ClassTree;
-import com.sun.source.tree.MethodTree;
-import com.sun.source.util.TreePath;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -10,6 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.MethodTree;
+import com.sun.source.util.TreePath;
 import java.io.IOException;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
@@ -19,23 +19,23 @@ import java.util.List;
 import java.util.Optional;
 import javax.lang.model.element.ExecutableElement;
 import javax.tools.ToolProvider;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.syntax.AnnotationElementValue;
-import org.aquilagraph.syntax.AnnotationScalar;
-import org.aquilagraph.syntax.JavaTypeStructure;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxChild;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxStructuralPath;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnnotationElementValue;
+import org.aquilagraph.source.api.AnnotationScalar;
+import org.aquilagraph.source.api.JavaTypeStructure;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaAnnotationDefaultAstTest {
   @TempDir Path sourceRoot;
@@ -184,7 +184,7 @@ class JavaAnnotationDefaultAstTest {
       // Assert
       assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")),
           () -> declaration + ": " + result.diagnostics());
-      assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(result).completion());
+      assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(result).completion());
       assertTrue(result.aggregate().orElseThrow().nodes().stream().noneMatch(node ->
           !node.children(SyntaxRole.DEFAULT_VALUE).isEmpty()), () -> declaration + ": " + result.diagnostics());
     }

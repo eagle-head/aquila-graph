@@ -12,8 +12,8 @@ import com.sun.source.util.TreePath;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -21,30 +21,31 @@ import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.TypeMirror;
 import javax.tools.ToolProvider;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.ReferenceKind;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.syntax.AnnotationScalar;
-import org.aquilagraph.syntax.AnnotationElementValue;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxChild;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxSemanticEdge;
-import org.aquilagraph.syntax.SyntaxSemanticRelation;
-import org.aquilagraph.syntax.SyntaxSemanticTarget;
-import org.aquilagraph.syntax.SyntaxSourceContribution;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.aquilagraph.syntax.SharedFieldDeclarations;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxType;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.AnnotationElementValue;
+import org.aquilagraph.source.api.AnnotationScalar;
+import org.aquilagraph.source.api.AggregateFixture;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.SharedFieldDeclarations;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxSemanticEdge;
+import org.aquilagraph.source.api.SyntaxSemanticRelation;
+import org.aquilagraph.source.api.SyntaxSemanticTarget;
+import org.aquilagraph.source.api.SyntaxSourceContribution;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaAnnotationTargetAstTest {
   @TempDir Path sourceRoot;
@@ -68,7 +69,7 @@ class JavaAnnotationTargetAstTest {
 
     // Act and Assert
     assertThrows(IllegalArgumentException.class, () -> sealWithRecomputedApplications(result.snapshot(), aggregate, root));
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion());
   }
 
   @Test
@@ -100,7 +101,7 @@ class JavaAnnotationTargetAstTest {
 
       // Act and Assert
       assertThrows(IllegalArgumentException.class, () -> sealWithRecomputedApplications(result.snapshot(), aggregate, swapped));
-      assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion());
+      assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion());
     }
   }
 
@@ -127,7 +128,7 @@ class JavaAnnotationTargetAstTest {
     assertFalse(written.value(SyntaxValue.Annotation.class).closestTypeAdmissible());
     assertTrue(app.declarationNodeKey().isPresent());
     assertTrue(app.typeLocation().isEmpty());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(), () -> result.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(), () -> result.diagnostics().toString());
     var invalid = source.replace("@Both Outer", "@Use Outer");
     Files.writeString(sourceRoot.resolve("Sample.java"), invalid);
     var rejected = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
@@ -135,7 +136,7 @@ class JavaAnnotationTargetAstTest {
         && diagnostic.origins().stream().anyMatch(origin -> invalid.substring(Math.toIntExact(origin.startOffset()), Math.toIntExact(origin.endOffsetExclusive())).equals("Outer.Inner.Nested"))), () -> rejected.diagnostics().toString());
     assertTrue(rejected.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unresolved-annotation-location")
         && diagnostic.origins().stream().anyMatch(origin -> invalid.substring(Math.toIntExact(origin.startOffset()), Math.toIntExact(origin.endOffsetExclusive())).equals("@Use"))), () -> rejected.diagnostics().toString());
-    assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(rejected).completion());
+    assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(rejected).completion());
   }
 
   @Test
@@ -207,7 +208,7 @@ class JavaAnnotationTargetAstTest {
         }
       }
     }
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(), () -> result.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(), () -> result.diagnostics().toString());
     var again = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)).aggregate().orElseThrow();
     assertEquals(aggregate.nodes().stream().map(SyntaxNode::nodeId).toList(), again.nodes().stream().map(SyntaxNode::nodeId).toList());
     assertEquals(aggregate.semanticEdges(), again.semanticEdges());
@@ -219,7 +220,7 @@ class JavaAnnotationTargetAstTest {
         ? new SyntaxSemanticEdge(written.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET, omitted) : edge).toList();
     var root = aggregate.roots().getFirst();
     var contribution = new SyntaxSourceContribution(root.sourceFileKey(), root, aggregate.nodes(), aggregate.structuralEdges(), edges);
-    assertThrows(IllegalArgumentException.class, () -> JavaAstAggregate.builder(result.snapshot()).add(contribution).seal());
+    assertThrows(IllegalArgumentException.class, () -> AggregateFixture.builder(result.snapshot()).add(contribution).seal());
   }
 
   @Test
@@ -260,7 +261,7 @@ class JavaAnnotationTargetAstTest {
         assertEquals(writtenLocationNode(aggregate, app).origin(), node.origin());
       }
     }
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(), () -> result.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(), () -> result.diagnostics().toString());
   }
 
   @Test
@@ -284,7 +285,7 @@ class JavaAnnotationTargetAstTest {
       var nodes = forged.descendantsAndSelf();
       var contribution = new SyntaxSourceContribution(root.sourceFileKey(), forged, nodes,
           nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList(), aggregate.semanticEdges());
-      var failure = assertThrows(IllegalArgumentException.class, () -> JavaAstAggregate.builder(result.snapshot()).add(contribution).seal());
+      var failure = assertThrows(IllegalArgumentException.class, () -> AggregateFixture.builder(result.snapshot()).add(contribution).seal());
       assertTrue(failure.getMessage().contains("shared type annotation"), failure::getMessage);
     }
   }
@@ -334,7 +335,7 @@ class JavaAnnotationTargetAstTest {
     assertTrue(wildcardTarget.declarationNodeKey().isEmpty());
     assertTrue(boundTarget.declarationNodeKey().isEmpty());
     assertTrue(!wildcardTarget.typeLocation().equals(boundTarget.typeLocation()));
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -379,7 +380,7 @@ class JavaAnnotationTargetAstTest {
       var occurrence = annotation(aggregate, source, "@Mark(" + index + ")");
       assertEquals(source.indexOf("@Mark(" + index + ")"), occurrence.origin().orElseThrow().startOffset());
     }
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -429,7 +430,7 @@ class JavaAnnotationTargetAstTest {
     assertEquals(SyntaxRole.TYPE_QUALIFIER, qualifier.structuralPath().steps().getLast().role());
     var member = writtenLocationNode(aggregate, application(aggregate, annotations.get(4)));
     assertEquals("Inner", member.children(SyntaxRole.UNDERLYING_TYPE).getFirst().value(SyntaxValue.SourceSymbol.class).name());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -504,7 +505,7 @@ class JavaAnnotationTargetAstTest {
 
     // Assert
     assertTrue(failure.getMessage().contains("static type qualifier"), failure::getMessage);
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion());
   }
 
   @Test
@@ -550,7 +551,7 @@ class JavaAnnotationTargetAstTest {
       assertEquals(source.indexOf(written), origin.startOffset());
       assertEquals(source.indexOf(written) + written.length(), origin.endOffsetExclusive());
     }
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -605,7 +606,7 @@ class JavaAnnotationTargetAstTest {
           var range = writtenLocationNode(aggregate, applications.get(index)).origin().orElseThrow();
           return source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive()));
         }).toList());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -649,7 +650,7 @@ class JavaAnnotationTargetAstTest {
           return source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive()))
               .equals("@Propagated");
         }).count());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -696,7 +697,7 @@ class JavaAnnotationTargetAstTest {
     }
     assertEquals(SyntaxRole.TYPE_NAME, writtenLocationNode(aggregate, outer).structuralPath().steps().getLast().role());
     assertNotEquals(outer.typeLocation(), implicit.typeLocation());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -732,7 +733,7 @@ class JavaAnnotationTargetAstTest {
         counterpartKinds(application(aggregate, repeated.getFirst())));
     assertEquals(List.of(ReferenceKind.FIELD, ReferenceKind.METHOD, ReferenceKind.PARAMETER),
         counterpartKinds(application(aggregate, repeated.getLast())));
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -750,7 +751,7 @@ class JavaAnnotationTargetAstTest {
     Files.writeString(sourceRoot.resolve("Sample.java"), source);
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var valid = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, configuration);
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(valid).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(valid).completion(),
         () -> valid.diagnostics().toString());
     var snapshot = valid.snapshot();
     var sources = new SnapshotSourceCatalog(snapshot);
@@ -822,7 +823,7 @@ class JavaAnnotationTargetAstTest {
     Files.writeString(sourceRoot.resolve("Sample.java"), source);
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var valid = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, configuration);
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(valid).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(valid).completion(),
         () -> valid.diagnostics().toString());
 
     // Act
@@ -892,7 +893,7 @@ class JavaAnnotationTargetAstTest {
       assertTrue(target.propagatedCounterparts().stream().allMatch(counterpart -> !counterpart.declarationApplicable()
           && counterpart.typeLocation().equals(target.typeLocation())));
     }
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -938,7 +939,7 @@ class JavaAnnotationTargetAstTest {
         assertFalse(correlation.sameAnnotatedType(component.asType(), other.getRecordComponents().getFirst().asType()), name);
       }
     }
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(valid).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(valid).completion(),
         () -> valid.diagnostics().toString());
   }
 
@@ -991,7 +992,7 @@ class JavaAnnotationTargetAstTest {
           var text = source.substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive()));
           return text.startsWith("@All(") || text.equals("@WrittenAccessor") || text.equals("@WrittenParameter");
         }).count());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -1028,7 +1029,7 @@ class JavaAnnotationTargetAstTest {
       assertTrue(aggregate.nodes().stream().anyMatch(node -> node.nodeId().equals(application.ownerNodeKey())
           && node.syntaxKind() == SyntaxKind.RECORD_COMPONENT_DECLARATION));
     }
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -1074,7 +1075,7 @@ class JavaAnnotationTargetAstTest {
         .anyMatch(diagnostic -> diagnostic.code().equals("compiler.err.type.annotation.inadmissible")));
     assertTrue(result.diagnostics().stream()
         .noneMatch(diagnostic -> diagnostic.code().equals("frontend.unavailable-record-annotation-propagation")));
-    assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(result).completion());
+    assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(result).completion());
   }
 
   @Test
@@ -1099,7 +1100,7 @@ class JavaAnnotationTargetAstTest {
         && edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET));
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unresolved-annotation-location")));
-    assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(result).completion());
+    assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(result).completion());
   }
 
   @Test
@@ -1124,7 +1125,7 @@ class JavaAnnotationTargetAstTest {
     assertEquals(SyntaxValue.AnnotationLocation.DECLARATION, annotation.value(SyntaxValue.Annotation.class).location());
     assertEquals(Optional.of(application.ownerNodeKey()), application.declarationNodeKey());
     assertTrue(application.typeLocation().isEmpty());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -1154,7 +1155,7 @@ class JavaAnnotationTargetAstTest {
     assertTrue(type.structuralPath().steps().stream().anyMatch(step -> step.role() == SyntaxRole.TYPE_OPERAND));
     assertEquals("@Use int", source.substring(Math.toIntExact(type.origin().orElseThrow().startOffset()),
         Math.toIntExact(type.origin().orElseThrow().endOffsetExclusive())));
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -1185,7 +1186,7 @@ class JavaAnnotationTargetAstTest {
     assertTrue(member.structuralPath().steps().stream().anyMatch(step -> step.role() == SyntaxRole.DECLARED_TYPE));
     assertEquals("Outer.@Use Inner", source.substring(Math.toIntExact(member.origin().orElseThrow().startOffset()),
         Math.toIntExact(member.origin().orElseThrow().endOffsetExclusive())));
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -1210,7 +1211,7 @@ class JavaAnnotationTargetAstTest {
     assertEquals(SyntaxValue.AnnotationLocation.UNRESOLVED, annotation.value(SyntaxValue.Annotation.class).location());
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unresolved-annotation-location")));
-    assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(result).completion());
+    assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(result).completion());
   }
 
   @Test
@@ -1238,7 +1239,7 @@ class JavaAnnotationTargetAstTest {
     assertEquals(new AnnotationScalar.IntValue(17), annotation.children(SyntaxRole.ANNOTATION_ARGUMENT).getFirst()
         .value(SyntaxValue.AnnotationArgument.class).value());
     assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unavailable-annotation-attribution")));
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -1297,7 +1298,7 @@ class JavaAnnotationTargetAstTest {
     assertEquals(new AnnotationElementValue.Array(List.of(new AnnotationScalar.IntValue(1),
         new AnnotationScalar.IntValue(4))), values.get("ints"));
     assertEquals(new AnnotationScalar.IntValue(2), values.get("shift"));
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -1347,7 +1348,7 @@ class JavaAnnotationTargetAstTest {
         instanceof SyntaxSemanticTarget.AnnotationTypeLocation.Constructed).count());
     assertEquals(1, occurrences.stream().filter(node -> application(aggregate, node).typeLocation().orElseThrow()
         instanceof SyntaxSemanticTarget.AnnotationTypeLocation.Written).count());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
   }
 
@@ -1385,7 +1386,7 @@ class JavaAnnotationTargetAstTest {
       assertTrue(aggregate.semanticEdges().stream().noneMatch(edge -> edge.sourceKey().equals(occurrence.nodeId())
           && edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET));
     }
-    assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(result).completion());
+    assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(result).completion());
   }
 
   @Test
@@ -1423,7 +1424,7 @@ class JavaAnnotationTargetAstTest {
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class,
-        () -> JavaAstAggregate.builder(result.snapshot()).add(contribution).seal());
+        () -> AggregateFixture.builder(result.snapshot()).add(contribution).seal());
 
     // Assert
     assertTrue(failure.getMessage().contains("does not match its exact source location"), failure::getMessage);
@@ -1459,9 +1460,9 @@ class JavaAnnotationTargetAstTest {
     assertTrue(!firstTarget.typeLocation().equals(movedTarget.typeLocation()));
     assertTrue(!writtenLocationNode(first.aggregate().orElseThrow(), firstTarget).structuralPath()
         .equals(writtenLocationNode(moved.aggregate().orElseThrow(), movedTarget).structuralPath()));
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(first).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(first).completion(),
         () -> first.diagnostics().toString());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(moved).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(moved).completion(),
         () -> moved.diagnostics().toString());
   }
 
@@ -1496,7 +1497,7 @@ class JavaAnnotationTargetAstTest {
     var target = application(aggregate, mark);
     assertTrue(target.declarationNodeKey().isEmpty());
     assertEquals(writtenType, writtenLocationNode(aggregate, target));
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion());
   }
 
   @Test
@@ -1597,7 +1598,7 @@ class JavaAnnotationTargetAstTest {
         .filter(edge -> edge.relation() != SyntaxSemanticRelation.ANNOTATED_TARGET).toList());
     nodes.forEach(parent -> parent.children(SyntaxRole.ANNOTATION).forEach(annotation -> edges.add(new SyntaxSemanticEdge(annotation.nodeId(),
         SyntaxSemanticRelation.ANNOTATED_TARGET, SyntaxSemanticTarget.AnnotationApplication.forAttachment(parent, annotation, Optional.empty(), groups.getOrDefault(parent.nodeId(), List.of()))))));
-    return JavaAstAggregate.builder(snapshot).add(new SyntaxSourceContribution(root.sourceFileKey(), root, nodes,
+    return AggregateFixture.builder(snapshot).add(new SyntaxSourceContribution(root.sourceFileKey(), root, nodes,
         nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList(), edges)).seal();
   }
 

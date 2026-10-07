@@ -1,11 +1,11 @@
 package org.aquilagraph.frontend;
 
-import com.sun.source.tree.CompilationUnitTree;
-import com.sun.source.tree.Tree;
-import com.sun.source.util.SourcePositions;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.Tree;
+import com.sun.source.util.SourcePositions;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,21 +13,21 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.tools.ToolProvider;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.ResolutionStatus;
-import org.aquilagraph.syntax.SyntaxSemanticRelation;
-import org.aquilagraph.syntax.SyntaxSemanticTarget;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxSemanticRelation;
+import org.aquilagraph.source.api.SyntaxSemanticTarget;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaAnnotationAstTest {
   @TempDir Path sourceRoot;
@@ -345,7 +345,7 @@ class JavaAnnotationAstTest {
     assertEquals(2, aggregate.semanticEdges().stream().filter(edge -> edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET
         && targetsDeclaration(edge.target(), sample.nodeId())).count());
     assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion());
   }
 
   @Test
@@ -388,7 +388,7 @@ class JavaAnnotationAstTest {
     assertEquals(source.indexOf("@Plain") + 1, nonannotationType.origins().getFirst().startOffset());
     assertTrue(result.aggregate().orElseThrow().semanticEdges().stream().noneMatch(edge -> edge.relation()
         == SyntaxSemanticRelation.ANNOTATED_TARGET && annotations.stream().anyMatch(node -> node.nodeId().equals(edge.sourceKey()))));
-    assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(result).completion());
+    assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(result).completion());
   }
 
   @Test
@@ -460,7 +460,7 @@ class JavaAnnotationAstTest {
     assertEquals(source.indexOf("@Single @Single") + "@Single ".length(),
         nonrepeatableDuplicate.origins().getFirst().startOffset());
     assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unresolved-annotation-type")));
-    assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(result).completion());
+    assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(result).completion());
   }
 
   @Test

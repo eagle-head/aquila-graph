@@ -6,9 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Set;
 import javax.lang.model.SourceVersion;
-import org.aquilagraph.model.JavaRelease;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.identity.api.JavaRelease;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.api.Test;
 
 class JavaCompilerReleaseSupportTest {
   @Test

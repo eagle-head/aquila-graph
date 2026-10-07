@@ -1,29 +1,31 @@
 package org.aquilagraph.frontend;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxReadiness;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.cfg.internal.CfgAdmission;
+import org.aquilagraph.cfg.internal.CfgReadiness;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaBodyTypeUseTest {
   @TempDir Path sourceRoot;
 
   @Test
-  void givenFixedAndDiamondCreationTypes_whenAnalyzed_thenWrittenTypesRemainInSourceAndArgumentsRemainInExecution()
+  void givenFixedAndDiamondCreationTypes_whenAnalyzed_thenTypesAndArgumentsShareTheCanonicalSourceBody()
       throws IOException {
     // Arrange
     var source = """
@@ -39,10 +41,10 @@ class JavaBodyTypeUseTest {
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(
         InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion(), () -> run.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().toString());
     var sourceCreations = input.aggregate().orElseThrow().nodes().stream()
         .filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION).toList();
     assertEquals(2, sourceCreations.size());
@@ -55,11 +57,13 @@ class JavaBodyTypeUseTest {
     for (var name : List.of("fixed", "diamond")) {
       var declaration = input.program().methods().stream().filter(method -> method.name().equals(name)).findFirst().orElseThrow();
       var method = input.methodSyntax(declaration.methodKey()).orElseThrow();
-      assertEquals(SyntaxReadiness.LOWERABLE, method.readiness());
+      assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(method));
       var creation = method.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION)
           .findFirst().orElseThrow();
       assertEquals(1, creation.children(SyntaxRole.ARGUMENT).size());
-      assertTrue(creation.children(SyntaxRole.TYPE_OPERAND).isEmpty());
+      assertEquals(1, creation.children(SyntaxRole.TYPE_OPERAND).size());
+      assertSame(input.aggregate().orElseThrow().node(creation.nodeId()).orElseThrow(), creation);
+      assertSame(input.aggregate().orElseThrow().node(method.root().nodeId()).orElseThrow(), method.root());
       assertTrue(method.useDecision(creation.nodeId(), SyntaxRole.ARGUMENT, 0).isPresent());
     }
   }
@@ -83,10 +87,10 @@ class JavaBodyTypeUseTest {
     var input = new JavaFrontend(new JavaSourceLoader()).analyze(
         InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion(), () -> run.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().toString());
     var nodes = input.aggregate().orElseThrow().nodes();
     var local = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).findFirst().orElseThrow();
     var cast = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_CAST).findFirst().orElseThrow();
@@ -100,7 +104,10 @@ class JavaBodyTypeUseTest {
     }
     var method = input.methodSyntax().stream().filter(body -> body.methodKey().contains("#convert("))
         .findFirst().orElseThrow();
-    assertEquals(SyntaxReadiness.LOWERABLE, method.readiness());
-    assertTrue(method.root().descendantsAndSelf().stream().noneMatch(node -> node.syntaxKind() == SyntaxKind.TYPE_USE));
+    assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(method));
+    assertTrue(method.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.TYPE_USE));
+    for (var node : method.root().descendantsAndSelf()) {
+      assertSame(input.aggregate().orElseThrow().node(node.nodeId()).orElseThrow(), node);
+    }
   }
 }

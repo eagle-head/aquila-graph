@@ -8,11 +8,11 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import javax.lang.model.type.TypeKind;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.LanguageFeature;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeatureClassification;
-import org.aquilagraph.model.LanguageFeatureCoverage;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.source.api.LanguageFeature;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeatureClassification;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
 
 /** Defines the closed attributed type-kind coverage contract for the configured Java release. */
 final class JavaTypeKindCoverage {

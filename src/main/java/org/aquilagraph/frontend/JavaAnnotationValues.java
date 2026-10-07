@@ -19,8 +19,8 @@ import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
-import org.aquilagraph.syntax.AnnotationScalar;
-import org.aquilagraph.syntax.SyntaxType;
+import org.aquilagraph.source.api.AnnotationScalar;
+import org.aquilagraph.source.api.SyntaxType;
 
 /** Evaluates typed annotation constants and projects actual compiler scalar evidence into domain values. */
 final class JavaAnnotationValues {
@@ -93,8 +93,7 @@ final class JavaAnnotationValues {
           .flatMap(value -> kind(path).flatMap(target -> unaryValue(unary.getKind(), value, target)));
       case BinaryTree binary -> binaryValue(path, binary);
       case ConditionalExpressionTree conditional -> conditionalValue(path, conditional);
-      case MemberSelectTree ignored -> constantVariable(path);
-      case IdentifierTree ignored -> constantVariable(path);
+      case MemberSelectTree _,IdentifierTree _ -> constantVariable(path);
       default -> Optional.empty();
     };
   }

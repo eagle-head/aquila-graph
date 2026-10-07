@@ -1,26 +1,33 @@
 package org.aquilagraph.application;
 
-import java.nio.file.Path;
 import java.util.Objects;
-import org.aquilagraph.model.CompilerConfiguration;
+import java.util.Optional;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.SourceInput;
 
 /**
- * Defines the source root, compiler profile, and repository intent for one analysis.
+ * Source production, optional unchanged graph selection, and independent storage intent.
  *
- * @param sourceRoot
- *          directory containing the source tree
- * @param compilerConfiguration
- *          accepted compiler configuration
- * @param repositorySavePolicy
- *          repository policy for a completed run
+ * @param input
+ *          source root or exact already captured input
+ * @param configuration
+ *          compiler configuration
+ * @param astProfile
+ *          source representation profile
+ * @param cfgSelection
+ *          optional unbound graph selection
+ * @param publicationIntent
+ *          independent storage intent
  */
-public record AnalysisRequest(Path sourceRoot, CompilerConfiguration compilerConfiguration, RepositorySavePolicy repositorySavePolicy) {
-  /** Validates and normalizes request input. */
+public record AnalysisRequest(SourceInput input, CompilerConfiguration configuration, AstProfile astProfile,
+    Optional<CfgSelection> cfgSelection, PublicationIntent publicationIntent) {
+  /** Requires explicit source, selection presence, and publication intent. */
   public AnalysisRequest {
-    sourceRoot = Objects.requireNonNull(Objects.requireNonNull(sourceRoot, "sourceRoot").toAbsolutePath().normalize(),
-        "normalized sourceRoot");
-    Objects.requireNonNull(compilerConfiguration, "compilerConfiguration");
-    Objects.requireNonNull(repositorySavePolicy, "repositorySavePolicy");
+    Objects.requireNonNull(input, "input");
+    Objects.requireNonNull(configuration, "configuration");
+    Objects.requireNonNull(astProfile, "astProfile");
+    Objects.requireNonNull(cfgSelection, "cfgSelection");
+    Objects.requireNonNull(publicationIntent, "publicationIntent");
   }
-
 }

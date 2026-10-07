@@ -1,36 +1,36 @@
 package org.aquilagraph.frontend;
 
-import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.AssignmentTree;
 import com.sun.source.tree.BlockTree;
+import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.ExpressionStatementTree;
+import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.IdentifierTree;
 import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.ModifiersTree;
 import com.sun.source.tree.Tree;
-import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.TreePathScanner;
-import java.util.Collections;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.function.Function;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 import javax.lang.model.element.Modifier;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceOwnerPath;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.WrittenSourceAssociation;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.SourceOwnerPath;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.WrittenSourceAssociation;
 
 /** Identifies written syntax before compiler attribution can insert tree nodes. */
 final class ParsedTreeInventory {

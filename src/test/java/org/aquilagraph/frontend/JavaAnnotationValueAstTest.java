@@ -1,15 +1,15 @@
 package org.aquilagraph.frontend;
 
-import com.sun.source.tree.ClassTree;
-import com.sun.source.tree.CompilationUnitTree;
-import com.sun.source.tree.Tree;
-import com.sun.source.util.SourcePositions;
-import com.sun.source.util.TreePath;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.Tree;
+import com.sun.source.util.SourcePositions;
+import com.sun.source.util.TreePath;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,29 +21,29 @@ import java.util.stream.Collectors;
 import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic;
 import javax.tools.ToolProvider;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.ReferenceKind;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.syntax.AnnotationScalar;
-import org.aquilagraph.syntax.AnnotationElementValue;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.JavaTypeStructure;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxOperator;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxSemanticRelation;
-import org.aquilagraph.syntax.SyntaxSemanticTarget;
-import org.aquilagraph.syntax.SyntaxStructuralPath;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.AnnotationElementValue;
+import org.aquilagraph.source.api.AnnotationScalar;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.JavaTypeStructure;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxOperator;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxSemanticRelation;
+import org.aquilagraph.source.api.SyntaxSemanticTarget;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaAnnotationValueAstTest {
   @TempDir Path sourceRoot;
@@ -253,7 +253,7 @@ class JavaAnnotationValueAstTest {
     assertEquals(List.of("t", "i", "z", "b", "s", "c", "l", "f", "d", "e", "k"), arguments.stream()
         .map(node -> excerpt(source, node.requiredChild(SyntaxRole.ANNOTATION_ELEMENT_NAME))).toList());
     assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion());
   }
 
   @Test
@@ -790,7 +790,7 @@ class JavaAnnotationValueAstTest {
       assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")
           && diagnostic.origins().stream().anyMatch(origin -> origin.sourceFileKey().equals(annotation.sourceFileKey()))),
           () -> form + ": " + result.diagnostics());
-      assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(result).completion());
+      assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(result).completion());
     }
   }
 

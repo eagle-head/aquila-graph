@@ -2,7 +2,7 @@ package org.aquilagraph.frontend;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
+
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -15,33 +15,33 @@ import java.util.Locale;
 import java.util.Optional;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.DiagnosticEmission;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.LanguageFeature;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeatureClassification;
-import org.aquilagraph.model.LanguageFeatureCoverage;
-import org.aquilagraph.model.LanguageFeatureCoverageResult;
-import org.aquilagraph.model.LanguageFeaturePolicy;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.StableId;
-import org.aquilagraph.syntax.AnnotationScalar;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.DiagnosticEmission;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.LanguageFeature;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeatureClassification;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
+import org.aquilagraph.source.api.LanguageFeaturePolicy;
+import org.aquilagraph.source.api.AnnotationScalar;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaLanguageCompletionContractTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
@@ -124,7 +124,7 @@ class JavaLanguageCompletionContractTest {
 
     // Act
     var input = analyze();
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
     var diagnostic = diagnostic(input, WHILE_DIAGNOSTIC);
@@ -132,7 +132,7 @@ class JavaLanguageCompletionContractTest {
     assertEquals(DiagnosticSeverity.ERROR, diagnostic.severity());
     assertEquals(AnalysisOutcomeKind.UNSUPPORTED_LANGUAGE_FEATURE, diagnostic.outcomeKind());
     assertEquals(1, diagnostic.origins().size());
-    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+    assertEquals(AnalysisCompletion.PARTIAL, run.completion());
   }
 
   @Test
@@ -157,10 +157,10 @@ class JavaLanguageCompletionContractTest {
 
     // Act
     var input = analyze();
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
-    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+    assertEquals(AnalysisCompletion.PARTIAL, run.completion());
     var compilerErrors = run.diagnostics().stream()
         .filter(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.COMPILER_ERROR).toList();
     assertEquals(List.of("compiler.err.illegal.start.of.type", "compiler.err.class.method.or.field.expected",
@@ -189,7 +189,7 @@ class JavaLanguageCompletionContractTest {
     writeSource("Broken.java", "class Broken { void run( } }");
 
     // Act
-    var run = new AnalysisEngine().analyze(analyze());
+    var run = new SourceAnalysisFixture().analyze(analyze());
 
     // Assert
     var diagnostic = run.diagnostics().stream()
@@ -198,7 +198,7 @@ class JavaLanguageCompletionContractTest {
     assertEquals(DiagnosticStage.FRONTEND, diagnostic.stage());
     assertEquals(DiagnosticSeverity.ERROR, diagnostic.severity());
     assertFalse(diagnostic.origins().isEmpty());
-    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+    assertEquals(AnalysisCompletion.PARTIAL, run.completion());
   }
 
   @Test
@@ -227,7 +227,7 @@ class JavaLanguageCompletionContractTest {
 
     // Act
     var input = analyze();
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
     var classification = classification(input, LanguageFeatureCategory.DECLARATION_PROPERTY,
         "MethodTree::MethodTree#getDefaultValue()");
     var defaultValue = input.aggregate().orElseThrow().nodes().stream().map(node -> node.value())
@@ -238,7 +238,7 @@ class JavaLanguageCompletionContractTest {
     assertEquals(LanguageFeaturePolicy.REPRESENTED, classification.policy());
     assertTrue(classification.diagnosticCode().isEmpty());
     assertEquals(new AnnotationScalar.IntValue(1), defaultValue);
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion());
   }
 
   @Test
@@ -325,17 +325,17 @@ class JavaLanguageCompletionContractTest {
     writeSource("Looping.java", "final class Looping { void run() { while (false) { } } }");
 
     // Act
-    var run = new AnalysisEngine().analyze(analyze());
+    var run = new SourceAnalysisFixture().analyze(analyze());
 
     // Assert
     assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(WHILE_DIAGNOSTIC)
         && diagnostic.stage() == DiagnosticStage.FRONTEND));
     var controlFlowDiagnostic = run.diagnostics().stream()
-        .filter(diagnostic -> diagnostic.code().equals("control-flow.unsupported-method")).findFirst().orElseThrow();
+        .filter(diagnostic -> diagnostic.code().equals("control-flow.source-unavailable")).findFirst().orElseThrow();
     assertEquals(DiagnosticStage.CONTROL_FLOW, controlFlowDiagnostic.stage());
     assertEquals(DiagnosticSeverity.ERROR, controlFlowDiagnostic.severity());
     assertEquals(AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE, controlFlowDiagnostic.outcomeKind());
-    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+    assertEquals(AnalysisCompletion.PARTIAL, run.completion());
   }
 
   @Test
@@ -349,14 +349,14 @@ class JavaLanguageCompletionContractTest {
     // Act
     var first = frontend.analyze(snapshot, JAVA_25_CONFIGURATION);
     var second = frontend.analyze(snapshot, JAVA_25_CONFIGURATION);
-    var firstRun = new AnalysisEngine().analyze(first);
-    var secondRun = new AnalysisEngine().analyze(second);
+    var firstRun = new SourceAnalysisFixture().analyze(first);
+    var secondRun = new SourceAnalysisFixture().analyze(second);
 
     // Assert
     assertEquals(first.languageFeatureCoverage(), second.languageFeatureCoverage());
     assertEquals(first.languageFeatureCoverageResult(), second.languageFeatureCoverageResult());
     assertEquals(diagnosticTuples(first.diagnostics()), diagnosticTuples(second.diagnostics()));
-    assertEquals(AnalysisCompletion.INCOMPLETE, firstRun.completion());
+    assertEquals(AnalysisCompletion.PARTIAL, firstRun.completion());
     assertEquals(firstRun.completion(), secondRun.completion());
   }
 
@@ -487,7 +487,7 @@ class JavaLanguageCompletionContractTest {
         && item.message().contains("NEW_ARRAY") && item.origins().equals(arrays.getLast().origin().stream().toList())));
     assertFalse(input.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unrepresented-source-annotation")
         || item.code().equals("frontend.inconsistent-annotation-source-fact")));
-    assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(input).completion());
+    assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(input).completion());
   }
 
   private void writeSource(String relativePath, String content) throws IOException {

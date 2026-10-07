@@ -8,14 +8,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.aquilagraph.core.AnalysisEngine;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.OperationKind;
-import org.aquilagraph.model.TransferKind;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.cfg.api.OperationKind;
+import org.aquilagraph.cfg.api.TransferKind;
 import org.junit.jupiter.api.Test;
 
 class CalculatorAnalysisTest {
@@ -31,27 +31,27 @@ class CalculatorAnalysisTest {
 
     // Act
     var run =
-        new AnalysisEngine()
+        new SourceAnalysisFixture()
             .analyze(frontend.analyze(CALCULATOR_SOURCES, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
 
     // Assert
-    assertEquals(AnalysisCompletion.INCOMPLETE, run.completion());
+    assertEquals(AnalysisCompletion.PARTIAL, run.completion());
     assertTrue(run.diagnostics().stream()
         .anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-field-initializer")));
     assertTrue(run.diagnostics().stream()
         .anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-enum-constant-initialization")));
-    assertEquals(3, run.inputSnapshot().sourceFileCount());
-    var representation = run.representation().orElseThrow();
-    assertEquals(3, representation.program().types().size());
+    assertEquals(3, run.representation().ast().capturedInput().orElseThrow().sourceFileCount());
+    var representation = run.representation();
+    assertEquals(3, representation.ast().result().orElseThrow().program().types().size());
     assertEquals(
-        representation.program().methods().stream().filter(method -> method.hasBody()).count(),
-        representation.methodAnalyses().size());
+        representation.ast().result().orElseThrow().program().methods().stream().filter(method -> method.hasBody()).count(),
+        representation.cfg().orElseThrow().methods().size());
     assertTrue(
-        representation.methodAnalyses().stream()
+        representation.cfg().orElseThrow().methods().stream()
             .allMatch(
                 analysis ->
-                    !analysis.controlFlowGraph().operationNodes().isEmpty()
-                        && !analysis.controlFlowGraph().edges().isEmpty()));
+                    !analysis.graph().orElseThrow().operationNodes().isEmpty()
+                        && !analysis.graph().orElseThrow().edges().isEmpty()));
     assertEquals(classFilesBefore, classFilesUnder(CALCULATOR_SOURCES));
   }
 
@@ -60,41 +60,41 @@ class CalculatorAnalysisTest {
       throws IOException {
     // Arrange
     var run =
-        new AnalysisEngine()
+        new SourceAnalysisFixture()
             .analyze(
                 new JavaFrontend(new JavaSourceLoader())
                     .analyze(CALCULATOR_SOURCES, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
-    var analyses = run.representation().orElseThrow().methodAnalyses();
+    var analyses = run.representation().cfg().orElseThrow().methods();
 
     // Act
     var calculate =
         analyses.stream()
-            .filter(analysis -> analysis.sourceMethod().name().equals("calculate"))
+            .filter(analysis -> run.representation().ast().result().orElseThrow().method(analysis.methodKey()).orElseThrow().name().equals("calculate"))
             .findFirst()
             .orElseThrow();
     var applicationRun =
         analyses.stream()
             .filter(
                 analysis ->
-                    analysis.sourceMethod().name().equals("run")
-                        && analysis.sourceMethod().ownerTypeKey().contains("CalculatorApplication"))
+                    run.representation().ast().result().orElseThrow().method(analysis.methodKey()).orElseThrow().name().equals("run")
+                        && run.representation().ast().result().orElseThrow().method(analysis.methodKey()).orElseThrow().ownerTypeKey().contains("CalculatorApplication"))
             .findFirst()
             .orElseThrow();
 
     // Assert
     assertTrue(
-        calculate.controlFlowGraph().operationNodes().stream()
+        calculate.graph().orElseThrow().operationNodes().stream()
             .anyMatch(node -> node.kind() == OperationKind.SWITCH_SELECTOR));
     assertTrue(
-        calculate.controlFlowGraph().edges().stream()
+        calculate.graph().orElseThrow().edges().stream()
                 .filter(edge -> edge.transferKind() == TransferKind.SWITCH_ALTERNATIVE)
                 .count()
             >= 4);
     assertTrue(
-        applicationRun.controlFlowGraph().operationNodes().stream()
+        applicationRun.graph().orElseThrow().operationNodes().stream()
             .anyMatch(node -> node.kind() == OperationKind.CATCH));
     assertTrue(
-        applicationRun.controlFlowGraph().edges().stream()
+        applicationRun.graph().orElseThrow().edges().stream()
             .anyMatch(edge -> edge.transferKind() == TransferKind.EXCEPTIONAL));
   }
 

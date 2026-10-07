@@ -12,11 +12,11 @@ import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.WildcardType;
-import org.aquilagraph.syntax.AnnotationElementValue;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxValue;
+import org.aquilagraph.source.api.AnnotationElementValue;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxValue;
 
 /** Compares attributed annotation values and their exact positions within counterpart types. */
 final class JavaAnnotationMirrorCorrelation implements RecordAnnotationMirrorCorrelation {

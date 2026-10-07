@@ -16,17 +16,17 @@ import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
 import javax.tools.ToolProvider;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.syntax.AnnotationElementValue;
-import org.aquilagraph.syntax.AnnotationScalar;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.AnnotationElementValue;
+import org.aquilagraph.source.api.AnnotationScalar;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaAnnotationValueEvaluationTest {
   @TempDir Path sourceRoot;
@@ -90,7 +90,7 @@ class JavaAnnotationValueEvaluationTest {
     var result = new JavaFrontend(new JavaSourceLoader()).analyze(sourceRoot, configuration);
 
     // Assert
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(result).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(result).completion(),
         () -> result.diagnostics().toString());
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration),
         new SnapshotSourceCatalog(result.snapshot()))) {

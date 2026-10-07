@@ -2,9 +2,9 @@ package org.aquilagraph.frontend;
 
 import java.util.List;
 import java.util.Objects;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
-import org.aquilagraph.model.AnalysisDiagnostic;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
 
 /** Source-context occurrence manifest paired with its retained feature observations. */
 record ObservedLanguageFeatures(List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations,

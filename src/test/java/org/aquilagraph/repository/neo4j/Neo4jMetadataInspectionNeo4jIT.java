@@ -15,7 +15,6 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -26,40 +25,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.port.RepositoryException;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisEnvironmentSnapshot;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.AnalysisRun;
-import org.aquilagraph.model.CfgEdge;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.ControlFlowGraph;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.EntryNode;
-import org.aquilagraph.model.ExitNode;
-import org.aquilagraph.model.FlowValue;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaMethod;
-import org.aquilagraph.model.JavaParameter;
-import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaType;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.JavaTypeIdentity;
-import org.aquilagraph.model.JavaTypeKind;
-import org.aquilagraph.model.MethodAnalysis;
-import org.aquilagraph.model.OperationKind;
-import org.aquilagraph.model.OperationNode;
-import org.aquilagraph.model.OperationOperand;
-import org.aquilagraph.model.ProgramRepresentation;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.SoftwareVersion;
-import org.aquilagraph.model.StableId;
-import org.aquilagraph.model.TransferKind;
-import org.aquilagraph.model.ValueKind;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
@@ -91,7 +64,7 @@ class Neo4jMetadataInspectionNeo4jIT {
     var independent = completedFixture("Independent" + UUID.randomUUID().toString().replace("-", ""), "independent");
     var replacement = withWarning(primary, "replacement");
     var mapper = new Neo4jAnalysisRunMapper();
-    var runIds = List.of(primary.runId(), independent.runId());
+    var runIds = List.of(primary.identity().key(), independent.identity().key());
 
     try (var observer = new DriverWork(directUri, settings)) {
       await(observer.driver.verifyConnectivityAsync());
@@ -105,8 +78,8 @@ class Neo4jMetadataInspectionNeo4jIT {
             return null;
           });
         }
-        var prior = storedState(observer.driver, sessionConfig, primary.runId());
-        var independentBefore = storedState(observer.driver, sessionConfig, independent.runId());
+        var prior = storedState(observer.driver, sessionConfig, primary.identity().key());
+        var independentBefore = storedState(observer.driver, sessionConfig, independent.identity().key());
         assertEquals(expectedState(mapper.map(primary)), prior);
         assertEquals(expectedState(mapper.map(independent)), independentBefore);
         assertNotEquals(prior, expectedState(mapper.map(replacement)));
@@ -133,8 +106,8 @@ class Neo4jMetadataInspectionNeo4jIT {
           assertEquals(1, observation.inspectionRequests());
           assertEquals(0, observation.forwardedInspections());
           assertEquals(0, observation.beginMessages());
-          assertEquals(prior, storedState(observer.driver, sessionConfig, primary.runId()));
-          assertEquals(independentBefore, storedState(observer.driver, sessionConfig, independent.runId()));
+          assertEquals(prior, storedState(observer.driver, sessionConfig, primary.identity().key()));
+          assertEquals(independentBefore, storedState(observer.driver, sessionConfig, independent.identity().key()));
         }
       } finally {
         cleanup(observer.driver, sessionConfig, runIds);
@@ -144,46 +117,15 @@ class Neo4jMetadataInspectionNeo4jIT {
 
   private AnalysisRun completedFixture(String typeName, String warningCode) {
     var source = "class " + typeName + " { int value(int input) { return input; } }";
-    var file = SourceFile.fromContent(Path.of(typeName + ".java"), source);
-    var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(file));
-    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
-    var environment = new AnalysisEnvironmentSnapshot(configuration, "supplied-compiler", "supplied-vendor", "25-supplied",
-        List.of("--release", "25"), List.of(), List.of());
-    var typeKey = StableId.sha256("type", typeName);
-    var methodKey = StableId.sha256("method", typeKey, "value(int)");
-    var intType = new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int");
-    var wholeSource = new SourceSpan(file.sourceFileKey(), 0, source.length());
-    var parameter = new JavaParameter(StableId.sha256("parameter", methodKey, "input"), "input", intType, true, List.of(wholeSource));
-    var method = new JavaMethod(methodKey, typeKey, "value", "value(int)", "int", List.of(parameter), Set.of(), false, true, true,
-        List.of(wholeSource));
-    var type = new JavaType(typeKey, typeName, JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(),
-        List.of(), true, List.of(), List.of(), List.of(method), List.of(), List.of(wholeSource));
-    var graphId = StableId.sha256("cfg", methodKey);
-    var entry = new EntryNode(StableId.sha256("cfg-node", graphId, "entry"), graphId);
-    var exit = new ExitNode(StableId.sha256("cfg-node", graphId, "exit"), graphId);
-    var input = new FlowValue(StableId.sha256("cfg-value", parameter.parameterKey()), graphId, ValueKind.PARAMETER, Optional.of("input"),
-        Optional.empty(), Optional.of(intType));
-    var returning = new OperationNode(StableId.sha256("cfg-node", graphId, "return"), graphId, OperationKind.RETURN, "return",
-        List.of(new OperationOperand(0, input)), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(wholeSource));
-    var graph = new ControlFlowGraph(graphId, methodKey, entry, List.of(returning), List.of(input), exit, List.of(
-        new CfgEdge(StableId.sha256("cfg-edge", graphId, "entry-return"), graphId, entry.nodeId(), returning.nodeId(), TransferKind.NORMAL,
-            Optional.empty()),
-        new CfgEdge(StableId.sha256("cfg-edge", graphId, "return-exit"), graphId, returning.nodeId(), exit.nodeId(), TransferKind.RETURN,
-            Optional.empty())));
-    var representation = new ProgramRepresentation(new JavaProgram(List.of(type)),
-        List.of(new MethodAnalysis(StableId.sha256("method-analysis", methodKey), method, graph)));
-    var runId = StableId.sha256("analysis-run", SoftwareVersion.from(snapshot, environment).signature());
-    return withWarning(new AnalysisRun(runId, snapshot, environment, Optional.of(representation), List.of(), AnalysisCompletion.COMPLETED),
-        warningCode);
+    return withWarning(RepositoryTestRuns.analyze(sourceRoot, typeName + ".java", source), warningCode);
   }
 
   private static AnalysisRun withWarning(AnalysisRun run, String suffix) {
-    var origin = run.representation().orElseThrow().program().types().getFirst().origins().getFirst();
-    var warning = new AnalysisDiagnostic(StableId.sha256("diagnostic", run.runId(), suffix), "publication.metadata." + suffix,
+    var origin = run.representation().ast().result().orElseThrow().program().types().getFirst().origins().getFirst();
+    var warning = new AnalysisDiagnostic(StableId.sha256("diagnostic", run.identity().key(), suffix), "publication.metadata." + suffix,
         DiagnosticStage.FRONTEND, DiagnosticSeverity.WARNING, "Supplied metadata-observation warning: " + suffix, List.of(origin),
         AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
-    return new AnalysisRun(run.runId(), run.inputSnapshot(), run.environmentSnapshot(), run.representation(), List.of(warning),
-        AnalysisCompletion.COMPLETED);
+    return new AnalysisRun(run.identity(), run.representation(), AnalysisCompletion.COMPLETE, List.of(warning));
   }
 
   private static InetSocketAddress loopbackTarget(URI uri) throws IOException {
@@ -279,7 +221,7 @@ class Neo4jMetadataInspectionNeo4jIT {
     @Override
     public void close() throws IOException {
       disconnect.run();
-      try (var shutdown = new WorkerShutdown(worker)) {
+      try (var _ = new WorkerShutdown(worker)) {
         await(driver.closeAsync());
       }
     }

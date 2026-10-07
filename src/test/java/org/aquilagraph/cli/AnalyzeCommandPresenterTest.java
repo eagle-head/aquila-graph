@@ -3,14 +3,15 @@ package org.aquilagraph.cli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
 import java.io.OutputStream;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import org.aquilagraph.application.AnalysisExecution;
-import org.aquilagraph.application.RepositorySavePolicy;
-import org.aquilagraph.model.AnalysisRun;
+import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.identity.api.SoftwareVersion;
 import org.junit.jupiter.api.Test;
 
 class AnalyzeCommandPresenterTest {
@@ -20,7 +21,7 @@ class AnalyzeCommandPresenterTest {
   void givenCompletedExecution_whenOutcomeIsPresented_thenProgramSummaryAndDiagnosticAreRendered() {
     // Arrange
     var run = CliTestFixtures.completedRunWithWarning();
-    var outcome = new AnalyzeCommandOutcome.Executed(AnalysisExecution.withoutRepositoryRequest(run));
+    var outcome = new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run));
     var streams = CapturedStreams.create();
 
     // Act
@@ -28,7 +29,7 @@ class AnalyzeCommandPresenterTest {
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_COMPLETED, exitCode);
-    assertEquals(List.of("Run: " + run.runId(), "Software version: " + run.softwareVersion().signature(), "Completion: COMPLETED",
+    assertEquals(List.of("Run: " + run.identity().key(), "Software version: " + SoftwareVersion.from(run.representation().ast().capturedInput().orElseThrow(), run.representation().ast().capturedEnvironment().orElseThrow()).signature(), "Completion: COMPLETED",
         "Java release: 25", "Java source files: 1", "Java types: 1", "Java methods: 1", "Analyzed method bodies: 1",
         "CFG operations: 0", "CFG nodes: 2", "CFG edges: 1", "Repository: NOT_REQUESTED"), streams.outputLines());
     assertEquals(List.of("WARNING FRONTEND cli.warning: analysis warning"), streams.errorLines());
@@ -38,7 +39,7 @@ class AnalyzeCommandPresenterTest {
   void givenIncompleteExecution_whenOutcomeIsPresented_thenIncompleteExitAndDiagnosticAreRendered() {
     // Arrange
     var run = CliTestFixtures.incompleteRun();
-    var execution = AnalysisExecution.notEligibleForRepository(run, RepositorySavePolicy.SAVE_COMPLETED);
+    var execution = CliTestFixtures.notEligibleForRepository(run, PublicationIntent.SAVE_COMPLETED);
     var streams = CapturedStreams.create();
 
     // Act
@@ -46,8 +47,9 @@ class AnalyzeCommandPresenterTest {
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
-    assertEquals(List.of("Run: " + run.runId(), "Software version: " + run.softwareVersion().signature(), "Completion: INCOMPLETE",
-        "Java release: 25", "Java source files: 1", "Repository: NOT_ELIGIBLE"), streams.outputLines());
+    assertEquals(List.of("Run: " + run.identity().key(), "Software version: " + SoftwareVersion.from(run.representation().ast().capturedInput().orElseThrow(), run.representation().ast().capturedEnvironment().orElseThrow()).signature(), "Completion: INCOMPLETE",
+        "Java release: 25", "Java source files: 1", "Java types: 1", "Java methods: 1", "Analyzed method bodies: 1",
+        "CFG operations: 0", "CFG nodes: 2", "CFG edges: 1", "Repository: NOT_ELIGIBLE"), streams.outputLines());
     assertEquals(List.of("ERROR FRONTEND cli.error: source failed"), streams.errorLines());
   }
 
@@ -55,7 +57,7 @@ class AnalyzeCommandPresenterTest {
   void givenRejectedExecution_whenOutcomeIsPresented_thenRejectedExitAndDiagnosticAreRendered() {
     // Arrange
     var run = CliTestFixtures.rejectedRun();
-    var execution = AnalysisExecution.notEligibleForRepository(run, RepositorySavePolicy.DO_NOT_SAVE);
+    var execution = CliTestFixtures.withoutRepositoryRequest(run);
     var streams = CapturedStreams.create();
 
     // Act
@@ -63,8 +65,8 @@ class AnalyzeCommandPresenterTest {
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
-    assertEquals(List.of("Run: " + run.runId(), "Software version: " + run.softwareVersion().signature(), "Completion: REJECTED",
-        "Java release: 25", "Java source files: 0", "Repository: NOT_ELIGIBLE"), streams.outputLines());
+    assertEquals(List.of("Run: " + run.identity().key(), "Software version: " + "unavailable", "Completion: REJECTED",
+        "Java release: 25", "Java source files: 0", "Repository: NOT_REQUESTED"), streams.outputLines());
     assertEquals(List.of("ERROR FRONTEND cli.error: source failed"), streams.errorLines());
   }
 
@@ -133,12 +135,12 @@ class AnalyzeCommandPresenterTest {
     var incomplete = CliTestFixtures.incompleteRun();
     var completed = CliTestFixtures.completedRun();
     var rows = List.of(
-        new PresentationRow(AnalysisExecution.notEligibleForRepository(rejected, RepositorySavePolicy.DO_NOT_SAVE), 2, "NOT_ELIGIBLE"),
-        new PresentationRow(AnalysisExecution.notEligibleForRepository(rejected, RepositorySavePolicy.SAVE_COMPLETED), 2, "NOT_ELIGIBLE"),
-        new PresentationRow(AnalysisExecution.notEligibleForRepository(incomplete, RepositorySavePolicy.DO_NOT_SAVE), 1, "NOT_ELIGIBLE"),
-        new PresentationRow(AnalysisExecution.notEligibleForRepository(incomplete, RepositorySavePolicy.SAVE_COMPLETED), 1, "NOT_ELIGIBLE"),
-        new PresentationRow(AnalysisExecution.withoutRepositoryRequest(completed), 0, "NOT_REQUESTED"),
-        new PresentationRow(AnalysisExecution.saved(completed), 0, "SAVED"));
+        new PresentationRow(CliTestFixtures.withoutRepositoryRequest(rejected), 2, "NOT_REQUESTED"),
+        new PresentationRow(CliTestFixtures.notEligibleForRepository(rejected, PublicationIntent.SAVE_COMPLETED), 2, "NOT_ELIGIBLE"),
+        new PresentationRow(CliTestFixtures.withoutRepositoryRequest(incomplete), 1, "NOT_REQUESTED"),
+        new PresentationRow(CliTestFixtures.notEligibleForRepository(incomplete, PublicationIntent.SAVE_COMPLETED), 1, "NOT_ELIGIBLE"),
+        new PresentationRow(CliTestFixtures.withoutRepositoryRequest(completed), 0, "NOT_REQUESTED"),
+        new PresentationRow(CliTestFixtures.saved(completed), 0, "SAVED"));
 
     for (var row : rows) {
       var streams = CapturedStreams.create();
@@ -148,7 +150,11 @@ class AnalyzeCommandPresenterTest {
       // Assert
       assertEquals(row.exitCode(), code);
       assertEquals("Repository: " + row.repositoryText(), streams.outputLines().getLast());
-      assertEquals("Completion: " + row.execution().run().completion(), streams.outputLines().get(2));
+      assertEquals("Completion: " + switch (row.execution().run().completion()) {
+        case COMPLETE -> "COMPLETED";
+        case PARTIAL, FAILED -> "INCOMPLETE";
+        case REJECTED -> "REJECTED";
+      }, streams.outputLines().get(2));
     }
   }
 
@@ -157,12 +163,11 @@ class AnalyzeCommandPresenterTest {
     // Arrange
     var original = CliTestFixtures.completedRun();
     var warning = CliTestFixtures.warningDiagnostic();
-    var run = new AnalysisRun(original.runId(), original.inputSnapshot(), original.environmentSnapshot(), original.representation(),
-        List.of(warning, warning), original.completion());
+    var run = new AnalysisRun(original.identity(), original.representation(), original.completion(), List.of(warning, warning));
     var streams = CapturedStreams.create();
 
     // Act
-    var code = presenter.present(new AnalyzeCommandOutcome.Executed(AnalysisExecution.withoutRepositoryRequest(run)),
+    var code = presenter.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)),
         streams.output(), streams.error());
 
     // Assert
@@ -180,11 +185,11 @@ class AnalyzeCommandPresenterTest {
     var error = new RecordingPrintStream("error", calls);
 
     // Act
-    var code = presenter.present(new AnalyzeCommandOutcome.Executed(AnalysisExecution.withoutRepositoryRequest(run)), output, error);
+    var code = presenter.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)), output, error);
 
     // Assert
     assertEquals(0, code);
-    assertEquals(List.of("output: Run: " + run.runId(), "output: Software version: " + run.softwareVersion().signature(),
+    assertEquals(List.of("output: Run: " + run.identity().key(), "output: Software version: " + SoftwareVersion.from(run.representation().ast().capturedInput().orElseThrow(), run.representation().ast().capturedEnvironment().orElseThrow()).signature(),
         "output: Completion: COMPLETED", "output: Java release: 25", "output: Java source files: 1", "output: Java types: 1",
         "output: Java methods: 1", "output: Analyzed method bodies: 1", "output: CFG operations: 0", "output: CFG nodes: 2",
         "output: CFG edges: 1", "error: WARNING FRONTEND cli.warning: analysis warning", "output: Repository: NOT_REQUESTED"), calls);

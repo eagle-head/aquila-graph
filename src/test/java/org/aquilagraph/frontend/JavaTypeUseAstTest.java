@@ -14,38 +14,38 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import javax.tools.ToolProvider;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.JavaTypeIdentity;
-import org.aquilagraph.model.ReferenceKind;
-import org.aquilagraph.model.ResolutionStatus;
-import org.aquilagraph.model.SemanticReference;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.JavaTypeStructure;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxNodeKey;
-import org.aquilagraph.syntax.SyntaxNodeTuple;
-import org.aquilagraph.syntax.SyntaxRangeTuple;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxSemanticEdge;
-import org.aquilagraph.syntax.SyntaxSemanticRelation;
-import org.aquilagraph.syntax.SyntaxSemanticTarget;
-import org.aquilagraph.syntax.SyntaxStructuralEdge;
-import org.aquilagraph.syntax.SyntaxStructuralPath;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.application.AnalysisCompletion;
+
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.SemanticReference;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.JavaTypeStructure;
+
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxNodeKey;
+import org.aquilagraph.source.api.SyntaxNodeTuple;
+import org.aquilagraph.source.api.SyntaxRangeTuple;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxSemanticEdge;
+import org.aquilagraph.source.api.SyntaxSemanticRelation;
+import org.aquilagraph.source.api.SyntaxSemanticTarget;
+import org.aquilagraph.source.api.SyntaxStructuralEdge;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaTypeUseAstTest {
   private static final CompilerConfiguration JAVA_25 = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
@@ -878,7 +878,7 @@ class JavaTypeUseAstTest {
     var source = "package p; class States {}";
     Files.writeString(temporaryDirectory.resolve("States.java"), source);
     var baseline = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory, JAVA_25);
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(baseline).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(baseline).completion(),
         () -> baseline.diagnostics().toString());
     var sources = new SnapshotSourceCatalog(baseline.snapshot());
     var states = List.<SyntaxType>of(new SyntaxType.NoType(SyntaxType.NoType.Kind.NONE), SyntaxType.Unsupported.INSTANCE);
@@ -907,7 +907,7 @@ class JavaTypeUseAstTest {
         assertEquals(List.of(expectedSpan), diagnostics.getLast().origins());
         assertEquals(DiagnosticSeverity.ERROR, diagnostics.getLast().severity());
         var analysisInput = JavaCoverageTestSupport.withFacts(baseline, baseline.program(), baseline.aggregate(), diagnostics);
-        assertNotEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(analysisInput).completion());
+        assertNotEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(analysisInput).completion());
       }
     }
   }
@@ -918,7 +918,7 @@ class JavaTypeUseAstTest {
     var source = "package p; class States {}";
     Files.writeString(temporaryDirectory.resolve("States.java"), source);
     var baseline = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory, JAVA_25);
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(baseline).completion(),
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(baseline).completion(),
         () -> baseline.diagnostics().toString());
     var sources = new SnapshotSourceCatalog(baseline.snapshot());
     var type = new SyntaxType.StructureUnavailable(new JavaTypeIdentity(JavaTypeCategory.UNION, "First | Second", "First"));
@@ -939,14 +939,14 @@ class JavaTypeUseAstTest {
       var translated = translator.translateAttributed(unit, sources.find(unit).orElseThrow(), typeTree,
           TreePath.getPath(unit, typeTree), path, path, type, diagnostics);
       var analysisInput = JavaCoverageTestSupport.withFacts(baseline, baseline.program(), baseline.aggregate(), diagnostics);
-      var completion = new AnalysisEngine().analyze(analysisInput).completion();
+      var completion = new SourceAnalysisFixture().analyze(analysisInput).completion();
 
       // Assert
       assertTrue(translated.isEmpty());
       assertEquals(baseline.diagnostics().size() + 1, diagnostics.size());
       assertEquals("frontend.unavailable-type-use-structure", diagnostics.getLast().code());
       assertEquals(List.of(expectedSpan), diagnostics.getLast().origins());
-      assertNotEquals(AnalysisCompletion.COMPLETED, completion);
+      assertNotEquals(AnalysisCompletion.COMPLETE, completion);
     }
   }
 

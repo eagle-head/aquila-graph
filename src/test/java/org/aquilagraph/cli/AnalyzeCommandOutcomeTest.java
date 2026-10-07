@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.aquilagraph.application.AnalysisExecution;
 import org.junit.jupiter.api.Test;
 
 class AnalyzeCommandOutcomeTest {
@@ -12,7 +11,7 @@ class AnalyzeCommandOutcomeTest {
   void givenValidOutcomeValues_whenOutcomesAreCreated_thenValuesAreRetained() {
     // Arrange
     var run = CliTestFixtures.completedRun();
-    var execution = AnalysisExecution.withoutRepositoryRequest(run);
+    var execution = CliTestFixtures.withoutRepositoryRequest(run);
 
     // Act
     var executed = new AnalyzeCommandOutcome.Executed(execution);

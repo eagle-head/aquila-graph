@@ -7,13 +7,13 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.DiagnosticEmission;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.StableId;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.DiagnosticEmission;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
 
 final class CompilerDiagnosticTranslator {
   private final SnapshotSourceCatalog sources;

@@ -29,10 +29,10 @@ final class AnalyzeCommandPresenter {
     var execution = outcome.execution();
     var summary = AnalysisRunSummary.from(execution.run());
     printSummary(summary, output, error);
-    output.println("Repository: " + execution.repositoryStatus());
+    output.println("Repository: " + execution.publication().status());
     return switch (summary.completion()) {
-      case COMPLETED -> AnalyzeCommand.EXIT_COMPLETED;
-      case INCOMPLETE -> AnalyzeCommand.EXIT_INCOMPLETE;
+      case COMPLETE -> AnalyzeCommand.EXIT_COMPLETED;
+      case PARTIAL, FAILED -> AnalyzeCommand.EXIT_INCOMPLETE;
       case REJECTED -> AnalyzeCommand.EXIT_REJECTED;
     };
   }
@@ -56,7 +56,12 @@ final class AnalyzeCommandPresenter {
   private static void printSummary(AnalysisRunSummary summary, PrintStream output, PrintStream error) {
     output.printf("Run: %s%n", summary.runId());
     output.printf("Software version: %s%n", summary.softwareVersionSignature());
-    output.printf("Completion: %s%n", summary.completion());
+    var completion = switch (summary.completion()) {
+      case COMPLETE -> "COMPLETED";
+      case PARTIAL, FAILED -> "INCOMPLETE";
+      case REJECTED -> "REJECTED";
+    };
+    output.printf("Completion: %s%n", completion);
     output.printf("Java release: %d%n", summary.javaRelease());
     output.printf("Java source files: %d%n", summary.sourceFileCount());
     summary.program().ifPresent(program -> printProgramSummary(program, output));

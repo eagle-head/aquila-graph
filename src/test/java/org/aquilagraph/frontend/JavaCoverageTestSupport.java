@@ -3,21 +3,21 @@ package org.aquilagraph.frontend;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.DiagnosticEmission;
-import org.aquilagraph.model.FeatureContextOutcome;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.model.LanguageFeatureCoverage;
-import org.aquilagraph.model.LanguageFeatureCoverageResult;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
-import org.aquilagraph.model.SourceContext;
-import org.aquilagraph.model.SourceOwnerPath;
-import org.aquilagraph.model.AttributedCoverageExpectations;
-import org.aquilagraph.model.SourceCoverageInventory;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AttributedCoverageExpectations;
+import org.aquilagraph.source.api.DiagnosticEmission;
+import org.aquilagraph.source.api.FeatureContextOutcome;
+import org.aquilagraph.source.api.JavaProgram;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
+import org.aquilagraph.source.api.SourceContext;
+import org.aquilagraph.source.api.SourceCoverageInventory;
+import org.aquilagraph.source.api.SourceOwnerPath;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
 
 /** Supplies altered actual evidence while retaining the independently captured expectation stages. */
 final class JavaCoverageTestSupport {

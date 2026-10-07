@@ -8,9 +8,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import org.aquilagraph.model.DependencyKind;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.identity.api.DependencyKind;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class CompilerDependencyCaptureTest {
   @TempDir Path temporaryDirectory;

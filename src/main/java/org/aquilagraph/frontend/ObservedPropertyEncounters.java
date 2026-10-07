@@ -1,10 +1,10 @@
 package org.aquilagraph.frontend;
 
 import java.util.List;
-import org.aquilagraph.model.CoveragePropertyValue;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
-import org.aquilagraph.model.SourceContext;
+import org.aquilagraph.source.api.CoveragePropertyValue;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
+import org.aquilagraph.source.api.SourceContext;
 
 /** Actual accessor encounters, independently produced from both expectation stages. */
 record ObservedPropertyEncounters(List<Encounter> encounters) {

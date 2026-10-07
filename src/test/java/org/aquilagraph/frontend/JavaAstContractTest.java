@@ -13,27 +13,27 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.JavaTypeIdentity;
-import org.aquilagraph.model.ReferenceKind;
-import org.aquilagraph.model.ResolutionStatus;
-import org.aquilagraph.model.SemanticReference;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.StableId;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxChild;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxNodeTuple;
-import org.aquilagraph.syntax.SyntaxRangeTuple;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxSemanticEdge;
-import org.aquilagraph.syntax.SyntaxSemanticRelation;
-import org.aquilagraph.syntax.SyntaxSemanticTarget;
-import org.aquilagraph.syntax.SyntaxStructuralEdge;
-import org.aquilagraph.syntax.SyntaxStructuralPath;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.SyntaxValue;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.SemanticReference;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxNodeTuple;
+import org.aquilagraph.source.api.SyntaxRangeTuple;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxSemanticEdge;
+import org.aquilagraph.source.api.SyntaxSemanticRelation;
+import org.aquilagraph.source.api.SyntaxSemanticTarget;
+import org.aquilagraph.source.api.SyntaxStructuralEdge;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.Test;
 
 class JavaAstContractTest {
@@ -129,7 +129,9 @@ class JavaAstContractTest {
     // Arrange
     var pathSteps = new ArrayList<>(methodBodyPath().steps());
     pathSteps.add(new SyntaxStructuralPath.Step(SyntaxRole.STATEMENT, 0));
-    var child = literal(methodBodyPath().child(SyntaxRole.STATEMENT, 0).child(SyntaxRole.EXPRESSION, 0));
+    var child = SyntaxNode.source(SOURCE_FILE_KEY,
+        new SyntaxStructuralPath(pathSteps).child(SyntaxRole.STATEMENT, 0), JavaSourceKind.EMPTY_STATEMENT, SyntaxKind.EMPTY,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), LITERAL_RANGE);
     var children = new ArrayList<>(List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, child)));
     var node = SyntaxNode.source(SOURCE_FILE_KEY, new SyntaxStructuralPath(pathSteps), JavaSourceKind.BLOCK, SyntaxKind.BLOCK,
         SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, children, Optional.empty(),

@@ -11,24 +11,24 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import javax.lang.model.element.ExecutableElement;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
-import org.aquilagraph.model.ResolutionStatus;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.StableId;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.SyntaxChild;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxStructuralPath;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.aquilagraph.syntax.WrittenSourceAssociation;
-import org.aquilagraph.syntax.WrittenTypeEvidence;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
+import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.WrittenSourceAssociation;
+import org.aquilagraph.source.api.WrittenTypeEvidence;
 
 final class JavaMethodBodyTranslator {
   private static final String DIAGNOSTIC_PRODUCER = "JavaMethodBodyTranslator";
@@ -60,9 +60,10 @@ final class JavaMethodBodyTranslator {
       throw new IllegalArgumentException("A method body projection requires its attributed executable and exact body path");
     }
     var nodeProjections = new ArrayList<NodeProjection>();
-    var translation = translateTree(unit, sourceFile, methodKey, body, bodyPath, JavaSyntaxStructuralPath.methodBody(bodyPath),
-        SyntaxUse.VALUE, constructor, implicitDeclaration, nodeProjections);
-    var decisions = new JavaBodyDecisionProducer(semantics).produce(methodKey, translation.node(), nodeProjections);
+    var translation = translateTree(unit, sourceFile, methodKey, body, bodyPath, JavaSyntaxStructuralPath.methodBody(bodyPath), constructor,
+        implicitDeclaration, nodeProjections);
+    var decisions = new JavaBodyDecisionProducer(semantics).produce(methodKey, translation.node(), nodeProjections,
+        translation.diagnostics());
     var bodyProjection = new BodyProjection(declaration, bodyPath, translation.node(), nodeProjections, decisions);
     return new TranslationResult<>(new TranslatedMethodBody(methodKey, translation.node(), bodyProjection), translation.diagnostics(),
         translation.featureOccurrences(), translation.featureObservations());
@@ -116,10 +117,9 @@ final class JavaMethodBodyTranslator {
   }
 
   private SyntaxTreeTranslation translateTree(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, Tree tree, TreePath path,
-      SyntaxStructuralPath structuralPath, SyntaxUse use, boolean constructor, boolean compilerGenerated,
-      List<NodeProjection> nodeProjections) {
+      SyntaxStructuralPath structuralPath, boolean constructor, boolean compilerGenerated, List<NodeProjection> nodeProjections) {
     var generated = compilerGenerated || (constructor && treeInventory.isCompilerInsertedSuperCall(path));
-    var mapping = syntaxProfile.describe(tree, path, structuralPath, use);
+    var mapping = syntaxProfile.describe(tree, path, structuralPath);
     var children = translateChildren(unit, sourceFile, methodKey, mapping.children(), constructor, generated, nodeProjections);
     var origin = sourceEvidence.origin(unit, sourceFile, tree);
     var value = mapping.value();
@@ -148,13 +148,13 @@ final class JavaMethodBodyTranslator {
     var diagnostics = mutableDiagnostics(diagnostics(methodKey, node, children), methodKey + ':' + structuralPath);
     if (!generated) {
       switch (sourceEvidence.position(unit, sourceFile, tree)) {
-        case JavaSourceEvidence.Position.Missing ignored ->
+        case JavaSourceEvidence.Position.Missing _ ->
           TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.sourcePositionError(sourceFile,
               node.structuralPath(), "frontend.missing-source-position", "A required source occurrence has no compiler position"));
-        case JavaSourceEvidence.Position.Invalid ignored ->
+        case JavaSourceEvidence.Position.Invalid _ ->
           TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.sourcePositionError(sourceFile,
               node.structuralPath(), "frontend.invalid-source-range", "A required source occurrence has an invalid compiler range"));
-        case JavaSourceEvidence.Position.Available ignored -> {
+        case JavaSourceEvidence.Position.Available _ -> {
         }
       }
     }
@@ -195,8 +195,8 @@ final class JavaMethodBodyTranslator {
       List<SyntaxChildMapping> children, boolean constructor, boolean compilerGenerated, List<NodeProjection> nodeProjections) {
     var translations = new ArrayList<SyntaxTreeTranslation>(children.size());
     for (var child : children) {
-      translations.add(translateTree(unit, sourceFile, methodKey, child.tree(), child.treePath(), child.structuralPath(), child.use(),
-          constructor, compilerGenerated, nodeProjections));
+      translations.add(translateTree(unit, sourceFile, methodKey, child.tree(), child.treePath(), child.structuralPath(), constructor,
+          compilerGenerated, nodeProjections));
     }
     return List.copyOf(translations);
   }

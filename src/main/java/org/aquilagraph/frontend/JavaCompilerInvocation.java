@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
-import org.aquilagraph.model.CompilerConfiguration;
+import org.aquilagraph.identity.api.CompilerConfiguration;
 
 record JavaCompilerInvocation(List<String> compilerOptions, List<String> analysisOptions) {
   JavaCompilerInvocation {

@@ -3,7 +3,7 @@ package org.aquilagraph.cli;
 import java.io.PrintStream;
 import java.util.Objects;
 import org.aquilagraph.application.port.AnalysisUseCase;
-import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.identity.api.JavaRelease;
 
 /** Coordinates one command-line analysis request from parsing through presentation. */
 public final class AnalyzeCommand {

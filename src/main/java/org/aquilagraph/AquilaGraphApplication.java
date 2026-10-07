@@ -2,15 +2,18 @@ package org.aquilagraph;
 
 import java.util.Map;
 import org.aquilagraph.application.AnalysisApplicationService;
+import org.aquilagraph.application.AstRetentionService;
+import org.aquilagraph.application.CompletedRunPublicationService;
 import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.application.port.AnalysisRunRepository;
 import org.aquilagraph.application.port.RepositoryException;
+import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cli.AnalyzeCommand;
-import org.aquilagraph.core.AnalysisEngine;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
-import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.repository.neo4j.Neo4jAnalysisRunRepository;
+import org.aquilagraph.repository.neo4j.Neo4jAstResultRepositoryFactory;
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 
 /** Composition root and process entry point for the Aquila Graph command-line application. */
@@ -26,8 +29,11 @@ public final class AquilaGraphApplication {
    */
   public static void main(String[] arguments) {
     var environment = System.getenv();
-    var analysisRunner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), new AnalysisEngine());
-    var analysisService = new AnalysisApplicationService(analysisRunner, () -> openNeo4jRepository(environment));
+    var analysisRunner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var retention = new AstRetentionService(
+        new Neo4jAstResultRepositoryFactory(() -> Neo4jConnectionSettings.fromEnvironment(environment)));
+    var publication = new CompletedRunPublicationService(() -> openNeo4jRepository(environment));
+    var analysisService = new AnalysisApplicationService(analysisRunner, retention, publication);
     var command = new AnalyzeCommand(analysisService, JavaRelease.JAVA_25);
     var exitCode = command.run(arguments, System.out, System.err);
     if (exitCode != AnalyzeCommand.EXIT_COMPLETED) {

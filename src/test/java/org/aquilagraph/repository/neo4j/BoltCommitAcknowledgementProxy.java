@@ -9,6 +9,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Optional;
@@ -29,6 +30,7 @@ final class BoltCommitAcknowledgementProxy implements AutoCloseable {
   private static final int MAX_VERSION_OFFERS = 64;
   private static final int MAX_VARINT_BYTES = 10;
   private static final int STRUCTURE_MARKER = 0xB0;
+  private static final int RUN_TAG = 0x10;
   private static final int BEGIN_TAG = 0x11;
   private static final int COMMIT_TAG = 0x12;
   private static final int GOODBYE_TAG = 0x02;
@@ -53,6 +55,7 @@ final class BoltCommitAcknowledgementProxy implements AutoCloseable {
   private final AtomicReference<String> negotiatedVersion = new AtomicReference<>("not negotiated");
   private final AtomicBoolean armed = new AtomicBoolean();
   private final AtomicBoolean withholding = new AtomicBoolean();
+  private final AtomicBoolean goodbyeReceived = new AtomicBoolean();
   private final AtomicBoolean stopped = new AtomicBoolean();
   private final AtomicInteger begins = new AtomicInteger();
   private final AtomicInteger commits = new AtomicInteger();
@@ -97,7 +100,7 @@ final class BoltCommitAcknowledgementProxy implements AutoCloseable {
   void requireHealthyRelay() throws IOException {
     var failure = relayFailure.get();
     if (failure != null) {
-      throw failure;
+      throw new IOException("The Bolt relay failed", failure);
     }
   }
 
@@ -123,24 +126,23 @@ final class BoltCommitAcknowledgementProxy implements AutoCloseable {
     try {
       var input = client.getInputStream();
       var output = backend.getOutputStream();
-      Optional<Frame> next;
-      while ((next = readFrame(input)).isPresent()) {
-        var frame = next.orElseThrow();
-        if (frame.payload().length != 0) {
-          var tag = messageTag(frame.payload());
-          var intercept = exactCommit(frame.payload()) && armed.compareAndSet(true, false);
+      while (relayClientFrame(input, output, prefix -> {
+          var tag = messageTag(prefix);
+          var intercept = exactCommit(prefix) && armed.compareAndSet(true, false);
           if (tag == BEGIN_TAG) {
             begins.incrementAndGet();
           }
           if (tag == COMMIT_TAG) {
             commits.incrementAndGet();
           }
+          if (tag == GOODBYE_TAG) {
+            goodbyeReceived.set(true);
+          }
           if (tag != GOODBYE_TAG && !pending.offer(new PendingRequest(tag, intercept), SHUTDOWN_SECONDS, TimeUnit.SECONDS)) {
             throw new IOException("The bounded Bolt request queue did not drain");
           }
-        }
-        output.write(frame.wire());
-        output.flush();
+      })) {
+        requireHealthyRelay();
       }
     } catch (IOException exception) {
       recordUnexpectedFailure(exception);
@@ -211,6 +213,11 @@ final class BoltCommitAcknowledgementProxy implements AutoCloseable {
   }
 
   private void recordUnexpectedFailure(IOException exception) {
+    if (exception instanceof SocketException && goodbyeReceived.get()
+        && ((clientSocket.get() != null && clientSocket.get().isClosed())
+            || (backendSocket.get() != null && backendSocket.get().isClosed()))) {
+      return;
+    }
     if (!stopped.get() && !withholding.get()) {
       relayFailure.compareAndSet(null, exception);
     }
@@ -219,7 +226,7 @@ final class BoltCommitAcknowledgementProxy implements AutoCloseable {
   @Override
   public void close() throws IOException {
     stopped.set(true);
-    try (var shutdown = new RelayShutdown(this)) {
+    try (var _ = new RelayShutdown(this)) {
       listener.close();
     }
   }
@@ -266,6 +273,62 @@ final class BoltCommitAcknowledgementProxy implements AutoCloseable {
       wire.writeBytes(chunk);
       payload.writeBytes(chunk);
     }
+  }
+
+  static boolean relayClientFrame(InputStream input, OutputStream output, ClientMessageObserver observer)
+      throws IOException, InterruptedException {
+    var prefix = new ByteArrayOutputStream(2);
+    long payloadBytes = 0;
+    var started = false;
+    while (true) {
+      var high = input.read();
+      if (high < 0) {
+        if (!started) {
+          return false;
+        }
+        throw new EOFException("EOF within a Bolt message");
+      }
+      started = true;
+      var low = input.read();
+      if (low < 0) {
+        throw new EOFException("EOF within a Bolt chunk header");
+      }
+      var size = (high << 8) | low;
+      if (size == 0) {
+        if (payloadBytes != 0) {
+          var messagePrefix = prefix.toByteArray();
+          var tag = messageTag(messagePrefix);
+          if (tag == COMMIT_TAG && payloadBytes != 2) {
+            throw new IOException("COMMIT must be an exact zero-field Bolt structure");
+          }
+          if (tag == GOODBYE_TAG && (payloadBytes != 2 || Byte.toUnsignedInt(messagePrefix[0]) != STRUCTURE_MARKER)) {
+            throw new IOException("GOODBYE must be an exact zero-field Bolt structure");
+          }
+          exactCommit(messagePrefix);
+          // Register the request before its terminator makes a response possible.
+          observer.accept(messagePrefix);
+        }
+        output.write(high);
+        output.write(low);
+        output.flush();
+        return true;
+      }
+      var chunk = readExactly(input, size);
+      prefix.write(chunk, 0, Math.min(2 - prefix.size(), chunk.length));
+      payloadBytes += size;
+      // RUN parameters are opaque and forwarded one bounded chunk at a time.
+      if (prefix.size() == 2 && messageTag(prefix.toByteArray()) != RUN_TAG && payloadBytes > MAX_MESSAGE_BYTES) {
+        throw new IOException("The Bolt message exceeds this observation's bounded fixture size");
+      }
+      output.write(high);
+      output.write(low);
+      output.write(chunk);
+    }
+  }
+
+  @FunctionalInterface
+  interface ClientMessageObserver {
+    void accept(byte[] prefix) throws IOException, InterruptedException;
   }
 
   static boolean exactCommit(byte[] payload) throws IOException {

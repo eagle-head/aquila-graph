@@ -154,7 +154,12 @@ else {
 
 Push-Location -LiteralPath $PSScriptRoot
 try {
-    & $resolvedMavenCommand @mavenArguments
+    $buildRepositoryArgument = '-Dmaven.repo.local=' + (Join-Path $PSScriptRoot 'target/maven-repository')
+    & $resolvedMavenCommand -B --no-transfer-progress $buildRepositoryArgument -f tools/maven-pmd-plugin/pom.xml install
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+    & $resolvedMavenCommand $buildRepositoryArgument @mavenArguments
     $mavenExitCode = $LASTEXITCODE
 }
 finally {

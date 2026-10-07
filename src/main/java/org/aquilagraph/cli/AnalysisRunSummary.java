@@ -3,14 +3,15 @@ package org.aquilagraph.cli;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisRun;
-import org.aquilagraph.model.ProgramRepresentation;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.cli.AnalysisDiagnosticProjection.DiagnosticSummary;
+import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.ProgramRepresentation;
+import org.aquilagraph.identity.api.SoftwareVersion;
 
 /** Immutable command-line projection of an analysis run. */
 record AnalysisRunSummary(String runId, String softwareVersionSignature, AnalysisCompletion completion, int javaRelease,
-    int sourceFileCount, Optional<ProgramSummary> program, List<AnalysisDiagnostic> diagnostics) {
+    int sourceFileCount, Optional<ProgramSummary> program, List<DiagnosticSummary> diagnostics) {
   AnalysisRunSummary {
     Objects.requireNonNull(runId, "runId");
     Objects.requireNonNull(softwareVersionSignature, "softwareVersionSignature");
@@ -21,9 +22,13 @@ record AnalysisRunSummary(String runId, String softwareVersionSignature, Analysi
 
   static AnalysisRunSummary from(AnalysisRun run) {
     Objects.requireNonNull(run, "run");
-    return new AnalysisRunSummary(run.runId(), run.softwareVersion().signature(), run.completion(),
-        run.compilerConfiguration().release().feature(), run.inputSnapshot().sourceFileCount(),
-        run.representation().map(ProgramSummary::from), run.diagnostics());
+    var ast = run.representation().ast();
+    var software = ast.capturedInput()
+        .flatMap(snapshot -> ast.capturedEnvironment().map(environment -> SoftwareVersion.from(snapshot, environment)));
+    return new AnalysisRunSummary(run.identity().key(), software.map(SoftwareVersion::signature).orElse("unavailable"), run.completion(),
+        ast.requestedConfiguration().orElseThrow().release().feature(),
+        ast.capturedInput().map(snapshot -> snapshot.sourceFileCount()).orElse(0),
+        ast.result().map(ignored -> ProgramSummary.from(run.representation())), AnalysisDiagnosticProjection.from(run));
   }
 
   record ProgramSummary(int typeCount, int methodCount, int analyzedMethodBodyCount, int controlFlowOperationCount,
@@ -32,14 +37,14 @@ record AnalysisRunSummary(String runId, String softwareVersionSignature, Analysi
       var operationCount = 0;
       var nodeCount = 0;
       var edgeCount = 0;
-      for (var methodAnalysis : representation.methodAnalyses()) {
-        var graph = methodAnalysis.controlFlowGraph();
+      var graphs = representation.cfg().stream().flatMap(cfg -> cfg.methods().stream()).flatMap(method -> method.graph().stream()).toList();
+      for (var graph : graphs) {
         operationCount += graph.operationNodes().size();
         nodeCount += graph.nodeCount();
         edgeCount += graph.edges().size();
       }
-      return new ProgramSummary(representation.program().types().size(), representation.program().methodCount(),
-          representation.methodAnalyses().size(), operationCount, nodeCount, edgeCount);
+      var program = representation.ast().result().orElseThrow().program();
+      return new ProgramSummary(program.types().size(), program.methodCount(), graphs.size(), operationCount, nodeCount, edgeCount);
     }
   }
 }

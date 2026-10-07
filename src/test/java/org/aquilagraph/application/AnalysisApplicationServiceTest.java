@@ -18,13 +18,16 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.aquilagraph.application.port.AnalysisRunRepository;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
 import org.aquilagraph.application.port.RepositoryException;
-import org.aquilagraph.core.AnalysisEngine;
+import org.aquilagraph.cfg.CfgDerivers;
+import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
-import org.aquilagraph.model.AnalysisRun;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -35,26 +38,25 @@ class AnalysisApplicationServiceTest {
   void givenEveryCompletionAndSaveIntent_whenRequestExecutes_thenAllSixEligibilityRowsArePreserved() {
     // Arrange
     var rows = List.of(
-        new EligibilityRow(AnalysisCompletion.REJECTED, RepositorySavePolicy.DO_NOT_SAVE, RepositoryStatus.NOT_ELIGIBLE, 0),
-        new EligibilityRow(AnalysisCompletion.REJECTED, RepositorySavePolicy.SAVE_COMPLETED, RepositoryStatus.NOT_ELIGIBLE, 0),
-        new EligibilityRow(AnalysisCompletion.INCOMPLETE, RepositorySavePolicy.DO_NOT_SAVE, RepositoryStatus.NOT_ELIGIBLE, 0),
-        new EligibilityRow(AnalysisCompletion.INCOMPLETE, RepositorySavePolicy.SAVE_COMPLETED, RepositoryStatus.NOT_ELIGIBLE, 0),
-        new EligibilityRow(AnalysisCompletion.COMPLETED, RepositorySavePolicy.DO_NOT_SAVE, RepositoryStatus.NOT_REQUESTED, 0),
-        new EligibilityRow(AnalysisCompletion.COMPLETED, RepositorySavePolicy.SAVE_COMPLETED, RepositoryStatus.SAVED, 1));
+        new EligibilityRow(AnalysisCompletion.REJECTED, PublicationIntent.DO_NOT_SAVE, PublicationStatus.NOT_REQUESTED, 0),
+        new EligibilityRow(AnalysisCompletion.REJECTED, PublicationIntent.SAVE_COMPLETED, PublicationStatus.NOT_ELIGIBLE, 0),
+        new EligibilityRow(AnalysisCompletion.PARTIAL, PublicationIntent.DO_NOT_SAVE, PublicationStatus.NOT_REQUESTED, 0),
+        new EligibilityRow(AnalysisCompletion.PARTIAL, PublicationIntent.SAVE_COMPLETED, PublicationStatus.NOT_ELIGIBLE, 0),
+        new EligibilityRow(AnalysisCompletion.COMPLETE, PublicationIntent.DO_NOT_SAVE, PublicationStatus.NOT_REQUESTED, 0),
+        new EligibilityRow(AnalysisCompletion.COMPLETE, PublicationIntent.SAVE_COMPLETED, PublicationStatus.SAVED, 1));
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var completed = TestAnalysisRuns.completed(temporaryDirectory, configuration);
     for (var row : rows) {
-      var run = new AnalysisRun(completed.runId(), completed.inputSnapshot(), completed.environmentSnapshot(),
-          row.completion() == AnalysisCompletion.REJECTED ? Optional.empty() : completed.representation(), List.of(), row.completion());
+      var run = row.completion() == AnalysisCompletion.COMPLETE ? completed : row.completion() == AnalysisCompletion.REJECTED ? TestAnalysisRuns.rejected() : partialRun(temporaryDirectory);
       var opens = new AtomicInteger();
       var saves = new AtomicInteger();
       var closes = new AtomicInteger();
-      var service = new AnalysisApplicationService((sourceRoot, requestedConfiguration) -> run, () -> {
+      var service = service(run, () -> {
         opens.incrementAndGet();
         return new AnalysisRunRepository() {
           @Override
           public void save(AnalysisRun supplied) {
-            assertSame(run, supplied);
+            assertEquals(run, supplied);
             saves.incrementAndGet();
           }
 
@@ -66,12 +68,12 @@ class AnalysisApplicationServiceTest {
       });
 
       // Act
-      var execution = service.execute(new AnalysisRequest(temporaryDirectory, configuration, row.policy()));
+      var execution = service.execute(request(temporaryDirectory, configuration, row.policy()));
 
       // Assert
-      assertSame(run, execution.run());
-      assertEquals(row.policy(), execution.repositorySavePolicy());
-      assertEquals(row.status(), execution.repositoryStatus());
+      assertEquals(run, execution.run());
+      assertEquals(row.policy(), execution.publication().intent());
+      assertEquals(row.status(), execution.publication().status());
       assertEquals(row.attempts(), opens.get());
       assertEquals(row.attempts(), saves.get());
       assertEquals(row.attempts(), closes.get());
@@ -84,14 +86,14 @@ class AnalysisApplicationServiceTest {
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var run = TestAnalysisRuns.completed(temporaryDirectory, configuration);
     var primary = new RepositoryException("Opening failed", new IllegalStateException("No repository returned"));
-    var service = new AnalysisApplicationService((sourceRoot, requestedConfiguration) -> run, () -> { throw primary; });
+    var service = service(run, () -> { throw primary; });
 
     // Act
     var failure = assertThrows(AnalysisRepositoryException.class,
-        () -> service.execute(new AnalysisRequest(temporaryDirectory, configuration, RepositorySavePolicy.SAVE_COMPLETED)));
+        () -> service.execute(request(temporaryDirectory, configuration, PublicationIntent.SAVE_COMPLETED)));
 
     // Assert
-    assertSame(run, failure.analysisRun());
+    assertEquals(run, failure.analysisRun());
     assertSame(primary, failure.repositoryFailure());
     assertEquals(0, primary.getSuppressed().length);
   }
@@ -103,7 +105,7 @@ class AnalysisApplicationServiceTest {
     var run = TestAnalysisRuns.completed(temporaryDirectory, configuration);
     var saved = new AtomicReference<AnalysisRun>();
     var primary = new RepositoryException("Close failed", new IllegalStateException("Driver close failed"));
-    var service = new AnalysisApplicationService((sourceRoot, requestedConfiguration) -> run, () -> new AnalysisRunRepository() {
+    var service = service(run, () -> new AnalysisRunRepository() {
       @Override
       public void save(AnalysisRun supplied) {
         saved.set(supplied);
@@ -117,13 +119,13 @@ class AnalysisApplicationServiceTest {
 
     // Act
     var failure = assertThrows(AnalysisRepositoryException.class,
-        () -> service.execute(new AnalysisRequest(temporaryDirectory, configuration, RepositorySavePolicy.SAVE_COMPLETED)));
+        () -> service.execute(request(temporaryDirectory, configuration, PublicationIntent.SAVE_COMPLETED)));
 
     // Assert
-    assertSame(run, saved.get());
-    assertSame(run, failure.analysisRun());
+    assertEquals(run, saved.get());
+    assertEquals(run, failure.analysisRun());
     assertSame(primary, failure.repositoryFailure());
-    assertEquals(AnalysisCompletion.COMPLETED, failure.analysisRun().completion());
+    assertEquals(AnalysisCompletion.COMPLETE, failure.analysisRun().completion());
   }
 
   @Test
@@ -137,7 +139,7 @@ class AnalysisApplicationServiceTest {
 
     // Act
     var failure = assertThrows(IllegalStateException.class,
-        () -> service.execute(new AnalysisRequest(temporaryDirectory, configuration, RepositorySavePolicy.SAVE_COMPLETED)));
+        () -> service.execute(request(temporaryDirectory, configuration, PublicationIntent.SAVE_COMPLETED)));
 
     // Assert
     assertSame(primary, failure);
@@ -155,16 +157,16 @@ class AnalysisApplicationServiceTest {
 
     // Act
     var failure = assertThrows(AnalysisRepositoryException.class,
-        () -> service.execute(new AnalysisRequest(temporaryDirectory, configuration, RepositorySavePolicy.SAVE_COMPLETED)));
+        () -> service.execute(request(temporaryDirectory, configuration, PublicationIntent.SAVE_COMPLETED)));
 
     // Assert
     assertSame(primary, failure.repositoryFailure());
-    assertSame(run, failure.analysisRun());
+    assertEquals(run, failure.analysisRun());
     assertEquals(List.of(cleanup), List.of(primary.getSuppressed()));
   }
 
   private static AnalysisApplicationService failingService(AnalysisRun run, RuntimeException primary, RuntimeException cleanup) {
-    return new AnalysisApplicationService((sourceRoot, requestedConfiguration) -> run, () -> new AnalysisRunRepository() {
+    return service(run, () -> new AnalysisRunRepository() {
       @Override
       public void save(AnalysisRun supplied) {
         throw primary;
@@ -177,11 +179,11 @@ class AnalysisApplicationServiceTest {
     });
   }
 
-  private record EligibilityRow(AnalysisCompletion completion, RepositorySavePolicy policy, RepositoryStatus status, int attempts) {
+  private record EligibilityRow(AnalysisCompletion completion, PublicationIntent policy, PublicationStatus status, int attempts) {
   }
 
   @Test
-  void givenDiagnosedSourceAndNoRepositoryRequest_whenAnalysisExecutes_thenRunIsNotEligible()
+  void givenDiagnosedSourceAndNoRepositoryRequest_whenAnalysisExecutes_thenPublicationIsNotRequested()
       throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example { void run() { while (true) { } } }");
@@ -195,12 +197,11 @@ class AnalysisApplicationServiceTest {
 
     // Act
     var execution =
-        service.execute(new AnalysisRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-            RepositorySavePolicy.DO_NOT_SAVE));
+        service.execute(request(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), PublicationIntent.DO_NOT_SAVE));
 
     // Assert
-    assertFalse(execution.run().isComplete());
-    assertEquals(RepositoryStatus.NOT_ELIGIBLE, execution.repositoryStatus());
+    assertFalse(execution.run().completion() == AnalysisCompletion.COMPLETE);
+    assertEquals(PublicationStatus.NOT_REQUESTED, execution.publication().status());
     assertFalse(repositoryOpened.get());
   }
 
@@ -218,12 +219,11 @@ class AnalysisApplicationServiceTest {
 
     // Act
     var execution =
-        service.execute(new AnalysisRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-            RepositorySavePolicy.SAVE_COMPLETED));
+        service.execute(request(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), PublicationIntent.SAVE_COMPLETED));
 
     // Assert
-    assertFalse(execution.run().isComplete());
-    assertEquals(RepositoryStatus.NOT_ELIGIBLE, execution.repositoryStatus());
+    assertFalse(execution.run().completion() == AnalysisCompletion.COMPLETE);
+    assertEquals(PublicationStatus.NOT_ELIGIBLE, execution.publication().status());
     assertFalse(repositoryOpened.get());
   }
 
@@ -255,12 +255,11 @@ class AnalysisApplicationServiceTest {
 
     // Act
     var execution =
-        service.execute(new AnalysisRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-            RepositorySavePolicy.SAVE_COMPLETED));
+        service.execute(request(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), PublicationIntent.SAVE_COMPLETED));
 
     // Assert
-    assertFalse(execution.run().isComplete());
-    assertEquals(RepositoryStatus.NOT_ELIGIBLE, execution.repositoryStatus());
+    assertFalse(execution.run().completion() == AnalysisCompletion.COMPLETE);
+    assertEquals(PublicationStatus.NOT_ELIGIBLE, execution.publication().status());
     assertNull(persistedRun.get());
     assertFalse(repositoryOpened.get());
     assertFalse(repositoryClosed.get());
@@ -272,17 +271,17 @@ class AnalysisApplicationServiceTest {
     var requestConfiguration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var completedRun = TestAnalysisRuns.completed(temporaryDirectory, requestConfiguration);
     var repositoryOpened = new AtomicBoolean();
-    var service = new AnalysisApplicationService((sourceRoot, configuration) -> completedRun, () -> {
+    var service = service(completedRun, () -> {
       repositoryOpened.set(true);
       throw new AssertionError("Repository must not be opened");
     });
 
     // Act
-    var execution = service.execute(new AnalysisRequest(temporaryDirectory, requestConfiguration, RepositorySavePolicy.DO_NOT_SAVE));
+    var execution = service.execute(request(temporaryDirectory, requestConfiguration, PublicationIntent.DO_NOT_SAVE));
 
     // Assert
-    assertSame(completedRun, execution.run());
-    assertEquals(RepositoryStatus.NOT_REQUESTED, execution.repositoryStatus());
+    assertEquals(completedRun, execution.run());
+    assertEquals(PublicationStatus.NOT_REQUESTED, execution.publication().status());
     assertFalse(repositoryOpened.get());
   }
 
@@ -293,16 +292,16 @@ class AnalysisApplicationServiceTest {
     var completedRun = TestAnalysisRuns.completed(temporaryDirectory, requestConfiguration);
     var persistedRun = new AtomicReference<AnalysisRun>();
     var repositoryClosed = new AtomicBoolean();
-    var service = new AnalysisApplicationService((sourceRoot, configuration) -> completedRun,
+    var service = service(completedRun,
         () -> repository(persistedRun, repositoryClosed));
 
     // Act
-    var execution = service.execute(new AnalysisRequest(temporaryDirectory, requestConfiguration, RepositorySavePolicy.SAVE_COMPLETED));
+    var execution = service.execute(request(temporaryDirectory, requestConfiguration, PublicationIntent.SAVE_COMPLETED));
 
     // Assert
-    assertSame(completedRun, execution.run());
-    assertSame(completedRun, persistedRun.get());
-    assertEquals(RepositoryStatus.SAVED, execution.repositoryStatus());
+    assertEquals(completedRun, execution.run());
+    assertSame(execution.run(), persistedRun.get());
+    assertEquals(PublicationStatus.SAVED, execution.publication().status());
     assertTrue(repositoryClosed.get());
   }
 
@@ -313,7 +312,7 @@ class AnalysisApplicationServiceTest {
     var completedRun = TestAnalysisRuns.completed(temporaryDirectory, requestConfiguration);
     var repositoryFailure = new RepositoryException("database unavailable", new IllegalStateException("connection refused"));
     var repositoryClosed = new AtomicBoolean();
-    var service = new AnalysisApplicationService((sourceRoot, configuration) -> completedRun, () -> new AnalysisRunRepository() {
+    var service = service(completedRun, () -> new AnalysisRunRepository() {
       @Override
       public void save(AnalysisRun run) {
         throw repositoryFailure;
@@ -327,10 +326,10 @@ class AnalysisApplicationServiceTest {
 
     // Act
     var exception = assertThrows(AnalysisRepositoryException.class,
-        () -> service.execute(new AnalysisRequest(temporaryDirectory, requestConfiguration, RepositorySavePolicy.SAVE_COMPLETED)));
+        () -> service.execute(request(temporaryDirectory, requestConfiguration, PublicationIntent.SAVE_COMPLETED)));
 
     // Assert
-    assertSame(completedRun, exception.analysisRun());
+    assertEquals(completedRun, exception.analysisRun());
     assertSame(repositoryFailure, exception.repositoryFailure());
     assertTrue(repositoryClosed.get());
   }
@@ -350,7 +349,31 @@ class AnalysisApplicationServiceTest {
   }
 
   private static AnalysisApplicationService service(AnalysisRunRepositoryFactory repositoryFactory) {
-    var analysisRunner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), new AnalysisEngine());
-    return new AnalysisApplicationService(analysisRunner, repositoryFactory);
+    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    return application(runner, repositoryFactory);
   }
+  private static AnalysisApplicationService service(AnalysisRun run, AnalysisRunRepositoryFactory factory) {
+    return application(new SourceAnalysisRunner(ignored -> run.representation().ast(),
+        (ast, request) -> run.representation().cfg().orElseThrow()), factory);
+  }
+
+  private static AnalysisApplicationService application(SourceAnalysisRunner runner, AnalysisRunRepositoryFactory factory) {
+    return new AnalysisApplicationService(runner, new AstRetentionService(context -> {
+      throw new AssertionError("Independent AST storage must not open");
+    }), new CompletedRunPublicationService(factory));
+  }
+
+  private static AnalysisRequest request(Path root, CompilerConfiguration configuration, PublicationIntent intent) {
+    return new AnalysisRequest(new SourceInput.Root(root), configuration, AstProfile.JAVA_SOURCE_BOUNDED,
+        Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), intent);
+  }
+
+  private static AnalysisRun partialRun(Path root) {
+    var input = InputSnapshot.fromSources(root, List.of(SourceFile.fromContent(Path.of("Partial.java"),
+        "class Partial { void run() { while (true) {} } }")));
+    return new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()).analyze(
+        new AnalysisRequest(new SourceInput.Snapshot(input), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+            AstProfile.JAVA_SOURCE_BOUNDED, Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE));
+  }
+
 }

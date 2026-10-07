@@ -7,10 +7,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import javax.tools.Diagnostic;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.syntax.SyntaxStructuralPath;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
 
 final class JavaSourceEvidence {
   private final SourcePositions positions;
@@ -26,8 +26,8 @@ final class JavaSourceEvidence {
   Optional<SourceSpan> origin(CompilationUnitTree unit, SourceFile sourceFile, Tree tree) {
     return switch (position(unit, sourceFile, tree)) {
       case Position.Available available -> Optional.of(available.span());
-      case Position.Missing ignored -> Optional.empty();
-      case Position.Invalid ignored -> Optional.empty();
+      case Position.Missing _ -> Optional.empty();
+      case Position.Invalid _ -> Optional.empty();
     };
   }
 
@@ -50,12 +50,12 @@ final class JavaSourceEvidence {
       List<AnalysisDiagnostic> diagnostics) {
     return switch (position(unit, sourceFile, tree)) {
       case Position.Available available -> Optional.of(available.span());
-      case Position.Missing ignored -> {
+      case Position.Missing _ -> {
         TranslationDiagnosticEvidence.emit(diagnostics, "JavaSourceEvidence", FrontendDiagnosticFactory.sourcePositionError(sourceFile,
             path, "frontend.missing-source-position", "A required source occurrence has no compiler position"));
         yield Optional.empty();
       }
-      case Position.Invalid ignored -> {
+      case Position.Invalid _ -> {
         TranslationDiagnosticEvidence.emit(diagnostics, "JavaSourceEvidence", FrontendDiagnosticFactory.sourcePositionError(sourceFile,
             path, "frontend.invalid-source-range", "A required source occurrence has an invalid compiler range"));
         yield Optional.empty();

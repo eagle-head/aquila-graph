@@ -13,16 +13,16 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import javax.lang.model.type.TypeKind;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.LanguageFeature;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeatureCoverage;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
-import org.aquilagraph.model.LanguageFeaturePolicy;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.LanguageFeature;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
+import org.aquilagraph.source.api.LanguageFeaturePolicy;
 
 /** Observes attributed kinds of written declaration-header type uses. */
 final class JavaTypeKindObserver {
@@ -143,9 +143,9 @@ final class JavaTypeKindObserver {
       var kind = switch (attribution) {
         case JavaTypeAttribution.Resolved resolved -> resolved.kind();
         case JavaTypeAttribution.NoType noType -> noType.kind();
-        case JavaTypeAttribution.Erroneous ignored -> TypeKind.ERROR;
-        case JavaTypeAttribution.Unsupported ignored -> TypeKind.OTHER;
-        case JavaTypeAttribution.Unresolved ignored -> throw new IllegalStateException("Unavailable attribution was handled above");
+        case JavaTypeAttribution.Erroneous _ -> TypeKind.ERROR;
+        case JavaTypeAttribution.Unsupported _ -> TypeKind.OTHER;
+        case JavaTypeAttribution.Unresolved _ -> throw new IllegalStateException("Unavailable attribution was handled above");
       };
       observeKind(kind, source, origin, nearestOrigin, diagnosticContext);
     }

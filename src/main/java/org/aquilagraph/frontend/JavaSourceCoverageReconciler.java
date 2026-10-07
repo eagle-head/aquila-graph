@@ -7,35 +7,36 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Objects;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AttributedCoverageExpectations;
-import org.aquilagraph.model.CoverageFactReference;
-import org.aquilagraph.model.CoverageFactValue;
-import org.aquilagraph.model.CoveragePropertyValue;
-import org.aquilagraph.model.CoveragePropertyValue.Item;
-import org.aquilagraph.model.CoveragePropertyValue.Provenance;
-import org.aquilagraph.model.CoveragePropertyValue.State;
-import org.aquilagraph.model.DiagnosticEmission;
-import org.aquilagraph.model.FeatureContextOutcome;
-import org.aquilagraph.model.FeatureContextOutcome.Mode;
-import org.aquilagraph.model.FeatureContextOutcome.Support;
-import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.model.LanguageFeatureCoverage;
-import org.aquilagraph.model.LanguageFeatureCoverageResult;
-import org.aquilagraph.model.LanguageFeatureObservation;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
-import org.aquilagraph.model.LanguageFeaturePolicy;
-import org.aquilagraph.model.SourceContext;
-import org.aquilagraph.model.SourceContext.Partition;
-import org.aquilagraph.model.SourceCoverageInventory;
-import org.aquilagraph.model.SourceOwnerPath;
-import org.aquilagraph.model.UnmatchedSourceFact;
-import org.aquilagraph.syntax.CoverageActualFacts;
-import org.aquilagraph.syntax.CoverageActualFactView;
-import org.aquilagraph.syntax.CoverageWrittenTypeUseTopology;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.aquilagraph.syntax.SyntaxKind;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AttributedCoverageExpectations;
+import org.aquilagraph.source.api.CoverageFactReference;
+import org.aquilagraph.source.api.CoverageFactValue;
+import org.aquilagraph.source.api.CoveragePropertyValue;
+import org.aquilagraph.source.api.CoveragePropertyValue.Item;
+import org.aquilagraph.source.api.CoveragePropertyValue.Provenance;
+import org.aquilagraph.source.api.CoveragePropertyValue.State;
+import org.aquilagraph.source.api.DiagnosticEmission;
+import org.aquilagraph.source.api.FeatureContextOutcome;
+import org.aquilagraph.source.api.FeatureContextOutcome.Mode;
+import org.aquilagraph.source.api.FeatureContextOutcome.Support;
+import org.aquilagraph.source.api.JavaProgram;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
+import org.aquilagraph.source.api.LanguageFeaturePolicy;
+import org.aquilagraph.source.api.SourceContext;
+import org.aquilagraph.source.api.SourceContext.Partition;
+import org.aquilagraph.source.api.SourceCoverageInventory;
+import org.aquilagraph.source.api.SourceOwnerPath;
+import org.aquilagraph.source.api.UnmatchedSourceFact;
+import org.aquilagraph.source.api.CoverageActualFacts;
+import org.aquilagraph.source.api.CoverageActualFactView;
+import org.aquilagraph.source.api.CoverageWrittenTypeUseTopology;
+import org.aquilagraph.source.api.CoverageWrittenQualifierTopology;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.SyntaxKind;
 
 /** Compares independent expectation stages, independently emitted pairs, and actual retained facts in both directions. */
 final class JavaSourceCoverageReconciler {
@@ -298,6 +299,9 @@ final class JavaSourceCoverageReconciler {
           .toList();
       if (!matching.isEmpty()) {
         return matching;
+      }
+      if (CoverageWrittenQualifierTopology.requiresExactOccurrence(context, inventory)) {
+        return List.of();
       }
       if (List.of("CONSTANT_CASE_LABEL", "DEFAULT_CASE_LABEL").contains(kind)) {
         return inventory.contexts().stream()

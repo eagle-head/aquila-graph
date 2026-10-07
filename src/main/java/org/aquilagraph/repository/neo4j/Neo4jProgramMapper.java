@@ -1,11 +1,12 @@
 package org.aquilagraph.repository.neo4j;
 
 import java.util.Objects;
-import org.aquilagraph.model.JavaMethod;
-import org.aquilagraph.model.JavaType;
-import org.aquilagraph.model.JavaTypeReference;
-import org.aquilagraph.model.ProgramRepresentation;
-import org.aquilagraph.model.StableId;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.JavaMethod;
+import org.aquilagraph.source.api.JavaType;
+import org.aquilagraph.source.api.JavaTypeReference;
+import org.aquilagraph.application.ProgramRepresentation;
+import org.aquilagraph.source.api.JavaProgram;
 
 /** Maps the analyzed Java program and its method analyses into a Neo4j projection. */
 final class Neo4jProgramMapper {
@@ -21,16 +22,17 @@ final class Neo4jProgramMapper {
   }
 
   void map(String runId, ProgramRepresentation representation, Neo4jProjectionBuilder projection) {
+    var ast = representation.ast().result().orElseThrow();
     var programKey = StableId.sha256("program", runId);
-    projection.node("Program", programKey, "typeCount", representation.program().types().size());
+    projection.node("Program", programKey, "typeCount", ast.program().types().size(), "astResultKey", ast.identity().astResultKey());
     projection.relate("HAS_PROGRAM", runId, programKey, "program");
-    mapTypes(programKey, representation, projection);
-    controlFlowMapper.map(programKey, representation.methodAnalyses(), projection);
+    mapTypes(programKey, ast.program(), projection);
+    controlFlowMapper.map(programKey, representation.cfg().orElseThrow().methods(), projection);
   }
 
-  private void mapTypes(String programKey, ProgramRepresentation representation, Neo4jProjectionBuilder projection) {
-    for (var typePosition = 0; typePosition < representation.program().types().size(); typePosition++) {
-      var type = representation.program().types().get(typePosition);
+  private void mapTypes(String programKey, JavaProgram program, Neo4jProjectionBuilder projection) {
+    for (var typePosition = 0; typePosition < program.types().size(); typePosition++) {
+      var type = program.types().get(typePosition);
       projection.node("JavaType", type.typeKey(), "qualifiedName", type.qualifiedName(), Neo4jSchema.KIND_PROPERTY, type.kind().name(),
           "modifiers", type.modifiers().stream().map(Enum::name).sorted().toList(), SOURCE_DECLARED_PROPERTY, type.sourceDeclared());
       projection.relate("DECLARES_TYPE", programKey, type.typeKey(), Integer.toString(typePosition), Neo4jSchema.POSITION_PROPERTY,

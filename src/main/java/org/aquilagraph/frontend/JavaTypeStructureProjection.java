@@ -21,8 +21,8 @@ import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.TypeVariable;
 import javax.lang.model.type.UnionType;
 import javax.lang.model.type.WildcardType;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.syntax.JavaTypeStructure;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.JavaTypeStructure;
 
 /** Copies one complete attributed type with type-local binders for implicit variables. */
 final class JavaTypeStructureProjection {

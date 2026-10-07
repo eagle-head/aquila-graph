@@ -25,8 +25,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import javax.annotation.processing.Processor;
-import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
+import javax.lang.model.SourceVersion;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
@@ -34,19 +34,19 @@ import javax.tools.JavaCompiler;
 import javax.tools.JavaFileObject;
 import javax.tools.StandardJavaFileManager;
 import javax.tools.ToolProvider;
-import org.aquilagraph.application.port.AnalysisEnvironmentException;
-import org.aquilagraph.application.port.AnalysisInputException;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.AnalysisEnvironmentException;
+import org.aquilagraph.source.api.AnalysisInputException;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
 import org.jspecify.annotations.Nullable;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
+import org.junit.jupiter.api.Test;
 
 @Isolated
 class JavaFrontendLifetimeTest {

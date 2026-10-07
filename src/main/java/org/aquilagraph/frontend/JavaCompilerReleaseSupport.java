@@ -3,7 +3,7 @@ package org.aquilagraph.frontend;
 import java.util.Objects;
 import java.util.Set;
 import javax.lang.model.SourceVersion;
-import org.aquilagraph.model.JavaRelease;
+import org.aquilagraph.identity.api.JavaRelease;
 
 /** Validates that the active compiler can analyze a selected Java release. */
 final class JavaCompilerReleaseSupport {

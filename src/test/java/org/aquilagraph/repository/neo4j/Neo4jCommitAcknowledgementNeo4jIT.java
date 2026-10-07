@@ -7,6 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -17,6 +20,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -27,44 +31,36 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import org.aquilagraph.application.AnalysisApplicationService;
+import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.AnalysisRepositoryException;
-import org.aquilagraph.application.AnalysisRequest;
-import org.aquilagraph.application.RepositorySavePolicy;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.AnalysisEnvironmentSnapshot;
-import org.aquilagraph.model.AnalysisOutcomeKind;
-import org.aquilagraph.model.AnalysisRun;
-import org.aquilagraph.model.CfgEdge;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.ControlFlowGraph;
-import org.aquilagraph.model.DiagnosticSeverity;
-import org.aquilagraph.model.DiagnosticStage;
-import org.aquilagraph.model.EntryNode;
-import org.aquilagraph.model.ExitNode;
-import org.aquilagraph.model.FlowValue;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaMethod;
-import org.aquilagraph.model.JavaParameter;
-import org.aquilagraph.model.JavaProgram;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.JavaType;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.JavaTypeIdentity;
-import org.aquilagraph.model.JavaTypeKind;
-import org.aquilagraph.model.MethodAnalysis;
-import org.aquilagraph.model.OperationKind;
-import org.aquilagraph.model.OperationNode;
-import org.aquilagraph.model.OperationOperand;
-import org.aquilagraph.model.ProgramRepresentation;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.SoftwareVersion;
-import org.aquilagraph.model.StableId;
-import org.aquilagraph.model.TransferKind;
-import org.aquilagraph.model.ValueKind;
+import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.AstLookupStatus;
+import org.aquilagraph.application.AstRetentionService;
+import org.aquilagraph.application.CommitKnowledge;
+import org.aquilagraph.application.CompletedRunPublicationService;
+import org.aquilagraph.application.PublicationStatus;
+import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
+import org.aquilagraph.application.RepositoryOperationContext;
+import org.aquilagraph.application.RepositoryOperationKind;
+import org.aquilagraph.application.RepositoryPhase;
+import org.aquilagraph.frontend.JavaFrontend;
+import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.identity.api.AstIdentity;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.AstOutcome;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
@@ -72,7 +68,9 @@ import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Record;
+import org.neo4j.driver.Session;
 import org.neo4j.driver.SessionConfig;
+import org.neo4j.driver.TransactionCallback;
 import org.neo4j.driver.Values;
 import org.neo4j.driver.async.AsyncSession;
 import org.neo4j.driver.exceptions.Neo4jException;
@@ -97,7 +95,7 @@ class Neo4jCommitAcknowledgementNeo4jIT {
     var replacement = withWarning(primary, "replacement");
     var mapper = new Neo4jAnalysisRunMapper();
     var expectedReplacement = expectedState(mapper.map(replacement));
-    var runIds = List.of(primary.runId(), independent.runId());
+    var runIds = List.of(primary.identity().key(), independent.identity().key());
 
     try (var verification = new DriverWork(directUri, settings)) {
       await(verification.driver.verifyConnectivityAsync());
@@ -111,21 +109,20 @@ class Neo4jCommitAcknowledgementNeo4jIT {
             return null;
           });
         }
-        var prior = storedState(verification.driver, sessionConfig, primary.runId());
-        var independentBefore = storedState(verification.driver, sessionConfig, independent.runId());
+        var prior = storedState(verification.driver, sessionConfig, primary.identity().key());
+        var independentBefore = storedState(verification.driver, sessionConfig, independent.identity().key());
         assertEquals(expectedState(mapper.map(primary)), prior);
         assertEquals(expectedState(mapper.map(independent)), independentBefore);
         assertNotEquals(prior, expectedReplacement);
 
         try (var proxy = new BoltCommitAcknowledgementProxy(target);
             var publication = new DriverWork(proxy.uri(), settings, proxy::disconnect)) {
-          var service = new AnalysisApplicationService((root, configuration) -> replacement,
+          var publicationService = new CompletedRunPublicationService(
               () -> new Neo4jAnalysisRunRepository(publication.driver, sessionConfig, mapper::map));
-          var request = new AnalysisRequest(sourceRoot, replacement.compilerConfiguration(), RepositorySavePolicy.SAVE_COMPLETED);
           proxy.arm();
 
           // Act
-          var executionFailure = assertThrows(ExecutionException.class, () -> publication.call(() -> service.execute(request)));
+          var executionFailure = assertThrows(ExecutionException.class, () -> publication.call(() -> publicationService.publish(replacement)));
 
           // Assert
           var failure = assertInstanceOf(AnalysisRepositoryException.class, executionFailure.getCause());
@@ -139,10 +136,10 @@ class Neo4jCommitAcknowledgementNeo4jIT {
           assertEquals(1, observation.commitMessages());
           assertEquals(1, observation.withheldCommitSuccesses());
           assertEquals(0, observation.forwardedCommitResponses());
-          var observedReplacement = storedState(verification.driver, sessionConfig, primary.runId());
+          var observedReplacement = storedState(verification.driver, sessionConfig, primary.identity().key());
           assertEquals(expectedReplacement, observedReplacement);
           assertNotEquals(prior, observedReplacement);
-          assertEquals(independentBefore, storedState(verification.driver, sessionConfig, independent.runId()));
+          assertEquals(independentBefore, storedState(verification.driver, sessionConfig, independent.identity().key()));
         }
       } finally {
         cleanup(verification.driver, sessionConfig, runIds);
@@ -150,48 +147,244 @@ class Neo4jCommitAcknowledgementNeo4jIT {
     }
   }
 
+  @Test
+  void givenAstCommitResponseWithheld_whenRetentionFails_thenExactReplacementIsDurableWhileCommitKnowledgeRemainsUnknown()
+      throws Exception {
+    // Arrange
+    var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    var target = loopbackTarget(settings.uri());
+    var directUri = directUri(target);
+    var sessionConfig = SessionConfig.forDatabase(settings.database());
+    var typeName = "Retained" + UUID.randomUUID().toString().replace("-", "");
+    var previous = astFixture(typeName, sourceRoot.resolve("previous"));
+    var replacement = astFixture(typeName, sourceRoot.resolve("replacement"));
+    var independent = astFixture("Independent" + UUID.randomUUID().toString().replace("-", ""), sourceRoot.resolve("independent"));
+    var identity = replacement.result().orElseThrow().identity();
+    var independentIdentity = independent.result().orElseThrow().identity();
+    var context = new RepositoryOperationContext(RepositoryOperationKind.SAVE_AST, identity);
+    var codec = new Neo4jAstResultCodec();
+    var replacementProjection = codec.map(replacement);
+    System.out.println("AST_TRANSPORT_PROJECTION_SIZES=" + replacementProjection.nodes().stream()
+        .collect(Collectors.groupingBy(Neo4jNode::label, Collectors.summingInt(node -> node.properties().toString().length()))));
+    var expectedReplacement = expectedAstState(replacementProjection);
+    assertEquals(AstCompletion.COMPLETE, replacement.completion());
+    assertEquals(previous.result().orElseThrow().identity(), identity);
+
+    try (var verification = new DriverWork(directUri, settings)) {
+      await(verification.driver.verifyConnectivityAsync());
+      try {
+        for (var outcome : List.of(previous, independent)) {
+          try (var seeding = new DriverWork(directUri, settings)) {
+            seeding.call(() -> {
+              var saveContext = new RepositoryOperationContext(RepositoryOperationKind.SAVE_AST, outcome.result().orElseThrow().identity());
+              try (var repository = new Neo4jAstResultRepository(seeding.driver, sessionConfig, saveContext)) {
+                repository.saveComplete(outcome);
+              }
+              return null;
+            });
+          }
+        }
+        var prior = storedAstState(verification.driver, sessionConfig, identity);
+        var independentBefore = storedAstState(verification.driver, sessionConfig, independentIdentity);
+        assertEquals(expectedAstState(codec.map(previous)), prior);
+        assertNotEquals(prior, expectedReplacement);
+
+        try (var proxy = new BoltCommitAcknowledgementProxy(target);
+            var publication = new DriverWork(proxy.uri(), settings, proxy::disconnect)) {
+          var retention = new AstRetentionService(operation -> new Neo4jAstResultRepository(publication.driver, sessionConfig, operation));
+          proxy.arm();
+
+          // Act
+          var outcome = publication.call(() -> retention.retainAst(replacement));
+
+          // Assert
+          assertEquals(PublicationStatus.FAILED, outcome.status());
+          assertEquals(CommitKnowledge.UNKNOWN, outcome.knowledge());
+          assertEquals(Optional.of(new Ast(identity)), outcome.subjectIdentity());
+          var failure = outcome.failure().orElseThrow().carrier();
+          assertEquals(context, failure.context());
+          assertEquals(RepositoryPhase.REPLACEMENT, failure.phase());
+          assertEquals(CommitKnowledge.UNKNOWN, failure.knowledge());
+          assertInstanceOf(Neo4jException.class, failure.effectivePrimary().getCause());
+          proxy.requireHealthyRelay();
+          var observation = proxy.observation();
+          System.out.println("AST_BOLT_COMMIT_ACKNOWLEDGEMENT_OBSERVATION=" + observation);
+          assertNotEquals("not negotiated", observation.negotiatedVersion());
+          assertEquals(1, observation.beginMessages());
+          assertEquals(1, observation.commitMessages());
+          assertEquals(1, observation.withheldCommitSuccesses());
+          assertEquals(0, observation.forwardedCommitResponses());
+          assertEquals(expectedReplacement, storedAstState(verification.driver, sessionConfig, identity));
+          assertEquals(independentBefore, storedAstState(verification.driver, sessionConfig, independentIdentity));
+        }
+        try (var querying = new DriverWork(directUri, settings)) {
+          var queryContext = new RepositoryOperationContext(RepositoryOperationKind.QUERY_AST, identity);
+          var lookup = querying.call(() -> {
+            try (var repository = new Neo4jAstResultRepository(querying.driver, sessionConfig, queryContext)) {
+              return repository.find(identity);
+            }
+          });
+          assertEquals(AstLookupStatus.FOUND, lookup.status());
+          assertEquals(replacement.result().orElseThrow().snapshot(), lookup.outcome().orElseThrow().result().orElseThrow().snapshot());
+        }
+      } finally {
+        cleanupAst(verification.driver, sessionConfig, List.of(identity, independentIdentity));
+      }
+    }
+  }
+
+  private static AstOutcome astFixture(String typeName, Path root) throws IOException {
+    var source = SourceFile.fromContent(Path.of(typeName + ".java"), "interface " + typeName + " {}");
+    var input = InputSnapshot.fromSources(root, List.of(source));
+    return new JavaFrontend(new JavaSourceLoader()).produce(input, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+        AstProfile.JAVA_SOURCE_BOUNDED);
+  }
+
+  @Test
+  void givenAstReplacementRejectedBeforeCommit_whenRetentionFails_thenPriorAndIndependentSubjectsRemainIntact() throws Exception {
+    // Arrange
+    var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    var target = loopbackTarget(settings.uri());
+    var directUri = directUri(target);
+    var sessionConfig = SessionConfig.forDatabase(settings.database());
+    var typeName = "Retained" + UUID.randomUUID().toString().replace("-", "");
+    var previous = astFixture(typeName, sourceRoot.resolve("previous"));
+    var replacement = astFixture(typeName, sourceRoot.resolve("replacement"));
+    var independent = astFixture("Independent" + UUID.randomUUID().toString().replace("-", ""), sourceRoot.resolve("independent"));
+    var identity = replacement.result().orElseThrow().identity();
+    var independentIdentity = independent.result().orElseThrow().identity();
+    var context = new RepositoryOperationContext(RepositoryOperationKind.SAVE_AST, identity);
+    var replacementCallbacks = new AtomicInteger();
+    var codec = new Neo4jAstResultCodec();
+    assertEquals(previous.result().orElseThrow().identity(), identity);
+
+    try (var verification = new DriverWork(directUri, settings)) {
+      await(verification.driver.verifyConnectivityAsync());
+      try {
+        for (var outcome : List.of(previous, independent)) {
+          try (var seeding = new DriverWork(directUri, settings)) {
+            seeding.call(() -> {
+              var saveContext = new RepositoryOperationContext(RepositoryOperationKind.SAVE_AST, outcome.result().orElseThrow().identity());
+              try (var repository = new Neo4jAstResultRepository(seeding.driver, sessionConfig, saveContext)) {
+                repository.saveComplete(outcome);
+              }
+              return null;
+            });
+          }
+        }
+        var prior = storedAstState(verification.driver, sessionConfig, identity);
+        var independentBefore = storedAstState(verification.driver, sessionConfig, independentIdentity);
+        assertEquals(expectedAstState(codec.map(previous)), prior);
+        assertNotEquals(prior, expectedAstState(codec.map(replacement)));
+
+        try (var proxy = new BoltCommitAcknowledgementProxy(target);
+            var publication = new DriverWork(proxy.uri(), settings, proxy::disconnect)) {
+          var failingDriver = rejectAfterReplacement(publication.driver, replacementCallbacks);
+          var retention = new AstRetentionService(operation -> new Neo4jAstResultRepository(failingDriver, sessionConfig, operation));
+
+          // Act
+          var outcome = publication.call(() -> retention.retainAst(replacement));
+
+          // Assert
+          assertEquals(PublicationStatus.FAILED, outcome.status());
+          assertEquals(CommitKnowledge.UNKNOWN, outcome.knowledge());
+          assertEquals(Optional.of(new Ast(identity)), outcome.subjectIdentity());
+          var failure = outcome.failure().orElseThrow().carrier();
+          assertEquals(context, failure.context());
+          assertEquals(RepositoryPhase.REPLACEMENT, failure.phase());
+          var serverFailure = assertInstanceOf(Neo4jException.class, failure.effectivePrimary().getCause());
+          assertEquals("Neo.ClientError.Statement.ArithmeticError", serverFailure.code());
+          assertEquals(1, replacementCallbacks.get());
+          proxy.requireHealthyRelay();
+          var observation = proxy.observation();
+          System.out.println("AST_REJECTED_COMMIT_OBSERVATION=" + observation);
+          assertNotEquals("not negotiated", observation.negotiatedVersion());
+          assertEquals(1, observation.beginMessages());
+          assertEquals(0, observation.commitMessages());
+          assertEquals(0, observation.withheldCommitSuccesses());
+          assertEquals(0, observation.forwardedCommitResponses());
+          assertEquals(prior, storedAstState(verification.driver, sessionConfig, identity));
+          assertEquals(independentBefore, storedAstState(verification.driver, sessionConfig, independentIdentity));
+        }
+      } finally {
+        cleanupAst(verification.driver, sessionConfig, List.of(identity, independentIdentity));
+      }
+    }
+  }
+
+  private static Driver rejectAfterReplacement(Driver driver, AtomicInteger callbacks) {
+    return Driver.class.cast(Proxy.newProxyInstance(Driver.class.getClassLoader(), new Class<?>[]{Driver.class},
+        (ignored, method, arguments) -> {
+          var value = invokeDelegate(method, driver, arguments);
+          if (!(value instanceof Session session)) {
+            return value;
+          }
+          return Session.class.cast(Proxy.newProxyInstance(Session.class.getClassLoader(), new Class<?>[]{Session.class},
+              (sessionProxy, sessionMethod, sessionArguments) -> {
+                if (sessionMethod.getName().equals("executeWrite") && sessionArguments != null
+                    && sessionArguments.length > 0 && sessionArguments[0] instanceof TransactionCallback<?> callback) {
+                  return session.executeWrite(transaction -> {
+                    var result = callback.execute(transaction);
+                    callbacks.incrementAndGet();
+                    transaction.run("RETURN 1 / 0").consume();
+                    return result;
+                  });
+                }
+                return invokeDelegate(sessionMethod, session, sessionArguments);
+              }));
+        }));
+  }
+
+  private static @Nullable Object invokeDelegate(Method method, Object delegate, @Nullable Object @Nullable [] arguments) throws Throwable {
+    try {
+      return method.invoke(delegate, arguments);
+    } catch (InvocationTargetException exception) {
+      throw Objects.requireNonNull(exception.getCause(), "invoked cause");
+    }
+  }
+
+  private static StoredState expectedAstState(Neo4jAstProjection projection) {
+    var nodes = projection.nodes().stream().collect(Collectors.toMap(Neo4jNode::key,
+        node -> new StoredNode(Set.of("AstEntity", node.label()), Values.value(node.properties()).asMap())));
+    var relationships = projection.relationships().stream().collect(Collectors.toMap(Neo4jRelationship::key,
+        relation -> new StoredRelationship(relation.type(), relation.sourceKey(), relation.targetKey(), Values.value(relation.properties()).asMap())));
+    return new StoredState(nodes, relationships);
+  }
+
+  private static StoredState storedAstState(Driver driver, SessionConfig configuration, AstIdentity identity) throws IOException {
+    try (var session = new SessionOwner(driver.session(AsyncSession.class, configuration))) {
+      var parameters = Values.parameters("scope", identity.astResultKey());
+      var nodes = await(session.value.runAsync("MATCH (n:AstEntity {astResultKey: $scope}) RETURN n.key AS key, labels(n) AS labels, "
+          + "properties(n) AS properties", parameters).thenCompose(cursor -> cursor.listAsync())).stream()
+          .collect(Collectors.toMap(record -> record.get("key").asString(), Neo4jCommitAcknowledgementNeo4jIT::storedNode));
+      var relationships = await(session.value.runAsync("MATCH (source:AstEntity)-[relation]->(target:AstEntity) "
+          + "WHERE relation.astResultKey = $scope OR source.astResultKey = $scope OR target.astResultKey = $scope "
+          + "RETURN relation.key AS key, source.key AS sourceKey, target.key AS targetKey, type(relation) AS type, properties(relation) AS properties",
+          parameters).thenCompose(cursor -> cursor.listAsync())).stream().collect(Collectors.toMap(record -> record.get("key").asString(),
+              record -> new StoredRelationship(record.get("type").asString(), record.get("sourceKey").asString(),
+                  record.get("targetKey").asString(), record.get("properties").asMap())));
+      return new StoredState(nodes, relationships);
+    }
+  }
+
+  private static void cleanupAst(Driver driver, SessionConfig configuration, List<AstIdentity> identities) throws IOException {
+    try (var session = new SessionOwner(driver.session(AsyncSession.class, configuration))) {
+      await(session.value.runAsync("MATCH (entity:AstEntity) WHERE entity.astResultKey IN $scopes DETACH DELETE entity",
+          Values.parameters("scopes", identities.stream().map(AstIdentity::astResultKey).toList())).thenCompose(cursor -> cursor.consumeAsync()));
+    }
+  }
+
   private AnalysisRun completedFixture(String typeName, String warningCode) {
     var source = "class " + typeName + " { int value(int input) { return input; } }";
-    var file = SourceFile.fromContent(Path.of(typeName + ".java"), source);
-    var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(file));
-    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
-    var environment = new AnalysisEnvironmentSnapshot(configuration, "supplied-compiler", "supplied-vendor", "25-supplied",
-        List.of("--release", "25"), List.of(), List.of());
-    var typeKey = StableId.sha256("type", typeName);
-    var methodKey = StableId.sha256("method", typeKey, "value(int)");
-    var intType = new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int");
-    var wholeSource = new SourceSpan(file.sourceFileKey(), 0, source.length());
-    var parameter = new JavaParameter(StableId.sha256("parameter", methodKey, "input"), "input", intType, true, List.of(wholeSource));
-    var method = new JavaMethod(methodKey, typeKey, "value", "value(int)", "int", List.of(parameter), Set.of(), false, true, true,
-        List.of(wholeSource));
-    var type = new JavaType(typeKey, typeName, JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(),
-        List.of(), true, List.of(), List.of(), List.of(method), List.of(), List.of(wholeSource));
-    var graphId = StableId.sha256("cfg", methodKey);
-    var entry = new EntryNode(StableId.sha256("cfg-node", graphId, "entry"), graphId);
-    var exit = new ExitNode(StableId.sha256("cfg-node", graphId, "exit"), graphId);
-    var input = new FlowValue(StableId.sha256("cfg-value", parameter.parameterKey()), graphId, ValueKind.PARAMETER, Optional.of("input"),
-        Optional.empty(), Optional.of(intType));
-    var returning = new OperationNode(StableId.sha256("cfg-node", graphId, "return"), graphId, OperationKind.RETURN, "return",
-        List.of(new OperationOperand(0, input)), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(wholeSource));
-    var graph = new ControlFlowGraph(graphId, methodKey, entry, List.of(returning), List.of(input), exit, List.of(
-        new CfgEdge(StableId.sha256("cfg-edge", graphId, "entry-return"), graphId, entry.nodeId(), returning.nodeId(), TransferKind.NORMAL,
-            Optional.empty()),
-        new CfgEdge(StableId.sha256("cfg-edge", graphId, "return-exit"), graphId, returning.nodeId(), exit.nodeId(), TransferKind.RETURN,
-            Optional.empty())));
-    var representation = new ProgramRepresentation(new JavaProgram(List.of(type)),
-        List.of(new MethodAnalysis(StableId.sha256("method-analysis", methodKey), method, graph)));
-    var runId = StableId.sha256("analysis-run", SoftwareVersion.from(snapshot, environment).signature());
-    var original = new AnalysisRun(runId, snapshot, environment, Optional.of(representation), List.of(), AnalysisCompletion.COMPLETED);
-    return withWarning(original, warningCode);
+    return withWarning(RepositoryTestRuns.analyze(sourceRoot, typeName + ".java", source), warningCode);
   }
 
   private static AnalysisRun withWarning(AnalysisRun run, String suffix) {
-    var origin = run.representation().orElseThrow().program().types().getFirst().origins().getFirst();
-    var warning = new AnalysisDiagnostic(StableId.sha256("diagnostic", run.runId(), suffix), "publication.acknowledgement." + suffix,
+    var origin = run.representation().ast().result().orElseThrow().program().types().getFirst().origins().getFirst();
+    var warning = new AnalysisDiagnostic(StableId.sha256("diagnostic", run.identity().key(), suffix), "publication.acknowledgement." + suffix,
         DiagnosticStage.FRONTEND, DiagnosticSeverity.WARNING, "Supplied publication warning: " + suffix, List.of(origin),
         AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
-    return new AnalysisRun(run.runId(), run.inputSnapshot(), run.environmentSnapshot(), run.representation(), List.of(warning),
-        AnalysisCompletion.COMPLETED);
+    return new AnalysisRun(run.identity(), run.representation(), AnalysisCompletion.COMPLETE, List.of(warning));
   }
 
   private static InetSocketAddress loopbackTarget(URI uri) throws IOException {
@@ -302,7 +495,7 @@ class Neo4jCommitAcknowledgementNeo4jIT {
     @Override
     public void close() throws IOException {
       disconnect.run();
-      try (var shutdown = new WorkerShutdown(worker)) {
+      try (var _ = new WorkerShutdown(worker)) {
         await(driver.closeAsync());
       }
     }

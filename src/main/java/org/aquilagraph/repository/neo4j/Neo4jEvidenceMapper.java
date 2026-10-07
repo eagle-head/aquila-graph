@@ -1,11 +1,11 @@
 package org.aquilagraph.repository.neo4j;
 
-import java.util.List;
 import java.util.HashMap;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.SemanticReference;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.StableId;
+import java.util.List;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.SemanticReference;
 
 /** Maps diagnostics and source evidence shared by program and control-flow projections. */
 final class Neo4jEvidenceMapper {

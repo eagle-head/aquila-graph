@@ -27,7 +27,7 @@ class AnalysisRepositoryExceptionTest {
     assertSame(run, exception.analysisRun());
     assertSame(cause, exception.getCause());
     assertSame(cause, exception.repositoryFailure());
-    assertEquals("Repository save failed for analysis run " + run.runId(), exception.getMessage());
+    assertEquals("Repository save failed for analysis run " + run.identity().key(), exception.getMessage());
   }
 
   @Test
@@ -78,6 +78,6 @@ class AnalysisRepositoryExceptionTest {
     // Assert
     assertSame(run, failure.analysisRun());
     assertSame(cause, failure.repositoryFailure());
-    assertEquals("Repository save failed for analysis run " + run.runId(), failure.getMessage());
+    assertEquals("Repository save failed for analysis run " + run.identity().key(), failure.getMessage());
   }
 }

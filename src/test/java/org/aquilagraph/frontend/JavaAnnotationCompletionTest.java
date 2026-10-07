@@ -11,48 +11,74 @@ import java.lang.annotation.ElementType;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Consumer;
-import java.util.function.UnaryOperator;
 import javax.tools.ToolProvider;
-import org.aquilagraph.core.AnalysisEngine;
-import org.aquilagraph.model.AnalysisCompletion;
-import org.aquilagraph.model.AnalysisDiagnostic;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeaturePolicy;
-import org.aquilagraph.model.LanguageFeatureOccurrence;
-import org.aquilagraph.model.ReferenceKind;
-import org.aquilagraph.model.ResolutionStatus;
-import org.aquilagraph.model.SourceSpan;
-import org.aquilagraph.model.SemanticReference;
-import org.aquilagraph.syntax.AnnotationScalar;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.JavaSourceKind;
-import org.aquilagraph.syntax.MethodBodyOrigin;
-import org.aquilagraph.syntax.SyntaxAnalysisInput;
-import org.aquilagraph.syntax.SyntaxChild;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxSemanticEdge;
-import org.aquilagraph.syntax.SyntaxSemanticRelation;
-import org.aquilagraph.syntax.SyntaxSemanticTarget;
-import org.aquilagraph.syntax.SyntaxSourceContribution;
-import org.aquilagraph.syntax.SyntaxStructuralPath;
-import org.aquilagraph.syntax.SyntaxType;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
+import org.aquilagraph.source.api.LanguageFeaturePolicy;
+import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.SemanticReference;
+import org.aquilagraph.source.api.AnnotationScalar;
+import org.aquilagraph.source.api.AggregateFixture;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.MethodBodyOrigin;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxSemanticEdge;
+import org.aquilagraph.source.api.SyntaxSemanticRelation;
+import org.aquilagraph.source.api.SyntaxSemanticTarget;
+import org.aquilagraph.source.api.SyntaxSourceContribution;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaAnnotationCompletionTest {
   private static final CompilerConfiguration CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final String SIMPLE = "@interface A { int value() default 1; } @A(2) class Sample {}";
   @TempDir Path sourceRoot;
+
+  @Test
+  void givenTypeAnnotationInsideInvocationReceiver_whenAnalyzing_thenNormalizedMethodSelectionPreservesCompleteAnnotationOwnership()
+      throws IOException {
+    // Arrange
+    Files.writeString(sourceRoot.resolve("Sample.java"), """
+        import java.lang.annotation.ElementType;
+        import java.lang.annotation.Target;
+        @Target(ElementType.TYPE_USE) @interface Label { String value(); }
+        class Sample { int length(Object value) { return ((@Label("prefix") String) value).length(); } }
+        """);
+
+    // Act
+    var input = analyze();
+    var run = new SourceAnalysisFixture().analyze(input);
+
+    // Assert
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), input.diagnostics().toString());
+    assertTrue(input.diagnostics().isEmpty());
+    var annotation = input.aggregate().orElseThrow().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION
+        && node.value(SyntaxValue.Annotation.class).location() == SyntaxValue.AnnotationLocation.TYPE_USE).findFirst().orElseThrow();
+    assertEquals("\"prefix\"", annotation.requiredChild(SyntaxRole.ANNOTATION_ARGUMENT).requiredChild(SyntaxRole.VALUE)
+        .value(SyntaxValue.Literal.class).text());
+    assertTrue(input.aggregate().orElseThrow().writtenSourceAssociation(annotation.nodeId()).isPresent());
+  }
 
   @Test
   void givenCompleteAnnotationFormsAndValueFamilies_whenPublicAnalysisRuns_thenSourceFactsPermitCompletion() throws IOException {
@@ -76,11 +102,11 @@ class JavaAnnotationCompletionTest {
 
     // Act
     var input = analyze();
-    var run = new AnalysisEngine().analyze(input);
+    var run = new SourceAnalysisFixture().analyze(input);
     var annotations = input.aggregate().orElseThrow().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION).toList();
 
     // Assert
-    assertEquals(AnalysisCompletion.COMPLETED, run.completion(), () -> input.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> input.diagnostics().toString());
     assertEquals(List.of(SyntaxValue.AnnotationForm.MARKER, SyntaxValue.AnnotationForm.EMPTY_NORMAL,
         SyntaxValue.AnnotationForm.SINGLE_ELEMENT, SyntaxValue.AnnotationForm.NAMED_NORMAL), annotations.stream()
         .map(node -> node.value(SyntaxValue.Annotation.class).form()).distinct().sorted().toList());
@@ -108,7 +134,7 @@ class JavaAnnotationCompletionTest {
         properties.stream().map(item -> item.classification().feature().identifier()).toList());
     assertTrue(properties.stream().allMatch(item -> item.origins().size() == 1 && item.classification().policy() == LanguageFeaturePolicy.REPRESENTED
         && item.diagnostic().isEmpty()));
-    assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(input).completion());
+    assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(input).completion());
   }
 
   @Test
@@ -144,7 +170,7 @@ class JavaAnnotationCompletionTest {
       // Assert
       assertEquals("Coverage outcomes must exactly match the independent context inventory in order", removedBundle.getMessage());
       assertTrue(input.languageFeatureCoverageResult().observations().stream().anyMatch(item -> item.classification().feature().identifier().equals("ANNOTATION")));
-      assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(input).completion());
+      assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(input).completion());
       assertEquals(List.of("frontend.unrepresented-source-annotation"), diagnostics.stream().map(AnalysisDiagnostic::code).toList());
       assertEquals(List.of(annotation.origin().orElseThrow()), diagnostics.getFirst().origins());
       assertNotEquals(fixture.aggregate(), damaged);
@@ -268,7 +294,7 @@ class JavaAnnotationCompletionTest {
           assertThrows(IllegalArgumentException.class, () -> sealContribution(fixture.snapshot(), root, nodes, duplicateEdges)),
           assertThrows(IllegalArgumentException.class, () -> sealContribution(fixture.snapshot(), root, duplicateNodes, aggregate.semanticEdges())),
           assertThrows(IllegalArgumentException.class, () -> sealContribution(fixture.snapshot(), root, nodes, wrongEdges)),
-          assertThrows(IllegalArgumentException.class, () -> JavaAstAggregate.builder(fixture.snapshot()).add(new SyntaxSourceContribution(
+          assertThrows(IllegalArgumentException.class, () -> AggregateFixture.builder(fixture.snapshot()).add(new SyntaxSourceContribution(
               "foreign-source", root, nodes, aggregate.structuralEdges(), aggregate.semanticEdges()))));
 
       // Assert
@@ -449,7 +475,7 @@ class JavaAnnotationCompletionTest {
 
     // Assert
     assertEquals(first.diagnostics(), second.diagnostics());
-    assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(second).completion());
+    assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(second).completion());
   }
 
   @Test
@@ -468,11 +494,11 @@ class JavaAnnotationCompletionTest {
       assertEquals(List.of(), fixture.inventory().annotations());
       assertTrue(fixture.inventory().declarations().stream().noneMatch(declaration -> declaration.source().sourceFileKey()
           .equals(application(damaged).sourceFileKey())));
-      assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(original).completion());
+      assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(original).completion());
       assertEquals(List.of("frontend.unexpected-annotation-source-fact"), diagnostics.stream().map(AnalysisDiagnostic::code).toList());
       assertTrue(diagnostics.getFirst().message().contains("package-info.java"));
       assertEquals(application(damaged).origin().stream().toList(), diagnostics.getFirst().origins());
-      assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(input).completion());
+      assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(input).completion());
     });
   }
 
@@ -492,11 +518,11 @@ class JavaAnnotationCompletionTest {
       assertEquals(List.of(), fixture.inventory().annotations());
       assertTrue(fixture.inventory().declarations().stream().noneMatch(declaration -> declaration.source().sourceFileKey()
           .equals(application(damaged).sourceFileKey())));
-      assertEquals(AnalysisCompletion.COMPLETED, new AnalysisEngine().analyze(original).completion());
+      assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(original).completion());
       assertEquals(List.of("frontend.unexpected-annotation-source-fact"), diagnostics.stream().map(AnalysisDiagnostic::code).toList());
       assertTrue(diagnostics.getFirst().message().contains("module-info.java"));
       assertEquals(application(damaged).origin().stream().toList(), diagnostics.getFirst().origins());
-      assertEquals(AnalysisCompletion.INCOMPLETE, new AnalysisEngine().analyze(input).completion());
+      assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(input).completion());
     });
   }
 
@@ -597,7 +623,7 @@ class JavaAnnotationCompletionTest {
         .filter(annotation -> annotation.value(SyntaxValue.Annotation.class).location() != SyntaxValue.AnnotationLocation.UNRESOLVED)
         .forEach(annotation -> edges.add(new SyntaxSemanticEdge(annotation.nodeId(),
         SyntaxSemanticRelation.ANNOTATED_TARGET, SyntaxSemanticTarget.AnnotationApplication.forAttachment(parent, annotation)))));
-    var builder = JavaAstAggregate.builder(fixture.snapshot());
+    var builder = AggregateFixture.builder(fixture.snapshot());
     for (var sourceRoot : roots) {
       var ownedNodes = sourceRoot.descendantsAndSelf();
       var ownedKeys = ownedNodes.stream().map(SyntaxNode::nodeId).toList();
@@ -616,7 +642,7 @@ class JavaAnnotationCompletionTest {
   }
 
   private static JavaAstAggregate sealContribution(InputSnapshot snapshot, SyntaxNode root, List<SyntaxNode> nodes, List<SyntaxSemanticEdge> edges) {
-    return JavaAstAggregate.builder(snapshot).add(new SyntaxSourceContribution(root.sourceFileKey(), root, nodes,
+    return AggregateFixture.builder(snapshot).add(new SyntaxSourceContribution(root.sourceFileKey(), root, nodes,
         nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList(), edges)).seal();
   }
 

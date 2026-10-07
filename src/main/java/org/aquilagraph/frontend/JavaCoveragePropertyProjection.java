@@ -20,16 +20,17 @@ import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.ExecutableType;
 import javax.lang.model.util.Elements;
-import org.aquilagraph.model.CoveragePropertyValue;
-import org.aquilagraph.model.CoverageAnnotationValue;
-import org.aquilagraph.model.CoverageExecutableType;
-import org.aquilagraph.model.CoveragePropertyValue.Item;
-import org.aquilagraph.model.CoveragePropertyValue.Provenance;
-import org.aquilagraph.model.CoveragePropertyValue.State;
-import org.aquilagraph.model.LanguageFeatureCategory;
-import org.aquilagraph.model.LanguageFeatureClassification;
-import org.aquilagraph.model.LanguageFeatureCoverage;
-import org.aquilagraph.model.LanguageFeaturePolicy;
+import javax.tools.JavaFileObject;
+import org.aquilagraph.source.api.CoveragePropertyValue;
+import org.aquilagraph.source.api.CoverageAnnotationValue;
+import org.aquilagraph.source.api.CoverageExecutableType;
+import org.aquilagraph.source.api.CoveragePropertyValue.Item;
+import org.aquilagraph.source.api.CoveragePropertyValue.Provenance;
+import org.aquilagraph.source.api.CoveragePropertyValue.State;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeatureClassification;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeaturePolicy;
 import org.jspecify.annotations.Nullable;
 
 /** Copies only exact represented public accessor values; compiler objects remain session-local. */
@@ -94,6 +95,12 @@ final class JavaCoveragePropertyProjection {
   private static Item copy(Object value, int ordinal, JavaCoverageTopology.Owner owner, JavaSourceEvidence evidence,
       Optional<SemanticResolver> semantics) {
     var provenance = semantics.isPresent() ? Provenance.COMPILER_DERIVED : Provenance.WRITTEN;
+    if (value instanceof JavaFileObject file) {
+      if (!file.toUri().equals(owner.unit().getSourceFile().toUri())) {
+        throw new IllegalArgumentException("A copied source-file accessor must refer to its captured compilation unit");
+      }
+      return new Item(owner.source().sourceFileKey(), owner.source().canonicalRelativePath(), Provenance.WRITTEN);
+    }
     if (value instanceof AnnotationMirror annotation && semantics.isPresent()) {
       var resolver = semantics.orElseThrow();
       var declaration = Objects.requireNonNull(resolver.element(owner.treePath()), "annotation owner");

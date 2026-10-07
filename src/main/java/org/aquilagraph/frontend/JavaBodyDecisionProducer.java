@@ -1,6 +1,8 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.BinaryTree;
+import com.sun.source.tree.AssignmentTree;
+import com.sun.source.tree.ParenthesizedTree;
 import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewClassTree;
@@ -9,6 +11,7 @@ import com.sun.source.tree.Tree;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -24,57 +27,61 @@ import javax.lang.model.type.PrimitiveType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import org.aquilagraph.frontend.JavaMethodBodyTranslator.NodeProjection;
-import org.aquilagraph.model.JavaTypeIdentity;
-import org.aquilagraph.model.JavaTypeCategory;
-import org.aquilagraph.model.ResolutionStatus;
-import org.aquilagraph.syntax.InvocationArityDecision;
-import org.aquilagraph.syntax.InvocationArityMode;
-import org.aquilagraph.syntax.EnumConstructorContextDecision;
-import org.aquilagraph.syntax.EnumConstructorContextDecision.Target;
-import org.aquilagraph.syntax.StaticAccessDecision;
-import org.aquilagraph.syntax.StaticAccessKind;
-import org.aquilagraph.syntax.StringConcatenationDecision;
-import org.aquilagraph.syntax.SyntaxChild;
-import org.aquilagraph.syntax.SyntaxKind;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.TypedUseDecision;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.InvocationApplicability;
+import org.aquilagraph.source.api.InvocationEvidence;
+import org.aquilagraph.source.api.ConstructorEvidence;
+import org.aquilagraph.source.api.ConstructorContext;
+import org.aquilagraph.source.api.CompilerInsertedInvocation;
+import org.aquilagraph.source.api.StaticMemberEvidence;
+import org.aquilagraph.source.api.StaticMemberKind;
+import org.aquilagraph.source.api.StringExpressionEvidence;
+import org.aquilagraph.source.api.EvidenceOrigin;
+import org.aquilagraph.source.api.EvidenceValue;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.JavaTypeReference;
+import org.aquilagraph.source.api.ConversionEvidence;
+import org.aquilagraph.source.api.ChildUseEvidence;
 
 /** Copies selected use facts while exact compiler paths and body instances remain live. */
 final class JavaBodyDecisionProducer {
   private final SemanticResolver semantics;
   private final JavaInvocationApplicability applicability;
   private final JavaConstantExpression constants;
-  private final JavaEnumConstructorContextProducer enumContexts;
+  private final JavaConstructorEvidenceProducer constructors;
 
   JavaBodyDecisionProducer(SemanticResolver semantics) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     applicability = new JavaInvocationApplicability(semantics);
     constants = new JavaConstantExpression(semantics);
-    enumContexts = new JavaEnumConstructorContextProducer(semantics);
+    constructors = new JavaConstructorEvidenceProducer(semantics);
   }
 
-  JavaBodyDecisions produce(String methodKey, SyntaxNode root, List<NodeProjection> projections) {
+  JavaBodyDecisions produce(String methodKey, SyntaxNode root, List<NodeProjection> projections, List<AnalysisDiagnostic> diagnostics) {
     var bindings = corroborate(root, projections);
-    var uses = new ArrayList<TypedUseDecision>();
-    var invocations = new ArrayList<InvocationArityDecision>();
-    var staticAccesses = new ArrayList<StaticAccessDecision>();
-    var concatenations = new ArrayList<StringConcatenationDecision>();
-    var constructorContexts = new ArrayList<EnumConstructorContextDecision>();
+    var uses = new ArrayList<ChildUseEvidence>();
+    var invocations = new ArrayList<InvocationApplicability>();
+    var staticAccesses = new ArrayList<StaticMemberEvidence>();
+    var concatenations = new ArrayList<StringExpressionEvidence>();
+    var constructorContexts = new ArrayList<ConstructorEvidence>();
     for (var consumer : root.descendantsAndSelf()) {
       var binding = Objects.requireNonNull(bindings.get(consumer));
       if (consumer.syntaxKind() == SyntaxKind.INVOCATION || consumer.syntaxKind() == SyntaxKind.OBJECT_CREATION) {
-        var context = enumContexts.produce(methodKey, root, binding);
+        var context = constructors.produce(methodKey, root, binding);
         context.ifPresent(constructorContexts::add);
-        if (context.map(decision -> decision.target() == Target.ENUM_SUPERCLASS).orElse(false)) {
-          invocations.add(new InvocationArityDecision(methodKey, consumer.nodeId(), InvocationArityMode.FIXED, 2, Optional.empty(),
-              Optional.empty(), Optional.empty()));
-        } else {
-          invocation(methodKey, binding, bindings, uses, invocations);
-        }
+        invocation(methodKey, binding, bindings, uses, invocations);
       } else {
         for (var child : consumer.children()) {
-          if (eligible(consumer, child)) {
+          if (child.node().syntaxKind().requiresType()) {
             var childBinding = Objects.requireNonNull(bindings.get(child.node()));
             target(binding, child, bindings).flatMap(selected -> conversion(methodKey, consumer, child, childBinding.path(), selected,
                 consumer.syntaxKind() == SyntaxKind.TYPE_CAST, assignmentContext(consumer))).ifPresent(uses::add);
@@ -82,9 +89,30 @@ final class JavaBodyDecisionProducer {
         }
       }
       staticAccess(methodKey, binding).ifPresent(staticAccesses::add);
-      concatenation(methodKey, binding).ifPresent(concatenations::add);
+      concatenation(methodKey, binding, diagnostics).ifPresent(concatenations::add);
     }
-    return new JavaBodyDecisions(uses, invocations, staticAccesses, concatenations, constructorContexts);
+    var selectedInvocations = new HashMap<String, InvocationApplicability>();
+    invocations.forEach(value -> selectedInvocations.put(value.consumerNodeId(), value));
+    var retainedInvocations = root.descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION || node.syntaxKind() == SyntaxKind.OBJECT_CREATION)
+        .map(
+            node -> Optional.ofNullable(selectedInvocations.get(node.nodeId())).map(value -> InvocationEvidence.known(value, node.origin()))
+                .orElseGet(() -> new InvocationEvidence(
+                    EvidenceValue.missing(new EvidenceOrigin(methodKey, node.nodeId(), InvocationEvidence.SLOT, node.origin()),
+                        "Compiler applicability could not be established"))))
+        .toList();
+    var retainedConstructors = constructorContexts.stream().map(value -> {
+      var evidence = value.corroboration();
+      var known = evidence.knownValue()
+          .map(
+              context -> new ConstructorContext(context.superclassParameterTypes(),
+                  context.insertedInvocation().map(inserted -> new CompilerInsertedInvocation(inserted.sourceFileKey(),
+                      inserted.compilerPath(), inserted.reference(), inserted.semantics(), retainedInvocations.stream()
+                          .filter(invocation -> invocation.consumerNodeId().equals(value.invocationNodeId())).findFirst().orElseThrow()))));
+      return new ConstructorEvidence(value.methodKey(), value.invocationNodeId(), value.ownerTypeKey(), value.selectedConstructorKey(),
+          value.form(), new EvidenceValue<>(evidence.state(), known, evidence.origin(), evidence.explanation(), evidence.diagnostic()));
+    }).toList();
+    return new JavaBodyDecisions(uses, retainedInvocations, staticAccesses, concatenations, retainedConstructors);
   }
 
   Map<SyntaxNode, NodeProjection> corroborate(SyntaxNode root, List<NodeProjection> projections) {
@@ -118,8 +146,8 @@ final class JavaBodyDecisionProducer {
     return bindings;
   }
 
-  private void invocation(String methodKey, NodeProjection consumer, Map<SyntaxNode, NodeProjection> bindings, List<TypedUseDecision> uses,
-      List<InvocationArityDecision> invocations) {
+  private void invocation(String methodKey, NodeProjection consumer, Map<SyntaxNode, NodeProjection> bindings, List<ChildUseEvidence> uses,
+      List<InvocationApplicability> invocations) {
     if (!(semantics.element(consumer.path()) instanceof ExecutableElement executable) || !referenceMatches(consumer.node(), executable)) {
       return;
     }
@@ -147,7 +175,7 @@ final class JavaBodyDecisionProducer {
     }
     var selected = selection.orElseThrow();
     var array = selected.variableArray();
-    invocations.add(new InvocationArityDecision(methodKey, consumer.node().nodeId(), selected.mode(), selected.formalCount(),
+    invocations.add(new InvocationApplicability(methodKey, consumer.node().nodeId(), selected.mode(), selected.formalCount(),
         array.map(semantics::typeIdentity), array.map(value -> semantics.typeIdentity(semantics.erasedType(value))),
         array.map(value -> semantics.typeIdentity(value.getComponentType()))));
     for (var child : consumer.node().children()) {
@@ -158,8 +186,8 @@ final class JavaBodyDecisionProducer {
     }
   }
 
-  private void constructorInvocation(String methodKey, NodeProjection consumer, ExecutableElement executable, List<TypedUseDecision> uses,
-      List<InvocationArityDecision> invocations) {
+  private void constructorInvocation(String methodKey, NodeProjection consumer, ExecutableElement executable, List<ChildUseEvidence> uses,
+      List<InvocationApplicability> invocations) {
     var proof = semantics.selectedConstructor(consumer.path(), executable);
     if (proof.isEmpty()) {
       return;
@@ -174,13 +202,13 @@ final class JavaBodyDecisionProducer {
         return;
       }
     }
-    invocations.add(new InvocationArityDecision(methodKey, consumer.node().nodeId(), facts.mode(), facts.formalCount(),
+    invocations.add(new InvocationApplicability(methodKey, consumer.node().nodeId(), facts.mode(), facts.formalCount(),
         facts.varargArrayType(), facts.erasedArrayType(), facts.elementType()));
     for (var index = 0; index < children.size(); index++) {
       var argument = facts.arguments().get(index);
-      uses.add(new TypedUseDecision(methodKey, consumer.node().nodeId(), SyntaxRole.ARGUMENT, index, argument.sourceType(),
-          argument.selectedTarget(), Optional.empty(), argument.unboxedType(), argument.effectivePrimitiveType(),
-          argument.preBoxPrimitiveType(), argument.boxedType()));
+      uses.add(ChildUseEvidence.known(new ConversionEvidence(methodKey, consumer.node().nodeId(), SyntaxRole.ARGUMENT, index,
+          argument.sourceType(), argument.selectedTarget(), Optional.empty(), argument.unboxedType(), argument.effectivePrimitiveType(),
+          argument.preBoxPrimitiveType(), argument.boxedType()), consumer.node().syntaxKind(), consumer.node().origin()));
     }
   }
 
@@ -209,15 +237,27 @@ final class JavaBodyDecisionProducer {
       return Optional.of(semantics.primitiveType(TypeKind.INT));
     }
     return switch (node.syntaxKind()) {
-      case LOCAL_DECLARATION, TYPE_CAST, CONDITIONAL_EXPRESSION, UNARY -> semantics.attributedMirror(consumer.path());
-      case ASSIGNMENT -> semantics.attributedMirror(Objects.requireNonNull(bindings.get(node.requiredChild(SyntaxRole.LOCATION))).path());
-      case RETURN -> enclosingReturn(consumer.path());
-      case CASE, YIELD -> enclosingSwitch(consumer.path());
-      case SWITCH_EXPRESSION -> semantics.attributedMirror(Objects.requireNonNull(bindings.get(child.node())).path())
-          .flatMap(mirror -> primitive(mirror)
-              .<TypeMirror>map(type -> type.getKind() == TypeKind.BOOLEAN ? type : semantics.primitiveType(TypeKind.INT))
-              .or(() -> Optional.of(mirror)));
-      case BINARY -> binaryTarget(consumer, child, bindings);
+      case LOCAL_DECLARATION -> child.role() == SyntaxRole.INITIALIZER ? semantics.attributedMirror(consumer.path()) : Optional.empty();
+      case TYPE_CAST -> child.role() == SyntaxRole.EXPRESSION ? semantics.attributedMirror(consumer.path()) : Optional.empty();
+      case CONDITIONAL_EXPRESSION -> child.role() == SyntaxRole.TRUE_EXPRESSION || child.role() == SyntaxRole.FALSE_EXPRESSION
+          ? semantics.attributedMirror(consumer.path())
+          : Optional.empty();
+      case UNARY -> child.role() == SyntaxRole.OPERAND ? semantics.attributedMirror(consumer.path()) : Optional.empty();
+      case ASSIGNMENT -> child.role() == SyntaxRole.VALUE
+          ? semantics.attributedMirror(Objects.requireNonNull(bindings.get(node.requiredChild(SyntaxRole.LOCATION))).path())
+          : Optional.empty();
+      case RETURN -> child.role() == SyntaxRole.EXPRESSION ? enclosingReturn(consumer.path()) : Optional.empty();
+      case CASE -> child.role() == SyntaxRole.BODY ? enclosingSwitch(consumer.path()) : Optional.empty();
+      case YIELD -> child.role() == SyntaxRole.VALUE ? enclosingSwitch(consumer.path()) : Optional.empty();
+      case SWITCH_EXPRESSION -> child.role() == SyntaxRole.SELECTOR
+          ? semantics.attributedMirror(Objects.requireNonNull(bindings.get(child.node())).path())
+              .flatMap(mirror -> primitive(mirror)
+                  .<TypeMirror>map(type -> type.getKind() == TypeKind.BOOLEAN ? type : semantics.primitiveType(TypeKind.INT))
+                  .or(() -> Optional.of(mirror)))
+          : Optional.empty();
+      case BINARY -> child.role() == SyntaxRole.LEFT_OPERAND || child.role() == SyntaxRole.RIGHT_OPERAND
+          ? binaryTarget(consumer, child, bindings)
+          : Optional.empty();
       default -> Optional.empty();
     };
   }
@@ -284,7 +324,39 @@ final class JavaBodyDecisionProducer {
     return Optional.empty();
   }
 
-  private Optional<TypedUseDecision> conversion(String methodKey, SyntaxNode consumer, SyntaxChild child, TreePath childPath,
+  private Optional<ChildUseEvidence> conversion(String methodKey, SyntaxNode consumer, SyntaxChild child, TreePath childPath,
+      TypeMirror target, boolean cast, boolean assignment) {
+    if (child.node().resolvedType().isEmpty() || !valueType(target)) {
+      return Optional.empty();
+    }
+    var sourceType = child.node().resolvedType().orElseThrow();
+    var targetType = semantics.typeIdentity(target);
+    var conversionOrigin = new EvidenceOrigin(methodKey, consumer.nodeId(),
+        "child-use.conversion/" + child.role().stableId() + "/" + child.position(), consumer.origin());
+    var checkOrigin = new EvidenceOrigin(methodKey, consumer.nodeId(),
+        "child-use.reference-check/" + child.role().stableId() + "/" + child.position(), consumer.origin());
+    var classification = classification(methodKey, consumer, child, childPath, target, cast, assignment)
+        .map(value -> EvidenceValue.known(value, conversionOrigin))
+        .orElseGet(() -> EvidenceValue.missing(conversionOrigin, "The compiler conversion classification is unavailable"));
+    var source = semantics.attributedMirror(childPath);
+    var applicable = cast && !target.getKind().isPrimitive()
+        && (sourceType.category() == JavaTypeCategory.NULL || referenceType(sourceType));
+    var check = !applicable
+        ? EvidenceValue.<Boolean>notApplicable(checkOrigin, "This source use has no reference-cast classification")
+        : source.map(value -> EvidenceValue.known(referenceCheckRequired(value, target), checkOrigin))
+            .orElseGet(() -> EvidenceValue.missing(checkOrigin, "The compiler reference-cast classification is unavailable"));
+    return Optional.of(
+        new ChildUseEvidence(methodKey, consumer.nodeId(), child.role(), child.position(), sourceType, targetType, classification, check));
+  }
+
+  private static boolean referenceType(JavaTypeIdentity type) {
+    return switch (type.category()) {
+      case ARRAY, DECLARED, TYPE_VARIABLE, WILDCARD, UNION, INTERSECTION -> true;
+      default -> false;
+    };
+  }
+
+  private Optional<ConversionEvidence> classification(String methodKey, SyntaxNode consumer, SyntaxChild child, TreePath childPath,
       TypeMirror target, boolean cast, boolean assignment) {
     var source = semantics.attributedMirror(childPath);
     if (source.isEmpty() || child.node().resolvedType().isEmpty() || !valueType(target)) {
@@ -323,11 +395,8 @@ final class JavaBodyDecisionProducer {
             && constantNarrowing(childPath, sourcePrimitive, targetPrimitive))) {
       return Optional.empty();
     }
-    var referenceCheck = cast && !sourceType.getKind().isPrimitive() && !target.getKind().isPrimitive()
-        ? Optional.of(referenceCheckRequired(sourceType, target))
-        : Optional.<Boolean>empty();
-    return Optional.of(new TypedUseDecision(methodKey, consumer.nodeId(), child.role(), child.position(), sourceIdentity, targetIdentity,
-        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), referenceCheck));
+    return Optional.of(new ConversionEvidence(methodKey, consumer.nodeId(), child.role(), child.position(), sourceIdentity, targetIdentity,
+        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
   }
 
   private boolean referenceCheckRequired(TypeMirror source, TypeMirror target) {
@@ -357,48 +426,83 @@ final class JavaBodyDecisionProducer {
     };
   }
 
-  private Optional<StaticAccessDecision> staticAccess(String methodKey, NodeProjection projection) {
+  private Optional<StaticMemberEvidence> staticAccess(String methodKey, NodeProjection projection) {
     var node = projection.node();
+    var staticForm = (node.value() instanceof SyntaxValue.FieldAccess field && field.receiver().isStatic())
+        || (node.value() instanceof SyntaxValue.Invocation invocation && invocation.form().isStatic());
     var kind = switch (node.syntaxKind()) {
-      case FIELD_ACCESS -> Optional.of(StaticAccessKind.FIELD_READ);
-      case FIELD_LOCATION -> Optional.of(StaticAccessKind.FIELD_WRITE);
-      case INVOCATION -> Optional.of(StaticAccessKind.METHOD_INVOKE);
-      default -> Optional.<StaticAccessKind>empty();
+      case FIELD_ACCESS -> Optional.of(isAssignmentTarget(projection.path()) ? StaticMemberKind.FIELD_WRITE : StaticMemberKind.FIELD_READ);
+      case INVOCATION -> Optional.of(StaticMemberKind.METHOD_INVOKE);
+      default -> Optional.<StaticMemberKind>empty();
     };
     var element = semantics.element(projection.path());
-    if (kind.isEmpty() || element == null || !semantics.isStatic(element) || !referenceMatches(node, element)
-        || !(element.getEnclosingElement() instanceof TypeElement owner)) {
+    if (kind.isEmpty() || !staticForm || node.semanticReference().flatMap(reference -> reference.symbolKey()).isEmpty()) {
       return Optional.empty();
     }
-    var key = semantics.declarationKey(element);
-    var declaringType = semantics.typeReference(owner.asType());
-    if (key.isEmpty() || declaringType.isEmpty() || declaringType.orElseThrow().declarationKey().isEmpty()) {
-      return Optional.empty();
+    if (element != null && (!semantics.isStatic(element) || !referenceMatches(node, element))) {
+      throw new IllegalArgumentException("Selected static member contradicts its exact compiler projection");
     }
-    var constantRead = kind.orElseThrow() == StaticAccessKind.FIELD_READ && element instanceof VariableElement variable
+    var ownerOrigin = new EvidenceOrigin(methodKey, node.nodeId(), StaticMemberEvidence.OWNER_SLOT, node.origin());
+    var ownerType = element != null && element.getEnclosingElement() instanceof TypeElement owner
+        ? semantics.typeReference(owner.asType()).filter(value -> value.declarationKey().isPresent())
+        : Optional.<JavaTypeReference>empty();
+    var declaringOwner = ownerType.map(value -> EvidenceValue.known(value, ownerOrigin))
+        .orElseGet(() -> EvidenceValue.missing(ownerOrigin, "The selected static declaring owner could not be correlated"));
+    var constantRead = kind.orElseThrow() == StaticMemberKind.FIELD_READ && element instanceof VariableElement variable
         && variable.getConstantValue() != null;
-    return Optional.of(new StaticAccessDecision(methodKey, node.nodeId(), key.orElseThrow(), kind.orElseThrow(),
-        declaringType.orElseThrow(), constantRead));
+    var constantOrigin = new EvidenceOrigin(methodKey, node.nodeId(), StaticMemberEvidence.CONSTANT_SLOT, node.origin());
+    var classification = kind.orElseThrow() != StaticMemberKind.FIELD_READ
+        ? EvidenceValue.<Boolean>notApplicable(constantOrigin, "This access form does not read a constant variable")
+        : element == null
+            ? EvidenceValue.<Boolean>missing(constantOrigin, "The selected constant-variable classification is unavailable")
+            : EvidenceValue.known(constantRead, constantOrigin);
+    return Optional.of(new StaticMemberEvidence(methodKey, node.nodeId(), node.requiredReference().symbolKey().orElseThrow(),
+        kind.orElseThrow(), declaringOwner, classification));
   }
 
-  private Optional<StringConcatenationDecision> concatenation(String methodKey, NodeProjection projection) {
+  private static boolean isAssignmentTarget(TreePath path) {
+    var target = path.getLeaf();
+    var parent = path.getParentPath();
+    while (parent != null && parent.getLeaf() instanceof ParenthesizedTree parentheses
+        && JavaProjectionIdentity.sameInstance(parentheses.getExpression(), target)) {
+      target = parent.getLeaf();
+      parent = parent.getParentPath();
+    }
+    return parent != null && parent.getLeaf() instanceof AssignmentTree assignment
+        && JavaProjectionIdentity.sameInstance(assignment.getVariable(), target);
+  }
+
+  private Optional<StringExpressionEvidence> concatenation(String methodKey, NodeProjection projection,
+      List<AnalysisDiagnostic> diagnostics) {
     var node = projection.node();
     if (!(projection.path().getLeaf() instanceof BinaryTree binary) || binary.getKind() != Tree.Kind.PLUS || !isString(node)) {
       return Optional.empty();
     }
     var left = node.requiredChild(SyntaxRole.LEFT_OPERAND);
     var right = node.requiredChild(SyntaxRole.RIGHT_OPERAND);
-    if (left.resolvedType().isEmpty() || right.resolvedType().isEmpty()) {
-      return Optional.empty();
-    }
-    if (!isString(left) && !isString(right)) {
+    if (left.resolvedType().isPresent() && right.resolvedType().isPresent() && !isString(left) && !isString(right)) {
       throw new IllegalArgumentException("An attributed String PLUS requires a String operand");
     }
-    var side = isString(left) && isString(right)
-        ? Optional.<SyntaxRole>empty()
-        : Optional.of(isString(left) ? SyntaxRole.RIGHT_OPERAND : SyntaxRole.LEFT_OPERAND);
-    return constants.constantStatus(projection.path())
-        .map(constant -> new StringConcatenationDecision(methodKey, node.nodeId(), node.resolvedType().orElseThrow(), side, constant));
+    var origin = new EvidenceOrigin(methodKey, node.nodeId(), StringExpressionEvidence.CONSTANT_SLOT, node.origin());
+    var constant = constants.constantStatus(projection.path()).map(value -> EvidenceValue.known(value, origin))
+        .orElseGet(() -> EvidenceValue.missing(origin, "The compiler constant-expression classification is unavailable"));
+    return Optional.of(new StringExpressionEvidence(methodKey, node.nodeId(), node.resolvedType().orElseThrow(),
+        stringOperand(methodKey, node, left, StringExpressionEvidence.LEFT_SLOT, diagnostics),
+        stringOperand(methodKey, node, right, StringExpressionEvidence.RIGHT_SLOT, diagnostics), constant));
+  }
+
+  private static EvidenceValue<Boolean> stringOperand(String methodKey, SyntaxNode consumer, SyntaxNode operand, String slot,
+      List<AnalysisDiagnostic> diagnostics) {
+    var origin = new EvidenceOrigin(methodKey, consumer.nodeId(), slot, consumer.origin());
+    if (operand.resolvedType().isPresent()) {
+      return EvidenceValue.known(isString(operand), origin);
+    }
+    if (operand.type() == SyntaxType.Erroneous.INSTANCE) {
+      var key = StableId.sha256("diagnostic", methodKey, operand.nodeId(), "frontend.error-type");
+      var diagnostic = diagnostics.stream().filter(value -> value.diagnosticKey().equals(key)).findFirst().orElseThrow();
+      return EvidenceValue.erroneous(origin, "The attributed operand type is erroneous", diagnostic);
+    }
+    return EvidenceValue.missing(origin, "The compiler operand classification is unavailable");
   }
 
   private boolean referenceMatches(SyntaxNode node, Element element) {
@@ -413,10 +517,10 @@ final class JavaBodyDecisionProducer {
     return true;
   }
 
-  private static TypedUseDecision decision(String methodKey, SyntaxNode consumer, SyntaxChild child, JavaTypeIdentity source,
+  private static ConversionEvidence decision(String methodKey, SyntaxNode consumer, SyntaxChild child, JavaTypeIdentity source,
       JavaTypeIdentity target, Optional<JavaTypeIdentity> checked, Optional<JavaTypeIdentity> unboxed, Optional<JavaTypeIdentity> effective,
       Optional<JavaTypeIdentity> preBox, Optional<JavaTypeIdentity> boxed) {
-    return new TypedUseDecision(methodKey, consumer.nodeId(), child.role(), child.position(), source, target, checked, unboxed, effective,
+    return new ConversionEvidence(methodKey, consumer.nodeId(), child.role(), child.position(), source, target, checked, unboxed, effective,
         preBox, boxed);
   }
 
@@ -438,11 +542,4 @@ final class JavaBodyDecisionProducer {
         || node.syntaxKind() == SyntaxKind.CASE || node.syntaxKind() == SyntaxKind.YIELD;
   }
 
-  private static boolean eligible(SyntaxNode node, SyntaxChild child) {
-    if (node.syntaxKind() == SyntaxKind.CASE) {
-      return child.role() == SyntaxRole.BODY && child.node().syntaxKind() != SyntaxKind.BLOCK
-          && child.node().syntaxKind() != SyntaxKind.THROW && child.node().syntaxKind() != SyntaxKind.UNSUPPORTED;
-    }
-    return TypedUseDecision.supportsFixedRole(node.syntaxKind(), child.role());
-  }
 }

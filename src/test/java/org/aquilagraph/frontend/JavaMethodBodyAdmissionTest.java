@@ -39,17 +39,20 @@ import javax.tools.Diagnostic;
 import javax.tools.DiagnosticCollector;
 import javax.tools.JavaFileObject;
 import javax.tools.ToolProvider;
-import org.aquilagraph.model.CompilerConfiguration;
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.JavaRelease;
-import org.aquilagraph.model.SourceFile;
-import org.aquilagraph.syntax.JavaAstAggregate;
-import org.aquilagraph.syntax.MethodBodyOrigin;
-import org.aquilagraph.syntax.SyntaxNode;
-import org.aquilagraph.syntax.SyntaxRole;
-import org.aquilagraph.syntax.SyntaxValue;
-import org.junit.jupiter.api.Test;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AggregateFixture;
+import org.aquilagraph.source.api.JavaMethod;
+import org.aquilagraph.source.api.JavaType;
+
+import org.aquilagraph.source.api.MethodBodyOrigin;
+import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Test;
 
 class JavaMethodBodyAdmissionTest {
   private static final String SOURCE = "class Example { Example() {} void action() { {} } void other() { {} } }";
@@ -66,7 +69,7 @@ class JavaMethodBodyAdmissionTest {
 
       // Act
       var contribution = fixture.contribute(fixture.translated().methodBodies(), fixture.semantics());
-      var builder = JavaAstAggregate.builder(fixture.snapshot()).add(contribution.contribution().orElseThrow());
+      var builder = AggregateFixture.builder(fixture.snapshot()).add(contribution.contribution().orElseThrow());
       contribution.bodies().forEach(body -> builder.addMethodBody(body.methodKey(), body.root(), body.origin()));
       var aggregate = builder.seal();
 
@@ -76,13 +79,13 @@ class JavaMethodBodyAdmissionTest {
       assertSame(action.root(), aggregate.methodSyntax(action.methodKey()).orElseThrow().root());
       assertSame(action.root(), aggregate.node(action.root().nodeId()).orElseThrow());
       assertEquals(MethodBodyOrigin.SOURCE_AST, aggregate.methodBodyOrigin(action.methodKey()).orElseThrow());
-      assertSame(constructor.root(), aggregate.methodSyntax(constructor.methodKey()).orElseThrow().root());
-      assertEquals(MethodBodyOrigin.EXECUTION_PROJECTION, aggregate.methodBodyOrigin(constructor.methodKey()).orElseThrow());
+      assertEquals(MethodBodyOrigin.SOURCE_AST, aggregate.methodBodyOrigin(constructor.methodKey()).orElseThrow());
       var sourceConstructor = aggregate.nodes().stream()
           .filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration declaration
               && declaration.declarationKey().equals(constructor.methodKey()))
           .findFirst().orElseThrow().requiredChild(SyntaxRole.BODY);
       assertNotSame(constructor.root(), sourceConstructor);
+      assertSame(sourceConstructor, aggregate.methodSyntax(constructor.methodKey()).orElseThrow().root());
       Set<SyntaxNode> sourceInstances = Collections.newSetFromMap(new IdentityHashMap<>());
       sourceInstances.addAll(aggregate.nodes());
       assertTrue(constructor.root().descendantsAndSelf().stream().noneMatch(sourceInstances::contains));
@@ -176,6 +179,40 @@ class JavaMethodBodyAdmissionTest {
   }
 
   @Test
+  void givenSameKeyMethodWithChangedSignature_whenContributed_thenCompleteDeclarationMismatchIsRejected() throws IOException {
+    assertChangedDeclaration("changed-signature", "action(long)", "void");
+  }
+
+  @Test
+  void givenSameKeyMethodWithChangedReturnType_whenContributed_thenCompleteDeclarationMismatchIsRejected() throws IOException {
+    assertChangedDeclaration("changed-return-type", "action()", "int");
+  }
+
+  private void assertChangedDeclaration(String directory, String signature, String returnType) throws IOException {
+    // Arrange
+    withCompiledSource(directory, fixture -> {
+      var type = fixture.translated().types().getFirst();
+      var original = type.methods().stream().filter(method -> method.name().equals("action")).findFirst().orElseThrow();
+      var changed = new JavaMethod(original.methodKey(), original.ownerTypeKey(), original.name(), signature, returnType,
+          original.parameters(), original.modifiers(), original.constructor(), original.sourceDeclared(), original.hasBody(),
+          original.origins());
+      var changedType = new JavaType(type.typeKey(), type.qualifiedName(), type.kind(), type.modifiers(), type.enclosingType(),
+          type.directSuperclass(), type.directInterfaces(), type.permittedSubclasses(), type.typeParameters(), type.sourceDeclared(),
+          type.fields(), type.recordComponents(), type.methods().stream().map(method -> method.equals(original) ? changed : method).toList(),
+          type.synthesizedDeclarations(), type.origins());
+      var contributor = new JavaAstContributionTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory());
+
+      // Act
+      var error = assertThrows(IllegalArgumentException.class,
+          () -> contributor.translate(fixture.unit(), fixture.source(), fixture.translated().methodBodies(), List.of(changedType)));
+
+      // Assert
+      assertEquals(original.methodKey(), changed.methodKey());
+      assertTrue(error.getMessage().contains("canonical executable"));
+    });
+  }
+
+  @Test
   void givenUnavailableAttributedOwner_whenContributed_thenIndependentOwnerProofIsRejected() throws IOException {
     // Arrange
     withCompiledSource("missing-owner", fixture -> {
@@ -222,7 +259,7 @@ class JavaMethodBodyAdmissionTest {
       var method = translator.translate(fixture.unit(), new TreePath(new TreePath(fixture.unit()), type), fixture.source(),
           "type:Example", methodTree).value();
       var contribution = fixture.contribute(fixture.translated().methodBodies(), fixture.semantics());
-      var aggregate = JavaAstAggregate.builder(fixture.snapshot()).add(contribution.contribution().orElseThrow()).seal();
+      var aggregate = AggregateFixture.builder(fixture.snapshot()).add(contribution.contribution().orElseThrow()).seal();
 
       // Assert
       assertFalse(method.method().hasBody());
@@ -245,20 +282,26 @@ class JavaMethodBodyAdmissionTest {
 
         // Act
         var contribution = fixture.contribute(fixture.translated().methodBodies(), fixture.semantics());
-        var builder = JavaAstAggregate.builder(fixture.snapshot()).add(contribution.contribution().orElseThrow());
+        var builder = AggregateFixture.builder(fixture.snapshot()).add(contribution.contribution().orElseThrow());
         contribution.bodies().forEach(body -> builder.addMethodBody(body.methodKey(), body.root(), body.origin()));
         var aggregate = builder.seal();
 
         // Assert
-        assertEquals(MethodBodyOrigin.EXECUTION_PROJECTION, aggregate.methodBodyOrigin(constructor.methodKey()).orElseThrow());
-        assertSame(constructor.root(), aggregate.methodSyntax(constructor.methodKey()).orElseThrow().root());
+        assertEquals(MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY, aggregate.methodBodyOrigin(constructor.methodKey()).orElseThrow());
         for (var body : fixture.translated().methodBodies()) {
           var path = TreePath.getPath(fixture.unit(), body.projection().declaration());
           var executable = fixture.semantics().element(path);
           assertSame(body.projection().declaration(), fixture.semantics().sourceTree(executable));
           assertSame(body.projection().declaration().getBody(), body.projection().bodyPath().getLeaf());
           assertEquals(fixture.semantics().declarationKey(executable).orElseThrow(), aggregate.methodSyntax(body.methodKey()).orElseThrow().methodKey());
-          assertSame(body.root(), aggregate.methodSyntax(body.methodKey()).orElseThrow().root());
+          var retained = aggregate.methodSyntax(body.methodKey()).orElseThrow().root();
+          if (aggregate.methodBodyOrigin(body.methodKey()).orElseThrow() == MethodBodyOrigin.SOURCE_AST) {
+            assertSame(aggregate.node(retained.nodeId()).orElseThrow(), retained);
+            assertEquals(body.root().origin(), retained.origin());
+            assertEquals(body.root().sourceFileKey(), retained.sourceFileKey());
+          } else {
+            assertSame(body.root(), retained);
+          }
         }
       });
     }

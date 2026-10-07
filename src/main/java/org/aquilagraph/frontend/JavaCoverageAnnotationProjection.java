@@ -14,11 +14,11 @@ import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
-import org.aquilagraph.model.CoverageAnnotationValue;
-import org.aquilagraph.model.CoverageAnnotationValue.Scalar;
-import org.aquilagraph.model.CoverageAnnotationValue.TypeOperand;
-import org.aquilagraph.model.CoveragePropertyValue.Provenance;
-import org.aquilagraph.model.JavaTypeCategory;
+import org.aquilagraph.source.api.CoverageAnnotationValue;
+import org.aquilagraph.source.api.CoverageAnnotationValue.Scalar;
+import org.aquilagraph.source.api.CoverageAnnotationValue.TypeOperand;
+import org.aquilagraph.source.api.CoveragePropertyValue.Provenance;
+import org.aquilagraph.source.api.JavaTypeCategory;
 
 /** Copies public annotation values into immutable typed evidence before translation output. */
 final class JavaCoverageAnnotationProjection {

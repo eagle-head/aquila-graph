@@ -1,7 +1,7 @@
 package org.aquilagraph.repository.neo4j;
 
-import org.aquilagraph.model.InputSnapshot;
-import org.aquilagraph.model.StableId;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.StableId;
 
 /** Maps captured analysis input into a Neo4j projection. */
 final class Neo4jInputMapper {
