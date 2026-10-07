@@ -1,5 +1,12 @@
 package org.aquilagraph.frontend;
 
+import com.sun.source.tree.WhileLoopTree;
+import com.sun.source.tree.DoWhileLoopTree;
+import com.sun.source.tree.ForLoopTree;
+import com.sun.source.tree.EnhancedForLoopTree;
+import com.sun.source.tree.LabeledStatementTree;
+import com.sun.source.tree.BreakTree;
+import com.sun.source.tree.ContinueTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
@@ -47,7 +54,10 @@ final class JavaDeclarationPropertyCoverage {
   static final String EXECUTABLE_ELEMENT_VARARGS = "ExecutableElement::ExecutableElement#isVarArgs()";
 
   private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
-      VariableTree.class, NewArrayTree.class, TypeElement.class, ExecutableElement.class);
+      VariableTree.class, NewArrayTree.class, WhileLoopTree.class, DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class,
+      LabeledStatementTree.class, BreakTree.class, ContinueTree.class, TypeElement.class, ExecutableElement.class);
+  private static final String STATEMENT_KIND_BOUNDARY = "Canonical written statement kind";
+  private static final String STATEMENT_VALUE_BOUNDARY = "Canonical written statement value and ordered children";
   private static final String TREE_API = "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/";
   private static final String JAVA_COMPILER_API = "https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/";
   private static final String ELEMENT_API = JAVA_COMPILER_API + "javax/lang/model/element/";
@@ -109,9 +119,51 @@ final class JavaDeclarationPropertyCoverage {
     classifications.addAll(methodClassifications());
     classifications.addAll(variableClassifications());
     classifications.addAll(arrayClassifications());
+    classifications.addAll(iterationClassifications());
     classifications.addAll(typeElementClassifications());
     classifications.addAll(executableElementClassifications());
     return List.copyOf(classifications);
+  }
+
+  private static List<LanguageFeatureClassification> iterationClassifications() {
+    var result = new ArrayList<LanguageFeatureClassification>();
+    result.add(irrelevant("WhileLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
+        TREE_ACCEPT_SOURCE));
+    result.add(represented("WhileLoopTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
+    result.add(represented("WhileLoopTree::WhileLoopTree#getCondition()", STATEMENT_VALUE_BOUNDARY));
+    result.add(represented("WhileLoopTree::WhileLoopTree#getStatement()", STATEMENT_VALUE_BOUNDARY));
+    result.add(irrelevant("DoWhileLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
+        TREE_ACCEPT_SOURCE));
+    result.add(represented("DoWhileLoopTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
+    result.add(represented("DoWhileLoopTree::DoWhileLoopTree#getCondition()", STATEMENT_VALUE_BOUNDARY));
+    result.add(represented("DoWhileLoopTree::DoWhileLoopTree#getStatement()", STATEMENT_VALUE_BOUNDARY));
+    result.add(
+        irrelevant("ForLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE));
+    result.add(represented("ForLoopTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
+    result.add(represented("ForLoopTree::ForLoopTree#getInitializer()", STATEMENT_VALUE_BOUNDARY));
+    result.add(represented("ForLoopTree::ForLoopTree#getCondition()", STATEMENT_VALUE_BOUNDARY));
+    result.add(represented("ForLoopTree::ForLoopTree#getUpdate()", STATEMENT_VALUE_BOUNDARY));
+    result.add(represented("ForLoopTree::ForLoopTree#getStatement()", STATEMENT_VALUE_BOUNDARY));
+    result.add(irrelevant("EnhancedForLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
+        TREE_ACCEPT_SOURCE));
+    result.add(represented("EnhancedForLoopTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
+    result.add(represented("EnhancedForLoopTree::EnhancedForLoopTree#getVariable()", STATEMENT_VALUE_BOUNDARY));
+    result.add(represented("EnhancedForLoopTree::EnhancedForLoopTree#getExpression()", STATEMENT_VALUE_BOUNDARY));
+    result.add(represented("EnhancedForLoopTree::EnhancedForLoopTree#getStatement()", STATEMENT_VALUE_BOUNDARY));
+    result.add(irrelevant("LabeledStatementTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
+        TREE_ACCEPT_SOURCE));
+    result.add(represented("LabeledStatementTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
+    result.add(represented("LabeledStatementTree::LabeledStatementTree#getLabel()", STATEMENT_VALUE_BOUNDARY));
+    result.add(represented("LabeledStatementTree::LabeledStatementTree#getStatement()", STATEMENT_VALUE_BOUNDARY));
+    result.add(
+        irrelevant("BreakTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE));
+    result.add(represented("BreakTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
+    result.add(represented("BreakTree::BreakTree#getLabel()", STATEMENT_VALUE_BOUNDARY));
+    result.add(
+        irrelevant("ContinueTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE));
+    result.add(represented("ContinueTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
+    result.add(represented("ContinueTree::ContinueTree#getLabel()", STATEMENT_VALUE_BOUNDARY));
+    return List.copyOf(result);
   }
 
   private static List<LanguageFeatureClassification> arrayClassifications() {

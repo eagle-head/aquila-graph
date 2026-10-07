@@ -40,6 +40,8 @@ final class LocalBindingDeclarations {
     var role = declaration.structuralPath().steps().getLast().role();
     var expected = switch (parent.sourceKind()) {
       case CATCH -> role == SyntaxRole.PARAMETER ? LocalBindingEvidence.Context.CATCH : LocalBindingEvidence.Context.LOCAL;
+      case ENHANCED_FOR_LOOP ->
+        role == SyntaxRole.PARAMETER ? LocalBindingEvidence.Context.ENHANCED_FOR : LocalBindingEvidence.Context.LOCAL;
       case TRY -> role == SyntaxRole.RESOURCE ? LocalBindingEvidence.Context.RESOURCE : LocalBindingEvidence.Context.LOCAL;
       case LAMBDA_EXPRESSION -> role == SyntaxRole.PARAMETER ? LocalBindingEvidence.Context.LAMBDA : LocalBindingEvidence.Context.LOCAL;
       case BINDING_PATTERN -> LocalBindingEvidence.Context.PATTERN;
@@ -74,6 +76,13 @@ final class LocalBindingDeclarations {
     }
     if (parent.syntaxKind() == SyntaxKind.CATCH && accessStep.role() != SyntaxRole.BODY) {
       throw new IllegalArgumentException("An exception binding is visible only within its catch body");
+    }
+    if (parent.syntaxKind() == SyntaxKind.ENHANCED_FOR_LOOP && accessStep.role() != SyntaxRole.BODY) {
+      throw new IllegalArgumentException("An enhanced-for binding is visible only within its loop body");
+    }
+    if (parent.syntaxKind() == SyntaxKind.FOR_LOOP && accessStep.role() == SyntaxRole.INITIALIZER
+        && accessStep.position() < declarationStep.position()) {
+      throw new IllegalArgumentException("A basic-for initializer cannot refer to a later binding");
     }
   }
 

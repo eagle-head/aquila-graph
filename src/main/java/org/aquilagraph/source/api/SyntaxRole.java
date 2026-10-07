@@ -70,6 +70,10 @@ public enum SyntaxRole {
   STATEMENT("statement"),
   /** Initializer belonging to a declaration. */
   INITIALIZER("initializer"),
+  /** Ordered expression statement in a basic for update clause. */
+  UPDATE("update"),
+  /** Expression supplying enhanced-for elements. */
+  ITERABLE("iterable"),
   /** General expression belonging to a statement or wrapper. */
   EXPRESSION("expression"),
   /** Value produced by a statement such as {@code yield}. */

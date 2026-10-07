@@ -110,7 +110,7 @@ class JavaFrontendTest {
         abstract class Mixed {
           abstract void abstractCall();
           native int nativeCall();
-          void unsupported() { while (true) { return; } }
+          void unsupported() { synchronized (this) { return; } }
         }
         """);
     var frontend = new JavaFrontend(new JavaSourceLoader());

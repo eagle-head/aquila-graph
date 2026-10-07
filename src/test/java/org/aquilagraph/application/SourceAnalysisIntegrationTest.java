@@ -34,7 +34,7 @@ class SourceAnalysisIntegrationTest {
   @Test
   void givenParenthesizedTargetBeforeOrAfterUnavailableSyntax_whenDerived_thenSourceAndCfgDiagnosticOrdersRemainIndependent() throws IOException {
     // Arrange
-    var bodies = List.of("(a) = 1; while (a > 0) { a = 0; }", "while (a > 0) { a = 0; } (a) = 1;");
+    var bodies = List.of("(a) = 1; synchronized (this) { a = 0; }", "synchronized (this) { a = 0; } (a) = 1;");
     var sourceMessages = new ArrayList<List<String>>();
     var graphCodes = new ArrayList<List<String>>();
     var frontend = new JavaFrontend(new JavaSourceLoader());
@@ -54,8 +54,8 @@ class SourceAnalysisIntegrationTest {
     }
 
     // Assert
-    assertEquals(List.of(List.of("Unsupported Java construct in method body: WHILE_LOOP"),
-        List.of("Unsupported Java construct in method body: WHILE_LOOP")), sourceMessages);
+    assertEquals(List.of(List.of("Unsupported Java construct in method body: SYNCHRONIZED"),
+        List.of("Unsupported Java construct in method body: SYNCHRONIZED")), sourceMessages);
     assertEquals(List.of(List.of("control-flow.unsupported", "control-flow.source-unavailable"),
         List.of("control-flow.source-unavailable", "control-flow.unsupported")), graphCodes);
   }

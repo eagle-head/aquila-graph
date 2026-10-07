@@ -382,6 +382,7 @@ final class AstValueSchema {
     enumeration(types, SyntaxValue.None.class, "syntax-value/none");
     enumeration(types, SyntaxValue.CompilationUnitForm.class, "syntax-value/compilation-unit-form");
     record(types, SyntaxValue.QualifiedName.class, "syntax-value/qualified-name", "components");
+    record(types, SyntaxValue.StatementLabel.class, "syntax-value/statement-label", NAME_FIELD);
     record(types, SyntaxValue.LocalDeclaration.class, "syntax-value/local-binding", NAME_FIELD, "writtenType", WRITTEN_MODIFIERS_FIELD,
         "bindingEvidence");
     record(types, LocalBindingEvidence.class, "local-binding-evidence", "declarationKey", "typeForm", "context", "initialized",

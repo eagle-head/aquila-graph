@@ -401,6 +401,9 @@ public final class CoverageActualFacts {
     var role = context.address().role();
     var method = role.substring(role.indexOf('#') + 1, role.indexOf('('));
     var sourceSyntax = owned.stream().flatMap(actualFacts::syntaxValues).filter(value -> matchingOwner(role, value)).findFirst();
+    if (CoverageIterationFacts.isSurface(role)) {
+      return sourceSyntax.map(value -> CoverageIterationFacts.supports(method, expected, value, actualFacts, snapshot)).orElse(false);
+    }
     if (role.startsWith("NewArrayTree")) {
       return sourceSyntax.map(value -> CoverageArrayFacts.supports(method, expected, value, actualFacts, snapshot)).orElse(false);
     }
@@ -805,13 +808,18 @@ public final class CoverageActualFacts {
 
   static boolean writtenAttachments(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, List<SyntaxRole> roles,
       CoverageActualFactView actualFacts, InputSnapshot snapshot) {
-    var children = attachments(owner, roles, actualFacts);
     var scalar = roles.size() == 1 && switch (roles.getFirst()) {
       case BODY, DEFAULT_VALUE, RECEIVER_PARAMETER, QUALIFIER, RETURN_TYPE, INITIALIZER, PACKAGE_DECLARATION, MODULE_DECLARATION,
           SUPERCLASS, DECLARED_TYPE, TYPE_OPERAND ->
         true;
       default -> false;
     };
+    return writtenAttachments(expected, owner, roles, actualFacts, snapshot, scalar);
+  }
+
+  static boolean writtenAttachments(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, List<SyntaxRole> roles,
+      CoverageActualFactView actualFacts, InputSnapshot snapshot, boolean scalar) {
+    var children = attachments(owner, roles, actualFacts);
     var actualState = children.isEmpty() ? (scalar ? State.ABSENT : State.EMPTY) : (scalar ? State.SCALAR : State.ITEMS);
     if (expected.state() != actualState) {
       return false;
@@ -855,6 +863,9 @@ public final class CoverageActualFacts {
   }
 
   private static boolean matchingOwner(String role, CoverageSyntaxFactValue value) {
+    if (CoverageIterationFacts.isSurface(role)) {
+      return CoverageIterationFacts.matches(role, value);
+    }
     if (role.startsWith("NewArrayTree")) {
       return value.sourceKind() == JavaSourceKind.NEW_ARRAY
           && (value.syntaxKind() == SyntaxKind.ARRAY_CREATION || value.syntaxKind() == SyntaxKind.ANNOTATION_ARRAY);

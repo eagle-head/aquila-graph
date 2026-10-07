@@ -21,6 +21,36 @@ import org.junit.jupiter.api.Test;
 class JavaDeclarationPropertyCoverageTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final Set<String> EXPECTED_PROPERTIES = Set.of(
+      "WhileLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "WhileLoopTree::Tree#getKind()",
+      "WhileLoopTree::WhileLoopTree#getCondition()",
+      "WhileLoopTree::WhileLoopTree#getStatement()",
+      "DoWhileLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "DoWhileLoopTree::Tree#getKind()",
+      "DoWhileLoopTree::DoWhileLoopTree#getCondition()",
+      "DoWhileLoopTree::DoWhileLoopTree#getStatement()",
+      "ForLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "ForLoopTree::Tree#getKind()",
+      "ForLoopTree::ForLoopTree#getInitializer()",
+      "ForLoopTree::ForLoopTree#getCondition()",
+      "ForLoopTree::ForLoopTree#getUpdate()",
+      "ForLoopTree::ForLoopTree#getStatement()",
+      "EnhancedForLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "EnhancedForLoopTree::Tree#getKind()",
+      "EnhancedForLoopTree::EnhancedForLoopTree#getVariable()",
+      "EnhancedForLoopTree::EnhancedForLoopTree#getExpression()",
+      "EnhancedForLoopTree::EnhancedForLoopTree#getStatement()",
+      "LabeledStatementTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "LabeledStatementTree::Tree#getKind()",
+      "LabeledStatementTree::LabeledStatementTree#getLabel()",
+      "LabeledStatementTree::LabeledStatementTree#getStatement()",
+      "BreakTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "BreakTree::Tree#getKind()",
+      "BreakTree::BreakTree#getLabel()",
+      "ContinueTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "ContinueTree::Tree#getKind()",
+      "ContinueTree::ContinueTree#getLabel()",
+
       "NewArrayTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "NewArrayTree::Tree#getKind()", "NewArrayTree::NewArrayTree#getType()", "NewArrayTree::NewArrayTree#getDimensions()",
       "NewArrayTree::NewArrayTree#getInitializers()", "NewArrayTree::NewArrayTree#getAnnotations()", "NewArrayTree::NewArrayTree#getDimAnnotations()",
@@ -101,6 +131,14 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::ExecutableElement#isDefault()",
       "ExecutableElement::ExecutableElement#isVarArgs()");
   private static final Set<String> EXPECTED_IRRELEVANT_PROPERTIES = Set.of(
+      "WhileLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "DoWhileLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "ForLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "EnhancedForLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "LabeledStatementTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "BreakTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "ContinueTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+
       "NewArrayTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "CompilationUnitTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "CompilationUnitTree::CompilationUnitTree#getLineMap()",
@@ -303,7 +341,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:307ae3a6c3bf92cbb9cae296574a250b2558b403e949f57d534a1ef141a17e0e",
+    assertEquals("java-language-feature-coverage:1aa72c351c5b0c6af37bed7951ef08eb038cdb214148b933ac6a6bf93db97bb5",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 

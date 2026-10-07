@@ -75,21 +75,41 @@ public final class SourceAnalysisFixture {
     return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.UPDATE_SOURCE_MODEL_VERSION);
   }
 
+  /**
+   * Admits supplied compatible array values against the pre-iteration catalog and format.
+   * @param original source values without iteration statements
+   * @return format-five result with exact qualified identity
+   */
+  public static AstResult arrayResult(AstResult original) {
+    var compatible = withCoverage(original, true, true);
+    var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
+        compatible.diagnostics(), compatible.coverage());
+    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.ARRAY_SOURCE_MODEL_VERSION);
+  }
+
   private static AstResult withCoverage(AstResult original, boolean updates) {
+    return withCoverage(original, updates, false);
+  }
+
+  private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays) {
+    var iterationKinds = Set.of("WHILE_LOOP", "DO_WHILE_LOOP", "FOR_LOOP", "ENHANCED_FOR_LOOP", "LABELED_STATEMENT", "BREAK", "CONTINUE");
+    var iterationSurfaces = Set.of("WhileLoopTree", "DoWhileLoopTree", "ForLoopTree", "EnhancedForLoopTree", "LabeledStatementTree", "BreakTree", "ContinueTree");
     var changedKinds = Set.of("MULTIPLY_ASSIGNMENT", "DIVIDE_ASSIGNMENT", "REMAINDER_ASSIGNMENT", "PLUS_ASSIGNMENT",
         "MINUS_ASSIGNMENT", "LEFT_SHIFT_ASSIGNMENT", "RIGHT_SHIFT_ASSIGNMENT", "UNSIGNED_RIGHT_SHIFT_ASSIGNMENT",
         "AND_ASSIGNMENT", "XOR_ASSIGNMENT", "OR_ASSIGNMENT", "PREFIX_INCREMENT", "PREFIX_DECREMENT", "POSTFIX_INCREMENT",
         "POSTFIX_DECREMENT", "INTERSECTION_TYPE");
     var catalog = LanguageFeatureCoverage.forRelease(original.coverage().coverage().release(),
         original.coverage().coverage().classifications().stream()
-            .filter(classification -> !classification.feature().identifier().startsWith("NewArrayTree::"))
+            .filter(classification -> (arrays || !classification.feature().identifier().startsWith("NewArrayTree::"))
+                && iterationSurfaces.stream().noneMatch(surface -> classification.feature().identifier().startsWith(surface + "::")))
             .map(classification -> {
           var feature = classification.feature();
-          if (feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND && "NEW_ARRAY".equals(feature.identifier())) {
+          if (!arrays && feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND && "NEW_ARRAY".equals(feature.identifier())) {
             return LanguageFeatureClassification.represented(feature,
                 "JavaAstAggregate annotation array value; unsupported method-body arrays retain method-syntax diagnostics");
           }
-          return !updates && feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND && changedKinds.contains(feature.identifier())
+          return feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND
+              && (iterationKinds.contains(feature.identifier()) || (!updates && changedKinds.contains(feature.identifier())))
               ? LanguageFeatureClassification.diagnosed(feature,
                   "frontend.unsupported-tree-kind." + feature.identifier().toLowerCase(Locale.ROOT).replace('_', '-'))
               : classification;
@@ -97,7 +117,8 @@ public final class SourceAnalysisFixture {
     var evidence = original.coverage().validationEvidence();
     var written = evidence.writtenInventory();
     var contexts = written.contexts().stream().filter(context -> context.feature()
-        .map(feature -> !feature.identifier().startsWith("NewArrayTree::")).orElse(true)).toList();
+        .map(feature -> (arrays || !feature.identifier().startsWith("NewArrayTree::"))
+            && iterationSurfaces.stream().noneMatch(surface -> feature.identifier().startsWith(surface + "::"))).orElse(true)).toList();
     var inventory = new SourceCoverageInventory(written.snapshot(), written.release(), catalog.contractIdentity(), contexts);
     var attributed = new AttributedCoverageExpectations(inventory, evidence.attributedExpectations().projections());
     var addresses = contexts.stream().map(context -> context.address()).collect(Collectors.toUnmodifiableSet());

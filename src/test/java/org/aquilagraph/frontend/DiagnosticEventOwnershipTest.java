@@ -40,7 +40,7 @@ class DiagnosticEventOwnershipTest {
   @Test
   void givenOwnedCapabilityDiagnostic_whenAnEqualUnownedEventIsAdded_thenFactoryRejectsTheOrphanAddress() throws IOException {
     // Arrange
-    var input = analyze("class Example { void value() { while (false) { } } }");
+    var input = analyze("class Example { void value() { synchronized (this) { } } }");
     var event = capabilityEvent(input);
     var events = appended(input, event.diagnostic(), List.of());
 
@@ -54,7 +54,7 @@ class DiagnosticEventOwnershipTest {
   @Test
   void givenOwnedCapabilityDiagnostic_whenAnEqualEventClaimsAnUnusedContext_thenFactoryRejectsTheFalseReverseAssociation() throws IOException {
     // Arrange
-    var input = analyze("class Example { void value() { while (false) { } } }");
+    var input = analyze("class Example { void value() { synchronized (this) { } } }");
     var event = capabilityEvent(input);
     var events = appended(input, event.diagnostic(), event.contexts());
 
@@ -98,7 +98,7 @@ class DiagnosticEventOwnershipTest {
   @Test
   void givenEqualDiagnosedContexts_whenOneCreatingEventOwnsBoth_thenOneFinalSlotRemains() throws IOException {
     // Arrange
-    var input = analyze("class Example { void value() { while (false) { } } }");
+    var input = analyze("class Example { void value() { synchronized (this) { } } }");
     var originalOwners = capabilityEvent(input).contexts();
 
     // Act
@@ -106,24 +106,24 @@ class DiagnosticEventOwnershipTest {
 
     // Assert
     var events = retained.languageFeatureCoverageResult().validationEvidence().diagnosticEmissions().stream()
-        .filter(event -> event.diagnostic().code().equals("frontend.unsupported-tree-kind.while-loop")).toList();
+        .filter(event -> event.diagnostic().code().equals("frontend.unsupported-tree-kind.synchronized")).toList();
     assertEquals(1, events.size());
     assertEquals(originalOwners.size() + 1, events.getFirst().contexts().size());
     assertEquals(2, retained.languageFeatureCoverageResult().observations().stream()
-        .filter(value -> value.classification().feature().identifier().equals("WHILE_LOOP")).count());
+        .filter(value -> value.classification().feature().identifier().equals("SYNCHRONIZED")).count());
   }
 
   @Test
   void givenEqualDiagnosedContexts_whenDistinctCreatingEventsOwnThem_thenTwoEqualSlotsRemainDistinct() throws IOException {
     // Arrange
-    var input = analyze("class Example { void value() { while (false) { } } }");
+    var input = analyze("class Example { void value() { synchronized (this) { } } }");
 
     // Act
     var retained = repeatedContext(input, false);
 
     // Assert
     var events = retained.languageFeatureCoverageResult().validationEvidence().diagnosticEmissions().stream()
-        .filter(event -> event.diagnostic().code().equals("frontend.unsupported-tree-kind.while-loop")).toList();
+        .filter(event -> event.diagnostic().code().equals("frontend.unsupported-tree-kind.synchronized")).toList();
     assertEquals(2, events.size());
     assertEquals(events.getFirst().diagnostic(), events.getLast().diagnostic());
     assertFalse(events.getFirst().address().equals(events.getLast().address()));

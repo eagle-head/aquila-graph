@@ -4,6 +4,13 @@ import com.sun.source.tree.ArrayAccessTree;
 import com.sun.source.tree.AssignmentTree;
 import com.sun.source.tree.BinaryTree;
 import com.sun.source.tree.BlockTree;
+import com.sun.source.tree.BreakTree;
+import com.sun.source.tree.ContinueTree;
+import com.sun.source.tree.DoWhileLoopTree;
+import com.sun.source.tree.EnhancedForLoopTree;
+import com.sun.source.tree.ForLoopTree;
+import com.sun.source.tree.LabeledStatementTree;
+import com.sun.source.tree.WhileLoopTree;
 import com.sun.source.tree.CaseTree;
 import com.sun.source.tree.CatchTree;
 import com.sun.source.tree.CompoundAssignmentTree;
@@ -121,6 +128,60 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     return statement.getResources().isEmpty() && statement.getFinallyBlock() == null
         ? accepted(SyntaxKind.TRY, children)
         : unsupported(statement, children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitWhileLoop(WhileLoopTree loop, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.add(SyntaxRole.CONDITION, loop.getCondition());
+    children.add(SyntaxRole.BODY, loop.getStatement());
+    return accepted(SyntaxKind.WHILE_LOOP, children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitDoWhileLoop(DoWhileLoopTree loop, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.add(SyntaxRole.BODY, loop.getStatement());
+    children.add(SyntaxRole.CONDITION, loop.getCondition());
+    return accepted(SyntaxKind.DO_WHILE_LOOP, children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitForLoop(ForLoopTree loop, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.addAll(SyntaxRole.INITIALIZER, loop.getInitializer());
+    children.add(SyntaxRole.CONDITION, loop.getCondition());
+    children.addAll(SyntaxRole.UPDATE, loop.getUpdate());
+    children.add(SyntaxRole.BODY, loop.getStatement());
+    return accepted(SyntaxKind.FOR_LOOP, children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitEnhancedForLoop(EnhancedForLoopTree loop, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.add(SyntaxRole.PARAMETER, loop.getVariable());
+    children.add(SyntaxRole.ITERABLE, loop.getExpression());
+    children.add(SyntaxRole.BODY, loop.getStatement());
+    return accepted(SyntaxKind.ENHANCED_FOR_LOOP, children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitLabeledStatement(LabeledStatementTree statement, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.add(SyntaxRole.BODY, statement.getStatement());
+    return accepted(SyntaxKind.LABELED_STATEMENT, new SyntaxValue.StatementLabel(Optional.of(statement.getLabel().toString())), children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitBreak(BreakTree statement, MappingContext context) {
+    return accepted(SyntaxKind.BREAK, new SyntaxValue.StatementLabel(Optional.ofNullable(statement.getLabel()).map(Object::toString)),
+        new ChildMappings(context));
+  }
+
+  @Override
+  public SyntaxNodeMapping visitContinue(ContinueTree statement, MappingContext context) {
+    return accepted(SyntaxKind.CONTINUE, new SyntaxValue.StatementLabel(Optional.ofNullable(statement.getLabel()).map(Object::toString)),
+        new ChildMappings(context));
   }
 
   @Override

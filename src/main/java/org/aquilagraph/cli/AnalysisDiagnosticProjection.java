@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -18,6 +19,8 @@ import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeaturePolicy;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -27,6 +30,9 @@ import org.aquilagraph.source.api.SyntaxValue.Unsupported;
 final class AnalysisDiagnosticProjection {
   private static final String UNSUPPORTED_SYNTAX = "frontend.unsupported-syntax";
   private static final String UNSUPPORTED_MESSAGE = "Unsupported Java construct in method body: ";
+  private static final String TREE_DIAGNOSTIC_PREFIX = "frontend.unsupported-tree-kind.";
+  private static final Set<String> ITERATION_KINDS = Set.of("WHILE_LOOP", "DO_WHILE_LOOP", "FOR_LOOP", "ENHANCED_FOR_LOOP",
+      "LABELED_STATEMENT", "BREAK", "CONTINUE");
 
   private AnalysisDiagnosticProjection() {
   }
@@ -41,6 +47,8 @@ final class AnalysisDiagnosticProjection {
     }
     var source = ast.orElseThrow();
     var bodies = bodyPositions(source);
+    var iterationRoots = iterationRoots(source);
+    var catalog = catalogProjection(source);
     var insertions = new ArrayList<Insertion>();
     var representedGraphEvents = new HashMap<String, Integer>();
     var pairedSourceSlots = new HashSet<Integer>();
@@ -52,6 +60,15 @@ final class AnalysisDiagnosticProjection {
           continue;
         }
         var node = occurrence.orElseThrow();
+        var iteration = iterationRoots.stream().filter(root -> within(root, node.origin())).findFirst();
+        if (iteration.isPresent() && blocker.kind() == MethodCfgState.UNSUPPORTED) {
+          if (node.equals(iteration.orElseThrow())) {
+            insertions.add(new Insertion(body.orElseThrow().ordinal(), node.origin().orElseThrow(), new DiagnosticSummary(
+                DiagnosticSeverity.ERROR, "FRONTEND", UNSUPPORTED_SYNTAX, UNSUPPORTED_MESSAGE + node.sourceKind().name())));
+          }
+          representedGraphEvents.merge(blocker.diagnostic().diagnosticKey(), 1, Integer::sum);
+          continue;
+        }
         var target = parenthesizedTarget(blocker, node);
         if (target.isPresent()) {
           insertions
@@ -67,7 +84,17 @@ final class AnalysisDiagnosticProjection {
     insertions.sort(Comparator.comparingInt(Insertion::methodPosition).thenComparingLong(value -> value.origin().startOffset()));
     var result = new ArrayList<DiagnosticSummary>();
     var nextInsertion = 0;
+    var catalogInserted = false;
     for (var diagnostic : source.diagnostics()) {
+      if (!catalog.isEmpty() && !catalogInserted && !diagnostic.code().startsWith("compiler.")) {
+        result.addAll(catalog);
+        catalogInserted = true;
+      }
+      if ((!catalog.isEmpty() && diagnostic.code().startsWith(TREE_DIAGNOSTIC_PREFIX))
+          || (UNSUPPORTED_SYNTAX.equals(diagnostic.code()) && iterationRoots.stream()
+              .anyMatch(root -> diagnostic.origins().stream().anyMatch(origin -> within(root, Optional.of(origin)))))) {
+        continue;
+      }
       var position = bodyPosition(source, bodies, diagnostic);
       while (nextInsertion < insertions.size() && position.isPresent()
           && precedes(insertions.get(nextInsertion), position.orElseThrow(), diagnostic)) {
@@ -75,6 +102,9 @@ final class AnalysisDiagnosticProjection {
         nextInsertion++;
       }
       result.add(DiagnosticSummary.from(diagnostic));
+    }
+    if (!catalog.isEmpty() && !catalogInserted) {
+      result.addAll(catalog);
     }
     while (nextInsertion < insertions.size()) {
       result.add(insertions.get(nextInsertion).diagnostic());
@@ -96,6 +126,53 @@ final class AnalysisDiagnosticProjection {
     }
     run.applicationDiagnostics().forEach(value -> result.add(DiagnosticSummary.from(value)));
     return List.copyOf(result);
+  }
+
+  private static List<SyntaxNode> iterationRoots(AstResult source) {
+    var nodes = source.program().methods().stream().flatMap(method -> source.body(method.methodKey()).stream())
+        .flatMap(body -> body.root().descendantsAndSelf().stream()).filter(node -> ITERATION_KINDS.contains(node.sourceKind().name())
+            && node.syntaxKind() != SyntaxKind.UNSUPPORTED && node.origin().isPresent())
+        .toList();
+    return nodes.stream().filter(node -> nodes.stream().noneMatch(parent -> !parent.equals(node) && within(parent, node.origin())))
+        .toList();
+  }
+
+  private static boolean within(SyntaxNode parent, Optional<SourceSpan> origin) {
+    return origin.isPresent() && parent.origin()
+        .filter(range -> range.sourceFileKey().equals(origin.orElseThrow().sourceFileKey())
+            && range.startOffset() <= origin.orElseThrow().startOffset()
+            && range.endOffsetExclusive() >= origin.orElseThrow().endOffsetExclusive())
+        .isPresent();
+  }
+
+  private static List<DiagnosticSummary> catalogProjection(AstResult source) {
+    var occurrences = new ArrayList<CatalogDiagnostic>();
+    var projectedKind = false;
+    source.diagnostics().stream().filter(diagnostic -> diagnostic.code().startsWith(TREE_DIAGNOSTIC_PREFIX))
+        .forEach(diagnostic -> occurrences
+            .add(new CatalogDiagnostic(diagnostic.origins().stream().findFirst(), DiagnosticSummary.from(diagnostic))));
+    for (var occurrence : source.coverage().occurrences()) {
+      var classification = occurrence.classification();
+      var feature = classification.feature();
+      if (feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND && classification.policy() == LanguageFeaturePolicy.REPRESENTED
+          && ITERATION_KINDS.contains(feature.identifier())) {
+        var kind = feature.identifier();
+        projectedKind = true;
+        occurrences.add(new CatalogDiagnostic(occurrence.origins().stream().findFirst(),
+            new DiagnosticSummary(DiagnosticSeverity.ERROR, "FRONTEND",
+                TREE_DIAGNOSTIC_PREFIX + kind.toLowerCase(Locale.ROOT).replace('_', '-'),
+                "Java compiler tree kind " + kind + " is outside the supported semantic graph profile")));
+      }
+    }
+    if (!projectedKind) {
+      return List.of();
+    }
+    var files = source.snapshot().sourceFiles().stream().map(file -> file.sourceFileKey()).toList();
+    occurrences.sort(Comparator
+        .comparingInt((CatalogDiagnostic value) -> value.origin().map(origin -> files.indexOf(origin.sourceFileKey())).orElse(files.size()))
+        .thenComparingLong(value -> value.origin().map(SourceSpan::startOffset).orElse(Long.MAX_VALUE)).thenComparing(Comparator
+            .comparingLong((CatalogDiagnostic value) -> value.origin().map(SourceSpan::endOffsetExclusive).orElse(0L)).reversed()));
+    return occurrences.stream().map(CatalogDiagnostic::diagnostic).toList();
   }
 
   private static Optional<SourceSpan> parenthesizedTarget(CfgBlocker blocker, SyntaxNode node) {
@@ -170,5 +247,8 @@ final class AnalysisDiagnosticProjection {
   }
 
   private record Insertion(int methodPosition, SourceSpan origin, DiagnosticSummary diagnostic) {
+  }
+
+  private record CatalogDiagnostic(Optional<SourceSpan> origin, DiagnosticSummary diagnostic) {
   }
 }

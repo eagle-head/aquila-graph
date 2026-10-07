@@ -54,6 +54,20 @@ public enum SyntaxKind {
   THROW,
   /** Conditional statement. */
   IF,
+  /** Written while loop. */
+  WHILE_LOOP,
+  /** Written do-while loop with its body before its condition. */
+  DO_WHILE_LOOP,
+  /** Basic for loop with optional header clauses. */
+  FOR_LOOP,
+  /** Enhanced for loop with a source binding and iterable expression. */
+  ENHANCED_FOR_LOOP,
+  /** Named statement containing one written body. */
+  LABELED_STATEMENT,
+  /** Break statement with an optional written label. */
+  BREAK,
+  /** Continue statement with an optional written label. */
+  CONTINUE,
   /** Try statement. */
   TRY,
   /** Catch clause. */
@@ -156,6 +170,13 @@ public enum SyntaxKind {
       case RETURN -> sourceKind == JavaSourceKind.RETURN;
       case THROW -> sourceKind == JavaSourceKind.THROW;
       case IF -> sourceKind == JavaSourceKind.IF;
+      case WHILE_LOOP -> sourceKind == JavaSourceKind.WHILE_LOOP;
+      case DO_WHILE_LOOP -> sourceKind == JavaSourceKind.DO_WHILE_LOOP;
+      case FOR_LOOP -> sourceKind == JavaSourceKind.FOR_LOOP;
+      case ENHANCED_FOR_LOOP -> sourceKind == JavaSourceKind.ENHANCED_FOR_LOOP;
+      case LABELED_STATEMENT -> sourceKind == JavaSourceKind.LABELED_STATEMENT;
+      case BREAK -> sourceKind == JavaSourceKind.BREAK;
+      case CONTINUE -> sourceKind == JavaSourceKind.CONTINUE;
       case TRY -> sourceKind == JavaSourceKind.TRY;
       case CATCH -> sourceKind == JavaSourceKind.CATCH;
       case SWITCH_EXPRESSION -> sourceKind == JavaSourceKind.SWITCH_EXPRESSION;

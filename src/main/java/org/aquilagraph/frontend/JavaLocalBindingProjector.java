@@ -49,6 +49,7 @@ final class JavaLocalBindingProjector {
     }
     return switch (parentPath.getLeaf().getKind()) {
       case CATCH -> LocalBindingEvidence.Context.CATCH;
+      case ENHANCED_FOR_LOOP -> LocalBindingEvidence.Context.ENHANCED_FOR;
       case TRY -> LocalBindingEvidence.Context.RESOURCE;
       case LAMBDA_EXPRESSION -> LocalBindingEvidence.Context.LAMBDA;
       case BINDING_PATTERN -> LocalBindingEvidence.Context.PATTERN;

@@ -52,6 +52,7 @@ public final class SyntaxNode {
     validateUpdateType(syntaxKind, type, childNodes);
     validateArrayType(syntaxKind, type, value, childNodes);
     validateExecutableChildren(syntaxKind, childNodes);
+    IterationSyntax.validate(syntaxKind, childNodes);
     if (value instanceof SyntaxValue.Operator operator && !operator.operator().name().equals(sourceKind.name())) {
       throw new IllegalArgumentException("The retained operator contradicts its exact Java source kind");
     }
@@ -681,6 +682,7 @@ public final class SyntaxNode {
       };
       case METHOD_DECLARATION -> SyntaxValue.ExecutableDeclaration.class;
       case LOCAL_DECLARATION -> SyntaxValue.LocalDeclaration.class;
+      case LABELED_STATEMENT, BREAK, CONTINUE -> SyntaxValue.StatementLabel.class;
       case VARIABLE_ACCESS, ARRAY_LENGTH -> SyntaxValue.SourceSymbol.class;
       case FIELD_ACCESS -> SyntaxValue.FieldAccess.class;
       case INVOCATION, OBJECT_CREATION -> SyntaxValue.Invocation.class;
@@ -854,6 +856,34 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.THEN_BRANCH, 1, 1);
         requireCount(children, SyntaxRole.ELSE_BRANCH, 0, 1);
       }
+      case WHILE_LOOP, DO_WHILE_LOOP -> {
+        requireShape(children, Set.of(SyntaxRole.CONDITION, SyntaxRole.BODY));
+        requireCount(children, SyntaxRole.CONDITION, 1, 1);
+        requireCount(children, SyntaxRole.BODY, 1, 1);
+      }
+      case FOR_LOOP -> {
+        requireShape(children, Set.of(SyntaxRole.INITIALIZER, SyntaxRole.CONDITION, SyntaxRole.UPDATE, SyntaxRole.BODY));
+        requireCount(children, SyntaxRole.CONDITION, 0, 1);
+        requireCount(children, SyntaxRole.BODY, 1, 1);
+      }
+      case ENHANCED_FOR_LOOP -> {
+        requireShape(children, Set.of(SyntaxRole.PARAMETER, SyntaxRole.ITERABLE, SyntaxRole.BODY));
+        requireCount(children, SyntaxRole.PARAMETER, 1, 1);
+        requireCount(children, SyntaxRole.ITERABLE, 1, 1);
+        requireCount(children, SyntaxRole.BODY, 1, 1);
+        var binding = children.stream().filter(child -> child.role() == SyntaxRole.PARAMETER).findFirst().orElseThrow().node();
+        if (binding.value() instanceof SyntaxValue.LocalDeclaration local && local.bindingEvidence().isPresent()
+            && (local.bindingEvidence().orElseThrow().context() != LocalBindingEvidence.Context.ENHANCED_FOR
+                || local.bindingEvidence().orElseThrow().initialized())) {
+          throw new IllegalArgumentException("An enhanced-for parameter requires an uninitialized iteration binding");
+        }
+      }
+      case LABELED_STATEMENT -> {
+        requireShape(children, Set.of(SyntaxRole.BODY), SyntaxRole.BODY, 1, 1);
+        if (((SyntaxValue.StatementLabel) value).name().isEmpty()) {
+          throw new IllegalArgumentException("A labeled statement requires its written label");
+        }
+      }
       case TRY -> {
         requireShape(children, Set.of(SyntaxRole.RESOURCE, SyntaxRole.TRY_BLOCK, SyntaxRole.CATCH_CLAUSE, SyntaxRole.FINALLY_BLOCK));
         requireCount(children, SyntaxRole.TRY_BLOCK, 1, 1);
@@ -927,7 +957,8 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.QUALIFIER, 0,
             receiver == SyntaxValue.ReceiverKind.QUALIFIED_THIS || receiver == SyntaxValue.ReceiverKind.QUALIFIED_SUPER ? 1 : 0);
       }
-      case ANNOTATION_ELEMENT_NAME, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, VARIABLE_ACCESS, LITERAL, EMPTY ->
+      case BREAK, CONTINUE, ANNOTATION_ELEMENT_NAME, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, VARIABLE_ACCESS, LITERAL,
+          EMPTY ->
         requireShape(children, Set.of());
       case RECEIVER_NAME -> {
         requireShape(children, Set.of());
@@ -960,6 +991,19 @@ public final class SyntaxNode {
             ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, CONDITIONAL_EXPRESSION ->
           isExpression(node);
         case IF -> child.role() == SyntaxRole.CONDITION ? isExpression(node) : isStatement(node);
+        case WHILE_LOOP, DO_WHILE_LOOP -> child.role() == SyntaxRole.CONDITION ? isExpression(node) : isStatementBody(node);
+        case FOR_LOOP -> switch (child.role()) {
+          case INITIALIZER -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION || node.syntaxKind() == SyntaxKind.EXPRESSION_STATEMENT;
+          case UPDATE -> node.syntaxKind() == SyntaxKind.EXPRESSION_STATEMENT;
+          case CONDITION -> isExpression(node);
+          default -> isStatementBody(node);
+        };
+        case ENHANCED_FOR_LOOP -> switch (child.role()) {
+          case PARAMETER -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION;
+          case ITERABLE -> isExpression(node);
+          default -> isStatementBody(node);
+        };
+        case LABELED_STATEMENT -> isStatementBody(node);
         case TRY -> switch (child.role()) {
           case RESOURCE -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION || node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS
               || node.syntaxKind() == SyntaxKind.FIELD_ACCESS;
@@ -1025,7 +1069,9 @@ public final class SyntaxNode {
 
   private static boolean isStatement(SyntaxNode node) {
     return switch (node.syntaxKind()) {
-      case BLOCK, LOCAL_DECLARATION, EXPRESSION_STATEMENT, RETURN, THROW, IF, TRY, YIELD, EMPTY, TYPE_DECLARATION -> true;
+      case BLOCK, LOCAL_DECLARATION, EXPRESSION_STATEMENT, RETURN, THROW, IF, WHILE_LOOP, DO_WHILE_LOOP, FOR_LOOP, ENHANCED_FOR_LOOP,
+          LABELED_STATEMENT, BREAK, CONTINUE, TRY, YIELD, EMPTY, TYPE_DECLARATION ->
+        true;
       case UNSUPPORTED -> switch (node.sourceKind()) {
         case ASSERT, BLOCK, BREAK, CONTINUE, DO_WHILE_LOOP, ENHANCED_FOR_LOOP, EXPRESSION_STATEMENT, FOR_LOOP, IF, LABELED_STATEMENT,
             RETURN, EMPTY_STATEMENT, SWITCH, SYNCHRONIZED, THROW, TRY, VARIABLE, WHILE_LOOP, CLASS, INTERFACE, ENUM, RECORD, YIELD,
@@ -1035,6 +1081,12 @@ public final class SyntaxNode {
       };
       default -> false;
     };
+  }
+
+  private static boolean isStatementBody(SyntaxNode node) {
+    return isStatement(node) && node.sourceKind() != JavaSourceKind.VARIABLE && node.sourceKind() != JavaSourceKind.CLASS
+        && node.sourceKind() != JavaSourceKind.INTERFACE && node.sourceKind() != JavaSourceKind.ENUM
+        && node.sourceKind() != JavaSourceKind.RECORD;
   }
 
   private static boolean isAnnotationArray(SyntaxNode node) {

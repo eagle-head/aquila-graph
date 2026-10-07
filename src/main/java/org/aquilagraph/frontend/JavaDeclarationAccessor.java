@@ -1,5 +1,12 @@
 package org.aquilagraph.frontend;
 
+import com.sun.source.tree.WhileLoopTree;
+import com.sun.source.tree.DoWhileLoopTree;
+import com.sun.source.tree.ForLoopTree;
+import com.sun.source.tree.EnhancedForLoopTree;
+import com.sun.source.tree.LabeledStatementTree;
+import com.sun.source.tree.BreakTree;
+import com.sun.source.tree.ContinueTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
@@ -24,6 +31,7 @@ import org.jspecify.annotations.Nullable;
 
 /** Dispatches the closed declaration-property API through statically typed calls. */
 final class JavaDeclarationAccessor {
+  private static final String STATEMENT = "getStatement";
   private static final String MODIFIERS = "getModifiers";
   private static final String TYPE_PARAMETERS = "getTypeParameters";
   private static final Map<Method, Function<Object, @Nullable Object>> READERS = Map.ofEntries(
@@ -46,6 +54,19 @@ final class JavaDeclarationAccessor {
       reader(MethodTree.class, "getReceiverParameter", MethodTree::getReceiverParameter),
       reader(MethodTree.class, "getReturnType", MethodTree::getReturnType), reader(MethodTree.class, "getThrows", MethodTree::getThrows),
       reader(MethodTree.class, TYPE_PARAMETERS, MethodTree::getTypeParameters), reader(Tree.class, "getKind", Tree::getKind),
+      reader(WhileLoopTree.class, "getCondition", WhileLoopTree::getCondition),
+      reader(WhileLoopTree.class, STATEMENT, WhileLoopTree::getStatement),
+      reader(DoWhileLoopTree.class, "getCondition", DoWhileLoopTree::getCondition),
+      reader(DoWhileLoopTree.class, STATEMENT, DoWhileLoopTree::getStatement),
+      reader(ForLoopTree.class, "getInitializer", ForLoopTree::getInitializer),
+      reader(ForLoopTree.class, "getCondition", ForLoopTree::getCondition), reader(ForLoopTree.class, "getUpdate", ForLoopTree::getUpdate),
+      reader(ForLoopTree.class, STATEMENT, ForLoopTree::getStatement),
+      reader(EnhancedForLoopTree.class, "getVariable", EnhancedForLoopTree::getVariable),
+      reader(EnhancedForLoopTree.class, "getExpression", EnhancedForLoopTree::getExpression),
+      reader(EnhancedForLoopTree.class, STATEMENT, EnhancedForLoopTree::getStatement),
+      reader(LabeledStatementTree.class, "getLabel", LabeledStatementTree::getLabel),
+      reader(LabeledStatementTree.class, STATEMENT, LabeledStatementTree::getStatement),
+      reader(BreakTree.class, "getLabel", BreakTree::getLabel), reader(ContinueTree.class, "getLabel", ContinueTree::getLabel),
       reader(NewArrayTree.class, "getType", NewArrayTree::getType),
       reader(NewArrayTree.class, "getDimensions", NewArrayTree::getDimensions),
       reader(NewArrayTree.class, "getInitializers", NewArrayTree::getInitializers),

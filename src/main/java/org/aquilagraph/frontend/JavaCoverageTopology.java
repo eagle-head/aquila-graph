@@ -1,6 +1,13 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.AnnotationTree;
+import com.sun.source.tree.WhileLoopTree;
+import com.sun.source.tree.DoWhileLoopTree;
+import com.sun.source.tree.ForLoopTree;
+import com.sun.source.tree.EnhancedForLoopTree;
+import com.sun.source.tree.LabeledStatementTree;
+import com.sun.source.tree.BreakTree;
+import com.sun.source.tree.ContinueTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
@@ -108,7 +115,16 @@ final class JavaCoverageTopology {
     if (tree instanceof VariableTree) {
       return Optional.of(VariableTree.class);
     }
-    return Optional.empty();
+    return switch (tree) {
+      case WhileLoopTree _ -> Optional.of(WhileLoopTree.class);
+      case DoWhileLoopTree _ -> Optional.of(DoWhileLoopTree.class);
+      case ForLoopTree _ -> Optional.of(ForLoopTree.class);
+      case EnhancedForLoopTree _ -> Optional.of(EnhancedForLoopTree.class);
+      case LabeledStatementTree _ -> Optional.of(LabeledStatementTree.class);
+      case BreakTree _ -> Optional.of(BreakTree.class);
+      case ContinueTree _ -> Optional.of(ContinueTree.class);
+      default -> Optional.empty();
+    };
   }
 
   static boolean isDerivedCompactParameter(Tree tree, @Nullable TreePath parent, CompilationUnitTree unit, SourceFile source,

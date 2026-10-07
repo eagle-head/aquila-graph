@@ -62,6 +62,58 @@ class Neo4jAstResultRepositoryNeo4jIT {
   @TempDir Path directory;
 
   @Test
+  void givenCompleteIterationSyntax_whenRetainedAndQueried_thenRealDatabasePreservesHeadersBindingsLabelsAndCfgRefusal() throws IOException {
+    // Arrange
+    var settings = settings();
+    var ast = frontend().produce(snapshot("""
+        import java.lang.annotation.*;
+        @Target(ElementType.LOCAL_VARIABLE) @interface Mark {}
+        class Stored { void subject(int n, int[] values, Iterable<String> iterable) {
+          outer: while (n > 0) {
+            inner: do { n--; if (n == 1) continue outer; break inner; } while (n > 0);
+          }
+          for (@Mark final int i = 0, j = 1; i < n; n--) { if (i == j) break; }
+          for (;;) break;
+          for (var value : values) { int copy = value; }
+          for (var _ : iterable) ;
+        } }
+        """), configuration(), AstProfile.JAVA_SOURCE_EXPANDED);
+    var original = ast.result().orElseThrow();
+    var method = original.program().methods().stream().filter(value -> value.name().equals("subject")).findFirst().orElseThrow();
+    try {
+      // Act
+      var publication = retention(settings).retainAst(ast);
+      var lookup = retention(settings).findAst(original.identity());
+      var retrieved = lookup.outcome().orElseThrow().result().orElseThrow();
+      var nodes = retrieved.body(method.methodKey()).orElseThrow().root().descendantsAndSelf();
+      var cfg = CfgDerivers.standard().derive(retrieved, new CfgRequest(retrieved.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
+      // Assert
+      assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
+      assertEquals(PublicationStatus.SAVED, publication.status());
+      assertEquals(AstLookupStatus.FOUND, lookup.status());
+      assertEquals(original.identity(), retrieved.identity());
+      assertEquals(original.aggregate(), retrieved.aggregate());
+      assertEquals(original.coverage(), retrieved.coverage());
+      assertEquals(AstCodec.materialize(original), AstCodec.materialize(retrieved));
+      assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retrieved));
+      assertEquals(MethodCfgState.UNSUPPORTED, cfg.methods().getFirst().state());
+      assertEquals(AstCompletion.COMPLETE, retrieved.completion());
+      assertEquals(List.of(Optional.of("outer"), Optional.of("inner")), nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.LABELED_STATEMENT).map(node -> node.value(SyntaxValue.StatementLabel.class).name()).toList());
+      var loops = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.FOR_LOOP).toList();
+      assertEquals(List.of("i", "j"), loops.getFirst().children(SyntaxRole.INITIALIZER).stream().map(node -> node.value(SyntaxValue.LocalDeclaration.class).name()).toList());
+      assertEquals(List.of("final"), loops.getFirst().children(SyntaxRole.INITIALIZER).getFirst().value(SyntaxValue.LocalDeclaration.class).writtenModifiers());
+      assertEquals(1, loops.getFirst().children(SyntaxRole.INITIALIZER).getFirst().children(SyntaxRole.ANNOTATION).size());
+      assertEquals(List.of(SyntaxRole.BODY), loops.getLast().children().stream().map(child -> child.role()).toList());
+      var enhanced = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.ENHANCED_FOR_LOOP).toList();
+      assertEquals(List.of("value", "_"), enhanced.stream().map(node -> node.requiredChild(SyntaxRole.PARAMETER).value(SyntaxValue.LocalDeclaration.class).name()).toList());
+      assertTrue(enhanced.stream().allMatch(node -> node.requiredChild(SyntaxRole.PARAMETER).value(SyntaxValue.LocalDeclaration.class).bindingEvidence().filter(binding -> binding.context() == LocalBindingEvidence.Context.ENHANCED_FOR && binding.typeForm() == LocalBindingEvidence.TypeForm.INFERRED).isPresent()));
+      assertEquals(SyntaxKind.EMPTY, enhanced.getLast().requiredChild(SyntaxRole.BODY).syntaxKind());
+    } finally {
+      deleteAst(settings, original.identity());
+    }
+  }
+
+  @Test
   void givenCompatibleOlderAndCurrentResults_whenSavedAndQueried_thenRealDatabasePreservesTheirDistinctFormatsAndIdentities()
       throws IOException {
     // Arrange
@@ -75,6 +127,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
     var legacyResult = legacy.result().orElseThrow();
     var previousResult = previous.result().orElseThrow();
     var updateResult = SourceAnalysisFixture.updateResult(currentResult);
+    var arrayResult = SourceAnalysisFixture.arrayResult(currentResult);
 
     try {
       // Act
@@ -82,6 +135,8 @@ class Neo4jAstResultRepositoryNeo4jIT {
       var previousPublication = retention(settings).retainAst(previous);
       var currentPublication = retention(settings).retainAst(current);
       var updatePublication = retention(settings).retainAst(AstOutcome.available(updateResult));
+      var arrayPublication = retention(settings).retainAst(AstOutcome.available(arrayResult));
+      var arrayLookup = retention(settings).findAst(arrayResult.identity());
       var legacyLookup = retention(settings).findAst(legacyResult.identity());
       var previousLookup = retention(settings).findAst(previousResult.identity());
       var currentLookup = retention(settings).findAst(currentResult.identity());
@@ -92,9 +147,13 @@ class Neo4jAstResultRepositoryNeo4jIT {
           new CfgRequest(retrievedPrevious.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
 
       // Assert
+      assertEquals(PublicationStatus.SAVED, arrayPublication.status());
+      assertEquals(AstLookupStatus.FOUND, arrayLookup.status());
+      assertEquals("java-source/5", arrayLookup.outcome().orElseThrow().result().orElseThrow().identity().sourceModelVersion());
+      assertArrayEquals(AstCodec.encode(arrayResult), AstCodec.encode(arrayLookup.outcome().orElseThrow().result().orElseThrow()));
       assertEquals("java-source/2", legacyResult.identity().sourceModelVersion());
       assertEquals("java-source/3", retrievedPrevious.identity().sourceModelVersion());
-      assertEquals("java-source/5", currentResult.identity().sourceModelVersion());
+      assertEquals("java-source/6", currentResult.identity().sourceModelVersion());
       assertEquals("java-source/4", updateLookup.outcome().orElseThrow().result().orElseThrow().identity().sourceModelVersion());
       assertEquals(PublicationStatus.SAVED, updatePublication.status());
       assertEquals(AstLookupStatus.FOUND, updateLookup.status());
@@ -130,14 +189,15 @@ class Neo4jAstResultRepositoryNeo4jIT {
       assertArrayEquals(AstCodec.encode(previousResult), AstCodec.encode(retrievedPrevious));
       assertArrayEquals(AstCodec.encode(legacyResult), AstCodec.encode(legacyLookup.outcome().orElseThrow().result().orElseThrow()));
       assertArrayEquals(AstCodec.encode(currentResult), AstCodec.encode(currentLookup.outcome().orElseThrow().result().orElseThrow()));
-      withSession(settings, session -> assertEquals(List.of("java-source/2", "java-source/3", "java-source/4", "java-source/5"), session.run(
+      withSession(settings, session -> assertEquals(List.of("java-source/2", "java-source/3", "java-source/4", "java-source/5", "java-source/6"), session.run(
           "MATCH (result:AstEntity:AstResult) WHERE result.astResultKey IN $subjects RETURN result.formatVersion AS format ORDER BY format",
-          Values.parameters("subjects", List.of(legacyResult.identity().astResultKey(), previousResult.identity().astResultKey(), updateResult.identity().astResultKey(), currentResult.identity().astResultKey())))
+          Values.parameters("subjects", List.of(legacyResult.identity().astResultKey(), previousResult.identity().astResultKey(), updateResult.identity().astResultKey(), arrayResult.identity().astResultKey(), currentResult.identity().astResultKey())))
           .list(record -> record.get("format").asString())));
     } finally {
       deleteAst(settings, legacyResult.identity());
       deleteAst(settings, previousResult.identity());
       deleteAst(settings, updateResult.identity());
+      deleteAst(settings, arrayResult.identity());
       deleteAst(settings, currentResult.identity());
     }
   }
@@ -189,7 +249,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
       assertEquals(List.of(1, 2, 0), arrays.get(1).children(SyntaxRole.ARRAY_ELEMENT).stream().map(node -> node.children(SyntaxRole.ARRAY_ELEMENT).size()).toList());
       assertEquals(List.of("2", "3"), arrays.get(1).children(SyntaxRole.ARRAY_ELEMENT).get(1).children(SyntaxRole.ARRAY_ELEMENT).stream().map(node -> node.value(SyntaxValue.Literal.class).text()).toList());
       assertEquals(new SyntaxValue.ArrayCreation(false, true, List.of()), arrays.getLast().value());
-      withSession(settings, session -> assertEquals("java-source/5", session.run("MATCH (result:AstEntity:AstResult {astResultKey: $scope}) RETURN result.formatVersion AS format",
+      withSession(settings, session -> assertEquals("java-source/6", session.run("MATCH (result:AstEntity:AstResult {astResultKey: $scope}) RETURN result.formatVersion AS format",
           Values.parameters("scope", original.identity().astResultKey())).single().get("format").asString()));
     } finally {
       deleteAst(settings, original.identity());

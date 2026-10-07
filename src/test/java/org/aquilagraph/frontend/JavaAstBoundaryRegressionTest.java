@@ -114,8 +114,8 @@ class JavaAstBoundaryRegressionTest {
     Files.writeString(temporaryDirectory.resolve("UnsupportedOccurrences.java"), """
         class UnsupportedOccurrences {
           void execute() {
-            while (false) { }
-            while (false) { }
+            synchronized (this) { }
+            synchronized (this) { }
           }
         }
         """);

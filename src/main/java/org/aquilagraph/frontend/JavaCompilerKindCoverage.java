@@ -94,13 +94,15 @@ final class JavaCompilerKindCoverage {
   }
 
   private static List<LanguageFeatureClassification> statementClassifications() {
-    return List.of(diagnosed("ASSERT"), represented("BLOCK", METHOD_SYNTAX_BOUNDARY), diagnosed("BREAK"),
-        represented("CASE", METHOD_SYNTAX_BOUNDARY), represented("CATCH", METHOD_SYNTAX_BOUNDARY), diagnosed("CONTINUE"),
-        diagnosed("DO_WHILE_LOOP"), represented("EMPTY_STATEMENT", METHOD_SYNTAX_BOUNDARY), diagnosed("ENHANCED_FOR_LOOP"),
-        represented("EXPRESSION_STATEMENT", METHOD_SYNTAX_BOUNDARY), diagnosed("FOR_LOOP"), represented("IF", METHOD_SYNTAX_BOUNDARY),
-        diagnosed("LABELED_STATEMENT"), represented("RETURN", METHOD_SYNTAX_BOUNDARY), diagnosed("SWITCH"), diagnosed("SYNCHRONIZED"),
-        represented("THROW", METHOD_SYNTAX_BOUNDARY), represented("TRY", METHOD_SYNTAX_BOUNDARY), diagnosed("WHILE_LOOP"),
-        represented("YIELD", METHOD_SYNTAX_BOUNDARY));
+    return List.of(diagnosed("ASSERT"), represented("BLOCK", METHOD_SYNTAX_BOUNDARY), represented("BREAK", METHOD_SYNTAX_BOUNDARY),
+        represented("CASE", METHOD_SYNTAX_BOUNDARY), represented("CATCH", METHOD_SYNTAX_BOUNDARY),
+        represented("CONTINUE", METHOD_SYNTAX_BOUNDARY), represented("DO_WHILE_LOOP", METHOD_SYNTAX_BOUNDARY),
+        represented("EMPTY_STATEMENT", METHOD_SYNTAX_BOUNDARY), represented("ENHANCED_FOR_LOOP", METHOD_SYNTAX_BOUNDARY),
+        represented("EXPRESSION_STATEMENT", METHOD_SYNTAX_BOUNDARY), represented("FOR_LOOP", METHOD_SYNTAX_BOUNDARY),
+        represented("IF", METHOD_SYNTAX_BOUNDARY), represented("LABELED_STATEMENT", METHOD_SYNTAX_BOUNDARY),
+        represented("RETURN", METHOD_SYNTAX_BOUNDARY), diagnosed("SWITCH"), diagnosed("SYNCHRONIZED"),
+        represented("THROW", METHOD_SYNTAX_BOUNDARY), represented("TRY", METHOD_SYNTAX_BOUNDARY),
+        represented("WHILE_LOOP", METHOD_SYNTAX_BOUNDARY), represented("YIELD", METHOD_SYNTAX_BOUNDARY));
   }
 
   private static List<LanguageFeatureClassification> expressionClassifications() {

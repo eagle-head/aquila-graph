@@ -166,6 +166,8 @@ public sealed interface CoverageEvidenceValue {
 
   /** Semantic value forms; these are data identities, not implementation class identities. */
   enum Tag {
+    /** Optional written statement or transfer label. */
+    STATEMENT_LABEL,
     /** Written diamond syntax without written type arguments. */
     DIAMOND_TYPE,
     /** No additional syntax value. */

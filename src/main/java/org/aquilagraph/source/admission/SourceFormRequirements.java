@@ -18,15 +18,19 @@ final class SourceFormRequirements {
       case CASE -> node.value(SyntaxValue.SwitchCase.class).form() == SyntaxValue.SwitchCaseForm.RULE;
       case UPDATE -> isAssignable(node.requiredChild(SyntaxRole.OPERAND));
       case COMPOUND_ASSIGNMENT -> isAssignable(node.requiredChild(SyntaxRole.LOCATION));
+      case ENHANCED_FOR_LOOP -> node.requiredChild(SyntaxRole.PARAMETER).value(SyntaxValue.LocalDeclaration.class).bindingEvidence()
+          .filter(binding -> binding.context() == LocalBindingEvidence.Context.ENHANCED_FOR && binding.declarationKey().isPresent())
+          .isPresent();
       case TYPE_CAST, OBJECT_CREATION -> node.optionalChild(SyntaxRole.TYPE_OPERAND).isPresent();
       case ARRAY_CREATION -> {
         var array = node.value(SyntaxValue.ArrayCreation.class);
         yield node.optionalChild(SyntaxRole.TYPE_OPERAND).isPresent() == array.writtenType()
             && node.children(SyntaxRole.ANNOTATION).size() == array.dimensionAnnotationCounts().stream().mapToInt(Integer::intValue).sum();
       }
-      case LOCAL_DECLARATION ->
-        node.optionalChild(SyntaxRole.DECLARED_TYPE).isPresent() || node.value(SyntaxValue.LocalDeclaration.class).bindingEvidence()
-            .filter(binding -> binding.typeForm() == LocalBindingEvidence.TypeForm.INFERRED && binding.initialized()).isPresent();
+      case LOCAL_DECLARATION -> node.optionalChild(SyntaxRole.DECLARED_TYPE).isPresent() || node.value(SyntaxValue.LocalDeclaration.class)
+          .bindingEvidence().filter(binding -> binding.typeForm() == LocalBindingEvidence.TypeForm.INFERRED
+              && (binding.initialized() || binding.context() == LocalBindingEvidence.Context.ENHANCED_FOR))
+          .isPresent();
       case INVOCATION ->
         !node.value(SyntaxValue.Invocation.class).form().hasWrittenQualifier() || node.optionalChild(SyntaxRole.QUALIFIER).isPresent();
       case FIELD_ACCESS ->
@@ -40,8 +44,9 @@ final class SourceFormRequirements {
       case COMPILATION_UNIT, ANNOTATION, ANNOTATION_ARRAY, ANNOTATION_ARGUMENT, ANNOTATION_ELEMENT_NAME, ANNOTATION_NAME_REFERENCE,
           ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST, TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, PARAMETER_DECLARATION,
           RECEIVER_PARAMETER, RECEIVER_NAME, TYPE_USE, METHOD_DECLARATION, RECORD_COMPONENT_DECLARATION, BLOCK, EXPRESSION_STATEMENT,
-          RETURN, THROW, IF, CATCH, SWITCH_EXPRESSION, YIELD, VARIABLE_ACCESS, LITERAL, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR,
-          ASSIGNMENT, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, CONDITIONAL_EXPRESSION, EMPTY ->
+          RETURN, THROW, IF, WHILE_LOOP, DO_WHILE_LOOP, FOR_LOOP, LABELED_STATEMENT, BREAK, CONTINUE, CATCH, SWITCH_EXPRESSION, YIELD,
+          VARIABLE_ACCESS, LITERAL, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED,
+          CONDITIONAL_EXPRESSION, EMPTY ->
         true;
     };
   }

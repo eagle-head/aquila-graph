@@ -58,6 +58,8 @@ final class CoverageSourceProjection {
       case SyntaxValue.Provides provides -> structure(Tag.PROVIDES, field("service", names(provides.service())),
           field("providers", sequence(provides.providers(), CoverageSourceProjection::names)));
       case SyntaxValue.LocalDeclaration local -> localDeclaration(local);
+      case SyntaxValue.StatementLabel label ->
+        structure(Tag.STATEMENT_LABEL, field(NAME_FIELD, optional(label.name(), CoverageSourceProjection::text)));
       case SyntaxValue.AnnotationArgument argument ->
         structure(Tag.ANNOTATION_ARGUMENT, field("explicitName", optional(argument.explicitName(), CoverageSourceProjection::text)),
             field("selectedElementKey", text(argument.selectedElementKey())), field(VALUE_FIELD, annotationValue(argument.value())));

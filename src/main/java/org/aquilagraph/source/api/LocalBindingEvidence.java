@@ -36,6 +36,8 @@ public record LocalBindingEvidence(Optional<String> declarationKey, TypeForm typ
   public enum Context {
     /** Ordinary local or iteration binding. */
     LOCAL,
+    /** Enhanced-for control variable, whose type may be inferred without an initializer. */
+    ENHANCED_FOR,
     /** Exception handler parameter. */
     CATCH,
     /** Resource declaration. */

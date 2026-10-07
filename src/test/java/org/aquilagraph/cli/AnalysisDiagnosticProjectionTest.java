@@ -23,6 +23,44 @@ import org.junit.jupiter.api.Test;
 
 class AnalysisDiagnosticProjectionTest {
   @Test
+  void givenNestedIterationInBothProfiles_whenPresented_thenOnlyBoundedPresentationKeepsTheHistoricalStatementBoundary() throws IOException {
+    // Arrange
+    var source = "class Example { void value(int n) { outer: while (n > 0) { for (int i = 0; i < n; i++) { continue outer; } break; } } }";
+    var bounded = analyze(source, AstProfile.JAVA_SOURCE_BOUNDED);
+    var expanded = analyze(source, AstProfile.JAVA_SOURCE_EXPANDED);
+    var originalBounded = bounded.diagnostics();
+    var originalExpanded = expanded.diagnostics();
+    // Act
+    var boundedProjection = AnalysisRunSummary.from(bounded).diagnostics();
+    var expandedProjection = AnalysisRunSummary.from(expanded).diagnostics();
+    // Assert
+    assertEquals(List.of("frontend.unsupported-tree-kind.labeled-statement", "frontend.unsupported-tree-kind.while-loop",
+        "frontend.unsupported-tree-kind.for-loop", "frontend.unsupported-tree-kind.continue", "frontend.unsupported-tree-kind.break",
+        "frontend.unsupported-syntax"), boundedProjection.stream().map(DiagnosticSummary::code).toList());
+    assertEquals("Unsupported Java construct in method body: LABELED_STATEMENT", boundedProjection.getLast().message());
+    assertEquals(originalExpanded.stream().map(DiagnosticSummary::from).toList(), expandedProjection);
+    assertEquals(originalBounded, bounded.diagnostics());
+    assertEquals(originalExpanded, expanded.diagnostics());
+    assertEquals(AstCompletion.COMPLETE, expanded.representation().ast().completion());
+  }
+
+  @Test
+  void givenRealCompilerErrorWithinAnIteration_whenPresented_thenEveryGenuineSourceErrorRemainsVisible() throws IOException {
+    // Arrange
+    var run = analyze("class Example { void value() { while (missing) { } } }", AstProfile.JAVA_SOURCE_BOUNDED);
+    var genuine = run.representation().ast().diagnostics().stream().filter(diagnostic -> !diagnostic.code().startsWith("frontend.unsupported-")).toList();
+    // Act
+    var projection = AnalysisRunSummary.from(run).diagnostics();
+    // Assert
+    assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
+    assertEquals(true, genuine.stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
+    for (var diagnostic : genuine) {
+      assertEquals(run.representation().ast().diagnostics().stream().filter(diagnostic::equals).count(),
+          projection.stream().filter(summary -> summary.equals(DiagnosticSummary.from(diagnostic))).count());
+    }
+  }
+
+  @Test
   void givenBoundedAndExpandedProfiles_whenRepeatedRefusalsArePresented_thenOnlyBoundedConsoleUsesHistoricalLabels() throws IOException {
     // Arrange
     var source = "class Example { int value(int a) { (a) = 1; (a) = 2; return a; } }";

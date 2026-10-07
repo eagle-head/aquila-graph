@@ -498,6 +498,20 @@ public sealed interface SyntaxValue {
     }
   }
 
+  /**
+   * Written label name of a statement or transfer, absent for an unlabeled transfer.
+   *
+   * @param name
+   *          optional written identifier
+   */
+  record StatementLabel(Optional<String> name) implements SyntaxValue {
+    /** Validates the optional written identifier. */
+    public StatementLabel {
+      Objects.requireNonNull(name, "name");
+      name.ifPresent(SyntaxValueSupport::requireName);
+    }
+  }
+
   /** Shared source-name value boundary for typed syntax facts. */
   abstract sealed class Symbol implements SyntaxValue
       permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration, ModuleDeclaration, ModuleDirective, TypeDeclaration,

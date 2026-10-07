@@ -129,7 +129,8 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.POSTFIX_INCREMENT,
       Tree.Kind.POSTFIX_DECREMENT,
       Tree.Kind.INTERSECTION_TYPE,
-      Tree.Kind.YIELD);
+      Tree.Kind.WHILE_LOOP, Tree.Kind.DO_WHILE_LOOP, Tree.Kind.FOR_LOOP, Tree.Kind.ENHANCED_FOR_LOOP,
+      Tree.Kind.LABELED_STATEMENT, Tree.Kind.BREAK, Tree.Kind.CONTINUE, Tree.Kind.YIELD);
   @TempDir Path temporaryDirectory;
 
   @Test
@@ -211,6 +212,12 @@ class JavaCompilerKindCoverageTest {
             value *= 2; value /= 2; value %= 3; value += 2; value -= 1;
             value <<= 1; value >>= 1; value >>>= 1; value &= 7; value ^= 3; value |= 2;
             ++value; --value; value++; value--;
+            iteration: while (flag) {
+              for (int i = 0; i < value; i++) { if (i == 1) continue iteration; }
+              break iteration;
+            }
+            do { value--; } while (flag);
+            for (int element : values) { value += element; }
             Object intersection = (Contract & java.io.Serializable) null;
             int arithmetic = (-value) + (~value) + value * 2 + value / 2 + value % 2 - 1
                 + (value << 1) + (value >> 1) + (value >>> 1) + (value & 1) + (value ^ 1) + (value | 1);

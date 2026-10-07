@@ -56,6 +56,51 @@ class AstCodecContractTest {
   @TempDir Path directory;
 
   @Test
+  void givenCompatibleArrayFormat_whenDecoded_thenItsOriginalIdentityAndArrayValuesRemainSupported() throws IOException {
+    // Arrange
+    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+        "class Stored { int[][] value(int n) { return new int[n][]; } }")));
+    var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+        AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
+    var previous = SourceAnalysisFixture.arrayResult(current);
+    var bytes = AstCodec.encode(previous);
+    // Act
+    var decoded = AstCodec.decode(bytes, previous.identity());
+    // Assert
+    assertEquals("java-source/5", decoded.identity().sourceModelVersion());
+    assertEquals("java-language-feature-coverage:307ae3a6c3bf92cbb9cae296574a250b2558b403e949f57d534a1ef141a17e0e", decoded.coverage().coverage().contractIdentity());
+    assertEquals(previous.identity(), decoded.identity());
+    assertEquals(current.aggregate(), decoded.aggregate());
+    assertEquals(AstCompletion.COMPLETE, decoded.completion());
+    assertArrayEquals(bytes, AstCodec.encode(decoded));
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenIterationValuesInOlderFrames_whenReadOrWritten_thenFormatGuardsRejectThem() {
+    return Stream.of("java-source/2", "java-source/3", "java-source/4", "java-source/5").map(format -> DynamicTest.dynamicTest(format, () -> {
+      // Arrange
+      var frames = List.of(List.of("syntax-kind", "FOR_LOOP"), List.of("syntax-kind", "BREAK"), List.of("syntax-role", "UPDATE"),
+          List.of("syntax-role", "ITERABLE"), List.of("local-binding-context", "ENHANCED_FOR"), List.of("coverage-evidence-value/tag", "STATEMENT_LABEL"));
+      var codec = new RetainedValueCodec(false, format);
+      var label = new SyntaxValue.StatementLabel(Optional.of("outer"));
+      // Act
+      var writingFailure = assertThrows(IllegalArgumentException.class, () -> codec.write(new CanonicalValueWriter(format), label));
+      var failures = frames.stream().map(frame -> {
+        var writer = new CanonicalValueWriter(format);
+        writer.text(frame.getFirst());
+        writer.text(frame.getLast());
+        return assertThrows(IllegalArgumentException.class, () -> codec.read(new CanonicalValueReader(writer.toByteArray(), format)));
+      }).toList();
+      // Assert
+      assertTrue(writingFailure.getMessage().contains("java-source/6"));
+      assertTrue(failures.subList(0, 4).stream().allMatch(failure -> failure.getMessage().contains("java-source/6")), failures.toString());
+      assertEquals(format.equals("java-source/2") ? "Copied binding values require the current retained AST format: local-binding-context"
+          : "Iteration statements require retained AST format java-source/6", failures.get(4).getMessage());
+      assertTrue(failures.get(5).getMessage().contains("java-source/6"));
+    }));
+  }
+
+  @Test
   void givenCompatibleOlderResult_whenDecodedAndDerived_thenOriginalIdentityAndValuesRemainUsable() throws IOException {
     // Arrange
     var current = fixture();
@@ -69,7 +114,7 @@ class AstCodecContractTest {
         new CfgRequest(decoded.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
 
     // Assert
-    assertEquals("java-source/5", current.identity().sourceModelVersion());
+    assertEquals("java-source/6", current.identity().sourceModelVersion());
     assertEquals("java-source/2", legacy.identity().sourceModelVersion());
     assertNotEquals(current.identity(), legacy.identity());
     assertEquals(legacy.identity(), decoded.identity());
@@ -136,7 +181,7 @@ class AstCodecContractTest {
 
     // Assert
     assertTrue(failure.getMessage().contains("Unsupported retained AST format: java-source/future"));
-    assertEquals("java-source/5", identity.sourceModelVersion());
+    assertEquals("java-source/6", identity.sourceModelVersion());
   }
 
   @Test
@@ -247,7 +292,7 @@ class AstCodecContractTest {
     var failure = assertThrows(IllegalArgumentException.class, () -> new CanonicalValueReader(bytes, "java-source/2"));
 
     // Assert
-    assertEquals("Unsupported canonical value format: java-source/5", failure.getMessage());
+    assertEquals("Unsupported canonical value format: java-source/6", failure.getMessage());
   }
 
   @Test
