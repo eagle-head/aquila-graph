@@ -264,6 +264,7 @@ final class JavaAstAggregateBuilder {
       var methodKey = entry.getKey();
       var registration = entry.getValue();
       var root = registration.root();
+      LocalBindingDeclarations.validate(methodKey, root);
       if (!sources.containsKey(root.sourceFileKey())) {
         throw new IllegalArgumentException("Method body source is not in the captured snapshot: " + methodKey);
       }
@@ -537,7 +538,7 @@ final class JavaAstAggregateBuilder {
     var annotationTargets = new HashMap<String, List<SyntaxSemanticEdge>>();
     var annotationParents = new HashMap<String, SyntaxNode>();
     var recordTypeOwners = new HashMap<String, SyntaxNode>();
-    var fieldGroups = SharedFieldDeclarations.index(List.copyOf(nodes.values()));
+    var fieldGroups = SharedVariableDeclarations.index(List.copyOf(nodes.values()));
     for (var parent : nodes.values()) {
       parent.children().stream().filter(child -> child.role() == SyntaxRole.ANNOTATION)
           .forEach(child -> annotationParents.put(child.node().nodeId(), parent));

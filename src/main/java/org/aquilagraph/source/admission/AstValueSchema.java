@@ -106,6 +106,7 @@ import org.aquilagraph.source.api.SyntaxStructuralEdge;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.ConversionEvidence;
 import org.aquilagraph.source.api.ChildUseEvidence;
 import org.aquilagraph.source.api.UnmatchedSourceFact;
@@ -381,7 +382,12 @@ final class AstValueSchema {
     enumeration(types, SyntaxValue.None.class, "syntax-value/none");
     enumeration(types, SyntaxValue.CompilationUnitForm.class, "syntax-value/compilation-unit-form");
     record(types, SyntaxValue.QualifiedName.class, "syntax-value/qualified-name", "components");
-    record(types, SyntaxValue.LocalDeclaration.class, "syntax-value/local-declaration", NAME_FIELD, "writtenType", WRITTEN_MODIFIERS_FIELD);
+    record(types, SyntaxValue.LocalDeclaration.class, "syntax-value/local-binding", NAME_FIELD, "writtenType", WRITTEN_MODIFIERS_FIELD,
+        "bindingEvidence");
+    record(types, LocalBindingEvidence.class, "local-binding-evidence", "declarationKey", "typeForm", "context", "initialized",
+        "annotations", "sharedAnnotationKeys");
+    enumeration(types, LocalBindingEvidence.TypeForm.class, "local-binding-type-form");
+    enumeration(types, LocalBindingEvidence.Context.class, "local-binding-context");
     record(types, SyntaxValue.TypeDeclaration.Shape.class, "syntax-value/type-declaration/shape", ANNOTATIONS_FIELD, "typeParameters",
         "superclass", "interfaces", "permittedSubclasses", "recordComponents", "members");
     enumeration(types, SyntaxValue.VariableDeclaration.Kind.class, "syntax-value/variable-declaration/kind");

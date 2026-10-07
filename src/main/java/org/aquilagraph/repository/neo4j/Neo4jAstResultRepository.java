@@ -19,6 +19,7 @@ import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstResult;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.Session;
@@ -178,7 +179,7 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
       throw new IllegalArgumentException("AST lookup requires one exact stored result root");
     }
     var root = roots.getFirst().get(PROPERTIES_FIELD).asMap();
-    if (!Neo4jAstResultCodec.FORMAT_VERSION.equals(root.get("formatVersion"))) {
+    if (!(root.get("formatVersion") instanceof String format) || !AstResult.supportsSourceModelVersion(format)) {
       return new StoredAst(Optional.of(root), true, List.of(), List.of());
     }
     var nodes = transaction.run("MATCH (entity:AstEntity {astResultKey: $scope}) "
@@ -214,7 +215,7 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
     if (!(version instanceof String format) || format.isBlank()) {
       throw new IllegalArgumentException("Stored AST result requires an explicit format version");
     }
-    if (!Neo4jAstResultCodec.FORMAT_VERSION.equals(format)) {
+    if (!AstResult.supportsSourceModelVersion(format)) {
       return new AstLookup(identity, AstLookupStatus.INCOMPATIBLE, Optional.empty(), Optional.of(format));
     }
     var sourceProfile = stored.root().orElseThrow().get("astProfileVersion");

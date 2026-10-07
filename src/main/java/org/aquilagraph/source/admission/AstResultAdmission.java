@@ -98,17 +98,24 @@ public final class AstResultAdmission {
    *           if copied values cannot establish an available result
    */
   public static AstResult admit(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision) {
+    return admit(input, profile, semanticRevision, AstResult.SOURCE_MODEL_VERSION);
+  }
+
+  static AstResult admit(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision, String format) {
     Objects.requireNonNull(input, "input");
     Objects.requireNonNull(profile, "profile");
     Objects.requireNonNull(semanticRevision, "semanticRevision");
     try {
+      if (!AstResult.supportsSourceModelVersion(format)) {
+        throw new IllegalArgumentException("Unsupported retained AST format: " + format);
+      }
       var completion = SourceRequirements.assess(input, profile);
       if (completion == AstCompletion.UNAVAILABLE) {
         throw new IllegalArgumentException("Copied source values cannot establish an available AST result");
       }
       var software = SoftwareVersion.from(input.snapshot(), input.environmentSnapshot());
-      var identity = AstIdentity.fromContent(software.signature(), AstResult.SOURCE_MODEL_VERSION, profile.version(), semanticRevision,
-          AstCodec.canonicalDigest(input, profile, semanticRevision));
+      var identity = AstIdentity.fromContent(software.signature(), format, profile.version(), semanticRevision,
+          AstCodec.canonicalDigest(input, profile, semanticRevision, format));
       return AstAggregateAdmission.result(identity, profile, completion, input);
     } catch (IllegalArgumentException exception) {
       throw new AstContractException("Copied AST result admission failed: " + exception.getMessage(), exception);

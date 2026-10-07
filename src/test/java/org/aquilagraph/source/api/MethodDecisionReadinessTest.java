@@ -469,7 +469,7 @@ class MethodDecisionReadinessTest {
   private static SyntaxNode assignmentBody() {
     return expressionBody(path -> {
       var location = node(path.child(SyntaxRole.LOCATION, 0), JavaSourceKind.IDENTIFIER, SyntaxKind.VARIABLE_ACCESS,
-          new SyntaxType.Resolved(INT), new SyntaxValue.SourceSymbol("local"), List.of(), Optional.of(reference(ReferenceKind.LOCAL, "local")));
+          new SyntaxType.Resolved(INT), new SyntaxValue.SourceSymbol("input"), List.of(), Optional.of(reference(ReferenceKind.PARAMETER, "input")));
       return node(path, JavaSourceKind.ASSIGNMENT, SyntaxKind.ASSIGNMENT, new SyntaxType.Resolved(INT), SyntaxValue.None.INSTANCE,
           List.of(new SyntaxChild(SyntaxRole.LOCATION, 0, location),
               new SyntaxChild(SyntaxRole.VALUE, 0, literal(path.child(SyntaxRole.VALUE, 0), INT))), Optional.empty());
@@ -508,7 +508,7 @@ class MethodDecisionReadinessTest {
     var local = node(path, JavaSourceKind.VARIABLE, SyntaxKind.LOCAL_DECLARATION, new SyntaxType.Resolved(INT),
         new SyntaxValue.LocalDeclaration("local"),
         List.of(new SyntaxChild(SyntaxRole.INITIALIZER, 0, literal(path.child(SyntaxRole.INITIALIZER, 0), INT))),
-        Optional.of(reference(ReferenceKind.LOCAL, "local")));
+        Optional.of(reference(ReferenceKind.LOCAL, METHOD + ":local_variable:0:0")));
     return block(BODY_PATH, List.of(local));
   }
 

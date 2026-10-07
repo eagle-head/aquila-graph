@@ -91,18 +91,18 @@ class TranslationDiagnosticTransportTest {
   }
 
   @Test
-  void givenFinalLocalsInNestedBlocksAndSiblingMethods_whenActualTranslationReturnsThroughEveryParent_thenBodyCreatorAddressesAndSourceOrderRemainUnchanged()
+  void givenUnsupportedUpdatesInNestedBlocksAndSiblingMethods_whenActualTranslationReturnsThroughEveryParent_thenBodyCreatorAddressesAndSourceOrderRemainUnchanged()
       throws IOException {
     // Arrange
     var source = """
         class Sample {
           int first() {
-            final int left = 1;
-            { final int nested = 2; }
+            int left = 1; left++;
+            { int nested = 2; nested++; }
             return left;
           }
           int second() {
-            final int right = 3;
+            int right = 3; right++;
             return right;
           }
         }
@@ -117,11 +117,11 @@ class TranslationDiagnosticTransportTest {
       var secondBodyPath = bodyPath(type.getMembers().indexOf(secondMethod));
       var expected = List.of(
           new DiagnosticEmission.Address(BODY_PRODUCER,
-              "type:Sample#first():" + firstBodyPath.child(SyntaxRole.STATEMENT, 0), 0),
+              "type:Sample#first():" + firstBodyPath.child(SyntaxRole.STATEMENT, 1).child(SyntaxRole.EXPRESSION, 0), 0),
           new DiagnosticEmission.Address(BODY_PRODUCER,
-              "type:Sample#first():" + firstBodyPath.child(SyntaxRole.STATEMENT, 1).child(SyntaxRole.STATEMENT, 0), 0),
+              "type:Sample#first():" + firstBodyPath.child(SyntaxRole.STATEMENT, 2).child(SyntaxRole.STATEMENT, 1).child(SyntaxRole.EXPRESSION, 0), 0),
           new DiagnosticEmission.Address(BODY_PRODUCER,
-              "type:Sample#second():" + secondBodyPath.child(SyntaxRole.STATEMENT, 0), 0));
+              "type:Sample#second():" + secondBodyPath.child(SyntaxRole.STATEMENT, 1).child(SyntaxRole.EXPRESSION, 0), 0));
       var bodies = new JavaMethodBodyTranslator(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
           fixture.compilation().treeInventory());
       var methods = new JavaMethodTranslator(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
@@ -142,11 +142,11 @@ class TranslationDiagnosticTransportTest {
       assertEquals(expected.subList(0, 2), addresses(eventsFrom(method, BODY_PRODUCER)), () -> method.diagnostics().toString());
       assertEquals(expected, addresses(eventsFrom(declaration, BODY_PRODUCER)), () -> declaration.diagnostics().toString());
       assertEquals(expected, addresses(emitted), () -> program.diagnostics().toString());
-      assertEquals(List.of(span(fixture.source(), "final int left = 1;"), span(fixture.source(), "final int nested = 2;"),
-          span(fixture.source(), "final int right = 3;")), emitted.stream().map(event -> event.diagnostic().origins().getFirst()).toList());
+      assertEquals(List.of(span(fixture.source(), "left++"), span(fixture.source(), "nested++"),
+          span(fixture.source(), "right++")), emitted.stream().map(event -> event.diagnostic().origins().getFirst()).toList());
       for (var event : emitted) {
-        assertEquals("frontend.unsupported-local-declaration-modifiers", event.diagnostic().code());
-        assertEquals("Local declaration modifiers are outside the supported semantic graph profile", event.diagnostic().message());
+        assertEquals("frontend.unsupported-syntax", event.diagnostic().code());
+        assertEquals("Unsupported Java construct in method body: POSTFIX_INCREMENT", event.diagnostic().message());
         assertUnslottedCapabilityEvent(event);
       }
       assertEquals(program.diagnostics(), program.diagnosticEmissions().stream().map(DiagnosticEmission::diagnostic).toList());

@@ -33,7 +33,7 @@ import org.aquilagraph.source.api.AnnotationScalar;
 import org.aquilagraph.source.api.AggregateFixture;
 import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.JavaSourceKind;
-import org.aquilagraph.source.api.SharedFieldDeclarations;
+import org.aquilagraph.source.api.SharedVariableDeclarations;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
@@ -1593,7 +1593,7 @@ class JavaAnnotationTargetAstTest {
   private static JavaAstAggregate sealWithRecomputedApplications(InputSnapshot snapshot,
       JavaAstAggregate aggregate, SyntaxNode root) {
     var nodes = root.descendantsAndSelf();
-    var groups = SharedFieldDeclarations.index(nodes);
+    var groups = SharedVariableDeclarations.index(nodes);
     var edges = new ArrayList<>(aggregate.semanticEdges().stream()
         .filter(edge -> edge.relation() != SyntaxSemanticRelation.ANNOTATED_TARGET).toList());
     nodes.forEach(parent -> parent.children(SyntaxRole.ANNOTATION).forEach(annotation -> edges.add(new SyntaxSemanticEdge(annotation.nodeId(),

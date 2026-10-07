@@ -282,15 +282,16 @@ public final class CfgAdmission {
 
   private static boolean supports(SyntaxNode node) {
     return switch (node.syntaxKind()) {
+      case LOCAL_DECLARATION -> !"_".equals(node.value(SyntaxValue.LocalDeclaration.class).name());
       case TRY -> node.children(SyntaxRole.RESOURCE).isEmpty() && node.children(SyntaxRole.FINALLY_BLOCK).isEmpty();
       case CASE -> node.value(SwitchCase.class).form() == SwitchCaseForm.RULE;
       case ASSIGNMENT -> switch (node.requiredChild(SyntaxRole.LOCATION).syntaxKind()) {
         case VARIABLE_ACCESS, FIELD_ACCESS, ARRAY_ACCESS -> true;
         default -> false;
       };
-      case BLOCK, LOCAL_DECLARATION, EXPRESSION_STATEMENT, RETURN, THROW, IF, CATCH, SWITCH_EXPRESSION, YIELD, INVOCATION, OBJECT_CREATION,
-          FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR, ARRAY_ACCESS, ARRAY_LENGTH,
-          PARENTHESIZED, TYPE_CAST, CONDITIONAL_EXPRESSION, EMPTY ->
+      case BLOCK, EXPRESSION_STATEMENT, RETURN, THROW, IF, CATCH, SWITCH_EXPRESSION, YIELD, INVOCATION, OBJECT_CREATION, FIELD_ACCESS,
+          VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED,
+          TYPE_CAST, CONDITIONAL_EXPRESSION, EMPTY ->
         true;
       default -> false;
     };

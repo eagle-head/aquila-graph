@@ -55,6 +55,15 @@ public final class SyntaxNode {
     }
     if (value instanceof SyntaxValue.LocalDeclaration local) {
       validateWrittenLocalType(local, sourceOwner, sourceOrigin, type);
+      if ("_".equals(local.name()) && semanticReference.isPresent()) {
+        throw new IllegalArgumentException("An unnamed binding cannot publish a referable identifier");
+      }
+      local.bindingEvidence().ifPresent(binding -> {
+        var selected = semanticReference.flatMap(SemanticReference::symbolKey);
+        if (selected.isPresent() && !selected.equals(binding.declarationKey())) {
+          throw new IllegalArgumentException("A local reference must select its exact binding identity");
+        }
+      });
     }
     if (syntaxKind == SyntaxKind.ANNOTATION_ARGUMENT) {
       validateAnnotationArgumentType((SyntaxValue.AnnotationArgument) value, type, childNodes);
@@ -504,11 +513,13 @@ public final class SyntaxNode {
           .orElseThrow(() -> new IllegalArgumentException("A copied local type requires its written declaration range"));
       var range = written.origin();
       var sameType = (type instanceof SyntaxType.Resolved resolved && written.type() instanceof SyntaxType.Resolved copied)
-          ? resolved.identity().equals(copied.identity())
+          ? resolved.identity().category() == copied.identity().category()
+              && resolved.identity().erasedName().equals(copied.identity().erasedName()) && resolved.structure().equals(copied.structure())
           : type.equals(written.type());
       if (!range.sourceFileKey().equals(sourceFileKey) || range.startOffset() < declaration.startOffset()
           || range.endOffsetExclusive() > declaration.endOffsetExclusive() || !sameType) {
-        throw new IllegalArgumentException("A copied local type must belong to its actual source declaration and attributed type");
+        throw new IllegalArgumentException("A copied local type must belong to its actual source declaration and attributed type: "
+            + local.name() + ", written=" + written + ", declaration=" + declaration + ", type=" + type);
       }
     });
   }
@@ -529,6 +540,12 @@ public final class SyntaxNode {
   }
 
   private static void validateReference(SyntaxKind kind, SyntaxValue syntaxValue, Optional<SemanticReference> reference) {
+    if (kind == SyntaxKind.LOCAL_DECLARATION && syntaxValue instanceof SyntaxValue.LocalDeclaration local && "_".equals(local.name())) {
+      if (reference.isPresent()) {
+        throw new IllegalArgumentException("An unnamed binding cannot publish a referable identifier");
+      }
+      return;
+    }
     if (kind == SyntaxKind.UNSUPPORTED) {
       return;
     }
@@ -773,8 +790,17 @@ public final class SyntaxNode {
       case METHOD_DECLARATION -> validateExecutableDeclaration(SyntaxValue.ExecutableDeclaration.class.cast(value), children);
       case BLOCK -> requireShape(children, Set.of(SyntaxRole.STATEMENT));
       case LOCAL_DECLARATION -> {
-        requireShape(children, Set.of(SyntaxRole.INITIALIZER, SyntaxRole.DECLARED_TYPE), SyntaxRole.INITIALIZER, 0, 1);
+        requireShape(children, Set.of(SyntaxRole.INITIALIZER, SyntaxRole.DECLARED_TYPE, SyntaxRole.ANNOTATION), SyntaxRole.INITIALIZER, 0,
+            1);
         validateBodyTypeAttachment(children, SyntaxRole.DECLARED_TYPE);
+        var local = (SyntaxValue.LocalDeclaration) value;
+        local.bindingEvidence().ifPresent(binding -> {
+          requireCount(children, SyntaxRole.INITIALIZER, binding.initialized() ? 1 : 0, binding.initialized() ? 1 : 0);
+          requireCount(children, SyntaxRole.ANNOTATION, binding.annotations(), binding.annotations());
+          if (binding.typeForm() != LocalBindingEvidence.TypeForm.DECLARED) {
+            requireCount(children, SyntaxRole.DECLARED_TYPE, 0, 0);
+          }
+        });
       }
       case TYPE_CAST -> {
         requireShape(children, Set.of(SyntaxRole.EXPRESSION, SyntaxRole.TYPE_OPERAND), SyntaxRole.EXPRESSION, 1, 1);

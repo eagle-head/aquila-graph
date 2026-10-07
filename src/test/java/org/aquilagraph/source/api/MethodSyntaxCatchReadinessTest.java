@@ -107,7 +107,7 @@ class MethodSyntaxCatchReadinessTest {
   }
 
   private static SemanticReference reference(ResolutionStatus status, List<String> alternatives) {
-    return new SemanticReference(ReferenceKind.LOCAL, status, status == ResolutionStatus.RESOLVED ? Optional.of("failure") : Optional.empty(),
+    return new SemanticReference(ReferenceKind.LOCAL, status, status == ResolutionStatus.RESOLVED ? Optional.of(METHOD + ":exception_parameter:0:0") : Optional.empty(),
         Optional.of(EXCEPTION.erasedName()), alternatives, List.of(EXCEPTION.erasedName(), "java.lang.Throwable", "java.lang.Object"));
   }
 }

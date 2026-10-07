@@ -16,7 +16,9 @@ import org.aquilagraph.identity.api.SourceOccurrence;
 /** Intrinsically admitted, content-qualified source result with one canonical aggregate. */
 public final class AstResult {
   /** Version of the retained source value schema. */
-  public static final String SOURCE_MODEL_VERSION = "java-source/2";
+  public static final String SOURCE_MODEL_VERSION = "java-source/3";
+  /** Compatible retained schema predating copied local binding envelopes. */
+  public static final String LEGACY_SOURCE_MODEL_VERSION = "java-source/2";
 
   private final AstIdentity qualifiedIdentity;
   private final AstProfile sourceProfile;
@@ -33,10 +35,21 @@ public final class AstResult {
     facts.aggregate().ifPresent(
         aggregate -> aggregate.nodes().forEach(node -> occurrences.put(node, new SourceOccurrence(qualifiedIdentity, node.nodeId()))));
     writtenOccurrences = Collections.unmodifiableMap(occurrences);
-    if (completion == AstCompletion.UNAVAILABLE || facts.aggregate().isEmpty()
-        || !SOURCE_MODEL_VERSION.equals(identity.sourceModelVersion()) || !identity.astProfileVersion().equals(profile.version())) {
+    if (completion == AstCompletion.UNAVAILABLE || facts.aggregate().isEmpty() || !supportsSourceModelVersion(identity.sourceModelVersion())
+        || !identity.astProfileVersion().equals(profile.version())) {
       throw new IllegalArgumentException("An admitted AST result requires a qualified available aggregate");
     }
+  }
+
+  /**
+   * Tests whether a retained schema can be admitted without changing its qualified identity.
+   *
+   * @param version
+   *          exact stored source schema version
+   * @return whether the current reader supports the schema
+   */
+  public static boolean supportsSourceModelVersion(String version) {
+    return SOURCE_MODEL_VERSION.equals(version) || LEGACY_SOURCE_MODEL_VERSION.equals(version);
   }
 
   /**

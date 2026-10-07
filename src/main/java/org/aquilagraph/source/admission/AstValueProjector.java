@@ -91,6 +91,8 @@ final class AstValueProjector {
               "repeatableContainerKey"),
           List.of(annotation.form(), annotation.arguments(), annotation.location(), annotation.applicableTargets(),
               annotation.closestTypeAdmissible(), annotation.argumentFailureCode(), annotation.repeatableContainerKey()));
+      case SyntaxValue.LocalDeclaration local when local.bindingEvidence().isEmpty() -> fields("syntax-value/local-declaration",
+          List.of("name", "writtenType", "writtenModifiers"), List.of(local.name(), local.writtenType(), local.writtenModifiers()));
       default -> registered(value);
     };
   }

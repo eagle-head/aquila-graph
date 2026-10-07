@@ -47,7 +47,7 @@ final class JavaAnnotationProjector {
     METHOD(ElementType.METHOD, true, false), VOID_METHOD(ElementType.METHOD, false, false),
     CONSTRUCTOR(ElementType.CONSTRUCTOR, true, false), FIELD(ElementType.FIELD, true, false), ENUM_CONSTANT(ElementType.FIELD, true, false),
     PARAMETER(ElementType.PARAMETER, true, false), RECEIVER(ElementType.PARAMETER, true, false),
-    RECORD_COMPONENT(ElementType.RECORD_COMPONENT, true, false);
+    RECORD_COMPONENT(ElementType.RECORD_COMPONENT, true, false), LOCAL_VARIABLE(ElementType.LOCAL_VARIABLE, true, false);
 
     private final ElementType target;
     private final boolean closestType;
@@ -196,6 +196,9 @@ final class JavaAnnotationProjector {
       ownerPath = ownerPath.getParentPath();
     }
     if (ownerPath == null) {
+      return false;
+    }
+    if (ownerPath.getLeaf() instanceof VariableTree variable && inventory.hasInferredVariableType(variable)) {
       return false;
     }
     Tree writtenType = switch (ownerPath.getLeaf()) {

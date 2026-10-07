@@ -13,6 +13,7 @@ import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.MethodSyntax;
 import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.LocalBindingEvidence;
 
 /** Source-only qualification over intrinsically admitted copied facts. */
 final class SourceRequirements {
@@ -30,7 +31,7 @@ final class SourceRequirements {
         || input.languageFeatureCoverageResult().validationEvidence().outcomes().stream()
             .anyMatch(outcome -> outcome.support().mode() == FeatureContextOutcome.Mode.FAILED)
         || !input.languageFeatureCoverageResult().validationEvidence().unmatchedFacts().isEmpty()
-        || input.aggregate().orElseThrow().nodes().stream().anyMatch(SourceRequirements::hasRequiredSourceGap)
+        || input.aggregate().orElseThrow().nodes().stream().anyMatch(node -> hasRequiredSourceGap(node) || hasProfileGap(node, profile))
         || input.program().methods().stream().flatMap(method -> input.aggregate().orElseThrow().methodSyntax(method.methodKey()).stream())
             .anyMatch(SourceRequirements::hasRequiredBodyFactGap)
         || input.program().types().stream().flatMap(type -> type.methods().stream()).filter(method -> method.hasBody())
@@ -39,6 +40,21 @@ final class SourceRequirements {
       return AstCompletion.INCOMPLETE;
     }
     return AstCompletion.COMPLETE;
+  }
+
+  private static boolean hasProfileGap(SyntaxNode node, AstProfile profile) {
+    if (!(node.value() instanceof SyntaxValue.LocalDeclaration local)) {
+      return false;
+    }
+    if (profile.equals(AstProfile.JAVA_SOURCE_BOUNDED)) {
+      return "_".equals(local.name()) || !local.writtenModifiers().isEmpty() || !node.children(SyntaxRole.ANNOTATION).isEmpty()
+          || local.bindingEvidence()
+              .filter(binding -> binding.typeForm() != LocalBindingEvidence.TypeForm.DECLARED || !binding.sharedAnnotationKeys().isEmpty())
+              .isPresent();
+    }
+    return ("_".equals(local.name()) && local.bindingEvidence().isEmpty())
+        || local.bindingEvidence().map(binding -> binding.declarationKey().isEmpty()).orElse(false)
+        || (!"_".equals(local.name()) && node.semanticReference().isEmpty());
   }
 
   private static boolean hasRequiredBodyFactGap(MethodSyntax body) {

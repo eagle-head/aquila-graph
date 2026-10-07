@@ -41,7 +41,12 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.admission.AstCodec;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.SourceInput;
+import org.aquilagraph.source.api.LocalBindingEvidence;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
@@ -52,6 +57,99 @@ import org.neo4j.driver.Values;
 
 class Neo4jAstResultRepositoryNeo4jIT {
   @TempDir Path directory;
+
+  @Test
+  void givenCompatibleOlderAndCurrentResults_whenSavedAndQueried_thenRealDatabasePreservesTheirDistinctFormatsAndIdentities()
+      throws IOException {
+    // Arrange
+    var settings = settings();
+    var current = frontend().produce(snapshot("class Stored { int value(int input) { int first=input; int second; second=first+1; return second; } }"), configuration(),
+        AstProfile.JAVA_SOURCE_BOUNDED);
+    var legacy = AstOutcome.available(SourceAnalysisFixture.legacyResult(current.result().orElseThrow()));
+    var currentResult = current.result().orElseThrow();
+    var legacyResult = legacy.result().orElseThrow();
+
+    try {
+      // Act
+      var legacyPublication = retention(settings).retainAst(legacy);
+      var currentPublication = retention(settings).retainAst(current);
+      var legacyLookup = retention(settings).findAst(legacyResult.identity());
+      var currentLookup = retention(settings).findAst(currentResult.identity());
+
+      // Assert
+      assertEquals("java-source/2", legacyResult.identity().sourceModelVersion());
+      assertEquals("java-source/3", currentResult.identity().sourceModelVersion());
+      assertEquals(PublicationStatus.SAVED, legacyPublication.status());
+      assertEquals(PublicationStatus.SAVED, currentPublication.status());
+      assertEquals(AstLookupStatus.FOUND, legacyLookup.status());
+      assertEquals(AstLookupStatus.FOUND, currentLookup.status());
+      assertEquals(legacyResult.identity(), legacyLookup.outcome().orElseThrow().result().orElseThrow().identity());
+      assertEquals(currentResult.identity(), currentLookup.outcome().orElseThrow().result().orElseThrow().identity());
+      var retainedLocals = legacyLookup.outcome().orElseThrow().result().orElseThrow().aggregate().nodes().stream()
+          .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).toList();
+      assertEquals(List.of("first", "second"), retainedLocals.stream().map(node -> node.value(SyntaxValue.LocalDeclaration.class).name()).toList());
+      assertTrue(retainedLocals.stream().allMatch(node -> node.value(SyntaxValue.LocalDeclaration.class).bindingEvidence().isEmpty()));
+      assertTrue(retainedLocals.getFirst().optionalChild(SyntaxRole.INITIALIZER).isPresent());
+      assertTrue(retainedLocals.getLast().optionalChild(SyntaxRole.INITIALIZER).isEmpty());
+      assertArrayEquals(AstCodec.encode(legacyResult), AstCodec.encode(legacyLookup.outcome().orElseThrow().result().orElseThrow()));
+      assertArrayEquals(AstCodec.encode(currentResult), AstCodec.encode(currentLookup.outcome().orElseThrow().result().orElseThrow()));
+      withSession(settings, session -> assertEquals(List.of("java-source/2", "java-source/3"), session.run(
+          "MATCH (result:AstEntity:AstResult) WHERE result.astResultKey IN $subjects RETURN result.formatVersion AS format ORDER BY format",
+          Values.parameters("subjects", List.of(legacyResult.identity().astResultKey(), currentResult.identity().astResultKey())))
+          .list(record -> record.get("format").asString())));
+    } finally {
+      deleteAst(settings, legacyResult.identity());
+      deleteAst(settings, currentResult.identity());
+    }
+  }
+
+  @Test
+  void givenCompleteExpandedBindings_whenRetainedAndRetrievedAfterCfgRefusal_thenRealDatabasePreservesBindingsAndAnnotations()
+      throws IOException {
+    // Arrange
+    var settings = settings();
+    var input = snapshot("""
+        import java.lang.annotation.*;
+        @Target({ElementType.LOCAL_VARIABLE, ElementType.TYPE_USE}) @interface Dual { int value(); }
+        class Stored { int subject(int[] input) {
+          @Dual(3) final int first = 1, second[] = input;
+          var inferred = first; int _ = 7; return inferred;
+        } }
+        """);
+    var ast = frontend().produce(input, configuration(), AstProfile.JAVA_SOURCE_EXPANDED);
+    var original = ast.result().orElseThrow();
+    var method = original.program().methods().stream().filter(value -> value.name().equals("subject")).findFirst().orElseThrow();
+    var cfg = CfgDerivers.standard().derive(original,
+        new CfgRequest(original.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
+
+    try {
+      // Act
+      var publication = retention(settings).retainAst(ast);
+      var lookup = retention(settings).findAst(original.identity());
+      var retrieved = lookup.outcome().orElseThrow().result().orElseThrow();
+      var bindings = retrieved.body(method.methodKey()).orElseThrow().root().descendantsAndSelf().stream()
+          .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).toList();
+
+      // Assert
+      assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
+      assertEquals(MethodCfgState.UNSUPPORTED, cfg.methods().getFirst().state());
+      assertEquals(PublicationStatus.SAVED, publication.status());
+      assertEquals(AstLookupStatus.FOUND, lookup.status());
+      assertEquals(AstCompletion.COMPLETE, retrieved.completion());
+      assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retrieved));
+      assertEquals(List.of("first", "second", "inferred", "_"),
+          bindings.stream().map(node -> node.value(SyntaxValue.LocalDeclaration.class).name()).toList());
+      var annotation = bindings.get(0).requiredChild(SyntaxRole.ANNOTATION);
+      assertEquals(List.of(annotation.nodeId()),
+          bindings.get(1).value(SyntaxValue.LocalDeclaration.class).bindingEvidence().orElseThrow().sharedAnnotationKeys());
+      assertEquals(LocalBindingEvidence.TypeForm.INFERRED,
+          bindings.get(2).value(SyntaxValue.LocalDeclaration.class).bindingEvidence().orElseThrow().typeForm());
+      assertTrue(bindings.get(3).semanticReference().isEmpty());
+      assertTrue(bindings.get(3).value(SyntaxValue.LocalDeclaration.class).bindingEvidence().orElseThrow().declarationKey().isPresent());
+    } finally {
+      deleteAst(settings, original.identity());
+    }
+  }
 
   @Test
   void givenBoundedAndExpandedProfiles_whenSavingAndQueryingRealRepository_thenDistinctResultsRetainClosedSourceValues()

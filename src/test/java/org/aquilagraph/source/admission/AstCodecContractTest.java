@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -18,10 +19,17 @@ import java.util.stream.Stream;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.identity.api.CanonicalValueWriter;
+import org.aquilagraph.identity.api.CanonicalValueReader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.AstIdentity;
+import org.aquilagraph.cfg.CfgDerivers;
+import org.aquilagraph.cfg.api.CfgProfile;
+import org.aquilagraph.cfg.api.CfgRequest;
+import org.aquilagraph.cfg.api.MethodCfgState;
+import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstContractException;
 import org.aquilagraph.source.api.AstProfile;
@@ -46,6 +54,150 @@ import org.junit.jupiter.api.io.TempDir;
 
 class AstCodecContractTest {
   @TempDir Path directory;
+
+  @Test
+  void givenCompatibleOlderResult_whenDecodedAndDerived_thenOriginalIdentityAndValuesRemainUsable() throws IOException {
+    // Arrange
+    var current = fixture();
+    var legacy = SourceAnalysisFixture.legacyResult(current);
+    var bytes = AstCodec.encode(legacy);
+    var method = legacy.program().methods().stream().filter(value -> value.name().equals("value")).findFirst().orElseThrow();
+
+    // Act
+    var decoded = AstCodec.decode(bytes, legacy.identity());
+    var cfg = CfgDerivers.standard().derive(decoded,
+        new CfgRequest(decoded.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
+
+    // Assert
+    assertEquals("java-source/3", current.identity().sourceModelVersion());
+    assertEquals("java-source/2", legacy.identity().sourceModelVersion());
+    assertNotEquals(current.identity(), legacy.identity());
+    assertEquals(legacy.identity(), decoded.identity());
+    assertEquals(current.aggregate(), decoded.aggregate());
+    assertEquals(current.coverage(), decoded.coverage());
+    assertEquals(AstCompletion.COMPLETE, decoded.completion());
+    assertEquals(MethodCfgState.AVAILABLE, cfg.methods().getFirst().state());
+    assertArrayEquals(bytes, AstCodec.encode(decoded));
+    assertEquals(AstCodec.materialize(current), AstCodec.materialize(decoded));
+  }
+
+  @Test
+  void givenUnknownFormatIdentity_whenDecoding_thenUnsupportedFormatPrecedesPayloadDecoding() throws IOException {
+    // Arrange
+    var current = fixture();
+    var identity = current.identity();
+    var unknown = AstIdentity.fromContent(identity.softwareSignature(), "java-source/future", identity.astProfileVersion(),
+        identity.semanticProductionRevision(), identity.canonicalContentDigest());
+
+    // Act
+    var failure = assertThrows(AstContractException.class, () -> AstCodec.decode(new byte[0], unknown));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("Unsupported retained AST format: java-source/future"));
+    assertEquals("java-source/3", identity.sourceModelVersion());
+  }
+
+  @Test
+  void givenNewFormatResult_whenThePrecedingFrameReaderIsUsed_thenItRejectsTheFormatBeforeReadingValues() throws IOException {
+    // Arrange
+    var current = fixture();
+    var bytes = AstCodec.encode(current);
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> new CanonicalValueReader(bytes, "java-source/2"));
+
+    // Assert
+    assertEquals("Unsupported canonical value format: java-source/3", failure.getMessage());
+  }
+
+  @Test
+  void givenCompatibleOlderPlainLocalValues_whenTheFullResultIsDecoded_thenBindingsTypesInitializersAndIdentitySurvive()
+      throws IOException {
+    // Arrange
+    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+        "class Stored { int subject() { int first=1; int second; second=first+2; return second; } }")));
+    var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+        AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
+    var legacy = SourceAnalysisFixture.legacyResult(current);
+    var bytes = AstCodec.encode(legacy);
+
+    // Act
+    var decoded = AstCodec.decode(bytes, legacy.identity());
+    var locals = decoded.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).toList();
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, decoded.completion());
+    assertEquals("java-source/2", decoded.identity().sourceModelVersion());
+    assertEquals(legacy.identity(), decoded.identity());
+    assertEquals(List.of("first", "second"), locals.stream().map(node -> node.value(SyntaxValue.LocalDeclaration.class).name()).toList());
+    assertTrue(locals.stream().allMatch(node -> node.value(SyntaxValue.LocalDeclaration.class).bindingEvidence().isEmpty()));
+    assertEquals("int", locals.getFirst().requiredChild(SyntaxRole.DECLARED_TYPE).resolvedType().orElseThrow().displayName());
+    assertTrue(locals.getFirst().optionalChild(SyntaxRole.INITIALIZER).isPresent());
+    assertTrue(locals.getLast().optionalChild(SyntaxRole.INITIALIZER).isEmpty());
+    assertEquals(current.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS)
+        .map(SyntaxNode::semanticReference).toList(), decoded.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS)
+            .map(SyntaxNode::semanticReference).toList());
+    assertEquals(legacy.aggregate(), decoded.aggregate());
+    assertArrayEquals(bytes, AstCodec.encode(decoded));
+    assertEquals(AstCodec.materialize(legacy), AstCodec.materialize(decoded));
+  }
+
+  @Test
+  void givenCopiedBindingValues_whenUsingTheOlderCatalog_thenBothEncodingAndDecodingRejectTheNewTags() {
+    // Arrange
+    var binding = new LocalBindingEvidence(Optional.of("type:Example#subject():local_variable:0:1"),
+        LocalBindingEvidence.TypeForm.DECLARED, LocalBindingEvidence.Context.LOCAL, true, 0, List.of());
+    var local = new SyntaxValue.LocalDeclaration("value", Optional.empty(), List.of(), Optional.of(binding));
+    var modern = new CanonicalValueWriter("copied-local-value");
+    new RetainedValueCodec(false).write(modern, local);
+    var legacy = new RetainedValueCodec(false, "java-source/2");
+
+    // Act
+    var encodingFailure = assertThrows(IllegalArgumentException.class,
+        () -> legacy.write(new CanonicalValueWriter("copied-local-value"), local));
+    var decodingFailure = assertThrows(IllegalArgumentException.class,
+        () -> legacy.read(new CanonicalValueReader(modern.toByteArray(), "copied-local-value")));
+
+    // Assert
+    assertTrue(encodingFailure.getMessage().contains("current retained AST format"));
+    assertTrue(decodingFailure.getMessage().contains("current retained AST format"));
+  }
+
+  @Test
+  void givenLegacyLocalDeclarationRecord_whenDecodedAndEncoded_thenItsOriginalFieldsAndBytesRemainCompatible() {
+    // Arrange
+    var writer = new CanonicalValueWriter("copied-local-value");
+    writer.text("syntax-value/local-declaration");
+    writer.count(3);
+    writer.text("name");
+    writer.text("text");
+    writer.text("value");
+    writer.text("writtenType");
+    writer.text("optional");
+    writer.flag(false);
+    writer.text("writtenModifiers");
+    writer.text("list");
+    writer.count(0);
+    var bytes = writer.toByteArray();
+
+    // Act
+    var reader = new CanonicalValueReader(bytes, "copied-local-value");
+    var local = (SyntaxValue.LocalDeclaration) new RetainedValueCodec(false).read(reader);
+    reader.requireFinished();
+    var encoded = new CanonicalValueWriter("copied-local-value");
+    new RetainedValueCodec(false).write(encoded, local);
+    var materialized = new AstValueProjector().project(local);
+
+    // Assert
+    assertEquals("value", local.name());
+    assertTrue(local.writtenType().isEmpty());
+    assertEquals(List.of(), local.writtenModifiers());
+    assertTrue(local.bindingEvidence().isEmpty());
+    assertArrayEquals(bytes, encoded.toByteArray());
+    assertEquals("syntax-value/local-declaration", materialized.nodes().getFirst().tag());
+    assertEquals(List.of("name", "writtenType", "writtenModifiers"), materialized.links().stream()
+        .filter(link -> link.sourceOrdinal() == 0).map(AstValueProjection.Link::field).toList());
+  }
 
   @TestFactory
   Stream<DynamicTest> givenContradictoryKnownWrittenBodyTypeInAFullPayload_whenDecoding_thenIntrinsicRejectionPrecedesQualification() {

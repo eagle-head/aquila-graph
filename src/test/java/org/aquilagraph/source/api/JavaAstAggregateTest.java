@@ -1299,7 +1299,7 @@ class JavaAstAggregateTest {
     var bodyPath = methodPath.child(SyntaxRole.BODY, 0);
     var localPath = bodyPath.child(SyntaxRole.STATEMENT, 0);
     var localReference = new SemanticReference(ReferenceKind.LOCAL, ResolutionStatus.RESOLVED,
-        Optional.of("method#local:problem"), Optional.empty(), List.of(), List.of());
+        Optional.of(constructorValue().declarationKey() + ":local_variable:0:0"), Optional.empty(), List.of(), List.of());
     var local = SyntaxNode.source("a", localPath, JavaSourceKind.VARIABLE, SyntaxKind.LOCAL_DECLARATION,
         new SyntaxType.StructureUnavailable(new JavaTypeIdentity(JavaTypeCategory.UNION, "First | Second", "First")),
         new SyntaxValue.LocalDeclaration("problem"), List.of(), Optional.of(localReference), new SourceSpan("a", 1, 2));
