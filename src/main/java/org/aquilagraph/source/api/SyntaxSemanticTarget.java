@@ -12,6 +12,23 @@ public sealed interface SyntaxSemanticTarget {
   /** Exact type destination of one written annotation. */
   sealed interface AnnotationTypeLocation {
     /**
+     * One array dimension written on a creation expression, distinct from its component type.
+     *
+     * @param nodeKey
+     *          canonical array creation occurrence
+     * @param dimension
+     *          zero-based sized dimension, or zero for the initialized creation's first omitted dimension
+     */
+    record ArrayDimension(String nodeKey, int dimension) implements AnnotationTypeLocation {
+      /** Validates the occurrence and dimension ordinal. */
+      public ArrayDimension {
+        SyntaxValueSupport.requireText(nodeKey, "array dimension nodeKey");
+        if (dimension < 0) {
+          throw new IllegalArgumentException("An array dimension ordinal cannot be negative");
+        }
+      }
+    }
+    /**
      * A source type-use occurrence, including its typed structural path.
      *
      * @param nodeKey
@@ -201,7 +218,7 @@ public sealed interface SyntaxSemanticTarget {
           && (parent.syntaxKind() != SyntaxKind.RECORD_COMPONENT_DECLARATION || targets.contains(ElementType.RECORD_COMPONENT))
               ? Optional.of(parent.nodeId())
               : Optional.<String>empty();
-      var typeLocation = type ? Optional.of(typeLocation(parent)) : Optional.<AnnotationTypeLocation>empty();
+      var typeLocation = type ? Optional.of(typeLocation(parent, annotationNode)) : Optional.<AnnotationTypeLocation>empty();
       if (recordComponent.isPresent()) {
         var component = recordComponent.orElseThrow();
         if (parent.syntaxKind() == SyntaxKind.RECORD_COMPONENT_DECLARATION || !type
@@ -274,7 +291,8 @@ public sealed interface SyntaxSemanticTarget {
     private static boolean supportsClosestType(SyntaxNode parent, Set<ElementType> targets) {
       return switch (parent.syntaxKind()) {
         case LOCAL_DECLARATION -> targets.contains(ElementType.TYPE_USE) && !parent.children(SyntaxRole.DECLARED_TYPE).isEmpty();
-        case FIELD_DECLARATION, ENUM_CONSTANT_DECLARATION, RECORD_COMPONENT_DECLARATION, PARAMETER_DECLARATION, RECEIVER_PARAMETER ->
+        case ARRAY_CREATION, FIELD_DECLARATION, ENUM_CONSTANT_DECLARATION, RECORD_COMPONENT_DECLARATION, PARAMETER_DECLARATION,
+            RECEIVER_PARAMETER ->
           targets.contains(ElementType.TYPE_USE);
         case METHOD_DECLARATION -> targets.contains(ElementType.TYPE_USE)
             && (parent.value(SyntaxValue.ExecutableDeclaration.class).kind() == SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR
@@ -291,7 +309,28 @@ public sealed interface SyntaxSemanticTarget {
           () -> new IllegalArgumentException("An annotation cannot apply to a package qualifier or through a static type qualifier"));
     }
 
+    private static AnnotationTypeLocation typeLocation(SyntaxNode parent, SyntaxNode annotation) {
+      if (parent.syntaxKind() != SyntaxKind.ARRAY_CREATION) {
+        return typeLocation(parent);
+      }
+      var position = parent.children().stream()
+          .filter(child -> child.role() == SyntaxRole.ANNOTATION && child.node().nodeId().equals(annotation.nodeId())).findFirst()
+          .orElseThrow().position();
+      var groups = parent.value(SyntaxValue.ArrayCreation.class).dimensionAnnotationCounts();
+      var offset = 0;
+      for (var dimension = 0; dimension < groups.size(); dimension++) {
+        offset += groups.get(dimension);
+        if (position < offset) {
+          return new AnnotationTypeLocation.ArrayDimension(parent.nodeId(), dimension);
+        }
+      }
+      throw new IllegalArgumentException("An array annotation requires its written dimension group");
+    }
+
     private static Optional<AnnotationTypeLocation> closestTypeLocation(SyntaxNode parent) {
+      if (parent.syntaxKind() == SyntaxKind.ARRAY_CREATION) {
+        return Optional.of(new AnnotationTypeLocation.ArrayDimension(parent.nodeId(), 0));
+      }
       if (parent.syntaxKind() == SyntaxKind.TYPE_USE) {
         return Optional.of(new AnnotationTypeLocation.Written(parent.nodeId()));
       }

@@ -276,13 +276,17 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatTag(String tag) {
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format)
+        && ("syntax-value/array-creation".equals(tag) || "syntax-semantic-target/annotation-type-location/array-dimension".equals(tag))) {
+      throw new IllegalArgumentException("Executable arrays require retained AST format java-source/5");
+    }
     if (AstResult.LEGACY_SOURCE_MODEL_VERSION.equals(format) && BINDING_TAGS.contains(tag)) {
       throw new IllegalArgumentException("Copied binding values require the current retained AST format: " + tag);
     }
   }
 
   private void validateFormatEnum(Class<?> type, String name) {
-    if (!AstResult.SOURCE_MODEL_VERSION.equals(format)
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.UPDATE_SOURCE_MODEL_VERSION.equals(format)
         && ((type == SyntaxKind.class && ("UPDATE".equals(name) || "COMPOUND_ASSIGNMENT".equals(name)))
             || (type == SyntaxOperator.class && switch (name) {
               case "MULTIPLY_ASSIGNMENT", "DIVIDE_ASSIGNMENT", "REMAINDER_ASSIGNMENT", "PLUS_ASSIGNMENT", "MINUS_ASSIGNMENT",
@@ -292,6 +296,11 @@ final class RetainedValueCodec {
               default -> false;
             }))) {
       throw new IllegalArgumentException("Update expressions require the current retained AST format");
+    }
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && ((type == SyntaxKind.class && "ARRAY_CREATION".equals(name))
+        || (type == SyntaxRole.class && ("DIMENSION".equals(name) || "ARRAY_ELEMENT".equals(name)))
+        || (type == CoverageEvidenceValue.Tag.class && "ARRAY_CREATION".equals(name)))) {
+      throw new IllegalArgumentException("Executable arrays require retained AST format java-source/5");
     }
   }
 

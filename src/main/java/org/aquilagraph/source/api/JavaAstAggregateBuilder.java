@@ -754,6 +754,16 @@ final class JavaAstAggregateBuilder {
     if (right.orElseThrow() instanceof AnnotationTypeLocation.Written) {
       return 1;
     }
+    if (left.orElseThrow() instanceof AnnotationTypeLocation.ArrayDimension dimension) {
+      if (!(right.orElseThrow() instanceof AnnotationTypeLocation.ArrayDimension other)) {
+        return -1;
+      }
+      var result = dimension.nodeKey().compareTo(other.nodeKey());
+      return result == 0 ? Integer.compare(dimension.dimension(), other.dimension()) : result;
+    }
+    if (right.orElseThrow() instanceof AnnotationTypeLocation.ArrayDimension) {
+      return 1;
+    }
     return ((AnnotationTypeLocation.Constructed) left.orElseThrow()).declarationKey()
         .compareTo(((AnnotationTypeLocation.Constructed) right.orElseThrow()).declarationKey());
   }

@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.Tree;
+import com.sun.source.tree.NewArrayTree;
 import com.sun.source.tree.ModifiersTree;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -59,6 +60,18 @@ final class JavaCoveragePropertyProjection {
 
   static CoveragePropertyValue query(Accessor accessor, Object owner, JavaCoverageTopology.Owner sourceOwner, JavaSourceEvidence evidence,
       Optional<SemanticResolver> semantics) {
+    if (owner instanceof NewArrayTree array && "getDimAnnotations".equals(accessor.method().getName())) {
+      var items = new ArrayList<Item>();
+      for (var dimension = 0; dimension < array.getDimAnnotations().size(); dimension++) {
+        var annotations = array.getDimAnnotations().get(dimension);
+        items.add(new Item("dimension:" + dimension, Integer.toString(annotations.size()), Provenance.WRITTEN));
+        for (var ordinal = 0; ordinal < annotations.size(); ordinal++) {
+          var annotation = copy(annotations.get(ordinal), ordinal, sourceOwner, evidence, semantics);
+          items.add(new Item("dimension:" + dimension + '/' + annotation.identity(), annotation.value(), Provenance.WRITTEN));
+        }
+      }
+      return new CoveragePropertyValue(items.isEmpty() ? State.EMPTY : State.ITEMS, items);
+    }
     var value = accessor.read(owner).orElse(null);
     if (value == null || (value instanceof TypeMirror type && type.getKind() == TypeKind.NONE)) {
       return new CoveragePropertyValue(State.ABSENT, List.of());

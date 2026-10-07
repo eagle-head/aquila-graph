@@ -120,6 +120,9 @@ final class CoverageSourceProjection {
       case SyntaxValue.Literal literal -> structure(Tag.LITERAL, field("text", text(literal.text())));
       case SyntaxValue.Operator operator -> structure(Tag.OPERATOR, field("operator", named(operator.operator())));
       case SyntaxValue.TypeName name -> structure(Tag.TYPE_NAME, field(NAME_FIELD, text(name.name())));
+      case SyntaxValue.ArrayCreation array ->
+        structure(Tag.ARRAY_CREATION, field("writtenType", flag(array.writtenType())), field("initializer", flag(array.initializer())),
+            field("dimensionAnnotationCounts", sequence(array.dimensionAnnotationCounts(), count -> integral(count.longValue()))));
       case SyntaxValue.SwitchCase value -> structure(Tag.SWITCH_CASE, field(FORM_FIELD, named(value.form())),
           field("labels", sequence(value.labels(), label -> switch (label) {
             case SyntaxValue.SwitchLabel.Default _ -> structure(Tag.DEFAULT_LABEL);

@@ -3,6 +3,7 @@ package org.aquilagraph.frontend;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.NewArrayTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import javax.lang.model.element.Element;
@@ -45,6 +46,11 @@ final class JavaDeclarationAccessor {
       reader(MethodTree.class, "getReceiverParameter", MethodTree::getReceiverParameter),
       reader(MethodTree.class, "getReturnType", MethodTree::getReturnType), reader(MethodTree.class, "getThrows", MethodTree::getThrows),
       reader(MethodTree.class, TYPE_PARAMETERS, MethodTree::getTypeParameters), reader(Tree.class, "getKind", Tree::getKind),
+      reader(NewArrayTree.class, "getType", NewArrayTree::getType),
+      reader(NewArrayTree.class, "getDimensions", NewArrayTree::getDimensions),
+      reader(NewArrayTree.class, "getInitializers", NewArrayTree::getInitializers),
+      reader(NewArrayTree.class, "getAnnotations", NewArrayTree::getAnnotations),
+      reader(NewArrayTree.class, "getDimAnnotations", NewArrayTree::getDimAnnotations),
       reader(VariableTree.class, "getInitializer", VariableTree::getInitializer),
       reader(VariableTree.class, MODIFIERS, VariableTree::getModifiers), reader(VariableTree.class, "getName", VariableTree::getName),
       reader(VariableTree.class, "getNameExpression", VariableTree::getNameExpression),

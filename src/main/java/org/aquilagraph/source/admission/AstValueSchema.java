@@ -404,6 +404,10 @@ final class AstValueSchema {
     record(types, SyntaxValue.Literal.class, "syntax-value/literal", "text");
     record(types, SyntaxValue.Operator.class, "syntax-value/operator", "operator");
     record(types, SyntaxValue.TypeName.class, "syntax-value/type-name", NAME_FIELD);
+    record(types, SyntaxValue.ArrayCreation.class, "syntax-value/array-creation", "writtenType", "initializer",
+        "dimensionAnnotationCounts");
+    record(types, SyntaxSemanticTarget.AnnotationTypeLocation.ArrayDimension.class,
+        "syntax-semantic-target/annotation-type-location/array-dimension", NODE_KEY_FIELD, "dimension");
     enumeration(types, SyntaxValue.FieldReceiver.class, "syntax-value/field-receiver");
     enumeration(types, SyntaxValue.ReceiverKind.class, "syntax-value/receiver-kind");
     record(types, SyntaxValue.SwitchCase.class, "syntax-value/switch-case", FORM_FIELD, "labels");

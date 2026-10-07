@@ -11,6 +11,7 @@ import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewClassTree;
+import com.sun.source.tree.NewArrayTree;
 import com.sun.source.tree.PackageTree;
 import com.sun.source.tree.PrimitiveTypeTree;
 import com.sun.source.tree.Tree;
@@ -1353,6 +1354,24 @@ final class JavaAstContributionTranslator {
       List<SyntaxChild> children, BodySourceContext context) {
     var complete = true;
     switch (creatingPath.getLeaf()) {
+      case NewArrayTree array -> {
+        if (array.getType() != null) {
+          complete = appendBodyType(array.getType(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
+        }
+        var annotations = new ArrayList<AnnotationTree>();
+        annotations.addAll(array.getAnnotations());
+        array.getDimAnnotations().forEach(annotations::addAll);
+        var projector = new JavaAnnotationProjector(semantics, sourceEvidence, treeInventory, sourceAssociations);
+        for (var ordinal = 0; ordinal < annotations.size(); ordinal++) {
+          var annotationPath = path.child(SyntaxRole.ANNOTATION, ordinal);
+          var annotation = projector.typeUse(context.unit(), context.sourceFile(), annotations.get(ordinal), annotationPath, annotationPath,
+              context.diagnostics());
+          if (annotation.isPresent()) {
+            children.add(new SyntaxChild(SyntaxRole.ANNOTATION, ordinal, annotation.orElseThrow()));
+          }
+          complete &= annotation.isPresent();
+        }
+      }
       case NewClassTree creation -> {
         complete = appendBodyType(creation.getIdentifier(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
         for (var index = 0; index < creation.getTypeArguments().size(); index++) {

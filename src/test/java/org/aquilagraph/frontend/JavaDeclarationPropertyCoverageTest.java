@@ -21,6 +21,9 @@ import org.junit.jupiter.api.Test;
 class JavaDeclarationPropertyCoverageTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final Set<String> EXPECTED_PROPERTIES = Set.of(
+      "NewArrayTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "NewArrayTree::Tree#getKind()", "NewArrayTree::NewArrayTree#getType()", "NewArrayTree::NewArrayTree#getDimensions()",
+      "NewArrayTree::NewArrayTree#getInitializers()", "NewArrayTree::NewArrayTree#getAnnotations()", "NewArrayTree::NewArrayTree#getDimAnnotations()",
       "CompilationUnitTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "CompilationUnitTree::CompilationUnitTree#getImports()",
       "CompilationUnitTree::Tree#getKind()",
@@ -98,6 +101,7 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::ExecutableElement#isDefault()",
       "ExecutableElement::ExecutableElement#isVarArgs()");
   private static final Set<String> EXPECTED_IRRELEVANT_PROPERTIES = Set.of(
+      "NewArrayTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "CompilationUnitTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "CompilationUnitTree::CompilationUnitTree#getLineMap()",
       "ClassTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
@@ -299,7 +303,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:6661250f922a3b0bb0f7aa7a01dc27b8f2c3bdc880b95cd781b0e15a32b017e4",
+    assertEquals("java-language-feature-coverage:307ae3a6c3bf92cbb9cae296574a250b2558b403e949f57d534a1ef141a17e0e",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 

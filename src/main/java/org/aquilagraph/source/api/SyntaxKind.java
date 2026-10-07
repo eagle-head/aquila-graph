@@ -68,6 +68,8 @@ public enum SyntaxKind {
   INVOCATION,
   /** Class instance creation. */
   OBJECT_CREATION,
+  /** Written executable array creation or initializer expression. */
+  ARRAY_CREATION,
   /** Field value access with a classified receiver form. */
   FIELD_ACCESS,
   /** Local or parameter value access. */
@@ -113,8 +115,8 @@ public enum SyntaxKind {
   public boolean requiresType() {
     return switch (this) {
       case TYPE_USE, ANNOTATION_ARGUMENT, ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST, LOCAL_DECLARATION,
-          SWITCH_EXPRESSION, INVOCATION, OBJECT_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY, CONDITIONAL_AND,
-          CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST,
+          SWITCH_EXPRESSION, INVOCATION, OBJECT_CREATION, ARRAY_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY,
+          CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST,
           CONDITIONAL_EXPRESSION ->
         true;
       default -> false;
@@ -132,6 +134,7 @@ public enum SyntaxKind {
       };
       case ANNOTATION -> sourceKind == JavaSourceKind.ANNOTATION;
       case ANNOTATION_ARRAY -> sourceKind == JavaSourceKind.NEW_ARRAY;
+      case ARRAY_CREATION -> sourceKind == JavaSourceKind.NEW_ARRAY;
       case ANNOTATION_ARGUMENT -> sourceKind == JavaSourceKind.ASSIGNMENT || sourceKind == JavaSourceKind.NEW_ARRAY
           || sourceKind == JavaSourceKind.ANNOTATION || annotationScalarSyntax(sourceKind);
       case ANNOTATION_ELEMENT_NAME -> sourceKind == JavaSourceKind.IDENTIFIER;

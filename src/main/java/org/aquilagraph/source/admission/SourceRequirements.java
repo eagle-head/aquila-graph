@@ -44,8 +44,9 @@ final class SourceRequirements {
   }
 
   private static boolean hasProfileGap(SyntaxNode node, AstProfile profile) {
-    if (profile.equals(AstProfile.JAVA_SOURCE_BOUNDED) && (node.syntaxKind() == SyntaxKind.UPDATE
-        || node.syntaxKind() == SyntaxKind.COMPOUND_ASSIGNMENT || node.sourceKind() == JavaSourceKind.INTERSECTION_TYPE)) {
+    if (profile.equals(AstProfile.JAVA_SOURCE_BOUNDED)
+        && (node.syntaxKind() == SyntaxKind.UPDATE || node.syntaxKind() == SyntaxKind.COMPOUND_ASSIGNMENT
+            || node.syntaxKind() == SyntaxKind.ARRAY_CREATION || node.sourceKind() == JavaSourceKind.INTERSECTION_TYPE)) {
       return true;
     }
     if (!(node.value() instanceof SyntaxValue.LocalDeclaration local)) {

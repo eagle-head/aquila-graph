@@ -50,6 +50,7 @@ public final class SyntaxNode {
     validateShape(syntaxKind, sourceKind, value, childNodes);
     validateKnownWrittenBodyType(syntaxKind, type, childNodes);
     validateUpdateType(syntaxKind, type, childNodes);
+    validateArrayType(syntaxKind, type, value, childNodes);
     validateExecutableChildren(syntaxKind, childNodes);
     if (value instanceof SyntaxValue.Operator operator && !operator.operator().name().equals(sourceKind.name())) {
       throw new IllegalArgumentException("The retained operator contradicts its exact Java source kind");
@@ -97,6 +98,33 @@ public final class SyntaxNode {
       if (location.type() instanceof SyntaxType.Resolved && !type.equals(location.type())) {
         throw new IllegalArgumentException("An update result must retain its storage location type");
       }
+    }
+  }
+
+  private static void validateArrayType(SyntaxKind kind, SyntaxType type, SyntaxValue value, List<SyntaxChild> children) {
+    if (kind != SyntaxKind.ARRAY_CREATION || !(type instanceof SyntaxType.Resolved resolved)) {
+      return;
+    }
+    if (resolved.identity().category() != JavaTypeCategory.ARRAY) {
+      throw new IllegalArgumentException("An executable array requires an attributed array type");
+    }
+    var written = children.stream().filter(child -> child.role() == SyntaxRole.TYPE_OPERAND).findFirst();
+    if (resolved.structure().isEmpty() || written.isEmpty()
+        || !(written.orElseThrow().node().type() instanceof SyntaxType.Resolved component) || component.structure().isEmpty()) {
+      return;
+    }
+    var structure = resolved.structure().orElseThrow();
+    var dimensions = ((SyntaxValue.ArrayCreation) value).initializer()
+        ? 1L
+        : children.stream().filter(child -> child.role() == SyntaxRole.DIMENSION).count();
+    for (var ordinal = 0L; ordinal < dimensions; ordinal++) {
+      if (!(structure instanceof JavaTypeStructure.Array array)) {
+        throw new IllegalArgumentException("Written array dimensions contradict its attributed rank");
+      }
+      structure = array.component();
+    }
+    if (!structure.equals(component.structure().orElseThrow())) {
+      throw new IllegalArgumentException("The written array component contradicts its attributed type");
     }
   }
 
@@ -660,6 +688,7 @@ public final class SyntaxNode {
       case LITERAL -> SyntaxValue.Literal.class;
       case UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR, COMPOUND_ASSIGNMENT, UPDATE -> SyntaxValue.Operator.class;
       case TYPE_CAST -> SyntaxValue.TypeName.class;
+      case ARRAY_CREATION -> SyntaxValue.ArrayCreation.class;
       case CASE -> SyntaxValue.SwitchCase.class;
       case UNSUPPORTED -> SyntaxValue.Unsupported.class;
       default -> SyntaxValue.None.class;
@@ -861,6 +890,25 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.LOCATION, 1, 1);
         requireCount(children, SyntaxRole.RIGHT_OPERAND, 1, 1);
       }
+      case ARRAY_CREATION -> {
+        requireShape(children, Set.of(SyntaxRole.TYPE_OPERAND, SyntaxRole.DIMENSION, SyntaxRole.ARRAY_ELEMENT, SyntaxRole.ANNOTATION));
+        var array = (SyntaxValue.ArrayCreation) value;
+        requireCount(children, SyntaxRole.TYPE_OPERAND, 0, array.writtenType() ? 1 : 0);
+        validateBodyTypeAttachment(children, SyntaxRole.TYPE_OPERAND);
+        if (array.initializer()) {
+          requireCount(children, SyntaxRole.DIMENSION, 0, 0);
+          if (array.writtenType() && array.dimensionAnnotationCounts().size() != 1) {
+            throw new IllegalArgumentException("An initialized creation retains its first omitted dimension annotation group");
+          }
+        } else {
+          requireCount(children, SyntaxRole.DIMENSION, 1, Integer.MAX_VALUE);
+          requireCount(children, SyntaxRole.ARRAY_ELEMENT, 0, 0);
+          if (array.dimensionAnnotationCounts().size() != children.stream().filter(child -> child.role() == SyntaxRole.DIMENSION).count()) {
+            throw new IllegalArgumentException("An array creation retains one annotation group per sized dimension");
+          }
+        }
+        requireCount(children, SyntaxRole.ANNOTATION, 0, array.dimensionAnnotationCounts().stream().mapToInt(Integer::intValue).sum());
+      }
       case ARRAY_ACCESS -> {
         requireShape(children, Set.of(SyntaxRole.ARRAY, SyntaxRole.INDEX));
         requireCount(children, SyntaxRole.ARRAY, 1, 1);
@@ -927,6 +975,11 @@ public final class SyntaxNode {
             ? isStatement(node)
             : isExpression(node)
                 || (child.role() == SyntaxRole.BODY && (node.syntaxKind() == SyntaxKind.BLOCK || node.syntaxKind() == SyntaxKind.THROW));
+        case ARRAY_CREATION -> switch (child.role()) {
+          case TYPE_OPERAND -> node.syntaxKind() == SyntaxKind.TYPE_USE;
+          case ANNOTATION -> node.syntaxKind() == SyntaxKind.ANNOTATION;
+          default -> isExpression(node);
+        };
         case INVOCATION, OBJECT_CREATION -> switch (child.role()) {
           case TYPE_ARGUMENT, TYPE_OPERAND -> true;
           case QUALIFIER -> node.syntaxKind() == SyntaxKind.TYPE_USE || node.syntaxKind() == SyntaxKind.RECEIVER;
@@ -950,9 +1003,9 @@ public final class SyntaxNode {
 
   private static boolean isExpression(SyntaxNode node) {
     return switch (node.syntaxKind()) {
-      case INVOCATION, OBJECT_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR,
-          ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST, CONDITIONAL_EXPRESSION,
-          SWITCH_EXPRESSION, ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST ->
+      case INVOCATION, OBJECT_CREATION, ARRAY_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY, CONDITIONAL_AND,
+          CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST,
+          CONDITIONAL_EXPRESSION, SWITCH_EXPRESSION, ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST ->
         true;
       case UNSUPPORTED -> switch (node.sourceKind()) {
         case ARRAY_ACCESS, ASSIGNMENT, CONDITIONAL_EXPRESSION, MEMBER_SELECT, MEMBER_REFERENCE, IDENTIFIER, INSTANCE_OF, METHOD_INVOCATION,

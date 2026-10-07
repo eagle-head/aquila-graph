@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.NewArrayTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import java.lang.reflect.InvocationHandler;
@@ -25,7 +26,7 @@ import org.junit.jupiter.api.Test;
 
 class DeclarationAccessorDispatchTest {
   private static final List<Class<?>> SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
-      VariableTree.class, TypeElement.class, ExecutableElement.class);
+      VariableTree.class, NewArrayTree.class, TypeElement.class, ExecutableElement.class);
 
   @Test
   void givenEveryRepresentedAccessor_whenItsTargetThrowsRuntimeFailure_thenTheExactMethodAndFailureArePreserved() {
@@ -51,7 +52,7 @@ class DeclarationAccessorDispatchTest {
         visited++;
       }
     }
-    assertEquals(60, visited);
+    assertEquals(66, visited);
   }
 
   @Test
@@ -77,7 +78,7 @@ class DeclarationAccessorDispatchTest {
         visited++;
       }
     }
-    assertEquals(60, visited);
+    assertEquals(66, visited);
   }
 
   @Test

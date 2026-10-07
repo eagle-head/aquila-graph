@@ -3,6 +3,7 @@ package org.aquilagraph.frontend;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.NewArrayTree;
 import com.sun.source.tree.VariableTree;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -46,7 +47,7 @@ final class JavaDeclarationPropertyCoverage {
   static final String EXECUTABLE_ELEMENT_VARARGS = "ExecutableElement::ExecutableElement#isVarArgs()";
 
   private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
-      VariableTree.class, TypeElement.class, ExecutableElement.class);
+      VariableTree.class, NewArrayTree.class, TypeElement.class, ExecutableElement.class);
   private static final String TREE_API = "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/";
   private static final String JAVA_COMPILER_API = "https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/";
   private static final String ELEMENT_API = JAVA_COMPILER_API + "javax/lang/model/element/";
@@ -107,9 +108,21 @@ final class JavaDeclarationPropertyCoverage {
     classifications.addAll(classClassifications());
     classifications.addAll(methodClassifications());
     classifications.addAll(variableClassifications());
+    classifications.addAll(arrayClassifications());
     classifications.addAll(typeElementClassifications());
     classifications.addAll(executableElementClassifications());
     return List.copyOf(classifications);
+  }
+
+  private static List<LanguageFeatureClassification> arrayClassifications() {
+    return List.of(
+        irrelevant("NewArrayTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
+        represented("NewArrayTree::Tree#getKind()", "JavaCompilerKindCoverage exact tree-kind contract"),
+        represented("NewArrayTree::NewArrayTree#getType()", "JavaAstAggregate optional written array component type"),
+        represented("NewArrayTree::NewArrayTree#getDimensions()", "JavaAstAggregate ordered sized dimension expressions"),
+        represented("NewArrayTree::NewArrayTree#getInitializers()", "JavaAstAggregate absent, empty or ordered initializer elements"),
+        represented("NewArrayTree::NewArrayTree#getAnnotations()", "JavaAstAggregate initialized creation first dimension annotations"),
+        represented("NewArrayTree::NewArrayTree#getDimAnnotations()", "JavaAstAggregate ordered sized dimension annotation groups"));
   }
 
   private static List<LanguageFeatureClassification> compilationUnitClassifications() {

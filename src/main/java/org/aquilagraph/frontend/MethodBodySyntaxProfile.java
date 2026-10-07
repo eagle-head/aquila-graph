@@ -18,6 +18,7 @@ import com.sun.source.tree.LiteralTree;
 import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.NewClassTree;
+import com.sun.source.tree.NewArrayTree;
 import com.sun.source.tree.ParenthesizedTree;
 import com.sun.source.tree.ReturnTree;
 import com.sun.source.tree.SwitchExpressionTree;
@@ -368,6 +369,24 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     children.add(SyntaxRole.INDEX, access.getIndex());
     var kind = SyntaxKind.ARRAY_ACCESS;
     return accepted(kind, children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitNewArray(NewArrayTree array, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.addAll(SyntaxRole.DIMENSION, array.getDimensions());
+    if (array.getInitializers() != null) {
+      children.addAll(SyntaxRole.ARRAY_ELEMENT, array.getInitializers());
+    }
+    if ((array.getInitializers() != null && !array.getDimensions().isEmpty())
+        || (array.getInitializers() == null && array.getDimensions().isEmpty())) {
+      return unsupported(array, children);
+    }
+    var groups = array.getInitializers() != null && array.getType() != null
+        ? List.of(array.getAnnotations().size())
+        : array.getDimAnnotations().stream().map(List::size).toList();
+    return accepted(SyntaxKind.ARRAY_CREATION,
+        new SyntaxValue.ArrayCreation(array.getType() != null, array.getInitializers() != null, groups), children);
   }
 
   @Override

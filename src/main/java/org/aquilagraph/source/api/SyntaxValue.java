@@ -2287,6 +2287,27 @@ public sealed interface SyntaxValue {
   }
 
   /**
+   * Written array form and annotation grouping; expressions and annotations remain canonical children.
+   *
+   * @param writtenType
+   *          whether the expression writes {@code new} and a component type
+   * @param initializer
+   *          whether braces are present, including empty braces
+   * @param dimensionAnnotationCounts
+   *          ordered annotation group sizes for sized dimensions, or the first omitted dimension of an initialized creation
+   */
+  record ArrayCreation(boolean writtenType, boolean initializer, List<Integer> dimensionAnnotationCounts) implements SyntaxValue {
+    /** Copies the grouping and rejects impossible initializer-only forms. */
+    public ArrayCreation {
+      dimensionAnnotationCounts = List.copyOf(dimensionAnnotationCounts);
+      if (dimensionAnnotationCounts.stream().anyMatch(count -> count < 0)
+          || (!writtenType && (!initializer || !dimensionAnnotationCounts.isEmpty()))) {
+        throw new IllegalArgumentException("An array initializer without a written type requires braces and no dimension annotations");
+      }
+    }
+  }
+
+  /**
    * Compiler syntax category outside the accepted profile.
    *
    * @param compilerKind

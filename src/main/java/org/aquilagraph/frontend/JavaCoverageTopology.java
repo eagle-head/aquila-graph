@@ -5,6 +5,7 @@ import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
+import com.sun.source.tree.NewArrayTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.TreeScanner;
@@ -92,6 +93,9 @@ final class JavaCoverageTopology {
   }
 
   static Optional<Class<?>> surface(Tree tree) {
+    if (tree instanceof NewArrayTree) {
+      return Optional.of(NewArrayTree.class);
+    }
     if (tree instanceof CompilationUnitTree) {
       return Optional.of(CompilationUnitTree.class);
     }

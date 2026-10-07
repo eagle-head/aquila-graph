@@ -20,6 +20,9 @@ import java.util.Optional;
 import javax.lang.model.element.ExecutableElement;
 import javax.tools.ToolProvider;
 import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.source.admission.AstResultAdmission;
+import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceSpan;
@@ -314,7 +317,7 @@ class JavaAnnotationDefaultAstTest {
   }
 
   @Test
-  void givenOrdinaryMethodBodyArray_whenAnalyzed_thenBodySyntaxRemainsDiagnosed() throws IOException {
+  void givenOrdinaryMethodBodyArray_whenAnalyzed_thenExecutableStructureIsRetainedAndBoundedQualificationRemainsIncomplete() throws IOException {
     // Arrange
     Files.writeString(sourceRoot.resolve("Body.java"), "class Body { int[] values() { return new int[] {1,2}; } }");
 
@@ -323,10 +326,11 @@ class JavaAnnotationDefaultAstTest {
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Assert
-    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")
-        && diagnostic.message().contains("NEW_ARRAY") && diagnostic.origins().stream().anyMatch(origin ->
-            origin.length() > 0)),
-        () -> result.diagnostics().toString());
+    var array = result.aggregate().orElseThrow().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ARRAY_CREATION).findFirst().orElseThrow();
+    assertEquals(new SyntaxValue.ArrayCreation(true, true, List.of(0)), array.value());
+    assertEquals(List.of("1", "2"), array.children(SyntaxRole.ARRAY_ELEMENT).stream().map(node -> node.value(SyntaxValue.Literal.class).text()).toList());
+    assertEquals(AstCompletion.INCOMPLETE, AstResultAdmission.outcome(result, AstProfile.JAVA_SOURCE_BOUNDED, "javac-public/1").completion());
+    assertEquals(AstCompletion.COMPLETE, AstResultAdmission.outcome(result, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1").completion());
     assertFalse(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")),
         () -> result.diagnostics().toString());
   }

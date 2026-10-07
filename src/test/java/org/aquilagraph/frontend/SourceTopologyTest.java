@@ -38,6 +38,7 @@ import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxSourceContribution;
 import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
 import org.junit.jupiter.api.Test;
 
@@ -203,8 +204,10 @@ class SourceTopologyTest {
     assertEquals(List.of("0:0", "0:1", "1:0", "1:1"), paths.stream().map(steps ->
         steps.get(steps.size() - 2).ordinal() + ":" + steps.getLast().ordinal()).toList());
     assertTrue(paths.stream().allMatch(steps -> steps.getLast().role() == Role.ANNOTATION));
-    assertTrue(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")
-        && diagnostic.message().equals("Unsupported Java construct in method body: NEW_ARRAY")), () -> input.diagnostics().toString());
+    assertEquals(List.of(), input.diagnostics());
+    var array = input.aggregate().orElseThrow().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ARRAY_CREATION).findFirst().orElseThrow();
+    assertEquals(new SyntaxValue.ArrayCreation(true, false, List.of(2, 2)), array.value());
+    assertEquals(4, array.children(SyntaxRole.ANNOTATION).size());
   }
 
   @Test

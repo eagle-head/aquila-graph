@@ -401,6 +401,9 @@ public final class CoverageActualFacts {
     var role = context.address().role();
     var method = role.substring(role.indexOf('#') + 1, role.indexOf('('));
     var sourceSyntax = owned.stream().flatMap(actualFacts::syntaxValues).filter(value -> matchingOwner(role, value)).findFirst();
+    if (role.startsWith("NewArrayTree")) {
+      return sourceSyntax.map(value -> CoverageArrayFacts.supports(method, expected, value, actualFacts, snapshot)).orElse(false);
+    }
     var type = owned.stream().map(CoverageFactReference::value).filter(CoverageFactValue.Type.class::isInstance)
         .map(CoverageFactValue.Type.class::cast).map(CoverageFactValue.Type::value).findFirst();
     var executable = owned.stream().map(CoverageFactReference::value).filter(CoverageFactValue.Method.class::isInstance)
@@ -800,12 +803,12 @@ public final class CoverageActualFacts {
         .filter(fact -> fact.kind() == Kind.SYNTAX && fact.identity().equals(child.nodeKey())).findFirst().orElseThrow()).toList();
   }
 
-  private static boolean writtenAttachments(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, List<SyntaxRole> roles,
+  static boolean writtenAttachments(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, List<SyntaxRole> roles,
       CoverageActualFactView actualFacts, InputSnapshot snapshot) {
     var children = attachments(owner, roles, actualFacts);
     var scalar = roles.size() == 1 && switch (roles.getFirst()) {
       case BODY, DEFAULT_VALUE, RECEIVER_PARAMETER, QUALIFIER, RETURN_TYPE, INITIALIZER, PACKAGE_DECLARATION, MODULE_DECLARATION,
-          SUPERCLASS, DECLARED_TYPE ->
+          SUPERCLASS, DECLARED_TYPE, TYPE_OPERAND ->
         true;
       default -> false;
     };
@@ -852,6 +855,10 @@ public final class CoverageActualFacts {
   }
 
   private static boolean matchingOwner(String role, CoverageSyntaxFactValue value) {
+    if (role.startsWith("NewArrayTree")) {
+      return value.sourceKind() == JavaSourceKind.NEW_ARRAY
+          && (value.syntaxKind() == SyntaxKind.ARRAY_CREATION || value.syntaxKind() == SyntaxKind.ANNOTATION_ARRAY);
+    }
     if (role.startsWith("CompilationUnitTree")) {
       return value.value() instanceof SyntaxValue.CompilationUnit;
     }

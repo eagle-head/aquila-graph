@@ -59,6 +59,7 @@ public final class CoverageWrittenTypeUseTopology {
       case TYPE_OPERAND -> switch (parent) {
         case TYPE_CAST -> Optional.of(Role.CAST_TYPE);
         case NEW_CLASS -> Optional.of(Role.CONSTRUCTED_TYPE);
+        case NEW_ARRAY -> Optional.of(Role.ARRAY_ELEMENT_TYPE);
         default -> Optional.empty();
       };
       default -> Optional.empty();

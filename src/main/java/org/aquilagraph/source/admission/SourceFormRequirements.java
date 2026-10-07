@@ -19,6 +19,11 @@ final class SourceFormRequirements {
       case UPDATE -> isAssignable(node.requiredChild(SyntaxRole.OPERAND));
       case COMPOUND_ASSIGNMENT -> isAssignable(node.requiredChild(SyntaxRole.LOCATION));
       case TYPE_CAST, OBJECT_CREATION -> node.optionalChild(SyntaxRole.TYPE_OPERAND).isPresent();
+      case ARRAY_CREATION -> {
+        var array = node.value(SyntaxValue.ArrayCreation.class);
+        yield node.optionalChild(SyntaxRole.TYPE_OPERAND).isPresent() == array.writtenType()
+            && node.children(SyntaxRole.ANNOTATION).size() == array.dimensionAnnotationCounts().stream().mapToInt(Integer::intValue).sum();
+      }
       case LOCAL_DECLARATION ->
         node.optionalChild(SyntaxRole.DECLARED_TYPE).isPresent() || node.value(SyntaxValue.LocalDeclaration.class).bindingEvidence()
             .filter(binding -> binding.typeForm() == LocalBindingEvidence.TypeForm.INFERRED && binding.initialized()).isPresent();

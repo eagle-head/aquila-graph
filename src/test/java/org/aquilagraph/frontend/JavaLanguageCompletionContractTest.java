@@ -40,6 +40,7 @@ import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.SyntaxAnalysisInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.SyntaxRole;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.Test;
 
@@ -471,7 +472,7 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenAnnotationArrayAndDeferredBodyArray_whenAnalysisRuns_thenSharedKindPolicyKeepsContextualCompletionTruthful() throws IOException {
+  void givenAnnotationArrayAndExecutableArray_whenAnalysisRuns_thenSharedKindPolicyPreservesTheirSeparateSourceContracts() throws IOException {
     // Arrange
     writeSource("Arrays.java", "@interface A { int[] value(); } @A({1,2}) class Arrays { int[] values() { return new int[] {3,4}; } }");
 
@@ -481,10 +482,11 @@ class JavaLanguageCompletionContractTest {
 
     // Assert
     assertEquals(LanguageFeaturePolicy.REPRESENTED, classification(input, LanguageFeatureCategory.COMPILER_TREE_KIND, "NEW_ARRAY").policy());
-    assertEquals(List.of(SyntaxKind.ANNOTATION_ARGUMENT, SyntaxKind.ANNOTATION_ARRAY, SyntaxKind.UNSUPPORTED),
+    assertEquals(List.of(SyntaxKind.ANNOTATION_ARGUMENT, SyntaxKind.ANNOTATION_ARRAY, SyntaxKind.ARRAY_CREATION),
         arrays.stream().map(node -> node.syntaxKind()).toList());
-    assertTrue(input.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unsupported-syntax")
-        && item.message().contains("NEW_ARRAY") && item.origins().equals(arrays.getLast().origin().stream().toList())));
+    assertEquals(List.of("1", "2"), arrays.get(1).children(SyntaxRole.VALUE).stream().map(node -> node.value(SyntaxValue.Literal.class).text()).toList());
+    assertEquals(List.of("3", "4"), arrays.getLast().children(SyntaxRole.ARRAY_ELEMENT).stream().map(node -> node.value(SyntaxValue.Literal.class).text()).toList());
+    assertTrue(input.diagnostics().isEmpty(), input.diagnostics().toString());
     assertFalse(input.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unrepresented-source-annotation")
         || item.code().equals("frontend.inconsistent-annotation-source-fact")));
     assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(input).completion());

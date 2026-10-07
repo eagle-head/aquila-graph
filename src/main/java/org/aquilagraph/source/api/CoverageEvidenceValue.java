@@ -309,6 +309,8 @@ public sealed interface CoverageEvidenceValue {
     /** Nested annotation value. */
     ANNOTATION_NESTED,
     /** Ordered annotation array. */
-    ANNOTATION_ARRAY
+    ANNOTATION_ARRAY,
+    /** Executable array form and dimension annotation grouping. */
+    ARRAY_CREATION
   }
 }

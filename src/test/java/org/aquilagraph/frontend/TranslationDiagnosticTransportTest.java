@@ -91,18 +91,18 @@ class TranslationDiagnosticTransportTest {
   }
 
   @Test
-  void givenUnsupportedArraysInNestedBlocksAndSiblingMethods_whenActualTranslationReturnsThroughEveryParent_thenBodyCreatorAddressesAndSourceOrderRemainUnchanged()
+  void givenUnsupportedAnonymousCreationsInNestedBlocksAndSiblingMethods_whenActualTranslationReturnsThroughEveryParent_thenBodyCreatorAddressesAndSourceOrderRemainUnchanged()
       throws IOException {
     // Arrange
     var source = """
         class Sample {
           int first() {
-            int[] left = null; left = new int[1];
-            { int[] nested = null; nested = new int[2]; }
+            Object left = null; left = new Object() { int value = 1; };
+            { Object nested = null; nested = new Object() { int value = 2; }; }
             return 1;
           }
           int second() {
-            int[] right = null; right = new int[3];
+            Object right = null; right = new Object() { int value = 3; };
             return 3;
           }
         }
@@ -142,11 +142,11 @@ class TranslationDiagnosticTransportTest {
       assertEquals(expected.subList(0, 2), addresses(eventsFrom(method, BODY_PRODUCER)), () -> method.diagnostics().toString());
       assertEquals(expected, addresses(eventsFrom(declaration, BODY_PRODUCER)), () -> declaration.diagnostics().toString());
       assertEquals(expected, addresses(emitted), () -> program.diagnostics().toString());
-      assertEquals(List.of(span(fixture.source(), "new int[1]"), span(fixture.source(), "new int[2]"),
-          span(fixture.source(), "new int[3]")), emitted.stream().map(event -> event.diagnostic().origins().getFirst()).toList());
+      assertEquals(List.of(span(fixture.source(), "new Object() { int value = 1; }"), span(fixture.source(), "new Object() { int value = 2; }"),
+          span(fixture.source(), "new Object() { int value = 3; }")), emitted.stream().map(event -> event.diagnostic().origins().getFirst()).toList());
       for (var event : emitted) {
         assertEquals("frontend.unsupported-syntax", event.diagnostic().code());
-        assertEquals("Unsupported Java construct in method body: NEW_ARRAY", event.diagnostic().message());
+        assertEquals("Unsupported Java construct in method body: NEW_CLASS", event.diagnostic().message());
         assertUnslottedCapabilityEvent(event);
       }
       assertEquals(program.diagnostics(), program.diagnosticEmissions().stream().map(DiagnosticEmission::diagnostic).toList());

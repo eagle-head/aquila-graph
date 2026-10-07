@@ -69,7 +69,7 @@ class AstCodecContractTest {
         new CfgRequest(decoded.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
 
     // Assert
-    assertEquals("java-source/4", current.identity().sourceModelVersion());
+    assertEquals("java-source/5", current.identity().sourceModelVersion());
     assertEquals("java-source/2", legacy.identity().sourceModelVersion());
     assertNotEquals(current.identity(), legacy.identity());
     assertEquals(legacy.identity(), decoded.identity());
@@ -79,6 +79,48 @@ class AstCodecContractTest {
     assertEquals(MethodCfgState.AVAILABLE, cfg.methods().getFirst().state());
     assertArrayEquals(bytes, AstCodec.encode(decoded));
     assertEquals(AstCodec.materialize(current), AstCodec.materialize(decoded));
+  }
+
+  @Test
+  void givenCompatibleUpdateAwareResult_whenDecodedAndDerived_thenPriorFormatAndUpdateValuesRemainReadable() throws IOException {
+    // Arrange
+    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+        "class Stored { int value(int input) { input += 2; return input++; } }")));
+    var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+        AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
+    var previous = SourceAnalysisFixture.updateResult(current);
+    var bytes = AstCodec.encode(previous);
+    var method = previous.program().methods().stream().filter(value -> value.name().equals("value")).findFirst().orElseThrow();
+    // Act
+    var decoded = AstCodec.decode(bytes, previous.identity());
+    var cfg = CfgDerivers.standard().derive(decoded, new CfgRequest(decoded.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
+    // Assert
+    assertEquals("java-source/4", previous.identity().sourceModelVersion());
+    assertEquals(AstCompletion.COMPLETE, decoded.completion());
+    assertEquals(previous.identity(), decoded.identity());
+    assertEquals(previous.aggregate(), decoded.aggregate());
+    assertEquals(previous.coverage(), decoded.coverage());
+    assertEquals(AstCodec.materialize(previous), AstCodec.materialize(decoded));
+    assertArrayEquals(bytes, AstCodec.encode(decoded));
+    assertEquals(MethodCfgState.UNSUPPORTED, cfg.methods().getFirst().state());
+    assertEquals(List.of(SyntaxKind.COMPOUND_ASSIGNMENT, SyntaxKind.UPDATE), decoded.body(method.methodKey()).orElseThrow().root()
+        .descendantsAndSelf().stream().map(node -> node.syntaxKind()).filter(kind -> kind == SyntaxKind.COMPOUND_ASSIGNMENT || kind == SyntaxKind.UPDATE).toList());
+  }
+
+  @Test
+  void givenExecutableArrayValues_whenWrittenOrReadInEarlierFormats_thenTheClosedVersionBoundaryRejectsThem() {
+    // Arrange
+    var value = new SyntaxValue.ArrayCreation(true, true, List.of(0));
+    var writer = new CanonicalValueWriter(AstResult.SOURCE_MODEL_VERSION);
+    new RetainedValueCodec(false).write(writer, value);
+    // Act and Assert
+    for (var format : List.of("java-source/2", "java-source/3", "java-source/4")) {
+      var codec = new RetainedValueCodec(false, format);
+      assertThrows(IllegalArgumentException.class, () -> codec.write(new CanonicalValueWriter(format), value));
+      var kind = new CanonicalValueWriter(format);
+      kind.text("syntax-kind"); kind.text("ARRAY_CREATION");
+      assertThrows(IllegalArgumentException.class, () -> codec.read(new CanonicalValueReader(kind.toByteArray(), format)));
+    }
   }
 
   @Test
@@ -94,7 +136,7 @@ class AstCodecContractTest {
 
     // Assert
     assertTrue(failure.getMessage().contains("Unsupported retained AST format: java-source/future"));
-    assertEquals("java-source/4", identity.sourceModelVersion());
+    assertEquals("java-source/5", identity.sourceModelVersion());
   }
 
   @Test
@@ -138,7 +180,8 @@ class AstCodecContractTest {
     assertEquals("java-language-feature-coverage:e0968b3e0d4da804090dff9f60d557181733dff543864f096e1a854a0e0d3ac2",
         decoded.coverage().coverage().contractIdentity());
     assertNotEquals(current.coverage().coverage(), decoded.coverage().coverage());
-    assertEquals(current.coverage().validationEvidence().writtenInventory().contexts(),
+    assertEquals(current.coverage().validationEvidence().writtenInventory().contexts().stream()
+        .filter(context -> context.feature().map(feature -> !feature.identifier().startsWith("NewArrayTree::")).orElse(true)).toList(),
         decoded.coverage().validationEvidence().writtenInventory().contexts());
     assertEquals(current.coverage().validationEvidence().attributedExpectations().projections(),
         decoded.coverage().validationEvidence().attributedExpectations().projections());
@@ -204,7 +247,7 @@ class AstCodecContractTest {
     var failure = assertThrows(IllegalArgumentException.class, () -> new CanonicalValueReader(bytes, "java-source/2"));
 
     // Assert
-    assertEquals("Unsupported canonical value format: java-source/4", failure.getMessage());
+    assertEquals("Unsupported canonical value format: java-source/5", failure.getMessage());
   }
 
   @Test

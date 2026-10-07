@@ -36,7 +36,8 @@ import org.aquilagraph.source.api.SourceOwnerPath.Role;
 final class JavaSourceCoverageCapture {
   private static final Set<Role> RECURSIVE_TYPE_ROLES = Set.of(Role.TYPE_NAME, Role.TYPE_ARGUMENT, Role.COMPONENT_TYPE,
       Role.UNDERLYING_TYPE, Role.UPPER_BOUND, Role.LOWER_BOUND, Role.INTERSECTION_BOUND, Role.UNION_ALTERNATIVE, Role.TYPE_QUALIFIER);
-  private static final Set<Role> BODY_TYPE_ROLES = Set.of(Role.DECLARED_TYPE, Role.CAST_TYPE, Role.CONSTRUCTED_TYPE, Role.TYPE_ARGUMENT);
+  private static final Set<Role> BODY_TYPE_ROLES = Set.of(Role.DECLARED_TYPE, Role.CAST_TYPE, Role.CONSTRUCTED_TYPE, Role.TYPE_ARGUMENT,
+      Role.ARRAY_ELEMENT_TYPE);
   private final SourceCoverageInventory writtenInventory;
   private final Map<SourceContext.Address, SemanticDescriptor> descriptors;
   private final JavaSourceEvidence sourceEvidence;

@@ -5,6 +5,7 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.Locale;
+import java.util.stream.Collectors;
 import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.CfgSelection;
@@ -32,6 +33,8 @@ import org.aquilagraph.source.api.UnmatchedSourceFact;
 import org.aquilagraph.source.api.LanguageFeatureCoverage;
 import org.aquilagraph.source.api.LanguageFeatureCategory;
 import org.aquilagraph.source.api.LanguageFeatureClassification;
+import org.aquilagraph.source.api.LanguageFeatureObservation;
+import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 import org.aquilagraph.source.api.SourceCoverageInventory;
 import org.aquilagraph.source.api.AttributedCoverageExpectations;
 
@@ -57,23 +60,54 @@ public final class SourceAnalysisFixture {
    * @return original-format values with the preceding catalog and consistently qualified expectations
    */
   public static AstResult withPreviousCoverage(AstResult original) {
+    return withCoverage(original, false);
+  }
+
+  /**
+   * Admits supplied facts with the compatible update-aware schema and pre-array coverage contract.
+   * @param original source values without executable arrays
+   * @return format-four result retaining its exact qualified identity
+   */
+  public static AstResult updateResult(AstResult original) {
+    var compatible = withCoverage(original, true);
+    var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
+        compatible.diagnostics(), compatible.coverage());
+    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.UPDATE_SOURCE_MODEL_VERSION);
+  }
+
+  private static AstResult withCoverage(AstResult original, boolean updates) {
     var changedKinds = Set.of("MULTIPLY_ASSIGNMENT", "DIVIDE_ASSIGNMENT", "REMAINDER_ASSIGNMENT", "PLUS_ASSIGNMENT",
         "MINUS_ASSIGNMENT", "LEFT_SHIFT_ASSIGNMENT", "RIGHT_SHIFT_ASSIGNMENT", "UNSIGNED_RIGHT_SHIFT_ASSIGNMENT",
         "AND_ASSIGNMENT", "XOR_ASSIGNMENT", "OR_ASSIGNMENT", "PREFIX_INCREMENT", "PREFIX_DECREMENT", "POSTFIX_INCREMENT",
         "POSTFIX_DECREMENT", "INTERSECTION_TYPE");
     var catalog = LanguageFeatureCoverage.forRelease(original.coverage().coverage().release(),
-        original.coverage().coverage().classifications().stream().map(classification -> {
+        original.coverage().coverage().classifications().stream()
+            .filter(classification -> !classification.feature().identifier().startsWith("NewArrayTree::"))
+            .map(classification -> {
           var feature = classification.feature();
-          return feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND && changedKinds.contains(feature.identifier())
+          if (feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND && "NEW_ARRAY".equals(feature.identifier())) {
+            return LanguageFeatureClassification.represented(feature,
+                "JavaAstAggregate annotation array value; unsupported method-body arrays retain method-syntax diagnostics");
+          }
+          return !updates && feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND && changedKinds.contains(feature.identifier())
               ? LanguageFeatureClassification.diagnosed(feature,
                   "frontend.unsupported-tree-kind." + feature.identifier().toLowerCase(Locale.ROOT).replace('_', '-'))
               : classification;
         }).toList());
     var evidence = original.coverage().validationEvidence();
     var written = evidence.writtenInventory();
-    var inventory = new SourceCoverageInventory(written.snapshot(), written.release(), catalog.contractIdentity(), written.contexts());
+    var contexts = written.contexts().stream().filter(context -> context.feature()
+        .map(feature -> !feature.identifier().startsWith("NewArrayTree::")).orElse(true)).toList();
+    var inventory = new SourceCoverageInventory(written.snapshot(), written.release(), catalog.contractIdentity(), contexts);
     var attributed = new AttributedCoverageExpectations(inventory, evidence.attributedExpectations().projections());
-    var coverage = LanguageFeatureCoverageResult.fromEvidence(catalog, inventory, attributed, evidence.outcomes(), evidence.unmatchedFacts(),
+    var addresses = contexts.stream().map(context -> context.address()).collect(Collectors.toUnmodifiableSet());
+    var outcomes = evidence.outcomes().stream().filter(outcome -> addresses.contains(outcome.address()))
+        .map(outcome -> new FeatureContextOutcome(outcome.address(), outcome.occurrence().map(occurrence ->
+            new LanguageFeatureOccurrence(occurrence.sourceFileKey(), catalog.classificationOf(occurrence.classification().feature()).orElseThrow(),
+                occurrence.origins())), outcome.observation().map(observation -> new LanguageFeatureObservation(observation.sourceFileKey(),
+                    catalog.classificationOf(observation.classification().feature()).orElseThrow(), observation.origins(), observation.diagnostic())),
+            outcome.encounteredValue(), outcome.support(), outcome.emissions())).toList();
+    var coverage = LanguageFeatureCoverageResult.fromEvidence(catalog, inventory, attributed, outcomes, evidence.unmatchedFacts(),
         evidence.diagnosticEmissions());
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), coverage);

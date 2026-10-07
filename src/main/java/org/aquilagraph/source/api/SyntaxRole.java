@@ -118,6 +118,10 @@ public enum SyntaxRole {
   RIGHT_OPERAND("right"),
   /** Array expression of an array access. */
   ARRAY("array"),
+  /** Ordered sized dimension expression of an executable array creation. */
+  DIMENSION("dimension"),
+  /** Ordered element of an executable array initializer. */
+  ARRAY_ELEMENT("array-element"),
   /** Index expression of an array access. */
   INDEX("index"),
   /** True alternative of a conditional expression. */

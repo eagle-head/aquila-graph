@@ -121,7 +121,7 @@ final class JavaCompilerKindCoverage {
         represented("MINUS_ASSIGNMENT", OPERATOR_BOUNDARY), represented("MULTIPLY", OPERATOR_BOUNDARY),
         represented("MULTIPLY_ASSIGNMENT", OPERATOR_BOUNDARY),
         represented("NEW_ARRAY",
-            "JavaAstAggregate annotation array value; unsupported method-body arrays retain method-syntax diagnostics"),
+            "JavaAstAggregate executable array dimensions, type, annotations and initializers; preserved annotation array values"),
         represented("NEW_CLASS", METHOD_SYNTAX_BOUNDARY), represented("NOT_EQUAL_TO", OPERATOR_BOUNDARY),
         represented("NULL_LITERAL", LITERAL_BOUNDARY), represented("OR", OPERATOR_BOUNDARY),
         represented("OR_ASSIGNMENT", OPERATOR_BOUNDARY), represented("PARENTHESIZED", METHOD_SYNTAX_BOUNDARY),
