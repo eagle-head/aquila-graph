@@ -53,6 +53,55 @@ Neo4j instance. The integration-only targets still compile test sources and pack
 Surefire execution. The `quality` and `supply-chain-check` targets skip test compilation and execution, so
 run the relevant test targets separately when validating behavior.
 
+## Product Compilation Partitions
+
+The single Maven project compiles eight product partitions before assembling the ordinary
+application classes. The [compiler executions](../pom.xml) retain the same Error Prone,
+NullAway, JSpecify, warning, and release settings for every production source. Selecting a
+source for one compilation partition does not exclude it from the formatting, Checkstyle,
+PMD, CPD, SpotBugs, or Javadoc gates.
+
+| Partition | Compilation inputs |
+| --- | --- |
+| Source Identity | Java base and the two permitted JSpecify annotation definitions |
+| Source reader | Source Identity, Java base, and permitted nullness metadata |
+| Source admission | Source reader and Source Identity, with private construction machinery |
+| CFG reader | Immutable CFG API, Source reader, and Source Identity; no graph admission or construction machinery |
+| CFG | Source reader and Source Identity; no admission, frontend, application, or repository classes |
+| Java Frontend | Source reader, copied-value admission, Source Identity, and the supported public compiler modules |
+| Application | Source reader, CFG reader, and Source Identity |
+| Composition and storage adapters | Assembled product partitions and declared adapter dependencies |
+
+Partition outputs reside under `target/partitions/`. The immutable aggregate has no public
+construction operation. Four construction helpers share its Java package so they can use
+its package-private constructor, but compile only into the separate source-admission
+output: `AstAggregateAdmission`, `JavaAstAggregateBuilder`, `MethodDecisionRegistration`,
+and `MethodDecisionValidation`. They are absent from source-reader output. The designated
+[value-admission facade](../src/main/java/org/aquilagraph/source/admission/AstValueAdmission.java)
+submits complete immutable copied values and returns no mutable builder. Import permissions
+restrict the privileged bridge to this facade's package.
+
+The CFG reader likewise excludes `GraphValueAdmission`, `CanonicalGraphEncoding`,
+`LoweringPlan`, and `CfgAdmissionResult`. Qualified graph construction uses the
+package-private aggregate constructor through its separate privileged admission
+bridge. `CfgDerivers` is a composition factory outside that reader API; application
+coordination receives the `CfgDeriver` port and cannot choose or access an internal
+builder. The composition root selects the concrete implementation.
+
+Explicit compiler classpaths and source lookup prevent the reader, CFG, and frontend
+compilations from silently using other project sources. Source lookup points to the existing
+compiled identity directory, which contains classfiles rather than Java source. This permits
+normal builds from a fresh output directory without weakening `-Xlint:all -Werror`.
+
+[SourcePartitionBoundaryTest](../src/test/java/org/aquilagraph/architecture/SourcePartitionBoundaryTest.java)
+inspects every reader, CFG, and frontend classfile reference, including generic and annotation
+metadata, and compiles both permitted and forbidden consumer controls against the actual
+restricted outputs. [IdentityBoundaryTest](../src/test/java/org/aquilagraph/architecture/IdentityBoundaryTest.java)
+also runs identity operations in a Java-base-only process without JSpecify definitions.
+These gates establish their dependency and access properties; independent domain operations,
+completion, canonical identities, retention, and query behavior require their own behavioral
+verification.
+
 ## Text Line Endings
 
 The versioned [.gitattributes](../.gitattributes) normalizes tracked text to LF
@@ -108,17 +157,17 @@ The [Java analysis design](design/java-analysis.md#architecture-and-ownership) a
 [repository design](design/analysis-repository.md#responsibilities-and-dependencies)
 define the responsibility direction. In particular:
 
-- `model` and `syntax` cannot import application, CLI, core, frontend, or repository packages;
-- `core` cannot import application, CLI, frontend, or repository packages;
-- `frontend` may import `application.port` but not other application packages, CLI, core, or repository packages;
-- `application` cannot import CLI, frontend, or repository packages, so the accepted application-owned repository ports do not require an application-to-storage dependency;
-- `cli` cannot import core, frontend, or repository packages;
-- the general `repository` package cannot import application, CLI, core, or frontend, while `repository.neo4j` may import `application.port` and the Neo4j driver; and
-- the root package is the composition boundary that selects the concrete adapter.
+- Source Identity permits Java base domain dependencies, identity values and the designated JSpecify nullness annotations.
+- Source Model cannot import application, CLI, CFG, frontend or repository code; its reader excludes admission/construction APIs.
+- Frontend imports the Source Model production/admission contracts and compiler APIs, with no application or CFG dependency.
+- CFG imports only Source Model reader values and identity, with no producer, source-admission or mutable source-builder access.
+- Application imports public source/CFG reader values and its own ports; concrete frontend, CFG construction and repository implementations remain inaccessible.
+- CLI uses application and public graph reader contracts; the root selects concrete adapters.
+- The Neo4j adapter realizes application storage ports and may use Source Model copied-value admission to decode AST results without frontend/compiler or CFG construction.
 
-These are the configured package restrictions, not proof that every allowed
-import expresses an accepted model dependency. The repository port and factory
-are defined in `application.port`; the storage adapter realizes that port.
+The eight [product partitions](#product-compilation-partitions), strict isolated compilation and classfile controls enforce the selected [dependency closure](design/java-analysis.md#target-dependency-closure-and-enforcement). Identity runtime domain operations close over Java base; `NullMarked` and `Nullable` are allowed only as designated annotation metadata. No configured nullness rule is disabled. [IdentityBoundaryTest](../src/test/java/org/aquilagraph/architecture/IdentityBoundaryTest.java) and [SourcePartitionBoundaryTest](../src/test/java/org/aquilagraph/architecture/SourcePartitionBoundaryTest.java) inspect signatures, generic/annotation references and compiled partitions, with isolated positive/negative compiler controls. These observations are narrower than full semantic acceptance.
+
+Behavioral controls cover [required/optional source facts](design/java-analysis.md#initial-source-profile), [public graph payload/query contracts](design/java-analysis.md#public-cfg-values-and-queries) and [repository failure crossings](contracts/analysis.md#target-repository-failure-crossing). Compiler fixtures observe actual producer facts; copied-fact and driver faults observe their isolated supplied conditions; Community integration cases observe actual save/query/schema effects. The [owning verification record](design/java-analysis.md#model-acceptance-and-verification) identifies pending independent acceptance and the limits on reusing prior evidence; no diagram or documentation check supplies executable evidence.
 
 Only `frontend` may import the supported compiler-tree APIs in `com.sun.source` and `javax.tools`.
 Imports from `com.sun.tools.javac`, `jdk.internal`, and `sun` are rejected throughout production
