@@ -69,7 +69,7 @@ class AstCodecContractTest {
         new CfgRequest(decoded.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
 
     // Assert
-    assertEquals("java-source/3", current.identity().sourceModelVersion());
+    assertEquals("java-source/4", current.identity().sourceModelVersion());
     assertEquals("java-source/2", legacy.identity().sourceModelVersion());
     assertNotEquals(current.identity(), legacy.identity());
     assertEquals(legacy.identity(), decoded.identity());
@@ -94,7 +94,104 @@ class AstCodecContractTest {
 
     // Assert
     assertTrue(failure.getMessage().contains("Unsupported retained AST format: java-source/future"));
-    assertEquals("java-source/3", identity.sourceModelVersion());
+    assertEquals("java-source/4", identity.sourceModelVersion());
+  }
+
+  @Test
+  void givenPrecedingBindingAwareResult_whenDecodedAndDerived_thenBindingsCoverageIdentityAndClosedValuesRemainReadable() throws IOException {
+    // Arrange
+    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"), """
+        import java.lang.annotation.*;
+        @Target({ElementType.LOCAL_VARIABLE, ElementType.TYPE_USE}) @interface Mark { int value(); }
+        class Stored {
+          int named(int input) {
+            final int first=input; int second; second=first+1; var inferred=second; return inferred;
+          }
+          int expanded(int[] input) {
+            @Mark(3) final int first=1, second[]=input;
+            var inferred=first; int _=7; return inferred;
+          }
+        }
+        """)));
+    var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+        AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
+    var previous = SourceAnalysisFixture.previousResult(SourceAnalysisFixture.withPreviousCoverage(current));
+    var bytes = AstCodec.encode(previous);
+    var method = previous.program().methods().stream().filter(value -> value.name().equals("named")).findFirst().orElseThrow();
+    var expanded = previous.program().methods().stream().filter(value -> value.name().equals("expanded")).findFirst().orElseThrow();
+
+    // Act
+    var decoded = AstCodec.decode(bytes, previous.identity());
+    var cfg = CfgDerivers.standard().derive(decoded,
+        new CfgRequest(decoded.identity(), List.of(method.methodKey(), expanded.methodKey()), CfgProfile.JAVA_BOUNDED));
+    var locals = decoded.body(method.methodKey()).orElseThrow().root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).toList();
+    var expandedLocals = decoded.body(expanded.methodKey()).orElseThrow().root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).toList();
+
+    // Assert
+    assertEquals("java-source/3", decoded.identity().sourceModelVersion());
+    assertEquals(previous.identity(), decoded.identity());
+    assertNotEquals(current.identity(), previous.identity());
+    assertEquals(current.aggregate(), decoded.aggregate());
+    assertEquals(previous.coverage(), decoded.coverage());
+    assertEquals("java-language-feature-coverage:e0968b3e0d4da804090dff9f60d557181733dff543864f096e1a854a0e0d3ac2",
+        decoded.coverage().coverage().contractIdentity());
+    assertNotEquals(current.coverage().coverage(), decoded.coverage().coverage());
+    assertEquals(current.coverage().validationEvidence().writtenInventory().contexts(),
+        decoded.coverage().validationEvidence().writtenInventory().contexts());
+    assertEquals(current.coverage().validationEvidence().attributedExpectations().projections(),
+        decoded.coverage().validationEvidence().attributedExpectations().projections());
+    assertEquals(AstCompletion.COMPLETE, decoded.completion());
+    assertEquals(List.of("first", "second", "inferred"), locals.stream().map(node -> node.value(SyntaxValue.LocalDeclaration.class).name()).toList());
+    assertTrue(locals.stream().allMatch(node -> node.value(SyntaxValue.LocalDeclaration.class).bindingEvidence().isPresent()));
+    assertTrue(locals.stream().allMatch(node -> node.semanticReference().isPresent()));
+    assertTrue(locals.get(1).optionalChild(SyntaxRole.INITIALIZER).isEmpty());
+    assertEquals(LocalBindingEvidence.TypeForm.INFERRED, locals.get(2).value(SyntaxValue.LocalDeclaration.class).bindingEvidence().orElseThrow().typeForm());
+    assertEquals(List.of("first", "second", "inferred", "_"),
+        expandedLocals.stream().map(node -> node.value(SyntaxValue.LocalDeclaration.class).name()).toList());
+    assertEquals(List.of(expandedLocals.getFirst().requiredChild(SyntaxRole.ANNOTATION).nodeId()),
+        expandedLocals.get(1).value(SyntaxValue.LocalDeclaration.class).bindingEvidence().orElseThrow().sharedAnnotationKeys());
+    assertTrue(expandedLocals.getLast().semanticReference().isEmpty());
+    assertTrue(expandedLocals.getLast().value(SyntaxValue.LocalDeclaration.class).bindingEvidence().orElseThrow().declarationKey().isPresent());
+    assertEquals(MethodCfgState.AVAILABLE, cfg.methods().stream().filter(value -> value.methodKey().equals(method.methodKey())).findFirst().orElseThrow().state());
+    assertEquals(MethodCfgState.UNSUPPORTED, cfg.methods().stream().filter(value -> value.methodKey().equals(expanded.methodKey())).findFirst().orElseThrow().state());
+    assertEquals(AstCodec.materialize(previous), AstCodec.materialize(decoded));
+    assertArrayEquals(bytes, AstCodec.encode(decoded));
+    assertThrows(IllegalArgumentException.class, () -> new CanonicalValueReader(AstCodec.encode(current), "java-source/3"));
+  }
+
+  @Test
+  void givenUpdateValues_whenAssignedThePrecedingFormat_thenTheCodecRejectsTheirIncompatibleValues() throws IOException {
+    // Arrange
+    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+        "class Stored { int value(int input) { input += 2; return input++; } }")));
+    var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+        AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
+    // Act
+    var failure = assertThrows(AstContractException.class, () -> SourceAnalysisFixture.previousResult(current));
+    // Assert
+    assertTrue(failure.getMessage().contains("Update expressions require the current retained AST format"), failure.toString());
+    assertEquals(AstCompletion.COMPLETE, current.completion());
+  }
+
+  @Test
+  void givenUpdateEnumInAnOlderFrame_whenTheValueIsDecoded_thenTheVersionBoundaryRejectsItBeforeMaterialization() {
+    // Arrange
+    var format = "java-source/3";
+    var kind = new CanonicalValueWriter(format);
+    kind.text("syntax-kind");
+    kind.text("UPDATE");
+    var operator = new CanonicalValueWriter(format);
+    operator.text("syntax-operator");
+    operator.text("PLUS_ASSIGNMENT");
+    var codec = new RetainedValueCodec(false, format);
+    // Act
+    var kindFailure = assertThrows(IllegalArgumentException.class, () -> codec.read(new CanonicalValueReader(kind.toByteArray(), format)));
+    var operatorFailure = assertThrows(IllegalArgumentException.class, () -> codec.read(new CanonicalValueReader(operator.toByteArray(), format)));
+    // Assert
+    assertEquals("Update expressions require the current retained AST format", kindFailure.getMessage());
+    assertEquals(kindFailure.getMessage(), operatorFailure.getMessage());
   }
 
   @Test
@@ -107,7 +204,7 @@ class AstCodecContractTest {
     var failure = assertThrows(IllegalArgumentException.class, () -> new CanonicalValueReader(bytes, "java-source/2"));
 
     // Assert
-    assertEquals("Unsupported canonical value format: java-source/3", failure.getMessage());
+    assertEquals("Unsupported canonical value format: java-source/4", failure.getMessage());
   }
 
   @Test

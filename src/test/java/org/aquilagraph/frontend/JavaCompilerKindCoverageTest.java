@@ -113,6 +113,22 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.USES,
       Tree.Kind.VARIABLE,
       Tree.Kind.XOR,
+      Tree.Kind.MULTIPLY_ASSIGNMENT,
+      Tree.Kind.DIVIDE_ASSIGNMENT,
+      Tree.Kind.REMAINDER_ASSIGNMENT,
+      Tree.Kind.PLUS_ASSIGNMENT,
+      Tree.Kind.MINUS_ASSIGNMENT,
+      Tree.Kind.LEFT_SHIFT_ASSIGNMENT,
+      Tree.Kind.RIGHT_SHIFT_ASSIGNMENT,
+      Tree.Kind.UNSIGNED_RIGHT_SHIFT_ASSIGNMENT,
+      Tree.Kind.AND_ASSIGNMENT,
+      Tree.Kind.XOR_ASSIGNMENT,
+      Tree.Kind.OR_ASSIGNMENT,
+      Tree.Kind.PREFIX_INCREMENT,
+      Tree.Kind.PREFIX_DECREMENT,
+      Tree.Kind.POSTFIX_INCREMENT,
+      Tree.Kind.POSTFIX_DECREMENT,
+      Tree.Kind.INTERSECTION_TYPE,
       Tree.Kind.YIELD);
   @TempDir Path temporaryDirectory;
 
@@ -192,6 +208,10 @@ class JavaCompilerKindCoverageTest {
             String stringLiteral = "text";
             Object nullLiteral = null;
             int local = +value;
+            value *= 2; value /= 2; value %= 3; value += 2; value -= 1;
+            value <<= 1; value >>= 1; value >>>= 1; value &= 7; value ^= 3; value |= 2;
+            ++value; --value; value++; value--;
+            Object intersection = (Contract & java.io.Serializable) null;
             int arithmetic = (-value) + (~value) + value * 2 + value / 2 + value % 2 - 1
                 + (value << 1) + (value >> 1) + (value >>> 1) + (value & 1) + (value ^ 1) + (value | 1);
             boolean comparison = (!flag) && (value < 2) && (value > -2) && (value <= 2)

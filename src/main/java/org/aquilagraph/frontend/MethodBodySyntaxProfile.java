@@ -6,6 +6,7 @@ import com.sun.source.tree.BinaryTree;
 import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CaseTree;
 import com.sun.source.tree.CatchTree;
+import com.sun.source.tree.CompoundAssignmentTree;
 import com.sun.source.tree.ConditionalExpressionTree;
 import com.sun.source.tree.ConstantCaseLabelTree;
 import com.sun.source.tree.DefaultCaseLabelTree;
@@ -324,6 +325,8 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     return switch (unary.getKind()) {
       case UNARY_PLUS, UNARY_MINUS, BITWISE_COMPLEMENT, LOGICAL_COMPLEMENT ->
         accepted(SyntaxKind.UNARY, new SyntaxValue.Operator(operator(unary.getKind())), children);
+      case PREFIX_INCREMENT, PREFIX_DECREMENT, POSTFIX_INCREMENT, POSTFIX_DECREMENT ->
+        accepted(SyntaxKind.UPDATE, new SyntaxValue.Operator(SyntaxOperator.valueOf(unary.getKind().name())), children);
       default -> unsupported(unary, children);
     };
   }
@@ -347,6 +350,15 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     children.add(SyntaxRole.LOCATION, assignment.getVariable());
     children.add(SyntaxRole.VALUE, assignment.getExpression());
     return accepted(SyntaxKind.ASSIGNMENT, children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitCompoundAssignment(CompoundAssignmentTree assignment, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.add(SyntaxRole.LOCATION, assignment.getVariable());
+    children.add(SyntaxRole.RIGHT_OPERAND, assignment.getExpression());
+    return accepted(SyntaxKind.COMPOUND_ASSIGNMENT, new SyntaxValue.Operator(SyntaxOperator.valueOf(assignment.getKind().name())),
+        children);
   }
 
   @Override

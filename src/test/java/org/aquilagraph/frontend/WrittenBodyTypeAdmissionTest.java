@@ -43,6 +43,7 @@ import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class WrittenBodyTypeAdmissionTest {
@@ -129,11 +130,20 @@ class WrittenBodyTypeAdmissionTest {
   }
 
   @TestFactory
-  Stream<DynamicTest> givenExcludedIntersectionCast_whenClosed_thenExactSyntaxRemainsRetainedWithItsCapabilityRefusal() {
+  Stream<DynamicTest> givenIntersectionCast_whenClosed_thenExpandedSyntaxIsCompleteAndBoundedQualificationRemainsIncomplete() {
     return Stream.of(AstProfile.JAVA_SOURCE_BOUNDED, AstProfile.JAVA_SOURCE_EXPANDED)
         .map(profile -> DynamicTest.dynamicTest(profile.version(), () -> assertRetainedTargets(profile,
-            "Object subject(Object input) { return (java.io.Serializable & CharSequence) input; }", AstCompletion.INCOMPLETE,
-            List.of("frontend.unsupported-tree-kind.intersection-type"))));
+            "Object subject(Object input) { return (java.io.Serializable & CharSequence) input; }",
+            profile.equals(AstProfile.JAVA_SOURCE_EXPANDED) ? AstCompletion.COMPLETE : AstCompletion.INCOMPLETE, List.of())));
+  }
+
+  @Test
+  void givenIntersectionCast_whenItsWrittenTypeIsOmitted_thenExpandedSourceAndClosedValueRemainIncomplete() throws IOException {
+    // Arrange
+    var source = "class Example { Object subject(Object input) { return (java.io.Serializable & CharSequence) input; } }";
+    // Act and Assert
+    assertMissingTarget(AstProfile.JAVA_SOURCE_EXPANDED, source,
+        SyntaxKind.TYPE_CAST, SyntaxRole.TYPE_OPERAND);
   }
 
   private void assertRetainedTargets(AstProfile profile, String declaration, AstCompletion expected, List<String> diagnosticCodes)

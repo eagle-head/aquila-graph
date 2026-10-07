@@ -16,6 +16,8 @@ final class SourceFormRequirements {
       case UNSUPPORTED, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK -> false;
       case TRY -> node.children(SyntaxRole.RESOURCE).isEmpty() && node.children(SyntaxRole.FINALLY_BLOCK).isEmpty();
       case CASE -> node.value(SyntaxValue.SwitchCase.class).form() == SyntaxValue.SwitchCaseForm.RULE;
+      case UPDATE -> isAssignable(node.requiredChild(SyntaxRole.OPERAND));
+      case COMPOUND_ASSIGNMENT -> isAssignable(node.requiredChild(SyntaxRole.LOCATION));
       case TYPE_CAST, OBJECT_CREATION -> node.optionalChild(SyntaxRole.TYPE_OPERAND).isPresent();
       case LOCAL_DECLARATION ->
         node.optionalChild(SyntaxRole.DECLARED_TYPE).isPresent() || node.value(SyntaxValue.LocalDeclaration.class).bindingEvidence()
@@ -36,6 +38,14 @@ final class SourceFormRequirements {
           RETURN, THROW, IF, CATCH, SWITCH_EXPRESSION, YIELD, VARIABLE_ACCESS, LITERAL, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR,
           ASSIGNMENT, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, CONDITIONAL_EXPRESSION, EMPTY ->
         true;
+    };
+  }
+
+  private static boolean isAssignable(SyntaxNode node) {
+    return switch (node.syntaxKind()) {
+      case VARIABLE_ACCESS, FIELD_ACCESS, ARRAY_ACCESS -> true;
+      case PARENTHESIZED -> isAssignable(node.requiredChild(SyntaxRole.EXPRESSION));
+      default -> false;
     };
   }
 

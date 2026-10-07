@@ -31,6 +31,7 @@ import org.aquilagraph.source.api.LanguageFeatureClassification;
 import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxOperator;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
@@ -225,6 +226,7 @@ final class RetainedValueCodec {
     }
     writer.text(shape.tag());
     if (value instanceof Enum<?> enumeration) {
+      validateFormatEnum(shape.type(), enumeration.name());
       writer.text(enumeration.name());
       return;
     }
@@ -251,6 +253,7 @@ final class RetainedValueCodec {
     var shape = AstValueSchema.tag(tag);
     if (shape.type().isEnum()) {
       var name = reader.text();
+      validateFormatEnum(shape.type(), name);
       if (shape.type() == CoverageEvidenceValue.Tag.class && "LOCAL_BINDING".equals(name)
           && AstResult.LEGACY_SOURCE_MODEL_VERSION.equals(format)) {
         throw new IllegalArgumentException("Copied binding coverage requires the current retained AST format");
@@ -275,6 +278,20 @@ final class RetainedValueCodec {
   private void validateFormatTag(String tag) {
     if (AstResult.LEGACY_SOURCE_MODEL_VERSION.equals(format) && BINDING_TAGS.contains(tag)) {
       throw new IllegalArgumentException("Copied binding values require the current retained AST format: " + tag);
+    }
+  }
+
+  private void validateFormatEnum(Class<?> type, String name) {
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format)
+        && ((type == SyntaxKind.class && ("UPDATE".equals(name) || "COMPOUND_ASSIGNMENT".equals(name)))
+            || (type == SyntaxOperator.class && switch (name) {
+              case "MULTIPLY_ASSIGNMENT", "DIVIDE_ASSIGNMENT", "REMAINDER_ASSIGNMENT", "PLUS_ASSIGNMENT", "MINUS_ASSIGNMENT",
+                  "LEFT_SHIFT_ASSIGNMENT", "RIGHT_SHIFT_ASSIGNMENT", "UNSIGNED_RIGHT_SHIFT_ASSIGNMENT", "AND_ASSIGNMENT", "XOR_ASSIGNMENT",
+                  "OR_ASSIGNMENT", "PREFIX_INCREMENT", "PREFIX_DECREMENT", "POSTFIX_INCREMENT", "POSTFIX_DECREMENT" ->
+                true;
+              default -> false;
+            }))) {
+      throw new IllegalArgumentException("Update expressions require the current retained AST format");
     }
   }
 

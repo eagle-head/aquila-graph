@@ -3,6 +3,8 @@ package org.aquilagraph.source.admission;
 import java.util.Optional;
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.Locale;
 import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.CfgSelection;
@@ -27,11 +29,56 @@ import org.aquilagraph.source.api.CoverageEvidenceValue;
 import org.aquilagraph.source.api.FeatureContextOutcome;
 import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
 import org.aquilagraph.source.api.UnmatchedSourceFact;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
+import org.aquilagraph.source.api.LanguageFeatureClassification;
+import org.aquilagraph.source.api.SourceCoverageInventory;
+import org.aquilagraph.source.api.AttributedCoverageExpectations;
 
 /** Admits copied frontend facts and drives native source and graph coordination. */
 public final class SourceAnalysisFixture {
   /** Creates a fixture using standard source admission and CFG ports. */
   public SourceAnalysisFixture() {}
+
+  /**
+   * Admits a supplied compatible source value in the preceding binding-aware format.
+   * @param original values without update expressions
+   * @return preceding-format result with exact format-qualified identity
+   */
+  public static AstResult previousResult(AstResult original) {
+    var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
+        original.diagnostics(), original.coverage());
+    return AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision(), AstResult.PREVIOUS_SOURCE_MODEL_VERSION);
+  }
+
+  /**
+   * Admits compatible copied facts against the preceding Java 25 coverage catalog.
+   * @param original source facts that do not encounter update operators or intersection types
+   * @return original-format values with the preceding catalog and consistently qualified expectations
+   */
+  public static AstResult withPreviousCoverage(AstResult original) {
+    var changedKinds = Set.of("MULTIPLY_ASSIGNMENT", "DIVIDE_ASSIGNMENT", "REMAINDER_ASSIGNMENT", "PLUS_ASSIGNMENT",
+        "MINUS_ASSIGNMENT", "LEFT_SHIFT_ASSIGNMENT", "RIGHT_SHIFT_ASSIGNMENT", "UNSIGNED_RIGHT_SHIFT_ASSIGNMENT",
+        "AND_ASSIGNMENT", "XOR_ASSIGNMENT", "OR_ASSIGNMENT", "PREFIX_INCREMENT", "PREFIX_DECREMENT", "POSTFIX_INCREMENT",
+        "POSTFIX_DECREMENT", "INTERSECTION_TYPE");
+    var catalog = LanguageFeatureCoverage.forRelease(original.coverage().coverage().release(),
+        original.coverage().coverage().classifications().stream().map(classification -> {
+          var feature = classification.feature();
+          return feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND && changedKinds.contains(feature.identifier())
+              ? LanguageFeatureClassification.diagnosed(feature,
+                  "frontend.unsupported-tree-kind." + feature.identifier().toLowerCase(Locale.ROOT).replace('_', '-'))
+              : classification;
+        }).toList());
+    var evidence = original.coverage().validationEvidence();
+    var written = evidence.writtenInventory();
+    var inventory = new SourceCoverageInventory(written.snapshot(), written.release(), catalog.contractIdentity(), written.contexts());
+    var attributed = new AttributedCoverageExpectations(inventory, evidence.attributedExpectations().projections());
+    var coverage = LanguageFeatureCoverageResult.fromEvidence(catalog, inventory, attributed, evidence.outcomes(), evidence.unmatchedFacts(),
+        evidence.diagnosticEmissions());
+    var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
+        original.diagnostics(), coverage);
+    return AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision(), original.identity().sourceModelVersion());
+  }
 
   /**
    * Admits compatible older-schema content with its original qualified format.

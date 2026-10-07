@@ -14,8 +14,9 @@ public final class LanguageFeatureCoverageResult {
   private static final long EXPECTED_COMPILATION_UNIT_CONTEXTS = 1L;
   private static final int EXPECTED_WRITTEN_TYPE_USE_FACTS = 1;
   private static final int EXPECTED_WRITTEN_TYPE_USE_OWNERS = 1;
-  private static final Map<JavaRelease, String> AUTHORITATIVE_CONTRACT_IDENTITIES = Map.of(JavaRelease.JAVA_25,
-      "java-language-feature-coverage:e0968b3e0d4da804090dff9f60d557181733dff543864f096e1a854a0e0d3ac2");
+  private static final Map<JavaRelease, Set<String>> AUTHORITATIVE_CONTRACT_IDENTITIES = Map.of(JavaRelease.JAVA_25,
+      Set.of("java-language-feature-coverage:e0968b3e0d4da804090dff9f60d557181733dff543864f096e1a854a0e0d3ac2",
+          "java-language-feature-coverage:6661250f922a3b0bb0f7aa7a01dc27b8f2c3bdc880b95cd781b0e15a32b017e4"));
   private final LanguageFeatureCoverage coverageContract;
   private final List<LanguageFeatureOccurrence> occurrenceValues;
   private final List<LanguageFeatureObservation> observationValues;
@@ -488,7 +489,7 @@ public final class LanguageFeatureCoverageResult {
 
   private static void validateAuthoritativeContract(LanguageFeatureCoverage coverage) {
     var expectedIdentity = AUTHORITATIVE_CONTRACT_IDENTITIES.get(coverage.release());
-    if (expectedIdentity == null || !expectedIdentity.equals(coverage.contractIdentity())) {
+    if (expectedIdentity == null || !expectedIdentity.contains(coverage.contractIdentity())) {
       throw new IllegalArgumentException("Language-feature coverage must match the authoritative release contract");
     }
   }

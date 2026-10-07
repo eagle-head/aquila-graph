@@ -1,6 +1,6 @@
 package org.aquilagraph.source.api;
 
-/** Operators retained from supported Java unary and binary expressions. */
+/** Operators retained from written Java expressions without desugaring. */
 public enum SyntaxOperator {
   /** Unary numeric identity. */
   UNARY_PLUS,
@@ -47,5 +47,35 @@ public enum SyntaxOperator {
   /** Short-circuit boolean conjunction. */
   CONDITIONAL_AND,
   /** Short-circuit boolean disjunction. */
-  CONDITIONAL_OR
+  CONDITIONAL_OR,
+  /** Multiplication assignment. */
+  MULTIPLY_ASSIGNMENT,
+  /** Division assignment. */
+  DIVIDE_ASSIGNMENT,
+  /** Remainder assignment. */
+  REMAINDER_ASSIGNMENT,
+  /** Addition or string concatenation assignment. */
+  PLUS_ASSIGNMENT,
+  /** Subtraction assignment. */
+  MINUS_ASSIGNMENT,
+  /** Signed left shift assignment. */
+  LEFT_SHIFT_ASSIGNMENT,
+  /** Signed right shift assignment. */
+  RIGHT_SHIFT_ASSIGNMENT,
+  /** Unsigned right shift assignment. */
+  UNSIGNED_RIGHT_SHIFT_ASSIGNMENT,
+  /** Bitwise or boolean conjunction assignment. */
+  AND_ASSIGNMENT,
+  /** Bitwise or boolean exclusive disjunction assignment. */
+  XOR_ASSIGNMENT,
+  /** Bitwise or boolean disjunction assignment. */
+  OR_ASSIGNMENT,
+  /** Prefix increment. */
+  PREFIX_INCREMENT,
+  /** Prefix decrement. */
+  PREFIX_DECREMENT,
+  /** Postfix increment. */
+  POSTFIX_INCREMENT,
+  /** Postfix decrement. */
+  POSTFIX_DECREMENT
 }

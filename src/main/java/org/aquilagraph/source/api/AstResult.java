@@ -16,7 +16,9 @@ import org.aquilagraph.identity.api.SourceOccurrence;
 /** Intrinsically admitted, content-qualified source result with one canonical aggregate. */
 public final class AstResult {
   /** Version of the retained source value schema. */
-  public static final String SOURCE_MODEL_VERSION = "java-source/3";
+  public static final String SOURCE_MODEL_VERSION = "java-source/4";
+  /** Earlier source schema with copied local bindings and no update-expression values. */
+  public static final String PREVIOUS_SOURCE_MODEL_VERSION = "java-source/3";
   /** Compatible retained schema predating copied local binding envelopes. */
   public static final String LEGACY_SOURCE_MODEL_VERSION = "java-source/2";
 
@@ -49,7 +51,8 @@ public final class AstResult {
    * @return whether the current reader supports the schema
    */
   public static boolean supportsSourceModelVersion(String version) {
-    return SOURCE_MODEL_VERSION.equals(version) || LEGACY_SOURCE_MODEL_VERSION.equals(version);
+    return SOURCE_MODEL_VERSION.equals(version) || PREVIOUS_SOURCE_MODEL_VERSION.equals(version)
+        || LEGACY_SOURCE_MODEL_VERSION.equals(version);
   }
 
   /**

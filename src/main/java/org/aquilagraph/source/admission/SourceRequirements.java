@@ -14,6 +14,7 @@ import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.MethodSyntax;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.LocalBindingEvidence;
+import org.aquilagraph.source.api.JavaSourceKind;
 
 /** Source-only qualification over intrinsically admitted copied facts. */
 final class SourceRequirements {
@@ -43,6 +44,10 @@ final class SourceRequirements {
   }
 
   private static boolean hasProfileGap(SyntaxNode node, AstProfile profile) {
+    if (profile.equals(AstProfile.JAVA_SOURCE_BOUNDED) && (node.syntaxKind() == SyntaxKind.UPDATE
+        || node.syntaxKind() == SyntaxKind.COMPOUND_ASSIGNMENT || node.sourceKind() == JavaSourceKind.INTERSECTION_TYPE)) {
+      return true;
+    }
     if (!(node.value() instanceof SyntaxValue.LocalDeclaration local)) {
       return false;
     }

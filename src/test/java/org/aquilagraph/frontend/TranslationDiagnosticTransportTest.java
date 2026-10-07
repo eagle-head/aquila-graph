@@ -91,19 +91,19 @@ class TranslationDiagnosticTransportTest {
   }
 
   @Test
-  void givenUnsupportedUpdatesInNestedBlocksAndSiblingMethods_whenActualTranslationReturnsThroughEveryParent_thenBodyCreatorAddressesAndSourceOrderRemainUnchanged()
+  void givenUnsupportedArraysInNestedBlocksAndSiblingMethods_whenActualTranslationReturnsThroughEveryParent_thenBodyCreatorAddressesAndSourceOrderRemainUnchanged()
       throws IOException {
     // Arrange
     var source = """
         class Sample {
           int first() {
-            int left = 1; left++;
-            { int nested = 2; nested++; }
-            return left;
+            int[] left = null; left = new int[1];
+            { int[] nested = null; nested = new int[2]; }
+            return 1;
           }
           int second() {
-            int right = 3; right++;
-            return right;
+            int[] right = null; right = new int[3];
+            return 3;
           }
         }
         """;
@@ -117,11 +117,11 @@ class TranslationDiagnosticTransportTest {
       var secondBodyPath = bodyPath(type.getMembers().indexOf(secondMethod));
       var expected = List.of(
           new DiagnosticEmission.Address(BODY_PRODUCER,
-              "type:Sample#first():" + firstBodyPath.child(SyntaxRole.STATEMENT, 1).child(SyntaxRole.EXPRESSION, 0), 0),
+              "type:Sample#first():" + firstBodyPath.child(SyntaxRole.STATEMENT, 1).child(SyntaxRole.EXPRESSION, 0).child(SyntaxRole.VALUE, 0), 0),
           new DiagnosticEmission.Address(BODY_PRODUCER,
-              "type:Sample#first():" + firstBodyPath.child(SyntaxRole.STATEMENT, 2).child(SyntaxRole.STATEMENT, 1).child(SyntaxRole.EXPRESSION, 0), 0),
+              "type:Sample#first():" + firstBodyPath.child(SyntaxRole.STATEMENT, 2).child(SyntaxRole.STATEMENT, 1).child(SyntaxRole.EXPRESSION, 0).child(SyntaxRole.VALUE, 0), 0),
           new DiagnosticEmission.Address(BODY_PRODUCER,
-              "type:Sample#second():" + secondBodyPath.child(SyntaxRole.STATEMENT, 1).child(SyntaxRole.EXPRESSION, 0), 0));
+              "type:Sample#second():" + secondBodyPath.child(SyntaxRole.STATEMENT, 1).child(SyntaxRole.EXPRESSION, 0).child(SyntaxRole.VALUE, 0), 0));
       var bodies = new JavaMethodBodyTranslator(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
           fixture.compilation().treeInventory());
       var methods = new JavaMethodTranslator(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
@@ -142,11 +142,11 @@ class TranslationDiagnosticTransportTest {
       assertEquals(expected.subList(0, 2), addresses(eventsFrom(method, BODY_PRODUCER)), () -> method.diagnostics().toString());
       assertEquals(expected, addresses(eventsFrom(declaration, BODY_PRODUCER)), () -> declaration.diagnostics().toString());
       assertEquals(expected, addresses(emitted), () -> program.diagnostics().toString());
-      assertEquals(List.of(span(fixture.source(), "left++"), span(fixture.source(), "nested++"),
-          span(fixture.source(), "right++")), emitted.stream().map(event -> event.diagnostic().origins().getFirst()).toList());
+      assertEquals(List.of(span(fixture.source(), "new int[1]"), span(fixture.source(), "new int[2]"),
+          span(fixture.source(), "new int[3]")), emitted.stream().map(event -> event.diagnostic().origins().getFirst()).toList());
       for (var event : emitted) {
         assertEquals("frontend.unsupported-syntax", event.diagnostic().code());
-        assertEquals("Unsupported Java construct in method body: POSTFIX_INCREMENT", event.diagnostic().message());
+        assertEquals("Unsupported Java construct in method body: NEW_ARRAY", event.diagnostic().message());
         assertUnslottedCapabilityEvent(event);
       }
       assertEquals(program.diagnostics(), program.diagnosticEmissions().stream().map(DiagnosticEmission::diagnostic).toList());

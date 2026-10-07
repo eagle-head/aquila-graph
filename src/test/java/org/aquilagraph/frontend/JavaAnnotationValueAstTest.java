@@ -584,7 +584,12 @@ class JavaAnnotationValueAstTest {
 
     // Assert
     assertEquals(expressions.size(), applied.size(), () -> result.diagnostics().toString());
-    assertEquals(Set.of(SyntaxOperator.values()), operators);
+    assertEquals(Set.of(SyntaxOperator.UNARY_PLUS, SyntaxOperator.UNARY_MINUS, SyntaxOperator.BITWISE_COMPLEMENT,
+        SyntaxOperator.LOGICAL_COMPLEMENT, SyntaxOperator.MULTIPLY, SyntaxOperator.DIVIDE, SyntaxOperator.REMAINDER,
+        SyntaxOperator.PLUS, SyntaxOperator.MINUS, SyntaxOperator.LEFT_SHIFT, SyntaxOperator.RIGHT_SHIFT,
+        SyntaxOperator.UNSIGNED_RIGHT_SHIFT, SyntaxOperator.LESS_THAN, SyntaxOperator.GREATER_THAN, SyntaxOperator.LESS_THAN_EQUAL,
+        SyntaxOperator.GREATER_THAN_EQUAL, SyntaxOperator.EQUAL_TO, SyntaxOperator.NOT_EQUAL_TO, SyntaxOperator.AND,
+        SyntaxOperator.XOR, SyntaxOperator.OR, SyntaxOperator.CONDITIONAL_AND, SyntaxOperator.CONDITIONAL_OR), operators);
     assertTrue(applied.stream().allMatch(node -> node.requiredChild(SyntaxRole.ANNOTATION_ARGUMENT)
         .children(SyntaxRole.VALUE).size() == 1));
     assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());

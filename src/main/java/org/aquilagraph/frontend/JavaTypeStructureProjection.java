@@ -5,6 +5,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.HashSet;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.IntSupplier;
@@ -108,7 +109,7 @@ final class JavaTypeStructureProjection {
       }
       components.add(component.orElseThrow());
     }
-    if (components.size() < MIN_COMPOSITE_COMPONENTS) {
+    if (components.size() < MIN_COMPOSITE_COMPONENTS || new HashSet<>(components).size() != components.size()) {
       return Optional.empty();
     }
     return Optional.of(intersection ? new JavaTypeStructure.Intersection(components) : new JavaTypeStructure.Union(components));

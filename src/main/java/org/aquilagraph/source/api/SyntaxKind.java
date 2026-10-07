@@ -86,6 +86,10 @@ public enum SyntaxKind {
   CONDITIONAL_OR,
   /** Assignment expression. */
   ASSIGNMENT,
+  /** Written compound assignment without desugaring its storage location. */
+  COMPOUND_ASSIGNMENT,
+  /** Written prefix or postfix increment or decrement. */
+  UPDATE,
   /** Array access expression. */
   ARRAY_ACCESS,
   /** Array length selection. */
@@ -110,7 +114,8 @@ public enum SyntaxKind {
     return switch (this) {
       case TYPE_USE, ANNOTATION_ARGUMENT, ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST, LOCAL_DECLARATION,
           SWITCH_EXPRESSION, INVOCATION, OBJECT_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY, CONDITIONAL_AND,
-          CONDITIONAL_OR, ASSIGNMENT, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST, CONDITIONAL_EXPRESSION ->
+          CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST,
+          CONDITIONAL_EXPRESSION ->
         true;
       default -> false;
     };
@@ -174,6 +179,16 @@ public enum SyntaxKind {
       case CONDITIONAL_AND -> sourceKind == JavaSourceKind.CONDITIONAL_AND;
       case CONDITIONAL_OR -> sourceKind == JavaSourceKind.CONDITIONAL_OR;
       case ASSIGNMENT -> sourceKind == JavaSourceKind.ASSIGNMENT;
+      case COMPOUND_ASSIGNMENT -> switch (sourceKind) {
+        case MULTIPLY_ASSIGNMENT, DIVIDE_ASSIGNMENT, REMAINDER_ASSIGNMENT, PLUS_ASSIGNMENT, MINUS_ASSIGNMENT, LEFT_SHIFT_ASSIGNMENT,
+            RIGHT_SHIFT_ASSIGNMENT, UNSIGNED_RIGHT_SHIFT_ASSIGNMENT, AND_ASSIGNMENT, XOR_ASSIGNMENT, OR_ASSIGNMENT ->
+          true;
+        default -> false;
+      };
+      case UPDATE -> switch (sourceKind) {
+        case PREFIX_INCREMENT, PREFIX_DECREMENT, POSTFIX_INCREMENT, POSTFIX_DECREMENT -> true;
+        default -> false;
+      };
       case ARRAY_ACCESS -> sourceKind == JavaSourceKind.ARRAY_ACCESS;
       case ARRAY_LENGTH -> sourceKind == JavaSourceKind.MEMBER_SELECT;
       case PARENTHESIZED -> sourceKind == JavaSourceKind.PARENTHESIZED;

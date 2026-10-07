@@ -49,6 +49,7 @@ public final class SyntaxNode {
     validateAnnotationChildLocations(childNodes);
     validateShape(syntaxKind, sourceKind, value, childNodes);
     validateKnownWrittenBodyType(syntaxKind, type, childNodes);
+    validateUpdateType(syntaxKind, type, childNodes);
     validateExecutableChildren(syntaxKind, childNodes);
     if (value instanceof SyntaxValue.Operator operator && !operator.operator().name().equals(sourceKind.name())) {
       throw new IllegalArgumentException("The retained operator contradicts its exact Java source kind");
@@ -86,6 +87,16 @@ public final class SyntaxNode {
     validateBoundSourceRanges(path, syntaxKind, sourceKind, sourceOrigin, childNodes);
     if (syntaxKind == SyntaxKind.TYPE_USE) {
       validateTypeUseAttribution(path, sourceKind, type, value, semanticReference, childNodes);
+    }
+  }
+
+  private static void validateUpdateType(SyntaxKind kind, SyntaxType type, List<SyntaxChild> children) {
+    if ((kind == SyntaxKind.UPDATE || kind == SyntaxKind.COMPOUND_ASSIGNMENT) && type instanceof SyntaxType.Resolved) {
+      var role = kind == SyntaxKind.UPDATE ? SyntaxRole.OPERAND : SyntaxRole.LOCATION;
+      var location = children.stream().filter(child -> child.role() == role).findFirst().orElseThrow().node();
+      if (location.type() instanceof SyntaxType.Resolved && !type.equals(location.type())) {
+        throw new IllegalArgumentException("An update result must retain its storage location type");
+      }
     }
   }
 
@@ -647,7 +658,7 @@ public final class SyntaxNode {
       case INVOCATION, OBJECT_CREATION -> SyntaxValue.Invocation.class;
       case RECEIVER -> SyntaxValue.Receiver.class;
       case LITERAL -> SyntaxValue.Literal.class;
-      case UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR -> SyntaxValue.Operator.class;
+      case UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR, COMPOUND_ASSIGNMENT, UPDATE -> SyntaxValue.Operator.class;
       case TYPE_CAST -> SyntaxValue.TypeName.class;
       case CASE -> SyntaxValue.SwitchCase.class;
       case UNSUPPORTED -> SyntaxValue.Unsupported.class;
@@ -834,7 +845,7 @@ public final class SyntaxNode {
       case OBJECT_CREATION -> validateObjectCreation(SyntaxValue.Invocation.class.cast(value), children);
       case FIELD_ACCESS -> validateFieldAccess(SyntaxValue.FieldAccess.class.cast(value), children);
       case ARRAY_LENGTH -> requireShape(children, Set.of(SyntaxRole.QUALIFIER), SyntaxRole.QUALIFIER, 1, 1);
-      case UNARY -> requireShape(children, Set.of(SyntaxRole.OPERAND), SyntaxRole.OPERAND, 1, 1);
+      case UNARY, UPDATE -> requireShape(children, Set.of(SyntaxRole.OPERAND), SyntaxRole.OPERAND, 1, 1);
       case BINARY, CONDITIONAL_AND, CONDITIONAL_OR -> {
         requireShape(children, Set.of(SyntaxRole.LEFT_OPERAND, SyntaxRole.RIGHT_OPERAND));
         requireCount(children, SyntaxRole.LEFT_OPERAND, 1, 1);
@@ -844,6 +855,11 @@ public final class SyntaxNode {
         requireShape(children, Set.of(SyntaxRole.LOCATION, SyntaxRole.VALUE));
         requireCount(children, SyntaxRole.LOCATION, 1, 1);
         requireCount(children, SyntaxRole.VALUE, 1, 1);
+      }
+      case COMPOUND_ASSIGNMENT -> {
+        requireShape(children, Set.of(SyntaxRole.LOCATION, SyntaxRole.RIGHT_OPERAND));
+        requireCount(children, SyntaxRole.LOCATION, 1, 1);
+        requireCount(children, SyntaxRole.RIGHT_OPERAND, 1, 1);
       }
       case ARRAY_ACCESS -> {
         requireShape(children, Set.of(SyntaxRole.ARRAY, SyntaxRole.INDEX));
@@ -893,7 +909,7 @@ public final class SyntaxNode {
         case LOCAL_DECLARATION -> child.role() != SyntaxRole.INITIALIZER || isExpression(node);
         case TYPE_CAST -> child.role() != SyntaxRole.EXPRESSION || isExpression(node);
         case EXPRESSION_STATEMENT, RETURN, THROW, PARENTHESIZED, YIELD, ARRAY_LENGTH, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR,
-            ASSIGNMENT, ARRAY_ACCESS, CONDITIONAL_EXPRESSION ->
+            ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, CONDITIONAL_EXPRESSION ->
           isExpression(node);
         case IF -> child.role() == SyntaxRole.CONDITION ? isExpression(node) : isStatement(node);
         case TRY -> switch (child.role()) {
@@ -935,8 +951,8 @@ public final class SyntaxNode {
   private static boolean isExpression(SyntaxNode node) {
     return switch (node.syntaxKind()) {
       case INVOCATION, OBJECT_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR,
-          ASSIGNMENT, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST, CONDITIONAL_EXPRESSION, SWITCH_EXPRESSION,
-          ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST ->
+          ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST, CONDITIONAL_EXPRESSION,
+          SWITCH_EXPRESSION, ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST ->
         true;
       case UNSUPPORTED -> switch (node.sourceKind()) {
         case ARRAY_ACCESS, ASSIGNMENT, CONDITIONAL_EXPRESSION, MEMBER_SELECT, MEMBER_REFERENCE, IDENTIFIER, INSTANCE_OF, METHOD_INVOCATION,
@@ -1651,12 +1667,57 @@ public final class SyntaxNode {
       return;
     }
     for (var child : children) {
-      if (child.role() == role && child.node().type() instanceof SyntaxType.Resolved written
-          && (written.identity().category() != expected.identity().category()
-              || !written.identity().erasedName().equals(expected.identity().erasedName()))) {
-        throw new IllegalArgumentException("A known written body type must match its containing occurrence's type");
+      if (child.role() == role && child.node().type() instanceof SyntaxType.Resolved written) {
+        var identityMatches = written.identity().category() == expected.identity().category()
+            && written.identity().erasedName().equals(expected.identity().erasedName());
+        var structureMatches = kind != SyntaxKind.TYPE_CAST || expected.structure().isEmpty() || written.structure().isEmpty()
+            || castTypeStructuresMatch(expected.structure().orElseThrow(), written.structure().orElseThrow());
+        if (!identityMatches || !structureMatches) {
+          throw new IllegalArgumentException("A known written body type must match its containing occurrence's type");
+        }
       }
     }
+  }
+
+  private static boolean castTypeStructuresMatch(JavaTypeStructure result, JavaTypeStructure target) {
+    if (result.equals(target)) {
+      return true;
+    }
+    var resultDeclaration = typeUseDeclaration(result);
+    var targetDeclaration = typeUseDeclaration(target);
+    if (result.getClass() != target.getClass() || resultDeclaration.isEmpty() || targetDeclaration.isEmpty()) {
+      return false;
+    }
+    if (result instanceof JavaTypeStructure.LocalDeclared actualLocal && target instanceof JavaTypeStructure.LocalDeclared writtenLocal
+        && actualLocal.kind() != writtenLocal.kind()) {
+      return false;
+    }
+    var actual = resultDeclaration.orElseThrow();
+    var written = targetDeclaration.orElseThrow();
+    return actual.declarationKey().equals(written.declarationKey()) && actual.lexicalOwnerKey().equals(written.lexicalOwnerKey())
+        && actual.enclosingType().equals(written.enclosingType()) && castArgumentsMatch(actual.arguments(), written.arguments());
+  }
+
+  private static boolean castArgumentsMatch(List<JavaTypeStructure> result, List<JavaTypeStructure> target) {
+    if (result.size() != target.size()) {
+      return false;
+    }
+    for (var index = 0; index < result.size(); index++) {
+      var actual = result.get(index);
+      var written = target.get(index);
+      if (actual.equals(written)) {
+        continue;
+      }
+      if (!(written instanceof JavaTypeStructure.Wildcard wildcard) || !(actual instanceof JavaTypeStructure.Captured captured)) {
+        return false;
+      }
+      // Upper capture bounds depend on declaration parameters outside this occurrence.
+      var expectedLower = wildcard.kind() == JavaTypeStructure.Wildcard.BoundKind.SUPER ? wildcard.bound() : Optional.empty();
+      if (!captured.lowerBound().equals(expectedLower)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private static void validateBodyTypeArguments(List<SyntaxChild> children) {

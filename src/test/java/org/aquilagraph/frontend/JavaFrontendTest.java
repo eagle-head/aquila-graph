@@ -620,7 +620,7 @@ class JavaFrontendTest {
   }
 
   @Test
-  void givenUnsupportedUnaryUpdate_whenFrontendRuns_thenBodyAndDiagnosticRejectConstruct()
+  void givenUnaryUpdate_whenFrontendRuns_thenSourceRetainsItAndCfgRefusesConstruct()
       throws IOException {
     // Arrange
     Files.writeString(
@@ -635,9 +635,9 @@ class JavaFrontendTest {
     var body = methodBody(result, "increment");
     assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(body));
     assertEquals(
-        List.of(SyntaxKind.BLOCK, SyntaxKind.RETURN, SyntaxKind.UNSUPPORTED, SyntaxKind.VARIABLE_ACCESS),
+        List.of(SyntaxKind.BLOCK, SyntaxKind.RETURN, SyntaxKind.UPDATE, SyntaxKind.VARIABLE_ACCESS),
         body.root().descendantsAndSelf().stream().map(node -> node.syntaxKind()).toList());
-    assertEquals(1, result.diagnostics().stream()
+    assertEquals(0, result.diagnostics().stream()
         .filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")).count());
   }
 
