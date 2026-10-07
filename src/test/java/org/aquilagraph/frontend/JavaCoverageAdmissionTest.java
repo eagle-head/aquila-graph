@@ -468,9 +468,9 @@ class JavaCoverageAdmissionTest {
         new PropertyFixture("empty-formal", "class Example { void value(int parameter) {} }", "VariableTree::VariableTree#getModifiers()", List.of(), List.of()),
         new PropertyFixture("final-formal", "class Example { void value(final int parameter) {} }", "VariableTree::VariableTree#getModifiers()", List.of("final"), List.of()),
         new PropertyFixture("final-local", "class Example { void value() { final int local = 1; } }", "VariableTree::VariableTree#getModifiers()", List.of("final"),
-            List.of("frontend.unsupported-local-declaration-modifiers")),
+            List.of()),
         new PropertyFixture("final-catch", "class Example { void value() { try { throw new IllegalArgumentException(); } catch (final IllegalArgumentException problem) {} } }",
-            "VariableTree::VariableTree#getModifiers()", List.of("final"), List.of("frontend.unsupported-local-declaration-modifiers")));
+            "VariableTree::VariableTree#getModifiers()", List.of("final"), List.of()));
   }
 
   @TestFactory

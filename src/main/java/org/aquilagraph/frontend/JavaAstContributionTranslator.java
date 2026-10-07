@@ -20,6 +20,7 @@ import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import java.lang.annotation.ElementType;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -57,7 +58,8 @@ import org.aquilagraph.source.api.JavaTypeStructure;
 import org.aquilagraph.source.api.MethodBodyOrigin;
 import org.aquilagraph.source.api.AttributedBodyOccurrence;
 import org.aquilagraph.source.api.PackageQualifierEvidence;
-import org.aquilagraph.source.api.SharedFieldDeclarations;
+import org.aquilagraph.source.api.SharedVariableDeclarations;
+import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
@@ -88,6 +90,7 @@ final class JavaAstContributionTranslator {
   private final JavaWrittenSourceAssociations sourceAssociations;
   private final Map<String, Map<SourceSpan, String>> sharedFieldAnnotations = new HashMap<>();
   private final Map<String, SyntaxNode> canonicalBodyCopies = new HashMap<>();
+  private final Map<String, Map<SourceSpan, String>> sharedLocalAnnotations = new HashMap<>();
 
   JavaAstContributionTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory) {
     this(semantics, sourceEvidence, treeInventory, new JavaAnnotationMirrorCorrelation(semantics));
@@ -214,7 +217,7 @@ final class JavaAstContributionTranslator {
     var semantic = new ArrayList<>(declarationEdges);
     nodes.forEach(node -> semantic.addAll(node.semanticEdges()));
     var recordTypeOwners = new HashMap<String, SyntaxNode>();
-    var fieldGroups = SharedFieldDeclarations.index(nodes);
+    var fieldGroups = SharedVariableDeclarations.index(nodes);
     nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.RECORD_COMPONENT_DECLARATION).forEach(component -> component
         .children(SyntaxRole.DECLARED_TYPE).forEach(type -> collectRecordTypeOwners(type, component, recordTypeOwners)));
     nodes.forEach(parent -> parent.children().stream()
@@ -1328,8 +1331,20 @@ final class JavaAstContributionTranslator {
       canonicalBodyCopies.put(original.nodeId(), original);
       return Optional.of(original);
     }
+    var value = original.value();
+    if (value instanceof SyntaxValue.LocalDeclaration local && creatingPath.getLeaf() instanceof VariableTree variable) {
+      var binding = local.bindingEvidence().orElseThrow();
+      var annotations = children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION).count();
+      var shared = sharedLocalAnnotations.getOrDefault(localHeaderKey(context, variable), Map.of());
+      var sharedKeys = variable.getModifiers().getAnnotations().stream()
+          .flatMap(annotation -> sourceEvidence.origin(context.unit(), context.sourceFile(), annotation).stream()).map(shared::get)
+          .filter(Objects::nonNull).filter(key -> children.stream().noneMatch(child -> child.node().nodeId().equals(key))).toList();
+      value = new SyntaxValue.LocalDeclaration(local.name(), local.writtenType(), local.writtenModifiers(),
+          Optional.of(new LocalBindingEvidence(binding.declarationKey(), binding.typeForm(), binding.context(), binding.initialized(),
+              Math.toIntExact(annotations), sharedKeys)));
+    }
     var copied = sourceAssociations.copied(original, SyntaxNode.source(original.sourceFileKey(), path, original.sourceKind(),
-        original.syntaxKind(), original.type(), original.value(), children, original.semanticReference(), range.orElseThrow()));
+        original.syntaxKind(), original.type(), value, children, original.semanticReference(), range.orElseThrow()));
     canonicalBodyCopies.put(original.nodeId(), copied);
     return Optional.of(copied);
   }
@@ -1362,13 +1377,45 @@ final class JavaAstContributionTranslator {
       }
       case TypeCastTree cast -> complete = appendBodyType(cast.getType(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
       case VariableTree variable -> {
-        if (variable.getType() != null && treeInventory.isWritten(variable.getType())) {
-          complete = appendBodyType(variable.getType(), SyntaxRole.DECLARED_TYPE, 0, path, children, context);
-        }
+        complete = appendLocalAttachments(variable, creatingPath, path, children, context);
       }
       default -> {
       }
     }
+    return complete;
+  }
+
+  private String localHeaderKey(BodySourceContext context, VariableTree variable) {
+    return context.sourceFile().sourceFileKey() + ':' + sourceEvidence.rawStart(context.unit(), variable);
+  }
+
+  private boolean appendLocalAttachments(VariableTree variable, TreePath creatingPath, SyntaxStructuralPath path,
+      List<SyntaxChild> children, BodySourceContext context) {
+    var owners = sharedLocalAnnotations.computeIfAbsent(localHeaderKey(context, variable), ignored -> new HashMap<>());
+    var annotations = treeInventory.variableAnnotations(variable).orElse(List.of());
+    var ownAnnotations = annotations.stream()
+        .filter(annotation -> sourceEvidence.origin(context.unit(), context.sourceFile(), annotation).filter(owners::containsKey).isEmpty())
+        .toList();
+    var site = semantics.element(creatingPath) instanceof VariableElement element && element.getKind() == ElementKind.EXCEPTION_PARAMETER
+        ? DeclarationSite.PARAMETER
+        : DeclarationSite.LOCAL_VARIABLE;
+    var complete = appendAnnotations(context.unit(), context.sourceFile(), ownAnnotations, path, path, site, children,
+        context.diagnostics());
+    children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION)
+        .forEach(child -> owners.put(child.node().origin().orElseThrow(), child.node().nodeId()));
+    if (variable.getType() != null && !treeInventory.hasInferredVariableType(variable)) {
+      var typePath = path.child(SyntaxRole.DECLARED_TYPE, 0);
+      var translated = new JavaTypeUseTranslator(semantics, sourceEvidence, treeInventory, Optional.of(owners), sourceAssociations)
+          .translateDeclaration(context.unit(), context.sourceFile(), variable.getType(), new TreePath(creatingPath, variable.getType()),
+              typePath, typePath, semantics.type(creatingPath), context.diagnostics());
+      translated.ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.DECLARED_TYPE, 0, node)));
+      complete &= translated.isPresent();
+    }
+    children.sort(Comparator.comparingInt(child -> switch (child.role()) {
+      case ANNOTATION -> 0;
+      case DECLARED_TYPE -> 1;
+      default -> 2;
+    }));
     return complete;
   }
 

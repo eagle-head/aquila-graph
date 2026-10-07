@@ -222,13 +222,13 @@ public sealed interface SyntaxSemanticTarget {
       }
       var fieldApplications = new ArrayList<FieldDeclaratorApplication>();
       for (var field : sharedFields) {
-        if (parent.syntaxKind() == SyntaxKind.FIELD_DECLARATION) {
+        if (parent.syntaxKind() == SyntaxKind.FIELD_DECLARATION || parent.syntaxKind() == SyntaxKind.LOCAL_DECLARATION) {
           if (!field.equals(parent)) {
             fieldApplications.add(
                 new FieldDeclaratorApplication(field.nodeId(), declaration, type ? Optional.of(typeLocation(field)) : Optional.empty()));
           }
         } else {
-          var context = SharedFieldDeclarations.commonTypeContext(parent, field);
+          var context = SharedVariableDeclarations.commonTypeContext(parent, field);
           if (context.isPresent()) {
             fieldApplications.add(new FieldDeclaratorApplication(field.nodeId(), false,
                 Optional.of(new AnnotationTypeLocation.Written(context.orElseThrow().nodeId()))));
@@ -261,6 +261,9 @@ public sealed interface SyntaxSemanticTarget {
                   : ElementType.METHOD);
         }
         case FIELD_DECLARATION, ENUM_CONSTANT_DECLARATION -> targets.contains(ElementType.FIELD);
+        case LOCAL_DECLARATION -> targets.contains(parent.value(SyntaxValue.LocalDeclaration.class).bindingEvidence().filter(
+            binding -> binding.context() == LocalBindingEvidence.Context.CATCH || binding.context() == LocalBindingEvidence.Context.LAMBDA)
+            .isPresent() ? ElementType.PARAMETER : ElementType.LOCAL_VARIABLE);
         case PARAMETER_DECLARATION -> targets.contains(ElementType.PARAMETER);
         case RECORD_COMPONENT_DECLARATION -> targets.contains(ElementType.RECORD_COMPONENT) || targets.contains(ElementType.FIELD)
             || targets.contains(ElementType.METHOD) || targets.contains(ElementType.PARAMETER);
@@ -270,6 +273,7 @@ public sealed interface SyntaxSemanticTarget {
 
     private static boolean supportsClosestType(SyntaxNode parent, Set<ElementType> targets) {
       return switch (parent.syntaxKind()) {
+        case LOCAL_DECLARATION -> targets.contains(ElementType.TYPE_USE) && !parent.children(SyntaxRole.DECLARED_TYPE).isEmpty();
         case FIELD_DECLARATION, ENUM_CONSTANT_DECLARATION, RECORD_COMPONENT_DECLARATION, PARAMETER_DECLARATION, RECEIVER_PARAMETER ->
           targets.contains(ElementType.TYPE_USE);
         case METHOD_DECLARATION -> targets.contains(ElementType.TYPE_USE)

@@ -44,12 +44,13 @@ final class ParsedTreeInventory {
   private final Map<VariableTree, List<AnnotationTree>> variableAnnotationAttachments;
   private final Map<ModifiersTree, Set<Modifier>> capturedModifiers;
   private final Map<Tree, List<ParsedSourceOwner>> capturedOwners;
+  private final Map<VariableTree, Boolean> inferredVariableTypes;
 
   private ParsedTreeInventory(Set<Tree> writtenTrees, Map<AnnotationTree, SyntaxValue.Annotation> annotations,
       Map<AnnotationTree, TreePath> annotationTypePaths, Map<AnnotationTree, TreePath> annotationPaths,
       Map<AnnotationTree, List<WrittenAnnotationArgument>> annotationArguments, Map<Tree, List<AnnotationTree>> annotationsByOwner,
       Map<VariableTree, List<AnnotationTree>> variableAnnotations, Map<ModifiersTree, Set<Modifier>> modifiers,
-      Map<Tree, List<ParsedSourceOwner>> owners) {
+      Map<Tree, List<ParsedSourceOwner>> owners, Map<VariableTree, Boolean> inferredTypes) {
     this.writtenTrees = writtenTrees;
     this.annotations = annotations;
     this.annotationTypePaths = annotationTypePaths;
@@ -59,6 +60,7 @@ final class ParsedTreeInventory {
     this.variableAnnotationAttachments = variableAnnotations;
     this.capturedModifiers = modifiers;
     this.capturedOwners = owners;
+    this.inferredVariableTypes = inferredTypes;
   }
 
   static ParsedTreeInventory capture(List<CompilationUnitTree> units, Function<CompilationUnitTree, Optional<SourceFile>> sources,
@@ -75,25 +77,26 @@ final class ParsedTreeInventory {
     var variableAnnotations = new IdentityHashMap<VariableTree, List<AnnotationTree>>();
     var modifiers = new IdentityHashMap<ModifiersTree, Set<Modifier>>();
     var owners = new IdentityHashMap<Tree, List<ParsedSourceOwner>>();
+    var inferredTypes = new IdentityHashMap<VariableTree, Boolean>();
     JavaCoverageTopology.owners(units, sources, evidence)
         .forEach(owner -> owners.computeIfAbsent(owner.tree(), ignored -> new ArrayList<>()).add(new ParsedSourceOwner(owner.treePath(),
             owner.source().sourceFileKey(), owner.path(), JavaSourceKind.valueOf(owner.tree().getKind().name()), owner.origin())));
     owners.replaceAll((tree, values) -> List.copyOf(values));
     for (var unit : units) {
       scanUnit(unit, sources.apply(unit), evidence, writtenTrees, annotations, annotationTypePaths, annotationPaths, annotationArguments,
-          annotationsByOwner, variableAnnotations, modifiers);
+          annotationsByOwner, variableAnnotations, modifiers, inferredTypes);
     }
     return new ParsedTreeInventory(writtenTrees, Collections.unmodifiableMap(annotations), Collections.unmodifiableMap(annotationTypePaths),
         Collections.unmodifiableMap(annotationPaths), Collections.unmodifiableMap(annotationArguments),
         Collections.unmodifiableMap(annotationsByOwner), Collections.unmodifiableMap(variableAnnotations),
-        Collections.unmodifiableMap(modifiers), Collections.unmodifiableMap(owners));
+        Collections.unmodifiableMap(modifiers), Collections.unmodifiableMap(owners), Collections.unmodifiableMap(inferredTypes));
   }
 
   private static void scanUnit(CompilationUnitTree unit, Optional<SourceFile> source, JavaSourceEvidence evidence, Set<Tree> writtenTrees,
       Map<AnnotationTree, SyntaxValue.Annotation> annotations, Map<AnnotationTree, TreePath> annotationTypePaths,
       Map<AnnotationTree, TreePath> annotationPaths, Map<AnnotationTree, List<WrittenAnnotationArgument>> annotationArguments,
       Map<Tree, List<AnnotationTree>> annotationsByOwner, Map<VariableTree, List<AnnotationTree>> variableAnnotations,
-      Map<ModifiersTree, Set<Modifier>> modifiers) {
+      Map<ModifiersTree, Set<Modifier>> modifiers, Map<VariableTree, Boolean> inferredTypes) {
     var scanner = new TreePathScanner<Void, Void>() {
       @Override
       public Void scan(Tree tree, Void unused) {
@@ -129,10 +132,15 @@ final class ParsedTreeInventory {
       @Override
       public Void visitVariable(VariableTree variable, Void unused) {
         variableAnnotations.put(variable, List.copyOf(variable.getModifiers().getAnnotations()));
+        inferredTypes.put(variable, variable.getType() == null);
         return super.visitVariable(variable, null);
       }
     };
     scanner.scan(unit, null);
+  }
+
+  boolean hasInferredVariableType(VariableTree variable) {
+    return inferredVariableTypes.getOrDefault(variable, false);
   }
 
   Optional<SyntaxValue.Annotation> annotation(AnnotationTree tree) {

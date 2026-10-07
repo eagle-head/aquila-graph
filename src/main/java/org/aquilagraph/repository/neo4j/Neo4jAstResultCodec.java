@@ -66,7 +66,7 @@ final class Neo4jAstResultCodec {
 
   private static Neo4jNode root(AstIdentity identity, String payload) {
     var properties = scoped(identity, identity.astResultKey());
-    properties.put("formatVersion", FORMAT_VERSION);
+    properties.put("formatVersion", identity.sourceModelVersion());
     properties.put("softwareSignature", identity.softwareSignature());
     properties.put("sourceModelVersion", identity.sourceModelVersion());
     properties.put("astProfileVersion", identity.astProfileVersion());

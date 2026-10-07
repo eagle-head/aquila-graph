@@ -28,7 +28,6 @@ import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
-import org.aquilagraph.source.api.WrittenTypeEvidence;
 
 final class JavaMethodBodyTranslator {
   private static final String DIAGNOSTIC_PRODUCER = "JavaMethodBodyTranslator";
@@ -36,12 +35,14 @@ final class JavaMethodBodyTranslator {
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
   private final MethodBodySyntaxProfile syntaxProfile;
+  private final JavaLocalBindingProjector bindings;
 
   JavaMethodBodyTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
     syntaxProfile = new MethodBodySyntaxProfile(semantics);
+    bindings = new JavaLocalBindingProjector(semantics, sourceEvidence, treeInventory);
   }
 
   TranslationResult<TranslatedMethodBody> translate(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, BlockTree body,
@@ -123,15 +124,8 @@ final class JavaMethodBodyTranslator {
     var children = translateChildren(unit, sourceFile, methodKey, mapping.children(), constructor, generated, nodeProjections);
     var origin = sourceEvidence.origin(unit, sourceFile, tree);
     var value = mapping.value();
-    if (value instanceof SyntaxValue.LocalDeclaration local && tree instanceof VariableTree variable) {
-      var writtenType = variable.getType();
-      var typeEvidence = writtenType == null
-          ? Optional.<WrittenTypeEvidence>empty()
-          : sourceEvidence.origin(unit, sourceFile, writtenType)
-              .map(range -> new WrittenTypeEvidence(JavaSourceKind.valueOf(writtenType.getKind().name()), range,
-                  semantics.explicitType(new TreePath(path, writtenType))));
-      value = new SyntaxValue.LocalDeclaration(local.name(), typeEvidence,
-          treeInventory.writtenModifiers(variable.getModifiers()).stream().map(Object::toString).sorted().toList());
+    if (value instanceof SyntaxValue.LocalDeclaration && tree instanceof VariableTree variable) {
+      value = bindings.project(unit, sourceFile, variable, path);
     }
     var sourceKind = JavaSourceKind.valueOf(tree.getKind().name());
     var childNodes = new ArrayList<SyntaxChild>(children.size());
@@ -170,18 +164,6 @@ final class JavaMethodBodyTranslator {
       List<AnalysisDiagnostic> diagnostics) {
     if (!(tree instanceof VariableTree variableTree)) {
       return;
-    }
-    var origin = sourceEvidence.origin(unit, sourceFile, variableTree);
-    if (!variableTree.getModifiers().getFlags().isEmpty()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-          FrontendDiagnosticFactory.capabilityError(methodKey, "frontend.unsupported-local-declaration-modifiers",
-              "Local declaration modifiers are outside the supported semantic graph profile", origin));
-    }
-    for (var annotation : variableTree.getModifiers().getAnnotations()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-          FrontendDiagnosticFactory.capabilityError(methodKey, "frontend.unsupported-local-annotation-content",
-              "Local declaration annotation content is outside the supported semantic graph profile",
-              sourceEvidence.origin(unit, sourceFile, annotation)));
     }
     if (variableTree.getNameExpression() != null) {
       TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,

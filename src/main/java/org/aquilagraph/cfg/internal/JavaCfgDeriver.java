@@ -82,7 +82,7 @@ public final class JavaCfgDeriver implements CfgDeriver {
       diagnostics.add(
           diagnostic(request, "control-flow.foreign-ast", "identity", "Requested source identity differs from the supplied AST result"));
     }
-    if (!AstResult.SOURCE_MODEL_VERSION.equals(request.astIdentity().sourceModelVersion())
+    if (!AstResult.supportsSourceModelVersion(request.astIdentity().sourceModelVersion())
         || !CfgAdmission.supportsSourceProfile(ast.profile()) || !CfgAdmission.supportsProfile(request.profile())) {
       diagnostics.add(diagnostic(request, "control-flow.incompatible-profile", "profile",
           "Requested source and graph interpretation versions are incompatible"));

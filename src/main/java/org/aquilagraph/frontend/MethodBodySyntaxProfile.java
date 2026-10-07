@@ -75,8 +75,9 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
   public SyntaxNodeMapping visitVariable(VariableTree variable, MappingContext context) {
     var children = new ChildMappings(context);
     children.add(SyntaxRole.INITIALIZER, variable.getInitializer());
-    return accepted(SyntaxKind.LOCAL_DECLARATION, new SyntaxValue.LocalDeclaration(variable.getName().toString()), children,
-        semantics.reference(context.treePath(), ReferenceKind.LOCAL));
+    var unnamed = variable.getName().length() == 0;
+    return accepted(SyntaxKind.LOCAL_DECLARATION, new SyntaxValue.LocalDeclaration(unnamed ? "_" : variable.getName().toString()), children,
+        unnamed ? Optional.empty() : semantics.reference(context.treePath(), ReferenceKind.LOCAL));
   }
 
   @Override

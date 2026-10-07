@@ -21,6 +21,8 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.CoverageValidationEvidence;
+import org.aquilagraph.source.api.CoverageEvidenceValue;
+import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.CoverageSourceFact;
 import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.JavaSourceKind;
@@ -35,17 +37,29 @@ import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.SemanticReference;
+import org.aquilagraph.source.api.WrittenTypeEvidence;
 import org.jspecify.annotations.Nullable;
 
 /** Closed source value encoding; no class name is resolved from retained data. */
 final class RetainedValueCodec {
+  private static final Set<String> BINDING_TAGS = Set.of("syntax-value/local-binding", "local-binding-evidence", "local-binding-type-form",
+      "local-binding-context");
   private final boolean canonical;
+  private final String format;
   private final Function<SyntaxNode, @Nullable Integer> nodeOrdinal;
   private final ToIntFunction<SyntaxNode> registerNode;
   private final List<@Nullable SyntaxNode> readNodes = new ArrayList<>();
 
   RetainedValueCodec(boolean canonical) {
+    this(canonical, AstResult.SOURCE_MODEL_VERSION);
+  }
+
+  RetainedValueCodec(boolean canonical, String format) {
     this.canonical = canonical;
+    if (!AstResult.supportsSourceModelVersion(format)) {
+      throw new IllegalArgumentException("Unsupported retained AST format: " + format);
+    }
+    this.format = format;
     var nodes = new IdentityHashMap<SyntaxNode, Integer>();
     nodeOrdinal = nodes::get;
     registerNode = node -> {
@@ -137,6 +151,17 @@ final class RetainedValueCodec {
         writeSequence(writer, List.of(annotation.form(), annotation.arguments(), annotation.location(), annotation.applicableTargets(),
             annotation.closestTypeAdmissible(), annotation.argumentFailureCode(), annotation.repeatableContainerKey()));
       }
+      case SyntaxValue.LocalDeclaration local when local.bindingEvidence().isEmpty() -> {
+        validateLegacyLocalName(local.name());
+        writer.text("syntax-value/local-declaration");
+        writer.count(3);
+        writer.text("name");
+        write(writer, local.name());
+        writer.text("writtenType");
+        write(writer, local.writtenType());
+        writer.text("writtenModifiers");
+        write(writer, local.writtenModifiers());
+      }
       default -> writeRegistered(writer, value);
     }
   }
@@ -165,12 +190,39 @@ final class RetainedValueCodec {
           sequence(read(reader), LanguageFeatureClassification.class));
       case "source-coverage-result" -> readCoverage(reader);
       case "syntax-value/annotation" -> readAnnotation(reader);
+      case "syntax-value/local-declaration" -> readLegacyLocal(reader);
       default -> readRegistered(reader, tag);
     };
   }
 
+  private SyntaxValue.LocalDeclaration readLegacyLocal(CanonicalValueReader reader) {
+    if (reader.count() != 3 || !"name".equals(reader.text())) {
+      throw new IllegalArgumentException("Invalid retained local declaration shape");
+    }
+    var name = required(read(reader), String.class);
+    validateLegacyLocalName(name);
+    if (!"writtenType".equals(reader.text())) {
+      throw new IllegalArgumentException("Invalid retained local declaration type field");
+    }
+    var type = optional(read(reader), WrittenTypeEvidence.class);
+    if (!"writtenModifiers".equals(reader.text())) {
+      throw new IllegalArgumentException("Invalid retained local declaration modifier field");
+    }
+    return new SyntaxValue.LocalDeclaration(name, type, sequence(read(reader), String.class));
+  }
+
+  private void validateLegacyLocalName(String name) {
+    if (AstResult.LEGACY_SOURCE_MODEL_VERSION.equals(format) && "_".equals(name)) {
+      throw new IllegalArgumentException("An unnamed binding requires the current retained AST format");
+    }
+  }
+
   private void writeRegistered(CanonicalValueWriter writer, Object value) {
     var shape = AstValueSchema.type(value.getClass());
+    validateFormatTag(shape.tag());
+    if (value == CoverageEvidenceValue.Tag.LOCAL_BINDING && AstResult.LEGACY_SOURCE_MODEL_VERSION.equals(format)) {
+      throw new IllegalArgumentException("Copied binding coverage requires the current retained AST format");
+    }
     writer.text(shape.tag());
     if (value instanceof Enum<?> enumeration) {
       writer.text(enumeration.name());
@@ -195,9 +247,14 @@ final class RetainedValueCodec {
   }
 
   private Object readRegistered(CanonicalValueReader reader, String tag) {
+    validateFormatTag(tag);
     var shape = AstValueSchema.tag(tag);
     if (shape.type().isEnum()) {
       var name = reader.text();
+      if (shape.type() == CoverageEvidenceValue.Tag.class && "LOCAL_BINDING".equals(name)
+          && AstResult.LEGACY_SOURCE_MODEL_VERSION.equals(format)) {
+        throw new IllegalArgumentException("Copied binding coverage requires the current retained AST format");
+      }
       return Arrays.stream(Objects.requireNonNull(shape.type().getEnumConstants(), "registered enum constants"))
           .filter(value -> value instanceof Enum<?> enumeration && enumeration.name().equals(name)).findFirst()
           .orElseThrow(() -> new IllegalArgumentException("Unknown retained enum value: " + tag + "/" + name));
@@ -213,6 +270,12 @@ final class RetainedValueCodec {
       components.add(read(reader));
     }
     return shape.construct(components);
+  }
+
+  private void validateFormatTag(String tag) {
+    if (AstResult.LEGACY_SOURCE_MODEL_VERSION.equals(format) && BINDING_TAGS.contains(tag)) {
+      throw new IllegalArgumentException("Copied binding values require the current retained AST format: " + tag);
+    }
   }
 
   private void writeNode(CanonicalValueWriter writer, SyntaxNode node) {
@@ -316,7 +379,7 @@ final class RetainedValueCodec {
 
   private byte[] orderingBytes(Object value) {
     var writer = new CanonicalValueWriter("source-value/1");
-    new RetainedValueCodec(canonical).write(writer, value);
+    new RetainedValueCodec(canonical, format).write(writer, value);
     return writer.toByteArray();
   }
 

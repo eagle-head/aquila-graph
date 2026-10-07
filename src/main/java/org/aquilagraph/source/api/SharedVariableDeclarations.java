@@ -8,10 +8,10 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-/** Validates and indexes source declarators that share one written field header. */
-public final class SharedFieldDeclarations {
+/** Validates and indexes source declarators that share one written variable header. */
+public final class SharedVariableDeclarations {
   private static final int UNIQUE_SOURCE_OWNER_COUNT = 1;
-  private SharedFieldDeclarations() {
+  private SharedVariableDeclarations() {
   }
 
   /**
@@ -25,9 +25,14 @@ public final class SharedFieldDeclarations {
     Objects.requireNonNull(nodes, "nodes");
     var groups = new HashMap<String, List<SyntaxNode>>();
     for (var parent : nodes) {
-      var declarations = parent.children().stream().map(SyntaxChild::node).filter(node -> node.syntaxKind() == SyntaxKind.FIELD_DECLARATION)
+      var declarations = parent.children().stream().map(SyntaxChild::node)
+          .filter(node -> node.syntaxKind() == SyntaxKind.FIELD_DECLARATION || node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION)
           .collect(Collectors.groupingBy(node -> node.origin().orElseThrow().startOffset(), LinkedHashMap::new, Collectors.toList()));
       for (var group : declarations.values()) {
+        if (group.getFirst().syntaxKind() == SyntaxKind.LOCAL_DECLARATION) {
+          registerLocals(group, groups);
+          continue;
+        }
         var keys = group.size() > 1
             ? group.stream().map(node -> node.value(SyntaxValue.VariableDeclaration.class).declarationKey()).toList()
             : List.<String>of();
@@ -84,6 +89,29 @@ public final class SharedFieldDeclarations {
       }
     }
     return Map.copyOf(groups);
+  }
+
+  private static void registerLocals(List<SyntaxNode> group, Map<String, List<SyntaxNode>> groups) {
+    var first = group.getFirst();
+    var expectedAnnotations = first.children(SyntaxRole.ANNOTATION).stream().map(SyntaxNode::nodeId).toList();
+    for (var index = 0; index < group.size(); index++) {
+      var ordinal = index;
+      var local = group.get(index);
+      var facts = local.value(SyntaxValue.LocalDeclaration.class);
+      if (!facts.writtenModifiers().equals(first.value(SyntaxValue.LocalDeclaration.class).writtenModifiers())
+          || (index > 0 && !local.children(SyntaxRole.ANNOTATION).isEmpty())
+          || (index > 0
+              && local.origin().orElseThrow().endOffsetExclusive() <= group.get(index - 1).origin().orElseThrow().endOffsetExclusive())
+          || facts.bindingEvidence()
+              .filter(binding -> !binding.sharedAnnotationKeys().equals(ordinal == 0 ? List.of() : expectedAnnotations)).isPresent()) {
+        throw new IllegalArgumentException("Shared local declarations disagree with their written header");
+      }
+      if (group.size() > UNIQUE_SOURCE_OWNER_COUNT) {
+        groups.put(local.nodeId(), List.copyOf(group));
+        local.children(SyntaxRole.DECLARED_TYPE).forEach(type -> type.descendantsAndSelf().stream()
+            .filter(node -> node.syntaxKind() == SyntaxKind.TYPE_USE).forEach(node -> groups.put(node.nodeId(), List.copyOf(group))));
+      }
+    }
   }
 
   private static int fieldIndex(List<SyntaxNode> group, SyntaxNode node) {

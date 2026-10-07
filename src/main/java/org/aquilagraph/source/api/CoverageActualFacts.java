@@ -772,6 +772,10 @@ public final class CoverageActualFacts {
 
   private static boolean writtenLocalType(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, SyntaxValue.LocalDeclaration local,
       InputSnapshot snapshot) {
+    if (expected.state() == State.ABSENT
+        && local.bindingEvidence().filter(binding -> binding.typeForm() != LocalBindingEvidence.TypeForm.DECLARED).isPresent()) {
+      return local.writtenType().isEmpty() && owner.children().stream().noneMatch(child -> child.role() == SyntaxRole.DECLARED_TYPE);
+    }
     if (expected.state() != State.SCALAR || local.writtenType().isEmpty()) {
       return false;
     }
@@ -781,7 +785,8 @@ public final class CoverageActualFacts {
       return false;
     }
     var sameType = (owner.type() instanceof SyntaxType.Resolved resolved && written.type() instanceof SyntaxType.Resolved copied)
-        ? resolved.identity().equals(copied.identity())
+        ? resolved.identity().category() == copied.identity().category()
+            && resolved.identity().erasedName().equals(copied.identity().erasedName()) && resolved.structure().equals(copied.structure())
         : owner.type().equals(written.type());
     var text = source.orElseThrow().content().substring(Math.toIntExact(written.origin().startOffset()),
         Math.toIntExact(written.origin().endOffsetExclusive()));
@@ -841,7 +846,7 @@ public final class CoverageActualFacts {
       return Optional.of(symbol.name());
     }
     if (value instanceof SyntaxValue.LocalDeclaration local) {
-      return Optional.of(local.name());
+      return Optional.of("_".equals(local.name()) ? "" : local.name());
     }
     return Optional.empty();
   }

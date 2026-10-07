@@ -16,6 +16,9 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.LanguageFeature;
 import org.aquilagraph.source.api.LanguageFeatureCategory;
 import org.aquilagraph.source.api.LanguageFeaturePolicy;
@@ -123,7 +126,7 @@ class JavaDeclarationCompletenessRegressionTest {
   }
 
   @Test
-  void givenLocalVariableModifierAndAnnotation_whenAnalysisRuns_thenBothAbsentFactsAreDiagnosed() throws IOException {
+  void givenLocalVariableModifierAndAnnotation_whenAnalysisRuns_thenWrittenFactsAreRetainedAndBoundedQualificationIsPreserved() throws IOException {
     // Arrange
     writeSource(new SourceCase("local properties", "LocalProperties.java", """
         @interface Marker { }
@@ -134,13 +137,17 @@ class JavaDeclarationCompletenessRegressionTest {
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
-    var run = new SourceAnalysisFixture().analyze(frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION));
+    var input = frontend.analyze(temporaryDirectory, JAVA_25_CONFIGURATION);
+    var run = new SourceAnalysisFixture().analyze(input);
+    var local = input.aggregate().orElseThrow().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION)
+        .findFirst().orElseThrow();
 
     // Assert
     assertNotEquals(AnalysisCompletion.COMPLETE, run.completion());
-    assertEquals(List.of("frontend.unsupported-local-declaration-modifiers", "frontend.unsupported-local-annotation-content"),
-        run.diagnostics().stream().map(diagnostic -> diagnostic.code())
-            .filter(code -> code.startsWith("frontend.unsupported-local-")).toList());
+    assertEquals(List.of(), run.diagnostics().stream().map(diagnostic -> diagnostic.code())
+        .filter(code -> code.startsWith("frontend.unsupported-local-")).toList());
+    assertEquals(List.of("final"), local.value(SyntaxValue.LocalDeclaration.class).writtenModifiers());
+    assertEquals(1, local.children(SyntaxRole.ANNOTATION).size());
     assertTrue(run.diagnostics().stream()
         .noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-declaration-annotations")));
     assertTrue(run.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));

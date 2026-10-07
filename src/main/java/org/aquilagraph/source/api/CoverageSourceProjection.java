@@ -2,6 +2,7 @@ package org.aquilagraph.source.api;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Optional;
 import java.util.function.Function;
 import org.aquilagraph.source.api.CoverageEvidenceValue.Field;
@@ -56,12 +57,7 @@ final class CoverageSourceProjection {
       case SyntaxValue.Uses uses -> structure(Tag.USES, field("service", names(uses.service())));
       case SyntaxValue.Provides provides -> structure(Tag.PROVIDES, field("service", names(provides.service())),
           field("providers", sequence(provides.providers(), CoverageSourceProjection::names)));
-      case SyntaxValue.LocalDeclaration local -> structure(Tag.LOCAL_DECLARATION, field(NAME_FIELD, text(local.name())),
-          field("writtenType",
-              optional(local.writtenType(),
-                  written -> structure(Tag.WRITTEN_TYPE, field("sourceKind", named(written.sourceKind())),
-                      field("origin", new CoverageEvidenceValue.Origin(written.origin())), field(TYPE_FIELD, type(written.type()))))),
-          field(WRITTEN_MODIFIERS_FIELD, sequence(local.writtenModifiers(), CoverageSourceProjection::text)));
+      case SyntaxValue.LocalDeclaration local -> localDeclaration(local);
       case SyntaxValue.AnnotationArgument argument ->
         structure(Tag.ANNOTATION_ARGUMENT, field("explicitName", optional(argument.explicitName(), CoverageSourceProjection::text)),
             field("selectedElementKey", text(argument.selectedElementKey())), field(VALUE_FIELD, annotationValue(argument.value())));
@@ -133,6 +129,22 @@ final class CoverageSourceProjection {
       case SyntaxValue.Unsupported unsupported ->
         structure(Tag.UNSUPPORTED_SYNTAX, field("compilerKind", text(unsupported.compilerKind())));
     };
+  }
+
+  private static Structure localDeclaration(SyntaxValue.LocalDeclaration local) {
+    var fields = new ArrayList<Field>();
+    fields.add(field(NAME_FIELD, text(local.name())));
+    fields.add(field("writtenType",
+        optional(local.writtenType(), written -> structure(Tag.WRITTEN_TYPE, field("sourceKind", named(written.sourceKind())),
+            field("origin", new CoverageEvidenceValue.Origin(written.origin())), field(TYPE_FIELD, type(written.type()))))));
+    fields.add(field(WRITTEN_MODIFIERS_FIELD, sequence(local.writtenModifiers(), CoverageSourceProjection::text)));
+    local.bindingEvidence()
+        .ifPresent(binding -> fields.add(field("bindingEvidence",
+            structure(Tag.LOCAL_BINDING, field("declarationKey", optional(binding.declarationKey(), CoverageSourceProjection::text)),
+                field("typeForm", named(binding.typeForm())), field("context", named(binding.context())),
+                field("initialized", flag(binding.initialized())), field("annotations", integral(binding.annotations())),
+                field("sharedAnnotationKeys", sequence(binding.sharedAnnotationKeys(), CoverageSourceProjection::text))))));
+    return new Structure(Tag.LOCAL_DECLARATION, fields);
   }
 
   private static Structure typeShape(SyntaxValue.TypeDeclaration.Shape shape) {

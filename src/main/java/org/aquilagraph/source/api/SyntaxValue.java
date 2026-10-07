@@ -442,13 +442,37 @@ public sealed interface SyntaxValue {
    *          independently copied written type source and compiler semantics, when available
    * @param writtenModifiers
    *          copied written flags in sorted public modifier-name order
+   * @param bindingEvidence
+   *          copied binding identity and source shape, absent in compatible legacy values
    */
-  record LocalDeclaration(String name, Optional<WrittenTypeEvidence> writtenType, List<String> writtenModifiers) implements SyntaxValue {
+  record LocalDeclaration(String name, Optional<WrittenTypeEvidence> writtenType, List<String> writtenModifiers,
+      Optional<LocalBindingEvidence> bindingEvidence) implements SyntaxValue {
     /** Validates the declaration name and copied written type. */
     public LocalDeclaration {
-      SyntaxValueSupport.requireName(name);
+      if (!"_".equals(name)) {
+        SyntaxValueSupport.requireName(name);
+      }
       Objects.requireNonNull(writtenType, "writtenType");
       writtenModifiers = List.copyOf(Objects.requireNonNull(writtenModifiers, "writtenModifiers"));
+      Objects.requireNonNull(bindingEvidence, "bindingEvidence");
+      if (bindingEvidence.filter(binding -> binding.typeForm() != LocalBindingEvidence.TypeForm.DECLARED).isPresent()
+          && writtenType.isPresent()) {
+        throw new IllegalArgumentException("Inferred and implicit bindings cannot contain a copied written type");
+      }
+    }
+
+    /**
+     * Creates a compatible declaration with copied written type and modifier evidence.
+     *
+     * @param name
+     *          source declaration name
+     * @param writtenType
+     *          copied written type
+     * @param writtenModifiers
+     *          copied source flags
+     */
+    public LocalDeclaration(String name, Optional<WrittenTypeEvidence> writtenType, List<String> writtenModifiers) {
+      this(name, writtenType, writtenModifiers, Optional.empty());
     }
 
     /**

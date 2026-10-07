@@ -190,6 +190,8 @@ public sealed interface CoverageEvidenceValue {
     PROVIDES,
     /** Local declaration. */
     LOCAL_DECLARATION,
+    /** Local binding identity and written shape. */
+    LOCAL_BINDING,
     /** Written local type. */
     WRITTEN_TYPE,
     /** Annotation argument. */

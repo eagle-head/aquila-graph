@@ -4,6 +4,7 @@ import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.LocalBindingEvidence;
 
 /** Source-owned form and written-role requirements shared by the initial two profile versions. */
 final class SourceFormRequirements {
@@ -16,7 +17,9 @@ final class SourceFormRequirements {
       case TRY -> node.children(SyntaxRole.RESOURCE).isEmpty() && node.children(SyntaxRole.FINALLY_BLOCK).isEmpty();
       case CASE -> node.value(SyntaxValue.SwitchCase.class).form() == SyntaxValue.SwitchCaseForm.RULE;
       case TYPE_CAST, OBJECT_CREATION -> node.optionalChild(SyntaxRole.TYPE_OPERAND).isPresent();
-      case LOCAL_DECLARATION -> node.optionalChild(SyntaxRole.DECLARED_TYPE).isPresent();
+      case LOCAL_DECLARATION ->
+        node.optionalChild(SyntaxRole.DECLARED_TYPE).isPresent() || node.value(SyntaxValue.LocalDeclaration.class).bindingEvidence()
+            .filter(binding -> binding.typeForm() == LocalBindingEvidence.TypeForm.INFERRED && binding.initialized()).isPresent();
       case INVOCATION ->
         !node.value(SyntaxValue.Invocation.class).form().hasWrittenQualifier() || node.optionalChild(SyntaxRole.QUALIFIER).isPresent();
       case FIELD_ACCESS ->
