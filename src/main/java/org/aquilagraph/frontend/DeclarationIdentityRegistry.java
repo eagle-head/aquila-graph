@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.util.TreePath;
+import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.util.Trees;
 import java.util.IdentityHashMap;
 import java.util.Locale;
@@ -25,7 +26,7 @@ import javax.tools.Diagnostic;
 final class DeclarationIdentityRegistry {
   private final Trees trees;
   private final Types types;
-  private final DeclarationKeyCache keyCache = DeclarationKeyCache.usingReferenceIdentity();
+  private final DeclarationIdentityState identityState = DeclarationIdentityState.usingReferenceIdentity();
 
   DeclarationIdentityRegistry(Trees trees, Types types) {
     this.trees = Objects.requireNonNull(trees, "trees");
@@ -34,24 +35,43 @@ final class DeclarationIdentityRegistry {
 
   Optional<String> keyOf(Element element) {
     Objects.requireNonNull(element, "element");
-    var existing = keyCache.find(element);
+    var existing = identityState.find(element);
     if (existing.isPresent()) {
       return existing.orElseThrow();
     }
     var key = deriveKey(element);
-    keyCache.remember(element, key);
+    identityState.remember(element, key);
     return key;
   }
 
-  private record DeclarationKeyCache(Function<Element, Optional<Optional<String>>> lookup, BiConsumer<Element, Optional<String>> storage) {
-    private DeclarationKeyCache {
+  void registerSourceDeclaration(Element element, TreePath path) {
+    if (!Objects.equals(trees.getElement(path), element)) {
+      throw new IllegalArgumentException("A source declaration requires its exact compiler element and creating path");
+    }
+    identityState.sourceStorage().accept(element, path);
+  }
+
+  boolean isLambdaParameter(Element element) {
+    var path = identityState.sourceLookup().apply(element).orElse(null);
+    return element.getKind() == ElementKind.PARAMETER && path != null && path.getParentPath() != null
+        && path.getParentPath().getLeaf() instanceof LambdaExpressionTree;
+  }
+
+  private record DeclarationIdentityState(Function<Element, Optional<Optional<String>>> lookup,
+      BiConsumer<Element, Optional<String>> storage, Function<Element, Optional<TreePath>> sourceLookup,
+      BiConsumer<Element, TreePath> sourceStorage) {
+    private DeclarationIdentityState {
       Objects.requireNonNull(lookup, "lookup");
       Objects.requireNonNull(storage, "storage");
+      Objects.requireNonNull(sourceLookup, "sourceLookup");
+      Objects.requireNonNull(sourceStorage, "sourceStorage");
     }
 
-    private static DeclarationKeyCache usingReferenceIdentity() {
+    private static DeclarationIdentityState usingReferenceIdentity() {
       var entries = new IdentityHashMap<Element, Optional<String>>();
-      return new DeclarationKeyCache(element -> Optional.ofNullable(entries.get(element)), entries::put);
+      var declarations = new IdentityHashMap<Element, TreePath>();
+      return new DeclarationIdentityState(element -> Optional.ofNullable(entries.get(element)), entries::put,
+          element -> Optional.ofNullable(declarations.get(element)), declarations::put);
     }
 
     private Optional<Optional<String>> find(Element element) {
@@ -119,6 +139,9 @@ final class DeclarationIdentityRegistry {
   }
 
   private Optional<String> keyOfParameter(VariableElement parameter) {
+    if (isLambdaParameter(parameter)) {
+      return keyOfLocalVariable(parameter);
+    }
     if (!(parameter.getEnclosingElement() instanceof ExecutableElement executable)) {
       return Optional.empty();
     }
@@ -176,7 +199,7 @@ final class DeclarationIdentityRegistry {
   }
 
   private Optional<String> coordinateOf(Element element) {
-    TreePath path = trees.getPath(element);
+    var path = identityState.sourceLookup().apply(element).orElseGet(() -> trees.getPath(element));
     if (path == null) {
       return Optional.empty();
     }

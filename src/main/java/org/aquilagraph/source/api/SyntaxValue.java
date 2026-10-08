@@ -6,8 +6,53 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-/** Typed source facts required while syntax is lowered directly to semantic graphs. */
+/** Copied written syntax and attributed facts queried after compiler closure. */
 public sealed interface SyntaxValue {
+  /** Written lambda body forms. */
+  enum LambdaBodyKind {
+    /** A single written expression. */
+    EXPRESSION,
+    /** A written statement block, including an empty block. */
+    BLOCK
+  }
+
+  /**
+   * Written functional parameter form, separate from its attributed binding type.
+   *
+   * @param typeForm
+   *          written, inferred, or implicit type form
+   * @param variableArity
+   *          whether an ellipsis was written
+   */
+  record LambdaParameter(LocalBindingEvidence.TypeForm typeForm, boolean variableArity) {
+    /** Requires a copied type-form classification, including erroneous written input. */
+    public LambdaParameter {
+      Objects.requireNonNull(typeForm, "typeForm");
+    }
+  }
+
+  /**
+   * Copied lambda syntax; its node carries the functional target type and owns its parameters and body.
+   *
+   * @param bodyKind
+   *          written expression or block body
+   * @param parenthesized
+   *          whether the parameter list has written parentheses
+   * @param parameters
+   *          written parameter forms in source order
+   * @param returnType
+   *          copied functional descriptor return type, unresolved when attribution is unavailable
+   */
+  record Lambda(LambdaBodyKind bodyKind, boolean parenthesized, List<LambdaParameter> parameters,
+      SyntaxType returnType) implements SyntaxValue {
+    /** Copies the ordered written forms independently of successful compiler attribution. */
+    public Lambda {
+      Objects.requireNonNull(bodyKind, "bodyKind");
+      Objects.requireNonNull(returnType, "returnType");
+      parameters = List.copyOf(parameters);
+    }
+  }
+
   /** Written diamond syntax with compiler-inferred arguments and no written argument children. */
   enum DiamondType implements SyntaxValue {
     /** Diamond source form. */

@@ -3,7 +3,6 @@ package org.aquilagraph.frontend;
 import com.sun.source.tree.AssignmentTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
-import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.NewClassTree;
@@ -97,10 +96,6 @@ final class JavaConstructorSelection {
         return super.visitNewClass(creation, null);
       }
 
-      @Override
-      public Void visitLambdaExpression(LambdaExpressionTree lambda, Void ignored) {
-        return null;
-      }
     };
     units.forEach(unit -> scanner.scan(unit, null));
     for (var path : paths) {

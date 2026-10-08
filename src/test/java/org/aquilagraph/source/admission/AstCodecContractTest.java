@@ -56,6 +56,97 @@ class AstCodecContractTest {
   @TempDir Path directory;
 
   @TestFactory
+  Stream<DynamicTest> givenImpossibleKnownLambdaTargets_whenConstructedOrDecoded_thenIntrinsicSourceValidationRejectsThem() {
+    return Stream.of(
+        new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int")),
+        new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.VOID, "void", "void")),
+        new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.ARRAY, "int[]", "int[]"),
+            new JavaTypeStructure.Array(new JavaTypeStructure.Primitive(JavaTypeCategory.INT))),
+        new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.TYPE_VARIABLE, "T", "java.lang.Object")),
+        new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.WILDCARD, "?", "java.lang.Object"),
+            new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.UNBOUNDED, Optional.empty())))
+        .map(target -> DynamicTest.dynamicTest(target.identity().category().name(), () -> {
+          // Arrange
+          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+              "class Example { Runnable subject() { return () -> {}; } }")));
+          var result = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+              AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
+          var lambda = result.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.LAMBDA_EXPRESSION)
+              .findFirst().orElseThrow();
+          var nodeWriter = new CanonicalValueWriter(AstCodec.FORMAT_VERSION);
+          new RetainedValueCodec(false).write(nodeWriter, lambda);
+          var originalType = new CanonicalValueWriter("");
+          new RetainedValueCodec(false).write(originalType, lambda.type());
+          var replacementType = new CanonicalValueWriter("");
+          new RetainedValueCodec(false).write(replacementType, target);
+          var bytes = nodeWriter.toByteArray();
+          var oldType = Arrays.copyOfRange(originalType.toByteArray(), Integer.BYTES, originalType.toByteArray().length);
+          var offset = -1;
+          var matches = 0;
+          for (var index = 0; index <= bytes.length - oldType.length; index++) {
+            if (Arrays.equals(bytes, index, index + oldType.length, oldType, 0, oldType.length)) {
+              offset = index;
+              matches++;
+            }
+          }
+          assertEquals(1, matches, "The closed node contains one functional target type frame");
+          var altered = new ByteArrayOutputStream();
+          altered.write(bytes, 0, offset);
+          altered.writeBytes(Arrays.copyOfRange(replacementType.toByteArray(), Integer.BYTES, replacementType.toByteArray().length));
+          altered.write(bytes, offset + oldType.length, bytes.length - offset - oldType.length);
+          // Act
+          var construction = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source(lambda.sourceFileKey(),
+              lambda.structuralPath(), lambda.sourceKind(), lambda.syntaxKind(), target, lambda.value(), lambda.children(),
+              lambda.semanticReference(), lambda.origin().orElseThrow()));
+          var decoding = assertThrows(IllegalArgumentException.class,
+              () -> new RetainedValueCodec(false).read(new CanonicalValueReader(altered.toByteArray(), AstCodec.FORMAT_VERSION)));
+          var valid = new RetainedValueCodec(false).read(new CanonicalValueReader(bytes, AstCodec.FORMAT_VERSION));
+          // Assert
+          assertTrue(construction.getMessage().contains("lambda target"), construction.toString());
+          assertTrue(decoding.getMessage().contains("lambda target"), decoding.toString());
+          assertEquals(lambda, valid);
+        }));
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenLambdaValuesInOlderFrames_whenReadOrWritten_thenClosedFormatsRejectNewSyntax() {
+    return Stream.of("java-source/2", "java-source/3", "java-source/4", "java-source/5", "java-source/6", "java-source/7")
+        .map(format -> DynamicTest.dynamicTest(format, () -> {
+          // Arrange
+          var codec = new RetainedValueCodec(false, format);
+          var writer = new CanonicalValueWriter(format);
+          writer.text("syntax-kind");
+          writer.text("LAMBDA_EXPRESSION");
+          // Act
+          var write = assertThrows(IllegalArgumentException.class,
+              () -> codec.write(new CanonicalValueWriter(format), SyntaxKind.LAMBDA_EXPRESSION));
+          var read = assertThrows(IllegalArgumentException.class,
+              () -> codec.read(new CanonicalValueReader(writer.toByteArray(), format)));
+          // Assert
+          assertTrue(write.getMessage().contains("java-source/8"));
+          assertTrue(read.getMessage().contains("java-source/8"));
+        }));
+  }
+
+  @Test
+  void givenCompatibleAssertionFormat_whenDecoded_thenPreLambdaCatalogAndValuesRemainReadable() throws IOException {
+    // Arrange
+    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+        "class Stored { void value(Object lock) { assert lock != null; synchronized (lock) {} } }")));
+    var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+        AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
+    var previous = SourceAnalysisFixture.assertionResult(current);
+    // Act
+    var decoded = AstCodec.decode(AstCodec.encode(previous), previous.identity());
+    // Assert
+    assertEquals("java-source/7", decoded.identity().sourceModelVersion());
+    assertEquals("java-language-feature-coverage:0acd09f319196e03148af21d885419a440820cc7506a081b9f8cad0222eecb91", decoded.coverage().coverage().contractIdentity());
+    assertEquals(AstCompletion.COMPLETE, decoded.completion());
+    assertEquals(current.aggregate(), decoded.aggregate());
+    assertArrayEquals(AstCodec.encode(previous), AstCodec.encode(decoded));
+  }
+
+  @TestFactory
   Stream<DynamicTest> givenAssertionMonitorValuesInOlderFrames_whenReadOrWritten_thenClosedFormatRejectsNewSyntax() {
     return Stream.of("java-source/2", "java-source/3", "java-source/4", "java-source/5", "java-source/6").map(format -> DynamicTest.dynamicTest(format, () -> {
       // Arrange
@@ -155,7 +246,7 @@ class AstCodecContractTest {
         new CfgRequest(decoded.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
 
     // Assert
-    assertEquals("java-source/7", current.identity().sourceModelVersion());
+    assertEquals("java-source/8", current.identity().sourceModelVersion());
     assertEquals("java-source/2", legacy.identity().sourceModelVersion());
     assertNotEquals(current.identity(), legacy.identity());
     assertEquals(legacy.identity(), decoded.identity());
@@ -222,7 +313,7 @@ class AstCodecContractTest {
 
     // Assert
     assertTrue(failure.getMessage().contains("Unsupported retained AST format: java-source/future"));
-    assertEquals("java-source/7", identity.sourceModelVersion());
+    assertEquals("java-source/8", identity.sourceModelVersion());
   }
 
   @Test
@@ -333,7 +424,7 @@ class AstCodecContractTest {
     var failure = assertThrows(IllegalArgumentException.class, () -> new CanonicalValueReader(bytes, "java-source/2"));
 
     // Assert
-    assertEquals("Unsupported canonical value format: java-source/7", failure.getMessage());
+    assertEquals("Unsupported canonical value format: java-source/8", failure.getMessage());
   }
 
   @Test

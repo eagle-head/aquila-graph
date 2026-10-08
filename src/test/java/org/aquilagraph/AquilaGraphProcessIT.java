@@ -16,6 +16,24 @@ class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
 
   @Test
+  void givenPackagedLambdaWithNestedExecution_whenBoundedProcessRuns_thenHistoricalLambdaRefusalRemainsObservable()
+      throws IOException, InterruptedException {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
+    Files.writeString(sourceRoot.resolve("Functions.java"),
+        "class Functions { int field; Runnable value() { return () -> { field = 7; return; }; } }");
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertEquals(List.of(
+        "ERROR FRONTEND frontend.unsupported-tree-kind.lambda-expression: Java compiler tree kind LAMBDA_EXPRESSION is outside the supported semantic graph profile",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: LAMBDA_EXPRESSION"), result.error().lines().toList());
+  }
+
+  @Test
   void givenPackagedAssertionsAndMonitors_whenBoundedProcessRuns_thenHistoricalRefusalAndDiagnosticsRemainObservable()
       throws IOException, InterruptedException {
     // Arrange

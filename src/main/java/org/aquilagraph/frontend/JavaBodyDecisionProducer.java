@@ -5,6 +5,7 @@ import com.sun.source.tree.AssignmentTree;
 import com.sun.source.tree.ParenthesizedTree;
 import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.SwitchExpressionTree;
 import com.sun.source.tree.Tree;
@@ -237,6 +238,7 @@ final class JavaBodyDecisionProducer {
       return Optional.of(semantics.primitiveType(TypeKind.INT));
     }
     return switch (node.syntaxKind()) {
+      case LAMBDA_EXPRESSION -> child.role() == SyntaxRole.BODY ? semantics.functionalReturnType(consumer.path()) : Optional.empty();
       case LOCAL_DECLARATION -> child.role() == SyntaxRole.INITIALIZER ? semantics.attributedMirror(consumer.path()) : Optional.empty();
       case TYPE_CAST -> child.role() == SyntaxRole.EXPRESSION ? semantics.attributedMirror(consumer.path()) : Optional.empty();
       case CONDITIONAL_EXPRESSION -> child.role() == SyntaxRole.TRUE_EXPRESSION || child.role() == SyntaxRole.FALSE_EXPRESSION
@@ -308,6 +310,9 @@ final class JavaBodyDecisionProducer {
 
   private Optional<TypeMirror> enclosingReturn(TreePath path) {
     for (var cursor = path.getParentPath(); cursor != null; cursor = cursor.getParentPath()) {
+      if (cursor.getLeaf() instanceof LambdaExpressionTree) {
+        return semantics.functionalReturnType(cursor);
+      }
       if (cursor.getLeaf() instanceof MethodTree && semantics.element(cursor) instanceof ExecutableElement executable) {
         return Optional.of(executable.getReturnType());
       }

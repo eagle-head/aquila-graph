@@ -55,6 +55,11 @@ class JavaDeclarationPropertyCoverageTest {
       "ContinueTree::Tree#getKind()",
       "ContinueTree::ContinueTree#getLabel()",
 
+      "LambdaExpressionTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "LambdaExpressionTree::Tree#getKind()",
+      "LambdaExpressionTree::LambdaExpressionTree#getParameters()",
+      "LambdaExpressionTree::LambdaExpressionTree#getBody()",
+      "LambdaExpressionTree::LambdaExpressionTree#getBodyKind()",
       "NewArrayTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "NewArrayTree::Tree#getKind()", "NewArrayTree::NewArrayTree#getType()", "NewArrayTree::NewArrayTree#getDimensions()",
       "NewArrayTree::NewArrayTree#getInitializers()", "NewArrayTree::NewArrayTree#getAnnotations()", "NewArrayTree::NewArrayTree#getDimAnnotations()",
@@ -135,6 +140,7 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::ExecutableElement#isDefault()",
       "ExecutableElement::ExecutableElement#isVarArgs()");
   private static final Set<String> EXPECTED_IRRELEVANT_PROPERTIES = Set.of(
+      "LambdaExpressionTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "AssertTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "SynchronizedTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "WhileLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
@@ -347,7 +353,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:0acd09f319196e03148af21d885419a440820cc7506a081b9f8cad0222eecb91",
+    assertEquals("java-language-feature-coverage:b9ed57677bf06688e4f3b06cb3287035dc4f0951aeb4766f50a22a3ab7d8417e",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 

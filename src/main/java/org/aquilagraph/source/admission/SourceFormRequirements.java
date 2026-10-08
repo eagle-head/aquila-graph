@@ -5,6 +5,8 @@ import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.LocalBindingEvidence;
+import org.aquilagraph.source.api.SyntaxType;
+import org.aquilagraph.source.api.JavaTypeCategory;
 
 /** Source-owned form and written-role requirements shared by the initial two profile versions. */
 final class SourceFormRequirements {
@@ -13,6 +15,21 @@ final class SourceFormRequirements {
 
   static boolean supports(SyntaxNode node) {
     return switch (node.syntaxKind()) {
+      case LAMBDA_EXPRESSION -> {
+        var lambda = node.value(SyntaxValue.Lambda.class);
+        var forms = lambda.parameters();
+        var legal = lambda.parenthesized() || (forms.size() == 1 && forms.getFirst().typeForm() == LocalBindingEvidence.TypeForm.IMPLICIT);
+        for (var index = 0; index < forms.size(); index++) {
+          if (forms.get(index).variableArity()
+              && (forms.get(index).typeForm() != LocalBindingEvidence.TypeForm.DECLARED || index != forms.size() - 1)) {
+            legal = false;
+          }
+        }
+        yield legal && node.type() instanceof SyntaxType.Resolved target
+            && (target.identity().category() == JavaTypeCategory.DECLARED || target.identity().category() == JavaTypeCategory.INTERSECTION)
+            && usableLambdaReturnType(lambda.returnType())
+            && (forms.isEmpty() || forms.stream().allMatch(parameter -> parameter.typeForm() == forms.getFirst().typeForm()));
+      }
       case UNSUPPORTED, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK -> false;
       case TRY -> node.children(SyntaxRole.RESOURCE).isEmpty() && node.children(SyntaxRole.FINALLY_BLOCK).isEmpty();
       case CASE -> node.value(SyntaxValue.SwitchCase.class).form() == SyntaxValue.SwitchCaseForm.RULE;
@@ -28,8 +45,11 @@ final class SourceFormRequirements {
             && node.children(SyntaxRole.ANNOTATION).size() == array.dimensionAnnotationCounts().stream().mapToInt(Integer::intValue).sum();
       }
       case LOCAL_DECLARATION -> node.optionalChild(SyntaxRole.DECLARED_TYPE).isPresent() || node.value(SyntaxValue.LocalDeclaration.class)
-          .bindingEvidence().filter(binding -> binding.typeForm() == LocalBindingEvidence.TypeForm.INFERRED
-              && (binding.initialized() || binding.context() == LocalBindingEvidence.Context.ENHANCED_FOR))
+          .bindingEvidence()
+          .filter(binding -> (binding.typeForm() == LocalBindingEvidence.TypeForm.INFERRED
+              && (binding.initialized() || binding.context() == LocalBindingEvidence.Context.ENHANCED_FOR
+                  || binding.context() == LocalBindingEvidence.Context.LAMBDA))
+              || (binding.typeForm() == LocalBindingEvidence.TypeForm.IMPLICIT && binding.context() == LocalBindingEvidence.Context.LAMBDA))
           .isPresent();
       case INVOCATION ->
         !node.value(SyntaxValue.Invocation.class).form().hasWrittenQualifier() || node.optionalChild(SyntaxRole.QUALIFIER).isPresent();
@@ -56,6 +76,13 @@ final class SourceFormRequirements {
       case VARIABLE_ACCESS, FIELD_ACCESS, ARRAY_ACCESS -> true;
       case PARENTHESIZED -> isAssignable(node.requiredChild(SyntaxRole.EXPRESSION));
       default -> false;
+    };
+  }
+
+  private static boolean usableLambdaReturnType(SyntaxType type) {
+    return type instanceof SyntaxType.Resolved resolved && switch (resolved.identity().category()) {
+      case BOOLEAN, BYTE, SHORT, INT, LONG, CHAR, FLOAT, DOUBLE, VOID, ARRAY, DECLARED, TYPE_VARIABLE, WILDCARD, INTERSECTION -> true;
+      case NULL, ERROR, EXECUTABLE, UNION, OTHER -> false;
     };
   }
 

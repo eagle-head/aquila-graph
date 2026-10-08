@@ -194,6 +194,10 @@ public sealed interface CoverageEvidenceValue {
     LOCAL_DECLARATION,
     /** Local binding identity and written shape. */
     LOCAL_BINDING,
+    /** Copied lambda syntax. */
+    LAMBDA,
+    /** Written functional parameter form. */
+    LAMBDA_PARAMETER,
     /** Written local type. */
     WRITTEN_TYPE,
     /** Annotation argument. */

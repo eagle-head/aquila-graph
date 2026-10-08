@@ -10,6 +10,7 @@ import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.JavaSourceKind;
 
 /** Consumer traversal of executable child roles while retaining source-only AST attachments. */
 final class ExecutableSyntaxTraversal {
@@ -43,6 +44,9 @@ final class ExecutableSyntaxTraversal {
   }
 
   private static boolean executable(SyntaxNode parent, SyntaxRole role) {
+    if (parent.sourceKind() == JavaSourceKind.LAMBDA_EXPRESSION) {
+      return false;
+    }
     if (role == SyntaxRole.QUALIFIER) {
       return parent.syntaxKind() == SyntaxKind.ARRAY_LENGTH;
     }

@@ -77,6 +77,9 @@ final class LocalBindingDeclarations {
     if (parent.syntaxKind() == SyntaxKind.CATCH && accessStep.role() != SyntaxRole.BODY) {
       throw new IllegalArgumentException("An exception binding is visible only within its catch body");
     }
+    if (parent.syntaxKind() == SyntaxKind.LAMBDA_EXPRESSION && accessStep.role() != SyntaxRole.BODY) {
+      throw new IllegalArgumentException("A lambda binding is visible only within its lambda body");
+    }
     if (parent.syntaxKind() == SyntaxKind.ENHANCED_FOR_LOOP && accessStep.role() != SyntaxRole.BODY) {
       throw new IllegalArgumentException("An enhanced-for binding is visible only within its loop body");
     }

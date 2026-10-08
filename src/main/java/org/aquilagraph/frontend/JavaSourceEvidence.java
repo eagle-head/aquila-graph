@@ -2,6 +2,7 @@ package org.aquilagraph.frontend;
 
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.Tree;
+import com.sun.source.tree.VariableTree;
 import com.sun.source.util.SourcePositions;
 import java.util.List;
 import java.util.Objects;
@@ -37,6 +38,14 @@ final class JavaSourceEvidence {
     Objects.requireNonNull(tree, "tree");
     var start = positions.getStartPosition(unit, tree);
     var end = positions.getEndPosition(unit, tree);
+    if (tree instanceof VariableTree variable && start != Diagnostic.NOPOS) {
+      for (var annotation : variable.getModifiers().getAnnotations()) {
+        var annotationStart = positions.getStartPosition(unit, annotation);
+        if (annotationStart != Diagnostic.NOPOS) {
+          start = Math.min(start, annotationStart);
+        }
+      }
+    }
     if (start == Diagnostic.NOPOS || end == Diagnostic.NOPOS) {
       return new Position.Missing();
     }

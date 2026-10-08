@@ -34,11 +34,11 @@ final class MethodDecisionValidation {
       Map<String, SyntaxNode> nodes, Map<String, SyntaxNode> sourceNodes) {
     var uses = new HashMap<UseKey, ChildUseEvidence>();
     var resultTargets = new HashMap<String, JavaTypeIdentity>();
-    collectSwitchTargets(root, Optional.empty(), resultTargets);
     var returnTarget = sourceNodes.values().stream()
         .filter(
             node -> node.value() instanceof SyntaxValue.ExecutableDeclaration declaration && declaration.declarationKey().equals(methodKey))
         .flatMap(node -> node.children(SyntaxRole.RETURN_TYPE).stream()).findFirst().flatMap(SyntaxNode::resolvedType);
+    collectExecutionTargets(root, Optional.empty(), returnTarget, resultTargets);
     for (var decision : decisions) {
       var consumer = ownedNode(methodKey, decision.methodKey(), decision.consumerNodeId(), nodes);
       var child = eligibleChild(consumer, decision);
@@ -59,7 +59,7 @@ final class MethodDecisionValidation {
         throw new IllegalArgumentException("An applicable reference-cast classification cannot be not applicable");
       }
       validatePrimitiveContext(consumer, decision);
-      expectedTarget(consumer, decision.role(), resultTargets, returnTarget)
+      expectedTarget(consumer, decision.role(), resultTargets)
           .ifPresent(target -> requireEqual(target, decision.selectedTarget(), "Typed-use selected target"));
       putUnique(uses, UseKey.from(decision.consumerNodeId(), decision.role(), decision.position()), decision, "typed-use");
     }
@@ -73,13 +73,15 @@ final class MethodDecisionValidation {
   }
 
   private static Optional<JavaTypeIdentity> expectedTarget(SyntaxNode consumer, SyntaxRole role,
-      Map<String, JavaTypeIdentity> resultTargets, Optional<JavaTypeIdentity> returnTarget) {
+      Map<String, JavaTypeIdentity> resultTargets) {
     return switch (consumer.syntaxKind()) {
       case LOCAL_DECLARATION, TYPE_CAST, UNARY -> consumer.resolvedType();
       case CONDITIONAL_EXPRESSION -> role == SyntaxRole.CONDITION ? Optional.empty() : consumer.resolvedType();
       case ASSIGNMENT -> consumer.requiredChild(SyntaxRole.LOCATION).resolvedType();
-      case RETURN -> returnTarget;
-      case CASE, YIELD -> Optional.ofNullable(resultTargets.get(consumer.nodeId()));
+      case LAMBDA_EXPRESSION -> consumer.value(SyntaxValue.Lambda.class).returnType() instanceof SyntaxType.Resolved resolved
+          ? Optional.of(resolved.identity())
+          : Optional.empty();
+      case RETURN, CASE, YIELD -> Optional.ofNullable(resultTargets.get(consumer.nodeId()));
       default -> Optional.empty();
     };
   }
@@ -94,13 +96,22 @@ final class MethodDecisionValidation {
     }
   }
 
-  private static void collectSwitchTargets(SyntaxNode node, Optional<JavaTypeIdentity> enclosingSwitch,
-      Map<String, JavaTypeIdentity> targets) {
-    var selectedSwitch = node.syntaxKind() == SyntaxKind.SWITCH_EXPRESSION ? node.resolvedType() : enclosingSwitch;
+  private static void collectExecutionTargets(SyntaxNode node, Optional<JavaTypeIdentity> enclosingSwitch,
+      Optional<JavaTypeIdentity> enclosingReturn, Map<String, JavaTypeIdentity> targets) {
+    var lambda = node.value() instanceof SyntaxValue.Lambda value ? Optional.of(value) : Optional.<SyntaxValue.Lambda>empty();
+    var selectedReturn = lambda.map(SyntaxValue.Lambda::returnType)
+        .map(type -> type instanceof SyntaxType.Resolved resolved ? Optional.of(resolved.identity()) : Optional.<JavaTypeIdentity>empty())
+        .orElse(enclosingReturn);
+    var selectedSwitch = node.syntaxKind() == SyntaxKind.SWITCH_EXPRESSION
+        ? node.resolvedType()
+        : lambda.isPresent() ? Optional.<JavaTypeIdentity>empty() : enclosingSwitch;
     if (node.syntaxKind() == SyntaxKind.CASE || node.syntaxKind() == SyntaxKind.YIELD) {
       selectedSwitch.ifPresent(type -> targets.put(node.nodeId(), type));
     }
-    node.children().forEach(child -> collectSwitchTargets(child.node(), selectedSwitch, targets));
+    if (node.syntaxKind() == SyntaxKind.RETURN) {
+      selectedReturn.ifPresent(type -> targets.put(node.nodeId(), type));
+    }
+    node.children().forEach(child -> collectExecutionTargets(child.node(), selectedSwitch, selectedReturn, targets));
   }
 
   private static Map<String, InvocationEvidence> validateInvocations(String methodKey, List<InvocationEvidence> decisions,

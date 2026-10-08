@@ -108,8 +108,24 @@ public final class SourceAnalysisFixture {
   }
 
   private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays, boolean iteration) {
-    var iterationKinds = iteration ? Set.of("ASSERT", "SYNCHRONIZED") : Set.of("ASSERT", "SYNCHRONIZED", "WHILE_LOOP", "DO_WHILE_LOOP", "FOR_LOOP", "ENHANCED_FOR_LOOP", "LABELED_STATEMENT", "BREAK", "CONTINUE");
-    var iterationSurfaces = iteration ? Set.of("AssertTree", "SynchronizedTree") : Set.of("AssertTree", "SynchronizedTree", "WhileLoopTree", "DoWhileLoopTree", "ForLoopTree", "EnhancedForLoopTree", "LabeledStatementTree", "BreakTree", "ContinueTree");
+    return withCoverage(original, updates, arrays, iteration, false);
+  }
+
+  /**
+   * Admits supplied pre-lambda values with the preceding assertion/monitor catalog and retained format.
+   * @param original compatible source values without lambdas
+   * @return compatible java-source/7 result
+   */
+  public static AstResult assertionResult(AstResult original) {
+    var compatible = withCoverage(original, true, true, true, true);
+    var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
+        compatible.diagnostics(), compatible.coverage());
+    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.ASSERTION_SOURCE_MODEL_VERSION);
+  }
+
+  private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays, boolean iteration, boolean assertions) {
+    var iterationKinds = assertions ? Set.of("LAMBDA_EXPRESSION") : iteration ? Set.of("LAMBDA_EXPRESSION", "ASSERT", "SYNCHRONIZED") : Set.of("LAMBDA_EXPRESSION", "ASSERT", "SYNCHRONIZED", "WHILE_LOOP", "DO_WHILE_LOOP", "FOR_LOOP", "ENHANCED_FOR_LOOP", "LABELED_STATEMENT", "BREAK", "CONTINUE");
+    var iterationSurfaces = assertions ? Set.of("LambdaExpressionTree") : iteration ? Set.of("LambdaExpressionTree", "AssertTree", "SynchronizedTree") : Set.of("LambdaExpressionTree", "AssertTree", "SynchronizedTree", "WhileLoopTree", "DoWhileLoopTree", "ForLoopTree", "EnhancedForLoopTree", "LabeledStatementTree", "BreakTree", "ContinueTree");
     var changedKinds = Set.of("MULTIPLY_ASSIGNMENT", "DIVIDE_ASSIGNMENT", "REMAINDER_ASSIGNMENT", "PLUS_ASSIGNMENT",
         "MINUS_ASSIGNMENT", "LEFT_SHIFT_ASSIGNMENT", "RIGHT_SHIFT_ASSIGNMENT", "UNSIGNED_RIGHT_SHIFT_ASSIGNMENT",
         "AND_ASSIGNMENT", "XOR_ASSIGNMENT", "OR_ASSIGNMENT", "PREFIX_INCREMENT", "PREFIX_DECREMENT", "POSTFIX_INCREMENT",

@@ -25,6 +25,7 @@ import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.type.IntersectionType;
 import javax.lang.model.type.PrimitiveType;
 import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.ExecutableType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.TypeVariable;
@@ -73,7 +74,66 @@ final class SemanticResolver {
   }
 
   Element element(TreePath path) {
-    return trees.getElement(Objects.requireNonNull(path, PATH_ARGUMENT));
+    var element = trees.getElement(Objects.requireNonNull(path, PATH_ARGUMENT));
+    if (element != null && path.getLeaf() instanceof VariableTree) {
+      identities.registerSourceDeclaration(element, path);
+    }
+    return element;
+  }
+
+  boolean isLambdaParameter(Element element) {
+    return identities.isLambdaParameter(element);
+  }
+
+  Optional<TypeMirror> functionalReturnType(TreePath path) {
+    return attributedMirror(path).flatMap(this::functionalReturnType);
+  }
+
+  private Optional<TypeMirror> functionalReturnType(TypeMirror type) {
+    var methods = functionalMethods(type);
+    var candidates = methods.stream().filter(candidate -> candidate.type().getTypeVariables().isEmpty() && methods.stream()
+        .allMatch(other -> candidate.name().equals(other.name()) && types.isSubsignature(candidate.type(), other.type()))).toList();
+    var covariant = candidates.stream().filter(candidate -> methods.stream()
+        .allMatch(other -> sameOrSubtypeReturn(candidate.type().getReturnType(), other.type().getReturnType()))).findFirst();
+    var descriptor = covariant.or(() -> candidates.stream()
+        .filter(candidate -> methods.stream().allMatch(other -> substitutableReturn(candidate.type(), other.type()))).findFirst());
+    return descriptor.map(method -> method.type().getReturnType());
+  }
+
+  private List<FunctionalMethod> functionalMethods(TypeMirror type) {
+    if (type instanceof IntersectionType intersection) {
+      return intersection.getBounds().stream().flatMap(bound -> functionalMethods(bound).stream()).toList();
+    }
+    if (!(type instanceof DeclaredType declared) || !(declared.asElement() instanceof TypeElement owner)
+        || !elements.isFunctionalInterface(owner)) {
+      return List.of();
+    }
+    var object = elements.getTypeElement("java.lang.Object");
+    return elements.getAllMembers(owner).stream().filter(ExecutableElement.class::isInstance).map(ExecutableElement.class::cast)
+        .filter(method -> method.getKind() == ElementKind.METHOD && method.getModifiers().contains(Modifier.ABSTRACT)
+            && !method.getModifiers().contains(Modifier.STATIC))
+        .filter(method -> object.getEnclosedElements().stream().filter(ExecutableElement.class::isInstance)
+            .map(ExecutableElement.class::cast).filter(candidate -> candidate.getModifiers().contains(Modifier.PUBLIC))
+            .noneMatch(candidate -> method.getSimpleName().contentEquals(candidate.getSimpleName())
+                && types.isSubsignature((ExecutableType) method.asType(), (ExecutableType) candidate.asType())))
+        .map(method -> new FunctionalMethod(method.getSimpleName().toString(), (ExecutableType) types.asMemberOf(declared, method)))
+        .toList();
+  }
+
+  private boolean sameOrSubtypeReturn(TypeMirror candidate, TypeMirror other) {
+    return types.isSameType(candidate, other)
+        || (!candidate.getKind().isPrimitive() && candidate.getKind() != TypeKind.VOID && types.isSubtype(candidate, other));
+  }
+
+  private boolean substitutableReturn(ExecutableType candidate, ExecutableType other) {
+    var result = candidate.getReturnType();
+    var target = other.getReturnType();
+    return sameOrSubtypeReturn(result, target) || (!result.getKind().isPrimitive() && result.getKind() != TypeKind.VOID
+        && !target.getKind().isPrimitive() && target.getKind() != TypeKind.VOID && (types.isAssignable(result, target)
+            || (!types.isSubsignature(other, candidate) && types.isSameType(result, types.erasure(target)))));
+  }
+
+  private record FunctionalMethod(String name, ExecutableType type) {
   }
 
   boolean isImplicitDeclaration(TreePath path) {
@@ -152,11 +212,11 @@ final class SemanticResolver {
   Optional<SemanticReference> reference(TreePath path, ReferenceKind expectedKind) {
     Objects.requireNonNull(path, PATH_ARGUMENT);
     Objects.requireNonNull(expectedKind, "expectedKind");
-    var element = trees.getElement(path);
+    var element = element(path);
     if (element == null) {
       return Optional.of(unresolvedReference(expectedKind));
     }
-    var actualKind = referenceKind(element.getKind());
+    var actualKind = isLambdaParameter(element) ? Optional.of(ReferenceKind.LOCAL) : referenceKind(element.getKind());
     if (actualKind.isEmpty() || actualKind.orElseThrow() != expectedKind) {
       return Optional.of(unresolvedReference(expectedKind));
     }

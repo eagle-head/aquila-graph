@@ -125,6 +125,10 @@ final class CoverageSourceProjection {
       case SyntaxValue.ArrayCreation array ->
         structure(Tag.ARRAY_CREATION, field("writtenType", flag(array.writtenType())), field("initializer", flag(array.initializer())),
             field("dimensionAnnotationCounts", sequence(array.dimensionAnnotationCounts(), count -> integral(count.longValue()))));
+      case SyntaxValue.Lambda lambda -> structure(Tag.LAMBDA, field("bodyKind", named(lambda.bodyKind())),
+          field("parenthesized", flag(lambda.parenthesized())), field("returnType", type(lambda.returnType())),
+          field("parameters", sequence(lambda.parameters(), parameter -> structure(Tag.LAMBDA_PARAMETER,
+              field("typeForm", named(parameter.typeForm())), field(VAR_ARGS_FIELD, flag(parameter.variableArity()))))));
       case SyntaxValue.SwitchCase value -> structure(Tag.SWITCH_CASE, field(FORM_FIELD, named(value.form())),
           field("labels", sequence(value.labels(), label -> switch (label) {
             case SyntaxValue.SwitchLabel.Default _ -> structure(Tag.DEFAULT_LABEL);

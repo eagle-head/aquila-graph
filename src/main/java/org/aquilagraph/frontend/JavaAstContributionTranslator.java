@@ -1415,9 +1415,10 @@ final class JavaAstContributionTranslator {
     var ownAnnotations = annotations.stream()
         .filter(annotation -> sourceEvidence.origin(context.unit(), context.sourceFile(), annotation).filter(owners::containsKey).isEmpty())
         .toList();
-    var site = semantics.element(creatingPath) instanceof VariableElement element && element.getKind() == ElementKind.EXCEPTION_PARAMETER
-        ? DeclarationSite.PARAMETER
-        : DeclarationSite.LOCAL_VARIABLE;
+    var site = semantics.element(creatingPath) instanceof VariableElement element
+        && (element.getKind() == ElementKind.EXCEPTION_PARAMETER || element.getKind() == ElementKind.PARAMETER)
+            ? DeclarationSite.PARAMETER
+            : DeclarationSite.LOCAL_VARIABLE;
     var complete = appendAnnotations(context.unit(), context.sourceFile(), ownAnnotations, path, path, site, children,
         context.diagnostics());
     children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION)

@@ -5,6 +5,7 @@ import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
+import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.List;
@@ -126,6 +127,10 @@ final class JavaMethodBodyTranslator {
     var value = mapping.value();
     if (value instanceof SyntaxValue.LocalDeclaration && tree instanceof VariableTree variable) {
       value = bindings.project(unit, sourceFile, variable, path);
+    } else if (tree instanceof LambdaExpressionTree lambda) {
+      var form = treeInventory.lambdaForm(lambda);
+      value = new SyntaxValue.Lambda(form.bodyKind(), form.parenthesized(), form.parameters(),
+          semantics.functionalReturnType(path).map(semantics::declarationType).orElse(SyntaxType.Unresolved.INSTANCE));
     }
     var sourceKind = JavaSourceKind.valueOf(tree.getKind().name());
     var childNodes = new ArrayList<SyntaxChild>(children.size());
@@ -199,7 +204,7 @@ final class JavaMethodBodyTranslator {
             "javac reported an error type for retained syntax", AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE));
       } else if (node.type() == SyntaxType.Unresolved.INSTANCE) {
         TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, semanticDiagnostic(methodKey, node, "frontend.unresolved-type",
-            "A compiler type required for graph lowering is unavailable", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
+            "A compiler type required for source syntax is unavailable", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
       } else if (node.type() instanceof SyntaxType.NoType noType) {
         TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
             semanticDiagnostic(methodKey, node, "frontend.no-type-in-required-syntax",
@@ -219,7 +224,7 @@ final class JavaMethodBodyTranslator {
       } else if (node.semanticReference().isPresent() && node.semanticReference().orElseThrow().status() == ResolutionStatus.UNRESOLVED) {
         TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
             semanticDiagnostic(methodKey, node, "frontend.unresolved-reference",
-                "A declaration identity required for graph lowering is unavailable", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
+                "A declaration identity required for source syntax is unavailable", AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
       }
     }
     children.forEach(child -> diagnostics.addAll(child.diagnostics()));

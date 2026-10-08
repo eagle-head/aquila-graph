@@ -115,6 +115,8 @@ import org.aquilagraph.source.api.WrittenTypeEvidence;
 
 /** Closed retained-value tags and ordered public components. */
 final class AstValueSchema {
+  private static final String PARAMETERS_FIELD = "parameters";
+  private static final String RETURN_TYPE_FIELD = "returnType";
   private static final String ADDRESS_FIELD = "address";
   private static final String ANNOTATIONS_FIELD = "annotations";
   private static final String ARGUMENTS_FIELD = "arguments";
@@ -205,7 +207,7 @@ final class AstValueSchema {
     record(types, CoverageEvidenceValue.Structure.class, "coverage-evidence-value/structure", "tag", "fields");
     record(types, CoverageEvidenceValue.Field.class, "coverage-evidence-value/field", NAME_FIELD, VALUE_FIELD);
     enumeration(types, CoverageEvidenceValue.Tag.class, "coverage-evidence-value/tag");
-    record(types, CoverageExecutableType.class, "coverage-executable-type", "variables", "parameters", "returnType", "thrownTypes",
+    record(types, CoverageExecutableType.class, "coverage-executable-type", "variables", PARAMETERS_FIELD, RETURN_TYPE_FIELD, "thrownTypes",
         "receiverType");
     record(types, CoverageExecutableType.Variable.class, "coverage-executable-type/variable", DECLARATION_KEY_FIELD, TYPE_FIELD);
     record(types, CoverageFactReference.class, "coverage-fact-reference", KIND_FIELD, IDENTITY_FIELD, SOURCE_FILE_KEY_FIELD, VALUE_FIELD,
@@ -276,8 +278,8 @@ final class AstValueSchema {
     enumeration(types, JavaDeclarationModifier.class, "java-declaration-modifier");
     record(types, JavaField.class, "java-field", "fieldKey", OWNER_TYPE_KEY_FIELD, NAME_FIELD, "staticType", "modifiers", "enumConstant",
         SOURCE_DECLARED_FIELD, ORIGINS_FIELD);
-    record(types, JavaMethod.class, "java-method", METHOD_KEY_FIELD, OWNER_TYPE_KEY_FIELD, NAME_FIELD, "signature", "returnType",
-        "parameters", "modifiers", "constructor", SOURCE_DECLARED_FIELD, "hasBody", ORIGINS_FIELD);
+    record(types, JavaMethod.class, "java-method", METHOD_KEY_FIELD, OWNER_TYPE_KEY_FIELD, NAME_FIELD, "signature", RETURN_TYPE_FIELD,
+        PARAMETERS_FIELD, "modifiers", "constructor", SOURCE_DECLARED_FIELD, "hasBody", ORIGINS_FIELD);
     record(types, JavaParameter.class, "java-parameter", "parameterKey", NAME_FIELD, "staticType", SOURCE_DECLARED_FIELD, ORIGINS_FIELD);
     record(types, JavaProgram.class, "java-program", "types");
     record(types, JavaRecordComponent.class, "java-record-component", "componentKey", OWNER_TYPE_KEY_FIELD, ORDINAL_FIELD, NAME_FIELD,
@@ -387,6 +389,9 @@ final class AstValueSchema {
         "bindingEvidence");
     record(types, LocalBindingEvidence.class, "local-binding-evidence", "declarationKey", "typeForm", "context", "initialized",
         "annotations", "sharedAnnotationKeys");
+    record(types, SyntaxValue.Lambda.class, "syntax-value/lambda", "bodyKind", "parenthesized", PARAMETERS_FIELD, RETURN_TYPE_FIELD);
+    record(types, SyntaxValue.LambdaParameter.class, "lambda-parameter", "typeForm", "variableArity");
+    enumeration(types, SyntaxValue.LambdaBodyKind.class, "lambda-body-kind");
     enumeration(types, LocalBindingEvidence.TypeForm.class, "local-binding-type-form");
     enumeration(types, LocalBindingEvidence.Context.class, "local-binding-context");
     record(types, SyntaxValue.TypeDeclaration.Shape.class, "syntax-value/type-declaration/shape", ANNOTATIONS_FIELD, "typeParameters",
@@ -396,7 +401,7 @@ final class AstValueSchema {
         "backingFieldKey", "accessorKey", "canonicalParameterKey", "accessorImplicit", "canonicalParameterDerived");
     enumeration(types, SyntaxValue.ExecutableDeclaration.ExecutableKind.class, "syntax-value/executable-declaration/executable-kind");
     record(types, SyntaxValue.ExecutableDeclaration.HeaderShape.class, "syntax-value/executable-declaration/header-shape",
-        ANNOTATIONS_FIELD, "typeParameters", "receiver", "parameters", "returnType", "thrownTypes", "body", VAR_ARGS_FIELD);
+        ANNOTATIONS_FIELD, "typeParameters", "receiver", PARAMETERS_FIELD, RETURN_TYPE_FIELD, "thrownTypes", "body", VAR_ARGS_FIELD);
     record(types, SyntaxValue.ExecutableDeclaration.AttributedHeader.class, "syntax-value/executable-declaration/attributed-header",
         "receiverType", "receiverOwnerKey", "receiverSimpleName", "enclosingTypeKey", "thrownTypes", "defaultValue");
     record(types, SyntaxValue.FieldAccess.class, "syntax-value/field-access", NAME_FIELD, "receiver");

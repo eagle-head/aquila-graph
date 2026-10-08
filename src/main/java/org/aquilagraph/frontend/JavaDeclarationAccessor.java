@@ -3,6 +3,7 @@ package org.aquilagraph.frontend;
 import com.sun.source.tree.WhileLoopTree;
 import com.sun.source.tree.AssertTree;
 import com.sun.source.tree.SynchronizedTree;
+import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.DoWhileLoopTree;
 import com.sun.source.tree.ForLoopTree;
 import com.sun.source.tree.EnhancedForLoopTree;
@@ -60,6 +61,9 @@ final class JavaDeclarationAccessor {
       reader(AssertTree.class, CONDITION, AssertTree::getCondition), reader(AssertTree.class, "getDetail", AssertTree::getDetail),
       reader(SynchronizedTree.class, "getExpression", SynchronizedTree::getExpression),
       reader(SynchronizedTree.class, "getBlock", SynchronizedTree::getBlock),
+      reader(LambdaExpressionTree.class, "getParameters", LambdaExpressionTree::getParameters),
+      reader(LambdaExpressionTree.class, "getBody", LambdaExpressionTree::getBody),
+      reader(LambdaExpressionTree.class, "getBodyKind", LambdaExpressionTree::getBodyKind),
       reader(WhileLoopTree.class, CONDITION, WhileLoopTree::getCondition),
       reader(WhileLoopTree.class, STATEMENT, WhileLoopTree::getStatement),
       reader(DoWhileLoopTree.class, CONDITION, DoWhileLoopTree::getCondition),

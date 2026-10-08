@@ -577,6 +577,11 @@ public final class SyntaxNode {
     if (!kind.requiresType() && type != SyntaxType.NotApplicable.INSTANCE) {
       throw new IllegalArgumentException(kind + " cannot carry a compiler type outcome");
     }
+    if (kind == SyntaxKind.LAMBDA_EXPRESSION && type instanceof SyntaxType.Resolved resolved
+        && !Set.of(JavaTypeCategory.DECLARED, JavaTypeCategory.INTERSECTION, JavaTypeCategory.ERROR, JavaTypeCategory.OTHER)
+            .contains(resolved.identity().category())) {
+      throw new IllegalArgumentException("A lambda target must be a functional interface or intersection type");
+    }
   }
 
   private static void validateReference(SyntaxKind kind, SyntaxValue syntaxValue, Optional<SemanticReference> reference) {
@@ -682,6 +687,7 @@ public final class SyntaxNode {
       };
       case METHOD_DECLARATION -> SyntaxValue.ExecutableDeclaration.class;
       case LOCAL_DECLARATION -> SyntaxValue.LocalDeclaration.class;
+      case LAMBDA_EXPRESSION -> SyntaxValue.Lambda.class;
       case LABELED_STATEMENT, BREAK, CONTINUE -> SyntaxValue.StatementLabel.class;
       case VARIABLE_ACCESS, ARRAY_LENGTH -> SyntaxValue.SourceSymbol.class;
       case FIELD_ACCESS -> SyntaxValue.FieldAccess.class;
@@ -844,6 +850,23 @@ public final class SyntaxNode {
           }
         });
       }
+      case LAMBDA_EXPRESSION -> {
+        requireShape(children, Set.of(SyntaxRole.PARAMETER, SyntaxRole.BODY));
+        var lambda = (SyntaxValue.Lambda) value;
+        requireCount(children, SyntaxRole.PARAMETER, lambda.parameters().size(), lambda.parameters().size());
+        requireCount(children, SyntaxRole.BODY, 1, 1);
+        for (var child : children) {
+          if (child.role() == SyntaxRole.PARAMETER) {
+            var binding = child.node().value(SyntaxValue.LocalDeclaration.class).bindingEvidence().orElseThrow();
+            if (binding.context() != LocalBindingEvidence.Context.LAMBDA || binding.initialized()
+                || binding.typeForm() != lambda.parameters().get(child.position()).typeForm()) {
+              throw new IllegalArgumentException("A lambda parameter must agree with its written form and lexical attachment");
+            }
+          } else if ((child.node().syntaxKind() == SyntaxKind.BLOCK) != (lambda.bodyKind() == SyntaxValue.LambdaBodyKind.BLOCK)) {
+            throw new IllegalArgumentException("A lambda body must agree with its copied written body kind");
+          }
+        }
+      }
       case TYPE_CAST -> {
         requireShape(children, Set.of(SyntaxRole.EXPRESSION, SyntaxRole.TYPE_OPERAND), SyntaxRole.EXPRESSION, 1, 1);
         validateBodyTypeAttachment(children, SyntaxRole.TYPE_OPERAND);
@@ -1002,6 +1025,9 @@ public final class SyntaxNode {
       var valid = switch (kind) {
         case BLOCK -> isStatement(node);
         case LOCAL_DECLARATION -> child.role() != SyntaxRole.INITIALIZER || isExpression(node);
+        case LAMBDA_EXPRESSION -> child.role() == SyntaxRole.PARAMETER
+            ? node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION
+            : node.syntaxKind() == SyntaxKind.BLOCK || isExpression(node);
         case TYPE_CAST -> child.role() != SyntaxRole.EXPRESSION || isExpression(node);
         case ASSERT, EXPRESSION_STATEMENT, RETURN, THROW, PARENTHESIZED, YIELD, ARRAY_LENGTH, UNARY, BINARY, CONDITIONAL_AND,
             CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, CONDITIONAL_EXPRESSION ->
@@ -1067,7 +1093,8 @@ public final class SyntaxNode {
     return switch (node.syntaxKind()) {
       case INVOCATION, OBJECT_CREATION, ARRAY_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY, CONDITIONAL_AND,
           CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST,
-          CONDITIONAL_EXPRESSION, SWITCH_EXPRESSION, ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST ->
+          CONDITIONAL_EXPRESSION, SWITCH_EXPRESSION, LAMBDA_EXPRESSION, ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL,
+          ANNOTATION_CAST ->
         true;
       case UNSUPPORTED -> switch (node.sourceKind()) {
         case ARRAY_ACCESS, ASSIGNMENT, CONDITIONAL_EXPRESSION, MEMBER_SELECT, MEMBER_REFERENCE, IDENTIFIER, INSTANCE_OF, METHOD_INVOCATION,

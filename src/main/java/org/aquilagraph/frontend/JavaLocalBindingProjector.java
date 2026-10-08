@@ -25,8 +25,8 @@ final class JavaLocalBindingProjector {
   }
 
   SyntaxValue.LocalDeclaration project(CompilationUnitTree unit, SourceFile source, VariableTree variable, TreePath path) {
-    var inferred = inventory.hasInferredVariableType(variable);
-    var writtenType = inferred ? null : variable.getType();
+    var typeForm = inventory.bindingTypeForm(variable);
+    var writtenType = typeForm == LocalBindingEvidence.TypeForm.DECLARED ? variable.getType() : null;
     var typeEvidence = writtenType == null
         ? Optional.<WrittenTypeEvidence>empty()
         : sourceEvidence.origin(unit, source, writtenType)
@@ -37,8 +37,7 @@ final class JavaLocalBindingProjector {
     var name = variable.getName().length() == 0 ? "_" : variable.getName().toString();
     return new SyntaxValue.LocalDeclaration(name, typeEvidence,
         inventory.writtenModifiers(variable.getModifiers()).stream().map(Object::toString).sorted().toList(),
-        Optional.of(new LocalBindingEvidence(element.flatMap(semantics::declarationKey),
-            inferred ? LocalBindingEvidence.TypeForm.INFERRED : LocalBindingEvidence.TypeForm.DECLARED, context,
+        Optional.of(new LocalBindingEvidence(element.flatMap(semantics::declarationKey), typeForm, context,
             variable.getInitializer() != null, 0, List.of())));
   }
 

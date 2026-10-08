@@ -37,6 +37,7 @@ import com.sun.source.tree.TryTree;
 import com.sun.source.tree.TypeCastTree;
 import com.sun.source.tree.UnaryTree;
 import com.sun.source.tree.VariableTree;
+import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.YieldTree;
 import com.sun.source.util.SimpleTreeVisitor;
 import com.sun.source.util.TreePath;
@@ -94,6 +95,14 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
   @Override
   public SyntaxNodeMapping visitExpressionStatement(ExpressionStatementTree statement, MappingContext context) {
     return acceptedWithChild(SyntaxKind.EXPRESSION_STATEMENT, context, SyntaxRole.EXPRESSION, statement.getExpression());
+  }
+
+  @Override
+  public SyntaxNodeMapping visitLambdaExpression(LambdaExpressionTree lambda, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.addSequence(SyntaxRole.PARAMETER, lambda.getParameters());
+    children.add(SyntaxRole.BODY, lambda.getBody());
+    return accepted(SyntaxKind.LAMBDA_EXPRESSION, children);
   }
 
   @Override
@@ -510,7 +519,9 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
           semantics.reference(context.treePath(), referenceKind));
     }
     var kind = SyntaxKind.VARIABLE_ACCESS;
-    var referenceKind = element != null && element.getKind() == ElementKind.PARAMETER ? ReferenceKind.PARAMETER : ReferenceKind.LOCAL;
+    var referenceKind = element != null && element.getKind() == ElementKind.PARAMETER && !semantics.isLambdaParameter(element)
+        ? ReferenceKind.PARAMETER
+        : ReferenceKind.LOCAL;
     return accepted(kind, new SyntaxValue.SourceSymbol(identifier.getName().toString()), List.of(),
         semantics.reference(context.treePath(), referenceKind));
   }
