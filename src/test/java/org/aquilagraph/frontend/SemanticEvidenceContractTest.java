@@ -37,10 +37,13 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.JavaExecutableErasure;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.ResolutionStatus;
 import org.aquilagraph.source.api.SemanticReference;
 import org.aquilagraph.source.api.JavaTypeStructure.Declared;
+import org.aquilagraph.source.api.JavaTypeStructure.Executable;
+import org.aquilagraph.source.api.JavaTypeStructure.Primitive;
 import org.aquilagraph.source.api.JavaTypeStructure.LocalDeclared;
 import org.aquilagraph.source.api.JavaTypeStructure.LocalDeclared.Kind;
 import org.aquilagraph.source.api.SyntaxType.Erroneous;
@@ -136,7 +139,7 @@ class SemanticEvidenceContractTest {
   }
 
   @Test
-  void givenActualNullAndExecutableMirrors_whenSemanticTypesAreProjected_thenIdentityOnlyResolutionHasNoInventedRecursiveStructureOrDeclarationKey()
+  void givenActualNullAndExecutableMirrors_whenSemanticTypesAreProjected_thenNullStaysIdentityOnlyAndExecutableCopiesItsDeclarationSignature()
       throws IOException {
     // Arrange
     try (var observation = new CompilerObservation("class Sample { int read(int input) { return input; } }", true)) {
@@ -153,7 +156,9 @@ class SemanticEvidenceContractTest {
       assertEquals(JavaTypeCategory.NULL, nullOutcome.identity().category());
       assertEquals(JavaTypeCategory.EXECUTABLE, executableOutcome.identity().category());
       assertEquals(Optional.empty(), nullOutcome.structure());
-      assertEquals(Optional.empty(), executableOutcome.structure());
+      var integer = new Resolved(new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"), new Primitive(JavaTypeCategory.INT));
+      assertEquals(new Executable(List.of(), List.of(integer), integer, Optional.empty(), List.of(),
+          new JavaExecutableErasure(List.of(integer), integer)), executableOutcome.structure().orElseThrow());
       assertEquals(JavaTypeCategory.NULL, nullReference.identity().category());
       assertEquals(JavaTypeCategory.EXECUTABLE, executableReference.identity().category());
       assertEquals(Optional.empty(), nullReference.declarationKey());

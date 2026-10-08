@@ -196,6 +196,8 @@ public sealed interface CoverageEvidenceValue {
     LOCAL_BINDING,
     /** Copied lambda syntax. */
     LAMBDA,
+    /** Written method or constructor reference and selected type. */
+    MEMBER_REFERENCE,
     /** Written functional parameter form. */
     LAMBDA_PARAMETER,
     /** Written local type. */
@@ -290,6 +292,10 @@ public sealed interface CoverageEvidenceValue {
     TYPE_INTERSECTION,
     /** Ordered union. */
     TYPE_UNION,
+    /** A compiler executable declaration signature. */
+    TYPE_EXECUTABLE,
+    /** Independently copied executable parameter and result erasures. */
+    TYPE_EXECUTABLE_ERASURE,
     /** Boolean annotation scalar. */
     ANNOTATION_BOOLEAN,
     /** Byte annotation scalar. */

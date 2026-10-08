@@ -4,6 +4,7 @@ import com.sun.source.tree.CatchTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.MemberSelectTree;
+import com.sun.source.tree.MemberReferenceTree;
 import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
@@ -234,7 +235,15 @@ final class SemanticResolver {
     if (!(path.getLeaf() instanceof ExpressionTree) && !(path.getLeaf() instanceof VariableTree)) {
       return SyntaxType.NotApplicable.INSTANCE;
     }
-    return projectType(compilerType(path), true);
+    var type = compilerType(path);
+    // Error recovery can leave a qualifier type where no functional target was established.
+    if (path.getLeaf() instanceof MemberReferenceTree && type != null && switch (type.getKind()) {
+      case DECLARED, INTERSECTION, ERROR, OTHER -> false;
+      default -> true;
+    }) {
+      return SyntaxType.Unresolved.INSTANCE;
+    }
+    return projectType(type, true);
   }
 
   Optional<JavaTypeIdentity> resolvedType(TreePath path) {
@@ -270,7 +279,7 @@ final class SemanticResolver {
       case MODULE -> new SyntaxType.NoType(SyntaxType.NoType.Kind.MODULE);
       case ERROR -> SyntaxType.Erroneous.INSTANCE;
       case OTHER -> SyntaxType.Unsupported.INSTANCE;
-      case NULL, EXECUTABLE -> new SyntaxType.Resolved(typeIdentity(type));
+      case NULL -> new SyntaxType.Resolved(typeIdentity(type));
       default -> includeStructure
           ? structuredType(type).<SyntaxType>map(value -> new SyntaxType.Resolved(typeIdentity(type), value))
               .orElseGet(() -> new SyntaxType.StructureUnavailable(typeIdentity(type)))
@@ -279,7 +288,7 @@ final class SemanticResolver {
   }
 
   private Optional<JavaTypeStructure> structuredType(TypeMirror type) {
-    return new JavaTypeStructureProjection(identities).project(type);
+    return new JavaTypeStructureProjection(identities, this::typeIdentity, types::erasure).project(type);
   }
 
   SyntaxType receiverType(ExecutableElement executable) {
@@ -404,7 +413,7 @@ final class SemanticResolver {
   boolean isTypeOrPackage(TreePath path) {
     var element = trees.getElement(Objects.requireNonNull(path, PATH_ARGUMENT));
     return element != null && switch (element.getKind()) {
-      case CLASS, INTERFACE, ENUM, RECORD, ANNOTATION_TYPE, PACKAGE -> true;
+      case CLASS, INTERFACE, ENUM, RECORD, ANNOTATION_TYPE, TYPE_PARAMETER, PACKAGE -> true;
       default -> false;
     };
   }

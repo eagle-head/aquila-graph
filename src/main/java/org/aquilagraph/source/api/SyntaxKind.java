@@ -90,6 +90,8 @@ public enum SyntaxKind {
   ARRAY_CREATION,
   /** Written functional expression with its own delayed execution scope. */
   LAMBDA_EXPRESSION,
+  /** Written method, class-constructor or array-constructor reference. */
+  MEMBER_REFERENCE,
   /** Field value access with a classified receiver form. */
   FIELD_ACCESS,
   /** Local or parameter value access. */
@@ -137,7 +139,7 @@ public enum SyntaxKind {
       case TYPE_USE, ANNOTATION_ARGUMENT, ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST, LOCAL_DECLARATION,
           SWITCH_EXPRESSION, INVOCATION, OBJECT_CREATION, ARRAY_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY,
           CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST,
-          CONDITIONAL_EXPRESSION, LAMBDA_EXPRESSION ->
+          CONDITIONAL_EXPRESSION, LAMBDA_EXPRESSION, MEMBER_REFERENCE ->
         true;
       default -> false;
     };
@@ -156,6 +158,7 @@ public enum SyntaxKind {
       case ANNOTATION_ARRAY -> sourceKind == JavaSourceKind.NEW_ARRAY;
       case ARRAY_CREATION -> sourceKind == JavaSourceKind.NEW_ARRAY;
       case LAMBDA_EXPRESSION -> sourceKind == JavaSourceKind.LAMBDA_EXPRESSION;
+      case MEMBER_REFERENCE -> sourceKind == JavaSourceKind.MEMBER_REFERENCE;
       case ANNOTATION_ARGUMENT -> sourceKind == JavaSourceKind.ASSIGNMENT || sourceKind == JavaSourceKind.NEW_ARRAY
           || sourceKind == JavaSourceKind.ANNOTATION || annotationScalarSyntax(sourceKind);
       case ANNOTATION_ELEMENT_NAME -> sourceKind == JavaSourceKind.IDENTIFIER;

@@ -8,6 +8,72 @@ import java.util.Set;
 /** Compiler-neutral recursive semantic components of an attributed Java type. */
 public sealed interface JavaTypeStructure {
   /**
+   * Returns the semantic category represented by these recursive components.
+   *
+   * @return exact compiler-neutral type category
+   */
+  default JavaTypeCategory category() {
+    return switch (this) {
+      case Primitive primitive -> primitive.kind();
+      case Declared _,LocalDeclared _ -> JavaTypeCategory.DECLARED;
+      case Variable _,Captured _,CaptureReference _ -> JavaTypeCategory.TYPE_VARIABLE;
+      case Array _ -> JavaTypeCategory.ARRAY;
+      case Wildcard _ -> JavaTypeCategory.WILDCARD;
+      case Intersection _ -> JavaTypeCategory.INTERSECTION;
+      case Union _ -> JavaTypeCategory.UNION;
+      case Executable _ -> JavaTypeCategory.EXECUTABLE;
+    };
+  }
+
+  /**
+   * Raw compiler declaration signature of a selected executable.
+   *
+   * @param variables
+   *          ordered declared type variables
+   * @param parameters
+   *          ordered formal parameter types
+   * @param returnType
+   *          declared return type, including void for constructors
+   * @param receiver
+   *          compiler receiver type when applicable
+   * @param thrownTypes
+   *          ordered declared exception types
+   * @param erasure
+   *          independently copied ordered parameter and result erasures
+   */
+  record Executable(List<JavaTypeStructure> variables, List<SyntaxType> parameters, SyntaxType returnType, Optional<SyntaxType> receiver,
+      List<SyntaxType> thrownTypes, JavaExecutableErasure erasure) implements JavaTypeStructure {
+    /** Copies and validates the declaration components. */
+    public Executable {
+      variables = List.copyOf(Objects.requireNonNull(variables, "variables"));
+      parameters = List.copyOf(Objects.requireNonNull(parameters, "parameters"));
+      Objects.requireNonNull(returnType, "returnType");
+      Objects.requireNonNull(receiver, "receiver");
+      thrownTypes = List.copyOf(Objects.requireNonNull(thrownTypes, "thrownTypes"));
+      Objects.requireNonNull(erasure, "erasure");
+      erasure.validateComponents(parameters, returnType);
+      if (variables.stream().anyMatch(value -> !(value instanceof Variable)) || Set.copyOf(variables).size() != variables.size()
+          || parameters.stream().anyMatch(value -> !legalComponent(value, false)) || !legalComponent(returnType, true)
+          || receiver.filter(value -> !legalComponent(value, false)).isPresent()
+          || receiver.flatMap(SyntaxType::knownIdentity).filter(value -> value.category() != JavaTypeCategory.DECLARED).isPresent()
+          || thrownTypes.stream().anyMatch(value -> !legalComponent(value, false))
+          || thrownTypes.stream().flatMap(value -> value.knownIdentity().stream())
+              .anyMatch(value -> value.category() != JavaTypeCategory.DECLARED && value.category() != JavaTypeCategory.TYPE_VARIABLE)) {
+        throw new IllegalArgumentException("An executable structure requires legal declaration signature components");
+      }
+    }
+
+    private static boolean legalComponent(SyntaxType value, boolean result) {
+      return value != SyntaxType.NotApplicable.INSTANCE && !(value instanceof SyntaxType.NoType)
+          && value.knownIdentity().filter(identity -> switch (identity.category()) {
+            case VOID -> !result;
+            case NULL, ERROR, EXECUTABLE, WILDCARD, INTERSECTION, UNION, OTHER -> true;
+            default -> false;
+          }).isEmpty();
+    }
+  }
+
+  /**
    * Primitive or void result.
    *
    * @param kind
@@ -69,6 +135,7 @@ public sealed interface JavaTypeStructure {
         }
       });
       arguments = List.copyOf(Objects.requireNonNull(arguments, "arguments"));
+      arguments.forEach(JavaTypeStructureConstraints::requireValueComponent);
     }
 
     private static Optional<String> enclosingKey(Optional<JavaTypeStructure> enclosingType) {
@@ -121,6 +188,7 @@ public sealed interface JavaTypeStructure {
         }
       });
       arguments = List.copyOf(Objects.requireNonNull(arguments, "arguments"));
+      arguments.forEach(JavaTypeStructureConstraints::requireValueComponent);
     }
   }
 
@@ -162,7 +230,7 @@ public sealed interface JavaTypeStructure {
     }
 
     private static void validateBound(JavaTypeStructure bound) {
-      if (bound instanceof Primitive || bound instanceof Wildcard || bound instanceof Union) {
+      if (bound instanceof Primitive || bound instanceof Wildcard || bound instanceof Union || bound instanceof Executable) {
         throw new IllegalArgumentException("Captured variable bounds must be reference-type structures");
       }
       if (bound instanceof Intersection intersection) {
@@ -196,6 +264,7 @@ public sealed interface JavaTypeStructure {
     /** Validates the component. */
     public Array {
       Objects.requireNonNull(component, "component");
+      JavaTypeStructureConstraints.requireValueComponent(component);
     }
   }
 
@@ -222,6 +291,7 @@ public sealed interface JavaTypeStructure {
     public Wildcard {
       Objects.requireNonNull(kind, "kind");
       Objects.requireNonNull(bound, "bound");
+      bound.ifPresent(JavaTypeStructureConstraints::requireValueComponent);
       if ((kind == BoundKind.UNBOUNDED) != bound.isEmpty()) {
         throw new IllegalArgumentException("A wildcard bound must match its written form");
       }
@@ -238,6 +308,7 @@ public sealed interface JavaTypeStructure {
     /** Requires distinct, ordered bounds. */
     public Intersection {
       bounds = List.copyOf(Objects.requireNonNull(bounds, "bounds"));
+      bounds.forEach(JavaTypeStructureConstraints::requireValueComponent);
       if (bounds.size() < 2 || Set.copyOf(bounds).size() != bounds.size()) {
         throw new IllegalArgumentException("An intersection requires at least two distinct bounds");
       }
@@ -254,9 +325,11 @@ public sealed interface JavaTypeStructure {
     /** Requires distinct, ordered alternatives. */
     public Union {
       alternatives = List.copyOf(Objects.requireNonNull(alternatives, "alternatives"));
+      alternatives.forEach(JavaTypeStructureConstraints::requireValueComponent);
       if (alternatives.size() < 2 || Set.copyOf(alternatives).size() != alternatives.size()) {
         throw new IllegalArgumentException("A union requires at least two distinct alternatives");
       }
     }
   }
+
 }

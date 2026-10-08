@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import org.aquilagraph.source.api.SyntaxValue.ExecutableDeclaration.ExecutableKind;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.aquilagraph.identity.api.InputSnapshot;
@@ -538,6 +539,8 @@ final class JavaAstAggregateBuilder {
     var annotationTargets = new HashMap<String, List<SyntaxSemanticEdge>>();
     var annotationParents = new HashMap<String, SyntaxNode>();
     var recordTypeOwners = new HashMap<String, SyntaxNode>();
+    var ownedExecutables = nodes.values().stream().filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration)
+        .collect(Collectors.groupingBy(node -> node.value(SyntaxValue.ExecutableDeclaration.class).declarationKey()));
     var fieldGroups = SharedVariableDeclarations.index(List.copyOf(nodes.values()));
     for (var parent : nodes.values()) {
       parent.children().stream().filter(child -> child.role() == SyntaxRole.ANNOTATION)
@@ -572,6 +575,7 @@ final class JavaAstAggregateBuilder {
         throw new IllegalArgumentException("AST semantic edges omit an owned node reference: " + node.nodeId());
       }
       validateDeclarationEdge(node, declarationEdges.getOrDefault(node.nodeId(), List.of()), nodes);
+      validateMemberReferenceSelection(node, ownedExecutables, nodes);
       var targets = annotationTargets.getOrDefault(node.nodeId(), List.of());
       if (node.sourceKind() == JavaSourceKind.ANNOTATION && node.value() instanceof SyntaxValue.Annotation annotation
           && annotation.location() != SyntaxValue.AnnotationLocation.UNRESOLVED
@@ -600,6 +604,43 @@ final class JavaAstAggregateBuilder {
         .forEach(child -> collectRecordTypeOwners(child, component, owners));
   }
 
+  private static void validateMemberReferenceSelection(SyntaxNode node, Map<String, List<SyntaxNode>> ownedExecutables,
+      Map<String, SyntaxNode> nodes) {
+    if (!(node.value() instanceof SyntaxValue.MemberReference reference) || node.semanticReference().isEmpty()
+        || node.requiredReference().symbolKey().isEmpty()) {
+      return;
+    }
+    for (var declaration : ownedExecutables.getOrDefault(node.requiredReference().symbolKey().orElseThrow(), List.of())) {
+      var executable = declaration.value(SyntaxValue.ExecutableDeclaration.class);
+      if (node.requiredReference().referenceKind() != executableReferenceKind(executable.kind())) {
+        throw new IllegalArgumentException("A member reference must agree with its owned executable kind: " + node.nodeId());
+      }
+      CanonicalMethodCorrespondence.validateSelection(reference.selectedType(), declaration, nodes);
+      if (node.requiredReference().referenceKind() != ReferenceKind.METHOD) {
+        validateConstructedTypeSelection(node.requiredChild(SyntaxRole.QUALIFIER), executable.ownerKey());
+        continue;
+      }
+      if (!reference.name().equals(executable.name())) {
+        throw new IllegalArgumentException("A member reference must agree with its owned executable name: " + node.nodeId());
+      }
+      if (reference.staticMember() != executable.effectiveModifiers().contains(JavaDeclarationModifier.STATIC)) {
+        throw new IllegalArgumentException("A member reference must agree with its owned executable static modifier: " + node.nodeId());
+      }
+    }
+  }
+
+  private static void validateConstructedTypeSelection(SyntaxNode qualifier, String ownerKey) {
+    if (qualifier.semanticReference().filter(reference -> reference.status() == ResolutionStatus.RESOLVED
+        && reference.referenceKind() == ReferenceKind.TYPE && !reference.symbolKey().equals(Optional.of(ownerKey))).isPresent()) {
+      throw new IllegalArgumentException("A member reference must agree with its owned constructor type: " + qualifier.nodeId());
+    }
+    if (qualifier.sourceKind() == JavaSourceKind.ANNOTATED_TYPE) {
+      validateConstructedTypeSelection(qualifier.requiredChild(SyntaxRole.UNDERLYING_TYPE), ownerKey);
+    } else if (qualifier.sourceKind() == JavaSourceKind.PARAMETERIZED_TYPE) {
+      validateConstructedTypeSelection(qualifier.requiredChild(SyntaxRole.TYPE_NAME), ownerKey);
+    }
+  }
+
   private static void appendEdge(Map<String, List<SyntaxSemanticEdge>> indexedEdges, SyntaxSemanticEdge edge) {
     indexedEdges.computeIfAbsent(edge.sourceKey(), ignored -> new ArrayList<>()).add(edge);
   }
@@ -615,7 +656,7 @@ final class JavaAstAggregateBuilder {
 
   private static void validateDeclarationEdge(SyntaxNode node, List<SyntaxSemanticEdge> declarationEdges, Map<String, SyntaxNode> nodes) {
     if (switch (node.syntaxKind()) {
-      case INVOCATION, OBJECT_CREATION, VARIABLE_ACCESS, FIELD_ACCESS, LOCAL_DECLARATION -> true;
+      case INVOCATION, OBJECT_CREATION, MEMBER_REFERENCE, VARIABLE_ACCESS, FIELD_ACCESS, LOCAL_DECLARATION -> true;
       default -> false;
     }) {
       var selected = declarationEdges.stream().filter(edge -> edge.target() instanceof Declaration).toList();
@@ -637,18 +678,24 @@ final class JavaAstAggregateBuilder {
     } && !declarationEdges.equals(node.semanticEdges())) {
       throw new IllegalArgumentException("AST annotation value reference must match its selected target: " + node.nodeId());
     }
-    var declaration = switch (node.syntaxKind()) {
+    var declaration = declaredTarget(node);
+    if (declaration.isEmpty()) {
+      return;
+    }
+    if (declarationEdges.size() != 1 || !declarationEdges.getFirst().target().equals(declaration.orElseThrow())) {
+      throw new IllegalArgumentException("AST declaration reference must match its source declaration: " + node.nodeId());
+    }
+  }
+
+  private static Optional<Declaration> declaredTarget(SyntaxNode node) {
+    return switch (node.syntaxKind()) {
       case TYPE_DECLARATION ->
         Optional.of(declarationTarget(ReferenceKind.TYPE, node.value(SyntaxValue.TypeDeclaration.class).declarationKey()));
       case TYPE_PARAMETER_DECLARATION -> Optional
           .of(declarationTarget(ReferenceKind.TYPE_PARAMETER, node.value(SyntaxValue.TypeParameterDeclaration.class).declarationKey()));
       case METHOD_DECLARATION -> {
         var value = node.value(SyntaxValue.ExecutableDeclaration.class);
-        var kind = switch (value.kind()) {
-          case CONSTRUCTOR, COMPACT_CONSTRUCTOR -> ReferenceKind.CONSTRUCTOR;
-          case METHOD, ANNOTATION_ELEMENT -> ReferenceKind.METHOD;
-        };
-        yield Optional.of(declarationTarget(kind, value.declarationKey()));
+        yield Optional.of(declarationTarget(executableReferenceKind(value.kind()), value.declarationKey()));
       }
       case FIELD_DECLARATION ->
         Optional.of(declarationTarget(ReferenceKind.FIELD, node.value(SyntaxValue.VariableDeclaration.class).declarationKey()));
@@ -660,20 +707,21 @@ final class JavaAstAggregateBuilder {
         Optional.of(declarationTarget(ReferenceKind.PARAMETER, node.value(SyntaxValue.ParameterDeclaration.class).declarationKey()));
       default -> Optional.<Declaration>empty();
     };
-    if (declaration.isEmpty()) {
-      return;
-    }
-    if (declarationEdges.size() != 1 || !declarationEdges.getFirst().target().equals(declaration.orElseThrow())) {
-      throw new IllegalArgumentException("AST declaration reference must match its source declaration: " + node.nodeId());
-    }
+  }
+
+  private static ReferenceKind executableReferenceKind(ExecutableKind kind) {
+    return switch (kind) {
+      case CONSTRUCTOR, COMPACT_CONSTRUCTOR -> ReferenceKind.CONSTRUCTOR;
+      case METHOD, ANNOTATION_ELEMENT -> ReferenceKind.METHOD;
+    };
   }
 
   private static boolean sameSelectedDeclaration(SyntaxNode source, SyntaxNode target) {
     return source.semanticReference()
-        .filter(reference -> target.semanticEdges().stream().map(SyntaxSemanticEdge::target).filter(Declaration.class::isInstance)
-            .map(Declaration.class::cast).map(Declaration::reference)
-            .anyMatch(declaration -> declaration.referenceKind() == reference.referenceKind()
-                && declaration.symbolKey().equals(reference.symbolKey())))
+        .filter(reference -> declaredTarget(target).map(Declaration::reference).or(target::semanticReference)
+            .filter(declaration -> declaration.referenceKind() == reference.referenceKind()
+                && declaration.symbolKey().equals(reference.symbolKey()))
+            .isPresent())
         .isPresent();
   }
 

@@ -465,7 +465,7 @@ final class ExpressionGraphLowerer {
       case SyntaxValue.None _ -> node.syntaxKind().name().toLowerCase(Locale.ROOT);
       case SyntaxValue.DiamondType _ -> "<>";
       case SyntaxValue.LocalDeclaration declaration -> declaration.name();
-      case SyntaxValue.Lambda _,SyntaxValue.StatementLabel _,SyntaxValue.ArrayCreation _ ->
+      case SyntaxValue.MemberReference _,SyntaxValue.Lambda _,SyntaxValue.StatementLabel _,SyntaxValue.ArrayCreation _ ->
         throw new IllegalArgumentException("Source syntax is outside the bounded CFG profile: " + node.syntaxKind());
       case SyntaxValue.Symbol symbol -> symbol.name();
       case SyntaxValue.FieldAccess field -> field.name();

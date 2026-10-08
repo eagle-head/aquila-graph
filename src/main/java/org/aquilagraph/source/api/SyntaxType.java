@@ -7,6 +7,19 @@ import java.util.Set;
 
 /** Compiler type outcome projected onto a durable source occurrence. */
 public sealed interface SyntaxType {
+  /**
+   * Returns a retained compiler-resolved identity independently of recursive component availability.
+   *
+   * @return known identity, or empty when the outcome supplies none
+   */
+  default Optional<JavaTypeIdentity> knownIdentity() {
+    return switch (this) {
+      case Resolved resolved -> Optional.of(resolved.identity());
+      case StructureUnavailable unavailable -> Optional.of(unavailable.identity());
+      default -> Optional.empty();
+    };
+  }
+
   /** Indicates that a syntax node does not denote a typed Java value. */
   enum NotApplicable implements SyntaxType {
     /** Singleton outcome. */
@@ -85,18 +98,13 @@ public sealed interface SyntaxType {
         throw new IllegalArgumentException("A composite resolved type requires recursive structure");
       }
       structure.ifPresent(value -> {
-        var matches = switch (value) {
-          case JavaTypeStructure.Primitive primitive -> identity.category() == primitive.kind();
-          case JavaTypeStructure.Declared _,JavaTypeStructure.LocalDeclared _ -> identity.category() == JavaTypeCategory.DECLARED;
-          case JavaTypeStructure.Variable _,JavaTypeStructure.Captured _,JavaTypeStructure.CaptureReference _ ->
-            identity.category() == JavaTypeCategory.TYPE_VARIABLE;
-          case JavaTypeStructure.Array _ -> identity.category() == JavaTypeCategory.ARRAY;
-          case JavaTypeStructure.Wildcard _ -> identity.category() == JavaTypeCategory.WILDCARD;
-          case JavaTypeStructure.Intersection _ -> identity.category() == JavaTypeCategory.INTERSECTION;
-          case JavaTypeStructure.Union _ -> identity.category() == JavaTypeCategory.UNION;
-        };
-        if (!matches) {
+        if (identity.category() != value.category()) {
           throw new IllegalArgumentException("Resolved type category conflicts with recursive structure");
+        }
+        if (value instanceof JavaTypeStructure.Executable executable) {
+          if (!identity.erasedName().equals(executable.erasure().signature())) {
+            throw new IllegalArgumentException("Executable identity erasure conflicts with its known signature components");
+          }
         }
         validateCaptureScope(value, new HashSet<>());
       });
@@ -125,6 +133,13 @@ public sealed interface SyntaxType {
           local.arguments().forEach(argument -> validateCaptureScope(argument, captures));
         }
         case JavaTypeStructure.Array array -> validateCaptureScope(array.component(), captures);
+        case JavaTypeStructure.Executable executable -> {
+          executable.variables().forEach(variable -> validateCaptureScope(variable, captures));
+          executable.parameters().forEach(Resolved::validateComponentScope);
+          validateComponentScope(executable.returnType());
+          executable.receiver().ifPresent(Resolved::validateComponentScope);
+          executable.thrownTypes().forEach(Resolved::validateComponentScope);
+        }
         case JavaTypeStructure.Wildcard wildcard -> wildcard.bound().ifPresent(bound -> validateCaptureScope(bound, captures));
         case JavaTypeStructure.Intersection intersection -> intersection.bounds().forEach(bound -> validateCaptureScope(bound, captures));
         case JavaTypeStructure.Union union -> union.alternatives().forEach(alternative -> validateCaptureScope(alternative, captures));
@@ -132,6 +147,12 @@ public sealed interface SyntaxType {
         }
         case JavaTypeStructure.Variable _ -> {
         }
+      }
+    }
+
+    private static void validateComponentScope(SyntaxType component) {
+      if (component instanceof Resolved resolved) {
+        resolved.structure().ifPresent(value -> validateCaptureScope(value, new HashSet<>()));
       }
     }
 

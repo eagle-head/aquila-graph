@@ -47,7 +47,7 @@ public final class SyntaxNode {
     validateReference(syntaxKind, syntaxValue, semanticReference);
     validateChildPositions(childNodes);
     validateAnnotationChildLocations(childNodes);
-    validateShape(syntaxKind, sourceKind, value, childNodes);
+    validateShape(syntaxKind, sourceKind, value, childNodes, semanticReference);
     validateKnownWrittenBodyType(syntaxKind, type, childNodes);
     validateUpdateType(syntaxKind, type, childNodes);
     validateArrayType(syntaxKind, type, value, childNodes);
@@ -577,14 +577,34 @@ public final class SyntaxNode {
     if (!kind.requiresType() && type != SyntaxType.NotApplicable.INSTANCE) {
       throw new IllegalArgumentException(kind + " cannot carry a compiler type outcome");
     }
-    if (kind == SyntaxKind.LAMBDA_EXPRESSION && type instanceof SyntaxType.Resolved resolved
-        && !Set.of(JavaTypeCategory.DECLARED, JavaTypeCategory.INTERSECTION, JavaTypeCategory.ERROR, JavaTypeCategory.OTHER)
-            .contains(resolved.identity().category())) {
-      throw new IllegalArgumentException("A lambda target must be a functional interface or intersection type");
+    if ((kind == SyntaxKind.LAMBDA_EXPRESSION && type instanceof SyntaxType.Resolved resolved
+        && !isFunctionalTargetCategory(resolved.identity().category()))
+        || (kind == SyntaxKind.MEMBER_REFERENCE
+            && type.knownIdentity().filter(identity -> !isFunctionalTargetCategory(identity.category())).isPresent())) {
+      throw new IllegalArgumentException(kind == SyntaxKind.LAMBDA_EXPRESSION
+          ? "A lambda target must be a functional interface or intersection type"
+          : "A reference target must be a functional interface or intersection type");
     }
   }
 
+  private static boolean isFunctionalTargetCategory(JavaTypeCategory category) {
+    return Set.of(JavaTypeCategory.DECLARED, JavaTypeCategory.INTERSECTION, JavaTypeCategory.ERROR, JavaTypeCategory.OTHER)
+        .contains(category);
+  }
+
   private static void validateReference(SyntaxKind kind, SyntaxValue syntaxValue, Optional<SemanticReference> reference) {
+    if (kind == SyntaxKind.MEMBER_REFERENCE) {
+      var value = (SyntaxValue.MemberReference) syntaxValue;
+      if (value.selection() != SyntaxValue.ReferenceSelection.EXECUTABLE) {
+        if (reference.isPresent()) {
+          throw new IllegalArgumentException("An intrinsic array reference has no named executable declaration");
+        }
+      } else if (reference.isPresent() && reference.orElseThrow()
+          .referenceKind() != (value.mode() == SyntaxValue.ReferenceMode.CONSTRUCTOR ? ReferenceKind.CONSTRUCTOR : ReferenceKind.METHOD)) {
+        throw new IllegalArgumentException("A reference selection must agree with its written mode");
+      }
+      return;
+    }
     if (kind == SyntaxKind.LOCAL_DECLARATION && syntaxValue instanceof SyntaxValue.LocalDeclaration local && "_".equals(local.name())) {
       if (reference.isPresent()) {
         throw new IllegalArgumentException("An unnamed binding cannot publish a referable identifier");
@@ -651,7 +671,8 @@ public final class SyntaxNode {
     }
   }
 
-  private static void validateShape(SyntaxKind kind, JavaSourceKind sourceKind, SyntaxValue value, List<SyntaxChild> children) {
+  private static void validateShape(SyntaxKind kind, JavaSourceKind sourceKind, SyntaxValue value, List<SyntaxChild> children,
+      Optional<SemanticReference> semanticReference) {
     var expectedValue = switch (kind) {
       case COMPILATION_UNIT -> switch (sourceKind) {
         case COMPILATION_UNIT -> SyntaxValue.CompilationUnit.class;
@@ -688,6 +709,7 @@ public final class SyntaxNode {
       case METHOD_DECLARATION -> SyntaxValue.ExecutableDeclaration.class;
       case LOCAL_DECLARATION -> SyntaxValue.LocalDeclaration.class;
       case LAMBDA_EXPRESSION -> SyntaxValue.Lambda.class;
+      case MEMBER_REFERENCE -> SyntaxValue.MemberReference.class;
       case LABELED_STATEMENT, BREAK, CONTINUE -> SyntaxValue.StatementLabel.class;
       case VARIABLE_ACCESS, ARRAY_LENGTH -> SyntaxValue.SourceSymbol.class;
       case FIELD_ACCESS -> SyntaxValue.FieldAccess.class;
@@ -850,6 +872,7 @@ public final class SyntaxNode {
           }
         });
       }
+      case MEMBER_REFERENCE -> validateMemberReferenceShape((SyntaxValue.MemberReference) value, children, semanticReference);
       case LAMBDA_EXPRESSION -> {
         requireShape(children, Set.of(SyntaxRole.PARAMETER, SyntaxRole.BODY));
         var lambda = (SyntaxValue.Lambda) value;
@@ -1028,6 +1051,9 @@ public final class SyntaxNode {
         case LAMBDA_EXPRESSION -> child.role() == SyntaxRole.PARAMETER
             ? node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION
             : node.syntaxKind() == SyntaxKind.BLOCK || isExpression(node);
+        case MEMBER_REFERENCE -> child.role() == SyntaxRole.TYPE_ARGUMENT
+            ? node.syntaxKind() == SyntaxKind.TYPE_USE
+            : node.syntaxKind() == SyntaxKind.TYPE_USE || isExpression(node);
         case TYPE_CAST -> child.role() != SyntaxRole.EXPRESSION || isExpression(node);
         case ASSERT, EXPRESSION_STATEMENT, RETURN, THROW, PARENTHESIZED, YIELD, ARRAY_LENGTH, UNARY, BINARY, CONDITIONAL_AND,
             CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, CONDITIONAL_EXPRESSION ->
@@ -1093,8 +1119,8 @@ public final class SyntaxNode {
     return switch (node.syntaxKind()) {
       case INVOCATION, OBJECT_CREATION, ARRAY_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY, CONDITIONAL_AND,
           CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST,
-          CONDITIONAL_EXPRESSION, SWITCH_EXPRESSION, LAMBDA_EXPRESSION, ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL,
-          ANNOTATION_CAST ->
+          CONDITIONAL_EXPRESSION, SWITCH_EXPRESSION, LAMBDA_EXPRESSION, MEMBER_REFERENCE, ANNOTATION_NAME_REFERENCE,
+          ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST ->
         true;
       case UNSUPPORTED -> switch (node.sourceKind()) {
         case ARRAY_ACCESS, ASSIGNMENT, CONDITIONAL_EXPRESSION, MEMBER_SELECT, MEMBER_REFERENCE, IDENTIFIER, INSTANCE_OF, METHOD_INVOCATION,
@@ -1289,6 +1315,251 @@ public final class SyntaxNode {
     }
   }
 
+  private static void validateMemberReferenceShape(SyntaxValue.MemberReference reference, List<SyntaxChild> children,
+      Optional<SemanticReference> semanticReference) {
+    requireShape(children, Set.of(SyntaxRole.QUALIFIER, SyntaxRole.TYPE_ARGUMENT), SyntaxRole.QUALIFIER, 0, 1);
+    var selectedType = reference.selectedType();
+    if (selectedType instanceof SyntaxType.Resolved resolved
+        && resolved.structure().orElse(null) instanceof JavaTypeStructure.Executable executable) {
+      if (reference.mode() == SyntaxValue.ReferenceMode.CONSTRUCTOR
+          && executable.erasure().returnType().knownIdentity().orElseThrow().category() != JavaTypeCategory.VOID) {
+        throw new IllegalArgumentException("A constructor reference requires a void declaration return type");
+      }
+    }
+    var selectedIdentity = selectedType.knownIdentity();
+    if (selectedIdentity
+        .filter(identity -> identity.category() != (reference.selection() == SyntaxValue.ReferenceSelection.ARRAY_CONSTRUCTOR
+            ? JavaTypeCategory.ARRAY
+            : JavaTypeCategory.EXECUTABLE))
+        .isPresent()) {
+      throw new IllegalArgumentException("A reference requires an executable selection or its exact array type");
+    }
+    for (var child : children) {
+      if (child.role() != SyntaxRole.QUALIFIER)
+        continue;
+      var qualifier = child.node();
+      var qualifierIdentity = qualifier.type().knownIdentity();
+      var writtenArray = isWrittenArrayType(qualifier);
+      var valid = switch (reference.qualifier()) {
+        case TYPE, ARRAY_TYPE -> qualifier.syntaxKind() == SyntaxKind.TYPE_USE;
+        case EXPRESSION -> isExpression(qualifier);
+        case SUPER -> qualifier.value() instanceof SyntaxValue.Receiver receiver && receiver.kind() == SyntaxValue.ReceiverKind.SUPER;
+        case QUALIFIED_SUPER ->
+          qualifier.value() instanceof SyntaxValue.Receiver receiver && receiver.kind() == SyntaxValue.ReceiverKind.QUALIFIED_SUPER;
+      };
+      if (!valid
+          || ((reference.qualifier() == SyntaxValue.ReferenceQualifier.TYPE
+              || reference.qualifier() == SyntaxValue.ReferenceQualifier.ARRAY_TYPE)
+              && qualifierIdentity.filter(identity -> (identity.category() == JavaTypeCategory.ARRAY) != writtenArray).isPresent())
+          || (reference.selection() == SyntaxValue.ReferenceSelection.ARRAY_CONSTRUCTOR
+              && selectedIdentity.filter(identity -> qualifierIdentity.filter(known -> !identity.equals(known)).isPresent()).isPresent())
+          || (reference.selection() == SyntaxValue.ReferenceSelection.ARRAY_CONSTRUCTOR
+              && selectedType instanceof SyntaxType.Resolved selected && qualifier.type() instanceof SyntaxType.Resolved written
+              && selected.structure().isPresent() && written.structure().isPresent()
+              && !selected.structure().equals(written.structure()))) {
+        throw new IllegalArgumentException("A reference qualifier must retain its exact written form and constructed array type");
+      }
+      var knownArray = qualifierIdentity.filter(identity -> identity.category() == JavaTypeCategory.ARRAY).isPresent();
+      if ((reference.mode() == SyntaxValue.ReferenceMode.CONSTRUCTOR
+          && ((reference.selection() == SyntaxValue.ReferenceSelection.ARRAY_CONSTRUCTOR) != writtenArray
+              || (knownArray && reference.selection() != SyntaxValue.ReferenceSelection.ARRAY_CONSTRUCTOR)))
+          || ((writtenArray || knownArray) && reference.mode() == SyntaxValue.ReferenceMode.METHOD && "clone".equals(reference.name())
+              && reference.selection() != SyntaxValue.ReferenceSelection.ARRAY_CLONE)) {
+        throw new IllegalArgumentException("A reference selection must agree with its actual array qualifier");
+      }
+      if (reference.mode() == SyntaxValue.ReferenceMode.CONSTRUCTOR && reference.selection() == SyntaxValue.ReferenceSelection.EXECUTABLE
+          && (selectedIdentity.isPresent()
+              || semanticReference.filter(selection -> selection.status() == ResolutionStatus.RESOLVED).isPresent())
+          && isKnownNonClassConstructorQualifier(qualifier)) {
+        throw new IllegalArgumentException("A selected class constructor requires a declared qualifier type");
+      }
+      if (reference.selection() == SyntaxValue.ReferenceSelection.ARRAY_CLONE
+          && ((reference.qualifier() == SyntaxValue.ReferenceQualifier.TYPE && !writtenArray)
+              || qualifierIdentity.filter(identity -> identity.category() != JavaTypeCategory.ARRAY).isPresent())) {
+        throw new IllegalArgumentException("An intrinsic array clone reference requires its actual array qualifier");
+      }
+      if (reference.selection() == SyntaxValue.ReferenceSelection.ARRAY_CONSTRUCTOR) {
+        validateKnownTypeUseType(qualifier, selectedType);
+      }
+    }
+    if (reference.selection() == SyntaxValue.ReferenceSelection.ARRAY_CLONE && selectedType instanceof SyntaxType.Resolved resolved
+        && resolved.structure().orElse(null) instanceof JavaTypeStructure.Executable executable
+        && (!executable.variables().isEmpty() || !executable.parameters().isEmpty() || !executable.thrownTypes().isEmpty()
+            || executable.receiver().isPresent()
+            || executable.erasure().returnType().knownIdentity().orElseThrow().category() != JavaTypeCategory.DECLARED
+            || !"java.lang.Object".equals(executable.erasure().returnType().knownIdentity().orElseThrow().erasedName())
+            || executable.returnType().knownIdentity()
+                .filter(identity -> identity.category() != JavaTypeCategory.DECLARED || !"java.lang.Object".equals(identity.erasedName()))
+                .isPresent()
+            || (executable.returnType() instanceof SyntaxType.Resolved result && result.structure().isPresent() && !result.structure()
+                .orElseThrow().equals(new JavaTypeStructure.Declared("type:java.lang.Object", Optional.empty(), List.of()))))) {
+      throw new IllegalArgumentException("An intrinsic array clone requires its compiler declaration signature");
+    }
+  }
+
+  private static boolean isKnownNonClassConstructorQualifier(SyntaxNode qualifier) {
+    var knownCategory = qualifier.type().knownIdentity().filter(identity -> identity.category() != JavaTypeCategory.DECLARED).isPresent();
+    return knownCategory || qualifier.sourceKind() == JavaSourceKind.PRIMITIVE_TYPE
+        || qualifier.semanticReference()
+            .filter(
+                reference -> reference.status() == ResolutionStatus.RESOLVED && reference.referenceKind() == ReferenceKind.TYPE_PARAMETER)
+            .isPresent()
+        || (qualifier.sourceKind() == JavaSourceKind.ANNOTATED_TYPE
+            && isKnownNonClassConstructorQualifier(qualifier.requiredChild(SyntaxRole.UNDERLYING_TYPE)));
+  }
+
+  static void validateKnownTypeUseStructure(SyntaxNode written, JavaTypeStructure selected) {
+    if (written.type().knownIdentity().filter(identity -> identity.category() != selected.category()).isPresent()
+        || !matchesWrittenNominalCategory(written, selected.category(), false)
+        || (written.type() instanceof SyntaxType.Resolved resolved && resolved.structure().isPresent()
+            && !resolved.structure().orElseThrow().equals(selected))
+        || (written.value() instanceof SyntaxValue.PrimitiveType primitive
+            && !new JavaTypeStructure.Primitive(primitive.kind()).equals(selected))
+        || written.semanticReference().filter(reference -> reference.status() == ResolutionStatus.RESOLVED)
+            .filter(reference -> switch (reference.referenceKind()) {
+              case TYPE -> typeUseDeclaration(selected)
+                  .filter(declaration -> reference.symbolKey().equals(Optional.of(declaration.declarationKey()))).isEmpty();
+              case TYPE_PARAMETER -> !(selected instanceof JavaTypeStructure.Variable variable)
+                  || !reference.symbolKey().equals(Optional.of(variable.parameterKey()));
+              default -> false;
+            }).isPresent()) {
+      throw new IllegalArgumentException("A selected type must agree with its known written components");
+    }
+    if (written.sourceKind() == JavaSourceKind.ANNOTATED_TYPE) {
+      validateKnownTypeUseStructure(written.requiredChild(SyntaxRole.UNDERLYING_TYPE), selected);
+    } else if (written.sourceKind() == JavaSourceKind.ARRAY_TYPE) {
+      if (!(selected instanceof JavaTypeStructure.Array array)) {
+        throw new IllegalArgumentException("A selected type must agree with its known written components");
+      }
+      validateKnownTypeUseStructure(written.requiredChild(SyntaxRole.COMPONENT_TYPE), array.component());
+    } else if (written.sourceKind() == JavaSourceKind.PARAMETERIZED_TYPE) {
+      var declared = typeUseDeclaration(selected)
+          .orElseThrow(() -> new IllegalArgumentException("A parameterized written type requires declared selection components"));
+      var arguments = written.children(SyntaxRole.TYPE_ARGUMENT);
+      if (!(written.value() instanceof SyntaxValue.DiamondType) && arguments.size() != declared.arguments().size()) {
+        throw new IllegalArgumentException("Known selected type arguments must match written argument count");
+      }
+      for (var index = 0; index < arguments.size(); index++) {
+        validateKnownTypeUseStructure(arguments.get(index), declared.arguments().get(index));
+      }
+      var name = written.requiredChild(SyntaxRole.TYPE_NAME);
+      if (name.semanticReference().filter(reference -> reference.status() == ResolutionStatus.RESOLVED
+          && !reference.symbolKey().equals(Optional.of(declared.declarationKey()))).isPresent()) {
+        throw new IllegalArgumentException("Known selected type must match its written type name");
+      }
+    } else if (Set.of(JavaSourceKind.UNBOUNDED_WILDCARD, JavaSourceKind.EXTENDS_WILDCARD, JavaSourceKind.SUPER_WILDCARD)
+        .contains(written.sourceKind())) {
+      var kind = switch (written.sourceKind()) {
+        case UNBOUNDED_WILDCARD -> JavaTypeStructure.Wildcard.BoundKind.UNBOUNDED;
+        case EXTENDS_WILDCARD -> JavaTypeStructure.Wildcard.BoundKind.EXTENDS;
+        case SUPER_WILDCARD -> JavaTypeStructure.Wildcard.BoundKind.SUPER;
+        default -> throw new IllegalStateException("Expected a written wildcard");
+      };
+      if (!(selected instanceof JavaTypeStructure.Wildcard wildcard) || wildcard.kind() != kind
+          || wildcard.bound().isPresent() != (kind != JavaTypeStructure.Wildcard.BoundKind.UNBOUNDED)) {
+        throw new IllegalArgumentException("A selected wildcard must agree with its written bound form");
+      }
+      var role = switch (written.sourceKind()) {
+        case EXTENDS_WILDCARD -> SyntaxRole.UPPER_BOUND;
+        case SUPER_WILDCARD -> SyntaxRole.LOWER_BOUND;
+        default -> null;
+      };
+      if (role != null) {
+        validateKnownTypeUseStructure(written.requiredChild(role), wildcard.bound().orElseThrow());
+      }
+    }
+  }
+
+  static void validateKnownTypeUseType(SyntaxNode written, SyntaxType selected) {
+    if (!matchingResolvedType(written.type(), selected)) {
+      throw new IllegalArgumentException("A selected signature type must agree with its known written type");
+    }
+    if (!matchesWrittenArrayDimensions(written.sourceKind(), written.children(), selected)) {
+      throw new IllegalArgumentException("A selected type must agree with its known written components");
+    }
+    if (selected instanceof SyntaxType.Resolved resolved) {
+      resolved.structure().ifPresent(structure -> validateKnownTypeUseStructure(written, structure));
+    }
+  }
+
+  static void validateKnownTypeUseErasure(SyntaxNode written, SyntaxType erased) {
+    JavaExecutableErasure.validateKnown(written.type(), erased);
+    var category = erased.knownIdentity().orElseThrow().category();
+    var matches = switch (written.sourceKind()) {
+      case PRIMITIVE_TYPE -> category == written.value(SyntaxValue.PrimitiveType.class).kind();
+      case ARRAY_TYPE -> category == JavaTypeCategory.ARRAY;
+      case PARAMETERIZED_TYPE, IDENTIFIER, MEMBER_SELECT -> category == JavaTypeCategory.DECLARED;
+      default -> true;
+    };
+    if (!matches || !matchesWrittenArrayDimensions(written.sourceKind(), written.children(), erased)) {
+      throw new IllegalArgumentException("A selected erasure must agree with its known written type form");
+    }
+    if (written.sourceKind() == JavaSourceKind.ANNOTATED_TYPE) {
+      validateKnownTypeUseErasure(written.requiredChild(SyntaxRole.UNDERLYING_TYPE), erased);
+    } else if (erased instanceof SyntaxType.Resolved resolved) {
+      resolved.structure().ifPresent(structure -> validateWrittenErasedStructure(written, structure));
+    }
+  }
+
+  private static boolean matchesWrittenArrayDimensions(JavaSourceKind sourceKind, List<SyntaxChild> children, SyntaxType selected) {
+    return selected.knownIdentity()
+        .filter(identity -> identity.category() != JavaTypeCategory.ERROR && identity.category() != JavaTypeCategory.OTHER)
+        .map(identity -> writtenArrayDimensions(sourceKind, children)
+            .map(dimensions -> dimensions == JavaExecutableErasure.erasedArrayDimensions(identity.erasedName())).orElse(true))
+        .orElse(true);
+  }
+
+  private static Optional<Integer> writtenArrayDimensions(JavaSourceKind sourceKind, List<SyntaxChild> children) {
+    return switch (sourceKind) {
+      case ARRAY_TYPE, ANNOTATED_TYPE -> {
+        var role = sourceKind == JavaSourceKind.ARRAY_TYPE ? SyntaxRole.COMPONENT_TYPE : SyntaxRole.UNDERLYING_TYPE;
+        var component = children.stream().filter(child -> child.role() == role).findFirst().orElseThrow().node();
+        var dimensions = writtenArrayDimensions(component.sourceKind(), component.children());
+        yield sourceKind == JavaSourceKind.ARRAY_TYPE ? dimensions.map(value -> value + 1) : dimensions;
+      }
+      case PRIMITIVE_TYPE, PARAMETERIZED_TYPE, IDENTIFIER, MEMBER_SELECT -> Optional.of(0);
+      default -> Optional.empty();
+    };
+  }
+
+  private static void validateWrittenErasedStructure(SyntaxNode written, JavaTypeStructure erased) {
+    if (written.sourceKind() == JavaSourceKind.ARRAY_TYPE) {
+      if (!(erased instanceof JavaTypeStructure.Array array)) {
+        throw new IllegalArgumentException("A selected erasure must agree with its known written type form");
+      }
+      validateWrittenErasedStructure(written.requiredChild(SyntaxRole.COMPONENT_TYPE), array.component());
+    } else if (written.sourceKind() == JavaSourceKind.PARAMETERIZED_TYPE) {
+      validateWrittenErasedStructure(written.requiredChild(SyntaxRole.TYPE_NAME), erased);
+    } else if (written.sourceKind() == JavaSourceKind.ANNOTATED_TYPE) {
+      validateWrittenErasedStructure(written.requiredChild(SyntaxRole.UNDERLYING_TYPE), erased);
+    } else if (!matchesWrittenNominalCategory(written, erased.category(), true)
+        || (written.value() instanceof SyntaxValue.PrimitiveType primitive
+            && !new JavaTypeStructure.Primitive(primitive.kind()).equals(erased))
+        || written.semanticReference()
+            .filter(reference -> reference.status() == ResolutionStatus.RESOLVED && reference.referenceKind() == ReferenceKind.TYPE)
+            .filter(reference -> typeUseDeclaration(erased)
+                .filter(declaration -> reference.symbolKey().equals(Optional.of(declaration.declarationKey()))).isEmpty())
+            .isPresent()) {
+      throw new IllegalArgumentException("A selected erasure must agree with its known written type form");
+    }
+  }
+
+  private static boolean matchesWrittenNominalCategory(SyntaxNode written, JavaTypeCategory category, boolean erased) {
+    return switch (written.sourceKind()) {
+      case IDENTIFIER -> category == JavaTypeCategory.DECLARED || (!erased && category == JavaTypeCategory.TYPE_VARIABLE);
+      case MEMBER_SELECT -> category == JavaTypeCategory.DECLARED;
+      default -> true;
+    };
+  }
+
+  private static boolean isWrittenArrayType(SyntaxNode node) {
+    return switch (node.sourceKind()) {
+      case ARRAY_TYPE -> true;
+      case ANNOTATED_TYPE -> isWrittenArrayType(node.requiredChild(SyntaxRole.UNDERLYING_TYPE));
+      default -> false;
+    };
+  }
+
   private static void validateTypeUse(JavaSourceKind sourceKind, SyntaxValue value, List<SyntaxChild> children) {
     if ((sourceKind == JavaSourceKind.IDENTIFIER || sourceKind == JavaSourceKind.MEMBER_SELECT)
         && !(value instanceof SyntaxValue.SourceSymbol || value instanceof SyntaxValue.PackageQualifier)) {
@@ -1339,6 +1610,38 @@ public final class SyntaxNode {
         throw new IllegalArgumentException("A package qualifier is only a type qualifier without attribution or reference");
       }
       return;
+    }
+    var known = type.knownIdentity();
+    if (known.isPresent()) {
+      var category = known.orElseThrow().category();
+      var matches = switch (sourceKind) {
+        case PRIMITIVE_TYPE -> category == ((SyntaxValue.PrimitiveType) value).kind();
+        case ARRAY_TYPE -> category == JavaTypeCategory.ARRAY;
+        case PARAMETERIZED_TYPE, MEMBER_SELECT -> category == JavaTypeCategory.DECLARED;
+        case IDENTIFIER -> category == JavaTypeCategory.DECLARED || category == JavaTypeCategory.TYPE_VARIABLE;
+        case UNBOUNDED_WILDCARD, EXTENDS_WILDCARD, SUPER_WILDCARD -> category == JavaTypeCategory.WILDCARD;
+        case INTERSECTION_TYPE -> category == JavaTypeCategory.INTERSECTION;
+        case UNION_TYPE -> category == JavaTypeCategory.UNION;
+        default -> true;
+      };
+      if (!matches || reference
+          .filter(selection -> selection.status() == ResolutionStatus.RESOLVED
+              && ((selection.referenceKind() == ReferenceKind.TYPE && category != JavaTypeCategory.DECLARED)
+                  || (selection.referenceKind() == ReferenceKind.TYPE_PARAMETER && category != JavaTypeCategory.TYPE_VARIABLE)))
+          .isPresent()) {
+        throw new IllegalArgumentException("Written type-use kind conflicts with known attributed category");
+      }
+      if (!matchesWrittenArrayDimensions(sourceKind, children, type)) {
+        throw new IllegalArgumentException("Written type-use dimensions conflict with known attributed identity");
+      }
+      if (sourceKind == JavaSourceKind.ANNOTATED_TYPE) {
+        var underlying = children.stream().filter(child -> child.role() == SyntaxRole.UNDERLYING_TYPE).findFirst().orElseThrow().node();
+        if (underlying.type().knownIdentity()
+            .filter(identity -> identity.category() != category || !identity.erasedName().equals(known.orElseThrow().erasedName()))
+            .isPresent()) {
+          throw new IllegalArgumentException("Annotated source type conflicts with its known underlying type");
+        }
+      }
     }
     if (!(type instanceof SyntaxType.Resolved resolved)) {
       return;
@@ -1595,10 +1898,10 @@ public final class SyntaxNode {
           && (child.node().syntaxKind() != SyntaxKind.TYPE_USE || !child.node().sourceKind().identifiesTypeUseSyntax())) {
         throw new IllegalArgumentException("A field type requires a written type-use attachment");
       }
-      if (child.role() == SyntaxRole.DECLARED_TYPE && child.node().type() instanceof SyntaxType.Resolved resolved
-          && !resolved.identity().equals(declaration.declaredType())) {
-        throw new IllegalArgumentException("A field type attachment conflicts with its declaration type: " + resolved.identity()
-            + " versus " + declaration.declaredType());
+      if (child.role() == SyntaxRole.DECLARED_TYPE
+          && child.node().type().knownIdentity().filter(identity -> !identity.equals(declaration.declaredType())).isPresent()) {
+        throw new IllegalArgumentException("A field type attachment conflicts with its declaration type: "
+            + child.node().type().knownIdentity().orElseThrow() + " versus " + declaration.declaredType());
       }
     }
   }
@@ -1615,8 +1918,8 @@ public final class SyntaxNode {
           && (child.node().syntaxKind() != SyntaxKind.TYPE_USE || !child.node().sourceKind().identifiesTypeUseSyntax())) {
         throw new IllegalArgumentException("A record component requires a written type-use attachment");
       }
-      if (child.role() == SyntaxRole.DECLARED_TYPE && child.node().type() instanceof SyntaxType.Resolved resolved
-          && !resolved.identity().equals(declaration.declaredType())) {
+      if (child.role() == SyntaxRole.DECLARED_TYPE
+          && child.node().type().knownIdentity().filter(identity -> !identity.equals(declaration.declaredType())).isPresent()) {
         throw new IllegalArgumentException("A record component type attachment conflicts with its declaration type");
       }
     }
@@ -1719,8 +2022,14 @@ public final class SyntaxNode {
   }
 
   private static boolean matchingResolvedType(SyntaxType written, SyntaxType attributed) {
-    return !(written instanceof SyntaxType.Resolved resolved)
-        || (attributed instanceof SyntaxType.Resolved expected && resolved.structure().equals(expected.structure()));
+    var actual = written.knownIdentity();
+    var expected = attributed.knownIdentity();
+    return (actual.isEmpty() || expected.isEmpty()
+        || (actual.orElseThrow().category() == expected.orElseThrow().category()
+            && actual.orElseThrow().erasedName().equals(expected.orElseThrow().erasedName())))
+        && (!(written instanceof SyntaxType.Resolved resolved) || !(attributed instanceof SyntaxType.Resolved resolvedExpected)
+            || resolved.structure().isEmpty() || resolvedExpected.structure().isEmpty()
+            || resolved.structure().equals(resolvedExpected.structure()));
   }
 
   private static void validateParameterDeclaration(SyntaxValue.ParameterDeclaration declaration, List<SyntaxChild> children) {
@@ -1813,14 +2122,18 @@ public final class SyntaxNode {
       case TYPE_CAST -> SyntaxRole.TYPE_OPERAND;
       default -> null;
     };
-    if (role == null || !(type instanceof SyntaxType.Resolved expected)) {
+    var expectedIdentity = type.knownIdentity();
+    if (role == null || expectedIdentity.isEmpty()) {
       return;
     }
     for (var child : children) {
-      if (child.role() == role && child.node().type() instanceof SyntaxType.Resolved written) {
-        var identityMatches = written.identity().category() == expected.identity().category()
-            && written.identity().erasedName().equals(expected.identity().erasedName());
-        var structureMatches = kind != SyntaxKind.TYPE_CAST || expected.structure().isEmpty() || written.structure().isEmpty()
+      if (child.role() == role && child.node().type().knownIdentity().isPresent()) {
+        var writtenIdentity = child.node().type().knownIdentity().orElseThrow();
+        var identityMatches = writtenIdentity.category() == expectedIdentity.orElseThrow().category()
+            && writtenIdentity.erasedName().equals(expectedIdentity.orElseThrow().erasedName());
+        var structureMatches = kind != SyntaxKind.TYPE_CAST || !(type instanceof SyntaxType.Resolved expected)
+            || !(child.node().type() instanceof SyntaxType.Resolved written) || expected.structure().isEmpty()
+            || written.structure().isEmpty()
             || castTypeStructuresMatch(expected.structure().orElseThrow(), written.structure().orElseThrow());
         if (!identityMatches || !structureMatches) {
           throw new IllegalArgumentException("A known written body type must match its containing occurrence's type");

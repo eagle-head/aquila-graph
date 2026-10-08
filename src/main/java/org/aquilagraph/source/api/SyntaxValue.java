@@ -8,6 +8,78 @@ import java.util.Set;
 
 /** Copied written syntax and attributed facts queried after compiler closure. */
 public sealed interface SyntaxValue {
+  /** Written reference selection mode. */
+  enum ReferenceMode {
+    /** A reference to a named method. */
+    METHOD,
+    /** A reference to class or array construction. */
+    CONSTRUCTOR
+  }
+
+  /** Written qualifier category, independently of the functional target type. */
+  enum ReferenceQualifier {
+    /** A bound expression qualifier. */
+    EXPRESSION,
+    /** A written reference type qualifier. */
+    TYPE,
+    /** An unqualified lexical superclass receiver. */
+    SUPER,
+    /** A qualified lexical superclass receiver. */
+    QUALIFIED_SUPER,
+    /** A written array type for construction. */
+    ARRAY_TYPE
+  }
+
+  /** Applicable selection identity category for a functional reference. */
+  enum ReferenceSelection {
+    /** A selected named executable declaration. */
+    EXECUTABLE,
+    /** Array construction established by its written array type. */
+    ARRAY_CONSTRUCTOR,
+    /** The intrinsic clone member of an array, without a named class declaration. */
+    ARRAY_CLONE
+  }
+
+  /**
+   * Written reference and copied selection facts, without invocation behavior.
+   *
+   * @param name
+   *          referenced method name or {@code new}
+   * @param mode
+   *          method or constructor mode
+   * @param qualifier
+   *          written qualifier form
+   * @param selectedType
+   *          selected executable declaration type or constructed array type outcome
+   * @param selection
+   *          named executable or intrinsic array operation selection
+   * @param staticMember
+   *          whether the selected method is static
+   */
+  record MemberReference(String name, ReferenceMode mode, ReferenceQualifier qualifier, SyntaxType selectedType,
+      ReferenceSelection selection, boolean staticMember) implements SyntaxValue {
+    /** Validates scalar source distinctions and retains missing selection evidence truthfully. */
+    public MemberReference {
+      SyntaxValueSupport.requireName(name);
+      Objects.requireNonNull(mode, "mode");
+      Objects.requireNonNull(qualifier, "qualifier");
+      Objects.requireNonNull(selectedType, "selectedType");
+      Objects.requireNonNull(selection, "selection");
+      if ((mode == ReferenceMode.CONSTRUCTOR) != "new".equals(name)
+          || (mode == ReferenceMode.CONSTRUCTOR && qualifier != ReferenceQualifier.TYPE && qualifier != ReferenceQualifier.ARRAY_TYPE)
+          || (qualifier == ReferenceQualifier.ARRAY_TYPE) != (selection == ReferenceSelection.ARRAY_CONSTRUCTOR)
+          || (qualifier == ReferenceQualifier.ARRAY_TYPE && mode != ReferenceMode.CONSTRUCTOR)
+          || (selection == ReferenceSelection.ARRAY_CONSTRUCTOR
+              && (mode != ReferenceMode.CONSTRUCTOR || qualifier != ReferenceQualifier.ARRAY_TYPE))
+          || (selection == ReferenceSelection.ARRAY_CLONE && (mode != ReferenceMode.METHOD || !"clone".equals(name)
+              || (qualifier != ReferenceQualifier.TYPE && qualifier != ReferenceQualifier.EXPRESSION)))
+          || (staticMember
+              && (mode != ReferenceMode.METHOD || qualifier != ReferenceQualifier.TYPE || selection != ReferenceSelection.EXECUTABLE))) {
+        throw new IllegalArgumentException("Reference mode, name and qualifier must agree");
+      }
+    }
+  }
+
   /** Written lambda body forms. */
   enum LambdaBodyKind {
     /** A single written expression. */

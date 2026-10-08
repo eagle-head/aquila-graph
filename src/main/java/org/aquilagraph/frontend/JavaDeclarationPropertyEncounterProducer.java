@@ -41,8 +41,7 @@ final class JavaDeclarationPropertyEncounterProducer {
     var encounters = new ArrayList<ObservedPropertyEncounters.Encounter>();
     var unavailable = new CoveragePropertyValue(CoveragePropertyValue.State.UNAVAILABLE, List.of());
     for (var owner : actualOwners) {
-      var surface = JavaCoverageTopology.surface(owner.tree());
-      if (surface.isEmpty() || surface.orElseThrow() == CompilationUnitTree.class) {
+      if (!(owner.tree() instanceof ClassTree || owner.tree() instanceof MethodTree)) {
         continue;
       }
       var element = semantics.element(owner.treePath());

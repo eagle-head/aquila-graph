@@ -73,6 +73,7 @@ import org.aquilagraph.source.api.JavaTypeModifier;
 import org.aquilagraph.source.api.JavaTypeParameter;
 import org.aquilagraph.source.api.JavaTypeReference;
 import org.aquilagraph.source.api.JavaTypeStructure;
+import org.aquilagraph.source.api.JavaExecutableErasure;
 import org.aquilagraph.source.api.LanguageFeature;
 import org.aquilagraph.source.api.LanguageFeatureCategory;
 import org.aquilagraph.source.api.LanguageFeatureClassification;
@@ -115,6 +116,8 @@ import org.aquilagraph.source.api.WrittenTypeEvidence;
 
 /** Closed retained-value tags and ordered public components. */
 final class AstValueSchema {
+  private static final String MODE_FIELD = "mode";
+  private static final String THROWN_TYPES_FIELD = "thrownTypes";
   private static final String PARAMETERS_FIELD = "parameters";
   private static final String RETURN_TYPE_FIELD = "returnType";
   private static final String ADDRESS_FIELD = "address";
@@ -207,8 +210,8 @@ final class AstValueSchema {
     record(types, CoverageEvidenceValue.Structure.class, "coverage-evidence-value/structure", "tag", "fields");
     record(types, CoverageEvidenceValue.Field.class, "coverage-evidence-value/field", NAME_FIELD, VALUE_FIELD);
     enumeration(types, CoverageEvidenceValue.Tag.class, "coverage-evidence-value/tag");
-    record(types, CoverageExecutableType.class, "coverage-executable-type", "variables", PARAMETERS_FIELD, RETURN_TYPE_FIELD, "thrownTypes",
-        "receiverType");
+    record(types, CoverageExecutableType.class, "coverage-executable-type", "variables", PARAMETERS_FIELD, RETURN_TYPE_FIELD,
+        THROWN_TYPES_FIELD, "receiverType");
     record(types, CoverageExecutableType.Variable.class, "coverage-executable-type/variable", DECLARATION_KEY_FIELD, TYPE_FIELD);
     record(types, CoverageFactReference.class, "coverage-fact-reference", KIND_FIELD, IDENTITY_FIELD, SOURCE_FILE_KEY_FIELD, VALUE_FIELD,
         ORIGIN_FIELD);
@@ -265,16 +268,16 @@ final class AstValueSchema {
     record(types, EvidenceValue.class, "evidence-value", "state", "knownValue", ORIGIN_FIELD, "explanation", "diagnostic");
     record(types, FeatureContextOutcome.class, "feature-context-outcome", ADDRESS_FIELD, "occurrence", "observation", "encounteredValue",
         "support", "emissions");
-    record(types, FeatureContextOutcome.Support.class, "feature-context-outcome/support", "mode", "facts", "policyContext", "sourceFile",
-        "negativeState");
+    record(types, FeatureContextOutcome.Support.class, "feature-context-outcome/support", MODE_FIELD, "facts", "policyContext",
+        "sourceFile", "negativeState");
     enumeration(types, FeatureContextOutcome.Mode.class, "feature-context-outcome/mode");
-    record(types, InvocationApplicability.class, "invocation-applicability", METHOD_KEY_FIELD, "consumerNodeId", "mode", "formalCount",
+    record(types, InvocationApplicability.class, "invocation-applicability", METHOD_KEY_FIELD, "consumerNodeId", MODE_FIELD, "formalCount",
         "varargArrayType", "erasedArrayType", "elementType");
     enumeration(types, InvocationApplicabilityMode.class, "invocation-applicability-mode");
     record(types, InvocationEvidence.class, "invocation-evidence", "applicability");
     enumeration(types, InvocationForm.class, "invocation-form");
     enumeration(types, InvocationMode.class, "invocation-mode");
-    record(types, InvocationSemantics.class, "invocation-semantics", "mode", "qualifyingType", FORM_FIELD);
+    record(types, InvocationSemantics.class, "invocation-semantics", MODE_FIELD, "qualifyingType", FORM_FIELD);
     enumeration(types, JavaDeclarationModifier.class, "java-declaration-modifier");
     record(types, JavaField.class, "java-field", "fieldKey", OWNER_TYPE_KEY_FIELD, NAME_FIELD, "staticType", "modifiers", "enumConstant",
         SOURCE_DECLARED_FIELD, ORIGINS_FIELD);
@@ -313,6 +316,9 @@ final class AstValueSchema {
     enumeration(types, JavaTypeStructure.Wildcard.BoundKind.class, "java-type-structure/wildcard/bound-kind");
     record(types, JavaTypeStructure.Intersection.class, "java-type-structure/intersection", BOUNDS_FIELD);
     record(types, JavaTypeStructure.Union.class, "java-type-structure/union", "alternatives");
+    record(types, JavaTypeStructure.Executable.class, "java-type-structure/executable", "variables", PARAMETERS_FIELD, RETURN_TYPE_FIELD,
+        "receiver", THROWN_TYPES_FIELD, "erasure");
+    record(types, JavaExecutableErasure.class, "java-executable-erasure", PARAMETERS_FIELD, RETURN_TYPE_FIELD);
     record(types, LanguageFeature.class, "language-feature", CATEGORY_FIELD, "identifier");
     enumeration(types, LanguageFeatureCategory.class, "language-feature-category");
     record(types, LanguageFeatureClassification.class, "language-feature-classification", "feature", "policy", "representationBoundary",
@@ -390,6 +396,11 @@ final class AstValueSchema {
     record(types, LocalBindingEvidence.class, "local-binding-evidence", "declarationKey", "typeForm", "context", "initialized",
         "annotations", "sharedAnnotationKeys");
     record(types, SyntaxValue.Lambda.class, "syntax-value/lambda", "bodyKind", "parenthesized", PARAMETERS_FIELD, RETURN_TYPE_FIELD);
+    record(types, SyntaxValue.MemberReference.class, "syntax-value/member-reference", "name", MODE_FIELD, "qualifier", "selectedType",
+        "selection", "staticMember");
+    enumeration(types, SyntaxValue.ReferenceMode.class, "reference-mode");
+    enumeration(types, SyntaxValue.ReferenceQualifier.class, "reference-qualifier");
+    enumeration(types, SyntaxValue.ReferenceSelection.class, "reference-selection");
     record(types, SyntaxValue.LambdaParameter.class, "lambda-parameter", "typeForm", "variableArity");
     enumeration(types, SyntaxValue.LambdaBodyKind.class, "lambda-body-kind");
     enumeration(types, LocalBindingEvidence.TypeForm.class, "local-binding-type-form");
@@ -401,9 +412,9 @@ final class AstValueSchema {
         "backingFieldKey", "accessorKey", "canonicalParameterKey", "accessorImplicit", "canonicalParameterDerived");
     enumeration(types, SyntaxValue.ExecutableDeclaration.ExecutableKind.class, "syntax-value/executable-declaration/executable-kind");
     record(types, SyntaxValue.ExecutableDeclaration.HeaderShape.class, "syntax-value/executable-declaration/header-shape",
-        ANNOTATIONS_FIELD, "typeParameters", "receiver", PARAMETERS_FIELD, RETURN_TYPE_FIELD, "thrownTypes", "body", VAR_ARGS_FIELD);
+        ANNOTATIONS_FIELD, "typeParameters", "receiver", PARAMETERS_FIELD, RETURN_TYPE_FIELD, THROWN_TYPES_FIELD, "body", VAR_ARGS_FIELD);
     record(types, SyntaxValue.ExecutableDeclaration.AttributedHeader.class, "syntax-value/executable-declaration/attributed-header",
-        "receiverType", "receiverOwnerKey", "receiverSimpleName", "enclosingTypeKey", "thrownTypes", "defaultValue");
+        "receiverType", "receiverOwnerKey", "receiverSimpleName", "enclosingTypeKey", THROWN_TYPES_FIELD, "defaultValue");
     record(types, SyntaxValue.FieldAccess.class, "syntax-value/field-access", NAME_FIELD, "receiver");
     record(types, SyntaxValue.Invocation.class, "syntax-value/invocation", NAME_FIELD, FORM_FIELD, "semantics");
     record(types, SyntaxValue.Receiver.class, "syntax-value/receiver", KIND_FIELD);

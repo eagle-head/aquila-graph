@@ -4,6 +4,7 @@ import com.sun.source.tree.WhileLoopTree;
 import com.sun.source.tree.AssertTree;
 import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.LambdaExpressionTree;
+import com.sun.source.tree.MemberReferenceTree;
 import com.sun.source.tree.DoWhileLoopTree;
 import com.sun.source.tree.ForLoopTree;
 import com.sun.source.tree.EnhancedForLoopTree;
@@ -64,6 +65,10 @@ final class JavaDeclarationAccessor {
       reader(LambdaExpressionTree.class, "getParameters", LambdaExpressionTree::getParameters),
       reader(LambdaExpressionTree.class, "getBody", LambdaExpressionTree::getBody),
       reader(LambdaExpressionTree.class, "getBodyKind", LambdaExpressionTree::getBodyKind),
+      reader(MemberReferenceTree.class, "getMode", MemberReferenceTree::getMode),
+      reader(MemberReferenceTree.class, "getName", MemberReferenceTree::getName),
+      reader(MemberReferenceTree.class, "getQualifierExpression", MemberReferenceTree::getQualifierExpression),
+      reader(MemberReferenceTree.class, "getTypeArguments", MemberReferenceTree::getTypeArguments),
       reader(WhileLoopTree.class, CONDITION, WhileLoopTree::getCondition),
       reader(WhileLoopTree.class, STATEMENT, WhileLoopTree::getStatement),
       reader(DoWhileLoopTree.class, CONDITION, DoWhileLoopTree::getCondition),

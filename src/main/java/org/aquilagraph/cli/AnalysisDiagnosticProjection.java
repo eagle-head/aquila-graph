@@ -32,7 +32,7 @@ final class AnalysisDiagnosticProjection {
   private static final String UNSUPPORTED_MESSAGE = "Unsupported Java construct in method body: ";
   private static final String TREE_DIAGNOSTIC_PREFIX = "frontend.unsupported-tree-kind.";
   private static final Set<String> EXPANDED_STATEMENT_KINDS = Set.of("WHILE_LOOP", "DO_WHILE_LOOP", "FOR_LOOP", "ENHANCED_FOR_LOOP",
-      "LABELED_STATEMENT", "BREAK", "CONTINUE", "ASSERT", "SYNCHRONIZED", "LAMBDA_EXPRESSION");
+      "LABELED_STATEMENT", "BREAK", "CONTINUE", "ASSERT", "SYNCHRONIZED", "LAMBDA_EXPRESSION", "MEMBER_REFERENCE");
 
   private AnalysisDiagnosticProjection() {
   }

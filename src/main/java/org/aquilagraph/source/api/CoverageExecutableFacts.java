@@ -9,11 +9,13 @@ import org.aquilagraph.source.api.CoveragePropertyValue.State;
 
 /** Reconciles independent executable accessors against canonical written source values. */
 final class CoverageExecutableFacts {
-  private static final Map<String, JavaSourceKind> SURFACES = Map.of("WhileLoopTree", JavaSourceKind.WHILE_LOOP, "DoWhileLoopTree",
-      JavaSourceKind.DO_WHILE_LOOP, "ForLoopTree", JavaSourceKind.FOR_LOOP, "EnhancedForLoopTree", JavaSourceKind.ENHANCED_FOR_LOOP,
-      "LabeledStatementTree", JavaSourceKind.LABELED_STATEMENT, "BreakTree", JavaSourceKind.BREAK, "ContinueTree", JavaSourceKind.CONTINUE,
-      "AssertTree", JavaSourceKind.ASSERT, "SynchronizedTree", JavaSourceKind.SYNCHRONIZED, "LambdaExpressionTree",
-      JavaSourceKind.LAMBDA_EXPRESSION);
+  private static final Map<String, JavaSourceKind> SURFACES = Map.ofEntries(Map.entry("WhileLoopTree", JavaSourceKind.WHILE_LOOP),
+      Map.entry("DoWhileLoopTree", JavaSourceKind.DO_WHILE_LOOP), Map.entry("ForLoopTree", JavaSourceKind.FOR_LOOP),
+      Map.entry("EnhancedForLoopTree", JavaSourceKind.ENHANCED_FOR_LOOP),
+      Map.entry("LabeledStatementTree", JavaSourceKind.LABELED_STATEMENT), Map.entry("BreakTree", JavaSourceKind.BREAK),
+      Map.entry("ContinueTree", JavaSourceKind.CONTINUE), Map.entry("AssertTree", JavaSourceKind.ASSERT),
+      Map.entry("SynchronizedTree", JavaSourceKind.SYNCHRONIZED), Map.entry("LambdaExpressionTree", JavaSourceKind.LAMBDA_EXPRESSION),
+      Map.entry("MemberReferenceTree", JavaSourceKind.MEMBER_REFERENCE));
 
   private CoverageExecutableFacts() {
   }
@@ -30,6 +32,18 @@ final class CoverageExecutableFacts {
   static boolean supports(String accessor, CoveragePropertyValue expected, CoverageSyntaxFactValue owner, CoverageActualFactView facts,
       InputSnapshot snapshot) {
     return switch (accessor) {
+      case "getMode" ->
+        owner.value() instanceof SyntaxValue.MemberReference reference && expected.equals(new CoveragePropertyValue(State.SCALAR,
+            List.of(new Item(reference.mode() == SyntaxValue.ReferenceMode.CONSTRUCTOR ? "NEW" : "INVOKE",
+                reference.mode() == SyntaxValue.ReferenceMode.CONSTRUCTOR ? "NEW" : "INVOKE", Provenance.WRITTEN))));
+      case "getName" -> owner.value() instanceof SyntaxValue.MemberReference reference
+          && expected.equals(new CoveragePropertyValue(State.SCALAR, List.of(new Item("item:0",
+              reference.mode() == SyntaxValue.ReferenceMode.CONSTRUCTOR ? "<init>" : reference.name(), Provenance.WRITTEN))));
+      case "getQualifierExpression" ->
+        CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.QUALIFIER), facts, snapshot, true);
+      case "getTypeArguments" -> expected.state() == State.ABSENT
+          ? owner.children().stream().noneMatch(child -> child.role() == SyntaxRole.TYPE_ARGUMENT)
+          : CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.TYPE_ARGUMENT), facts, snapshot, false);
       case "getKind" -> expected.equals(new CoveragePropertyValue(State.SCALAR,
           List.of(new Item(owner.sourceKind().name(), owner.sourceKind().name(), Provenance.WRITTEN))));
       case "getLabel" -> owner.value() instanceof SyntaxValue.StatementLabel label && expected

@@ -5,6 +5,7 @@ import com.sun.source.tree.WhileLoopTree;
 import com.sun.source.tree.AssertTree;
 import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.LambdaExpressionTree;
+import com.sun.source.tree.MemberReferenceTree;
 import com.sun.source.tree.DoWhileLoopTree;
 import com.sun.source.tree.ForLoopTree;
 import com.sun.source.tree.EnhancedForLoopTree;
@@ -122,6 +123,7 @@ final class JavaCoverageTopology {
       case AssertTree _ -> Optional.of(AssertTree.class);
       case SynchronizedTree _ -> Optional.of(SynchronizedTree.class);
       case LambdaExpressionTree _ -> Optional.of(LambdaExpressionTree.class);
+      case MemberReferenceTree _ -> Optional.of(MemberReferenceTree.class);
       case WhileLoopTree _ -> Optional.of(WhileLoopTree.class);
       case DoWhileLoopTree _ -> Optional.of(DoWhileLoopTree.class);
       case ForLoopTree _ -> Optional.of(ForLoopTree.class);

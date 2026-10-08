@@ -277,16 +277,22 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatTag(String tag) {
-    if (!AstResult.SOURCE_MODEL_VERSION.equals(format)
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && Set.of("syntax-value/member-reference", "reference-mode", "reference-qualifier",
+        "reference-selection", "java-type-structure/executable", "java-executable-erasure").contains(tag)) {
+      throw new IllegalArgumentException("Member reference syntax requires retained AST format java-source/9");
+    }
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.LAMBDA_SOURCE_MODEL_VERSION.equals(format)
         && Set.of("syntax-value/lambda", "lambda-parameter", "lambda-body-kind").contains(tag)) {
       throw new IllegalArgumentException("Lambda syntax requires retained AST format java-source/8");
     }
-    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.ASSERTION_SOURCE_MODEL_VERSION.equals(format)
-        && !AstResult.ITERATION_SOURCE_MODEL_VERSION.equals(format) && "syntax-value/statement-label".equals(tag)) {
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.LAMBDA_SOURCE_MODEL_VERSION.equals(format)
+        && !AstResult.ASSERTION_SOURCE_MODEL_VERSION.equals(format) && !AstResult.ITERATION_SOURCE_MODEL_VERSION.equals(format)
+        && "syntax-value/statement-label".equals(tag)) {
       throw new IllegalArgumentException("Iteration statements require retained AST format java-source/6");
     }
-    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.ASSERTION_SOURCE_MODEL_VERSION.equals(format)
-        && !AstResult.ITERATION_SOURCE_MODEL_VERSION.equals(format) && !AstResult.ARRAY_SOURCE_MODEL_VERSION.equals(format)
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.LAMBDA_SOURCE_MODEL_VERSION.equals(format)
+        && !AstResult.ASSERTION_SOURCE_MODEL_VERSION.equals(format) && !AstResult.ITERATION_SOURCE_MODEL_VERSION.equals(format)
+        && !AstResult.ARRAY_SOURCE_MODEL_VERSION.equals(format)
         && ("syntax-value/array-creation".equals(tag) || "syntax-semantic-target/annotation-type-location/array-dimension".equals(tag))) {
       throw new IllegalArgumentException("Executable arrays require retained AST format java-source/5");
     }
@@ -296,17 +302,24 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatEnum(Class<?> type, String name) {
-    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && ((type == SyntaxKind.class && "LAMBDA_EXPRESSION".equals(name))
-        || (type == CoverageEvidenceValue.Tag.class && Set.of("LAMBDA", "LAMBDA_PARAMETER").contains(name)))) {
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format)
+        && ((type == SyntaxKind.class && "MEMBER_REFERENCE".equals(name)) || (type == CoverageEvidenceValue.Tag.class
+            && Set.of("MEMBER_REFERENCE", "TYPE_EXECUTABLE", "TYPE_EXECUTABLE_ERASURE").contains(name)))) {
+      throw new IllegalArgumentException("Member reference syntax requires retained AST format java-source/9");
+    }
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.LAMBDA_SOURCE_MODEL_VERSION.equals(format)
+        && ((type == SyntaxKind.class && "LAMBDA_EXPRESSION".equals(name))
+            || (type == CoverageEvidenceValue.Tag.class && Set.of("LAMBDA", "LAMBDA_PARAMETER").contains(name)))) {
       throw new IllegalArgumentException("Lambda syntax requires retained AST format java-source/8");
     }
-    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.ASSERTION_SOURCE_MODEL_VERSION.equals(format)
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.LAMBDA_SOURCE_MODEL_VERSION.equals(format)
+        && !AstResult.ASSERTION_SOURCE_MODEL_VERSION.equals(format)
         && ((type == SyntaxKind.class && Set.of("ASSERT", "SYNCHRONIZED").contains(name))
             || (type == SyntaxRole.class && Set.of("DETAIL", "MONITOR").contains(name)))) {
       throw new IllegalArgumentException("Assertion and monitor syntax require retained AST format java-source/7");
     }
-    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.ASSERTION_SOURCE_MODEL_VERSION.equals(format)
-        && !AstResult.ITERATION_SOURCE_MODEL_VERSION.equals(format)
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.LAMBDA_SOURCE_MODEL_VERSION.equals(format)
+        && !AstResult.ASSERTION_SOURCE_MODEL_VERSION.equals(format) && !AstResult.ITERATION_SOURCE_MODEL_VERSION.equals(format)
         && ((type == SyntaxKind.class && Set
             .of("WHILE_LOOP", "DO_WHILE_LOOP", "FOR_LOOP", "ENHANCED_FOR_LOOP", "LABELED_STATEMENT", "BREAK", "CONTINUE").contains(name))
             || (type == SyntaxRole.class && Set.of("UPDATE", "ITERABLE").contains(name))
@@ -314,9 +327,9 @@ final class RetainedValueCodec {
             || (type == LocalBindingEvidence.Context.class && "ENHANCED_FOR".equals(name)))) {
       throw new IllegalArgumentException("Iteration statements require retained AST format java-source/6");
     }
-    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.ASSERTION_SOURCE_MODEL_VERSION.equals(format)
-        && !AstResult.ITERATION_SOURCE_MODEL_VERSION.equals(format) && !AstResult.ARRAY_SOURCE_MODEL_VERSION.equals(format)
-        && !AstResult.UPDATE_SOURCE_MODEL_VERSION.equals(format)
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.LAMBDA_SOURCE_MODEL_VERSION.equals(format)
+        && !AstResult.ASSERTION_SOURCE_MODEL_VERSION.equals(format) && !AstResult.ITERATION_SOURCE_MODEL_VERSION.equals(format)
+        && !AstResult.ARRAY_SOURCE_MODEL_VERSION.equals(format) && !AstResult.UPDATE_SOURCE_MODEL_VERSION.equals(format)
         && ((type == SyntaxKind.class && ("UPDATE".equals(name) || "COMPOUND_ASSIGNMENT".equals(name)))
             || (type == SyntaxOperator.class && switch (name) {
               case "MULTIPLY_ASSIGNMENT", "DIVIDE_ASSIGNMENT", "REMAINDER_ASSIGNMENT", "PLUS_ASSIGNMENT", "MINUS_ASSIGNMENT",
@@ -327,8 +340,9 @@ final class RetainedValueCodec {
             }))) {
       throw new IllegalArgumentException("Update expressions require the current retained AST format");
     }
-    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.ASSERTION_SOURCE_MODEL_VERSION.equals(format)
-        && !AstResult.ITERATION_SOURCE_MODEL_VERSION.equals(format) && !AstResult.ARRAY_SOURCE_MODEL_VERSION.equals(format)
+    if (!AstResult.SOURCE_MODEL_VERSION.equals(format) && !AstResult.LAMBDA_SOURCE_MODEL_VERSION.equals(format)
+        && !AstResult.ASSERTION_SOURCE_MODEL_VERSION.equals(format) && !AstResult.ITERATION_SOURCE_MODEL_VERSION.equals(format)
+        && !AstResult.ARRAY_SOURCE_MODEL_VERSION.equals(format)
         && ((type == SyntaxKind.class && "ARRAY_CREATION".equals(name))
             || (type == SyntaxRole.class && ("DIMENSION".equals(name) || "ARRAY_ELEMENT".equals(name)))
             || (type == CoverageEvidenceValue.Tag.class && "ARRAY_CREATION".equals(name)))) {

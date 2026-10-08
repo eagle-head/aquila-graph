@@ -60,6 +60,12 @@ class JavaDeclarationPropertyCoverageTest {
       "LambdaExpressionTree::LambdaExpressionTree#getParameters()",
       "LambdaExpressionTree::LambdaExpressionTree#getBody()",
       "LambdaExpressionTree::LambdaExpressionTree#getBodyKind()",
+      "MemberReferenceTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "MemberReferenceTree::Tree#getKind()",
+      "MemberReferenceTree::MemberReferenceTree#getMode()",
+      "MemberReferenceTree::MemberReferenceTree#getName()",
+      "MemberReferenceTree::MemberReferenceTree#getQualifierExpression()",
+      "MemberReferenceTree::MemberReferenceTree#getTypeArguments()",
       "NewArrayTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "NewArrayTree::Tree#getKind()", "NewArrayTree::NewArrayTree#getType()", "NewArrayTree::NewArrayTree#getDimensions()",
       "NewArrayTree::NewArrayTree#getInitializers()", "NewArrayTree::NewArrayTree#getAnnotations()", "NewArrayTree::NewArrayTree#getDimAnnotations()",
@@ -140,6 +146,7 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::ExecutableElement#isDefault()",
       "ExecutableElement::ExecutableElement#isVarArgs()");
   private static final Set<String> EXPECTED_IRRELEVANT_PROPERTIES = Set.of(
+      "MemberReferenceTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "LambdaExpressionTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "AssertTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "SynchronizedTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
@@ -353,7 +360,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:b9ed57677bf06688e4f3b06cb3287035dc4f0951aeb4766f50a22a3ab7d8417e",
+    assertEquals("java-language-feature-coverage:57c6cdc127ac8360381c721d17d84ed5ca5b682275ab72ddb3bdae324baad5bf",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 

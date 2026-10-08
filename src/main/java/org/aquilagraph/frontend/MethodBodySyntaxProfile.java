@@ -38,6 +38,9 @@ import com.sun.source.tree.TypeCastTree;
 import com.sun.source.tree.UnaryTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.tree.LambdaExpressionTree;
+import com.sun.source.tree.MemberReferenceTree;
+import com.sun.source.tree.ArrayTypeTree;
+import com.sun.source.tree.AnnotatedTypeTree;
 import com.sun.source.tree.YieldTree;
 import com.sun.source.util.SimpleTreeVisitor;
 import com.sun.source.util.TreePath;
@@ -49,6 +52,7 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.InvocationSemantics;
+import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.SemanticReference;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -106,8 +110,53 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
   }
 
   @Override
+  public SyntaxNodeMapping visitMemberReference(MemberReferenceTree reference, MappingContext context) {
+    var children = new ChildMappings(context);
+    var qualifier = reference.getQualifierExpression();
+    var qualifierPath = new TreePath(context.treePath(), qualifier);
+    var constructor = reference.getMode() == MemberReferenceTree.ReferenceMode.NEW;
+    var form = constructor
+        ? isArrayType(qualifier) ? SyntaxValue.ReferenceQualifier.ARRAY_TYPE : SyntaxValue.ReferenceQualifier.TYPE
+        : isSuper(qualifier)
+            ? SyntaxValue.ReferenceQualifier.SUPER
+            : isQualifiedSuper(qualifier)
+                ? SyntaxValue.ReferenceQualifier.QUALIFIED_SUPER
+                : isArrayType(qualifier) || semantics.isTypeOrPackage(qualifierPath)
+                    ? SyntaxValue.ReferenceQualifier.TYPE
+                    : SyntaxValue.ReferenceQualifier.EXPRESSION;
+    if (form != SyntaxValue.ReferenceQualifier.TYPE && form != SyntaxValue.ReferenceQualifier.ARRAY_TYPE) {
+      children.add(SyntaxRole.QUALIFIER, qualifier);
+    }
+    var array = form == SyntaxValue.ReferenceQualifier.ARRAY_TYPE;
+    var selected = array ? null : semantics.element(context.treePath());
+    var executable = selected instanceof ExecutableElement candidate ? candidate : null;
+    var selection = array
+        ? semantics.explicitType(qualifierPath)
+        : executable == null ? SyntaxType.Unresolved.INSTANCE : semantics.declarationType(executable.asType());
+    var selectedKind = SyntaxValue.ReferenceSelection.EXECUTABLE;
+    if (array) {
+      selectedKind = SyntaxValue.ReferenceSelection.ARRAY_CONSTRUCTOR;
+    } else if (!constructor && reference.getName().contentEquals("clone") && (isArrayType(qualifier) || semantics
+        .explicitType(qualifierPath).knownIdentity().filter(identity -> identity.category() == JavaTypeCategory.ARRAY).isPresent())) {
+      selectedKind = SyntaxValue.ReferenceSelection.ARRAY_CLONE;
+    }
+    var mode = constructor ? SyntaxValue.ReferenceMode.CONSTRUCTOR : SyntaxValue.ReferenceMode.METHOD;
+    return accepted(SyntaxKind.MEMBER_REFERENCE,
+        new SyntaxValue.MemberReference(constructor ? "new" : reference.getName().toString(), mode, form, selection, selectedKind,
+            executable != null && semantics.isStatic(executable)),
+        children,
+        selectedKind != SyntaxValue.ReferenceSelection.EXECUTABLE
+            ? Optional.empty()
+            : semantics.reference(context.treePath(), constructor ? ReferenceKind.CONSTRUCTOR : ReferenceKind.METHOD));
+  }
+
+  @Override
   public SyntaxNodeMapping visitReturn(ReturnTree statement, MappingContext context) {
     return acceptedWithChild(SyntaxKind.RETURN, context, SyntaxRole.EXPRESSION, statement.getExpression());
+  }
+
+  private static boolean isArrayType(Tree tree) {
+    return tree instanceof ArrayTypeTree || (tree instanceof AnnotatedTypeTree annotated && isArrayType(annotated.getUnderlyingType()));
   }
 
   @Override

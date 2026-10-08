@@ -1,5 +1,7 @@
 package org.aquilagraph.source.api;
 
+import org.aquilagraph.source.api.CoverageEvidenceValue.TypeIdentity;
+
 import java.util.Collection;
 import java.util.List;
 import java.util.ArrayList;
@@ -20,6 +22,8 @@ final class CoverageSourceProjection {
   private static final String NAME_FIELD = "name";
   private static final String ORDINAL_FIELD = "ordinal";
   private static final String OWNER_KEY_FIELD = "ownerKey";
+  private static final String PARAMETERS_FIELD = "parameters";
+  private static final String RETURN_TYPE_FIELD = "returnType";
   private static final String TARGETS_FIELD = "targets";
   private static final String TYPE_FIELD = "type";
   private static final String VALUE_FIELD = "value";
@@ -79,7 +83,7 @@ final class CoverageSourceProjection {
           field("sharedDeclaratorKeys", sequence(declaration.sharedDeclaratorKeys(), CoverageSourceProjection::text)),
           field(KIND_FIELD, named(declaration.kind())), field(WRITTEN_MODIFIERS_FIELD, enumSet(declaration.writtenModifiers())),
           field(EFFECTIVE_MODIFIERS_FIELD, enumSet(declaration.effectiveModifiers())),
-          field("declaredType", new CoverageEvidenceValue.TypeIdentity(declaration.declaredType())),
+          field("declaredType", new TypeIdentity(declaration.declaredType())),
           field(ANNOTATIONS_FIELD, integral(declaration.annotations())), field(TYPE_FIELD, flag(declaration.type())),
           field("initializer", flag(declaration.initializer())), field(ARGUMENTS_FIELD, integral(declaration.arguments())),
           field("argumentList", flag(declaration.argumentList())), field("constantBody", flag(declaration.constantBody())));
@@ -125,9 +129,13 @@ final class CoverageSourceProjection {
       case SyntaxValue.ArrayCreation array ->
         structure(Tag.ARRAY_CREATION, field("writtenType", flag(array.writtenType())), field("initializer", flag(array.initializer())),
             field("dimensionAnnotationCounts", sequence(array.dimensionAnnotationCounts(), count -> integral(count.longValue()))));
+      case SyntaxValue.MemberReference reference ->
+        structure(Tag.MEMBER_REFERENCE, field(NAME_FIELD, text(reference.name())), field("mode", named(reference.mode())),
+            field("qualifier", named(reference.qualifier())), field("selectedType", type(reference.selectedType())),
+            field("selection", named(reference.selection())), field("staticMember", flag(reference.staticMember())));
       case SyntaxValue.Lambda lambda -> structure(Tag.LAMBDA, field("bodyKind", named(lambda.bodyKind())),
-          field("parenthesized", flag(lambda.parenthesized())), field("returnType", type(lambda.returnType())),
-          field("parameters", sequence(lambda.parameters(), parameter -> structure(Tag.LAMBDA_PARAMETER,
+          field("parenthesized", flag(lambda.parenthesized())), field(RETURN_TYPE_FIELD, type(lambda.returnType())),
+          field(PARAMETERS_FIELD, sequence(lambda.parameters(), parameter -> structure(Tag.LAMBDA_PARAMETER,
               field("typeForm", named(parameter.typeForm())), field(VAR_ARGS_FIELD, flag(parameter.variableArity()))))));
       case SyntaxValue.SwitchCase value -> structure(Tag.SWITCH_CASE, field(FORM_FIELD, named(value.form())),
           field("labels", sequence(value.labels(), label -> switch (label) {
@@ -166,7 +174,7 @@ final class CoverageSourceProjection {
   private static Structure executableShape(SyntaxValue.ExecutableDeclaration.HeaderShape shape) {
     return structure(Tag.EXECUTABLE_SHAPE, field(ANNOTATIONS_FIELD, integral(shape.annotations())),
         field("typeParameters", integral(shape.typeParameters())), field("receiver", flag(shape.receiver())),
-        field("parameters", integral(shape.parameters())), field("returnType", flag(shape.returnType())),
+        field(PARAMETERS_FIELD, integral(shape.parameters())), field(RETURN_TYPE_FIELD, flag(shape.returnType())),
         field("thrownTypes", integral(shape.thrownTypes())), field("body", flag(shape.body())),
         field(VAR_ARGS_FIELD, flag(shape.varArgs())));
   }
@@ -186,8 +194,8 @@ final class CoverageSourceProjection {
         field(OWNER_KEY_FIELD, text(declaration.ownerKey())), field(DECLARATION_KEY_FIELD, text(declaration.declarationKey())),
         field(ORDINAL_FIELD, integral(declaration.ordinal())), field(WRITTEN_MODIFIERS_FIELD, enumSet(declaration.writtenModifiers())),
         field(EFFECTIVE_MODIFIERS_FIELD, enumSet(declaration.effectiveModifiers())),
-        field("declaredType", new CoverageEvidenceValue.TypeIdentity(declaration.declaredType())),
-        field(ANNOTATIONS_FIELD, integral(declaration.annotations())), field(VAR_ARGS_FIELD, flag(declaration.varArgs())),
+        field("declaredType", new TypeIdentity(declaration.declaredType())), field(ANNOTATIONS_FIELD, integral(declaration.annotations())),
+        field(VAR_ARGS_FIELD, flag(declaration.varArgs())),
         field("counterparts",
             structure(Tag.RECORD_COUNTERPARTS, field("backingFieldKey", text(counterparts.backingFieldKey())),
                 field("accessorKey", text(counterparts.accessorKey())),
@@ -204,10 +212,9 @@ final class CoverageSourceProjection {
       case SyntaxType.NoType none -> structure(Tag.TYPE_NONE, field(KIND_FIELD, named(none.kind())));
       case SyntaxType.Unsupported _ -> structure(Tag.TYPE_UNSUPPORTED);
       case SyntaxType.StructureUnavailable unavailable ->
-        structure(Tag.TYPE_STRUCTURE_UNAVAILABLE, field("identity", new CoverageEvidenceValue.TypeIdentity(unavailable.identity())));
-      case SyntaxType.Resolved resolved ->
-        structure(Tag.TYPE_RESOLVED, field("identity", new CoverageEvidenceValue.TypeIdentity(resolved.identity())),
-            field("structure", optional(resolved.structure(), CoverageSourceProjection::typeStructure)));
+        structure(Tag.TYPE_STRUCTURE_UNAVAILABLE, field("identity", new TypeIdentity(unavailable.identity())));
+      case SyntaxType.Resolved resolved -> structure(Tag.TYPE_RESOLVED, field("identity", new TypeIdentity(resolved.identity())),
+          field("structure", optional(resolved.structure(), CoverageSourceProjection::typeStructure)));
     };
   }
 
@@ -237,6 +244,16 @@ final class CoverageSourceProjection {
         structure(Tag.TYPE_INTERSECTION, field("bounds", sequence(intersection.bounds(), CoverageSourceProjection::typeStructure)));
       case JavaTypeStructure.Union union ->
         structure(Tag.TYPE_UNION, field("alternatives", sequence(union.alternatives(), CoverageSourceProjection::typeStructure)));
+      case JavaTypeStructure.Executable executable ->
+        structure(Tag.TYPE_EXECUTABLE, field("variables", sequence(executable.variables(), CoverageSourceProjection::typeStructure)),
+            field(PARAMETERS_FIELD, sequence(executable.parameters(), CoverageSourceProjection::type)),
+            field(RETURN_TYPE_FIELD, type(executable.returnType())),
+            field("receiver", optional(executable.receiver(), CoverageSourceProjection::type)),
+            field("thrownTypes", sequence(executable.thrownTypes(), CoverageSourceProjection::type)),
+            field("erasure",
+                structure(Tag.TYPE_EXECUTABLE_ERASURE,
+                    field(PARAMETERS_FIELD, sequence(executable.erasure().parameters(), CoverageSourceProjection::type)),
+                    field(RETURN_TYPE_FIELD, type(executable.erasure().returnType())))));
     };
   }
 

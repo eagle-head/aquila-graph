@@ -9,6 +9,7 @@ import com.sun.source.tree.IdentifierTree;
 import com.sun.source.tree.ImportTree;
 import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodInvocationTree;
+import com.sun.source.tree.MemberReferenceTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.NewArrayTree;
@@ -1377,6 +1378,19 @@ final class JavaAstContributionTranslator {
         for (var index = 0; index < creation.getTypeArguments().size(); index++) {
           complete &= appendBodyType(creation.getTypeArguments().get(index), SyntaxRole.TYPE_ARGUMENT, index, path, children, context);
         }
+      }
+      case MemberReferenceTree reference -> {
+        var form = original.value(SyntaxValue.MemberReference.class).qualifier();
+        if (form == SyntaxValue.ReferenceQualifier.TYPE || form == SyntaxValue.ReferenceQualifier.ARRAY_TYPE) {
+          complete = appendBodyType(reference.getQualifierExpression(), SyntaxRole.QUALIFIER, 0, path, children, context);
+        }
+        var arguments = reference.getTypeArguments();
+        if (arguments != null) {
+          for (var index = 0; index < arguments.size(); index++) {
+            complete &= appendBodyType(arguments.get(index), SyntaxRole.TYPE_ARGUMENT, index, path, children, context);
+          }
+        }
+        children.sort(Comparator.comparingInt(child -> child.role() == SyntaxRole.QUALIFIER ? 0 : 1));
       }
       case MethodInvocationTree invocation -> {
         for (var index = 0; index < invocation.getTypeArguments().size(); index++) {

@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.sun.source.util.TreePath;
+import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.VariableTree;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -913,17 +915,16 @@ class JavaTypeUseAstTest {
   }
 
   @Test
-  void givenUnavailableRequiredStructure_whenTypeUseIsTranslated_thenLocatedErrorBlocksAnalysis() throws IOException {
+  void givenUnavailableRequiredStructure_whenTypeUseIsTranslated_thenWrittenFactsSurviveAndLocatedErrorBlocksAnalysis() throws IOException {
     // Arrange
-    var source = "package p; class States {}";
+    var source = "package p; class States { String value; }";
     Files.writeString(temporaryDirectory.resolve("States.java"), source);
     var baseline = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory, JAVA_25);
     assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(baseline).completion(),
         () -> baseline.diagnostics().toString());
     var sources = new SnapshotSourceCatalog(baseline.snapshot());
-    var type = new SyntaxType.StructureUnavailable(new JavaTypeIdentity(JavaTypeCategory.UNION, "First | Second", "First"));
-    var expectedSpan = new SourceSpan(baseline.snapshot().sourceFiles().getFirst().sourceFileKey(), source.indexOf("p;"),
-        source.indexOf("p;") + 1);
+    var expectedSpan = new SourceSpan(baseline.snapshot().sourceFiles().getFirst().sourceFileKey(), source.indexOf("String"),
+        source.indexOf("String") + "String".length());
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
         .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
 
@@ -931,7 +932,11 @@ class JavaTypeUseAstTest {
       var parsed = session.parse();
       var compilation = session.analyze(parsed);
       var unit = compilation.units().getFirst();
-      var typeTree = unit.getPackageName();
+      var owner = (ClassTree) unit.getTypeDecls().getFirst();
+      var field = owner.getMembers().stream().filter(VariableTree.class::isInstance).map(VariableTree.class::cast).findFirst().orElseThrow();
+      var typeTree = field.getType();
+      var knownType = (SyntaxType.Resolved) compilation.semantics().explicitType(TreePath.getPath(unit, typeTree));
+      var type = new SyntaxType.StructureUnavailable(knownType.identity());
       var translator = new JavaTypeUseTranslator(compilation.semantics(), compilation.sourceEvidence(), parsed.treeInventory());
       var diagnostics = JavaCoverageTestSupport.diagnostics(baseline, "type-use-observation");
 
@@ -942,7 +947,12 @@ class JavaTypeUseAstTest {
       var completion = new SourceAnalysisFixture().analyze(analysisInput).completion();
 
       // Assert
-      assertTrue(translated.isEmpty());
+      var node = translated.orElseThrow();
+      assertEquals(type, node.type());
+      assertEquals("String", node.value(SyntaxValue.Symbol.class).name());
+      assertEquals(Optional.of(expectedSpan), node.origin());
+      assertEquals(ReferenceKind.TYPE, node.requiredReference().referenceKind());
+      assertEquals(ResolutionStatus.RESOLVED, node.requiredReference().status());
       assertEquals(baseline.diagnostics().size() + 1, diagnostics.size());
       assertEquals("frontend.unavailable-type-use-structure", diagnostics.getLast().code());
       assertEquals(List.of(expectedSpan), diagnostics.getLast().origins());

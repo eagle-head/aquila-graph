@@ -16,6 +16,22 @@ class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
 
   @Test
+  void givenPackagedReferenceSource_whenBoundedProcessRuns_thenHistoricalReferenceRefusalRemainsObservable() throws IOException, InterruptedException {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
+    Files.writeString(sourceRoot.resolve("References.java"), "class References { java.util.function.IntFunction<int[]> value() { return int[]::new; } }");
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertEquals(List.of(
+        "ERROR FRONTEND frontend.unsupported-tree-kind.member-reference: Java compiler tree kind MEMBER_REFERENCE is outside the supported semantic graph profile",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: MEMBER_REFERENCE"), result.error().lines().toList());
+  }
+
+  @Test
   void givenPackagedLambdaWithNestedExecution_whenBoundedProcessRuns_thenHistoricalLambdaRefusalRemainsObservable()
       throws IOException, InterruptedException {
     // Arrange

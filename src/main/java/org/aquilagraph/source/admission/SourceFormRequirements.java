@@ -7,6 +7,7 @@ import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.JavaTypeStructure;
 
 /** Source-owned form and written-role requirements shared by the initial two profile versions. */
 final class SourceFormRequirements {
@@ -15,6 +16,24 @@ final class SourceFormRequirements {
 
   static boolean supports(SyntaxNode node) {
     return switch (node.syntaxKind()) {
+      case MEMBER_REFERENCE -> {
+        var reference = node.value(SyntaxValue.MemberReference.class);
+        yield node.type() instanceof SyntaxType.Resolved target && target.structure().isPresent()
+            && (target.identity().category() == JavaTypeCategory.DECLARED || target.identity().category() == JavaTypeCategory.INTERSECTION)
+            && reference.selectedType() instanceof SyntaxType.Resolved selected
+            && (reference.selection() == SyntaxValue.ReferenceSelection.ARRAY_CONSTRUCTOR
+                ? selected.structure().filter(JavaTypeStructure.Array.class::isInstance).isPresent()
+                : selected.structure().filter(JavaTypeStructure.Executable.class::isInstance).map(JavaTypeStructure.Executable.class::cast)
+                    .filter(SourceFormRequirements::completeSignature).isPresent())
+            && node.optionalChild(SyntaxRole.QUALIFIER).map(SyntaxNode::type).filter(SyntaxType.Resolved.class::isInstance)
+                .map(SyntaxType.Resolved.class::cast).flatMap(SyntaxType.Resolved::structure).isPresent()
+            && (reference.qualifier() != SyntaxValue.ReferenceQualifier.ARRAY_TYPE || node.children(SyntaxRole.TYPE_ARGUMENT).isEmpty())
+            && (reference.selection() == SyntaxValue.ReferenceSelection.EXECUTABLE
+                ? node.semanticReference().isPresent()
+                : reference.selection() == SyntaxValue.ReferenceSelection.ARRAY_CONSTRUCTOR
+                    || (node.requiredChild(SyntaxRole.QUALIFIER).type() instanceof SyntaxType.Resolved array
+                        && array.identity().category() == JavaTypeCategory.ARRAY));
+      }
       case LAMBDA_EXPRESSION -> {
         var lambda = node.value(SyntaxValue.Lambda.class);
         var forms = lambda.parameters();
@@ -77,6 +96,17 @@ final class SourceFormRequirements {
       case PARENTHESIZED -> isAssignable(node.requiredChild(SyntaxRole.EXPRESSION));
       default -> false;
     };
+  }
+
+  private static boolean completeSignature(JavaTypeStructure.Executable signature) {
+    return signature.erasure().isComplete() && signature.parameters().stream().allMatch(SourceFormRequirements::completeSignatureType)
+        && completeSignatureType(signature.returnType())
+        && signature.receiver().stream().allMatch(SourceFormRequirements::completeSignatureType)
+        && signature.thrownTypes().stream().allMatch(SourceFormRequirements::completeSignatureType);
+  }
+
+  private static boolean completeSignatureType(SyntaxType type) {
+    return type instanceof SyntaxType.Resolved resolved && resolved.structure().isPresent();
   }
 
   private static boolean usableLambdaReturnType(SyntaxType type) {

@@ -130,7 +130,7 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.POSTFIX_DECREMENT,
       Tree.Kind.INTERSECTION_TYPE,
       Tree.Kind.WHILE_LOOP, Tree.Kind.DO_WHILE_LOOP, Tree.Kind.FOR_LOOP, Tree.Kind.ENHANCED_FOR_LOOP,
-      Tree.Kind.LABELED_STATEMENT, Tree.Kind.BREAK, Tree.Kind.CONTINUE, Tree.Kind.YIELD, Tree.Kind.ASSERT, Tree.Kind.SYNCHRONIZED, Tree.Kind.LAMBDA_EXPRESSION);
+      Tree.Kind.LABELED_STATEMENT, Tree.Kind.BREAK, Tree.Kind.CONTINUE, Tree.Kind.YIELD, Tree.Kind.ASSERT, Tree.Kind.SYNCHRONIZED, Tree.Kind.LAMBDA_EXPRESSION, Tree.Kind.MEMBER_REFERENCE);
   @TempDir Path temporaryDirectory;
 
   @Test
@@ -204,6 +204,7 @@ class JavaCompilerKindCoverageTest {
             assert flag;
             synchronized (this) {}
             Runnable lambda = () -> {};
+            java.util.function.IntFunction<int[]> reference = int[]::new;
             boolean booleanLiteral = true;
             char charLiteral = 'c';
             long longLiteral = 1L;

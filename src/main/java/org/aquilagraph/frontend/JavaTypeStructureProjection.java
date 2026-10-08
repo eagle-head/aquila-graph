@@ -16,6 +16,7 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.ExecutableType;
 import javax.lang.model.type.IntersectionType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
@@ -24,15 +25,23 @@ import javax.lang.model.type.UnionType;
 import javax.lang.model.type.WildcardType;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeStructure;
+import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.JavaExecutableErasure;
+import org.aquilagraph.source.api.SyntaxType;
 
 /** Copies one complete attributed type with type-local binders for implicit variables. */
 final class JavaTypeStructureProjection {
   private static final int MIN_COMPOSITE_COMPONENTS = 2;
   private final DeclarationIdentityRegistry identities;
+  private final Function<TypeMirror, JavaTypeIdentity> typeIdentity;
+  private final Function<TypeMirror, TypeMirror> erasure;
   private final CaptureBindings captures = CaptureBindings.usingReferenceIdentity();
 
-  JavaTypeStructureProjection(DeclarationIdentityRegistry identities) {
+  JavaTypeStructureProjection(DeclarationIdentityRegistry identities, Function<TypeMirror, JavaTypeIdentity> typeIdentity,
+      Function<TypeMirror, TypeMirror> erasure) {
     this.identities = Objects.requireNonNull(identities, "identities");
+    this.typeIdentity = Objects.requireNonNull(typeIdentity, "typeIdentity");
+    this.erasure = Objects.requireNonNull(erasure, "erasure");
   }
 
   Optional<JavaTypeStructure> project(TypeMirror type) {
@@ -52,12 +61,58 @@ final class JavaTypeStructureProjection {
       case WILDCARD -> wildcard((WildcardType) type);
       case INTERSECTION -> components(((IntersectionType) type).getBounds(), true);
       case UNION -> components(((UnionType) type).getAlternatives(), false);
+      case EXECUTABLE -> executable((ExecutableType) type);
       default -> Optional.empty();
     };
   }
 
   private static Optional<JavaTypeStructure> primitive(JavaTypeCategory category) {
     return Optional.of(new JavaTypeStructure.Primitive(category));
+  }
+
+  private Optional<JavaTypeStructure> executable(ExecutableType type) {
+    var variables = projectAll(type.getTypeVariables());
+    var parameters = type.getParameterTypes().stream().map(this::component).toList();
+    var result = component(type.getReturnType());
+    var thrown = type.getThrownTypes().stream().map(this::component).toList();
+    var receiverMirror = type.getReceiverType();
+    var hasReceiver = receiverMirror != null && receiverMirror.getKind() != TypeKind.NONE;
+    var receiver = hasReceiver ? Optional.of(component(receiverMirror)) : Optional.<SyntaxType>empty();
+    if (variables.isEmpty()) {
+      return Optional.empty();
+    }
+    var erased = new JavaExecutableErasure(type.getParameterTypes().stream().map(this::erasedComponent).toList(),
+        erasedComponent(type.getReturnType()));
+    return Optional.of(new JavaTypeStructure.Executable(variables.orElseThrow(), parameters, result, receiver, thrown, erased));
+  }
+
+  private SyntaxType erasedComponent(TypeMirror type) {
+    var mirror = erasure.apply(type);
+    var identity = typeIdentity.apply(mirror);
+    return new JavaTypeStructureProjection(identities, typeIdentity, erasure).project(mirror)
+        .<SyntaxType>map(value -> new SyntaxType.Resolved(identity, value)).orElseGet(() -> new SyntaxType.StructureUnavailable(identity));
+  }
+
+  private SyntaxType component(TypeMirror type) {
+    return switch (type.getKind()) {
+      case ERROR -> SyntaxType.Erroneous.INSTANCE;
+      case OTHER -> SyntaxType.Unsupported.INSTANCE;
+      default -> new JavaTypeStructureProjection(identities, typeIdentity, erasure).project(type)
+          .<SyntaxType>map(value -> new SyntaxType.Resolved(typeIdentity.apply(type), value))
+          .orElseGet(() -> new SyntaxType.StructureUnavailable(typeIdentity.apply(type)));
+    };
+  }
+
+  private Optional<List<JavaTypeStructure>> projectAll(List<? extends TypeMirror> mirrors) {
+    var values = new ArrayList<JavaTypeStructure>();
+    for (var mirror : mirrors) {
+      var value = project(mirror);
+      if (value.isEmpty()) {
+        return Optional.empty();
+      }
+      values.add(value.orElseThrow());
+    }
+    return Optional.of(List.copyOf(values));
   }
 
   private Optional<JavaTypeStructure> variable(TypeVariable type) {

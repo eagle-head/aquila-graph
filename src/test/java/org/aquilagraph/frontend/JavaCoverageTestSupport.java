@@ -20,7 +20,7 @@ import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.SyntaxAnalysisInput;
 
 /** Supplies altered actual evidence while retaining the independently captured expectation stages. */
-final class JavaCoverageTestSupport {
+public final class JavaCoverageTestSupport {
   private JavaCoverageTestSupport() {
   }
 
@@ -58,11 +58,11 @@ final class JavaCoverageTestSupport {
         outcomes, evidence.unmatchedFacts(), events);
   }
 
-  static List<AnalysisDiagnostic> diagnostics(SyntaxAnalysisInput original, String producer) {
+  public static List<AnalysisDiagnostic> diagnostics(SyntaxAnalysisInput original, String producer) {
     return TranslationDiagnosticEvidence.fromEvents(producer, original.languageFeatureCoverageResult().validationEvidence().diagnosticEmissions());
   }
 
-  static SyntaxAnalysisInput withFacts(SyntaxAnalysisInput original, JavaProgram program, Optional<JavaAstAggregate> aggregate,
+  public static SyntaxAnalysisInput withFacts(SyntaxAnalysisInput original, JavaProgram program, Optional<JavaAstAggregate> aggregate,
       List<AnalysisDiagnostic> diagnostics) {
     var evidence = original.languageFeatureCoverageResult().validationEvidence();
     var reconciled = new JavaSourceCoverageReconciler(evidence.writtenInventory(), evidence.attributedExpectations(), program, aggregate,

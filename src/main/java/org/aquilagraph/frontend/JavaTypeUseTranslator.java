@@ -120,10 +120,6 @@ final class JavaTypeUseTranslator {
       return Optional.empty();
     }
     requiredTypeOutcomeDiagnostic(sourceFile.sourceFileKey(), type, range).ifPresent(diagnostics::add);
-    if (type instanceof SyntaxType.StructureUnavailable
-        || (type instanceof SyntaxType.Resolved resolved && resolved.structure().isEmpty())) {
-      return Optional.empty();
-    }
     var children = new ArrayList<SyntaxChild>();
     SyntaxValue value = SyntaxValue.None.INSTANCE;
     var complete = true;
@@ -236,8 +232,8 @@ final class JavaTypeUseTranslator {
           "frontend.unavailable-type-declaration-reference", "A written nominal or type-variable use has no selected declaration", range));
       return Optional.empty();
     }
-    if (sourceKind == JavaSourceKind.PRIMITIVE_TYPE && type instanceof SyntaxType.Resolved resolved
-        && resolved.identity().category() != ((SyntaxValue.PrimitiveType) value).kind()) {
+    if (sourceKind == JavaSourceKind.PRIMITIVE_TYPE && type.knownIdentity().isPresent()
+        && type.knownIdentity().orElseThrow().category() != ((SyntaxValue.PrimitiveType) value).kind()) {
       TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.inconsistent-primitive-type", "Written and attributed primitive kinds disagree", range));
       return Optional.empty();
