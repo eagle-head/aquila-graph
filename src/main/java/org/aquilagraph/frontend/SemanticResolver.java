@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.CatchTree;
+import com.sun.source.tree.AnyPatternTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.MemberSelectTree;
@@ -232,7 +233,8 @@ final class SemanticResolver {
 
   SyntaxType type(TreePath path) {
     Objects.requireNonNull(path, PATH_ARGUMENT);
-    if (!(path.getLeaf() instanceof ExpressionTree) && !(path.getLeaf() instanceof VariableTree)) {
+    if (!(path.getLeaf() instanceof ExpressionTree) && !(path.getLeaf() instanceof VariableTree)
+        && !(path.getLeaf() instanceof AnyPatternTree)) {
       return SyntaxType.NotApplicable.INSTANCE;
     }
     var type = compilerType(path);

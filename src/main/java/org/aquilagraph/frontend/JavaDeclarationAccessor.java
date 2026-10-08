@@ -5,6 +5,9 @@ import com.sun.source.tree.AssertTree;
 import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.MemberReferenceTree;
+import com.sun.source.tree.InstanceOfTree;
+import com.sun.source.tree.BindingPatternTree;
+import com.sun.source.tree.DeconstructionPatternTree;
 import com.sun.source.tree.DoWhileLoopTree;
 import com.sun.source.tree.ForLoopTree;
 import com.sun.source.tree.EnhancedForLoopTree;
@@ -69,6 +72,12 @@ final class JavaDeclarationAccessor {
       reader(MemberReferenceTree.class, "getName", MemberReferenceTree::getName),
       reader(MemberReferenceTree.class, "getQualifierExpression", MemberReferenceTree::getQualifierExpression),
       reader(MemberReferenceTree.class, "getTypeArguments", MemberReferenceTree::getTypeArguments),
+      reader(InstanceOfTree.class, "getExpression", InstanceOfTree::getExpression),
+      reader(InstanceOfTree.class, "getType", InstanceOfTree::getType),
+      reader(InstanceOfTree.class, "getPattern", InstanceOfTree::getPattern),
+      reader(BindingPatternTree.class, "getVariable", BindingPatternTree::getVariable),
+      reader(DeconstructionPatternTree.class, "getDeconstructor", DeconstructionPatternTree::getDeconstructor),
+      reader(DeconstructionPatternTree.class, "getNestedPatterns", DeconstructionPatternTree::getNestedPatterns),
       reader(WhileLoopTree.class, CONDITION, WhileLoopTree::getCondition),
       reader(WhileLoopTree.class, STATEMENT, WhileLoopTree::getStatement),
       reader(DoWhileLoopTree.class, CONDITION, DoWhileLoopTree::getCondition),

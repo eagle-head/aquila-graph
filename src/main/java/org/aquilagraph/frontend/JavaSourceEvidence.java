@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.AnyPatternTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.SourcePositions;
@@ -52,7 +53,29 @@ final class JavaSourceEvidence {
     if (start < 0 || end < start || end > sourceFile.content().length()) {
       return new Position.Invalid(start, end);
     }
+    // A match-all compiler leaf can be anchored immediately after its written underscore token.
+    if (tree instanceof AnyPatternTree && start == end) {
+      var tokenStart = unnamedPatternStart(sourceFile.content(), Math.toIntExact(end));
+      if (tokenStart < 0) {
+        return new Position.Invalid(start, end);
+      }
+      start = tokenStart;
+    }
     return new Position.Available(new SourceSpan(sourceFile.sourceFileKey(), start, end));
+  }
+
+  private static int unnamedPatternStart(String source, int end) {
+    if (end > 0 && source.charAt(end - 1) == '_') {
+      return end - 1;
+    }
+    if (end < 6 || !source.regionMatches(true, end - 4, "005f", 0, 4)) {
+      return -1;
+    }
+    var cursor = end - 4;
+    while (cursor > 0 && source.charAt(cursor - 1) == 'u') {
+      cursor--;
+    }
+    return cursor < end - 4 && cursor > 0 && source.charAt(cursor - 1) == '\\' ? cursor - 1 : -1;
   }
 
   Optional<SourceSpan> requiredRange(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,

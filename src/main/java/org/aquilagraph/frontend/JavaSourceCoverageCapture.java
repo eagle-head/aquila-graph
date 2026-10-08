@@ -6,6 +6,9 @@ import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.TypeParameterTree;
 import com.sun.source.tree.VariableTree;
+import com.sun.source.tree.AnyPatternTree;
+import org.aquilagraph.source.api.CoverageActualFacts;
+import org.aquilagraph.source.api.SyntaxType;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.TreePathScanner;
 import java.util.ArrayList;
@@ -37,7 +40,7 @@ final class JavaSourceCoverageCapture {
   private static final Set<Role> RECURSIVE_TYPE_ROLES = Set.of(Role.TYPE_NAME, Role.TYPE_ARGUMENT, Role.COMPONENT_TYPE,
       Role.UNDERLYING_TYPE, Role.UPPER_BOUND, Role.LOWER_BOUND, Role.INTERSECTION_BOUND, Role.UNION_ALTERNATIVE, Role.TYPE_QUALIFIER);
   private static final Set<Role> BODY_TYPE_ROLES = Set.of(Role.DECLARED_TYPE, Role.CAST_TYPE, Role.CONSTRUCTED_TYPE, Role.TYPE_ARGUMENT,
-      Role.ARRAY_ELEMENT_TYPE);
+      Role.ARRAY_ELEMENT_TYPE, Role.TESTED_TYPE, Role.DECONSTRUCTOR);
   private final SourceCoverageInventory writtenInventory;
   private final Map<SourceContext.Address, SemanticDescriptor> descriptors;
   private final JavaSourceEvidence sourceEvidence;
@@ -61,6 +64,13 @@ final class JavaSourceCoverageCapture {
     var descriptors = new LinkedHashMap<SourceContext.Address, SemanticDescriptor>();
     var typeUses = new ArrayList<SourceContext>();
     captureHeaderTypes(parsed, sources, owners, contexts, descriptors, typeUses);
+    for (var owner : owners) {
+      if (owner.tree() instanceof AnyPatternTree) {
+        var address = address(owner, Partition.TYPE, CoverageActualFacts.MATCH_ALL_TYPE_ROLE, 0);
+        contexts.add(new SourceContext(address, Optional.empty(), owner.origin().stream().toList(), Optional.empty(), true));
+        descriptors.put(address, descriptor(owner, Optional.empty(), owner.treePath()));
+      }
+    }
     captureBodyTypeUses(parsed, owners, typeUses);
     contexts.addAll(typeUses);
     for (var owner : owners) {
@@ -114,7 +124,14 @@ final class JavaSourceCoverageCapture {
     CoveragePropertyValue value;
     Optional<String> ownerIdentity = Optional.empty();
     if (descriptor.accessor().isEmpty()) {
-      value = typeValue(semantics.attributedType(descriptor.path()));
+      if (CoverageActualFacts.MATCH_ALL_TYPE_ROLE.equals(context.address().role())) {
+        var type = semantics.type(descriptor.path());
+        value = type instanceof SyntaxType.Resolved
+            ? CoverageActualFacts.patternTypeValue(type)
+            : typeValue(semantics.attributedType(descriptor.path()));
+      } else {
+        value = typeValue(semantics.attributedType(descriptor.path()));
+      }
     } else {
       var element = semantics.element(descriptor.path());
       ownerIdentity = element == null ? Optional.empty() : semantics.declarationKey(element);

@@ -140,6 +140,24 @@ public final class SourceAnalysisFixture {
   }
 
   private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays, boolean iteration, boolean assertions, boolean lambdas) {
+    return withCoverage(original, updates, arrays, iteration, assertions, lambdas, false);
+  }
+
+  /**
+   * Admits supplied compatible reference values with their preceding catalog and exact format.
+   * @param original source values without instance tests or patterns
+   * @return compatible java-source/9 result
+   */
+  public static AstResult referenceResult(AstResult original) {
+    var compatible = withCoverage(original, true, true, true, true, true, true);
+    var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
+        compatible.diagnostics(), compatible.coverage());
+    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.REFERENCE_SOURCE_MODEL_VERSION);
+  }
+
+  private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays, boolean iteration, boolean assertions, boolean lambdas, boolean references) {
+    var patternKinds = Set.of("INSTANCE_OF", "BINDING_PATTERN", "DECONSTRUCTION_PATTERN", "ANY_PATTERN");
+    var patternSurfaces = Set.of("InstanceOfTree", "BindingPatternTree", "DeconstructionPatternTree", "AnyPatternTree");
     var iterationKinds = assertions ? Set.of("LAMBDA_EXPRESSION") : iteration ? Set.of("LAMBDA_EXPRESSION", "ASSERT", "SYNCHRONIZED") : Set.of("LAMBDA_EXPRESSION", "ASSERT", "SYNCHRONIZED", "WHILE_LOOP", "DO_WHILE_LOOP", "FOR_LOOP", "ENHANCED_FOR_LOOP", "LABELED_STATEMENT", "BREAK", "CONTINUE");
     var iterationSurfaces = assertions ? Set.of("LambdaExpressionTree") : iteration ? Set.of("LambdaExpressionTree", "AssertTree", "SynchronizedTree") : Set.of("LambdaExpressionTree", "AssertTree", "SynchronizedTree", "WhileLoopTree", "DoWhileLoopTree", "ForLoopTree", "EnhancedForLoopTree", "LabeledStatementTree", "BreakTree", "ContinueTree");
     var changedKinds = Set.of("MULTIPLY_ASSIGNMENT", "DIVIDE_ASSIGNMENT", "REMAINDER_ASSIGNMENT", "PLUS_ASSIGNMENT",
@@ -149,7 +167,8 @@ public final class SourceAnalysisFixture {
     var catalog = LanguageFeatureCoverage.forRelease(original.coverage().coverage().release(),
         original.coverage().coverage().classifications().stream()
             .filter(classification -> (arrays || !classification.feature().identifier().startsWith("NewArrayTree::"))
-                && !classification.feature().identifier().startsWith("MemberReferenceTree::")
+                && (references || !classification.feature().identifier().startsWith("MemberReferenceTree::"))
+                && patternSurfaces.stream().noneMatch(surface -> classification.feature().identifier().startsWith(surface + "::"))
                 && iterationSurfaces.stream().noneMatch(surface -> classification.feature().identifier().startsWith(surface + "::") && !(lambdas && surface.equals("LambdaExpressionTree"))))
             .map(classification -> {
           var feature = classification.feature();
@@ -158,7 +177,7 @@ public final class SourceAnalysisFixture {
                 "JavaAstAggregate annotation array value; unsupported method-body arrays retain method-syntax diagnostics");
           }
           return feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND
-              && ("MEMBER_REFERENCE".equals(feature.identifier()) || (iterationKinds.contains(feature.identifier()) && !(lambdas && feature.identifier().equals("LAMBDA_EXPRESSION"))) || (!updates && changedKinds.contains(feature.identifier())))
+              && ((!references && "MEMBER_REFERENCE".equals(feature.identifier())) || patternKinds.contains(feature.identifier()) || (iterationKinds.contains(feature.identifier()) && !(lambdas && feature.identifier().equals("LAMBDA_EXPRESSION"))) || (!updates && changedKinds.contains(feature.identifier())))
               ? LanguageFeatureClassification.diagnosed(feature,
                   "frontend.unsupported-tree-kind." + feature.identifier().toLowerCase(Locale.ROOT).replace('_', '-'))
               : classification;
@@ -167,7 +186,8 @@ public final class SourceAnalysisFixture {
     var written = evidence.writtenInventory();
     var contexts = written.contexts().stream().filter(context -> context.feature()
         .map(feature -> (arrays || !feature.identifier().startsWith("NewArrayTree::"))
-            && !feature.identifier().startsWith("MemberReferenceTree::")
+            && (references || !feature.identifier().startsWith("MemberReferenceTree::"))
+            && patternSurfaces.stream().noneMatch(surface -> feature.identifier().startsWith(surface + "::"))
             && iterationSurfaces.stream().noneMatch(surface -> feature.identifier().startsWith(surface + "::") && !(lambdas && surface.equals("LambdaExpressionTree")))).orElse(true)).toList();
     var inventory = new SourceCoverageInventory(written.snapshot(), written.release(), catalog.contractIdentity(), contexts);
     var attributed = new AttributedCoverageExpectations(inventory, evidence.attributedExpectations().projections());

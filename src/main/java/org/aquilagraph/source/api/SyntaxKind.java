@@ -92,6 +92,14 @@ public enum SyntaxKind {
   LAMBDA_EXPRESSION,
   /** Written method, class-constructor or array-constructor reference. */
   MEMBER_REFERENCE,
+  /** Traditional type test or test with one written pattern subtree. */
+  INSTANCE_OF,
+  /** A named or unnamed local declaration within a type pattern. */
+  BINDING_PATTERN,
+  /** A record type and its ordered, possibly empty component patterns. */
+  DECONSTRUCTION_PATTERN,
+  /** An unnamed match-all component pattern that declares no variable. */
+  ANY_PATTERN,
   /** Field value access with a classified receiver form. */
   FIELD_ACCESS,
   /** Local or parameter value access. */
@@ -139,7 +147,7 @@ public enum SyntaxKind {
       case TYPE_USE, ANNOTATION_ARGUMENT, ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST, LOCAL_DECLARATION,
           SWITCH_EXPRESSION, INVOCATION, OBJECT_CREATION, ARRAY_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY,
           CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST,
-          CONDITIONAL_EXPRESSION, LAMBDA_EXPRESSION, MEMBER_REFERENCE ->
+          CONDITIONAL_EXPRESSION, LAMBDA_EXPRESSION, MEMBER_REFERENCE, INSTANCE_OF, ANY_PATTERN ->
         true;
       default -> false;
     };
@@ -159,6 +167,10 @@ public enum SyntaxKind {
       case ARRAY_CREATION -> sourceKind == JavaSourceKind.NEW_ARRAY;
       case LAMBDA_EXPRESSION -> sourceKind == JavaSourceKind.LAMBDA_EXPRESSION;
       case MEMBER_REFERENCE -> sourceKind == JavaSourceKind.MEMBER_REFERENCE;
+      case INSTANCE_OF -> sourceKind == JavaSourceKind.INSTANCE_OF;
+      case BINDING_PATTERN -> sourceKind == JavaSourceKind.BINDING_PATTERN;
+      case DECONSTRUCTION_PATTERN -> sourceKind == JavaSourceKind.DECONSTRUCTION_PATTERN;
+      case ANY_PATTERN -> sourceKind == JavaSourceKind.ANY_PATTERN;
       case ANNOTATION_ARGUMENT -> sourceKind == JavaSourceKind.ASSIGNMENT || sourceKind == JavaSourceKind.NEW_ARRAY
           || sourceKind == JavaSourceKind.ANNOTATION || annotationScalarSyntax(sourceKind);
       case ANNOTATION_ELEMENT_NAME -> sourceKind == JavaSourceKind.IDENTIFIER;

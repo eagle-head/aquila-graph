@@ -48,7 +48,9 @@ final class SourceRequirements {
         && (node.syntaxKind() == SyntaxKind.UPDATE || node.syntaxKind() == SyntaxKind.COMPOUND_ASSIGNMENT
             || node.syntaxKind() == SyntaxKind.ARRAY_CREATION || isIteration(node.syntaxKind()) || node.syntaxKind() == SyntaxKind.ASSERT
             || node.syntaxKind() == SyntaxKind.SYNCHRONIZED || node.syntaxKind() == SyntaxKind.LAMBDA_EXPRESSION
-            || node.syntaxKind() == SyntaxKind.MEMBER_REFERENCE || node.sourceKind() == JavaSourceKind.INTERSECTION_TYPE)) {
+            || node.syntaxKind() == SyntaxKind.MEMBER_REFERENCE || node.syntaxKind() == SyntaxKind.INSTANCE_OF
+            || node.syntaxKind() == SyntaxKind.BINDING_PATTERN || node.syntaxKind() == SyntaxKind.DECONSTRUCTION_PATTERN
+            || node.syntaxKind() == SyntaxKind.ANY_PATTERN || node.sourceKind() == JavaSourceKind.INTERSECTION_TYPE)) {
       return true;
     }
     if (!(node.value() instanceof SyntaxValue.LocalDeclaration local)) {

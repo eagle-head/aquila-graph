@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.AnyPatternTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
@@ -24,7 +25,7 @@ import org.aquilagraph.source.api.LanguageFeatureObservation;
 import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 import org.aquilagraph.source.api.LanguageFeaturePolicy;
 
-/** Observes attributed kinds of written declaration-header type uses. */
+/** Observes attributed kinds of written declaration-header types and match-all components. */
 final class JavaTypeKindObserver {
   private final SnapshotSourceCatalog sources;
   private final SemanticResolver semantics;
@@ -49,6 +50,25 @@ final class JavaTypeKindObserver {
     var scanner = new HeaderScanner(occurrences, observations, diagnostics);
     for (var unit : units) {
       scanner.observeUnit(unit, sourceFor(unit));
+    }
+    var patterns = new TreePathScanner<Void, SourceFile>() {
+      private int patternOrdinal;
+
+      @Override
+      public Void visitCompilationUnit(CompilationUnitTree unit, SourceFile source) {
+        patternOrdinal = 0;
+        return super.visitCompilationUnit(unit, source);
+      }
+
+      @Override
+      public Void visitAnyPattern(AnyPatternTree pattern, SourceFile source) {
+        scanner.observeType(getCurrentPath(), source, source.sourceFileKey() + ":pattern-type:" + patternOrdinal);
+        patternOrdinal++;
+        return super.visitAnyPattern(pattern, source);
+      }
+    };
+    for (var unit : units) {
+      patterns.scan(unit, sourceFor(unit));
     }
     return new ObservedTypeKinds(occurrences, observations, diagnostics);
   }
@@ -131,13 +151,21 @@ final class JavaTypeKindObserver {
       var diagnosticContext = source.sourceFileKey() + ":header-type:" + typeOrdinal;
       typeOrdinal++;
       var path = new TreePath(getCurrentPath(), tree);
-      var unit = getCurrentPath().getCompilationUnit();
+      observeType(path, source, diagnosticContext);
+    }
+
+    private void observeType(TreePath path, SourceFile source, String diagnosticContext) {
+      var tree = path.getLeaf();
+      var unit = path.getCompilationUnit();
       var origin = sourceEvidence.origin(unit, source, tree);
       var nearestOrigin = nearestOrigin(unit, source, path, origin);
       var attribution = semantics.attributedType(path);
       if (attribution == JavaTypeAttribution.Unresolved.INSTANCE) {
-        TranslationDiagnosticEvidence.emit(diagnostics, "JavaTypeKindObserver", FrontendDiagnosticFactory.otherError(diagnosticContext,
-            "frontend.unresolved-attributed-type-kind", "A written declaration-header type has no compiler attribution", nearestOrigin));
+        var message = tree instanceof AnyPatternTree
+            ? "A required match-all component type has no compiler attribution"
+            : "A written declaration-header type has no compiler attribution";
+        TranslationDiagnosticEvidence.emit(diagnostics, "JavaTypeKindObserver",
+            FrontendDiagnosticFactory.otherError(diagnosticContext, "frontend.unresolved-attributed-type-kind", message, nearestOrigin));
         return;
       }
       var kind = switch (attribution) {

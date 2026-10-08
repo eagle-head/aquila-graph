@@ -3,6 +3,8 @@ package org.aquilagraph.source.api;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.List;
+import org.aquilagraph.identity.api.SourceSpan;
 
 /** Intrinsic binding ownership and referability within an admitted executable body. */
 final class LocalBindingDeclarations {
@@ -33,6 +35,33 @@ final class LocalBindingDeclarations {
             .flatMap(SemanticReference::symbolKey).ifPresent(key -> validateAccess(methodKey, node, key, bindings, parents));
       }
     }
+    validatePatternScopes(nodes);
+  }
+
+  private static void validatePatternScopes(List<SyntaxNode> nodes) {
+    for (var pattern : nodes) {
+      if (pattern.syntaxKind() != SyntaxKind.BINDING_PATTERN) {
+        continue;
+      }
+      var binding = pattern.requiredChild(SyntaxRole.PARAMETER).value(SyntaxValue.LocalDeclaration.class);
+      var key = binding.bindingEvidence().flatMap(LocalBindingEvidence::declarationKey);
+      pattern.value(SyntaxValue.PatternBinding.class).resolvedAccesses().ifPresent(accesses -> {
+        for (var origin : accesses) {
+          var matches = nodes.stream()
+              .anyMatch(node -> node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS && node.origin().equals(Optional.of(origin))
+                  && node.semanticReference().flatMap(SemanticReference::symbolKey).equals(key)
+                  && binding.name().equals(node.value(SyntaxValue.SourceSymbol.class).name()));
+          if (!matches && nodes.stream().noneMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED && contains(node, origin))) {
+            throw new IllegalArgumentException("Copied pattern scope must select actual accesses to its exact named binding");
+          }
+        }
+      });
+    }
+  }
+
+  private static boolean contains(SyntaxNode node, SourceSpan access) {
+    return node.origin().filter(origin -> origin.sourceFileKey().equals(access.sourceFileKey())
+        && origin.startOffset() <= access.startOffset() && origin.endOffsetExclusive() >= access.endOffsetExclusive()).isPresent();
   }
 
   private static void validateContext(SyntaxNode declaration, LocalBindingEvidence.Context context, Map<String, SyntaxNode> parents) {
@@ -63,6 +92,13 @@ final class LocalBindingDeclarations {
       throw new IllegalArgumentException("A local access must select its owned named binding");
     }
     var parent = Optional.ofNullable(parents.get(declaration.nodeId())).orElseThrow();
+    if (parent.syntaxKind() == SyntaxKind.BINDING_PATTERN) {
+      var scope = parent.value(SyntaxValue.PatternBinding.class).resolvedAccesses();
+      if (scope.isPresent() && !scope.orElseThrow().contains(access.origin().orElseThrow())) {
+        throw new IllegalArgumentException("A pattern access must agree with its copied compiler-established flow scope");
+      }
+      return;
+    }
     var scopePath = parent.structuralPath().steps();
     var accessPath = access.structuralPath().steps();
     if (accessPath.size() <= scopePath.size() || !accessPath.subList(0, scopePath.size()).equals(scopePath)) {

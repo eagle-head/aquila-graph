@@ -148,7 +148,7 @@ final class JavaParsedChildRoles {
           children.add(Role.TESTED_TYPE, tree.getType());
         }
       }
-      case BindingPatternTree tree -> children.add(Role.DECLARED_TYPE, tree.getVariable());
+      case BindingPatternTree tree -> children.add(Role.PARAMETER, tree.getVariable());
       case ConstantCaseLabelTree tree -> children.add(Role.CONSTANT_EXPRESSION, tree.getConstantExpression());
       case PatternCaseLabelTree tree -> children.add(Role.PATTERN, tree.getPattern());
       case DeconstructionPatternTree tree ->

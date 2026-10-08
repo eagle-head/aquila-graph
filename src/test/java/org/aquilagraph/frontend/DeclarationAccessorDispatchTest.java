@@ -15,6 +15,10 @@ import com.sun.source.tree.AssertTree;
 import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.MemberReferenceTree;
+import com.sun.source.tree.InstanceOfTree;
+import com.sun.source.tree.BindingPatternTree;
+import com.sun.source.tree.DeconstructionPatternTree;
+import com.sun.source.tree.AnyPatternTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
@@ -37,7 +41,7 @@ import org.junit.jupiter.api.Test;
 
 class DeclarationAccessorDispatchTest {
   private static final List<Class<?>> SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
-      VariableTree.class, NewArrayTree.class, AssertTree.class, SynchronizedTree.class, LambdaExpressionTree.class, MemberReferenceTree.class, WhileLoopTree.class, DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class, ContinueTree.class, TypeElement.class, ExecutableElement.class);
+      VariableTree.class, NewArrayTree.class, AssertTree.class, SynchronizedTree.class, LambdaExpressionTree.class, MemberReferenceTree.class, InstanceOfTree.class, BindingPatternTree.class, DeconstructionPatternTree.class, AnyPatternTree.class, WhileLoopTree.class, DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class, ContinueTree.class, TypeElement.class, ExecutableElement.class);
 
   @Test
   void givenEveryRepresentedAccessor_whenItsTargetThrowsRuntimeFailure_thenTheExactMethodAndFailureArePreserved() {
@@ -63,7 +67,7 @@ class DeclarationAccessorDispatchTest {
         visited++;
       }
     }
-    assertEquals(103, visited);
+    assertEquals(113, visited);
   }
 
   @Test
@@ -89,7 +93,7 @@ class DeclarationAccessorDispatchTest {
         visited++;
       }
     }
-    assertEquals(103, visited);
+    assertEquals(113, visited);
   }
 
   @Test

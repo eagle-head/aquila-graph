@@ -33,6 +33,10 @@ class JavaCompilerKindCoverageTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION =
       CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final EnumSet<Tree.Kind> REPRESENTED_KINDS = EnumSet.of(
+      Tree.Kind.INSTANCE_OF,
+      Tree.Kind.BINDING_PATTERN,
+      Tree.Kind.DECONSTRUCTION_PATTERN,
+      Tree.Kind.ANY_PATTERN,
       Tree.Kind.ANNOTATION,
       Tree.Kind.ANNOTATED_TYPE,
       Tree.Kind.ANNOTATION_TYPE,
@@ -205,6 +209,10 @@ class JavaCompilerKindCoverageTest {
             synchronized (this) {}
             Runnable lambda = () -> {};
             java.util.function.IntFunction<int[]> reference = int[]::new;
+            boolean typeTest = reference instanceof Object;
+            boolean bindingTest = null instanceof String text;
+            boolean recordTest = null instanceof Pair(var component);
+            boolean anyTest = null instanceof Pair(_);
             boolean booleanLiteral = true;
             char charLiteral = 'c';
             long longLiteral = 1L;
@@ -311,7 +319,7 @@ class JavaCompilerKindCoverageTest {
         LanguageFeaturePolicy.REPRESENTED,
         LanguageFeaturePolicy.REPRESENTED,
         LanguageFeaturePolicy.REPRESENTED,
-        LanguageFeaturePolicy.DIAGNOSED,
+        LanguageFeaturePolicy.REPRESENTED,
         LanguageFeaturePolicy.REPRESENTED), policies);
   }
 

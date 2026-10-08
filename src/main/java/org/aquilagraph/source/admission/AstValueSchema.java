@@ -398,6 +398,7 @@ final class AstValueSchema {
     record(types, SyntaxValue.Lambda.class, "syntax-value/lambda", "bodyKind", "parenthesized", PARAMETERS_FIELD, RETURN_TYPE_FIELD);
     record(types, SyntaxValue.MemberReference.class, "syntax-value/member-reference", "name", MODE_FIELD, "qualifier", "selectedType",
         "selection", "staticMember");
+    record(types, SyntaxValue.PatternBinding.class, "syntax-value/pattern-binding", "resolvedAccesses");
     enumeration(types, SyntaxValue.ReferenceMode.class, "reference-mode");
     enumeration(types, SyntaxValue.ReferenceQualifier.class, "reference-qualifier");
     enumeration(types, SyntaxValue.ReferenceSelection.class, "reference-selection");
@@ -478,6 +479,7 @@ final class AstValueSchema {
     value(types, SyntaxValue.ReceiverParameter.class, "syntax-value/receiver-parameter", OWNER_KEY_FIELD, WRITTEN_MODIFIERS_FIELD,
         EFFECTIVE_MODIFIERS_FIELD, ANNOTATIONS_FIELD);
     value(types, SyntaxValue.SourceSymbol.class, "syntax-value/source-symbol", NAME_FIELD);
+    value(types, SyntaxValue.InferredRecordType.class, "syntax-value/inferred-record-type", NAME_FIELD);
     value(types, SyntaxValue.CompilationUnit.class, "syntax-value/compilation-unit", FORM_FIELD);
     value(types, SyntaxValue.PackageDeclaration.class, "syntax-value/package-declaration", QUALIFIED_NAME_FIELD, "qualifier");
     value(types, SyntaxValue.ImportDeclaration.class, "syntax-value/import-declaration", QUALIFIED_NAME_FIELD, "staticImport",

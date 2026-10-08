@@ -15,7 +15,10 @@ final class CoverageExecutableFacts {
       Map.entry("LabeledStatementTree", JavaSourceKind.LABELED_STATEMENT), Map.entry("BreakTree", JavaSourceKind.BREAK),
       Map.entry("ContinueTree", JavaSourceKind.CONTINUE), Map.entry("AssertTree", JavaSourceKind.ASSERT),
       Map.entry("SynchronizedTree", JavaSourceKind.SYNCHRONIZED), Map.entry("LambdaExpressionTree", JavaSourceKind.LAMBDA_EXPRESSION),
-      Map.entry("MemberReferenceTree", JavaSourceKind.MEMBER_REFERENCE));
+      Map.entry("MemberReferenceTree", JavaSourceKind.MEMBER_REFERENCE), Map.entry("InstanceOfTree", JavaSourceKind.INSTANCE_OF),
+      Map.entry("BindingPatternTree", JavaSourceKind.BINDING_PATTERN),
+      Map.entry("DeconstructionPatternTree", JavaSourceKind.DECONSTRUCTION_PATTERN),
+      Map.entry("AnyPatternTree", JavaSourceKind.ANY_PATTERN));
 
   private CoverageExecutableFacts() {
   }
@@ -32,6 +35,12 @@ final class CoverageExecutableFacts {
   static boolean supports(String accessor, CoveragePropertyValue expected, CoverageSyntaxFactValue owner, CoverageActualFactView facts,
       InputSnapshot snapshot) {
     return switch (accessor) {
+      case "getPattern" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.PATTERN), facts, snapshot, true);
+      case "getDeconstructor" ->
+        CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.TYPE_OPERAND), facts, snapshot, true);
+      case "getNestedPatterns" ->
+        CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.PATTERN_COMPONENT), facts, snapshot, false);
+      case "getType" -> CoveragePatternFacts.testedType(expected, owner, facts, snapshot);
       case "getMode" ->
         owner.value() instanceof SyntaxValue.MemberReference reference && expected.equals(new CoveragePropertyValue(State.SCALAR,
             List.of(new Item(reference.mode() == SyntaxValue.ReferenceMode.CONSTRUCTOR ? "NEW" : "INVOKE",
@@ -62,8 +71,10 @@ final class CoverageExecutableFacts {
           List.of(new Item(lambda.bodyKind() == SyntaxValue.LambdaBodyKind.BLOCK ? "STATEMENT" : "EXPRESSION",
               lambda.bodyKind() == SyntaxValue.LambdaBodyKind.BLOCK ? "STATEMENT" : "EXPRESSION", Provenance.WRITTEN))));
       case "getExpression" -> CoverageActualFacts.writtenAttachments(expected, owner,
-          List.of(owner.sourceKind() == JavaSourceKind.ENHANCED_FOR_LOOP ? SyntaxRole.ITERABLE : SyntaxRole.MONITOR), facts, snapshot,
-          true);
+          List.of(owner.sourceKind() == JavaSourceKind.INSTANCE_OF
+              ? SyntaxRole.EXPRESSION
+              : owner.sourceKind() == JavaSourceKind.ENHANCED_FOR_LOOP ? SyntaxRole.ITERABLE : SyntaxRole.MONITOR),
+          facts, snapshot, true);
       case "getDetail" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.DETAIL), facts, snapshot, true);
       default -> false;
     };

@@ -39,6 +39,10 @@ import com.sun.source.tree.UnaryTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.MemberReferenceTree;
+import com.sun.source.tree.InstanceOfTree;
+import com.sun.source.tree.BindingPatternTree;
+import com.sun.source.tree.DeconstructionPatternTree;
+import com.sun.source.tree.AnyPatternTree;
 import com.sun.source.tree.ArrayTypeTree;
 import com.sun.source.tree.AnnotatedTypeTree;
 import com.sun.source.tree.YieldTree;
@@ -107,6 +111,33 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     children.addSequence(SyntaxRole.PARAMETER, lambda.getParameters());
     children.add(SyntaxRole.BODY, lambda.getBody());
     return accepted(SyntaxKind.LAMBDA_EXPRESSION, children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitInstanceOf(InstanceOfTree test, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.add(SyntaxRole.EXPRESSION, test.getExpression());
+    children.add(SyntaxRole.PATTERN, test.getPattern());
+    return accepted(SyntaxKind.INSTANCE_OF, children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitBindingPattern(BindingPatternTree pattern, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.add(SyntaxRole.PARAMETER, pattern.getVariable());
+    return accepted(SyntaxKind.BINDING_PATTERN, new SyntaxValue.PatternBinding(Optional.empty()), children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitDeconstructionPattern(DeconstructionPatternTree pattern, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.addSequence(SyntaxRole.PATTERN_COMPONENT, pattern.getNestedPatterns());
+    return accepted(SyntaxKind.DECONSTRUCTION_PATTERN, children);
+  }
+
+  @Override
+  public SyntaxNodeMapping visitAnyPattern(AnyPatternTree pattern, MappingContext context) {
+    return accepted(SyntaxKind.ANY_PATTERN, new ChildMappings(context));
   }
 
   @Override

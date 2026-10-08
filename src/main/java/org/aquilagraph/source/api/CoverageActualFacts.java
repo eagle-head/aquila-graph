@@ -14,6 +14,46 @@ import org.aquilagraph.source.api.CoveragePropertyValue.State;
 
 /** Enumerates actual retained facts without consulting either expected inventory or producer encounter list. */
 public final class CoverageActualFacts {
+  /** Captured component attribution at a match-all occurrence. */
+  public static final String MATCH_ALL_TYPE_ROLE = "match-all-type";
+
+  /**
+   * Copies the required component identity independently of source syntax production.
+   *
+   * @param type
+   *          copied compiler type
+   * @return exact attributed identity, or unavailable required attribution
+   */
+  public static CoveragePropertyValue patternTypeValue(SyntaxType type) {
+    return type instanceof SyntaxType.Resolved resolved
+        ? new CoveragePropertyValue(State.SCALAR, List.of(typeItem(resolved.identity(), 0)))
+        : new CoveragePropertyValue(State.UNAVAILABLE, List.of());
+  }
+
+  /**
+   * Reconciles a match-all component type with its exact independently captured owner.
+   *
+   * @param context
+   *          captured occurrence context
+   * @param expected
+   *          independently attributed component identity
+   * @param facts
+   *          actual retained facts
+   * @return whether the occurrence retains the exact applicable type
+   */
+  public static boolean supportsPatternType(SourceContext context, CoveragePropertyValue expected, List<CoverageFactReference> facts) {
+    if (facts.size() != 1 || !(facts.getFirst().value() instanceof CoverageFactValue.Source source))
+      return false;
+    var fact = facts.getFirst();
+    var syntax = source.value();
+    return fact.sourceFileKey().equals(context.address().sourceFileKey()) && fact.origin().stream().toList().equals(context.origins())
+        && syntax.syntaxKind().equals(SyntaxKind.ANY_PATTERN.name())
+        && syntax.sourceAssociation().filter(association -> association.ownerPath().equals(context.address().ownerPath())).isPresent()
+        && syntax.type().tag() == CoverageEvidenceValue.Tag.TYPE_RESOLVED
+        && syntax.type().fields().stream().filter(field -> "identity".equals(field.name())).anyMatch(
+            field -> field.value() instanceof CoverageEvidenceValue.TypeIdentity identity && scalarType(expected, identity.value()));
+  }
+
   private static final int EXPECTED_COMPACT_SOURCE_ROOTS = 1;
   private static final int EXPECTED_DECLARATION_OWNERS = 1;
   private static final String ANNOTATION_KIND = "ANNOTATION";
@@ -395,6 +435,9 @@ public final class CoverageActualFacts {
    */
   public static boolean supportsProperty(SourceContext context, CoveragePropertyValue expected, List<CoverageFactReference> owned,
       CoverageActualFactView actualFacts, InputSnapshot snapshot) {
+    if (context.address().partition() == SourceContext.Partition.TYPE && MATCH_ALL_TYPE_ROLE.equals(context.address().role())) {
+      return supportsPatternType(context, expected, owned);
+    }
     if (owned.isEmpty() || expected.state() == State.UNAVAILABLE) {
       return false;
     }

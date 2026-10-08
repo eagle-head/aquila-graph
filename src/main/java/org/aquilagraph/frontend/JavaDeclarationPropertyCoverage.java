@@ -5,6 +5,10 @@ import com.sun.source.tree.AssertTree;
 import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.MemberReferenceTree;
+import com.sun.source.tree.InstanceOfTree;
+import com.sun.source.tree.BindingPatternTree;
+import com.sun.source.tree.DeconstructionPatternTree;
+import com.sun.source.tree.AnyPatternTree;
 import com.sun.source.tree.DoWhileLoopTree;
 import com.sun.source.tree.ForLoopTree;
 import com.sun.source.tree.EnhancedForLoopTree;
@@ -59,8 +63,9 @@ final class JavaDeclarationPropertyCoverage {
 
   private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
       VariableTree.class, NewArrayTree.class, AssertTree.class, SynchronizedTree.class, LambdaExpressionTree.class,
-      MemberReferenceTree.class, WhileLoopTree.class, DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class,
-      LabeledStatementTree.class, BreakTree.class, ContinueTree.class, TypeElement.class, ExecutableElement.class);
+      MemberReferenceTree.class, InstanceOfTree.class, BindingPatternTree.class, DeconstructionPatternTree.class, AnyPatternTree.class,
+      WhileLoopTree.class, DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class,
+      ContinueTree.class, TypeElement.class, ExecutableElement.class);
   private static final String STATEMENT_KIND_BOUNDARY = "Canonical written statement kind";
   private static final String STATEMENT_VALUE_BOUNDARY = "Canonical written statement value and ordered children";
   private static final String TREE_API = "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/";
@@ -128,6 +133,7 @@ final class JavaDeclarationPropertyCoverage {
     classifications.addAll(assertionMonitorClassifications());
     classifications.addAll(lambdaClassifications());
     classifications.addAll(referenceClassifications());
+    classifications.addAll(patternClassifications());
     classifications.addAll(typeElementClassifications());
     classifications.addAll(executableElementClassifications());
     return List.copyOf(classifications);
@@ -155,6 +161,29 @@ final class JavaDeclarationPropertyCoverage {
         represented("MemberReferenceTree::MemberReferenceTree#getName()", "Written reference name"),
         represented("MemberReferenceTree::MemberReferenceTree#getQualifierExpression()", "Written reference qualifier subtree"),
         represented("MemberReferenceTree::MemberReferenceTree#getTypeArguments()", "Ordered explicit reference type arguments"));
+  }
+
+  private static List<LanguageFeatureClassification> patternClassifications() {
+    return List.of(
+        irrelevant("InstanceOfTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
+            TREE_ACCEPT_SOURCE),
+        represented("InstanceOfTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY),
+        represented("InstanceOfTree::InstanceOfTree#getExpression()", "Written tested expression"),
+        represented("InstanceOfTree::InstanceOfTree#getType()", "Traditional written type or shared binding-pattern type"),
+        represented("InstanceOfTree::InstanceOfTree#getPattern()", "One written pattern subtree or explicit absence"),
+        irrelevant("BindingPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
+            TREE_ACCEPT_SOURCE),
+        represented("BindingPatternTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY),
+        represented("BindingPatternTree::BindingPatternTree#getVariable()", "Written named or unnamed pattern binding"),
+        irrelevant("DeconstructionPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
+            TREE_ACCEPT_SOURCE),
+        represented("DeconstructionPatternTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY),
+        represented("DeconstructionPatternTree::DeconstructionPatternTree#getDeconstructor()", "Written record type subtree"),
+        represented("DeconstructionPatternTree::DeconstructionPatternTree#getNestedPatterns()",
+            "Ordered record component patterns including empty lists"),
+        irrelevant("AnyPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
+            TREE_ACCEPT_SOURCE),
+        represented("AnyPatternTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
   }
 
   private static List<LanguageFeatureClassification> lambdaClassifications() {

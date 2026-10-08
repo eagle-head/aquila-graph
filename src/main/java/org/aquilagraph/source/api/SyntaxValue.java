@@ -5,9 +5,26 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import org.aquilagraph.identity.api.SourceSpan;
 
 /** Copied written syntax and attributed facts queried after compiler closure. */
 public sealed interface SyntaxValue {
+  /**
+   * Copied compiler resolution of references within a pattern binding's flow scope.
+   *
+   * @param resolvedAccesses
+   *          exact written access origins selected by the compiler, absent when evidence is unavailable
+   */
+  record PatternBinding(Optional<List<SourceSpan>> resolvedAccesses) implements SyntaxValue {
+    /** Copies scope evidence without retaining live compiler objects. */
+    public PatternBinding {
+      resolvedAccesses = Objects.requireNonNull(resolvedAccesses, "resolvedAccesses").map(List::copyOf);
+      if (resolvedAccesses.filter(accesses -> accesses.stream().distinct().count() != accesses.size()).isPresent()) {
+        throw new IllegalArgumentException("Pattern binding accesses require distinct written occurrences");
+      }
+    }
+  }
+
   /** Written reference selection mode. */
   enum ReferenceMode {
     /** A reference to a named method. */
@@ -247,6 +264,20 @@ public sealed interface SyntaxValue {
      */
     public PackageQualifier(String name) {
       super(name, Form.PACKAGE_QUALIFIER, None.INSTANCE);
+      SyntaxValueSupport.requireName(name);
+    }
+  }
+
+  /** Written record type name whose omitted type arguments are inferred by pattern attribution. */
+  final class InferredRecordType extends Symbol {
+    /**
+     * Retains the written name independently of its inferred attributed arguments.
+     *
+     * @param name
+     *          written record name
+     */
+    public InferredRecordType(String name) {
+      super(name, Form.INFERRED_RECORD_TYPE, None.INSTANCE);
       SyntaxValueSupport.requireName(name);
     }
   }
@@ -633,11 +664,12 @@ public sealed interface SyntaxValue {
   abstract sealed class Symbol implements SyntaxValue
       permits SourceSymbol, CompilationUnit, PackageDeclaration, ImportDeclaration, ModuleDeclaration, ModuleDirective, TypeDeclaration,
       TypeParameterDeclaration, ExecutableDeclaration, ParameterHeader, VariableDeclaration, RecordComponentDeclaration, PrimitiveType,
-      PackageQualifier, Annotation, AnnotationArgument, SharedTypeAnnotations {
+      PackageQualifier, InferredRecordType, Annotation, AnnotationArgument, SharedTypeAnnotations {
     enum Form {
       SYMBOL, COMPILATION_UNIT, PACKAGE_DECLARATION, IMPORT_DECLARATION, MODULE_DECLARATION, REQUIRES, EXPORTS, OPENS, USES, PROVIDES,
       TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, EXECUTABLE_DECLARATION, PARAMETER_DECLARATION, RECEIVER_PARAMETER, VARIABLE_DECLARATION,
-      RECORD_COMPONENT_DECLARATION, PRIMITIVE_TYPE, PACKAGE_QUALIFIER, ANNOTATION, ANNOTATION_ARGUMENT, SHARED_TYPE_ANNOTATIONS
+      RECORD_COMPONENT_DECLARATION, PRIMITIVE_TYPE, PACKAGE_QUALIFIER, INFERRED_RECORD_TYPE, ANNOTATION, ANNOTATION_ARGUMENT,
+      SHARED_TYPE_ANNOTATIONS
     }
 
     private final String sourceName;

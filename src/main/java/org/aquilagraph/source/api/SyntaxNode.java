@@ -577,6 +577,10 @@ public final class SyntaxNode {
     if (!kind.requiresType() && type != SyntaxType.NotApplicable.INSTANCE) {
       throw new IllegalArgumentException(kind + " cannot carry a compiler type outcome");
     }
+    if (kind == SyntaxKind.INSTANCE_OF && type.knownIdentity().filter(identity -> identity.category() != JavaTypeCategory.BOOLEAN
+        && identity.category() != JavaTypeCategory.ERROR && identity.category() != JavaTypeCategory.OTHER).isPresent()) {
+      throw new IllegalArgumentException("An instance test must have a boolean result type");
+    }
     if ((kind == SyntaxKind.LAMBDA_EXPRESSION && type instanceof SyntaxType.Resolved resolved
         && !isFunctionalTargetCategory(resolved.identity().category()))
         || (kind == SyntaxKind.MEMBER_REFERENCE
@@ -710,6 +714,7 @@ public final class SyntaxNode {
       case LOCAL_DECLARATION -> SyntaxValue.LocalDeclaration.class;
       case LAMBDA_EXPRESSION -> SyntaxValue.Lambda.class;
       case MEMBER_REFERENCE -> SyntaxValue.MemberReference.class;
+      case BINDING_PATTERN -> SyntaxValue.PatternBinding.class;
       case LABELED_STATEMENT, BREAK, CONTINUE -> SyntaxValue.StatementLabel.class;
       case VARIABLE_ACCESS, ARRAY_LENGTH -> SyntaxValue.SourceSymbol.class;
       case FIELD_ACCESS -> SyntaxValue.FieldAccess.class;
@@ -873,6 +878,35 @@ public final class SyntaxNode {
         });
       }
       case MEMBER_REFERENCE -> validateMemberReferenceShape((SyntaxValue.MemberReference) value, children, semanticReference);
+      case INSTANCE_OF -> {
+        requireShape(children, Set.of(SyntaxRole.EXPRESSION, SyntaxRole.TYPE_OPERAND, SyntaxRole.PATTERN), SyntaxRole.EXPRESSION, 1, 1);
+        requireCount(children, SyntaxRole.TYPE_OPERAND, 0, 1);
+        requireCount(children, SyntaxRole.PATTERN, 0, 1);
+        if (children.stream().anyMatch(child -> child.role() == SyntaxRole.TYPE_OPERAND)
+            && children.stream().anyMatch(child -> child.role() == SyntaxRole.PATTERN)) {
+          throw new IllegalArgumentException("An instance test cannot duplicate its pattern's written type");
+        }
+        validateBodyTypeAttachment(children, SyntaxRole.TYPE_OPERAND);
+      }
+      case BINDING_PATTERN -> {
+        requireShape(children, Set.of(SyntaxRole.PARAMETER), SyntaxRole.PARAMETER, 1, 1);
+        var binding = children.getFirst().node().value(SyntaxValue.LocalDeclaration.class).bindingEvidence();
+        if (binding.filter(evidence -> evidence.context() != LocalBindingEvidence.Context.PATTERN || evidence.initialized()).isPresent()) {
+          throw new IllegalArgumentException("A type pattern requires an uninitialized pattern binding");
+        }
+        ((SyntaxValue.PatternBinding) value).resolvedAccesses().ifPresent(accesses -> {
+          if (accesses.stream().anyMatch(access -> !access.sourceFileKey().equals(children.getFirst().node().sourceFileKey()))) {
+            throw new IllegalArgumentException("Pattern binding accesses must remain in their captured source file");
+          }
+          if ("_".equals(children.getFirst().node().value(SyntaxValue.LocalDeclaration.class).name()) && !accesses.isEmpty()) {
+            throw new IllegalArgumentException("An unnamed pattern binding cannot have named accesses");
+          }
+        });
+      }
+      case DECONSTRUCTION_PATTERN -> {
+        requireShape(children, Set.of(SyntaxRole.TYPE_OPERAND, SyntaxRole.PATTERN_COMPONENT));
+        validateBodyTypeAttachment(children, SyntaxRole.TYPE_OPERAND);
+      }
       case LAMBDA_EXPRESSION -> {
         requireShape(children, Set.of(SyntaxRole.PARAMETER, SyntaxRole.BODY));
         var lambda = (SyntaxValue.Lambda) value;
@@ -1019,8 +1053,8 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.QUALIFIER, 0,
             receiver == SyntaxValue.ReceiverKind.QUALIFIED_THIS || receiver == SyntaxValue.ReceiverKind.QUALIFIED_SUPER ? 1 : 0);
       }
-      case BREAK, CONTINUE, ANNOTATION_ELEMENT_NAME, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, VARIABLE_ACCESS, LITERAL,
-          EMPTY ->
+      case BREAK, CONTINUE, ANNOTATION_ELEMENT_NAME, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, VARIABLE_ACCESS, LITERAL, EMPTY,
+          ANY_PATTERN ->
         requireShape(children, Set.of());
       case RECEIVER_NAME -> {
         requireShape(children, Set.of());
@@ -1045,6 +1079,10 @@ public final class SyntaxNode {
   private static void validateExecutableChildren(SyntaxKind kind, List<SyntaxChild> children) {
     for (var child : children) {
       var node = child.node();
+      if (hasInferredRecordType(node) && !(kind == SyntaxKind.DECONSTRUCTION_PATTERN && child.role() == SyntaxRole.TYPE_OPERAND)
+          && !(kind == SyntaxKind.TYPE_USE && child.role() == SyntaxRole.UNDERLYING_TYPE)) {
+        throw new IllegalArgumentException("Inferred record type arguments require their deconstruction pattern owner");
+      }
       var valid = switch (kind) {
         case BLOCK -> isStatement(node);
         case LOCAL_DECLARATION -> child.role() != SyntaxRole.INITIALIZER || isExpression(node);
@@ -1055,6 +1093,13 @@ public final class SyntaxNode {
             ? node.syntaxKind() == SyntaxKind.TYPE_USE
             : node.syntaxKind() == SyntaxKind.TYPE_USE || isExpression(node);
         case TYPE_CAST -> child.role() != SyntaxRole.EXPRESSION || isExpression(node);
+        case INSTANCE_OF -> switch (child.role()) {
+          case EXPRESSION -> isExpression(node);
+          case TYPE_OPERAND -> node.syntaxKind() == SyntaxKind.TYPE_USE;
+          default -> isPattern(node);
+        };
+        case BINDING_PATTERN -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION;
+        case DECONSTRUCTION_PATTERN -> child.role() == SyntaxRole.TYPE_OPERAND ? node.syntaxKind() == SyntaxKind.TYPE_USE : isPattern(node);
         case ASSERT, EXPRESSION_STATEMENT, RETURN, THROW, PARENTHESIZED, YIELD, ARRAY_LENGTH, UNARY, BINARY, CONDITIONAL_AND,
             CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, CONDITIONAL_EXPRESSION ->
           isExpression(node);
@@ -1119,7 +1164,7 @@ public final class SyntaxNode {
     return switch (node.syntaxKind()) {
       case INVOCATION, OBJECT_CREATION, ARRAY_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY, CONDITIONAL_AND,
           CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST,
-          CONDITIONAL_EXPRESSION, SWITCH_EXPRESSION, LAMBDA_EXPRESSION, MEMBER_REFERENCE, ANNOTATION_NAME_REFERENCE,
+          CONDITIONAL_EXPRESSION, SWITCH_EXPRESSION, LAMBDA_EXPRESSION, MEMBER_REFERENCE, INSTANCE_OF, ANNOTATION_NAME_REFERENCE,
           ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST ->
         true;
       case UNSUPPORTED -> switch (node.sourceKind()) {
@@ -1152,6 +1197,18 @@ public final class SyntaxNode {
       };
       default -> false;
     };
+  }
+
+  private static boolean isPattern(SyntaxNode node) {
+    return switch (node.syntaxKind()) {
+      case BINDING_PATTERN, DECONSTRUCTION_PATTERN, ANY_PATTERN -> true;
+      default -> false;
+    };
+  }
+
+  private static boolean hasInferredRecordType(SyntaxNode node) {
+    return node.syntaxKind() == SyntaxKind.TYPE_USE && (node.value() instanceof SyntaxValue.InferredRecordType
+        || node.optionalChild(SyntaxRole.UNDERLYING_TYPE).map(SyntaxNode::hasInferredRecordType).orElse(false));
   }
 
   private static boolean isStatementBody(SyntaxNode node) {
@@ -1562,7 +1619,8 @@ public final class SyntaxNode {
 
   private static void validateTypeUse(JavaSourceKind sourceKind, SyntaxValue value, List<SyntaxChild> children) {
     if ((sourceKind == JavaSourceKind.IDENTIFIER || sourceKind == JavaSourceKind.MEMBER_SELECT)
-        && !(value instanceof SyntaxValue.SourceSymbol || value instanceof SyntaxValue.PackageQualifier)) {
+        && !(value instanceof SyntaxValue.SourceSymbol || value instanceof SyntaxValue.PackageQualifier
+            || value instanceof SyntaxValue.InferredRecordType)) {
       throw new IllegalArgumentException("A written type name requires a source symbol or package qualifier");
     }
     switch (sourceKind) {
@@ -1670,7 +1728,7 @@ public final class SyntaxNode {
     }
     if ((sourceKind == JavaSourceKind.IDENTIFIER || sourceKind == JavaSourceKind.MEMBER_SELECT)
         && declarationType.filter(declared -> !declared.arguments().isEmpty()).isPresent()
-        && path.steps().getLast().role() != SyntaxRole.TYPE_NAME) {
+        && path.steps().getLast().role() != SyntaxRole.TYPE_NAME && !(value instanceof SyntaxValue.InferredRecordType)) {
       throw new IllegalArgumentException("A written raw type name cannot carry attributed type arguments");
     }
     if (sourceKind == JavaSourceKind.ARRAY_TYPE

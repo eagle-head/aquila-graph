@@ -5,6 +5,7 @@ import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
+import com.sun.source.tree.BindingPatternTree;
 import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
@@ -37,6 +38,7 @@ final class JavaMethodBodyTranslator {
   private final ParsedTreeInventory treeInventory;
   private final MethodBodySyntaxProfile syntaxProfile;
   private final JavaLocalBindingProjector bindings;
+  private final JavaPatternBindingProjector patterns;
 
   JavaMethodBodyTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
@@ -44,6 +46,7 @@ final class JavaMethodBodyTranslator {
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
     syntaxProfile = new MethodBodySyntaxProfile(semantics);
     bindings = new JavaLocalBindingProjector(semantics, sourceEvidence, treeInventory);
+    patterns = new JavaPatternBindingProjector(semantics, sourceEvidence);
   }
 
   TranslationResult<TranslatedMethodBody> translate(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, BlockTree body,
@@ -127,6 +130,8 @@ final class JavaMethodBodyTranslator {
     var value = mapping.value();
     if (value instanceof SyntaxValue.LocalDeclaration && tree instanceof VariableTree variable) {
       value = bindings.project(unit, sourceFile, variable, path);
+    } else if (tree instanceof BindingPatternTree pattern) {
+      value = patterns.project(unit, sourceFile, pattern, path);
     } else if (tree instanceof LambdaExpressionTree lambda) {
       var form = treeInventory.lambdaForm(lambda);
       value = new SyntaxValue.Lambda(form.bodyKind(), form.parenthesized(), form.parameters(),

@@ -198,6 +198,10 @@ public sealed interface CoverageEvidenceValue {
     LAMBDA,
     /** Written method or constructor reference and selected type. */
     MEMBER_REFERENCE,
+    /** Compiler-selected accesses to a pattern binding. */
+    PATTERN_BINDING,
+    /** Written record name with inferred omitted type arguments. */
+    INFERRED_RECORD_TYPE,
     /** Written functional parameter form. */
     LAMBDA_PARAMETER,
     /** Written local type. */

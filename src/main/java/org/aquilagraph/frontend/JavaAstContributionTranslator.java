@@ -10,6 +10,8 @@ import com.sun.source.tree.ImportTree;
 import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.MemberReferenceTree;
+import com.sun.source.tree.InstanceOfTree;
+import com.sun.source.tree.DeconstructionPatternTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.NewArrayTree;
@@ -1409,6 +1411,15 @@ final class JavaAstContributionTranslator {
         }
       }
       case TypeCastTree cast -> complete = appendBodyType(cast.getType(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
+      case InstanceOfTree test -> {
+        if (test.getPattern() == null) {
+          complete = appendBodyType(test.getType(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
+        }
+      }
+      case DeconstructionPatternTree pattern -> {
+        complete = appendBodyType(pattern.getDeconstructor(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
+        children.sort(Comparator.comparingInt(child -> child.role() == SyntaxRole.TYPE_OPERAND ? 0 : 1));
+      }
       case VariableTree variable -> {
         complete = appendLocalAttachments(variable, creatingPath, path, children, context);
       }

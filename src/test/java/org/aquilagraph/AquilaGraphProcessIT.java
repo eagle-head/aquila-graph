@@ -16,6 +16,23 @@ class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
 
   @Test
+  void givenPackagedPatternSource_whenBoundedProcessRuns_thenHistoricalDiagnosticsAndRefusalRemainObservable() throws IOException, InterruptedException {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
+    Files.writeString(sourceRoot.resolve("Patterns.java"), "class Patterns { boolean value(Object input) { return input instanceof String text; } }");
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertEquals(List.of(
+        "ERROR FRONTEND frontend.unsupported-tree-kind.instance-of: Java compiler tree kind INSTANCE_OF is outside the supported semantic graph profile",
+        "ERROR FRONTEND frontend.unsupported-tree-kind.binding-pattern: Java compiler tree kind BINDING_PATTERN is outside the supported semantic graph profile",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: INSTANCE_OF"), result.error().lines().toList());
+  }
+
+  @Test
   void givenPackagedReferenceSource_whenBoundedProcessRuns_thenHistoricalReferenceRefusalRemainsObservable() throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));

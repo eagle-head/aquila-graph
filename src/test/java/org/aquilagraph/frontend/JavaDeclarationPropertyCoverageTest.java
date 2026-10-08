@@ -21,6 +21,13 @@ import org.junit.jupiter.api.Test;
 class JavaDeclarationPropertyCoverageTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final Set<String> EXPECTED_PROPERTIES = Set.of(
+      "InstanceOfTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "InstanceOfTree::Tree#getKind()", "InstanceOfTree::InstanceOfTree#getExpression()", "InstanceOfTree::InstanceOfTree#getType()", "InstanceOfTree::InstanceOfTree#getPattern()",
+      "BindingPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "BindingPatternTree::Tree#getKind()", "BindingPatternTree::BindingPatternTree#getVariable()",
+      "DeconstructionPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "DeconstructionPatternTree::Tree#getKind()", "DeconstructionPatternTree::DeconstructionPatternTree#getDeconstructor()", "DeconstructionPatternTree::DeconstructionPatternTree#getNestedPatterns()",
+      "AnyPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", "AnyPatternTree::Tree#getKind()",
       "AssertTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "AssertTree::Tree#getKind()", "AssertTree::AssertTree#getCondition()", "AssertTree::AssertTree#getDetail()",
       "SynchronizedTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
@@ -146,6 +153,10 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::ExecutableElement#isDefault()",
       "ExecutableElement::ExecutableElement#isVarArgs()");
   private static final Set<String> EXPECTED_IRRELEVANT_PROPERTIES = Set.of(
+      "InstanceOfTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "BindingPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "DeconstructionPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "AnyPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "MemberReferenceTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "LambdaExpressionTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "AssertTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
@@ -360,7 +371,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:57c6cdc127ac8360381c721d17d84ed5ca5b682275ab72ddb3bdae324baad5bf",
+    assertEquals("java-language-feature-coverage:09c76957002dba67b40c181c9df2283dfc5fbd2e72d70202adbab2e9606bf8e1",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 

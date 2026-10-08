@@ -31,6 +31,7 @@ import org.aquilagraph.source.api.SourceCoverageInventory;
 import org.aquilagraph.source.api.SourceOwnerPath;
 import org.aquilagraph.source.api.UnmatchedSourceFact;
 import org.aquilagraph.source.api.CoverageActualFacts;
+import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.CoverageActualFactView;
 import org.aquilagraph.source.api.CoverageWrittenTypeUseTopology;
 import org.aquilagraph.source.api.CoverageWrittenQualifierTopology;
@@ -40,6 +41,7 @@ import org.aquilagraph.source.api.SyntaxKind;
 
 /** Compares independent expectation stages, independently emitted pairs, and actual retained facts in both directions. */
 final class JavaSourceCoverageReconciler {
+  private static final String MISSING_SOURCE_EVIDENCE = "frontend.missing-source-evidence";
   private static final int EXPECTED_WRITTEN_TYPE_USE_FACTS = 1;
   private static final String UNIT_KIND_PROPERTY = "CompilationUnitTree::Tree#getKind()";
   private static final String UNIT_SOURCE_PROPERTY = "CompilationUnitTree::CompilationUnitTree#getSourceFile()";
@@ -92,8 +94,7 @@ final class JavaSourceCoverageReconciler {
     for (var context : inventory.contexts().stream().filter(value -> value.address().partition() == Partition.TYPE).toList()) {
       var expected = projection(context);
       if (expected.state() == State.UNAVAILABLE) {
-        var addresses = failure(context, "frontend.unresolved-attributed-type-kind",
-            "A written declaration-header type has no compiler attribution");
+        var addresses = failure(context, "frontend.unresolved-attributed-type-kind", unavailableTypeMessage(context));
         outcomes.add(new FeatureContextOutcome(context.address(), Optional.empty(), Optional.empty(), Optional.of(expected),
             support(Mode.FAILED), addresses));
       } else {
@@ -102,10 +103,16 @@ final class JavaSourceCoverageReconciler {
         }
         var observation = types.observations().get(typeIndex);
         var actual = typeKindValue(observation.classification().feature().identifier());
-        if (!actual.equals(expected) || !observation.sourceFileKey().equals(context.address().sourceFileKey())) {
+        var pattern = CoverageActualFacts.MATCH_ALL_TYPE_ROLE.equals(context.address().role());
+        var expectedKind = pattern && expected.items().getFirst().typeIdentity().isPresent()
+            ? typeKindValue(expected.items().getFirst().typeIdentity().orElseThrow().category() == JavaTypeCategory.TYPE_VARIABLE
+                ? "TYPEVAR"
+                : expected.items().getFirst().typeIdentity().orElseThrow().category().name())
+            : expected;
+        if (!actual.equals(expectedKind) || !observation.sourceFileKey().equals(context.address().sourceFileKey())) {
           throw new IllegalArgumentException("Actual attributed kind differs from the independently queried header slot");
         }
-        addKnown(context, types.occurrences().get(typeIndex), observation, Optional.of(actual));
+        addKnown(context, types.occurrences().get(typeIndex), observation, Optional.of(pattern ? expected : actual));
         typeIndex++;
       }
     }
@@ -132,8 +139,7 @@ final class JavaSourceCoverageReconciler {
       } else if (context.address().partition() == Partition.WRITTEN_TYPE_USE) {
         writtenTypeUse(context);
       } else {
-        var addresses = failure(context, "frontend.unresolved-attributed-type-kind",
-            "A written declaration-header type has no compiler attribution");
+        var addresses = failure(context, "frontend.unresolved-attributed-type-kind", unavailableTypeMessage(context));
         outcomes.add(new FeatureContextOutcome(context.address(), Optional.empty(), Optional.empty(), encounter.encounteredValue(),
             support(Mode.FAILED), addresses));
       }
@@ -166,8 +172,7 @@ final class JavaSourceCoverageReconciler {
     if (facts.size() == EXPECTED_WRITTEN_TYPE_USE_FACTS) {
       disposition = new Support(Mode.FACTS, facts, Optional.empty(), Optional.empty(), Optional.empty());
     } else {
-      emissions = failure(context, "frontend.missing-source-evidence",
-          "Required recursive written type syntax is unavailable at its exact owner");
+      emissions = failure(context, MISSING_SOURCE_EVIDENCE, "Required recursive written type syntax is unavailable at its exact owner");
     }
     outcomes
         .add(new FeatureContextOutcome(context.address(), Optional.empty(), Optional.empty(), Optional.empty(), disposition, emissions));
@@ -211,7 +216,19 @@ final class JavaSourceCoverageReconciler {
     var disposition = support(Mode.NOT_REQUIRED);
     if (observation.classification().policy() == LanguageFeaturePolicy.REPRESENTED) {
       if (context.address().partition() == Partition.TYPE) {
-        disposition = support(Mode.ATTRIBUTED_PAIR);
+        if (CoverageActualFacts.MATCH_ALL_TYPE_ROLE.equals(context.address().role())) {
+          var facts = ownerFacts(context).stream()
+              .filter(fact -> actualFacts.isSource(fact, syntax -> syntax.syntaxKind() == SyntaxKind.ANY_PATTERN)).toList();
+          if (CoverageActualFacts.supportsPatternType(context, projection(context), facts)) {
+            disposition = new Support(Mode.FACTS, facts, Optional.empty(), Optional.empty(), Optional.empty());
+          } else {
+            disposition = support(Mode.FAILED);
+            addresses.addAll(
+                failure(context, MISSING_SOURCE_EVIDENCE, "Required match-all component attribution is unavailable at its exact owner"));
+          }
+        } else {
+          disposition = support(Mode.ATTRIBUTED_PAIR);
+        }
       } else if (UNIT_KIND_PROPERTY.equals(context.address().role())) {
         var tree = inventory.contexts().stream()
             .filter(candidate -> candidate.address().partition() == Partition.TREE
@@ -233,7 +250,7 @@ final class JavaSourceCoverageReconciler {
           addresses.addAll(failure(context,
               expected.filter(value -> value.state() == State.UNAVAILABLE).isPresent()
                   ? "frontend.inconsistent-source-evidence"
-                  : "frontend.missing-source-evidence",
+                  : MISSING_SOURCE_EVIDENCE,
               "Required represented source evidence is unavailable at the captured owner"));
         } else if (expected.filter(value -> value.state() == State.ABSENT || value.state() == State.EMPTY).isPresent()) {
           disposition = new Support(Mode.NEGATIVE, List.of(), Optional.empty(), Optional.empty(), expected);
@@ -393,7 +410,7 @@ final class JavaSourceCoverageReconciler {
   }
 
   private List<DiagnosticEmission.Address> failure(SourceContext context, String code, String message) {
-    if ("frontend.missing-source-evidence".equals(code) || "frontend.inconsistent-source-evidence".equals(code)) {
+    if (MISSING_SOURCE_EVIDENCE.equals(code) || "frontend.inconsistent-source-evidence".equals(code)) {
       var origins = context.origins().isEmpty()
           ? inventory.contexts().stream()
               .filter(owner -> owner.address().partition() == Partition.TREE
@@ -459,6 +476,12 @@ final class JavaSourceCoverageReconciler {
 
   private static CoveragePropertyValue typeKindValue(String kind) {
     return new CoveragePropertyValue(State.SCALAR, List.of(new Item("type-kind", kind, Provenance.WRITTEN)));
+  }
+
+  private static String unavailableTypeMessage(SourceContext context) {
+    return CoverageActualFacts.MATCH_ALL_TYPE_ROLE.equals(context.address().role())
+        ? "A required match-all component type has no compiler attribution"
+        : "A written declaration-header type has no compiler attribution";
   }
 
   private static DiagnosticIdentity identity(AnalysisDiagnostic diagnostic) {

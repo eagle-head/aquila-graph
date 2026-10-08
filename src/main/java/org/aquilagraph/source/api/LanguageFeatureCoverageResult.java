@@ -21,7 +21,8 @@ public final class LanguageFeatureCoverageResult {
           "java-language-feature-coverage:6661250f922a3b0bb0f7aa7a01dc27b8f2c3bdc880b95cd781b0e15a32b017e4",
           "java-language-feature-coverage:0acd09f319196e03148af21d885419a440820cc7506a081b9f8cad0222eecb91",
           "java-language-feature-coverage:b9ed57677bf06688e4f3b06cb3287035dc4f0951aeb4766f50a22a3ab7d8417e",
-          "java-language-feature-coverage:57c6cdc127ac8360381c721d17d84ed5ca5b682275ab72ddb3bdae324baad5bf"));
+          "java-language-feature-coverage:57c6cdc127ac8360381c721d17d84ed5ca5b682275ab72ddb3bdae324baad5bf",
+          "java-language-feature-coverage:09c76957002dba67b40c181c9df2283dfc5fbd2e72d70202adbab2e9606bf8e1"));
   private final LanguageFeatureCoverage coverageContract;
   private final List<LanguageFeatureOccurrence> occurrenceValues;
   private final List<LanguageFeatureObservation> observationValues;
@@ -276,7 +277,9 @@ public final class LanguageFeatureCoverageResult {
         && outcome.support().mode() != FeatureContextOutcome.Mode.FAILED) {
       var mode = outcome.support().mode();
       var correct = context.address().partition() == SourceContext.Partition.TYPE
-          ? mode == FeatureContextOutcome.Mode.ATTRIBUTED_PAIR
+          ? mode == (CoverageActualFacts.MATCH_ALL_TYPE_ROLE.equals(context.address().role())
+              ? FeatureContextOutcome.Mode.FACTS
+              : FeatureContextOutcome.Mode.ATTRIBUTED_PAIR)
           : "CompilationUnitTree::Tree#getKind()".equals(context.address().role())
               ? mode == FeatureContextOutcome.Mode.POLICY_PAIR
               : "CompilationUnitTree::CompilationUnitTree#getSourceFile()".equals(context.address().role())
@@ -286,6 +289,10 @@ public final class LanguageFeatureCoverageResult {
                       .isPresent() ? mode == FeatureContextOutcome.Mode.NEGATIVE : mode == FeatureContextOutcome.Mode.FACTS;
       if (!correct) {
         throw new IllegalArgumentException("Represented success requires its exact catalog support mode");
+      }
+      if (CoverageActualFacts.MATCH_ALL_TYPE_ROLE.equals(context.address().role())
+          && !CoverageActualFacts.supportsPatternType(context, expected.orElseThrow(), outcome.support().facts())) {
+        throw new IllegalArgumentException("Match-all type support requires its exact attributed source fact");
       }
     }
     if (outcome.support().mode() == FeatureContextOutcome.Mode.POLICY_PAIR) {

@@ -22,6 +22,10 @@ public enum SyntaxRole {
   ANNOTATION_ELEMENT_NAME("annotation-element-name"),
   /** Written type operand of a class literal or cast. */
   TYPE_OPERAND("type-operand"),
+  /** The single written pattern tested by an instance test. */
+  PATTERN("pattern"),
+  /** Ordered component pattern in a record deconstruction. */
+  PATTERN_COMPONENT("pattern-component"),
   /** Top-level type declaration within a compilation unit. */
   TYPE_DECLARATION("type-declaration"),
   /** Member declaration within a type. */

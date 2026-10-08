@@ -50,6 +50,7 @@ final class CoverageSourceProjection {
           field("annotationNodeKeys", sequence(shared.annotationNodeKeys(), CoverageSourceProjection::text)));
       case SyntaxValue.PrimitiveType primitive -> structure(Tag.PRIMITIVE_TYPE, field(KIND_FIELD, named(primitive.kind())));
       case SyntaxValue.PackageQualifier qualifier -> structure(Tag.PACKAGE_QUALIFIER, field(NAME_FIELD, text(qualifier.name())));
+      case SyntaxValue.InferredRecordType record -> structure(Tag.INFERRED_RECORD_TYPE, field(NAME_FIELD, text(record.name())));
       case SyntaxValue.ModuleDeclaration module ->
         structure(Tag.MODULE_DECLARATION, field(NAME_FIELD, names(module.qualifiedName())), field("open", flag(module.open())));
       case SyntaxValue.Requires requires -> structure(Tag.REQUIRES, field("module", names(requires.module())),
@@ -133,6 +134,8 @@ final class CoverageSourceProjection {
         structure(Tag.MEMBER_REFERENCE, field(NAME_FIELD, text(reference.name())), field("mode", named(reference.mode())),
             field("qualifier", named(reference.qualifier())), field("selectedType", type(reference.selectedType())),
             field("selection", named(reference.selection())), field("staticMember", flag(reference.staticMember())));
+      case SyntaxValue.PatternBinding binding -> structure(Tag.PATTERN_BINDING, field("resolvedAccesses",
+          optional(binding.resolvedAccesses(), accesses -> sequence(accesses, CoverageEvidenceValue.Origin::new))));
       case SyntaxValue.Lambda lambda -> structure(Tag.LAMBDA, field("bodyKind", named(lambda.bodyKind())),
           field("parenthesized", flag(lambda.parenthesized())), field(RETURN_TYPE_FIELD, type(lambda.returnType())),
           field(PARAMETERS_FIELD, sequence(lambda.parameters(), parameter -> structure(Tag.LAMBDA_PARAMETER,

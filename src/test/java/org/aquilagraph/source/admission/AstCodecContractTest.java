@@ -2152,7 +2152,7 @@ class AstCodecContractTest {
         new CfgRequest(decoded.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
 
     // Assert
-    assertEquals("java-source/9", current.identity().sourceModelVersion());
+    assertEquals("java-source/10", current.identity().sourceModelVersion());
     assertEquals("java-source/2", legacy.identity().sourceModelVersion());
     assertNotEquals(current.identity(), legacy.identity());
     assertEquals(legacy.identity(), decoded.identity());
@@ -2219,7 +2219,7 @@ class AstCodecContractTest {
 
     // Assert
     assertTrue(failure.getMessage().contains("Unsupported retained AST format: java-source/future"));
-    assertEquals("java-source/9", identity.sourceModelVersion());
+    assertEquals("java-source/10", identity.sourceModelVersion());
   }
 
   @Test
@@ -2330,7 +2330,7 @@ class AstCodecContractTest {
     var failure = assertThrows(IllegalArgumentException.class, () -> new CanonicalValueReader(bytes, "java-source/2"));
 
     // Assert
-    assertEquals("Unsupported canonical value format: java-source/9", failure.getMessage());
+    assertEquals("Unsupported canonical value format: java-source/10", failure.getMessage());
   }
 
   @Test

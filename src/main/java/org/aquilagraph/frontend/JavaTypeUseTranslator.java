@@ -8,6 +8,7 @@ import com.sun.source.tree.IdentifierTree;
 import com.sun.source.tree.IntersectionTypeTree;
 import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.NewClassTree;
+import com.sun.source.tree.DeconstructionPatternTree;
 import com.sun.source.tree.ParameterizedTypeTree;
 import com.sun.source.tree.PrimitiveTypeTree;
 import com.sun.source.tree.Tree;
@@ -25,6 +26,7 @@ import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.JavaTypeStructure;
 import org.aquilagraph.source.api.ResolutionStatus;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.SyntaxChild;
@@ -224,6 +226,9 @@ final class JavaTypeUseTranslator {
           "frontend.inconsistent-type-member-selection", "The selected type declaration is not a member of the written qualifier", range));
       return Optional.empty();
     }
+    if (value instanceof SyntaxValue.SourceSymbol symbol && inferredRecordType(treePath, type)) {
+      value = new SyntaxValue.InferredRecordType(symbol.name());
+    }
     var reference = semantics.typeUseReference(treePath);
     if (type instanceof SyntaxType.Resolved resolved
         && (resolved.identity().category() == JavaTypeCategory.DECLARED || resolved.identity().category() == JavaTypeCategory.TYPE_VARIABLE)
@@ -240,6 +245,16 @@ final class JavaTypeUseTranslator {
     }
     return Optional.of(sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), path, sourceKind, SyntaxKind.TYPE_USE, type,
         value, children, reference, range.orElseThrow()), treePath));
+  }
+
+  private static boolean inferredRecordType(TreePath path, SyntaxType type) {
+    var parent = path.getParentPath();
+    while (parent != null && parent.getLeaf() instanceof AnnotatedTypeTree) {
+      parent = parent.getParentPath();
+    }
+    return parent != null && parent.getLeaf() instanceof DeconstructionPatternTree && type instanceof SyntaxType.Resolved resolved
+        && resolved.structure().filter(JavaTypeStructure.Declared.class::isInstance).map(JavaTypeStructure.Declared.class::cast)
+            .filter(declared -> !declared.arguments().isEmpty()).isPresent();
   }
 
   static Optional<AnalysisDiagnostic> requiredTypeOutcomeDiagnostic(String sourceFileKey, SyntaxType type, Optional<SourceSpan> range) {

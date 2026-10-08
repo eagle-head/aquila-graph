@@ -16,6 +16,10 @@ final class SourceFormRequirements {
 
   static boolean supports(SyntaxNode node) {
     return switch (node.syntaxKind()) {
+      case INSTANCE_OF -> node.children(SyntaxRole.TYPE_OPERAND).size() + node.children(SyntaxRole.PATTERN).size() == 1;
+      case BINDING_PATTERN -> node.value(SyntaxValue.PatternBinding.class).resolvedAccesses().isPresent() && node
+          .requiredChild(SyntaxRole.PARAMETER).value(SyntaxValue.LocalDeclaration.class).bindingEvidence()
+          .filter(binding -> binding.context() == LocalBindingEvidence.Context.PATTERN && binding.declarationKey().isPresent()).isPresent();
       case MEMBER_REFERENCE -> {
         var reference = node.value(SyntaxValue.MemberReference.class);
         yield node.type() instanceof SyntaxType.Resolved target && target.structure().isPresent()
@@ -57,7 +61,7 @@ final class SourceFormRequirements {
       case ENHANCED_FOR_LOOP -> node.requiredChild(SyntaxRole.PARAMETER).value(SyntaxValue.LocalDeclaration.class).bindingEvidence()
           .filter(binding -> binding.context() == LocalBindingEvidence.Context.ENHANCED_FOR && binding.declarationKey().isPresent())
           .isPresent();
-      case TYPE_CAST, OBJECT_CREATION -> node.optionalChild(SyntaxRole.TYPE_OPERAND).isPresent();
+      case TYPE_CAST, OBJECT_CREATION, DECONSTRUCTION_PATTERN -> node.optionalChild(SyntaxRole.TYPE_OPERAND).isPresent();
       case ARRAY_CREATION -> {
         var array = node.value(SyntaxValue.ArrayCreation.class);
         yield node.optionalChild(SyntaxRole.TYPE_OPERAND).isPresent() == array.writtenType()
@@ -68,6 +72,7 @@ final class SourceFormRequirements {
           .filter(binding -> (binding.typeForm() == LocalBindingEvidence.TypeForm.INFERRED
               && (binding.initialized() || binding.context() == LocalBindingEvidence.Context.ENHANCED_FOR
                   || binding.context() == LocalBindingEvidence.Context.LAMBDA))
+              || (binding.typeForm() == LocalBindingEvidence.TypeForm.INFERRED && binding.context() == LocalBindingEvidence.Context.PATTERN)
               || (binding.typeForm() == LocalBindingEvidence.TypeForm.IMPLICIT && binding.context() == LocalBindingEvidence.Context.LAMBDA))
           .isPresent();
       case INVOCATION ->
@@ -85,7 +90,7 @@ final class SourceFormRequirements {
           RECEIVER_PARAMETER, RECEIVER_NAME, TYPE_USE, METHOD_DECLARATION, RECORD_COMPONENT_DECLARATION, BLOCK, EXPRESSION_STATEMENT,
           RETURN, THROW, IF, ASSERT, SYNCHRONIZED, WHILE_LOOP, DO_WHILE_LOOP, FOR_LOOP, LABELED_STATEMENT, BREAK, CONTINUE, CATCH,
           SWITCH_EXPRESSION, YIELD, VARIABLE_ACCESS, LITERAL, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT, ARRAY_ACCESS,
-          ARRAY_LENGTH, PARENTHESIZED, CONDITIONAL_EXPRESSION, EMPTY ->
+          ARRAY_LENGTH, PARENTHESIZED, CONDITIONAL_EXPRESSION, EMPTY, ANY_PATTERN ->
         true;
     };
   }
@@ -124,6 +129,7 @@ final class SourceFormRequirements {
   }
 
   static boolean supportsBody(SyntaxNode root) {
-    return root.descendantsAndSelf().stream().noneMatch(node -> node.syntaxKind() == SyntaxKind.TYPE_DECLARATION);
+    return root.descendantsAndSelf().stream().noneMatch(node -> node.syntaxKind() == SyntaxKind.TYPE_DECLARATION)
+        && SourcePatternRequirements.supports(root);
   }
 }
