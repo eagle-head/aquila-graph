@@ -52,7 +52,9 @@ final class SourceRequirements {
             || node.syntaxKind() == SyntaxKind.BINDING_PATTERN || node.syntaxKind() == SyntaxKind.DECONSTRUCTION_PATTERN
             || node.syntaxKind() == SyntaxKind.ANY_PATTERN || node.syntaxKind() == SyntaxKind.SWITCH_STATEMENT
             || (node.syntaxKind() == SyntaxKind.CASE && !SourceSwitchRequirements.isBoundedCase(node))
-            || node.sourceKind() == JavaSourceKind.INTERSECTION_TYPE)) {
+            || (node.syntaxKind() == SyntaxKind.TRY
+                && (!node.children(SyntaxRole.RESOURCE).isEmpty() || !node.children(SyntaxRole.FINALLY_BLOCK).isEmpty()))
+            || node.sourceKind() == JavaSourceKind.UNION_TYPE || node.sourceKind() == JavaSourceKind.INTERSECTION_TYPE)) {
       return true;
     }
     if (!(node.value() instanceof SyntaxValue.LocalDeclaration local)) {

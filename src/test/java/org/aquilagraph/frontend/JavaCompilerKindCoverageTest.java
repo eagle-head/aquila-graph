@@ -133,6 +133,7 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.POSTFIX_INCREMENT,
       Tree.Kind.POSTFIX_DECREMENT,
       Tree.Kind.INTERSECTION_TYPE,
+      Tree.Kind.UNION_TYPE,
       Tree.Kind.WHILE_LOOP, Tree.Kind.DO_WHILE_LOOP, Tree.Kind.FOR_LOOP, Tree.Kind.ENHANCED_FOR_LOOP,
       Tree.Kind.SWITCH, Tree.Kind.PATTERN_CASE_LABEL, Tree.Kind.LABELED_STATEMENT, Tree.Kind.BREAK, Tree.Kind.CONTINUE, Tree.Kind.YIELD, Tree.Kind.ASSERT, Tree.Kind.SYNCHRONIZED, Tree.Kind.LAMBDA_EXPRESSION, Tree.Kind.MEMBER_REFERENCE);
   @TempDir Path temporaryDirectory;
@@ -244,7 +245,7 @@ class JavaCompilerKindCoverageTest {
               if (comparison) {
                 throw new IllegalArgumentException();
               }
-            } catch (IllegalArgumentException exception) {
+            } catch (IllegalArgumentException | IllegalStateException exception) {
               local = exception == null ? conditional : local;
             }
             switch (created) { case String _ -> {} default -> {} }

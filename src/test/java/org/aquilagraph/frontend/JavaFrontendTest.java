@@ -110,7 +110,7 @@ class JavaFrontendTest {
         abstract class Mixed {
           abstract void abstractCall();
           native int nativeCall();
-          void unsupported() { try {} finally {} }
+          void unsupported() { class Local {} }
         }
         """);
     var frontend = new JavaFrontend(new JavaSourceLoader());
@@ -612,14 +612,14 @@ class JavaFrontendTest {
   }
 
   @Test
-  void givenTryWithResourcesAndFinally_whenFrontendRuns_thenBodyIsRejectedAndChildrenRemainOrdered()
+  void givenTryWithResourcesAndFinally_whenFrontendRuns_thenSourceIsRetainedAndCfgRefusalRemainsIndependent()
       throws IOException {
     // Arrange
     Files.writeString(
         temporaryDirectory.resolve("ResourceOwner.java"),
         """
         final class ResourceOwner {
-          void read() {
+          void read() throws Exception {
             try (var reader = new java.io.StringReader("value")) {
               reader.read();
             } finally {
@@ -636,10 +636,10 @@ class JavaFrontendTest {
     // Assert
     var body = methodBody(result, "read");
     assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(body));
-    assertEquals(1, result.diagnostics().stream()
+    assertEquals(0, result.diagnostics().stream()
         .filter(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")).count());
     var tryNode = body.root().children(SyntaxRole.STATEMENT).getFirst();
-    assertEquals(SyntaxKind.UNSUPPORTED, tryNode.syntaxKind());
+    assertEquals(SyntaxKind.TRY, tryNode.syntaxKind());
     assertEquals(List.of(SyntaxRole.RESOURCE, SyntaxRole.TRY_BLOCK, SyntaxRole.FINALLY_BLOCK),
         tryNode.children().stream().map(SyntaxChild::role).toList());
     assertEquals(

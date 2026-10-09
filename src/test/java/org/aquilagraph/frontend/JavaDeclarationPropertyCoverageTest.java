@@ -21,6 +21,12 @@ import org.junit.jupiter.api.Test;
 class JavaDeclarationPropertyCoverageTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final Set<String> EXPECTED_PROPERTIES = Set.of(
+      "TryTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", "TryTree::Tree#getKind()",
+      "TryTree::TryTree#getResources()", "TryTree::TryTree#getBlock()", "TryTree::TryTree#getCatches()", "TryTree::TryTree#getFinallyBlock()",
+      "CatchTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", "CatchTree::Tree#getKind()",
+      "CatchTree::CatchTree#getParameter()", "CatchTree::CatchTree#getBlock()",
+      "UnionTypeTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", "UnionTypeTree::Tree#getKind()",
+      "UnionTypeTree::UnionTypeTree#getTypeAlternatives()",
       "SwitchTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "SwitchTree::Tree#getKind()",
       "SwitchExpressionTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
@@ -174,6 +180,9 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::ExecutableElement#isDefault()",
       "ExecutableElement::ExecutableElement#isVarArgs()");
   private static final Set<String> EXPECTED_IRRELEVANT_PROPERTIES = Set.of(
+      "TryTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "CatchTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "UnionTypeTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "SwitchTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "SwitchExpressionTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "CaseTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
@@ -397,7 +406,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:6c67a26fcdbe5f3d7fe6302796e917a38886a348f5619c98817ac3c4958d9bf4",
+    assertEquals("java-language-feature-coverage:f39568916d81bfafc9f3300c9d8cb9a69aacf1073874cea3855a628d77d5f54c",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 

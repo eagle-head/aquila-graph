@@ -9,11 +9,78 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.TestFactory;
 
 class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
+
+  @TestFactory
+  Stream<DynamicTest> givenPackagedUnsupportedDeclarationWithinExceptionClauses_whenBoundedProcessRuns_thenBothCausesRemainObservable() {
+    return Stream.of("try { class Local {} } finally {}", "try (input) {} catch (Exception failure) { class Local {} }")
+        .map(statement -> DynamicTest.dynamicTest(statement, () -> {
+          // Arrange
+          var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
+          Files.writeString(sourceRoot.resolve("Example.java"), "class Example { void subject(AutoCloseable input) throws Exception { " + statement + " } }");
+          // Act
+          var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+          // Assert
+          assertTrue(result.completed(), result.error());
+          assertEquals(1, result.exitCode());
+          assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+          assertEquals(List.of("ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: TRY",
+              "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: CLASS"), result.error().lines().toList());
+        }));
+  }
+
+  @Test
+  void givenPackagedResourceAndFinallySource_whenBoundedProcessRuns_thenHistoricalTryDiagnosticRemainsObservable() throws IOException, InterruptedException {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
+    Files.writeString(sourceRoot.resolve("Resources.java"), "class Resources { void value(AutoCloseable input) throws Exception { try (input) {} finally {} } }");
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertEquals(List.of("ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: TRY"), result.error().lines().toList());
+  }
+
+  @Test
+  void givenPackagedMultiCatchSource_whenBoundedProcessRuns_thenHistoricalUnionDiagnosticRemainsObservable() throws IOException, InterruptedException {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
+    Files.writeString(sourceRoot.resolve("Catching.java"), "class Catching { void value() { try {} catch (IllegalArgumentException | IllegalStateException failure) {} } }");
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertEquals(List.of("ERROR FRONTEND frontend.unsupported-tree-kind.union-type: Java compiler tree kind UNION_TYPE is outside the supported semantic graph profile"), result.error().lines().toList());
+  }
+
+  @Test
+  void givenPackagedNestedTriesAndLoop_whenBoundedProcessRuns_thenHistoricalNestedDiagnosticsRetainTheirOrder() throws IOException, InterruptedException {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
+    Files.writeString(sourceRoot.resolve("Cleanup.java"), "class Cleanup { void value(boolean flag) { try { try { while (flag) {} } finally {} } finally {} } }");
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertEquals(List.of(
+        "ERROR FRONTEND frontend.unsupported-tree-kind.while-loop: Java compiler tree kind WHILE_LOOP is outside the supported semantic graph profile",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: TRY",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: TRY",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: WHILE_LOOP"), result.error().lines().toList());
+  }
 
   @Test
   void givenPackagedSwitchStatement_whenBoundedProcessRuns_thenHistoricalSwitchDiagnosticsAndRefusalRemainObservable()

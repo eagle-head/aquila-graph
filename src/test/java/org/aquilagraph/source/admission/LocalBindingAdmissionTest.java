@@ -26,6 +26,7 @@ import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.SemanticReference;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxSourceContribution;
 import org.aquilagraph.source.api.SyntaxValue;
@@ -104,24 +105,24 @@ class LocalBindingAdmissionTest {
   }
 
   @Test
-  void givenUnsupportedFinallyAndPatternBindings_whenCopiedAdmissionRuns_thenUnsupportedSourceRemainsIncomplete() throws IOException {
+  void givenFinallyAndPatternBindings_whenCopiedAdmissionRuns_thenCompleteSourceRemainsCanonical() throws IOException {
     // Arrange
-    var original = unsupportedFinallyWithPattern();
+    var original = finallyWithPattern();
 
     // Act
     var admitted = AstValueAdmission.admit(CopiedAstValues.capture(original.aggregate()));
 
     // Assert
-    assertEquals(AstCompletion.INCOMPLETE, original.completion());
+    assertEquals(AstCompletion.COMPLETE, original.completion());
     assertEquals(original.aggregate(), admitted);
-    assertTrue(original.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
+    assertTrue(original.diagnostics().stream().noneMatch(diagnostic -> diagnostic.isError()));
   }
 
   @Test
-  void givenUnsupportedFinallyAndPatternBindings_whenCopiedAccessSelectsAForeignOwner_thenUnsupportedStateCannotWaiveOwnership()
+  void givenFinallyAndPatternBindings_whenCopiedAccessSelectsAForeignOwner_thenAdmissionRejectsForeignOwnership()
       throws IOException {
     // Arrange
-    var original = unsupportedFinallyWithPattern();
+    var original = finallyWithPattern();
     var access = named(original, "text", SyntaxKind.VARIABLE_ACCESS).getFirst();
     var supplied = copy(original, node -> node.nodeId().equals(access.nodeId())
         ? select(node, "type:Foreign#subject():binding_variable:0:1") : node);
@@ -131,7 +132,7 @@ class LocalBindingAdmissionTest {
 
     // Assert
     assertTrue(failure.getMessage().contains("owned named binding"));
-    assertEquals(AstCompletion.INCOMPLETE, original.completion());
+    assertEquals(AstCompletion.COMPLETE, original.completion());
   }
 
   @Test
@@ -236,7 +237,75 @@ class LocalBindingAdmissionTest {
     return produce("class Example { int subject() { int total=0; { int value=1; total=value; } { int value=2; total=value; } return total; } }");
   }
 
-  private AstResult unsupportedFinallyWithPattern() throws IOException {
+  @Test
+  void givenResourceBinding_whenContextClaimsOrdinaryLocalAttachment_thenPublicAdmissionRejectsIt() throws IOException {
+    // Arrange
+    var original = produce("class Example { void subject() throws Exception { try (AutoCloseable value = null) {} } }");
+    var declaration = named(original, "value", SyntaxKind.LOCAL_DECLARATION).getFirst();
+    var local = declaration.value(SyntaxValue.LocalDeclaration.class);
+    var evidence = local.bindingEvidence().orElseThrow();
+    var supplied = copy(original, node -> node.nodeId().equals(declaration.nodeId())
+        ? replace(node, new SyntaxValue.LocalDeclaration(local.name(), local.writtenType(), local.writtenModifiers(),
+            Optional.of(new LocalBindingEvidence(evidence.declarationKey(), evidence.typeForm(), LocalBindingEvidence.Context.LOCAL,
+                evidence.initialized(), evidence.annotations(), evidence.sharedAnnotationKeys())))) : node);
+    // Act
+    var failure = assertThrows(AstContractException.class, () -> AstValueAdmission.admit(supplied));
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, original.completion());
+    assertTrue(failure.getMessage().contains("context must agree with its source attachment"), failure.toString());
+  }
+
+  @Test
+  void givenResourceAndCatchLocalWithSameName_whenCatchAccessSelectsResourceBinding_thenPublicAdmissionRejectsTheScope() throws IOException {
+    // Arrange
+    var original = produce("class Example { void subject() throws Exception { try (AutoCloseable value = null) {} catch (Exception failure) { AutoCloseable value = null; value.toString(); } } }");
+    var resource = named(original, "value", SyntaxKind.LOCAL_DECLARATION).stream()
+        .filter(node -> node.value(SyntaxValue.LocalDeclaration.class).bindingEvidence().orElseThrow().context() == LocalBindingEvidence.Context.RESOURCE)
+        .findFirst().orElseThrow();
+    var access = named(original, "value", SyntaxKind.VARIABLE_ACCESS).getFirst();
+    var supplied = copy(original, node -> node.nodeId().equals(access.nodeId()) ? select(node, key(resource)) : node);
+    // Act
+    var failure = assertThrows(AstContractException.class, () -> AstValueAdmission.admit(supplied));
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, original.completion());
+    assertTrue(failure.getMessage().contains("following resources and try body"), failure.toString());
+  }
+
+  @Test
+  void givenResourceAndFinallyLocalWithSameName_whenFinallyAccessSelectsResourceBinding_thenPublicAdmissionRejectsTheScope() throws IOException {
+    // Arrange
+    var original = produce("class Example { void subject() throws Exception { try (AutoCloseable value = null) {} finally { AutoCloseable value = null; value.toString(); } } }");
+    var resource = named(original, "value", SyntaxKind.LOCAL_DECLARATION).stream()
+        .filter(node -> node.value(SyntaxValue.LocalDeclaration.class).bindingEvidence().orElseThrow().context() == LocalBindingEvidence.Context.RESOURCE)
+        .findFirst().orElseThrow();
+    var access = named(original, "value", SyntaxKind.VARIABLE_ACCESS).getFirst();
+    var supplied = copy(original, node -> node.nodeId().equals(access.nodeId()) ? select(node, key(resource)) : node);
+    // Act
+    var failure = assertThrows(AstContractException.class, () -> AstValueAdmission.admit(supplied));
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, original.completion());
+    assertTrue(failure.getMessage().contains("following resources and try body"), failure.toString());
+  }
+
+  @Test
+  void givenEarlierResourceInitializerUsingAField_whenCopiedAccessSelectsALaterResource_thenAdmissionRejectsTheForwardBinding() throws IOException {
+    // Arrange
+    var original = produce("class Example { AutoCloseable later; void subject() throws Exception { try (AutoCloseable first = later; AutoCloseable later = null) {} } }");
+    var resource = named(original, "later", SyntaxKind.LOCAL_DECLARATION).getFirst();
+    var first = named(original, "first", SyntaxKind.LOCAL_DECLARATION).getFirst();
+    var initializer = first.requiredChild(SyntaxRole.INITIALIZER);
+    var reference = resource.semanticReference().orElseThrow();
+    var supplied = copy(original, node -> node.nodeId().equals(initializer.nodeId())
+        ? SyntaxNode.source(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), SyntaxKind.VARIABLE_ACCESS, node.type(),
+            new SyntaxValue.SourceSymbol("later"), node.children(), Optional.of(reference), node.origin().orElseThrow()) : node);
+    // Act
+    var failure = assertThrows(AstContractException.class, () -> AstValueAdmission.admit(supplied));
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, original.completion());
+    assertTrue(failure.getMessage().contains("following resources and try body"), failure.toString());
+  }
+
+  private AstResult finallyWithPattern() throws IOException {
     return produce("class Example { int subject(Object input) { int total=0; try {} finally {} return switch(input) { case String text when !text.isEmpty() -> total+1; default -> total; }; } }");
   }
 

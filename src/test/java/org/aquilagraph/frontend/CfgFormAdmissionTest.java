@@ -23,8 +23,6 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceOccurrence;
 import org.aquilagraph.source.admission.AstCodec;
 import org.aquilagraph.source.admission.AstResultAdmission;
-import org.aquilagraph.source.admission.AstValueAdmission;
-import org.aquilagraph.source.admission.CopiedExecutableForms;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -37,7 +35,7 @@ class CfgFormAdmissionTest {
   @TempDir Path directory;
 
   @TestFactory
-  Stream<DynamicTest> givenQualifiedCopiedCfgExcludedForms_whenDerivingClosedValues_thenRefusedWithoutChangingSourceOrUnaffectedGraph() {
+  Stream<DynamicTest> givenQualifiedProducedCfgExcludedForms_whenDerivingClosedValues_thenRefusedWithoutChangingSourceOrUnaffectedGraph() {
     var declarations = List.of(
         "void subject(AutoCloseable input) throws Exception { try (input) {} }",
         "void subject() { try {} finally { int retained = 7; } }",
@@ -48,15 +46,13 @@ class CfgFormAdmissionTest {
   }
 
   private void assertExcludedForm(AstProfile sourceProfile, String declaration) throws IOException {
-    // Arrange: copied typed variants retain the real compiler's independent expectations and diagnostics.
+    // Arrange
     var text = "class Example { " + declaration + " int unaffected() { return 7; } }";
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), text)));
     var original = new JavaFrontend(new JavaSourceLoader()).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
     var originalResult = AstResultAdmission.admit(original, sourceProfile, "javac-public/1");
-    var aggregate = AstValueAdmission.admit(CopiedExecutableForms.capture(original.aggregate().orElseThrow()));
-    var supplied = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate),
-        JavaCoverageTestSupport.diagnostics(original, "javac-public/1"));
-    var admitted = AstResultAdmission.admit(supplied, sourceProfile, "javac-public/1");
+    // Act
+    var admitted = originalResult;
     var ast = AstCodec.decode(AstCodec.encode(admitted), admitted.identity());
     var subject = ast.program().methods().stream().filter(method -> method.name().equals("subject")).findFirst().orElseThrow().methodKey();
     var unaffected = ast.program().methods().stream().filter(method -> method.name().equals("unaffected")).findFirst().orElseThrow().methodKey();
@@ -65,20 +61,19 @@ class CfgFormAdmissionTest {
         .filter(node -> node.syntaxKind() == SyntaxKind.TRY || node.syntaxKind() == SyntaxKind.CASE).toList();
 
     // Assert: source qualification and CFG admission have distinct contracts.
-    var switchForm = declaration.contains("switch");
-    var expectedCompletion = switchForm && sourceProfile == AstProfile.JAVA_SOURCE_EXPANDED
+    var expectedCompletion = sourceProfile == AstProfile.JAVA_SOURCE_EXPANDED
         ? AstCompletion.COMPLETE : AstCompletion.INCOMPLETE;
     assertEquals(expectedCompletion, originalResult.completion());
     assertEquals(expectedCompletion, ast.completion());
-    assertEquals(switchForm, originalResult.diagnostics().isEmpty());
+    assertTrue(originalResult.diagnostics().isEmpty(), originalResult.diagnostics().toString());
     assertEquals(admitted.identity(), ast.identity());
     assertEquals(admitted.aggregate(), ast.aggregate());
     assertEquals(admitted.diagnostics(), ast.diagnostics());
     assertTrue(ast.diagnostics().containsAll(originalResult.diagnostics()));
     assertEquals(original.languageFeatureCoverageResult().validationEvidence().writtenInventory(),
-        supplied.languageFeatureCoverageResult().validationEvidence().writtenInventory());
+        ast.coverage().validationEvidence().writtenInventory());
     assertEquals(original.languageFeatureCoverageResult().validationEvidence().attributedExpectations(),
-        supplied.languageFeatureCoverageResult().validationEvidence().attributedExpectations());
+        ast.coverage().validationEvidence().attributedExpectations());
     assertFalse(variants.isEmpty());
     for (var graphProfile : List.of(CfgProfile.JAVA_BOUNDED, CfgProfile.JAVA_WITHOUT_SWITCH_EXPRESSIONS)) {
       var result = CfgDerivers.standard().derive(ast, new CfgRequest(ast.identity(), List.of(subject, unaffected), graphProfile));

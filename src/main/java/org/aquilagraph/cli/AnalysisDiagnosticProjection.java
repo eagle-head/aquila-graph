@@ -64,7 +64,7 @@ final class AnalysisDiagnosticProjection {
           continue;
         }
         var node = occurrence.orElseThrow();
-        var statement = statementRoots.stream().filter(root -> within(root, node.origin())).findFirst();
+        var statement = statementRoots.stream().filter(root -> projectedBy(root, node.origin())).findFirst();
         if (statement.isPresent() && blocker.kind() == MethodCfgState.UNSUPPORTED) {
           if (node.equals(statement.orElseThrow())) {
             insertions.add(new Insertion(body.orElseThrow().ordinal(), node.origin().orElseThrow(), new DiagnosticSummary(
@@ -96,7 +96,7 @@ final class AnalysisDiagnosticProjection {
       }
       if ((!catalog.isEmpty() && diagnostic.code().startsWith(TREE_DIAGNOSTIC_PREFIX))
           || (UNSUPPORTED_SYNTAX.equals(diagnostic.code()) && statementRoots.stream()
-              .anyMatch(root -> diagnostic.origins().stream().anyMatch(origin -> within(root, Optional.of(origin)))))) {
+              .anyMatch(root -> diagnostic.origins().stream().anyMatch(origin -> projectedBy(root, Optional.of(origin)))))) {
         continue;
       }
       var position = bodyPosition(source, bodies, diagnostic);
@@ -135,10 +135,10 @@ final class AnalysisDiagnosticProjection {
   private static List<SyntaxNode> statementRoots(AstResult source) {
     var nodes = source.program().methods().stream().flatMap(method -> source.body(method.methodKey()).stream())
         .flatMap(body -> body.root().descendantsAndSelf().stream())
-        .filter(node -> (EXPANDED_STATEMENT_KINDS.contains(node.sourceKind().name()) || isExpandedCase(node))
+        .filter(node -> (EXPANDED_STATEMENT_KINDS.contains(node.sourceKind().name()) || isExpandedCase(node) || isExpandedTry(node))
             && node.syntaxKind() != SyntaxKind.UNSUPPORTED && node.origin().isPresent())
         .toList();
-    return nodes.stream().filter(node -> nodes.stream().noneMatch(parent -> !parent.equals(node) && within(parent, node.origin())))
+    return nodes.stream().filter(node -> nodes.stream().noneMatch(parent -> !parent.equals(node) && projectedBy(parent, node.origin())))
         .toList();
   }
 
@@ -149,6 +149,16 @@ final class AnalysisDiagnosticProjection {
                 ? label.sourceKind() == JavaSourceKind.NULL_LITERAL
                 : (label.syntaxKind() != SyntaxKind.FIELD_ACCESS && label.syntaxKind() != SyntaxKind.VARIABLE_ACCESS)
                     || label.semanticReference().filter(reference -> reference.referenceKind() == ReferenceKind.ENUM_CONSTANT).isEmpty()));
+  }
+
+  private static boolean isExpandedTry(SyntaxNode node) {
+    return node.syntaxKind() == SyntaxKind.TRY
+        && (!node.children(SyntaxRole.RESOURCE).isEmpty() || !node.children(SyntaxRole.FINALLY_BLOCK).isEmpty());
+  }
+
+  private static boolean projectedBy(SyntaxNode root, Optional<SourceSpan> origin) {
+    // Exception clauses replace their own refusal while preserving independently reported descendants.
+    return within(root, origin) && (!isExpandedTry(root) || root.origin().equals(origin));
   }
 
   private static boolean within(SyntaxNode parent, Optional<SourceSpan> origin) {
@@ -169,7 +179,7 @@ final class AnalysisDiagnosticProjection {
       var classification = occurrence.classification();
       var feature = classification.feature();
       if (feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND && classification.policy() == LanguageFeaturePolicy.REPRESENTED
-          && EXPANDED_STATEMENT_KINDS.contains(feature.identifier())) {
+          && (EXPANDED_STATEMENT_KINDS.contains(feature.identifier()) || "UNION_TYPE".equals(feature.identifier()))) {
         var kind = feature.identifier();
         projectedKind = true;
         occurrences.add(new CatalogDiagnostic(occurrence.origins().stream().findFirst(),

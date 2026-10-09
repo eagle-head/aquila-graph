@@ -46,7 +46,7 @@ import org.junit.jupiter.api.Test;
 
 class JavaLanguageCompletionContractTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
-  private static final String UNION_TYPE_DIAGNOSTIC = "frontend.unsupported-tree-kind.union-type";
+  private static final String ERRONEOUS_KIND_DIAGNOSTIC = "frontend.unsupported-tree-kind.erroneous";
 
   @TempDir Path temporaryDirectory;
 
@@ -121,17 +121,17 @@ class JavaLanguageCompletionContractTest {
   @Test
   void givenDiagnosedCompilerKind_whenFrontendRuns_thenExactCoverageDiagnosticPreventsCompletion() throws IOException {
     // Arrange
-    writeSource("Catching.java", "import java.io.IOException; import java.sql.SQLException; final class Catching { void run() { try { if (true) throw new IOException(); else throw new SQLException(); } catch (IOException | SQLException exception) {} finally {} } }");
+    writeSource("Catching.java", "final class Catching { void run() { int value = (1 + ); } }");
 
     // Act
     var input = analyze();
     var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
-    var diagnostic = diagnostic(input, UNION_TYPE_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, ERRONEOUS_KIND_DIAGNOSTIC);
     assertEquals(DiagnosticStage.FRONTEND, diagnostic.stage());
     assertEquals(DiagnosticSeverity.ERROR, diagnostic.severity());
-    assertEquals(AnalysisOutcomeKind.UNSUPPORTED_LANGUAGE_FEATURE, diagnostic.outcomeKind());
+    assertEquals(AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE, diagnostic.outcomeKind());
     assertEquals(1, diagnostic.origins().size());
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
   }
@@ -148,7 +148,7 @@ class JavaLanguageCompletionContractTest {
     assertEquals(LanguageFeaturePolicy.REPRESENTED,
         classification(input, LanguageFeatureCategory.COMPILER_TREE_KIND, "COMPILATION_UNIT").policy());
     assertEquals(1, input.aggregate().orElseThrow().roots().size());
-    assertFalse(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(UNION_TYPE_DIAGNOSTIC)));
+    assertFalse(input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(ERRONEOUS_KIND_DIAGNOSTIC)));
   }
 
   @Test
@@ -243,31 +243,31 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenDiagnosedUnionSyntax_whenFrontendRuns_thenContextualOccurrenceOwnsTheExactDiagnostic()
+  void givenDiagnosedErroneousSyntax_whenFrontendRuns_thenContextualOccurrenceOwnsTheExactDiagnostic()
       throws IOException {
     // Arrange
-    writeSource("Catching.java", "import java.io.IOException; import java.sql.SQLException; final class Catching { void run() { try { if (true) throw new IOException(); else throw new SQLException(); } catch (IOException | SQLException exception) {} finally {} } }");
+    writeSource("Catching.java", "final class Catching { void run() { int value = (1 + ); } }");
 
     // Act
     var input = analyze();
-    var diagnostic = diagnostic(input, UNION_TYPE_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, ERRONEOUS_KIND_DIAGNOSTIC);
     var propertyObservations = input.languageFeatureCoverageResult().observations().stream()
         .filter(observation -> observation.diagnostic().filter(diagnostic::equals).isPresent()).toList();
 
     // Assert
-    assertEquals(List.of("UNION_TYPE"), propertyObservations.stream()
+    assertEquals(List.of("ERRONEOUS"), propertyObservations.stream()
             .map(observation -> observation.classification().feature().identifier()).sorted().toList());
     assertTrue(propertyObservations.stream()
         .allMatch(observation -> observation.sourceFileKey().equals(diagnostic.origins().getFirst().sourceFileKey())));
   }
 
   @Test
-  void givenDiagnosedUnionOccurrence_whenItsDiagnosticIsRemoved_thenCoverageRejectsTheDetachment()
+  void givenDiagnosedErroneousOccurrence_whenItsDiagnosticIsRemoved_thenCoverageRejectsTheDetachment()
       throws IOException {
     // Arrange
-    writeSource("Catching.java", "import java.io.IOException; import java.sql.SQLException; final class Catching { void run() { try { if (true) throw new IOException(); else throw new SQLException(); } catch (IOException | SQLException exception) {} finally {} } }");
+    writeSource("Catching.java", "final class Catching { void run() { int value = (1 + ); } }");
     var input = analyze();
-    var diagnostic = diagnostic(input, UNION_TYPE_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, ERRONEOUS_KIND_DIAGNOSTIC);
     var capabilityDiagnostics = input.languageFeatureCoverageResult().capabilityDiagnostics().stream()
         .filter(candidate -> !candidate.equals(diagnostic)).toList();
 
@@ -280,15 +280,15 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenDiagnosedUnionOccurrence_whenItsObservationIsRemoved_thenCoverageRejectsThePartialInventory()
+  void givenDiagnosedErroneousOccurrence_whenItsObservationIsRemoved_thenCoverageRejectsThePartialInventory()
       throws IOException {
     // Arrange
-    writeSource("Catching.java", "import java.io.IOException; import java.sql.SQLException; final class Catching { void run() { try { if (true) throw new IOException(); else throw new SQLException(); } catch (IOException | SQLException exception) {} finally {} } }");
+    writeSource("Catching.java", "final class Catching { void run() { int value = (1 + ); } }");
     var input = analyze();
-    var diagnostic = diagnostic(input, UNION_TYPE_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, ERRONEOUS_KIND_DIAGNOSTIC);
     var observations = input.languageFeatureCoverageResult().observations().stream()
         .filter(observation -> !observation.classification().feature().identifier()
-            .equals("UNION_TYPE"))
+            .equals("ERRONEOUS"))
         .toList();
 
     // Act
@@ -302,12 +302,12 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenDiagnosedUnionOccurrence_whenItsObservationAndDiagnosticAreRemoved_thenCoverageRejectsMissingFact()
+  void givenDiagnosedErroneousOccurrence_whenItsObservationAndDiagnosticAreRemoved_thenCoverageRejectsMissingFact()
       throws IOException {
     // Arrange
-    writeSource("Catching.java", "import java.io.IOException; import java.sql.SQLException; final class Catching { void run() { try { if (true) throw new IOException(); else throw new SQLException(); } catch (IOException | SQLException exception) {} finally {} } }");
+    writeSource("Catching.java", "final class Catching { void run() { int value = (1 + ); } }");
     var input = analyze();
-    var diagnostic = diagnostic(input, UNION_TYPE_DIAGNOSTIC);
+    var diagnostic = diagnostic(input, ERRONEOUS_KIND_DIAGNOSTIC);
     var observations = input.languageFeatureCoverageResult().observations().stream()
         .filter(observation -> observation.diagnostic().filter(diagnostic::equals).isEmpty()).toList();
     var capabilityDiagnostics = input.languageFeatureCoverageResult().capabilityDiagnostics().stream()
@@ -321,15 +321,15 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenUnsupportedMethodSyntax_whenAnalysisRuns_thenFrontendAndControlFlowOutcomesRemainDistinct() throws IOException {
+  void givenInvalidMethodSyntax_whenAnalysisRuns_thenFrontendAndControlFlowOutcomesRemainDistinct() throws IOException {
     // Arrange
-    writeSource("Catching.java", "import java.io.IOException; import java.sql.SQLException; final class Catching { void run() { try { if (true) throw new IOException(); else throw new SQLException(); } catch (IOException | SQLException exception) {} finally {} } }");
+    writeSource("Catching.java", "final class Catching { void run() { int value = (1 + ); } }");
 
     // Act
     var run = new SourceAnalysisFixture().analyze(analyze());
 
     // Assert
-    assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(UNION_TYPE_DIAGNOSTIC)
+    assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(ERRONEOUS_KIND_DIAGNOSTIC)
         && diagnostic.stage() == DiagnosticStage.FRONTEND));
     var controlFlowDiagnostic = run.diagnostics().stream()
         .filter(diagnostic -> diagnostic.code().equals("control-flow.source-unavailable")).findFirst().orElseThrow();
@@ -342,7 +342,7 @@ class JavaLanguageCompletionContractTest {
   @Test
   void givenSameSnapshot_whenFrontendRunsTwice_thenCoverageDiagnosticsAndCompletionAreDeterministic() throws IOException {
     // Arrange
-    writeSource("Catching.java", "import java.io.IOException; import java.sql.SQLException; final class Catching { void run() { try { if (true) throw new IOException(); else throw new SQLException(); } catch (IOException | SQLException exception) {} finally {} } }");
+    writeSource("Catching.java", "final class Catching { void run() { int value = (1 + ); } }");
     var loader = new JavaSourceLoader();
     var snapshot = loader.discover(temporaryDirectory);
     var frontend = new JavaFrontend(loader);
@@ -362,14 +362,14 @@ class JavaLanguageCompletionContractTest {
   }
 
   @Test
-  void givenUnionDiagnosticWithErroneousOutcome_whenCoverageResultIsBuilt_thenOutcomeMismatchIsRejected() throws IOException {
+  void givenErroneousDiagnosticWithCompilerOutcome_whenCoverageResultIsBuilt_thenOutcomeMismatchIsRejected() throws IOException {
     // Arrange
-    writeSource("Catching.java", "import java.io.IOException; import java.sql.SQLException; final class Catching { void run() { try { if (true) throw new IOException(); else throw new SQLException(); } catch (IOException | SQLException exception) {} finally {} } }");
+    writeSource("Catching.java", "final class Catching { void run() { int value = (1 + ); } }");
     var input = analyze();
-    var original = diagnostic(input, UNION_TYPE_DIAGNOSTIC);
+    var original = diagnostic(input, ERRONEOUS_KIND_DIAGNOSTIC);
     var mismatched = new AnalysisDiagnostic(StableId.sha256("diagnostic", original.diagnosticKey(), "mismatched-outcome"),
         original.code(), original.stage(), original.severity(), original.message(), original.origins(),
-        AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE);
+        AnalysisOutcomeKind.COMPILER_ERROR);
     var evidence = input.languageFeatureCoverageResult().validationEvidence();
     var events = new ArrayList<>(evidence.diagnosticEmissions());
     var extraEvent = new DiagnosticEmission(new DiagnosticEmission.Address("capability-outcome-test", "selection-context", 0), mismatched,
@@ -388,7 +388,7 @@ class JavaLanguageCompletionContractTest {
   @Test
   void givenDiagnosedCoverageOutcome_whenItsDiagnosticIsRemoved_thenSyntaxBoundaryRejectsTheInput() throws IOException {
     // Arrange
-    writeSource("Catching.java", "import java.io.IOException; import java.sql.SQLException; final class Catching { void run() { try { if (true) throw new IOException(); else throw new SQLException(); } catch (IOException | SQLException exception) {} } }" );
+    writeSource("Catching.java", "final class Catching { void run() { int value = (1 + ); } }" );
     var input = analyze();
 
     // Act
@@ -444,11 +444,11 @@ class JavaLanguageCompletionContractTest {
     // Arrange
     writeSource("Example.java", "final class Example { }");
     var input = analyze();
-    var classification = classification(input, LanguageFeatureCategory.COMPILER_TREE_KIND, "UNION_TYPE");
+    var classification = classification(input, LanguageFeatureCategory.COMPILER_TREE_KIND, "ERRONEOUS");
     var origin = new SourceSpan("foreign-source", 0, 1);
     var code = classification.diagnosticCode().orElseThrow();
     var diagnostic = new AnalysisDiagnostic(StableId.sha256("diagnostic", "foreign-source", code), code, DiagnosticStage.FRONTEND,
-        DiagnosticSeverity.ERROR, "Foreign capability diagnostic", List.of(origin), AnalysisOutcomeKind.UNSUPPORTED_LANGUAGE_FEATURE);
+        DiagnosticSeverity.ERROR, "Foreign capability diagnostic", List.of(origin), AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE);
     var occurrences = new ArrayList<>(input.languageFeatureCoverageResult().occurrences());
     occurrences.add(new LanguageFeatureOccurrence("foreign-source", classification, List.of(origin)));
     var observations = new ArrayList<>(input.languageFeatureCoverageResult().observations());

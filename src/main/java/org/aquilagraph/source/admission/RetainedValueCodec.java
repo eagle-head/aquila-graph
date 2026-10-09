@@ -351,14 +351,19 @@ final class RetainedValueCodec {
     }
   }
 
-  private void validateSwitchFormat(SyntaxNode node) {
+  private void validateSourceFormat(SyntaxNode node) {
+    if (formatVersion < 12 && ((node.syntaxKind() == SyntaxKind.TRY
+        && (!node.children(SyntaxRole.RESOURCE).isEmpty() || !node.children(SyntaxRole.FINALLY_BLOCK).isEmpty()))
+        || node.sourceKind() == JavaSourceKind.UNION_TYPE)) {
+      throw new IllegalArgumentException("Expanded exception syntax requires retained AST format java-source/12");
+    }
     if (formatVersion < 11 && node.syntaxKind() == SyntaxKind.CASE && !SourceSwitchRequirements.isBoundedCase(node)) {
       throw new IllegalArgumentException("Expanded switch cases require retained AST format java-source/11");
     }
   }
 
   private void writeNode(CanonicalValueWriter writer, SyntaxNode node) {
-    validateSwitchFormat(node);
+    validateSourceFormat(node);
     var previous = nodeOrdinal.apply(node);
     if (previous != null) {
       writer.text("source-node-reference");
@@ -396,7 +401,7 @@ final class RetainedValueCodec {
     var node = origin.isPresent()
         ? SyntaxNode.source(source, path, sourceKind, kind, type, value, children, reference, origin.orElseThrow())
         : SyntaxNode.withoutDirectSource(source, path, sourceKind, kind, type, value, children, reference);
-    validateSwitchFormat(node);
+    validateSourceFormat(node);
     readNodes.set(ordinal, node);
     return node;
   }

@@ -1,6 +1,9 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.WhileLoopTree;
+import com.sun.source.tree.TryTree;
+import com.sun.source.tree.CatchTree;
+import com.sun.source.tree.UnionTypeTree;
 import com.sun.source.tree.SwitchTree;
 import com.sun.source.tree.SwitchExpressionTree;
 import com.sun.source.tree.CaseTree;
@@ -69,8 +72,8 @@ final class JavaDeclarationPropertyCoverage {
       VariableTree.class, NewArrayTree.class, AssertTree.class, SynchronizedTree.class, LambdaExpressionTree.class,
       MemberReferenceTree.class, InstanceOfTree.class, BindingPatternTree.class, DeconstructionPatternTree.class, AnyPatternTree.class,
       SwitchTree.class, SwitchExpressionTree.class, CaseTree.class, YieldTree.class, WhileLoopTree.class, DoWhileLoopTree.class,
-      ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class, ContinueTree.class, TypeElement.class,
-      ExecutableElement.class);
+      ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class, ContinueTree.class, TryTree.class,
+      CatchTree.class, UnionTypeTree.class, TypeElement.class, ExecutableElement.class);
   private static final String STATEMENT_KIND_BOUNDARY = "Canonical written statement kind";
   private static final String STATEMENT_VALUE_BOUNDARY = "Canonical written statement value and ordered children";
   private static final String TREE_API = "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/";
@@ -140,6 +143,7 @@ final class JavaDeclarationPropertyCoverage {
     classifications.addAll(referenceClassifications());
     classifications.addAll(patternClassifications());
     classifications.addAll(switchClassifications());
+    classifications.addAll(exceptionClassifications());
     classifications.addAll(typeElementClassifications());
     classifications.addAll(executableElementClassifications());
     return List.copyOf(classifications);
@@ -156,6 +160,25 @@ final class JavaDeclarationPropertyCoverage {
         represented("SynchronizedTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY),
         represented("SynchronizedTree::SynchronizedTree#getExpression()", STATEMENT_VALUE_BOUNDARY),
         represented("SynchronizedTree::SynchronizedTree#getBlock()", STATEMENT_VALUE_BOUNDARY));
+  }
+
+  private static List<LanguageFeatureClassification> exceptionClassifications() {
+    var result = new ArrayList<LanguageFeatureClassification>();
+    for (var surface : List.of(TryTree.class, CatchTree.class, UnionTypeTree.class)) {
+      var name = surface.getSimpleName();
+      result.add(
+          irrelevant(name + "::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE));
+      result.add(represented(name + "::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
+    }
+    for (var accessor : List.of("getResources", "getBlock", "getCatches", "getFinallyBlock")) {
+      result.add(
+          represented("TryTree::TryTree#" + accessor + "()", "Ordered written resources, try body, catches, and optional finally body"));
+    }
+    for (var accessor : List.of("getParameter", "getBlock")) {
+      result.add(represented("CatchTree::CatchTree#" + accessor + "()", "Written catch binding and body"));
+    }
+    result.add(represented("UnionTypeTree::UnionTypeTree#getTypeAlternatives()", "Every ordered written catch type alternative"));
+    return List.copyOf(result);
   }
 
   private static List<LanguageFeatureClassification> referenceClassifications() {

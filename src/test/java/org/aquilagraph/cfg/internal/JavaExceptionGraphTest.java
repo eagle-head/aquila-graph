@@ -19,8 +19,6 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.cfg.api.ControlFlowGraph;
-import org.aquilagraph.source.api.DiagnosticSeverity;
-import org.aquilagraph.source.api.DiagnosticStage;
 import org.aquilagraph.cfg.api.OperationKind;
 import org.aquilagraph.cfg.api.OperationNode;
 import org.aquilagraph.source.api.SourceOwnerPath;
@@ -126,7 +124,7 @@ class JavaExceptionGraphTest {
   }
 
   @Test
-  void givenNullableThrowAndQualifiedMultiCatch_whenFrontendAndGraphRun_thenWrittenUnionRefusalAndAttributedAlternativeRoutesAreRetained() throws IOException {
+  void givenNullableThrowAndQualifiedMultiCatch_whenFrontendAndGraphRun_thenWrittenUnionAndAttributedAlternativeRoutesAreRetained() throws IOException {
     // Arrange
     Files.writeString(sourceDirectory.resolve("Throws.java"), """
         class Throws {
@@ -147,9 +145,7 @@ class JavaExceptionGraphTest {
     // Assert
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
     var errors = run.diagnostics().stream().filter(AnalysisDiagnostic::isError).toList();
-    assertEquals(List.of("frontend.unsupported-tree-kind.union-type"), errors.stream().map(AnalysisDiagnostic::code).toList());
-    assertEquals(DiagnosticStage.FRONTEND, errors.getFirst().stage());
-    assertEquals(DiagnosticSeverity.ERROR, errors.getFirst().severity());
+    assertTrue(errors.isEmpty(), errors.toString());
     var handlers = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.CATCH).toList();
     assertEquals(2, handlers.size());
     assertEquals(handlers.stream().map(OperationNode::nodeId).toList(), targets(graph, thrown, "java.lang.Exception"));

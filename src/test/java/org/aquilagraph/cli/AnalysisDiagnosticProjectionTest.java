@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.stream.Stream;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.cli.AnalysisDiagnosticProjection.DiagnosticSummary;
@@ -20,8 +21,111 @@ import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.TestFactory;
 
 class AnalysisDiagnosticProjectionTest {
+  @TestFactory
+  Stream<DynamicTest> givenUnsupportedDeclarationWithinExceptionClauses_whenPresented_thenEachSourceCauseRemainsOnceInWrittenOrder() {
+    return Stream.of(
+      "try { class Local {} } finally {}",
+      "try {} catch (RuntimeException failure) { class Local {} } finally {}",
+      "try {} finally { class Local {} }",
+      "try (input) { class Local {} }",
+      "try (AutoCloseable local = input) { class Local {} } finally {}")
+        .map(statement -> DynamicTest.dynamicTest(statement, () -> {
+          // Arrange
+          var source = "class Example { void subject(AutoCloseable input) throws Exception { " + statement + " } }";
+          var bounded = analyze(source, AstProfile.JAVA_SOURCE_BOUNDED);
+          var expanded = analyze(source, AstProfile.JAVA_SOURCE_EXPANDED);
+          var nativeBounded = bounded.diagnostics();
+          var nativeExpanded = expanded.diagnostics();
+          var boundedAst = bounded.representation().ast().result().orElseThrow();
+          var boundedCfg = bounded.representation().cfg().orElseThrow();
+          // Act
+          var projected = AnalysisRunSummary.from(bounded).diagnostics();
+          var expandedProjection = AnalysisRunSummary.from(expanded).diagnostics();
+          // Assert
+          assertEquals(List.of("Unsupported Java construct in method body: TRY", "Unsupported Java construct in method body: CLASS"),
+              projected.stream().map(DiagnosticSummary::message).toList());
+          assertEquals(List.of("Unsupported Java construct in method body: CLASS"),
+              boundedAst.diagnostics().stream().map(value -> value.message()).toList());
+          assertEquals(nativeExpanded.stream().map(DiagnosticSummary::from).toList(), expandedProjection);
+          assertEquals(nativeBounded, bounded.diagnostics());
+          assertEquals(nativeExpanded, expanded.diagnostics());
+          assertSame(boundedAst, bounded.representation().ast().result().orElseThrow());
+          assertSame(boundedCfg, bounded.representation().cfg().orElseThrow());
+          assertEquals(AstCompletion.INCOMPLETE, boundedAst.completion());
+          assertEquals(AstCompletion.INCOMPLETE, expanded.representation().ast().completion());
+        }));
+  }
+
+  @Test
+  void givenUnsupportedDeclarationWithinNestedTries_whenPresented_thenEachEnclosingAndDescendantCauseKeepsItsOrder() throws IOException {
+    // Arrange
+    var run = analyze("class Example { void subject() { try { try {} finally { class Local {} } } finally {} } }", AstProfile.JAVA_SOURCE_BOUNDED);
+    var nativeDiagnostics = run.diagnostics();
+    // Act
+    var projected = AnalysisRunSummary.from(run).diagnostics();
+    // Assert
+    assertEquals(List.of("Unsupported Java construct in method body: TRY", "Unsupported Java construct in method body: TRY",
+        "Unsupported Java construct in method body: CLASS"), projected.stream().map(DiagnosticSummary::message).toList());
+    assertEquals(nativeDiagnostics, run.diagnostics());
+  }
+
+  @Test
+  void givenExceptionClauseWithinHistoricalIterationBoundary_whenPresented_thenTheOuterStatementStillOwnsTheProjection() throws IOException {
+    // Arrange
+    var run = analyze("class Example { void subject(boolean flag) { while (flag) { try { class Local {} } finally {} } } }", AstProfile.JAVA_SOURCE_BOUNDED);
+    var nativeDiagnostics = run.diagnostics();
+    // Act
+    var projected = AnalysisRunSummary.from(run).diagnostics();
+    // Assert
+    assertEquals(List.of("Java compiler tree kind WHILE_LOOP is outside the supported semantic graph profile",
+        "Unsupported Java construct in method body: WHILE_LOOP"), projected.stream().map(DiagnosticSummary::message).toList());
+    assertEquals(nativeDiagnostics, run.diagnostics());
+  }
+
+  @Test
+  void givenNestedExceptionSyntaxInBothProfiles_whenPresented_thenHistoricalTryAndNestedLoopDiagnosticsStayInTheConsoleBoundary() throws IOException {
+    // Arrange
+    var source = "class Example { void value(AutoCloseable input, boolean flag) throws Exception { try (input) { try { while(flag) {} } finally {} } finally {} } }";
+    var bounded = analyze(source, AstProfile.JAVA_SOURCE_BOUNDED);
+    var expanded = analyze(source, AstProfile.JAVA_SOURCE_EXPANDED);
+    var originalBounded = bounded.diagnostics();
+    var originalExpanded = expanded.diagnostics();
+    // Act
+    var projected = AnalysisRunSummary.from(bounded).diagnostics();
+    var expandedProjection = AnalysisRunSummary.from(expanded).diagnostics();
+    // Assert
+    assertEquals(List.of("Java compiler tree kind WHILE_LOOP is outside the supported semantic graph profile",
+        "Unsupported Java construct in method body: TRY", "Unsupported Java construct in method body: TRY",
+        "Unsupported Java construct in method body: WHILE_LOOP"), projected.stream().map(DiagnosticSummary::message).toList());
+    assertEquals(originalExpanded.stream().map(DiagnosticSummary::from).toList(), expandedProjection);
+    assertEquals(originalBounded, bounded.diagnostics());
+    assertEquals(originalExpanded, expanded.diagnostics());
+    assertEquals(AstCompletion.COMPLETE, expanded.representation().ast().completion());
+    assertEquals(AstCompletion.INCOMPLETE, bounded.representation().ast().completion());
+  }
+
+  @Test
+  void givenMultiCatchInBothProfiles_whenPresented_thenHistoricalUnionDiagnosticDoesNotBecomeANativeSourceError() throws IOException {
+    // Arrange
+    var source = "class Example { void value() { try {} catch (IllegalArgumentException | IllegalStateException failure) {} } }";
+    var bounded = analyze(source, AstProfile.JAVA_SOURCE_BOUNDED);
+    var expanded = analyze(source, AstProfile.JAVA_SOURCE_EXPANDED);
+    // Act
+    var projected = AnalysisRunSummary.from(bounded).diagnostics();
+    var expandedProjection = AnalysisRunSummary.from(expanded).diagnostics();
+    // Assert
+    assertEquals(List.of("frontend.unsupported-tree-kind.union-type"), projected.stream().map(DiagnosticSummary::code).toList());
+    assertEquals(List.of(), bounded.diagnostics());
+    assertEquals(List.of(), expanded.diagnostics());
+    assertEquals(List.of(), expandedProjection);
+    assertEquals(AstCompletion.COMPLETE, expanded.representation().ast().completion());
+    assertEquals(AnalysisCompletion.COMPLETE, expanded.completion());
+  }
+
   @Test
   void givenNestedAssertionsAndMonitor_whenBoundedPresentationRuns_thenCatalogAndOuterBodyBoundariesRemainDistinct() throws IOException {
     // Arrange

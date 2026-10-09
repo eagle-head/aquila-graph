@@ -120,6 +120,10 @@ final class LocalBindingDeclarations {
     if (parent.syntaxKind() == SyntaxKind.CATCH && accessStep.role() != SyntaxRole.BODY) {
       throw new IllegalArgumentException("An exception binding is visible only within its catch body");
     }
+    if (parent.syntaxKind() == SyntaxKind.TRY && (accessStep.role() != SyntaxRole.TRY_BLOCK
+        && (accessStep.role() != SyntaxRole.RESOURCE || accessStep.position() < declarationStep.position()))) {
+      throw new IllegalArgumentException("A resource binding is visible only in its following resources and try body");
+    }
     if (parent.syntaxKind() == SyntaxKind.LAMBDA_EXPRESSION && accessStep.role() != SyntaxRole.BODY) {
       throw new IllegalArgumentException("A lambda binding is visible only within its lambda body");
     }

@@ -54,7 +54,13 @@ final class SourceFormRequirements {
             && (forms.isEmpty() || forms.stream().allMatch(parameter -> parameter.typeForm() == forms.getFirst().typeForm()));
       }
       case UNSUPPORTED, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK -> false;
-      case TRY -> node.children(SyntaxRole.RESOURCE).isEmpty() && node.children(SyntaxRole.FINALLY_BLOCK).isEmpty();
+      case TRY -> (!node.children(SyntaxRole.RESOURCE).isEmpty() || !node.children(SyntaxRole.CATCH_CLAUSE).isEmpty()
+          || !node.children(SyntaxRole.FINALLY_BLOCK).isEmpty())
+          && node.children(SyntaxRole.RESOURCE).stream().allMatch(
+              resource -> resource.syntaxKind() != SyntaxKind.LOCAL_DECLARATION || resource.value(SyntaxValue.LocalDeclaration.class)
+                  .bindingEvidence().filter(binding -> binding.context() == LocalBindingEvidence.Context.RESOURCE && binding.initialized()
+                      && binding.declarationKey().isPresent())
+                  .isPresent());
       case CASE -> true;
       case UPDATE -> isAssignable(node.requiredChild(SyntaxRole.OPERAND));
       case COMPOUND_ASSIGNMENT -> isAssignable(node.requiredChild(SyntaxRole.LOCATION));

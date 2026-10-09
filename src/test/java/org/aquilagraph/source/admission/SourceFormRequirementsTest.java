@@ -29,8 +29,8 @@ class SourceFormRequirementsTest {
   @TempDir Path directory;
 
   @Test
-  void givenCopiedResourceFinallyAndColonForms_whenAdmittedAndDecoded_thenPendingResourcesFailAndSwitchGroupsPass() throws IOException {
-    // Arrange: reclassify copied forms without claiming that the frontend supports them.
+  void givenProducedResourceFinallyAndColonForms_whenAdmittedAndDecoded_thenCompleteWrittenFormsSurvive() throws IOException {
+    // Arrange
     var text = """
         class Example {
           void resource(AutoCloseable input) throws Exception { try (input) {} }
@@ -41,7 +41,7 @@ class SourceFormRequirementsTest {
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), text)));
     var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
-    var supplied = CopiedExecutableForms.capture(original.aggregate());
+    var supplied = CopiedAstValues.capture(original.aggregate());
 
     // Act
     var admitted = AstValueAdmission.admit(supplied);
@@ -53,12 +53,12 @@ class SourceFormRequirementsTest {
     var variants = decoded.nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.TRY || node.syntaxKind() == SyntaxKind.CASE).toList();
 
     // Assert
-    assertEquals(AstCompletion.INCOMPLETE, original.completion());
-    assertEquals(AstCompletion.INCOMPLETE, AstCodec.decode(AstCodec.encode(original), original.identity()).completion());
+    assertEquals(AstCompletion.COMPLETE, original.completion());
+    assertEquals(AstCompletion.COMPLETE, AstCodec.decode(AstCodec.encode(original), original.identity()).completion());
     assertEquals(admitted, decoded);
     assertEquals(4, variants.size());
     for (var variant : variants) {
-      assertEquals(variant.syntaxKind() == SyntaxKind.CASE, SourceFormRequirements.supports(variant), variant.nodeId());
+      assertTrue(SourceFormRequirements.supports(variant), variant.nodeId());
     }
     assertTrue(variants.stream().anyMatch(node -> !node.children(SyntaxRole.RESOURCE).isEmpty()));
     assertTrue(variants.stream().anyMatch(node -> !node.children(SyntaxRole.FINALLY_BLOCK).isEmpty()));

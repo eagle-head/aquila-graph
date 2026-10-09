@@ -157,7 +157,7 @@ final class JavaCompilerKindCoverage {
         represented("PARAMETERIZED_TYPE", TYPE_USE_BOUNDARY), represented("PATTERN_CASE_LABEL", SWITCH_LABEL_BOUNDARY),
         represented("PRIMITIVE_TYPE", TYPE_USE_BOUNDARY), represented("SUPER_WILDCARD", TYPE_USE_BOUNDARY),
         represented("TYPE_ANNOTATION", "JavaAstAggregate written annotation occurrence"),
-        represented("UNBOUNDED_WILDCARD", TYPE_USE_BOUNDARY), diagnosed("UNION_TYPE"));
+        represented("UNBOUNDED_WILDCARD", TYPE_USE_BOUNDARY), represented("UNION_TYPE", TYPE_USE_BOUNDARY));
   }
 
   private static LanguageFeatureClassification represented(String identifier, String boundary) {

@@ -218,9 +218,7 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     children.add(SyntaxRole.TRY_BLOCK, statement.getBlock());
     children.addAll(SyntaxRole.CATCH_CLAUSE, statement.getCatches());
     children.add(SyntaxRole.FINALLY_BLOCK, statement.getFinallyBlock());
-    return statement.getResources().isEmpty() && statement.getFinallyBlock() == null
-        ? accepted(SyntaxKind.TRY, children)
-        : unsupported(statement, children);
+    return accepted(SyntaxKind.TRY, children);
   }
 
   @Override

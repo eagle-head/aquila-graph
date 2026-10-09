@@ -16,7 +16,9 @@ import org.aquilagraph.identity.api.SourceOccurrence;
 /** Intrinsically admitted, content-qualified source result with one canonical aggregate. */
 public final class AstResult {
   /** Version of the retained source value schema. */
-  public static final String SOURCE_MODEL_VERSION = "java-source/11";
+  public static final String SOURCE_MODEL_VERSION = "java-source/12";
+  /** Compatible switch source format preceding complete exception and resource forms. */
+  public static final String SWITCH_SOURCE_MODEL_VERSION = "java-source/11";
   /** Compatible pattern source format preceding expanded switch forms. */
   public static final String PATTERN_SOURCE_MODEL_VERSION = "java-source/10";
   /** Compatible reference source format preceding instance-test and pattern values. */
@@ -65,11 +67,12 @@ public final class AstResult {
    * @return whether the current reader supports the schema
    */
   public static boolean supportsSourceModelVersion(String version) {
-    return SOURCE_MODEL_VERSION.equals(version) || PATTERN_SOURCE_MODEL_VERSION.equals(version)
-        || REFERENCE_SOURCE_MODEL_VERSION.equals(version) || LAMBDA_SOURCE_MODEL_VERSION.equals(version)
-        || ASSERTION_SOURCE_MODEL_VERSION.equals(version) || ITERATION_SOURCE_MODEL_VERSION.equals(version)
-        || ARRAY_SOURCE_MODEL_VERSION.equals(version) || UPDATE_SOURCE_MODEL_VERSION.equals(version)
-        || PREVIOUS_SOURCE_MODEL_VERSION.equals(version) || LEGACY_SOURCE_MODEL_VERSION.equals(version);
+    return SOURCE_MODEL_VERSION.equals(version) || SWITCH_SOURCE_MODEL_VERSION.equals(version)
+        || PATTERN_SOURCE_MODEL_VERSION.equals(version) || REFERENCE_SOURCE_MODEL_VERSION.equals(version)
+        || LAMBDA_SOURCE_MODEL_VERSION.equals(version) || ASSERTION_SOURCE_MODEL_VERSION.equals(version)
+        || ITERATION_SOURCE_MODEL_VERSION.equals(version) || ARRAY_SOURCE_MODEL_VERSION.equals(version)
+        || UPDATE_SOURCE_MODEL_VERSION.equals(version) || PREVIOUS_SOURCE_MODEL_VERSION.equals(version)
+        || LEGACY_SOURCE_MODEL_VERSION.equals(version);
   }
 
   /**

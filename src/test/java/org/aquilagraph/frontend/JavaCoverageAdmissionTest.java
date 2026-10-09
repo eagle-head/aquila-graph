@@ -1843,6 +1843,58 @@ class JavaCoverageAdmissionTest {
     return LanguageFeatureCoverageResult.fromEvidence(original.languageFeatureCoverage(), inventory, attributed, outcomes, evidence.unmatchedFacts(), evidence.diagnosticEmissions());
   }
 
+  @TestFactory
+  Stream<DynamicTest> givenWrittenExceptionProperties_whenAClaimDropsTheirValues_thenSourceCoverageRejectsFalseCompletion() {
+    return Stream.of("TryTree::TryTree#getResources()", "TryTree::TryTree#getCatches()", "TryTree::TryTree#getFinallyBlock()",
+        "CatchTree::CatchTree#getParameter()", "UnionTypeTree::UnionTypeTree#getTypeAlternatives()")
+        .map(accessor -> DynamicTest.dynamicTest(accessor, () -> {
+          // Arrange
+          var original = analyze("class Example { void subject() throws Exception { try (AutoCloseable first = null; var second = first) {} catch (IllegalArgumentException | IllegalStateException failure) {} finally {} } }");
+          var list = accessor.endsWith("getResources()") || accessor.endsWith("getCatches()") || accessor.endsWith("getTypeAlternatives()");
+          var selected = property(original, accessor, list ? CoveragePropertyValue.State.ITEMS : CoveragePropertyValue.State.SCALAR);
+          // Act
+          var failure = assertThrows(IllegalArgumentException.class, () -> claimedValue(original, selected,
+              new CoveragePropertyValue(list ? CoveragePropertyValue.State.EMPTY : CoveragePropertyValue.State.ABSENT, List.of())));
+          // Assert
+          assertEquals("Represented success requires its exact catalog support mode", failure.getMessage());
+          assertEquals(FeatureContextOutcome.Mode.FACTS, selected.support().mode());
+        }));
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenOrderedExceptionProperties_whenAClaimReversesTheWrittenSequence_thenPublicInputRejectsTheFalseOrder() {
+    return Stream.of("TryTree::TryTree#getResources()", "TryTree::TryTree#getCatches()", "UnionTypeTree::UnionTypeTree#getTypeAlternatives()")
+        .map(accessor -> DynamicTest.dynamicTest(accessor, () -> {
+          // Arrange
+          var original = analyze("class Example { void subject() throws Exception { try (AutoCloseable first = null; var second = first) {} catch (IllegalArgumentException | IllegalStateException failure) {} catch (RuntimeException remaining) {} } }");
+          var selected = property(original, accessor, CoveragePropertyValue.State.ITEMS);
+          var supplied = claimedValue(original, selected, new CoveragePropertyValue(CoveragePropertyValue.State.ITEMS,
+              selected.encounteredValue().orElseThrow().items().reversed()));
+          // Act
+          var failure = assertThrows(IllegalArgumentException.class, () -> new SyntaxAnalysisInput(original.snapshot(), original.environmentSnapshot(),
+              original.program(), original.aggregate(), original.diagnostics(), supplied));
+          // Assert
+          assertEquals("Claimed accessor support disagrees with the actual retained owner facts", failure.getMessage());
+          assertEquals(2, selected.encounteredValue().orElseThrow().items().size());
+        }));
+  }
+
+  @Test
+  void givenExceptionFactsWithheld_whenSupportIsReconciled_thenMissingRequiredSourceEvidenceRemainsBlocking() throws IOException {
+    // Arrange
+    var original = analyze("class Example { void subject() throws Exception { try (AutoCloseable first = null) {} catch (IllegalArgumentException | IllegalStateException failure) {} finally {} } }");
+    var diagnostics = JavaCoverageTestSupport.diagnostics(original, "withheld-exception-facts");
+    // Act
+    var partial = JavaCoverageTestSupport.withFacts(original, new JavaProgram(List.of()), Optional.empty(), diagnostics);
+    // Assert
+    assertEquals(original.languageFeatureCoverageResult().occurrences(), partial.languageFeatureCoverageResult().occurrences());
+    assertEquals(original.languageFeatureCoverageResult().observations(), partial.languageFeatureCoverageResult().observations());
+    assertTrue(partial.languageFeatureCoverageResult().validationEvidence().outcomes().stream().filter(outcome -> outcome.address().role().startsWith("TryTree::")
+        || outcome.address().role().startsWith("CatchTree::") || outcome.address().role().startsWith("UnionTypeTree::"))
+        .anyMatch(outcome -> outcome.support().mode() == FeatureContextOutcome.Mode.FAILED));
+    assertTrue(partial.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.missing-source-evidence") && diagnostic.isError()));
+  }
+
   private static SyntaxAnalysisInput analyze(String content) throws IOException {
     var snapshot = InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/sources"),
         List.of(SourceFile.fromContent(Path.of("Example.java"), content)));

@@ -1,6 +1,9 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.WhileLoopTree;
+import com.sun.source.tree.TryTree;
+import com.sun.source.tree.CatchTree;
+import com.sun.source.tree.UnionTypeTree;
 import com.sun.source.tree.SwitchTree;
 import com.sun.source.tree.SwitchExpressionTree;
 import com.sun.source.tree.CaseTree;
@@ -89,6 +92,10 @@ final class JavaDeclarationAccessor {
       reader(CaseTree.class, "getLabels", CaseTree::getLabels), reader(CaseTree.class, "getGuard", CaseTree::getGuard),
       reader(CaseTree.class, "getBody", CaseTree::getBody), reader(CaseTree.class, "getStatements", CaseTree::getStatements),
       reader(CaseTree.class, "getCaseKind", CaseTree::getCaseKind), reader(CaseTree.class, "getExpressions", CaseTree::getExpressions),
+      reader(TryTree.class, "getResources", TryTree::getResources), reader(TryTree.class, "getBlock", TryTree::getBlock),
+      reader(TryTree.class, "getCatches", TryTree::getCatches), reader(TryTree.class, "getFinallyBlock", TryTree::getFinallyBlock),
+      reader(CatchTree.class, "getParameter", CatchTree::getParameter), reader(CatchTree.class, "getBlock", CatchTree::getBlock),
+      reader(UnionTypeTree.class, "getTypeAlternatives", UnionTypeTree::getTypeAlternatives),
       reader(YieldTree.class, "getValue", YieldTree::getValue), reader(WhileLoopTree.class, CONDITION, WhileLoopTree::getCondition),
       reader(WhileLoopTree.class, STATEMENT, WhileLoopTree::getStatement),
       reader(DoWhileLoopTree.class, CONDITION, DoWhileLoopTree::getCondition),
