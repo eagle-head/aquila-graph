@@ -181,10 +181,10 @@ class ExpandedProfileTest {
   }
 
   @Test
-  void givenUnsupportedSwitchOrCompilerError_whenRequestingExpanded_thenIncompleteSourcePreservesTheActualGap() {
+  void givenUnsupportedFinallyOrCompilerError_whenRequestingExpanded_thenIncompleteSourcePreservesTheActualGap() {
     // Arrange
     AstProducer producer = new JavaFrontend(new JavaSourceLoader());
-    var unsupported = snapshot("class Stored { int value(int x) { switch (0) { default -> x = 0; } return x; } }");
+    var unsupported = snapshot("class Stored { int value(int x) { try {} finally { x = 0; } return x; } }");
     var erroneous = snapshot("class Stored { int value() { return missing; } }");
 
     // Act
@@ -194,7 +194,7 @@ class ExpandedProfileTest {
     // Assert
     assertEquals(AstCompletion.INCOMPLETE, selection.completion());
     assertTrue(selection.result().orElseThrow().aggregate().nodes().stream()
-        .anyMatch(node -> node.sourceKind() == JavaSourceKind.SWITCH && node.syntaxKind() == SyntaxKind.UNSUPPORTED));
+        .anyMatch(node -> node.sourceKind() == JavaSourceKind.TRY && node.syntaxKind() == SyntaxKind.UNSUPPORTED));
     assertTrue(selection.diagnostics().stream().anyMatch(value -> value.isError()));
     assertEquals(AstCompletion.INCOMPLETE, error.completion());
     assertTrue(error.diagnostics().stream().anyMatch(value -> value.code().contains("cant.resolve")), error.diagnostics().toString());

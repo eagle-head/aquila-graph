@@ -99,7 +99,14 @@ final class LocalBindingDeclarations {
       }
       return;
     }
-    var scopePath = parent.structuralPath().steps();
+    var statementGroup = parent.syntaxKind() == SyntaxKind.CASE
+        && parent.value(SyntaxValue.SwitchCase.class).form() == SyntaxValue.SwitchCaseForm.STATEMENT_GROUP;
+    var scope = statementGroup ? Optional.ofNullable(parents.get(parent.nodeId())).orElseThrow() : parent;
+    if (statementGroup && declaration.origin().isPresent() && access.origin().isPresent()
+        && access.origin().orElseThrow().startOffset() < declaration.origin().orElseThrow().startOffset()) {
+      throw new IllegalArgumentException("A switch-block local access cannot precede its declaration");
+    }
+    var scopePath = scope.structuralPath().steps();
     var accessPath = access.structuralPath().steps();
     if (accessPath.size() <= scopePath.size() || !accessPath.subList(0, scopePath.size()).equals(scopePath)) {
       throw new IllegalArgumentException("A local access must remain within its binding's lexical scope");

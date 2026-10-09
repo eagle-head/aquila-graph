@@ -104,9 +104,9 @@ class LocalBindingAdmissionTest {
   }
 
   @Test
-  void givenUnsupportedPatternAndOrdinaryBindings_whenCopiedAdmissionRuns_thenUnsupportedSourceRemainsIncomplete() throws IOException {
+  void givenUnsupportedFinallyAndPatternBindings_whenCopiedAdmissionRuns_thenUnsupportedSourceRemainsIncomplete() throws IOException {
     // Arrange
-    var original = unsupportedPattern();
+    var original = unsupportedFinallyWithPattern();
 
     // Act
     var admitted = AstValueAdmission.admit(CopiedAstValues.capture(original.aggregate()));
@@ -118,10 +118,10 @@ class LocalBindingAdmissionTest {
   }
 
   @Test
-  void givenUnsupportedPatternAndOrdinaryBindings_whenCopiedAccessSelectsAForeignOwner_thenUnsupportedStateCannotWaiveOwnership()
+  void givenUnsupportedFinallyAndPatternBindings_whenCopiedAccessSelectsAForeignOwner_thenUnsupportedStateCannotWaiveOwnership()
       throws IOException {
     // Arrange
-    var original = unsupportedPattern();
+    var original = unsupportedFinallyWithPattern();
     var access = named(original, "text", SyntaxKind.VARIABLE_ACCESS).getFirst();
     var supplied = copy(original, node -> node.nodeId().equals(access.nodeId())
         ? select(node, "type:Foreign#subject():binding_variable:0:1") : node);
@@ -236,8 +236,8 @@ class LocalBindingAdmissionTest {
     return produce("class Example { int subject() { int total=0; { int value=1; total=value; } { int value=2; total=value; } return total; } }");
   }
 
-  private AstResult unsupportedPattern() throws IOException {
-    return produce("class Example { int subject(Object input) { int total=0; return switch(input) { case String text when !text.isEmpty() -> total+1; default -> total; }; } }");
+  private AstResult unsupportedFinallyWithPattern() throws IOException {
+    return produce("class Example { int subject(Object input) { int total=0; try {} finally {} return switch(input) { case String text when !text.isEmpty() -> total+1; default -> total; }; } }");
   }
 
   private AstResult produce(String source) throws IOException {

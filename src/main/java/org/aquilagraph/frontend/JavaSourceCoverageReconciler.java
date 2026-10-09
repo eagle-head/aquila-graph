@@ -320,7 +320,7 @@ final class JavaSourceCoverageReconciler {
       if (CoverageWrittenQualifierTopology.requiresExactOccurrence(context, inventory)) {
         return List.of();
       }
-      if (List.of("CONSTANT_CASE_LABEL", "DEFAULT_CASE_LABEL").contains(kind)) {
+      if (List.of("CONSTANT_CASE_LABEL", "DEFAULT_CASE_LABEL", "PATTERN_CASE_LABEL").contains(kind)) {
         return inventory.contexts().stream()
             .filter(candidate -> candidate.address().partition() == Partition.TREE
                 && candidate.address().sourceFileKey().equals(context.address().sourceFileKey())

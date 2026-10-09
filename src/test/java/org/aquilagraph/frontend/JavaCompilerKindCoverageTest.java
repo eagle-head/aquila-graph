@@ -134,7 +134,7 @@ class JavaCompilerKindCoverageTest {
       Tree.Kind.POSTFIX_DECREMENT,
       Tree.Kind.INTERSECTION_TYPE,
       Tree.Kind.WHILE_LOOP, Tree.Kind.DO_WHILE_LOOP, Tree.Kind.FOR_LOOP, Tree.Kind.ENHANCED_FOR_LOOP,
-      Tree.Kind.LABELED_STATEMENT, Tree.Kind.BREAK, Tree.Kind.CONTINUE, Tree.Kind.YIELD, Tree.Kind.ASSERT, Tree.Kind.SYNCHRONIZED, Tree.Kind.LAMBDA_EXPRESSION, Tree.Kind.MEMBER_REFERENCE);
+      Tree.Kind.SWITCH, Tree.Kind.PATTERN_CASE_LABEL, Tree.Kind.LABELED_STATEMENT, Tree.Kind.BREAK, Tree.Kind.CONTINUE, Tree.Kind.YIELD, Tree.Kind.ASSERT, Tree.Kind.SYNCHRONIZED, Tree.Kind.LAMBDA_EXPRESSION, Tree.Kind.MEMBER_REFERENCE);
   @TempDir Path temporaryDirectory;
 
   @Test
@@ -247,6 +247,7 @@ class JavaCompilerKindCoverageTest {
             } catch (IllegalArgumentException exception) {
               local = exception == null ? conditional : local;
             }
+            switch (created) { case String _ -> {} default -> {} }
             return switch (local) {
               case 0 -> { yield conditional; }
               default -> local;
@@ -481,6 +482,8 @@ class JavaCompilerKindCoverageTest {
     for (var label : switchCase.labels()) {
       if (label instanceof SyntaxValue.SwitchLabel.Expression) {
         retainedKinds.add(Tree.Kind.CONSTANT_CASE_LABEL);
+      } else if (label instanceof SyntaxValue.SwitchLabel.Pattern) {
+        retainedKinds.add(Tree.Kind.PATTERN_CASE_LABEL);
       } else if (label == SyntaxValue.SwitchLabel.Default.INSTANCE) {
         retainedKinds.add(Tree.Kind.DEFAULT_CASE_LABEL);
       }

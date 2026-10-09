@@ -16,6 +16,38 @@ class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
 
   @Test
+  void givenPackagedSwitchStatement_whenBoundedProcessRuns_thenHistoricalSwitchDiagnosticsAndRefusalRemainObservable()
+      throws IOException, InterruptedException {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
+    Files.writeString(sourceRoot.resolve("Selection.java"), "class Selection { void value(int input) { switch (input) { default -> {} } } }");
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertEquals(List.of(
+        "ERROR FRONTEND frontend.unsupported-tree-kind.switch: Java compiler tree kind SWITCH is outside the supported semantic graph profile",
+        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: SWITCH"), result.error().lines().toList());
+  }
+
+  @Test
+  void givenPackagedConstantSwitchLabel_whenBoundedProcessRuns_thenHistoricalCaseRefusalRemainsObservable()
+      throws IOException, InterruptedException {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
+    Files.writeString(sourceRoot.resolve("Selection.java"), "class Selection { int value(int input) { return switch (input) { case 1 + 2 -> 3; default -> 4; }; } }");
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(1, result.exitCode());
+    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertEquals(List.of("ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: CASE"), result.error().lines().toList());
+  }
+
+  @Test
   void givenPackagedPatternSource_whenBoundedProcessRuns_thenHistoricalDiagnosticsAndRefusalRemainObservable() throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));

@@ -21,6 +21,27 @@ import org.junit.jupiter.api.Test;
 class JavaDeclarationPropertyCoverageTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final Set<String> EXPECTED_PROPERTIES = Set.of(
+      "SwitchTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "SwitchTree::Tree#getKind()",
+      "SwitchExpressionTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "SwitchExpressionTree::Tree#getKind()",
+      "CaseTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "CaseTree::Tree#getKind()",
+      "YieldTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "YieldTree::Tree#getKind()",
+      "SwitchTree::SwitchTree#getExpression()",
+      "SwitchTree::SwitchTree#getCases()",
+      "SwitchExpressionTree::SwitchExpressionTree#getExpression()",
+      "SwitchExpressionTree::SwitchExpressionTree#getCases()",
+      "CaseTree::CaseTree#getLabels()",
+      "CaseTree::CaseTree#getGuard()",
+      "CaseTree::CaseTree#getBody()",
+      "CaseTree::CaseTree#getStatements()",
+      "CaseTree::CaseTree#getCaseKind()",
+      "CaseTree::CaseTree#getExpressions()",
+      "CaseTree::CaseTree#getExpression()",
+      "YieldTree::YieldTree#getValue()",
+
       "InstanceOfTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "InstanceOfTree::Tree#getKind()", "InstanceOfTree::InstanceOfTree#getExpression()", "InstanceOfTree::InstanceOfTree#getType()", "InstanceOfTree::InstanceOfTree#getPattern()",
       "BindingPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
@@ -153,6 +174,11 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::ExecutableElement#isDefault()",
       "ExecutableElement::ExecutableElement#isVarArgs()");
   private static final Set<String> EXPECTED_IRRELEVANT_PROPERTIES = Set.of(
+      "SwitchTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "SwitchExpressionTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "CaseTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "YieldTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "CaseTree::CaseTree#getExpression()",
       "InstanceOfTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "BindingPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "DeconstructionPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
@@ -371,7 +397,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:09c76957002dba67b40c181c9df2283dfc5fbd2e72d70202adbab2e9606bf8e1",
+    assertEquals("java-language-feature-coverage:6c67a26fcdbe5f3d7fe6302796e917a38886a348f5619c98817ac3c4958d9bf4",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 

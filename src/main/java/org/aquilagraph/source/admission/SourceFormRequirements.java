@@ -55,7 +55,7 @@ final class SourceFormRequirements {
       }
       case UNSUPPORTED, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK -> false;
       case TRY -> node.children(SyntaxRole.RESOURCE).isEmpty() && node.children(SyntaxRole.FINALLY_BLOCK).isEmpty();
-      case CASE -> node.value(SyntaxValue.SwitchCase.class).form() == SyntaxValue.SwitchCaseForm.RULE;
+      case CASE -> true;
       case UPDATE -> isAssignable(node.requiredChild(SyntaxRole.OPERAND));
       case COMPOUND_ASSIGNMENT -> isAssignable(node.requiredChild(SyntaxRole.LOCATION));
       case ENHANCED_FOR_LOOP -> node.requiredChild(SyntaxRole.PARAMETER).value(SyntaxValue.LocalDeclaration.class).bindingEvidence()
@@ -89,8 +89,8 @@ final class SourceFormRequirements {
           ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST, TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, PARAMETER_DECLARATION,
           RECEIVER_PARAMETER, RECEIVER_NAME, TYPE_USE, METHOD_DECLARATION, RECORD_COMPONENT_DECLARATION, BLOCK, EXPRESSION_STATEMENT,
           RETURN, THROW, IF, ASSERT, SYNCHRONIZED, WHILE_LOOP, DO_WHILE_LOOP, FOR_LOOP, LABELED_STATEMENT, BREAK, CONTINUE, CATCH,
-          SWITCH_EXPRESSION, YIELD, VARIABLE_ACCESS, LITERAL, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT, ARRAY_ACCESS,
-          ARRAY_LENGTH, PARENTHESIZED, CONDITIONAL_EXPRESSION, EMPTY, ANY_PATTERN ->
+          SWITCH_EXPRESSION, SWITCH_STATEMENT, YIELD, VARIABLE_ACCESS, LITERAL, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT,
+          ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, CONDITIONAL_EXPRESSION, EMPTY, ANY_PATTERN ->
         true;
     };
   }
@@ -130,6 +130,6 @@ final class SourceFormRequirements {
 
   static boolean supportsBody(SyntaxNode root) {
     return root.descendantsAndSelf().stream().noneMatch(node -> node.syntaxKind() == SyntaxKind.TYPE_DECLARATION)
-        && SourcePatternRequirements.supports(root);
+        && SourcePatternRequirements.supports(root) && SourceSwitchRequirements.supportsBody(root, false);
   }
 }

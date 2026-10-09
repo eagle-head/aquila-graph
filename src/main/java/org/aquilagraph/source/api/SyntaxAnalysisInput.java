@@ -263,7 +263,8 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
       return false;
     }
     if (context.address().partition() == SourceContext.Partition.TREE && context.feature()
-        .filter(feature -> List.of("CONSTANT_CASE_LABEL", DEFAULT_CASE_LABEL_KIND).contains(feature.identifier())).isPresent()) {
+        .filter(feature -> List.of("CONSTANT_CASE_LABEL", DEFAULT_CASE_LABEL_KIND, "PATTERN_CASE_LABEL").contains(feature.identifier()))
+        .isPresent()) {
       return switchLabelSupport(context, fact, evidence, facts);
     }
     if (context.address().partition() != SourceContext.Partition.TREE || context.feature()
@@ -318,8 +319,14 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
     if (DEFAULT_CASE_LABEL_KIND.equals(context.feature().orElseThrow().identifier())) {
       return label instanceof SyntaxValue.SwitchLabel.Default;
     }
-    return label instanceof SyntaxValue.SwitchLabel.Expression expression && syntax.children().stream()
-        .filter(child -> child.role() == SyntaxRole.LABEL && child.ordinal() == expression.childPosition()).anyMatch(child -> facts.stream()
+    var position = label instanceof SyntaxValue.SwitchLabel.Expression expression
+        ? expression.childPosition()
+        : label instanceof SyntaxValue.SwitchLabel.Pattern pattern ? pattern.childPosition() : -1;
+    if ("PATTERN_CASE_LABEL".equals(context.feature().orElseThrow().identifier()) != (label instanceof SyntaxValue.SwitchLabel.Pattern)) {
+      return false;
+    }
+    return position >= 0 && syntax.children().stream().filter(child -> child.role() == SyntaxRole.LABEL && child.ordinal() == position)
+        .anyMatch(child -> facts.stream()
             .anyMatch(actual -> actual.identity().equals(child.nodeKey()) && actual.origin().stream().toList().equals(context.origins())));
   }
 

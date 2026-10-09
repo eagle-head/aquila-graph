@@ -1,6 +1,10 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.WhileLoopTree;
+import com.sun.source.tree.SwitchTree;
+import com.sun.source.tree.SwitchExpressionTree;
+import com.sun.source.tree.CaseTree;
+import com.sun.source.tree.YieldTree;
 import com.sun.source.tree.AssertTree;
 import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.LambdaExpressionTree;
@@ -64,8 +68,9 @@ final class JavaDeclarationPropertyCoverage {
   private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
       VariableTree.class, NewArrayTree.class, AssertTree.class, SynchronizedTree.class, LambdaExpressionTree.class,
       MemberReferenceTree.class, InstanceOfTree.class, BindingPatternTree.class, DeconstructionPatternTree.class, AnyPatternTree.class,
-      WhileLoopTree.class, DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class,
-      ContinueTree.class, TypeElement.class, ExecutableElement.class);
+      SwitchTree.class, SwitchExpressionTree.class, CaseTree.class, YieldTree.class, WhileLoopTree.class, DoWhileLoopTree.class,
+      ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class, ContinueTree.class, TypeElement.class,
+      ExecutableElement.class);
   private static final String STATEMENT_KIND_BOUNDARY = "Canonical written statement kind";
   private static final String STATEMENT_VALUE_BOUNDARY = "Canonical written statement value and ordered children";
   private static final String TREE_API = "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/";
@@ -134,6 +139,7 @@ final class JavaDeclarationPropertyCoverage {
     classifications.addAll(lambdaClassifications());
     classifications.addAll(referenceClassifications());
     classifications.addAll(patternClassifications());
+    classifications.addAll(switchClassifications());
     classifications.addAll(typeElementClassifications());
     classifications.addAll(executableElementClassifications());
     return List.copyOf(classifications);
@@ -161,6 +167,27 @@ final class JavaDeclarationPropertyCoverage {
         represented("MemberReferenceTree::MemberReferenceTree#getName()", "Written reference name"),
         represented("MemberReferenceTree::MemberReferenceTree#getQualifierExpression()", "Written reference qualifier subtree"),
         represented("MemberReferenceTree::MemberReferenceTree#getTypeArguments()", "Ordered explicit reference type arguments"));
+  }
+
+  private static List<LanguageFeatureClassification> switchClassifications() {
+    var result = new ArrayList<LanguageFeatureClassification>();
+    for (var surface : List.of(SwitchTree.class, SwitchExpressionTree.class, CaseTree.class, YieldTree.class)) {
+      var name = surface.getSimpleName();
+      result.add(
+          irrelevant(name + "::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE));
+      result.add(represented(name + "::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
+    }
+    for (var surface : List.of("SwitchTree", "SwitchExpressionTree")) {
+      result.add(represented(surface + "::" + surface + "#getExpression()", "Written switch selector"));
+      result.add(represented(surface + "::" + surface + "#getCases()", "Ordered written switch cases including an empty block"));
+    }
+    for (var accessor : List.of("getLabels", "getGuard", "getBody", "getStatements", "getCaseKind", "getExpressions")) {
+      result.add(represented("CaseTree::CaseTree#" + accessor + "()", "Written case labels, guard, and form-specific body or absence"));
+    }
+    result.add(irrelevant("CaseTree::CaseTree#getExpression()",
+        "Deprecated first-label alias; getExpressions and getLabels retain the complete list", TREE_API + "CaseTree.html#getExpression()"));
+    result.add(represented("YieldTree::YieldTree#getValue()", "Written yielded expression"));
+    return List.copyOf(result);
   }
 
   private static List<LanguageFeatureClassification> patternClassifications() {

@@ -143,6 +143,8 @@ final class CoverageSourceProjection {
       case SyntaxValue.SwitchCase value -> structure(Tag.SWITCH_CASE, field(FORM_FIELD, named(value.form())),
           field("labels", sequence(value.labels(), label -> switch (label) {
             case SyntaxValue.SwitchLabel.Default _ -> structure(Tag.DEFAULT_LABEL);
+            case SyntaxValue.SwitchLabel.Pattern pattern ->
+              structure(Tag.PATTERN_LABEL, field("childPosition", integral(pattern.childPosition())));
             case SyntaxValue.SwitchLabel.Expression expression ->
               structure(Tag.EXPRESSION_LABEL, field("childPosition", integral(expression.childPosition())));
           })));

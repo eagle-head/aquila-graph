@@ -2,6 +2,10 @@ package org.aquilagraph.frontend;
 
 import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.WhileLoopTree;
+import com.sun.source.tree.SwitchTree;
+import com.sun.source.tree.SwitchExpressionTree;
+import com.sun.source.tree.CaseTree;
+import com.sun.source.tree.YieldTree;
 import com.sun.source.tree.AssertTree;
 import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.LambdaExpressionTree;
@@ -132,6 +136,10 @@ final class JavaCoverageTopology {
       case BindingPatternTree _ -> Optional.of(BindingPatternTree.class);
       case DeconstructionPatternTree _ -> Optional.of(DeconstructionPatternTree.class);
       case AnyPatternTree _ -> Optional.of(AnyPatternTree.class);
+      case SwitchTree _ -> Optional.of(SwitchTree.class);
+      case SwitchExpressionTree _ -> Optional.of(SwitchExpressionTree.class);
+      case CaseTree _ -> Optional.of(CaseTree.class);
+      case YieldTree _ -> Optional.of(YieldTree.class);
       case WhileLoopTree _ -> Optional.of(WhileLoopTree.class);
       case DoWhileLoopTree _ -> Optional.of(DoWhileLoopTree.class);
       case ForLoopTree _ -> Optional.of(ForLoopTree.class);

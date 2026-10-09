@@ -24,7 +24,8 @@ final class SourcePatternRequirements {
         }
       }
       var parent = parents.get(node.nodeId());
-      if (node.syntaxKind() == SyntaxKind.BINDING_PATTERN && parent != null && parent.syntaxKind() == SyntaxKind.INSTANCE_OF) {
+      if (node.syntaxKind() == SyntaxKind.BINDING_PATTERN && parent != null
+          && (parent.syntaxKind() == SyntaxKind.INSTANCE_OF || parent.syntaxKind() == SyntaxKind.CASE)) {
         var binding = node.requiredChild(SyntaxRole.PARAMETER);
         if (binding.value(SyntaxValue.LocalDeclaration.class).bindingEvidence()
             .filter(evidence -> evidence.typeForm() != LocalBindingEvidence.TypeForm.DECLARED).isPresent()

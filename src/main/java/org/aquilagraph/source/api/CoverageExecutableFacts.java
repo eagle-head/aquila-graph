@@ -17,8 +17,9 @@ final class CoverageExecutableFacts {
       Map.entry("SynchronizedTree", JavaSourceKind.SYNCHRONIZED), Map.entry("LambdaExpressionTree", JavaSourceKind.LAMBDA_EXPRESSION),
       Map.entry("MemberReferenceTree", JavaSourceKind.MEMBER_REFERENCE), Map.entry("InstanceOfTree", JavaSourceKind.INSTANCE_OF),
       Map.entry("BindingPatternTree", JavaSourceKind.BINDING_PATTERN),
-      Map.entry("DeconstructionPatternTree", JavaSourceKind.DECONSTRUCTION_PATTERN),
-      Map.entry("AnyPatternTree", JavaSourceKind.ANY_PATTERN));
+      Map.entry("DeconstructionPatternTree", JavaSourceKind.DECONSTRUCTION_PATTERN), Map.entry("SwitchTree", JavaSourceKind.SWITCH),
+      Map.entry("SwitchExpressionTree", JavaSourceKind.SWITCH_EXPRESSION), Map.entry("CaseTree", JavaSourceKind.CASE),
+      Map.entry("YieldTree", JavaSourceKind.YIELD), Map.entry("AnyPatternTree", JavaSourceKind.ANY_PATTERN));
 
   private CoverageExecutableFacts() {
   }
@@ -34,7 +35,12 @@ final class CoverageExecutableFacts {
 
   static boolean supports(String accessor, CoveragePropertyValue expected, CoverageSyntaxFactValue owner, CoverageActualFactView facts,
       InputSnapshot snapshot) {
+    if (owner.syntaxKind() == SyntaxKind.CASE) {
+      return CoverageSwitchFacts.supports(accessor, expected, owner, facts, snapshot);
+    }
     return switch (accessor) {
+      case "getCases" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.CASE), facts, snapshot, false);
+      case "getValue" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.VALUE), facts, snapshot, true);
       case "getPattern" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.PATTERN), facts, snapshot, true);
       case "getDeconstructor" ->
         CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.TYPE_OPERAND), facts, snapshot, true);
@@ -73,7 +79,11 @@ final class CoverageExecutableFacts {
       case "getExpression" -> CoverageActualFacts.writtenAttachments(expected, owner,
           List.of(owner.sourceKind() == JavaSourceKind.INSTANCE_OF
               ? SyntaxRole.EXPRESSION
-              : owner.sourceKind() == JavaSourceKind.ENHANCED_FOR_LOOP ? SyntaxRole.ITERABLE : SyntaxRole.MONITOR),
+              : owner.sourceKind() == JavaSourceKind.ENHANCED_FOR_LOOP
+                  ? SyntaxRole.ITERABLE
+                  : owner.sourceKind() == JavaSourceKind.SWITCH || owner.sourceKind() == JavaSourceKind.SWITCH_EXPRESSION
+                      ? SyntaxRole.SELECTOR
+                      : SyntaxRole.MONITOR),
           facts, snapshot, true);
       case "getDetail" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.DETAIL), facts, snapshot, true);
       default -> false;

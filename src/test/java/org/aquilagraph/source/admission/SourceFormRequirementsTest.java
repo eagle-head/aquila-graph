@@ -29,7 +29,7 @@ class SourceFormRequirementsTest {
   @TempDir Path directory;
 
   @Test
-  void givenCopiedResourceFinallyAndColonForms_whenAdmittedAndDecoded_thenQueryableVariantsFailSourceFormPolicy() throws IOException {
+  void givenCopiedResourceFinallyAndColonForms_whenAdmittedAndDecoded_thenPendingResourcesFailAndSwitchGroupsPass() throws IOException {
     // Arrange: reclassify copied forms without claiming that the frontend supports them.
     var text = """
         class Example {
@@ -58,7 +58,7 @@ class SourceFormRequirementsTest {
     assertEquals(admitted, decoded);
     assertEquals(4, variants.size());
     for (var variant : variants) {
-      assertFalse(SourceFormRequirements.supports(variant), variant.nodeId());
+      assertEquals(variant.syntaxKind() == SyntaxKind.CASE, SourceFormRequirements.supports(variant), variant.nodeId());
     }
     assertTrue(variants.stream().anyMatch(node -> !node.children(SyntaxRole.RESOURCE).isEmpty()));
     assertTrue(variants.stream().anyMatch(node -> !node.children(SyntaxRole.FINALLY_BLOCK).isEmpty()));

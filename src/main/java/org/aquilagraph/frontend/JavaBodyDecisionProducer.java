@@ -230,7 +230,7 @@ final class JavaBodyDecisionProducer {
 
   private Optional<TypeMirror> target(NodeProjection consumer, SyntaxChild child, Map<SyntaxNode, NodeProjection> bindings) {
     var node = consumer.node();
-    if (child.role() == SyntaxRole.CONDITION || node.syntaxKind() == SyntaxKind.CONDITIONAL_AND
+    if (child.role() == SyntaxRole.CONDITION || child.role() == SyntaxRole.GUARD || node.syntaxKind() == SyntaxKind.CONDITIONAL_AND
         || node.syntaxKind() == SyntaxKind.CONDITIONAL_OR) {
       return Optional.of(semantics.primitiveType(TypeKind.BOOLEAN));
     }
@@ -251,12 +251,14 @@ final class JavaBodyDecisionProducer {
       case RETURN -> child.role() == SyntaxRole.EXPRESSION ? enclosingReturn(consumer.path()) : Optional.empty();
       case CASE -> child.role() == SyntaxRole.BODY ? enclosingSwitch(consumer.path()) : Optional.empty();
       case YIELD -> child.role() == SyntaxRole.VALUE ? enclosingSwitch(consumer.path()) : Optional.empty();
-      case SWITCH_EXPRESSION -> child.role() == SyntaxRole.SELECTOR
-          ? semantics.attributedMirror(Objects.requireNonNull(bindings.get(child.node())).path())
-              .flatMap(mirror -> primitive(mirror)
-                  .<TypeMirror>map(type -> type.getKind() == TypeKind.BOOLEAN ? type : semantics.primitiveType(TypeKind.INT))
-                  .or(() -> Optional.of(mirror)))
-          : Optional.empty();
+      case SWITCH_EXPRESSION,
+          SWITCH_STATEMENT ->
+        child.role() == SyntaxRole.SELECTOR
+            ? semantics.attributedMirror(Objects.requireNonNull(bindings.get(child.node())).path())
+                .flatMap(mirror -> primitive(mirror)
+                    .<TypeMirror>map(type -> type.getKind() == TypeKind.BOOLEAN ? type : semantics.primitiveType(TypeKind.INT))
+                    .or(() -> Optional.of(mirror)))
+            : Optional.empty();
       case BINARY -> child.role() == SyntaxRole.LEFT_OPERAND || child.role() == SyntaxRole.RIGHT_OPERAND
           ? binaryTarget(consumer, child, bindings)
           : Optional.empty();

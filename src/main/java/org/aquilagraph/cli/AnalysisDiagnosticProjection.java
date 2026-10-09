@@ -25,6 +25,9 @@ import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue.Unsupported;
+import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.ReferenceKind;
 
 /** Projects the historical command-line diagnostic protocol without changing native diagnostic owners. */
 final class AnalysisDiagnosticProjection {
@@ -33,7 +36,7 @@ final class AnalysisDiagnosticProjection {
   private static final String TREE_DIAGNOSTIC_PREFIX = "frontend.unsupported-tree-kind.";
   private static final Set<String> EXPANDED_STATEMENT_KINDS = Set.of("WHILE_LOOP", "DO_WHILE_LOOP", "FOR_LOOP", "ENHANCED_FOR_LOOP",
       "LABELED_STATEMENT", "BREAK", "CONTINUE", "ASSERT", "SYNCHRONIZED", "LAMBDA_EXPRESSION", "MEMBER_REFERENCE", "INSTANCE_OF",
-      "BINDING_PATTERN", "DECONSTRUCTION_PATTERN", "ANY_PATTERN");
+      "BINDING_PATTERN", "DECONSTRUCTION_PATTERN", "ANY_PATTERN", "SWITCH", "PATTERN_CASE_LABEL");
 
   private AnalysisDiagnosticProjection() {
   }
@@ -132,11 +135,20 @@ final class AnalysisDiagnosticProjection {
   private static List<SyntaxNode> statementRoots(AstResult source) {
     var nodes = source.program().methods().stream().flatMap(method -> source.body(method.methodKey()).stream())
         .flatMap(body -> body.root().descendantsAndSelf().stream())
-        .filter(node -> EXPANDED_STATEMENT_KINDS.contains(node.sourceKind().name()) && node.syntaxKind() != SyntaxKind.UNSUPPORTED
-            && node.origin().isPresent())
+        .filter(node -> (EXPANDED_STATEMENT_KINDS.contains(node.sourceKind().name()) || isExpandedCase(node))
+            && node.syntaxKind() != SyntaxKind.UNSUPPORTED && node.origin().isPresent())
         .toList();
     return nodes.stream().filter(node -> nodes.stream().noneMatch(parent -> !parent.equals(node) && within(parent, node.origin())))
         .toList();
+  }
+
+  private static boolean isExpandedCase(SyntaxNode node) {
+    return node.syntaxKind() == SyntaxKind.CASE
+        && (node.value(SyntaxValue.SwitchCase.class).form() != SyntaxValue.SwitchCaseForm.RULE || !node.children(SyntaxRole.GUARD).isEmpty()
+            || node.children(SyntaxRole.LABEL).stream().anyMatch(label -> label.syntaxKind() == SyntaxKind.LITERAL
+                ? label.sourceKind() == JavaSourceKind.NULL_LITERAL
+                : (label.syntaxKind() != SyntaxKind.FIELD_ACCESS && label.syntaxKind() != SyntaxKind.VARIABLE_ACCESS)
+                    || label.semanticReference().filter(reference -> reference.referenceKind() == ReferenceKind.ENUM_CONSTANT).isEmpty()));
   }
 
   private static boolean within(SyntaxNode parent, Optional<SourceSpan> origin) {

@@ -990,7 +990,7 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.PARAMETER, 1, 1);
         requireCount(children, SyntaxRole.BODY, 1, 1);
       }
-      case SWITCH_EXPRESSION -> {
+      case SWITCH_EXPRESSION, SWITCH_STATEMENT -> {
         requireShape(children, Set.of(SyntaxRole.SELECTOR, SyntaxRole.CASE));
         requireCount(children, SyntaxRole.SELECTOR, 1, 1);
       }
@@ -1128,12 +1128,15 @@ public final class SyntaxNode {
         case CATCH -> child.role() == SyntaxRole.PARAMETER
             ? isCategory(node, SyntaxKind.LOCAL_DECLARATION, JavaSourceKind.VARIABLE)
             : isCategory(node, SyntaxKind.BLOCK, JavaSourceKind.BLOCK);
-        case SWITCH_EXPRESSION ->
+        case SWITCH_EXPRESSION, SWITCH_STATEMENT ->
           child.role() == SyntaxRole.SELECTOR ? isExpression(node) : isCategory(node, SyntaxKind.CASE, JavaSourceKind.CASE);
-        case CASE -> child.role() == SyntaxRole.STATEMENT
-            ? isStatement(node)
-            : isExpression(node)
-                || (child.role() == SyntaxRole.BODY && (node.syntaxKind() == SyntaxKind.BLOCK || node.syntaxKind() == SyntaxKind.THROW));
+        case CASE -> switch (child.role()) {
+          case LABEL -> isExpression(node) || isPattern(node);
+          case STATEMENT -> isStatement(node);
+          case BODY -> isExpression(node) || node.syntaxKind() == SyntaxKind.BLOCK || node.syntaxKind() == SyntaxKind.THROW
+              || node.syntaxKind() == SyntaxKind.EXPRESSION_STATEMENT;
+          default -> isExpression(node);
+        };
         case ARRAY_CREATION -> switch (child.role()) {
           case TYPE_OPERAND -> node.syntaxKind() == SyntaxKind.TYPE_USE;
           case ANNOTATION -> node.syntaxKind() == SyntaxKind.ANNOTATION;
@@ -1186,7 +1189,7 @@ public final class SyntaxNode {
   private static boolean isStatement(SyntaxNode node) {
     return switch (node.syntaxKind()) {
       case BLOCK, LOCAL_DECLARATION, EXPRESSION_STATEMENT, RETURN, THROW, IF, WHILE_LOOP, DO_WHILE_LOOP, FOR_LOOP, ENHANCED_FOR_LOOP,
-          LABELED_STATEMENT, BREAK, CONTINUE, ASSERT, SYNCHRONIZED, TRY, YIELD, EMPTY, TYPE_DECLARATION ->
+          LABELED_STATEMENT, BREAK, CONTINUE, ASSERT, SYNCHRONIZED, TRY, YIELD, EMPTY, TYPE_DECLARATION, SWITCH_STATEMENT ->
         true;
       case UNSUPPORTED -> switch (node.sourceKind()) {
         case ASSERT, BLOCK, BREAK, CONTINUE, DO_WHILE_LOOP, ENHANCED_FOR_LOOP, EXPRESSION_STATEMENT, FOR_LOOP, IF, LABELED_STATEMENT,
@@ -2281,14 +2284,24 @@ public final class SyntaxNode {
   }
 
   private static void validateSwitchCase(SyntaxValue.SwitchCase switchCase, List<SyntaxChild> children) {
-    requireShape(children, Set.of(SyntaxRole.LABEL, SyntaxRole.BODY, SyntaxRole.STATEMENT));
-    var expressionLabelCount = switchCase.labels().stream().filter(SyntaxValue.SwitchLabel.Expression.class::isInstance).count();
+    requireShape(children, Set.of(SyntaxRole.LABEL, SyntaxRole.BODY, SyntaxRole.STATEMENT, SyntaxRole.GUARD));
+    var expressionLabelCount = switchCase.labels().stream().filter(label -> !(label instanceof SyntaxValue.SwitchLabel.Default)).count();
     requireCount(children, SyntaxRole.LABEL, (int) expressionLabelCount, (int) expressionLabelCount);
-    for (var label : children.stream().filter(child -> child.role() == SyntaxRole.LABEL).map(SyntaxChild::node).toList()) {
-      if (!isSupportedSwitchLabel(label)) {
-        throw new IllegalArgumentException("A supported switch case label must be a literal or enum constant");
+    var labels = children.stream().filter(child -> child.role() == SyntaxRole.LABEL).map(SyntaxChild::node).toList();
+    for (var label : switchCase.labels()) {
+      if (label instanceof SyntaxValue.SwitchLabel.Pattern pattern && !isPattern(labels.get(pattern.childPosition()))) {
+        throw new IllegalArgumentException("A pattern switch label requires a pattern child");
+      }
+      if (label instanceof SyntaxValue.SwitchLabel.Expression expression && !isExpression(labels.get(expression.childPosition()))) {
+        throw new IllegalArgumentException("A constant switch label requires an expression child");
       }
     }
+    if (switchCase.labels().size() > 1 && switchCase.labels().getLast() instanceof SyntaxValue.SwitchLabel.Default
+        && labels.getFirst().sourceKind() != JavaSourceKind.NULL_LITERAL) {
+      throw new IllegalArgumentException("A combined default switch label requires exactly one preceding null literal");
+    }
+    var patternLabels = switchCase.labels().stream().allMatch(SyntaxValue.SwitchLabel.Pattern.class::isInstance);
+    requireCount(children, SyntaxRole.GUARD, 0, patternLabels ? 1 : 0);
     switch (switchCase.form()) {
       case RULE -> {
         requireCount(children, SyntaxRole.BODY, 1, 1);
@@ -2296,17 +2309,6 @@ public final class SyntaxNode {
       }
       case STATEMENT_GROUP -> requireCount(children, SyntaxRole.BODY, 0, 0);
     }
-  }
-
-  private static boolean isSupportedSwitchLabel(SyntaxNode label) {
-    if (label.syntaxKind() == SyntaxKind.LITERAL) {
-      return label.resolvedType().map(JavaTypeIdentity::category).filter(category -> category != JavaTypeCategory.NULL).isPresent();
-    }
-    if (label.syntaxKind() != SyntaxKind.VARIABLE_ACCESS && label.syntaxKind() != SyntaxKind.FIELD_ACCESS) {
-      return false;
-    }
-    return label.semanticReference().filter(reference -> reference.referenceKind() == ReferenceKind.ENUM_CONSTANT)
-        .flatMap(SemanticReference::symbolKey).isPresent();
   }
 
   private static void requireShape(List<SyntaxChild> children, Set<SyntaxRole> roles, SyntaxRole countedRole, int minimum, int maximum) {

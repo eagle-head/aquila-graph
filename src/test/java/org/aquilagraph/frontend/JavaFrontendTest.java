@@ -110,7 +110,7 @@ class JavaFrontendTest {
         abstract class Mixed {
           abstract void abstractCall();
           native int nativeCall();
-          void unsupported() { switch (0) { default -> { return; } } }
+          void unsupported() { try {} finally {} }
         }
         """);
     var frontend = new JavaFrontend(new JavaSourceLoader());
@@ -279,7 +279,7 @@ class JavaFrontendTest {
   }
 
   @Test
-  void givenUnmodeledConstantSwitchExpression_whenFrontendRuns_thenEntireCaseIsRejected() throws IOException {
+  void givenConstantSwitchExpression_whenFrontendRuns_thenWrittenOperandsSurviveAndCfgRefuses() throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("ConstantExpressionSwitch.java"), """
         final class ConstantExpressionSwitch {
@@ -299,12 +299,17 @@ class JavaFrontendTest {
     // Assert
     var body = methodBody(result, "classify");
     assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(body));
-    assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
-    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
+    assertFalse(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
+    assertDiagnosticCodes(result, List.of());
+    var label = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.CASE)
+        .findFirst().orElseThrow().children(SyntaxRole.LABEL).getFirst();
+    assertEquals(SyntaxKind.BINARY, label.syntaxKind());
+    assertEquals(JavaSourceKind.PLUS, label.sourceKind());
+    assertEquals(List.of("1", "2"), label.children().stream().map(child -> child.node().value(SyntaxValue.Literal.class).text()).toList());
   }
 
   @Test
-  void givenGuardedPatternSwitch_whenFrontendRuns_thenEntireCaseIsRejected() throws IOException {
+  void givenGuardedPatternSwitch_whenFrontendRuns_thenBindingAndGuardSurviveAndCfgRefuses() throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("GuardedSwitch.java"), """
         final class GuardedSwitch {
@@ -324,12 +329,23 @@ class JavaFrontendTest {
     // Assert
     var body = methodBody(result, "classify");
     assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(body));
-    assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
-    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
+    assertFalse(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
+    assertDiagnosticCodes(result, List.of());
+    var selectionCase = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.CASE)
+        .findFirst().orElseThrow();
+    assertEquals(List.of(new SyntaxValue.SwitchLabel.Pattern(0)), selectionCase.value(SyntaxValue.SwitchCase.class).labels());
+    var pattern = selectionCase.children(SyntaxRole.LABEL).getFirst();
+    assertEquals(SyntaxKind.BINDING_PATTERN, pattern.syntaxKind());
+    var binding = pattern.requiredChild(SyntaxRole.PARAMETER);
+    assertEquals("text", binding.value(SyntaxValue.LocalDeclaration.class).name());
+    var guard = selectionCase.requiredChild(SyntaxRole.GUARD);
+    assertEquals(JavaTypeCategory.BOOLEAN, guard.resolvedType().orElseThrow().category());
+    var access = guard.descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS).findFirst().orElseThrow();
+    assertEquals(List.of(access.origin().orElseThrow()), pattern.value(SyntaxValue.PatternBinding.class).resolvedAccesses().orElseThrow());
   }
 
   @Test
-  void givenNullSwitchLabel_whenFrontendRuns_thenEntireCaseIsRejected() throws IOException {
+  void givenNullSwitchLabel_whenFrontendRuns_thenNullLabelSurvivesAndCfgRefuses() throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("NullSwitch.java"), """
         final class NullSwitch {
@@ -349,12 +365,17 @@ class JavaFrontendTest {
     // Assert
     var body = methodBody(result, "classify");
     assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(body));
-    assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
-    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
+    assertFalse(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
+    assertDiagnosticCodes(result, List.of());
+    var label = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.CASE)
+        .findFirst().orElseThrow().children(SyntaxRole.LABEL).getFirst();
+    assertEquals(SyntaxKind.LITERAL, label.syntaxKind());
+    assertEquals(JavaSourceKind.NULL_LITERAL, label.sourceKind());
+    assertEquals(JavaTypeCategory.NULL, label.resolvedType().orElseThrow().category());
   }
 
   @Test
-  void givenStatementGroupSwitchExpression_whenFrontendRuns_thenEntireCaseIsRejected() throws IOException {
+  void givenStatementGroupSwitchExpression_whenFrontendRuns_thenOrderedYieldsSurviveAndCfgRefuses() throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("StatementGroupSwitch.java"), """
         final class StatementGroupSwitch {
@@ -376,8 +397,15 @@ class JavaFrontendTest {
     // Assert
     var body = methodBody(result, "classify");
     assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(body));
-    assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
-    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-syntax")));
+    assertFalse(body.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED));
+    assertDiagnosticCodes(result, List.of());
+    var cases = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.CASE).toList();
+    assertEquals(2, cases.size());
+    assertTrue(cases.stream().allMatch(node -> node.value(SyntaxValue.SwitchCase.class).form() == SyntaxValue.SwitchCaseForm.STATEMENT_GROUP));
+    assertTrue(cases.stream().allMatch(node -> node.optionalChild(SyntaxRole.BODY).isEmpty()));
+    assertEquals(List.of("1", "0"), cases.stream().map(node -> node.children(SyntaxRole.STATEMENT).getFirst())
+        .peek(node -> assertEquals(SyntaxKind.YIELD, node.syntaxKind()))
+        .map(node -> node.requiredChild(SyntaxRole.VALUE).value(SyntaxValue.Literal.class).text()).toList());
   }
 
   @Test

@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.Tree;
+import com.sun.source.tree.DefaultCaseLabelTree;
 import com.sun.source.tree.NewArrayTree;
 import com.sun.source.tree.ModifiersTree;
 import java.lang.reflect.Method;
@@ -124,6 +125,10 @@ final class JavaCoveragePropertyProjection {
       return annotationItem(ordinal, provenance, JavaCoverageAnnotationProjection.value(annotation, semantics.orElseThrow()));
     }
     if (value instanceof Tree tree) {
+      if (tree instanceof DefaultCaseLabelTree) {
+        // The keyword has no descendant value; its exact range remains in the parsed context inventory.
+        return new Item(tree.getKind().name() + ':' + ordinal, "default", Provenance.WRITTEN);
+      }
       if (tree instanceof ModifiersTree modifiers) {
         var flags = modifiers.getFlags().stream().map(Object::toString).sorted().toList();
         return new Item(tree.getKind().name() + ':' + ordinal, CoveragePropertyValue.canonicalFlags(flags), Provenance.WRITTEN,

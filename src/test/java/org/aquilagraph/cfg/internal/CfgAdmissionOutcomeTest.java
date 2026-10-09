@@ -71,7 +71,7 @@ class CfgAdmissionOutcomeTest {
             target(1);
             target(2);
         """ + (unsupportedConstruct ? "int result = switch (1) { case 1 -> 2; default -> 3; };\n" : "")
-        + (unavailableSource ? "switch (0) { default -> {} }\n" : "") + "return 0; } }";
+        + (unavailableSource ? "try {} finally {}\n" : "") + "return 0; } }";
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"), source)));
     var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot,
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();

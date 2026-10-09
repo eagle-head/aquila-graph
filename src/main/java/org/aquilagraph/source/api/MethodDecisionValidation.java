@@ -81,7 +81,8 @@ final class MethodDecisionValidation {
       case LAMBDA_EXPRESSION -> consumer.value(SyntaxValue.Lambda.class).returnType() instanceof SyntaxType.Resolved resolved
           ? Optional.of(resolved.identity())
           : Optional.empty();
-      case RETURN, CASE, YIELD -> Optional.ofNullable(resultTargets.get(consumer.nodeId()));
+      case CASE -> role == SyntaxRole.BODY ? Optional.ofNullable(resultTargets.get(consumer.nodeId())) : Optional.empty();
+      case RETURN, YIELD -> Optional.ofNullable(resultTargets.get(consumer.nodeId()));
       default -> Optional.empty();
     };
   }
@@ -90,8 +91,9 @@ final class MethodDecisionValidation {
     if (decision.role() == SyntaxRole.INDEX && decision.selectedTarget().category() != JavaTypeCategory.INT) {
       throw new IllegalArgumentException("An array index use must select int");
     }
-    if ((decision.role() == SyntaxRole.CONDITION || consumer.syntaxKind() == SyntaxKind.CONDITIONAL_AND
-        || consumer.syntaxKind() == SyntaxKind.CONDITIONAL_OR) && decision.selectedTarget().category() != JavaTypeCategory.BOOLEAN) {
+    if ((decision.role() == SyntaxRole.CONDITION || decision.role() == SyntaxRole.GUARD
+        || consumer.syntaxKind() == SyntaxKind.CONDITIONAL_AND || consumer.syntaxKind() == SyntaxKind.CONDITIONAL_OR)
+        && decision.selectedTarget().category() != JavaTypeCategory.BOOLEAN) {
       throw new IllegalArgumentException("A condition use must select boolean");
     }
   }

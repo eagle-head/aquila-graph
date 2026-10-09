@@ -432,6 +432,7 @@ final class AstValueSchema {
     enumeration(types, SyntaxValue.SwitchCaseForm.class, "syntax-value/switch-case-form");
     enumeration(types, SyntaxValue.SwitchLabel.Default.class, "syntax-value/switch-label/default");
     record(types, SyntaxValue.SwitchLabel.Expression.class, "syntax-value/switch-label/expression", "childPosition");
+    record(types, SyntaxValue.SwitchLabel.Pattern.class, "syntax-value/switch-label/pattern", "childPosition");
     record(types, SyntaxValue.Unsupported.class, "syntax-value/unsupported", "compilerKind");
     record(types, ChildUseEvidence.class, "child-use-evidence", METHOD_KEY_FIELD, "consumerNodeId", ROLE_FIELD, POSITION_FIELD,
         "sourceType", "selectedTarget", "conversion", "referenceCheck");

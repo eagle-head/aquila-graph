@@ -78,6 +78,8 @@ public enum SyntaxKind {
   CATCH,
   /** Switch expression. */
   SWITCH_EXPRESSION,
+  /** Written switch statement, including an empty block. */
+  SWITCH_STATEMENT,
   /** Switch case. */
   CASE,
   /** Yield statement. */
@@ -204,6 +206,7 @@ public enum SyntaxKind {
       case TRY -> sourceKind == JavaSourceKind.TRY;
       case CATCH -> sourceKind == JavaSourceKind.CATCH;
       case SWITCH_EXPRESSION -> sourceKind == JavaSourceKind.SWITCH_EXPRESSION;
+      case SWITCH_STATEMENT -> sourceKind == JavaSourceKind.SWITCH;
       case CASE -> sourceKind == JavaSourceKind.CASE;
       case YIELD -> sourceKind == JavaSourceKind.YIELD;
       case INVOCATION -> sourceKind == JavaSourceKind.METHOD_INVOCATION;

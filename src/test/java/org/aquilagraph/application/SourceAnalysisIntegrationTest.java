@@ -32,11 +32,12 @@ class SourceAnalysisIntegrationTest {
   @TempDir Path temporaryDirectory;
 
   @Test
-  void givenParenthesizedTargetBeforeOrAfterUnavailableSyntax_whenDerived_thenSourceAndCfgDiagnosticOrdersRemainIndependent() throws IOException {
+  void givenParenthesizedTargetBeforeOrAfterExpandedSwitch_whenDerived_thenSourceAndCfgDiagnosticOrdersRemainIndependent() throws IOException {
     // Arrange
     var bodies = List.of("(a) = 1; switch (0) { default -> a = 0; }", "switch (0) { default -> a = 0; } (a) = 1;");
     var sourceMessages = new ArrayList<List<String>>();
     var graphCodes = new ArrayList<List<String>>();
+    var graphOrigins = new ArrayList<List<String>>();
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
@@ -50,14 +51,17 @@ class SourceAnalysisIntegrationTest {
       graphCodes.add(run.representation().cfg().orElseThrow().methods().stream().filter(value ->
           run.representation().ast().result().orElseThrow().method(value.methodKey()).orElseThrow().name().equals("value")).findFirst().orElseThrow().diagnostics().stream()
           .map(value -> value.code()).toList());
+      graphOrigins.add(run.representation().cfg().orElseThrow().methods().stream().filter(value ->
+          run.representation().ast().result().orElseThrow().method(value.methodKey()).orElseThrow().name().equals("value")).findFirst().orElseThrow().diagnostics().stream()
+          .map(diagnostic -> diagnostic.origins().getFirst()).map(origin -> snapshot.sourceFiles().getFirst().content().substring(Math.toIntExact(origin.startOffset()), Math.toIntExact(origin.endOffsetExclusive()))).toList());
       assertEquals(ast.diagnostics(), run.representation().ast().diagnostics());
     }
 
     // Assert
-    assertEquals(List.of(List.of("Unsupported Java construct in method body: SWITCH"),
-        List.of("Unsupported Java construct in method body: SWITCH")), sourceMessages);
-    assertEquals(List.of(List.of("control-flow.unsupported", "control-flow.source-unavailable"),
-        List.of("control-flow.source-unavailable", "control-flow.unsupported")), graphCodes);
+    assertEquals(List.of(List.of(), List.of()), sourceMessages);
+    assertEquals(List.of(List.of("(a) = 1", "switch (0) { default -> a = 0; }"), List.of("switch (0) { default -> a = 0; }", "(a) = 1")), graphOrigins);
+    assertEquals(List.of(List.of("control-flow.unsupported", "control-flow.unsupported"),
+        List.of("control-flow.unsupported", "control-flow.unsupported")), graphCodes);
   }
 
   @Test

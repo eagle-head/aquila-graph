@@ -2401,17 +2401,25 @@ public sealed interface SyntaxValue {
         throw new IllegalArgumentException("A switch case must retain at least one label");
       }
       var defaultCount = labels.stream().filter(SwitchLabel.Default.class::isInstance).count();
-      if (defaultCount > 0 && labels.size() != 1) {
-        throw new IllegalArgumentException("A supported default switch label must be the case's only label");
+      if (defaultCount > 1 || (defaultCount == 1 && labels.size() != 1 && !(labels.size() == 2
+          && labels.getFirst() instanceof SwitchLabel.Expression && labels.getLast() instanceof SwitchLabel.Default))) {
+        throw new IllegalArgumentException("A default switch label must stand alone or follow one null label");
       }
-      var nextExpressionPosition = 0;
+      var patternCount = labels.stream().filter(SwitchLabel.Pattern.class::isInstance).count();
+      if (patternCount != 0 && patternCount != labels.size()) {
+        throw new IllegalArgumentException("Pattern switch labels cannot mix with constants, null, or default");
+      }
+      var nextChildPosition = 0;
       for (var label : labels) {
         Objects.requireNonNull(label, "label");
-        if (label instanceof SwitchLabel.Expression expression) {
-          if (expression.childPosition() != nextExpressionPosition) {
-            throw new IllegalArgumentException("Switch label expression positions must be contiguous");
+        if (!(label instanceof SwitchLabel.Default)) {
+          var position = label instanceof SwitchLabel.Expression expression
+              ? expression.childPosition()
+              : ((SwitchLabel.Pattern) label).childPosition();
+          if (position != nextChildPosition) {
+            throw new IllegalArgumentException("Switch label child positions must be contiguous");
           }
-          nextExpressionPosition++;
+          nextChildPosition++;
         }
       }
     }
@@ -2427,6 +2435,21 @@ public sealed interface SyntaxValue {
 
   /** Typed label belonging to a switch case. */
   sealed interface SwitchLabel {
+    /**
+     * Pattern label represented by a canonical pattern subtree.
+     *
+     * @param childPosition
+     *          position among the case's label children
+     */
+    record Pattern(int childPosition) implements SwitchLabel {
+      /** Validates the label-child position. */
+      public Pattern {
+        if (childPosition < 0) {
+          throw new IllegalArgumentException("A switch label child position cannot be negative");
+        }
+      }
+    }
+
     /** Default label. */
     enum Default implements SwitchLabel {
       /** Singleton default label. */
@@ -2434,7 +2457,7 @@ public sealed interface SyntaxValue {
     }
 
     /**
-     * Constant-expression label represented by a typed syntax child.
+     * Constant-expression or null label represented by a typed syntax child.
      *
      * @param childPosition
      *          position among the case's expression-label children

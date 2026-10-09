@@ -50,7 +50,9 @@ final class SourceRequirements {
             || node.syntaxKind() == SyntaxKind.SYNCHRONIZED || node.syntaxKind() == SyntaxKind.LAMBDA_EXPRESSION
             || node.syntaxKind() == SyntaxKind.MEMBER_REFERENCE || node.syntaxKind() == SyntaxKind.INSTANCE_OF
             || node.syntaxKind() == SyntaxKind.BINDING_PATTERN || node.syntaxKind() == SyntaxKind.DECONSTRUCTION_PATTERN
-            || node.syntaxKind() == SyntaxKind.ANY_PATTERN || node.sourceKind() == JavaSourceKind.INTERSECTION_TYPE)) {
+            || node.syntaxKind() == SyntaxKind.ANY_PATTERN || node.syntaxKind() == SyntaxKind.SWITCH_STATEMENT
+            || (node.syntaxKind() == SyntaxKind.CASE && !SourceSwitchRequirements.isBoundedCase(node))
+            || node.sourceKind() == JavaSourceKind.INTERSECTION_TYPE)) {
       return true;
     }
     if (!(node.value() instanceof SyntaxValue.LocalDeclaration local)) {

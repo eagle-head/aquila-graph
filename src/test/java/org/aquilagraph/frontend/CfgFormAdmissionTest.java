@@ -37,7 +37,7 @@ class CfgFormAdmissionTest {
   @TempDir Path directory;
 
   @TestFactory
-  Stream<DynamicTest> givenQualifiedCopiedExcludedForms_whenDerivingClosedValues_thenRefusedWithoutChangingSourceOrUnaffectedGraph() {
+  Stream<DynamicTest> givenQualifiedCopiedCfgExcludedForms_whenDerivingClosedValues_thenRefusedWithoutChangingSourceOrUnaffectedGraph() {
     var declarations = List.of(
         "void subject(AutoCloseable input) throws Exception { try (input) {} }",
         "void subject() { try {} finally { int retained = 7; } }",
@@ -64,10 +64,13 @@ class CfgFormAdmissionTest {
     var variants = ast.aggregate().nodes().stream()
         .filter(node -> node.syntaxKind() == SyntaxKind.TRY || node.syntaxKind() == SyntaxKind.CASE).toList();
 
-    // Act and Assert
-    assertEquals(AstCompletion.INCOMPLETE, originalResult.completion());
-    assertEquals(AstCompletion.INCOMPLETE, ast.completion());
-    assertFalse(originalResult.diagnostics().isEmpty());
+    // Assert: source qualification and CFG admission have distinct contracts.
+    var switchForm = declaration.contains("switch");
+    var expectedCompletion = switchForm && sourceProfile == AstProfile.JAVA_SOURCE_EXPANDED
+        ? AstCompletion.COMPLETE : AstCompletion.INCOMPLETE;
+    assertEquals(expectedCompletion, originalResult.completion());
+    assertEquals(expectedCompletion, ast.completion());
+    assertEquals(switchForm, originalResult.diagnostics().isEmpty());
     assertEquals(admitted.identity(), ast.identity());
     assertEquals(admitted.aggregate(), ast.aggregate());
     assertEquals(admitted.diagnostics(), ast.diagnostics());
@@ -98,7 +101,7 @@ class CfgFormAdmissionTest {
       assertTrue(available.graph().orElseThrow().values().stream().anyMatch(value -> value.literal().equals(Optional.of("7"))));
       assertEquals(ast.bodyRef(unaffected), available.body());
       assertEquals(ast.identity(), result.request().astIdentity());
-      assertEquals(AstCompletion.INCOMPLETE, ast.completion());
+      assertEquals(expectedCompletion, ast.completion());
       assertEquals(admitted.diagnostics(), ast.diagnostics());
       assertArrayEquals(before, AstCodec.encode(ast));
     }

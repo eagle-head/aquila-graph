@@ -100,10 +100,10 @@ final class JavaCompilerKindCoverage {
         represented("DO_WHILE_LOOP", METHOD_SYNTAX_BOUNDARY), represented("EMPTY_STATEMENT", METHOD_SYNTAX_BOUNDARY),
         represented("ENHANCED_FOR_LOOP", METHOD_SYNTAX_BOUNDARY), represented("EXPRESSION_STATEMENT", METHOD_SYNTAX_BOUNDARY),
         represented("FOR_LOOP", METHOD_SYNTAX_BOUNDARY), represented("IF", METHOD_SYNTAX_BOUNDARY),
-        represented("LABELED_STATEMENT", METHOD_SYNTAX_BOUNDARY), represented("RETURN", METHOD_SYNTAX_BOUNDARY), diagnosed("SWITCH"),
-        represented("SYNCHRONIZED", METHOD_SYNTAX_BOUNDARY), represented("THROW", METHOD_SYNTAX_BOUNDARY),
-        represented("TRY", METHOD_SYNTAX_BOUNDARY), represented("WHILE_LOOP", METHOD_SYNTAX_BOUNDARY),
-        represented("YIELD", METHOD_SYNTAX_BOUNDARY));
+        represented("LABELED_STATEMENT", METHOD_SYNTAX_BOUNDARY), represented("RETURN", METHOD_SYNTAX_BOUNDARY),
+        represented("SWITCH", METHOD_SYNTAX_BOUNDARY), represented("SYNCHRONIZED", METHOD_SYNTAX_BOUNDARY),
+        represented("THROW", METHOD_SYNTAX_BOUNDARY), represented("TRY", METHOD_SYNTAX_BOUNDARY),
+        represented("WHILE_LOOP", METHOD_SYNTAX_BOUNDARY), represented("YIELD", METHOD_SYNTAX_BOUNDARY));
   }
 
   private static List<LanguageFeatureClassification> expressionClassifications() {
@@ -154,7 +154,7 @@ final class JavaCompilerKindCoverage {
         represented("EXTENDS_WILDCARD", TYPE_USE_BOUNDARY), represented("INTERSECTION_TYPE", TYPE_USE_BOUNDARY),
         irrelevant("OTHER", "Tree.Kind.OTHER is reserved for implementation-defined trees and does not identify Java source syntax",
             OTHER_SOURCE),
-        represented("PARAMETERIZED_TYPE", TYPE_USE_BOUNDARY), diagnosed("PATTERN_CASE_LABEL"),
+        represented("PARAMETERIZED_TYPE", TYPE_USE_BOUNDARY), represented("PATTERN_CASE_LABEL", SWITCH_LABEL_BOUNDARY),
         represented("PRIMITIVE_TYPE", TYPE_USE_BOUNDARY), represented("SUPER_WILDCARD", TYPE_USE_BOUNDARY),
         represented("TYPE_ANNOTATION", "JavaAstAggregate written annotation occurrence"),
         represented("UNBOUNDED_WILDCARD", TYPE_USE_BOUNDARY), diagnosed("UNION_TYPE"));

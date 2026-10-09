@@ -19,6 +19,7 @@ import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxOperator;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.SyntaxValue.PatternBinding;
 
 final class ExpressionGraphLowerer {
   private static final String NULL_POINTER_EXCEPTION = "java.lang.NullPointerException";
@@ -447,6 +448,7 @@ final class ExpressionGraphLowerer {
     var expressionLabels = caseNode.children(SyntaxRole.LABEL);
     return caseNode.value(SyntaxValue.SwitchCase.class).labels().stream().map(label -> switch (label) {
       case SyntaxValue.SwitchLabel.Default _ -> "default";
+      case SyntaxValue.SwitchLabel.Pattern _ -> throw new IllegalArgumentException("Pattern switch cases are outside CFG admission");
       case SyntaxValue.SwitchLabel.Expression expression -> switchLabel(expressionLabels.get(expression.childPosition()));
     }).collect(Collectors.joining(","));
   }
@@ -465,7 +467,7 @@ final class ExpressionGraphLowerer {
       case SyntaxValue.None _ -> node.syntaxKind().name().toLowerCase(Locale.ROOT);
       case SyntaxValue.DiamondType _ -> "<>";
       case SyntaxValue.LocalDeclaration declaration -> declaration.name();
-      case SyntaxValue.MemberReference _,SyntaxValue.Lambda _,SyntaxValue.StatementLabel _,SyntaxValue.ArrayCreation _ ->
+      case PatternBinding _,SyntaxValue.MemberReference _,SyntaxValue.Lambda _,SyntaxValue.StatementLabel _,SyntaxValue.ArrayCreation _ ->
         throw new IllegalArgumentException("Source syntax is outside the bounded CFG profile: " + node.syntaxKind());
       case SyntaxValue.Symbol symbol -> symbol.name();
       case SyntaxValue.FieldAccess field -> field.name();

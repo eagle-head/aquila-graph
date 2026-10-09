@@ -1,6 +1,10 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.WhileLoopTree;
+import com.sun.source.tree.SwitchTree;
+import com.sun.source.tree.SwitchExpressionTree;
+import com.sun.source.tree.CaseTree;
+import com.sun.source.tree.YieldTree;
 import com.sun.source.tree.AssertTree;
 import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.LambdaExpressionTree;
@@ -38,6 +42,7 @@ import org.jspecify.annotations.Nullable;
 
 /** Dispatches the closed declaration-property API through statically typed calls. */
 final class JavaDeclarationAccessor {
+  private static final String EXPRESSION = "getExpression";
   private static final String STATEMENT = "getStatement";
   private static final String CONDITION = "getCondition";
   private static final String MODIFIERS = "getModifiers";
@@ -63,7 +68,7 @@ final class JavaDeclarationAccessor {
       reader(MethodTree.class, "getReturnType", MethodTree::getReturnType), reader(MethodTree.class, "getThrows", MethodTree::getThrows),
       reader(MethodTree.class, TYPE_PARAMETERS, MethodTree::getTypeParameters), reader(Tree.class, "getKind", Tree::getKind),
       reader(AssertTree.class, CONDITION, AssertTree::getCondition), reader(AssertTree.class, "getDetail", AssertTree::getDetail),
-      reader(SynchronizedTree.class, "getExpression", SynchronizedTree::getExpression),
+      reader(SynchronizedTree.class, EXPRESSION, SynchronizedTree::getExpression),
       reader(SynchronizedTree.class, "getBlock", SynchronizedTree::getBlock),
       reader(LambdaExpressionTree.class, "getParameters", LambdaExpressionTree::getParameters),
       reader(LambdaExpressionTree.class, "getBody", LambdaExpressionTree::getBody),
@@ -72,13 +77,19 @@ final class JavaDeclarationAccessor {
       reader(MemberReferenceTree.class, "getName", MemberReferenceTree::getName),
       reader(MemberReferenceTree.class, "getQualifierExpression", MemberReferenceTree::getQualifierExpression),
       reader(MemberReferenceTree.class, "getTypeArguments", MemberReferenceTree::getTypeArguments),
-      reader(InstanceOfTree.class, "getExpression", InstanceOfTree::getExpression),
+      reader(InstanceOfTree.class, EXPRESSION, InstanceOfTree::getExpression),
       reader(InstanceOfTree.class, "getType", InstanceOfTree::getType),
       reader(InstanceOfTree.class, "getPattern", InstanceOfTree::getPattern),
       reader(BindingPatternTree.class, "getVariable", BindingPatternTree::getVariable),
       reader(DeconstructionPatternTree.class, "getDeconstructor", DeconstructionPatternTree::getDeconstructor),
       reader(DeconstructionPatternTree.class, "getNestedPatterns", DeconstructionPatternTree::getNestedPatterns),
-      reader(WhileLoopTree.class, CONDITION, WhileLoopTree::getCondition),
+      reader(SwitchTree.class, EXPRESSION, SwitchTree::getExpression), reader(SwitchTree.class, "getCases", SwitchTree::getCases),
+      reader(SwitchExpressionTree.class, EXPRESSION, SwitchExpressionTree::getExpression),
+      reader(SwitchExpressionTree.class, "getCases", SwitchExpressionTree::getCases),
+      reader(CaseTree.class, "getLabels", CaseTree::getLabels), reader(CaseTree.class, "getGuard", CaseTree::getGuard),
+      reader(CaseTree.class, "getBody", CaseTree::getBody), reader(CaseTree.class, "getStatements", CaseTree::getStatements),
+      reader(CaseTree.class, "getCaseKind", CaseTree::getCaseKind), reader(CaseTree.class, "getExpressions", CaseTree::getExpressions),
+      reader(YieldTree.class, "getValue", YieldTree::getValue), reader(WhileLoopTree.class, CONDITION, WhileLoopTree::getCondition),
       reader(WhileLoopTree.class, STATEMENT, WhileLoopTree::getStatement),
       reader(DoWhileLoopTree.class, CONDITION, DoWhileLoopTree::getCondition),
       reader(DoWhileLoopTree.class, STATEMENT, DoWhileLoopTree::getStatement),
@@ -86,7 +97,7 @@ final class JavaDeclarationAccessor {
       reader(ForLoopTree.class, CONDITION, ForLoopTree::getCondition), reader(ForLoopTree.class, "getUpdate", ForLoopTree::getUpdate),
       reader(ForLoopTree.class, STATEMENT, ForLoopTree::getStatement),
       reader(EnhancedForLoopTree.class, "getVariable", EnhancedForLoopTree::getVariable),
-      reader(EnhancedForLoopTree.class, "getExpression", EnhancedForLoopTree::getExpression),
+      reader(EnhancedForLoopTree.class, EXPRESSION, EnhancedForLoopTree::getExpression),
       reader(EnhancedForLoopTree.class, STATEMENT, EnhancedForLoopTree::getStatement),
       reader(LabeledStatementTree.class, "getLabel", LabeledStatementTree::getLabel),
       reader(LabeledStatementTree.class, STATEMENT, LabeledStatementTree::getStatement),

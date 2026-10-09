@@ -31,6 +31,8 @@ import com.sun.source.tree.NewArrayTree;
 import com.sun.source.tree.ParenthesizedTree;
 import com.sun.source.tree.ReturnTree;
 import com.sun.source.tree.SwitchExpressionTree;
+import com.sun.source.tree.SwitchTree;
+import com.sun.source.tree.PatternCaseLabelTree;
 import com.sun.source.tree.ThrowTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.TryTree;
@@ -300,6 +302,14 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
   }
 
   @Override
+  public SyntaxNodeMapping visitSwitch(SwitchTree statement, MappingContext context) {
+    var children = new ChildMappings(context);
+    children.add(SyntaxRole.SELECTOR, statement.getExpression());
+    children.addAll(SyntaxRole.CASE, statement.getCases());
+    return accepted(SyntaxKind.SWITCH_STATEMENT, children);
+  }
+
+  @Override
   public SyntaxNodeMapping visitSwitchExpression(SwitchExpressionTree expression, MappingContext context) {
     var children = new ChildMappings(context);
     children.add(SyntaxRole.SELECTOR, expression.getExpression());
@@ -311,7 +321,7 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
   public SyntaxNodeMapping visitCase(CaseTree caseTree, MappingContext context) {
     var children = new ChildMappings(context);
     var labels = new ArrayList<SyntaxValue.SwitchLabel>();
-    var supported = caseTree.getGuard() == null && caseTree.getCaseKind() == CaseTree.CaseKind.RULE;
+    var supported = !caseTree.getLabels().isEmpty();
     for (var label : caseTree.getLabels()) {
       supported &= addCaseLabel(label, context, children, labels);
     }
@@ -326,12 +336,27 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
         yield SyntaxValue.SwitchCaseForm.STATEMENT_GROUP;
       }
     };
+    var defaults = labels.stream().filter(SyntaxValue.SwitchLabel.Default.class::isInstance).count();
+    var patterns = labels.stream().filter(SyntaxValue.SwitchLabel.Pattern.class::isInstance).count();
+    supported &= defaults <= 1 && (defaults == 0 || labels.size() == 1
+        || (labels.size() == 2 && labels.getLast() instanceof SyntaxValue.SwitchLabel.Default
+            && caseTree.getLabels().getFirst() instanceof ConstantCaseLabelTree constant
+            && constant.getConstantExpression().getKind() == Tree.Kind.NULL_LITERAL));
+    supported &= patterns == 0 || patterns == labels.size();
+    supported &= caseTree.getGuard() == null || patterns > 0;
     return supported ? accepted(SyntaxKind.CASE, new SyntaxValue.SwitchCase(form, labels), children) : unsupported(caseTree, children);
   }
 
   private boolean addCaseLabel(Tree label, MappingContext context, ChildMappings children, List<SyntaxValue.SwitchLabel> labels) {
     if (label instanceof DefaultCaseLabelTree) {
       labels.add(SyntaxValue.SwitchLabel.Default.INSTANCE);
+      return true;
+    }
+    if (label instanceof PatternCaseLabelTree patternLabel) {
+      var labelPath = new TreePath(context.treePath(), label);
+      var pattern = patternLabel.getPattern();
+      var childPosition = children.addMultiple(SyntaxRole.LABEL, pattern, new TreePath(labelPath, pattern));
+      labels.add(new SyntaxValue.SwitchLabel.Pattern(childPosition));
       return true;
     }
     if (!(label instanceof ConstantCaseLabelTree constantLabel)) {
@@ -342,8 +367,7 @@ final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping,
     var expressionPath = new TreePath(labelPath, expression);
     var childPosition = children.addMultiple(SyntaxRole.LABEL, expression, expressionPath);
     labels.add(new SyntaxValue.SwitchLabel.Expression(childPosition));
-    return (expression instanceof LiteralTree && expression.getKind() != Tree.Kind.NULL_LITERAL)
-        || semantics.isEnumConstant(expressionPath);
+    return true;
   }
 
   @Override

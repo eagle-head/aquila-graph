@@ -260,6 +260,8 @@ public sealed interface CoverageEvidenceValue {
     DEFAULT_LABEL,
     /** Expression label attachment. */
     EXPRESSION_LABEL,
+    /** Pattern switch label. */
+    PATTERN_LABEL,
     /** Unsupported source syntax. */
     UNSUPPORTED_SYNTAX,
     /** Not applicable type. */

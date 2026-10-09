@@ -22,6 +22,7 @@ import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
 import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.MethodSyntax;
 import org.aquilagraph.source.api.SyntaxChild;
@@ -284,7 +285,9 @@ public final class CfgAdmission {
     return switch (node.syntaxKind()) {
       case LOCAL_DECLARATION -> !"_".equals(node.value(SyntaxValue.LocalDeclaration.class).name());
       case TRY -> node.children(SyntaxRole.RESOURCE).isEmpty() && node.children(SyntaxRole.FINALLY_BLOCK).isEmpty();
-      case CASE -> node.value(SwitchCase.class).form() == SwitchCaseForm.RULE;
+      case CASE -> node.value(SwitchCase.class).form() == SwitchCaseForm.RULE && node.children(SyntaxRole.GUARD).isEmpty()
+          && node.value(SwitchCase.class).labels().stream().noneMatch(SyntaxValue.SwitchLabel.Pattern.class::isInstance)
+          && node.children(SyntaxRole.LABEL).stream().allMatch(CfgAdmission::supportsSwitchLabel);
       case ASSIGNMENT -> switch (node.requiredChild(SyntaxRole.LOCATION).syntaxKind()) {
         case VARIABLE_ACCESS, FIELD_ACCESS, ARRAY_ACCESS -> true;
         default -> false;
@@ -301,6 +304,14 @@ public final class CfgAdmission {
     return node.type() == SyntaxType.Erroneous.INSTANCE
         || node.resolvedType().map(type -> type.category() == JavaTypeCategory.ERROR).orElse(false)
         || node.semanticReference().map(reference -> reference.status() == ResolutionStatus.ERROR).orElse(false);
+  }
+
+  private static boolean supportsSwitchLabel(SyntaxNode label) {
+    return label.syntaxKind() == SyntaxKind.LITERAL
+        ? label.sourceKind() != JavaSourceKind.NULL_LITERAL
+        : (label.syntaxKind() == SyntaxKind.VARIABLE_ACCESS || label.syntaxKind() == SyntaxKind.FIELD_ACCESS)
+            && label.semanticReference().filter(reference -> reference.referenceKind() == ReferenceKind.ENUM_CONSTANT)
+                .flatMap(reference -> reference.symbolKey()).isPresent();
   }
 
   private static boolean hasUnresolvedSemantics(SyntaxNode node) {
