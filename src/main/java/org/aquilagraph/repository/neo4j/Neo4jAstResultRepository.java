@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.aquilagraph.application.AstLookup;
 import org.aquilagraph.application.AstLookupStatus;
@@ -32,18 +33,32 @@ import org.neo4j.driver.exceptions.Neo4jException;
 public final class Neo4jAstResultRepository implements AstResultRepository {
   private static final int REQUIRED_ROOT_COUNT = 1;
   private static final String PROPERTIES_FIELD = "properties";
+  private static final String SCOPE_PARAMETER = "scope";
+  private static final String EXPECTED_PARAMETER = "expected";
   private final Driver driver;
   private final SessionConfig sessionConfiguration;
   private final RepositoryOperationContext context;
   private final Neo4jAstResultCodec codec;
+  private final Function<AstOutcome, Neo4jAstProjection> projectionMapper;
   private CommitKnowledge knowledge = CommitKnowledge.NOT_STARTED;
   private boolean operationStarted;
 
   Neo4jAstResultRepository(Driver driver, SessionConfig configuration, RepositoryOperationContext context) {
+    this(driver, configuration, context, new Neo4jAstResultCodec());
+  }
+
+  private Neo4jAstResultRepository(Driver driver, SessionConfig configuration, RepositoryOperationContext context,
+      Neo4jAstResultCodec codec) {
+    this(driver, configuration, context, codec, codec::map);
+  }
+
+  Neo4jAstResultRepository(Driver driver, SessionConfig configuration, RepositoryOperationContext context, Neo4jAstResultCodec codec,
+      Function<AstOutcome, Neo4jAstProjection> projectionMapper) {
     this.driver = Objects.requireNonNull(driver, "driver");
     sessionConfiguration = Objects.requireNonNull(configuration, "configuration");
     this.context = Objects.requireNonNull(context, "context");
-    codec = new Neo4jAstResultCodec();
+    this.codec = Objects.requireNonNull(codec, "codec");
+    this.projectionMapper = Objects.requireNonNull(projectionMapper, "projectionMapper");
   }
 
   /**
@@ -62,7 +77,13 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
       }
       return null;
     });
-    var projection = observed(RepositoryPhase.MAPPING, false, () -> codec.map(outcome));
+    var projection = observed(RepositoryPhase.MAPPING, false, () -> {
+      var mapped = Objects.requireNonNull(projectionMapper.apply(outcome), "AST projection");
+      if (!context.astIdentity().equals(mapped.identity())) {
+        throw new IllegalArgumentException("AST projection differs from the operation's exact source subject");
+      }
+      return mapped;
+    });
     try (var owned = session(RepositoryPhase.SCHEMA, RepositoryPhase.SCHEMA_SESSION_CLOSE)) {
       observed(RepositoryPhase.SCHEMA, true, () -> {
         ensureSchema(owned.session);
@@ -142,23 +163,64 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
 
   private static void replace(TransactionContext transaction, Neo4jAstProjection projection) {
     var scope = projection.identity().astResultKey();
-    transaction.run("MATCH (entity:AstEntity {astResultKey: $scope}) DETACH DELETE entity", Values.parameters("scope", scope)).consume();
+    // Hold the subject's write lock before reading and repairing its materialization.
+    transaction.run("MERGE (subject:AstEntity {astResultKey: $scope, key: $scope}) SET subject.key = subject.key",
+        Values.parameters(SCOPE_PARAMETER, scope)).consume();
+    removeStaleMaterialization(transaction, projection);
     var nodeGroups = new LinkedHashMap<String, List<Map<String, Object>>>();
     projection.nodes().stream().map(Neo4jNode::label).distinct().forEach(label -> nodeGroups.put(label,
         projection.nodes().stream().filter(node -> node.label().equals(label)).map(Neo4jNode::properties).toList()));
-    nodeGroups.forEach((label, nodes) -> transaction
-        .run("UNWIND $nodes AS properties CREATE (entity:AstEntity:`" + label + "`) SET entity = properties", Map.of("nodes", nodes))
-        .consume());
+    nodeGroups
+        .forEach((label, nodes) -> transaction
+            .run("UNWIND $nodes AS expected MERGE (entity:AstEntity {astResultKey: $scope, key: expected.key}) " + "ON CREATE SET entity:`"
+                + label + "` FOREACH (missing IN CASE WHEN $label IN labels(entity) THEN [] ELSE [1] END | SET entity:`" + label
+                + "`) WITH entity, expected FOREACH (changed IN CASE WHEN " + exactProperties("entity", "expected")
+                + " THEN [] ELSE [1] END | SET entity = expected)", Map.of(SCOPE_PARAMETER, scope, "nodes", nodes, "label", label))
+            .consume());
     var relationshipGroups = new LinkedHashMap<String, List<Neo4jRelationship>>();
     projection.relationships().stream().map(Neo4jRelationship::type).distinct().forEach(type -> relationshipGroups.put(type,
         projection.relationships().stream().filter(relationship -> relationship.type().equals(type)).toList()));
-    relationshipGroups.forEach((type, relationships) -> transaction
-        .run(
+    relationshipGroups.forEach((type,
+        relationships) -> transaction.run(
             "UNWIND $relationships AS item MATCH (source:AstEntity {astResultKey: $scope, key: item.sourceKey}), "
-                + "(target:AstEntity {astResultKey: $scope, key: item.targetKey}) CREATE (source)-[relation:`" + type
-                + "`]->(target) SET relation = item.properties",
-            Map.of("scope", scope, "relationships", relationships.stream().map(Neo4jAstResultRepository::relationshipProperties).toList()))
-        .consume());
+                + "(target:AstEntity {astResultKey: $scope, key: item.targetKey}) MERGE (source)-[relation:`" + type
+                + "` {key: item.properties.key}]->(target) ON CREATE SET relation = item.properties",
+            Map.of(SCOPE_PARAMETER, scope, "relationships",
+                relationships.stream().map(Neo4jAstResultRepository::relationshipProperties).toList()))
+            .consume());
+  }
+
+  private static void removeStaleMaterialization(TransactionContext transaction, Neo4jAstProjection projection) {
+    var scope = projection.identity().astResultKey();
+    var expectedNodes = new LinkedHashMap<String, String>();
+    projection.nodes().forEach(node -> expectedNodes.put(node.key(), node.label()));
+    transaction.run("MATCH (entity:AstEntity {astResultKey: $scope}) "
+        + "WITH entity, CASE WHEN entity.key IS :: STRING NOT NULL THEN $expected[entity.key] ELSE null END AS expected "
+        + "WHERE expected IS NULL DETACH DELETE entity", Map.of(SCOPE_PARAMETER, scope, EXPECTED_PARAMETER, expectedNodes)).consume();
+    transaction.run(
+        "MATCH (entity:AstEntity {astResultKey: $scope}) WITH entity, $expected[entity.key] AS expected "
+            + "REMOVE entity:$([existing IN labels(entity) WHERE existing <> 'AstEntity' AND existing <> expected])",
+        Map.of(SCOPE_PARAMETER, scope, EXPECTED_PARAMETER, expectedNodes)).consume();
+    var expectedRelationships = new LinkedHashMap<String, Object>();
+    projection.relationships()
+        .forEach(relationship -> expectedRelationships.put(relationship.key(), Map.of("sourceKey", relationship.sourceKey(), "targetKey",
+            relationship.targetKey(), "type", relationship.type(), PROPERTIES_FIELD, relationship.properties())));
+    transaction.run("MATCH (source)-[relation]->(target) "
+        + "WHERE (source:AstEntity AND source.astResultKey = $scope) OR relation.astResultKey = $scope "
+        + "OR (target:AstEntity AND target.astResultKey = $scope) " + "WITH source, relation, target, "
+        + "CASE WHEN relation.key IS :: STRING NOT NULL THEN $expected[relation.key] ELSE null END AS expected "
+        + "WHERE expected IS NULL OR type(relation) <> expected.type OR NOT (" + exactProperties("relation", "expected.properties") + ") "
+        + "OR NOT coalesce(source:AstEntity AND source.astResultKey = $scope AND source.key = expected.sourceKey, false) "
+        + "OR NOT coalesce(target:AstEntity AND target.astResultKey = $scope AND target.key = expected.targetKey, false) DELETE relation",
+        Map.of(SCOPE_PARAMETER, scope, EXPECTED_PARAMETER, expectedRelationships)).consume();
+    transaction.run("MATCH ()-[relation {astResultKey: $scope}]->() "
+        + "WITH relation.key AS key, collect(relation) AS duplicates WHERE size(duplicates) > 1 "
+        + "FOREACH (relation IN duplicates | DELETE relation)", Values.parameters(SCOPE_PARAMETER, scope)).consume();
+  }
+
+  private static String exactProperties(String entity, String expected) {
+    return "properties(" + entity + ") = " + expected + " AND all(field IN keys(" + expected + ") WHERE valueType(" + entity
+        + "[field]) = valueType(" + expected + "[field]))";
   }
 
   private static Map<String, Object> relationshipProperties(Neo4jRelationship relationship) {
@@ -167,7 +229,7 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
   }
 
   private static StoredAst read(TransactionContext transaction, AstIdentity identity) {
-    var parameters = Values.parameters("scope", identity.astResultKey());
+    var parameters = Values.parameters(SCOPE_PARAMETER, identity.astResultKey());
     var roots = transaction
         .run("MATCH (result:AstEntity:AstResult {astResultKey: $scope}) RETURN properties(result) AS properties", parameters).list();
     if (roots.isEmpty()) {

@@ -131,6 +131,109 @@ class Neo4jAstResultRepositoryTest {
   }
 
   @Test
+  void givenProjectionMappingFailure_whenSaving_thenExactFailurePrecedesAllStorageEffectsAndDriverCleanup() throws IOException {
+    // Arrange
+    var ast = produce();
+    var backend = new Backend();
+    var primary = new IllegalStateException("Projection mapping failed");
+    backend.driverCloseFailure = new Neo4jException("Driver cleanup after mapping failed");
+    var operationContext = context(ast, RepositoryOperationKind.SAVE_AST);
+
+    // Act
+    var failure = assertThrows(RepositoryOperationException.class, () -> {
+      try (var repository = new Neo4jAstResultRepository(backend.driver(), SessionConfig.defaultConfig(), operationContext,
+          new Neo4jAstResultCodec(), ignored -> { throw primary; })) {
+        repository.saveComplete(ast);
+      }
+    });
+
+    // Assert
+    assertEquals(operationContext, failure.context());
+    assertEquals(RepositoryPhase.MAPPING, failure.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge());
+    assertSame(primary, failure.effectivePrimary());
+    assertEquals(1, failure.getSuppressed().length);
+    var cleanup = assertInstanceOf(RepositoryOperationException.class, failure.getSuppressed()[0]);
+    assertEquals(operationContext, cleanup.context());
+    assertEquals(RepositoryPhase.REPOSITORY_CLOSE, cleanup.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, cleanup.knowledge());
+    assertSame(backend.driverCloseFailure, cleanup.effectivePrimary().getCause());
+    assertEquals(List.of("driver.close"), backend.events);
+    assertTrue(backend.queries.isEmpty());
+  }
+
+  @Test
+  void givenForeignMappedSubject_whenSaving_thenMappingRejectsItBeforeOpeningStorage() throws IOException {
+    // Arrange
+    var ast = produce();
+    var foreign = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory,
+        List.of(SourceFile.fromContent(Path.of("Other.java"), "class Other { int value() { return 9; } }"))),
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED);
+    var codec = new Neo4jAstResultCodec();
+    var foreignProjection = codec.map(foreign);
+    var backend = new Backend();
+    var operationContext = context(ast, RepositoryOperationKind.SAVE_AST);
+
+    // Act
+    var failure = assertThrows(RepositoryOperationException.class, () -> {
+      try (var repository = new Neo4jAstResultRepository(backend.driver(), SessionConfig.defaultConfig(), operationContext,
+          codec, ignored -> foreignProjection)) {
+        repository.saveComplete(ast);
+      }
+    });
+
+    // Assert
+    assertEquals(operationContext, failure.context());
+    assertEquals(RepositoryPhase.MAPPING, failure.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge());
+    assertInstanceOf(IllegalArgumentException.class, failure.effectivePrimary());
+    assertEquals(0, failure.getSuppressed().length);
+    assertEquals(List.of("driver.close"), backend.events);
+    assertTrue(backend.queries.isEmpty());
+  }
+
+  @Test
+  void givenReadWorkAndCleanupFailures_whenFinding_thenExactReadCauseAndOrderedCleanupPreventLookup() throws IOException {
+    // Arrange
+    var ast = produce();
+    var backend = new Backend();
+    var primary = new Neo4jException("Stored result read failed");
+    backend.readFailure = primary;
+    backend.closeFailure = new IllegalStateException("Read session cleanup failed");
+    backend.failingClose = 0;
+    backend.driverCloseFailure = new Neo4jException("Driver cleanup after read failed");
+    var operationContext = context(ast, RepositoryOperationKind.QUERY_AST);
+
+    // Act
+    var failure = assertThrows(RepositoryOperationException.class, () -> {
+      try (var repository = repository(ast, RepositoryOperationKind.QUERY_AST, backend)) {
+        repository.find(ast.result().orElseThrow().identity());
+      }
+    });
+
+    // Assert
+    assertEquals(operationContext, failure.context());
+    assertEquals(RepositoryPhase.READ, failure.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge());
+    assertInstanceOf(RepositoryException.class, failure.effectivePrimary());
+    assertSame(primary, failure.effectivePrimary().getCause());
+    assertEquals(2, failure.getSuppressed().length);
+    var sessionCleanup = assertInstanceOf(RepositoryOperationException.class, failure.getSuppressed()[0]);
+    assertEquals(operationContext, sessionCleanup.context());
+    assertEquals(RepositoryPhase.READ_SESSION_CLOSE, sessionCleanup.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, sessionCleanup.knowledge());
+    assertSame(backend.closeFailure, sessionCleanup.effectivePrimary());
+    var driverCleanup = assertInstanceOf(RepositoryOperationException.class, failure.getSuppressed()[1]);
+    assertEquals(operationContext, driverCleanup.context());
+    assertEquals(RepositoryPhase.REPOSITORY_CLOSE, driverCleanup.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, driverCleanup.knowledge());
+    assertSame(backend.driverCloseFailure, driverCleanup.effectivePrimary().getCause());
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), backend.events);
+    assertEquals(1, backend.queries.size());
+    assertTrue(backend.queries.getFirst().contains("RETURN properties(result)"));
+  }
+
+  @Test
   void givenCompleteSource_whenSaving_thenSchemaClosePrecedesReplacementAndWholeOperationAcknowledgement() throws IOException {
     // Arrange
     var ast = produce();
@@ -384,6 +487,7 @@ class Neo4jAstResultRepositoryTest {
     private int attempts = 1;
     private int failingClose = -1;
     private RuntimeException schemaFailure;
+    private RuntimeException readFailure;
     private RuntimeException writeFailure;
     private RuntimeException closeFailure;
     private RuntimeException driverCloseFailure;
@@ -437,6 +541,7 @@ class Neo4jAstResultRepositoryTest {
         if (!method.getName().equals("run")) { throw new AssertionError(method.getName()); }
         var query = (String) arguments[0];
         queries.add(query);
+        if (query.contains("RETURN properties(result)") && readFailure != null) { throw readFailure; }
         var rows = query.contains("RETURN properties(result)") && !version.equals("absent")
             ? List.of(record(Map.of("properties", Map.of("formatVersion", version)))) : List.<Record>of();
         if (stored != null) {
