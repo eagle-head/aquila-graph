@@ -69,13 +69,13 @@ import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.jspecify.annotations.Nullable;
 
-final class MethodBodySyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping, MethodBodySyntaxProfile.MappingContext> {
+final class JavaExecutableSyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapping, JavaExecutableSyntaxProfile.MappingContext> {
   private static final String THIS_NAME = "this";
   private static final String SUPER_NAME = "super";
   private static final String CONSTRUCTOR_NAME = "<init>";
   private final SemanticResolver semantics;
 
-  MethodBodySyntaxProfile(SemanticResolver semantics) {
+  JavaExecutableSyntaxProfile(SemanticResolver semantics) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
   }
 

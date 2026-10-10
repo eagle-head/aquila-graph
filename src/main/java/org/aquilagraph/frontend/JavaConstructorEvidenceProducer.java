@@ -14,7 +14,7 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.ExecutableType;
-import org.aquilagraph.frontend.JavaMethodBodyTranslator.NodeProjection;
+import org.aquilagraph.frontend.JavaExecutableSyntaxProjector.NodeProjection;
 import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;

@@ -27,7 +27,7 @@ import javax.lang.model.type.IntersectionType;
 import javax.lang.model.type.PrimitiveType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
-import org.aquilagraph.frontend.JavaMethodBodyTranslator.NodeProjection;
+import org.aquilagraph.frontend.JavaExecutableSyntaxProjector.NodeProjection;
 import org.aquilagraph.identity.api.StableId;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.JavaTypeIdentity;

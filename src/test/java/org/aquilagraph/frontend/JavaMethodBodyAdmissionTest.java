@@ -8,11 +8,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.sun.source.tree.CatchTree;
+import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Scope;
 import com.sun.source.tree.Tree;
+import com.sun.source.tree.VariableTree;
 import com.sun.source.util.JavacTask;
 import com.sun.source.util.SourcePositions;
 import com.sun.source.util.TreePath;
@@ -49,7 +51,9 @@ import org.aquilagraph.source.api.JavaType;
 
 import org.aquilagraph.source.api.MethodBodyOrigin;
 import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.Test;
@@ -59,6 +63,85 @@ class JavaMethodBodyAdmissionTest {
 
   @TempDir
   Path sourceRoot;
+
+  @Test
+  void givenRealFieldArrayInitializer_whenProjectedWithoutMethodRegistration_thenOrderedValuesAndExactCompilerPathsAreRetained()
+      throws IOException {
+    // Arrange
+    withCompiledSource("field-expression", "class Example { int[] values = new int[] {1, 2}; }", fixture -> {
+      var type = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var field = type.getMembers().stream().filter(VariableTree.class::isInstance).map(VariableTree.class::cast).findFirst().orElseThrow();
+      var fieldPath = TreePath.getPath(fixture.unit(), field);
+      var initializer = field.getInitializer();
+      var path = new TreePath(fieldPath, initializer);
+      var structuralPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+          .child(SyntaxRole.MEMBER, type.getMembers().indexOf(field)).child(SyntaxRole.INITIALIZER, 0);
+      var projector = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(),
+          "JavaAstContributionTranslator", "field initializer");
+
+      // Act
+      var projection = projector.project(fixture.unit(), fixture.source(), fixture.semantics().declarationKey(fixture.semantics().element(fieldPath)).orElseThrow(),
+          initializer, path, structuralPath, false, false);
+      var root = projection.translation().value();
+
+      // Assert
+      assertEquals(List.of(), projection.translation().diagnostics());
+      assertEquals(SyntaxKind.ARRAY_CREATION, root.syntaxKind());
+      assertEquals(structuralPath, root.structuralPath());
+      assertEquals(List.of("1", "2"), root.children(SyntaxRole.ARRAY_ELEMENT).stream().map(node -> node.value(SyntaxValue.Literal.class).text()).toList());
+      assertSame(root, projection.nodes().getLast().node());
+      assertSame(initializer, projection.nodes().getLast().path().getLeaf());
+      assertEquals(root.descendantsAndSelf().size(), projection.nodes().size());
+      assertThrows(UnsupportedOperationException.class, () -> projection.nodes().clear());
+      assertThrows(UnsupportedOperationException.class, () -> root.children().clear());
+    });
+  }
+
+  @Test
+  void givenRealInitializerBlock_whenProjectedWithTypeOwner_thenLocalBindingAndUpdateRemainInsideTheWrittenBlock() throws IOException {
+    // Arrange
+    withCompiledSource("initializer-statements", "class Example { { int value = 1; value += 2; } }", fixture -> {
+      var type = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+      var block = type.getMembers().stream().filter(BlockTree.class::isInstance).map(BlockTree.class::cast).findFirst().orElseThrow();
+      var typePath = TreePath.getPath(fixture.unit(), type);
+      var path = new TreePath(typePath, block);
+      var structuralPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
+          .child(SyntaxRole.MEMBER, type.getMembers().indexOf(block));
+      var projector = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(),
+          "JavaAstContributionTranslator", "initializer block");
+
+      // Act
+      var projection = projector.project(fixture.unit(), fixture.source(), fixture.semantics().declarationKey(fixture.semantics().element(typePath)).orElseThrow(),
+          block, path, structuralPath, false, false);
+      var root = projection.translation().value();
+
+      // Assert
+      assertEquals(List.of(), projection.translation().diagnostics());
+      assertEquals(List.of(SyntaxKind.LOCAL_DECLARATION, SyntaxKind.EXPRESSION_STATEMENT), root.children(SyntaxRole.STATEMENT).stream().map(SyntaxNode::syntaxKind).toList());
+      assertEquals("value", root.children(SyntaxRole.STATEMENT).getFirst().value(SyntaxValue.LocalDeclaration.class).name());
+      assertEquals(SyntaxKind.COMPOUND_ASSIGNMENT, root.children(SyntaxRole.STATEMENT).getLast().requiredChild(SyntaxRole.EXPRESSION).syntaxKind());
+      assertSame(block, projection.nodes().getLast().path().getLeaf());
+      assertEquals(root.descendantsAndSelf().size(), root.descendantsAndSelf().stream().map(SyntaxNode::nodeId).distinct().count());
+    });
+  }
+
+  @Test
+  void givenForeignCompilerPath_whenExecutableSyntaxIsProjected_thenMismatchedTreeIsRejected() throws IOException {
+    // Arrange
+    withCompiledSource("projection-path", fixture -> {
+      var original = fixture.body("action");
+      var other = fixture.body("other");
+      var projector = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(),
+          "JavaMethodBodyTranslator", "method body");
+
+      // Act
+      var error = assertThrows(IllegalArgumentException.class, () -> projector.project(fixture.unit(), fixture.source(), original.methodKey(),
+          original.projection().declaration().getBody(), other.projection().bodyPath(), original.root().structuralPath(), false, false));
+
+      // Assert
+      assertTrue(error.getMessage().contains("exact compiler tree and compilation-unit path"));
+    });
+  }
 
   @Test
   void givenRealAttributedBodies_whenContributedAndSealed_thenSourceAndAuxiliaryProofsRemainDistinct() throws IOException {
