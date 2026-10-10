@@ -39,6 +39,7 @@ import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.FeatureContextOutcome;
+import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -120,6 +121,96 @@ class ExecutableCompositionAstTest {
     }
     assertEquals(decoded.aggregate().nodes().size(), decoded.aggregate().orderedNodeKeys().stream().distinct().count());
     assertFalse(decoded.diagnostics().stream().anyMatch(diagnostic -> diagnostic.isError()));
+  }
+
+  @Test
+  void givenExecutableConstructorPrologues_whenProducedAndRetained_thenWrittenDelegationKeepsItsOrderedCanonicalBody() throws IOException {
+    // Arrange
+    var source = """
+        import java.lang.annotation.ElementType;
+        import java.lang.annotation.Target;
+        import java.util.function.IntSupplier;
+        @Target(ElementType.LOCAL_VARIABLE) @interface Mark {}
+        class Parent { Parent(int value) {} }
+        class Example extends Parent {
+          Example(int seed) {
+            @Mark final int[] values = {seed, seed + 1};
+            IntSupplier read = () -> values[0];
+            super(read.getAsInt());
+            assert values[1] > values[0] : "order";
+          }
+          Example() {
+            int seed = 2;
+            this(seed);
+            assert seed == 2;
+          }
+        }
+        """;
+
+    // Act
+    var original = produce(source, AstProfile.JAVA_SOURCE_EXPANDED);
+    var retained = AstCodec.decode(AstCodec.encode(original), original.identity());
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, retained.completion(), retained.diagnostics().toString());
+    assertEquals(original.aggregate(), retained.aggregate());
+    assertEquals(original.coverage(), retained.coverage());
+    assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retained));
+    var constructors = retained.program().methods().stream()
+        .filter(method -> method.constructor() && method.ownerTypeKey().equals("type:Example")).toList();
+    assertEquals(2, constructors.size());
+    for (var constructor : constructors) {
+      var body = retained.body(constructor.methodKey()).orElseThrow();
+      var statements = body.root().children(SyntaxRole.STATEMENT);
+      var hasArray = statements.getFirst().value(SyntaxValue.LocalDeclaration.class).name().equals("values");
+      assertEquals(hasArray
+          ? List.of("@Mark final int[] values = {seed, seed + 1};", "IntSupplier read = () -> values[0];",
+              "super(read.getAsInt());", "assert values[1] > values[0] : \"order\";")
+          : List.of("int seed = 2;", "this(seed);", "assert seed == 2;"),
+          statements.stream().map(node -> written(node, source)).toList());
+      var delegation = statements.get(hasArray ? 2 : 1).requiredChild(SyntaxRole.EXPRESSION);
+      assertEquals(hasArray ? InvocationForm.SUPER_CONSTRUCTOR : InvocationForm.THIS_CONSTRUCTOR,
+          delegation.value(SyntaxValue.Invocation.class).form());
+      assertTrue(body.invocationEvidence(delegation.nodeId()).isPresent());
+      assertEquals(1, delegation.children(SyntaxRole.ARGUMENT).size());
+      if (hasArray) {
+        var values = statements.getFirst();
+        assertEquals(List.of("final"), values.value(SyntaxValue.LocalDeclaration.class).writtenModifiers());
+        assertEquals("@Mark", written(values.requiredChild(SyntaxRole.ANNOTATION), source));
+        assertEquals(List.of("seed", "seed + 1"), values.requiredChild(SyntaxRole.INITIALIZER)
+            .children(SyntaxRole.ARRAY_ELEMENT).stream().map(node -> written(node, source)).toList());
+        var binding = values.value(SyntaxValue.LocalDeclaration.class).bindingEvidence().orElseThrow().declarationKey().orElseThrow();
+        var lambda = statements.get(1).requiredChild(SyntaxRole.INITIALIZER);
+        assertEquals(SyntaxKind.LAMBDA_EXPRESSION, lambda.syntaxKind());
+        var reference = lambda.requiredChild(SyntaxRole.BODY).requiredChild(SyntaxRole.ARRAY);
+        assertEquals(Optional.of(binding), reference.semanticReference().orElseThrow().symbolKey());
+      }
+      for (var node : body.root().descendantsAndSelf()) {
+        assertSame(node, retained.node(new SourceOccurrence(retained.identity(), node.nodeId())).orElseThrow());
+        assertEquals(1, retained.aggregate().structuralEdges().stream().filter(edge -> edge.childKey().equals(node.nodeId())).count());
+        assertTrue(node.origin().isPresent());
+      }
+    }
+  }
+
+  @Test
+  void givenIllegalEarlyReceiverUse_whenProduced_thenCompilerFailurePreventsCompleteSource() throws IOException {
+    // Arrange
+    var source = """
+        class Parent { Parent(Object value) {} }
+        class Example extends Parent {
+          Example() { Object value = this; super(value); }
+        }
+        """;
+
+    // Act
+    var result = produce(source, AstProfile.JAVA_SOURCE_EXPANDED);
+
+    // Assert
+    assertEquals(AstCompletion.INCOMPLETE, result.completion());
+    assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.isError() && diagnostic.code().startsWith("compiler.")),
+        result.diagnostics().toString());
+    assertEquals(result.diagnostics(), AstCodec.decode(AstCodec.encode(result), result.identity()).diagnostics());
   }
 
   @Test
