@@ -21,6 +21,8 @@ import org.junit.jupiter.api.Test;
 class JavaDeclarationPropertyCoverageTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final Set<String> EXPECTED_PROPERTIES = Set.of(
+      "MemberSelectTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", "MemberSelectTree::Tree#getKind()",
+      "MemberSelectTree::MemberSelectTree#getIdentifier()", "MemberSelectTree::MemberSelectTree#getExpression()",
       "TryTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", "TryTree::Tree#getKind()",
       "TryTree::TryTree#getResources()", "TryTree::TryTree#getBlock()", "TryTree::TryTree#getCatches()", "TryTree::TryTree#getFinallyBlock()",
       "CatchTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", "CatchTree::Tree#getKind()",
@@ -180,6 +182,7 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::ExecutableElement#isDefault()",
       "ExecutableElement::ExecutableElement#isVarArgs()");
   private static final Set<String> EXPECTED_IRRELEVANT_PROPERTIES = Set.of(
+      "MemberSelectTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "TryTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "CatchTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "UnionTypeTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
@@ -406,7 +409,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:f39568916d81bfafc9f3300c9d8cb9a69aacf1073874cea3855a628d77d5f54c",
+    assertEquals("java-language-feature-coverage:aa7f14c098cdf30b107ec6b2c7670c85cc1f66fd4001c71b0287f664a907503d",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 

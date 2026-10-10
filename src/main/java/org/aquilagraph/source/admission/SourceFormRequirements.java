@@ -67,6 +67,11 @@ final class SourceFormRequirements {
       case ENHANCED_FOR_LOOP -> node.requiredChild(SyntaxRole.PARAMETER).value(SyntaxValue.LocalDeclaration.class).bindingEvidence()
           .filter(binding -> binding.context() == LocalBindingEvidence.Context.ENHANCED_FOR && binding.declarationKey().isPresent())
           .isPresent();
+      case CLASS_LITERAL -> node.type() instanceof SyntaxType.Resolved result
+          && result.structure().filter(JavaTypeStructure.Declared.class::isInstance).map(JavaTypeStructure.Declared.class::cast)
+              .filter(declared -> "type:java.lang.Class".equals(declared.declarationKey()) && declared.arguments().size() == 1).isPresent()
+          && node.optionalChild(SyntaxRole.TYPE_OPERAND).map(SyntaxNode::type).filter(SyntaxType.Resolved.class::isInstance)
+              .map(SyntaxType.Resolved.class::cast).flatMap(SyntaxType.Resolved::structure).isPresent();
       case TYPE_CAST, OBJECT_CREATION, DECONSTRUCTION_PATTERN -> node.optionalChild(SyntaxRole.TYPE_OPERAND).isPresent();
       case ARRAY_CREATION -> {
         var array = node.value(SyntaxValue.ArrayCreation.class);

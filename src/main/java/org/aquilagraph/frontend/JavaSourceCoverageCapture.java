@@ -3,6 +3,7 @@ package org.aquilagraph.frontend;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.TypeParameterTree;
 import com.sun.source.tree.VariableTree;
@@ -246,7 +247,9 @@ final class JavaSourceCoverageCapture {
   private static void captureBodyTypeUses(ParsedJavaSource parsed, List<JavaCoverageTopology.Owner> owners, List<SourceContext> contexts) {
     for (var owner : owners) {
       for (var child : JavaParsedChildRoles.children(owner.tree())) {
-        if (!BODY_TYPE_ROLES.contains(child.step().role()) || !parsed.treeInventory().isWritten(child.tree())) {
+        var classOperand = owner.tree() instanceof MemberSelectTree selection && selection.getIdentifier().contentEquals("class")
+            && child.step().role() == Role.TYPE_QUALIFIER;
+        if ((!BODY_TYPE_ROLES.contains(child.step().role()) && !classOperand) || !parsed.treeInventory().isWritten(child.tree())) {
           continue;
         }
         var childOwner = writtenTypeChild(owner, child.tree(), owners);

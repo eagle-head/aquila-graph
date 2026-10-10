@@ -12,6 +12,7 @@ import com.sun.source.tree.AssertTree;
 import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.MemberReferenceTree;
+import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.InstanceOfTree;
 import com.sun.source.tree.BindingPatternTree;
 import com.sun.source.tree.DeconstructionPatternTree;
@@ -80,6 +81,8 @@ final class JavaDeclarationAccessor {
       reader(MemberReferenceTree.class, "getName", MemberReferenceTree::getName),
       reader(MemberReferenceTree.class, "getQualifierExpression", MemberReferenceTree::getQualifierExpression),
       reader(MemberReferenceTree.class, "getTypeArguments", MemberReferenceTree::getTypeArguments),
+      reader(MemberSelectTree.class, "getIdentifier", MemberSelectTree::getIdentifier),
+      reader(MemberSelectTree.class, EXPRESSION, MemberSelectTree::getExpression),
       reader(InstanceOfTree.class, EXPRESSION, InstanceOfTree::getExpression),
       reader(InstanceOfTree.class, "getType", InstanceOfTree::getType),
       reader(InstanceOfTree.class, "getPattern", InstanceOfTree::getPattern),

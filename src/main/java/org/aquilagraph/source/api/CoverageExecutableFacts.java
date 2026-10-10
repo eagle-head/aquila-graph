@@ -15,8 +15,8 @@ final class CoverageExecutableFacts {
       Map.entry("LabeledStatementTree", JavaSourceKind.LABELED_STATEMENT), Map.entry("BreakTree", JavaSourceKind.BREAK),
       Map.entry("ContinueTree", JavaSourceKind.CONTINUE), Map.entry("AssertTree", JavaSourceKind.ASSERT),
       Map.entry("SynchronizedTree", JavaSourceKind.SYNCHRONIZED), Map.entry("LambdaExpressionTree", JavaSourceKind.LAMBDA_EXPRESSION),
-      Map.entry("MemberReferenceTree", JavaSourceKind.MEMBER_REFERENCE), Map.entry("InstanceOfTree", JavaSourceKind.INSTANCE_OF),
-      Map.entry("BindingPatternTree", JavaSourceKind.BINDING_PATTERN),
+      Map.entry("MemberReferenceTree", JavaSourceKind.MEMBER_REFERENCE), Map.entry("MemberSelectTree", JavaSourceKind.MEMBER_SELECT),
+      Map.entry("InstanceOfTree", JavaSourceKind.INSTANCE_OF), Map.entry("BindingPatternTree", JavaSourceKind.BINDING_PATTERN),
       Map.entry("DeconstructionPatternTree", JavaSourceKind.DECONSTRUCTION_PATTERN), Map.entry("SwitchTree", JavaSourceKind.SWITCH),
       Map.entry("SwitchExpressionTree", JavaSourceKind.SWITCH_EXPRESSION), Map.entry("CaseTree", JavaSourceKind.CASE),
       Map.entry("YieldTree", JavaSourceKind.YIELD), Map.entry("AnyPatternTree", JavaSourceKind.ANY_PATTERN),
@@ -32,7 +32,10 @@ final class CoverageExecutableFacts {
   }
 
   static boolean matches(String role, CoverageSyntaxFactValue value) {
-    return value.sourceKind() == SURFACES.get(role.substring(0, role.indexOf("::"))) && value.syntaxKind() != SyntaxKind.UNSUPPORTED;
+    var surface = role.substring(0, role.indexOf("::"));
+    return value.sourceKind() == SURFACES.get(surface) && value.syntaxKind() != SyntaxKind.UNSUPPORTED
+        && (!"MemberSelectTree".equals(surface) || value.syntaxKind() == SyntaxKind.CLASS_LITERAL
+            || value.syntaxKind() == SyntaxKind.ANNOTATION_CLASS_LITERAL);
   }
 
   static boolean supports(String accessor, CoveragePropertyValue expected, CoverageSyntaxFactValue owner, CoverageActualFactView facts,
@@ -41,6 +44,8 @@ final class CoverageExecutableFacts {
       return CoverageSwitchFacts.supports(accessor, expected, owner, facts, snapshot);
     }
     return switch (accessor) {
+      case "getIdentifier" -> (owner.syntaxKind() == SyntaxKind.CLASS_LITERAL || owner.syntaxKind() == SyntaxKind.ANNOTATION_CLASS_LITERAL)
+          && expected.equals(new CoveragePropertyValue(State.SCALAR, List.of(new Item("item:0", "class", Provenance.WRITTEN))));
       case "getCases" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.CASE), facts, snapshot, false);
       case "getResources" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.RESOURCE), facts, snapshot, false);
       case "getCatches" ->
@@ -89,13 +94,15 @@ final class CoverageExecutableFacts {
           List.of(new Item(lambda.bodyKind() == SyntaxValue.LambdaBodyKind.BLOCK ? "STATEMENT" : "EXPRESSION",
               lambda.bodyKind() == SyntaxValue.LambdaBodyKind.BLOCK ? "STATEMENT" : "EXPRESSION", Provenance.WRITTEN))));
       case "getExpression" -> CoverageActualFacts.writtenAttachments(expected, owner,
-          List.of(owner.sourceKind() == JavaSourceKind.INSTANCE_OF
-              ? SyntaxRole.EXPRESSION
-              : owner.sourceKind() == JavaSourceKind.ENHANCED_FOR_LOOP
-                  ? SyntaxRole.ITERABLE
-                  : owner.sourceKind() == JavaSourceKind.SWITCH || owner.sourceKind() == JavaSourceKind.SWITCH_EXPRESSION
-                      ? SyntaxRole.SELECTOR
-                      : SyntaxRole.MONITOR),
+          List.of(owner.sourceKind() == JavaSourceKind.MEMBER_SELECT
+              ? SyntaxRole.TYPE_OPERAND
+              : owner.sourceKind() == JavaSourceKind.INSTANCE_OF
+                  ? SyntaxRole.EXPRESSION
+                  : owner.sourceKind() == JavaSourceKind.ENHANCED_FOR_LOOP
+                      ? SyntaxRole.ITERABLE
+                      : owner.sourceKind() == JavaSourceKind.SWITCH || owner.sourceKind() == JavaSourceKind.SWITCH_EXPRESSION
+                          ? SyntaxRole.SELECTOR
+                          : SyntaxRole.MONITOR),
           facts, snapshot, true);
       case "getDetail" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.DETAIL), facts, snapshot, true);
       default -> false;

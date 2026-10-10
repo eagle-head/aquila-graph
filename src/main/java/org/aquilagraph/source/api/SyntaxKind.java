@@ -110,6 +110,8 @@ public enum SyntaxKind {
   RECEIVER,
   /** Literal expression. */
   LITERAL,
+  /** Written class literal with a structural type operand. */
+  CLASS_LITERAL,
   /** Unary expression. */
   UNARY,
   /** Binary expression. */
@@ -147,9 +149,9 @@ public enum SyntaxKind {
   public boolean requiresType() {
     return switch (this) {
       case TYPE_USE, ANNOTATION_ARGUMENT, ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST, LOCAL_DECLARATION,
-          SWITCH_EXPRESSION, INVOCATION, OBJECT_CREATION, ARRAY_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY,
-          CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST,
-          CONDITIONAL_EXPRESSION, LAMBDA_EXPRESSION, MEMBER_REFERENCE, INSTANCE_OF, ANY_PATTERN ->
+          SWITCH_EXPRESSION, INVOCATION, OBJECT_CREATION, ARRAY_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, CLASS_LITERAL,
+          UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH,
+          PARENTHESIZED, TYPE_CAST, CONDITIONAL_EXPRESSION, LAMBDA_EXPRESSION, MEMBER_REFERENCE, INSTANCE_OF, ANY_PATTERN ->
         true;
       default -> false;
     };
@@ -177,7 +179,7 @@ public enum SyntaxKind {
           || sourceKind == JavaSourceKind.ANNOTATION || annotationScalarSyntax(sourceKind);
       case ANNOTATION_ELEMENT_NAME -> sourceKind == JavaSourceKind.IDENTIFIER;
       case ANNOTATION_NAME_REFERENCE -> sourceKind == JavaSourceKind.IDENTIFIER || sourceKind == JavaSourceKind.MEMBER_SELECT;
-      case ANNOTATION_CLASS_LITERAL -> sourceKind == JavaSourceKind.MEMBER_SELECT;
+      case ANNOTATION_CLASS_LITERAL, CLASS_LITERAL -> sourceKind == JavaSourceKind.MEMBER_SELECT;
       case ANNOTATION_CAST -> sourceKind == JavaSourceKind.TYPE_CAST;
       case TYPE_DECLARATION -> switch (sourceKind) {
         case CLASS, INTERFACE, ENUM, RECORD, ANNOTATION_TYPE -> true;

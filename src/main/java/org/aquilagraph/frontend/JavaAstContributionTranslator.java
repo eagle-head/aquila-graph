@@ -1404,7 +1404,9 @@ final class JavaAstContributionTranslator {
         }
       }
       case MemberSelectTree selection -> {
-        if ((original.syntaxKind() == SyntaxKind.FIELD_ACCESS
+        if (original.syntaxKind() == SyntaxKind.CLASS_LITERAL) {
+          complete = appendBodyType(selection.getExpression(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
+        } else if ((original.syntaxKind() == SyntaxKind.FIELD_ACCESS
             && original.value(SyntaxValue.FieldAccess.class).receiver() == SyntaxValue.FieldReceiver.STATIC_TYPE)
             || original.syntaxKind() == SyntaxKind.RECEIVER) {
           complete = appendBodyType(selection.getExpression(), SyntaxRole.QUALIFIER, 0, path, children, context);

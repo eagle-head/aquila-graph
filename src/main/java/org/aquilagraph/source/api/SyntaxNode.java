@@ -565,6 +565,12 @@ public final class SyntaxNode {
   }
 
   private static void validateType(SyntaxKind kind, SyntaxType type, SyntaxValue value) {
+    if (kind == SyntaxKind.CLASS_LITERAL && type.knownIdentity()
+        .filter(identity -> identity.category() != JavaTypeCategory.ERROR && identity.category() != JavaTypeCategory.OTHER
+            && (identity.category() != JavaTypeCategory.DECLARED || !"java.lang.Class".equals(identity.erasedName())))
+        .isPresent()) {
+      throw new IllegalArgumentException("A class literal value requires a java.lang.Class type");
+    }
     if (kind == SyntaxKind.UNSUPPORTED) {
       return;
     }
@@ -597,6 +603,12 @@ public final class SyntaxNode {
   }
 
   private static void validateReference(SyntaxKind kind, SyntaxValue syntaxValue, Optional<SemanticReference> reference) {
+    if (kind == SyntaxKind.CLASS_LITERAL) {
+      if (reference.isPresent()) {
+        throw new IllegalArgumentException("A class literal has no field or executable selection");
+      }
+      return;
+    }
     if (kind == SyntaxKind.MEMBER_REFERENCE) {
       var value = (SyntaxValue.MemberReference) syntaxValue;
       if (value.selection() != SyntaxValue.ReferenceSelection.EXECUTABLE) {
@@ -845,6 +857,10 @@ public final class SyntaxNode {
         if (children.getFirst().node().syntaxKind() != SyntaxKind.TYPE_USE) {
           throw new IllegalArgumentException("A class literal requires a structural type operand");
         }
+      }
+      case CLASS_LITERAL -> {
+        requireShape(children, Set.of(SyntaxRole.TYPE_OPERAND), SyntaxRole.TYPE_OPERAND, 0, 1);
+        validateBodyTypeAttachment(children, SyntaxRole.TYPE_OPERAND);
       }
       case ANNOTATION_CAST -> {
         requireShape(children, Set.of(SyntaxRole.TYPE_OPERAND, SyntaxRole.EXPRESSION));
@@ -1150,7 +1166,7 @@ public final class SyntaxNode {
         case FIELD_ACCESS -> child.role() == SyntaxRole.QUALIFIER
             ? node.syntaxKind() == SyntaxKind.TYPE_USE || node.syntaxKind() == SyntaxKind.RECEIVER
             : isExpression(node);
-        case RECEIVER -> node.syntaxKind() == SyntaxKind.TYPE_USE;
+        case CLASS_LITERAL, RECEIVER -> node.syntaxKind() == SyntaxKind.TYPE_USE;
         default -> true;
       };
       if (!valid) {
@@ -1165,8 +1181,8 @@ public final class SyntaxNode {
 
   private static boolean isExpression(SyntaxNode node) {
     return switch (node.syntaxKind()) {
-      case INVOCATION, OBJECT_CREATION, ARRAY_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, UNARY, BINARY, CONDITIONAL_AND,
-          CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST,
+      case INVOCATION, OBJECT_CREATION, ARRAY_CREATION, FIELD_ACCESS, VARIABLE_ACCESS, RECEIVER, LITERAL, CLASS_LITERAL, UNARY, BINARY,
+          CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, TYPE_CAST,
           CONDITIONAL_EXPRESSION, SWITCH_EXPRESSION, LAMBDA_EXPRESSION, MEMBER_REFERENCE, INSTANCE_OF, ANNOTATION_NAME_REFERENCE,
           ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST ->
         true;
@@ -2178,6 +2194,10 @@ public final class SyntaxNode {
   }
 
   private static void validateKnownWrittenBodyType(SyntaxKind kind, SyntaxType type, List<SyntaxChild> children) {
+    if (kind == SyntaxKind.CLASS_LITERAL) {
+      validateClassLiteralType(type, children);
+      return;
+    }
     var role = switch (kind) {
       case LOCAL_DECLARATION -> SyntaxRole.DECLARED_TYPE;
       case TYPE_CAST -> SyntaxRole.TYPE_OPERAND;
@@ -2200,6 +2220,39 @@ public final class SyntaxNode {
           throw new IllegalArgumentException("A known written body type must match its containing occurrence's type");
         }
       }
+    }
+  }
+
+  private static void validateClassLiteralType(SyntaxType type, List<SyntaxChild> children) {
+    if (!(type instanceof SyntaxType.Resolved resolved)
+        || !(resolved.structure().orElse(null) instanceof JavaTypeStructure.Declared declared)) {
+      return;
+    }
+    if (!"type:java.lang.Class".equals(declared.declarationKey()) || declared.arguments().size() != 1) {
+      throw new IllegalArgumentException("A class literal value requires one java.lang.Class type argument");
+    }
+    var written = children.stream().filter(child -> child.role() == SyntaxRole.TYPE_OPERAND).findFirst().map(SyntaxChild::node);
+    if (written.isEmpty() || !(written.orElseThrow().type() instanceof SyntaxType.Resolved operand) || operand.structure().isEmpty()) {
+      return;
+    }
+    var structure = operand.structure().orElseThrow();
+    if (structure instanceof JavaTypeStructure.Primitive primitive) {
+      var boxedName = switch (primitive.kind()) {
+        case BOOLEAN -> "Boolean";
+        case BYTE -> "Byte";
+        case SHORT -> "Short";
+        case INT -> "Integer";
+        case LONG -> "Long";
+        case CHAR -> "Character";
+        case FLOAT -> "Float";
+        case DOUBLE -> "Double";
+        case VOID -> "Void";
+        default -> throw new IllegalArgumentException("A class literal has an invalid primitive operand");
+      };
+      structure = new JavaTypeStructure.Declared("type:java.lang." + boxedName, Optional.empty(), List.of());
+    }
+    if (!declared.arguments().getFirst().equals(structure)) {
+      throw new IllegalArgumentException("A known class literal type argument must match its written operand");
     }
   }
 

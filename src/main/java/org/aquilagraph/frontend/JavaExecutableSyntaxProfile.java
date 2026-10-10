@@ -458,6 +458,9 @@ final class JavaExecutableSyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapp
 
   @Override
   public SyntaxNodeMapping visitMemberSelect(MemberSelectTree selection, MappingContext context) {
+    if (selection.getIdentifier().contentEquals("class")) {
+      return accepted(SyntaxKind.CLASS_LITERAL);
+    }
     if (semantics.isArrayLength(selection, context.treePath())) {
       var children = new ChildMappings(context);
       children.add(SyntaxRole.QUALIFIER, selection.getExpression());

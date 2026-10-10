@@ -46,6 +46,7 @@ final class ExecutableAstRetentionFixture {
         for (int value : values) { total ^= value; }
         synchronized (values) { assert total >= 0 : "negative"; }
         Supplier<IntSupplier> deferred = () -> () -> { int[] nested = {seed}; return nested[0]; };
+        Supplier<Class<?>> token = () -> int[][].class;
         Function<String, Integer> length = String::length;
         IntFunction<int[]> arrays = int[]::new;
         Runnable action = (Runnable & Serializable) () -> {};
@@ -85,7 +86,7 @@ final class ExecutableAstRetentionFixture {
   static void assertPreserved(AstResult original, AstResult retained) {
     assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
     assertEquals(AstCompletion.COMPLETE, retained.completion(), retained.diagnostics().toString());
-    assertEquals("java-source/12", retained.identity().sourceModelVersion());
+    assertEquals("java-source/13", retained.identity().sourceModelVersion());
     assertEquals(original.identity(), retained.identity());
     assertEquals(original.profile(), retained.profile());
     assertEquals(original.snapshot(), retained.snapshot());
@@ -104,7 +105,7 @@ final class ExecutableAstRetentionFixture {
       var body = retained.body(method.methodKey()).orElseThrow();
       var nodes = body.root().descendantsAndSelf();
       for (var kind : List.of(SyntaxKind.LOCAL_DECLARATION, SyntaxKind.ARRAY_CREATION, SyntaxKind.LAMBDA_EXPRESSION,
-          SyntaxKind.MEMBER_REFERENCE, SyntaxKind.FOR_LOOP, SyntaxKind.WHILE_LOOP, SyntaxKind.DO_WHILE_LOOP,
+          SyntaxKind.MEMBER_REFERENCE, SyntaxKind.CLASS_LITERAL, SyntaxKind.FOR_LOOP, SyntaxKind.WHILE_LOOP, SyntaxKind.DO_WHILE_LOOP,
           SyntaxKind.ENHANCED_FOR_LOOP, SyntaxKind.LABELED_STATEMENT, SyntaxKind.BREAK, SyntaxKind.CONTINUE,
           SyntaxKind.ASSERT, SyntaxKind.SYNCHRONIZED, SyntaxKind.COMPOUND_ASSIGNMENT, SyntaxKind.UPDATE,
           SyntaxKind.TYPE_CAST, SyntaxKind.SWITCH_STATEMENT, SyntaxKind.SWITCH_EXPRESSION,
@@ -118,6 +119,11 @@ final class ExecutableAstRetentionFixture {
       assertTrue(values.value(SyntaxValue.LocalDeclaration.class).bindingEvidence().orElseThrow().declarationKey().isPresent());
       assertEquals(2, values.requiredChild(SyntaxRole.INITIALIZER).children(SyntaxRole.ARRAY_ELEMENT).size());
       var cast = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_CAST).findFirst().orElseThrow();
+      var literal = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.CLASS_LITERAL).findFirst().orElseThrow();
+      assertEquals("java.lang.Class<int[][]>", literal.resolvedType().orElseThrow().displayName());
+      assertEquals(SyntaxKind.TYPE_USE, literal.requiredChild(SyntaxRole.TYPE_OPERAND).syntaxKind());
+      assertEquals(2, literal.requiredChild(SyntaxRole.TYPE_OPERAND).descendantsAndSelf().stream()
+          .filter(node -> node.sourceKind().name().equals("ARRAY_TYPE")).count());
       assertEquals(2, cast.requiredChild(SyntaxRole.TYPE_OPERAND).children(SyntaxRole.INTERSECTION_BOUND).size());
       var deferred = nodes.stream().filter(node -> node.value() instanceof SyntaxValue.LocalDeclaration value
           && value.name().equals("deferred")).findFirst().orElseThrow().requiredChild(SyntaxRole.INITIALIZER);

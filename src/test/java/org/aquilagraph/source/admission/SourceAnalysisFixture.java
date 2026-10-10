@@ -60,7 +60,7 @@ public final class SourceAnalysisFixture {
    * @return original-format values with the preceding catalog and consistently qualified expectations
    */
   public static AstResult withPreviousCoverage(AstResult original) {
-    return withCoverage(original, false);
+    return withCoverage(original, 3);
   }
 
   /**
@@ -69,7 +69,7 @@ public final class SourceAnalysisFixture {
    * @return format-four result retaining its exact qualified identity
    */
   public static AstResult updateResult(AstResult original) {
-    var compatible = withCoverage(original, true);
+    var compatible = withCoverage(original, 4);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
     return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.UPDATE_SOURCE_MODEL_VERSION);
@@ -81,7 +81,7 @@ public final class SourceAnalysisFixture {
    * @return format-five result with exact qualified identity
    */
   public static AstResult arrayResult(AstResult original) {
-    var compatible = withCoverage(original, true, true);
+    var compatible = withCoverage(original, 5);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
     return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.ARRAY_SOURCE_MODEL_VERSION);
@@ -93,22 +93,10 @@ public final class SourceAnalysisFixture {
    * @return format-six result retaining its qualified identity
    */
   public static AstResult iterationResult(AstResult original) {
-    var compatible = withCoverage(original, true, true, true);
+    var compatible = withCoverage(original, 6);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
     return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.ITERATION_SOURCE_MODEL_VERSION);
-  }
-
-  private static AstResult withCoverage(AstResult original, boolean updates) {
-    return withCoverage(original, updates, false);
-  }
-
-  private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays) {
-    return withCoverage(original, updates, arrays, false);
-  }
-
-  private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays, boolean iteration) {
-    return withCoverage(original, updates, arrays, iteration, false);
   }
 
   /**
@@ -117,14 +105,10 @@ public final class SourceAnalysisFixture {
    * @return compatible java-source/7 result
    */
   public static AstResult assertionResult(AstResult original) {
-    var compatible = withCoverage(original, true, true, true, true);
+    var compatible = withCoverage(original, 7);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
     return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.ASSERTION_SOURCE_MODEL_VERSION);
-  }
-
-  private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays, boolean iteration, boolean assertions) {
-    return withCoverage(original, updates, arrays, iteration, assertions, false);
   }
 
   /**
@@ -133,14 +117,10 @@ public final class SourceAnalysisFixture {
    * @return compatible java-source/8 result
    */
   public static AstResult lambdaResult(AstResult original) {
-    var compatible = withCoverage(original, true, true, true, true, true);
+    var compatible = withCoverage(original, 8);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
     return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.LAMBDA_SOURCE_MODEL_VERSION);
-  }
-
-  private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays, boolean iteration, boolean assertions, boolean lambdas) {
-    return withCoverage(original, updates, arrays, iteration, assertions, lambdas, false);
   }
 
   /**
@@ -149,7 +129,7 @@ public final class SourceAnalysisFixture {
    * @return compatible java-source/9 result
    */
   public static AstResult referenceResult(AstResult original) {
-    var compatible = withCoverage(original, true, true, true, true, true, true);
+    var compatible = withCoverage(original, 9);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
     return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.REFERENCE_SOURCE_MODEL_VERSION);
@@ -161,7 +141,7 @@ public final class SourceAnalysisFixture {
    * @return compatible java-source/10 result
    */
   public static AstResult patternResult(AstResult original) {
-    var compatible = withCoverage(original, true, true, true, true, true, true, true);
+    var compatible = withCoverage(original, 10);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
     return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.PATTERN_SOURCE_MODEL_VERSION);
@@ -173,22 +153,34 @@ public final class SourceAnalysisFixture {
    * @return compatible java-source/11 result with its original catalog and identity
    */
   public static AstResult switchResult(AstResult original) {
-    var compatible = withCoverage(original, true, true, true, true, true, true, true, true);
+    var compatible = withCoverage(original, 11);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
     return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.SWITCH_SOURCE_MODEL_VERSION);
   }
 
-  private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays, boolean iteration, boolean assertions, boolean lambdas, boolean references) {
-    return withCoverage(original, updates, arrays, iteration, assertions, lambdas, references, false);
+  /**
+   * Admits supplied exception and resource values with the catalog preceding executable class literals.
+   * @param original compatible source values without executable class literals
+   * @return compatible java-source/12 result with its original catalog and identity
+   */
+  public static AstResult exceptionResult(AstResult original) {
+    var compatible = withCoverage(original, 12);
+    var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
+        compatible.diagnostics(), compatible.coverage());
+    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.EXCEPTION_SOURCE_MODEL_VERSION);
   }
 
-  private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays, boolean iteration, boolean assertions, boolean lambdas, boolean references, boolean patterns) {
-    return withCoverage(original, updates, arrays, iteration, assertions, lambdas, references, patterns, false);
-  }
-
-  private static AstResult withCoverage(AstResult original, boolean updates, boolean arrays, boolean iteration, boolean assertions, boolean lambdas, boolean references, boolean patterns, boolean switches) {
-    var exceptionSurfaces = Set.of("TryTree", "CatchTree", "UnionTypeTree");
+  private static AstResult withCoverage(AstResult original, int formatVersion) {
+    var updates = formatVersion >= 4;
+    var arrays = formatVersion >= 5;
+    var iteration = formatVersion >= 6;
+    var assertions = formatVersion >= 7;
+    var lambdas = formatVersion >= 8;
+    var references = formatVersion >= 9;
+    var patterns = formatVersion >= 10;
+    var switches = formatVersion >= 11;
+    var exceptionSurfaces = formatVersion >= 12 ? Set.<String>of() : Set.of("TryTree", "CatchTree", "UnionTypeTree");
     var switchKinds = switches ? Set.<String>of() : Set.of("SWITCH", "PATTERN_CASE_LABEL");
     var switchSurfaces = switches ? Set.<String>of() : Set.of("SwitchTree", "SwitchExpressionTree", "CaseTree", "YieldTree");
     var patternKinds = Set.of("INSTANCE_OF", "BINDING_PATTERN", "DECONSTRUCTION_PATTERN", "ANY_PATTERN");
@@ -201,7 +193,7 @@ public final class SourceAnalysisFixture {
         "POSTFIX_DECREMENT", "INTERSECTION_TYPE");
     var catalog = LanguageFeatureCoverage.forRelease(original.coverage().coverage().release(),
         original.coverage().coverage().classifications().stream()
-            .filter(classification -> (arrays || !classification.feature().identifier().startsWith("NewArrayTree::"))
+            .filter(classification -> !classification.feature().identifier().startsWith("MemberSelectTree::") && (arrays || !classification.feature().identifier().startsWith("NewArrayTree::"))
                 && exceptionSurfaces.stream().noneMatch(surface -> classification.feature().identifier().startsWith(surface + "::"))
                 && (references || !classification.feature().identifier().startsWith("MemberReferenceTree::"))
                 && (patterns || patternSurfaces.stream().noneMatch(surface -> classification.feature().identifier().startsWith(surface + "::")))
@@ -214,7 +206,7 @@ public final class SourceAnalysisFixture {
                 "JavaAstAggregate annotation array value; unsupported method-body arrays retain method-syntax diagnostics");
           }
           return feature.category() == LanguageFeatureCategory.COMPILER_TREE_KIND
-              && ("UNION_TYPE".equals(feature.identifier()) || (!references && "MEMBER_REFERENCE".equals(feature.identifier())) || (!patterns && patternKinds.contains(feature.identifier())) || switchKinds.contains(feature.identifier()) || (iterationKinds.contains(feature.identifier()) && !(lambdas && feature.identifier().equals("LAMBDA_EXPRESSION"))) || (!updates && changedKinds.contains(feature.identifier())))
+              && ((formatVersion < 12 && "UNION_TYPE".equals(feature.identifier())) || (!references && "MEMBER_REFERENCE".equals(feature.identifier())) || (!patterns && patternKinds.contains(feature.identifier())) || switchKinds.contains(feature.identifier()) || (iterationKinds.contains(feature.identifier()) && !(lambdas && feature.identifier().equals("LAMBDA_EXPRESSION"))) || (!updates && changedKinds.contains(feature.identifier())))
               ? LanguageFeatureClassification.diagnosed(feature,
                   "frontend.unsupported-tree-kind." + feature.identifier().toLowerCase(Locale.ROOT).replace('_', '-'))
               : classification;
@@ -222,7 +214,7 @@ public final class SourceAnalysisFixture {
     var evidence = original.coverage().validationEvidence();
     var written = evidence.writtenInventory();
     var contexts = written.contexts().stream().filter(context -> context.feature()
-        .map(feature -> (arrays || !feature.identifier().startsWith("NewArrayTree::"))
+        .map(feature -> !feature.identifier().startsWith("MemberSelectTree::") && (arrays || !feature.identifier().startsWith("NewArrayTree::"))
             && exceptionSurfaces.stream().noneMatch(surface -> feature.identifier().startsWith(surface + "::"))
             && (references || !feature.identifier().startsWith("MemberReferenceTree::"))
             && (patterns || patternSurfaces.stream().noneMatch(surface -> feature.identifier().startsWith(surface + "::")))

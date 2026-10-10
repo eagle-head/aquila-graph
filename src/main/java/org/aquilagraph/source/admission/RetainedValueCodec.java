@@ -305,6 +305,9 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatEnum(Class<?> type, String name) {
+    if (formatVersion < 13 && type == SyntaxKind.class && "CLASS_LITERAL".equals(name)) {
+      throw new IllegalArgumentException("Executable class literals require retained AST format java-source/13");
+    }
     if (formatVersion < 11 && ((type == SyntaxKind.class && "SWITCH_STATEMENT".equals(name))
         || (type == CoverageEvidenceValue.Tag.class && "PATTERN_LABEL".equals(name)))) {
       throw new IllegalArgumentException("Expanded switch syntax requires retained AST format java-source/11");
@@ -352,6 +355,9 @@ final class RetainedValueCodec {
   }
 
   private void validateSourceFormat(SyntaxNode node) {
+    if (formatVersion < 13 && node.syntaxKind() == SyntaxKind.CLASS_LITERAL) {
+      throw new IllegalArgumentException("Executable class literals require retained AST format java-source/13");
+    }
     if (formatVersion < 12 && ((node.syntaxKind() == SyntaxKind.TRY
         && (!node.children(SyntaxRole.RESOURCE).isEmpty() || !node.children(SyntaxRole.FINALLY_BLOCK).isEmpty()))
         || node.sourceKind() == JavaSourceKind.UNION_TYPE)) {

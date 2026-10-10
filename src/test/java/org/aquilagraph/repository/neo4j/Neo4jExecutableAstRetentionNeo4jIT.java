@@ -405,6 +405,33 @@ class Neo4jExecutableAstRetentionNeo4jIT {
     return Neo4jConnectionSettings.fromEnvironment(System.getenv());
   }
 
+  @Test
+  void givenCompatibleExceptionSchema_whenSavedAndLaterQueried_thenOriginalIdentityAndCompleteValuesRemainReadable() throws IOException {
+    // Arrange
+    var settings = settings();
+    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Prior.java"),
+        "class Prior { int subject(int value) { try { value += 1; } finally { value += 2; } return value; } }")));
+    var current = ExecutableAstRetentionFixture.frontend().produce(snapshot, ExecutableAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_EXPANDED)
+        .result().orElseThrow();
+    var previous = SourceAnalysisFixture.exceptionResult(current);
+    var outcome = AstOutcome.available(previous);
+    try {
+      // Act
+      var publication = retention(settings).retainAst(outcome);
+      var retained = retention(settings).findAst(previous.identity()).outcome().orElseThrow().result().orElseThrow();
+
+      // Assert
+      assertEquals(PublicationStatus.SAVED, publication.status());
+      assertEquals("java-source/12", retained.identity().sourceModelVersion());
+      assertEquals(previous.identity(), retained.identity());
+      assertArrayEquals(AstCodec.encode(previous), AstCodec.encode(retained));
+      assertEquals(current.aggregate(), retained.aggregate());
+      assertMaterialization(settings, outcome);
+    } finally {
+      deleteAst(settings, previous.identity());
+    }
+  }
+
   private static AstRetentionService retention(Neo4jConnectionSettings settings) {
     return new AstRetentionService(new Neo4jAstResultRepositoryFactory(() -> settings));
   }

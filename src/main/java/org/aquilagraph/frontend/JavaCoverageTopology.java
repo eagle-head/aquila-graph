@@ -13,6 +13,7 @@ import com.sun.source.tree.AssertTree;
 import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.MemberReferenceTree;
+import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.InstanceOfTree;
 import com.sun.source.tree.BindingPatternTree;
 import com.sun.source.tree.DeconstructionPatternTree;
@@ -135,6 +136,7 @@ final class JavaCoverageTopology {
       case SynchronizedTree _ -> Optional.of(SynchronizedTree.class);
       case LambdaExpressionTree _ -> Optional.of(LambdaExpressionTree.class);
       case MemberReferenceTree _ -> Optional.of(MemberReferenceTree.class);
+      case MemberSelectTree selection when selection.getIdentifier().contentEquals("class") -> Optional.of(MemberSelectTree.class);
       case InstanceOfTree _ -> Optional.of(InstanceOfTree.class);
       case BindingPatternTree _ -> Optional.of(BindingPatternTree.class);
       case DeconstructionPatternTree _ -> Optional.of(DeconstructionPatternTree.class);

@@ -24,7 +24,8 @@ public final class LanguageFeatureCoverageResult {
           "java-language-feature-coverage:57c6cdc127ac8360381c721d17d84ed5ca5b682275ab72ddb3bdae324baad5bf",
           "java-language-feature-coverage:09c76957002dba67b40c181c9df2283dfc5fbd2e72d70202adbab2e9606bf8e1",
           "java-language-feature-coverage:6c67a26fcdbe5f3d7fe6302796e917a38886a348f5619c98817ac3c4958d9bf4",
-          "java-language-feature-coverage:f39568916d81bfafc9f3300c9d8cb9a69aacf1073874cea3855a628d77d5f54c"));
+          "java-language-feature-coverage:f39568916d81bfafc9f3300c9d8cb9a69aacf1073874cea3855a628d77d5f54c",
+          "java-language-feature-coverage:aa7f14c098cdf30b107ec6b2c7670c85cc1f66fd4001c71b0287f664a907503d"));
   private final LanguageFeatureCoverage coverageContract;
   private final List<LanguageFeatureOccurrence> occurrenceValues;
   private final List<LanguageFeatureObservation> observationValues;

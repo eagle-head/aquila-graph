@@ -57,6 +57,7 @@ public final class CoverageWrittenTypeUseTopology {
       case INTERSECTION_BOUND -> Optional.of(Role.INTERSECTION_BOUND);
       case UNION_ALTERNATIVE -> Optional.of(Role.UNION_ALTERNATIVE);
       case TYPE_OPERAND -> switch (parent) {
+        case MEMBER_SELECT -> Optional.of(Role.TYPE_QUALIFIER);
         case TYPE_CAST -> Optional.of(Role.CAST_TYPE);
         case NEW_CLASS -> Optional.of(Role.CONSTRUCTED_TYPE);
         case NEW_ARRAY -> Optional.of(Role.ARRAY_ELEMENT_TYPE);

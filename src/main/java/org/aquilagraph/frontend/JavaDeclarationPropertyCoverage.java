@@ -12,6 +12,7 @@ import com.sun.source.tree.AssertTree;
 import com.sun.source.tree.SynchronizedTree;
 import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.MemberReferenceTree;
+import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.InstanceOfTree;
 import com.sun.source.tree.BindingPatternTree;
 import com.sun.source.tree.DeconstructionPatternTree;
@@ -70,10 +71,10 @@ final class JavaDeclarationPropertyCoverage {
 
   private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
       VariableTree.class, NewArrayTree.class, AssertTree.class, SynchronizedTree.class, LambdaExpressionTree.class,
-      MemberReferenceTree.class, InstanceOfTree.class, BindingPatternTree.class, DeconstructionPatternTree.class, AnyPatternTree.class,
-      SwitchTree.class, SwitchExpressionTree.class, CaseTree.class, YieldTree.class, WhileLoopTree.class, DoWhileLoopTree.class,
-      ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class, ContinueTree.class, TryTree.class,
-      CatchTree.class, UnionTypeTree.class, TypeElement.class, ExecutableElement.class);
+      MemberReferenceTree.class, MemberSelectTree.class, InstanceOfTree.class, BindingPatternTree.class, DeconstructionPatternTree.class,
+      AnyPatternTree.class, SwitchTree.class, SwitchExpressionTree.class, CaseTree.class, YieldTree.class, WhileLoopTree.class,
+      DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class, ContinueTree.class,
+      TryTree.class, CatchTree.class, UnionTypeTree.class, TypeElement.class, ExecutableElement.class);
   private static final String STATEMENT_KIND_BOUNDARY = "Canonical written statement kind";
   private static final String STATEMENT_VALUE_BOUNDARY = "Canonical written statement value and ordered children";
   private static final String TREE_API = "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/";
@@ -141,6 +142,7 @@ final class JavaDeclarationPropertyCoverage {
     classifications.addAll(assertionMonitorClassifications());
     classifications.addAll(lambdaClassifications());
     classifications.addAll(referenceClassifications());
+    classifications.addAll(classLiteralClassifications());
     classifications.addAll(patternClassifications());
     classifications.addAll(switchClassifications());
     classifications.addAll(exceptionClassifications());
@@ -190,6 +192,15 @@ final class JavaDeclarationPropertyCoverage {
         represented("MemberReferenceTree::MemberReferenceTree#getName()", "Written reference name"),
         represented("MemberReferenceTree::MemberReferenceTree#getQualifierExpression()", "Written reference qualifier subtree"),
         represented("MemberReferenceTree::MemberReferenceTree#getTypeArguments()", "Ordered explicit reference type arguments"));
+  }
+
+  private static List<LanguageFeatureClassification> classLiteralClassifications() {
+    return List.of(
+        irrelevant("MemberSelectTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
+            TREE_ACCEPT_SOURCE),
+        represented("MemberSelectTree::Tree#getKind()", "Written class literal kind"),
+        represented("MemberSelectTree::MemberSelectTree#getIdentifier()", "Written class literal selector"),
+        represented("MemberSelectTree::MemberSelectTree#getExpression()", "Written class literal type operand"));
   }
 
   private static List<LanguageFeatureClassification> switchClassifications() {
