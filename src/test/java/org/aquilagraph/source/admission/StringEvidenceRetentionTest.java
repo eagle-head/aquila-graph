@@ -60,14 +60,14 @@ class StringEvidenceRetentionTest {
     var origin = expression.rightIsString().origin();
     for (var classification : List.of(EvidenceValue.<Boolean>missing(origin, "Classification unavailable"),
         EvidenceValue.<Boolean>erroneous(origin, "Classification erroneous"))) {
-      var replacement = new StringExpressionEvidence(expression.methodKey(), expression.binaryNodeId(), expression.stringType(),
+      var replacement = new StringExpressionEvidence(expression.scopeKey(), expression.binaryNodeId(), expression.stringType(),
           expression.leftIsString(), classification, expression.compileTimeConstant());
       // Act
       var retained = replace(original, replacement);
       var decoded = AstCodec.decode(AstCodec.encode(retained), retained.identity());
       var identity = decoded.identity();
       var outcome = CfgDerivers.standard().derive(decoded,
-          new CfgRequest(identity, List.of(expression.methodKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
+          new CfgRequest(identity, List.of(expression.scopeKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
 
       // Assert
       assertEquals(AstCompletion.COMPLETE, decoded.completion(), decoded.diagnostics().toString());
@@ -88,14 +88,14 @@ class StringEvidenceRetentionTest {
     var origin = expression.rightIsString().origin();
     for (var classification : List.of(EvidenceValue.<Boolean>missing(origin, "Classification unavailable"),
         EvidenceValue.<Boolean>erroneous(origin, "Classification erroneous"))) {
-      var replacement = new StringExpressionEvidence(expression.methodKey(), expression.binaryNodeId(), expression.stringType(),
+      var replacement = new StringExpressionEvidence(expression.scopeKey(), expression.binaryNodeId(), expression.stringType(),
           expression.leftIsString(), classification, expression.compileTimeConstant());
       // Act
       var retained = replace(original, replacement);
       var bytes = AstCodec.encode(retained);
       var decoded = AstCodec.decode(bytes, retained.identity());
       var outcome = CfgDerivers.standard().derive(decoded,
-          new CfgRequest(decoded.identity(), List.of(expression.methodKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
+          new CfgRequest(decoded.identity(), List.of(expression.scopeKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
 
       // Assert
       assertEquals(AstCompletion.COMPLETE, decoded.completion());
@@ -132,7 +132,7 @@ class StringEvidenceRetentionTest {
   private static AstResult replace(AstResult original, StringExpressionEvidence replacement) {
     var copied = CopiedAstValues.capture(original.aggregate());
     var bodies = copied.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), body.root(), body.origin(), body.uses(),
-        body.invocations(), body.staticAccesses(), body.methodKey().equals(replacement.methodKey())
+        body.invocations(), body.staticAccesses(), body.methodKey().equals(replacement.scopeKey())
             ? Stream.concat(body.concatenations().stream()
                 .filter(value -> !value.binaryNodeId().equals(replacement.binaryNodeId())), Stream.of(replacement)).toList()
             : body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();

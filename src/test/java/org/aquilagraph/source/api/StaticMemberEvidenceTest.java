@@ -49,7 +49,7 @@ class StaticMemberEvidenceTest {
     var decision = StaticMemberEvidence.known("method", "access", "opaque:selected-member", StaticMemberKind.FIELD_READ, owner, false, Optional.empty());
 
     // Assert
-    assertEquals("method", decision.methodKey());
+    assertEquals("method", decision.scopeKey());
     assertEquals("access", decision.accessNodeId());
     assertEquals("opaque:selected-member", decision.selectedMemberKey());
     assertEquals(owner, decision.declaringType());
@@ -112,7 +112,7 @@ class StaticMemberEvidenceTest {
         () -> StaticMemberEvidence.known("method", "access", " ", StaticMemberKind.FIELD_READ, owner, false, Optional.empty()));
 
     // Assert
-    assertEquals("methodKey cannot be blank", method.getMessage());
+    assertEquals("scopeKey cannot be blank", method.getMessage());
     assertEquals("accessNodeId cannot be blank", access.getMessage());
     assertEquals("selectedMemberKey cannot be blank", member.getMessage());
     assertThrows(NullPointerException.class,

@@ -7,8 +7,8 @@ import org.aquilagraph.identity.api.SourceSpan;
 /**
  * Exact local source address of an independently copied fact.
  *
- * @param methodKey
- *          canonical containing method
+ * @param scopeKey
+ *          canonical containing execution scope
  * @param nodeKey
  *          exact containing occurrence or explicit nonwritten body node
  * @param slot
@@ -16,10 +16,10 @@ import org.aquilagraph.identity.api.SourceSpan;
  * @param sourceRange
  *          actual source range when available
  */
-public record EvidenceOrigin(String methodKey, String nodeKey, String slot, Optional<SourceSpan> sourceRange) {
+public record EvidenceOrigin(String scopeKey, String nodeKey, String slot, Optional<SourceSpan> sourceRange) {
   /** Validates the copied address without asserting compiler authenticity. */
   public EvidenceOrigin {
-    DecisionValueValidation.requireKey(methodKey, "methodKey");
+    DecisionValueValidation.requireKey(scopeKey, "scopeKey");
     DecisionValueValidation.requireKey(nodeKey, "nodeKey");
     DecisionValueValidation.requireKey(slot, "slot");
     Objects.requireNonNull(sourceRange, "sourceRange");

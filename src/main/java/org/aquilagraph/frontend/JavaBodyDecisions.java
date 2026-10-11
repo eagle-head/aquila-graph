@@ -49,12 +49,12 @@ record JavaBodyDecisions(List<ChildUseEvidence> uses, List<InvocationEvidence> i
     var evidence = value.applicability();
     var origin = evidence.origin();
     var known = evidence.knownValue()
-        .map(classification -> new InvocationApplicability(classification.methodKey(), copied.nodeId(), classification.mode(),
+        .map(classification -> new InvocationApplicability(classification.scopeKey(), copied.nodeId(), classification.mode(),
             classification.formalCount(), classification.varargArrayType(), classification.erasedArrayType(),
             classification.elementType()));
-    return new InvocationEvidence(new EvidenceValue<>(evidence.state(), known,
-        new EvidenceOrigin(origin.methodKey(), copied.nodeId(), origin.slot(), copied.origin()), evidence.explanation(),
-        evidence.diagnostic()));
+    return new InvocationEvidence(
+        new EvidenceValue<>(evidence.state(), known, new EvidenceOrigin(origin.scopeKey(), copied.nodeId(), origin.slot(), copied.origin()),
+            evidence.explanation(), evidence.diagnostic()));
   }
 
   private static ConstructorEvidence rebindConstructor(ConstructorEvidence value, SyntaxNode copied) {
@@ -63,22 +63,22 @@ record JavaBodyDecisions(List<ChildUseEvidence> uses, List<InvocationEvidence> i
         .map(context -> new ConstructorContext(context.superclassParameterTypes(),
             context.insertedInvocation().map(inserted -> new CompilerInsertedInvocation(inserted.sourceFileKey(), inserted.compilerPath(),
                 inserted.reference(), inserted.semantics(), rebindInvocation(inserted.applicability(), copied)))));
-    return new ConstructorEvidence(value.methodKey(), copied.nodeId(), value.ownerTypeKey(), value.selectedConstructorKey(), value.form(),
+    return new ConstructorEvidence(value.scopeKey(), copied.nodeId(), value.ownerTypeKey(), value.selectedConstructorKey(), value.form(),
         new EvidenceValue<>(evidence.state(), known,
-            new EvidenceOrigin(value.methodKey(), copied.nodeId(), ConstructorEvidence.SLOT, copied.origin()), evidence.explanation(),
+            new EvidenceOrigin(value.scopeKey(), copied.nodeId(), ConstructorEvidence.SLOT, copied.origin()), evidence.explanation(),
             evidence.diagnostic()));
   }
 
   private static ChildUseEvidence rebindUse(ChildUseEvidence value, SyntaxNode copied) {
     var classification = value.conversion();
     var known = classification.knownValue()
-        .map(fact -> new ConversionEvidence(fact.methodKey(), copied.nodeId(), fact.role(), fact.position(), fact.sourceType(),
+        .map(fact -> new ConversionEvidence(fact.scopeKey(), copied.nodeId(), fact.role(), fact.position(), fact.sourceType(),
             fact.selectedTarget(), fact.checkedReferenceTarget(), fact.unboxedType(), fact.effectivePrimitiveType(),
             fact.preBoxPrimitiveType(), fact.boxedType()));
-    return new ChildUseEvidence(value.methodKey(), copied.nodeId(), value.role(), value.position(), value.sourceType(),
+    return new ChildUseEvidence(value.scopeKey(), copied.nodeId(), value.role(), value.position(), value.sourceType(),
         value.selectedTarget(),
         new EvidenceValue<>(classification.state(), known,
-            new EvidenceOrigin(value.methodKey(), copied.nodeId(), classification.origin().slot(), copied.origin()),
+            new EvidenceOrigin(value.scopeKey(), copied.nodeId(), classification.origin().slot(), copied.origin()),
             classification.explanation(), classification.diagnostic()),
         rebindStringSlot(value.referenceCheck(), copied));
   }
@@ -86,17 +86,17 @@ record JavaBodyDecisions(List<ChildUseEvidence> uses, List<InvocationEvidence> i
   private static StaticMemberEvidence rebindStatic(StaticMemberEvidence value, SyntaxNode copied) {
     var evidence = value.constantVariable();
     var owner = value.declaringOwner();
-    return new StaticMemberEvidence(value.methodKey(), copied.nodeId(), value.selectedMemberKey(), value.kind(),
+    return new StaticMemberEvidence(value.scopeKey(), copied.nodeId(), value.selectedMemberKey(), value.kind(),
         new EvidenceValue<>(owner.state(), owner.knownValue(),
-            new EvidenceOrigin(value.methodKey(), copied.nodeId(), StaticMemberEvidence.OWNER_SLOT, copied.origin()), owner.explanation(),
+            new EvidenceOrigin(value.scopeKey(), copied.nodeId(), StaticMemberEvidence.OWNER_SLOT, copied.origin()), owner.explanation(),
             owner.diagnostic()),
         new EvidenceValue<>(evidence.state(), evidence.knownValue(),
-            new EvidenceOrigin(value.methodKey(), copied.nodeId(), StaticMemberEvidence.CONSTANT_SLOT, copied.origin()),
+            new EvidenceOrigin(value.scopeKey(), copied.nodeId(), StaticMemberEvidence.CONSTANT_SLOT, copied.origin()),
             evidence.explanation(), evidence.diagnostic()));
   }
 
   private static StringExpressionEvidence rebindString(StringExpressionEvidence value, SyntaxNode copied) {
-    return new StringExpressionEvidence(value.methodKey(), copied.nodeId(), value.stringType(),
+    return new StringExpressionEvidence(value.scopeKey(), copied.nodeId(), value.stringType(),
         rebindStringSlot(value.leftIsString(), copied), rebindStringSlot(value.rightIsString(), copied),
         rebindStringSlot(value.compileTimeConstant(), copied));
   }
@@ -104,7 +104,7 @@ record JavaBodyDecisions(List<ChildUseEvidence> uses, List<InvocationEvidence> i
   private static EvidenceValue<Boolean> rebindStringSlot(EvidenceValue<Boolean> evidence, SyntaxNode copied) {
     var origin = evidence.origin();
     return new EvidenceValue<>(evidence.state(), evidence.knownValue(),
-        new EvidenceOrigin(origin.methodKey(), copied.nodeId(), origin.slot(), copied.origin()), evidence.explanation(),
+        new EvidenceOrigin(origin.scopeKey(), copied.nodeId(), origin.slot(), copied.origin()), evidence.explanation(),
         evidence.diagnostic());
   }
 

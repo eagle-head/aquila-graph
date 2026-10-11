@@ -21,7 +21,7 @@ class ConversionEvidenceTest {
     var referenceUse = use(reference, object, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
 
     // Assert
-    assertEquals("method", primitiveUse.methodKey());
+    assertEquals("method", primitiveUse.scopeKey());
     assertEquals("consumer", primitiveUse.consumerNodeId());
     assertEquals(SyntaxRole.EXPRESSION, primitiveUse.role());
     assertEquals(0, primitiveUse.position());
@@ -304,7 +304,7 @@ class ConversionEvidenceTest {
         type, type, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
 
     // Assert
-    assertEquals("methodKey cannot be blank", blankMethod.getMessage());
+    assertEquals("scopeKey cannot be blank", blankMethod.getMessage());
     assertEquals("consumerNodeId cannot be blank", blankConsumer.getMessage());
     assertEquals("A typed use position cannot be negative", negative.getMessage());
     assertThrows(NullPointerException.class, () -> new ConversionEvidence("method", "consumer", null, 0, type, type, Optional.empty(),

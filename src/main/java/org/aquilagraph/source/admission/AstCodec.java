@@ -49,7 +49,7 @@ public final class AstCodec {
    */
   public static AstValueProjection materialize(AstResult result) {
     Objects.requireNonNull(result, "result");
-    return new AstValueProjector().project(copiedInput(result));
+    return new AstValueProjector(result.identity().sourceModelVersion()).project(copiedInput(result));
   }
 
   /**

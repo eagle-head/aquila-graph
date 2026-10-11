@@ -181,7 +181,7 @@ class CanonicalBodyEvidenceTest {
     var invocationKeys = List.of(binary.requiredChild(SyntaxRole.LEFT_OPERAND).nodeId(), binary.requiredChild(SyntaxRole.RIGHT_OPERAND).nodeId());
     var bodies = copied.bodies().stream().map(body -> {
       var uses = body.uses().stream().map(value -> useClassifications && value.consumerNodeId().equals(binary.nodeId())
-          ? new ChildUseEvidence(value.methodKey(), value.consumerNodeId(), value.role(), value.position(), value.sourceType(),
+          ? new ChildUseEvidence(value.scopeKey(), value.consumerNodeId(), value.role(), value.position(), value.sourceType(),
               value.selectedTarget(), unavailable(value.conversion(), state), value.referenceCheck())
           : value).toList();
       var invocations = body.invocations().stream().map(value -> !useClassifications && invocationKeys.contains(value.consumerNodeId())

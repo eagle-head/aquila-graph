@@ -16,6 +16,7 @@ import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxSourceContribution;
 import org.aquilagraph.source.api.ChildUseEvidence;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
+import org.aquilagraph.source.api.ExecutionScope;
 
 /**
  * Copied neutral values submitted together to intrinsic source admission.
@@ -32,10 +33,12 @@ import org.aquilagraph.source.api.WrittenSourceAssociation;
  *          original written occurrence ownership
  * @param declarationTypes
  *          copied declaration type components
+ * @param scopes
+ *          declaration-owned execution registrations
  */
 public record CopiedAstValues(InputSnapshot snapshot, List<SyntaxSourceContribution> sources, List<Body> bodies,
-    List<DeclarationMemberOrder> memberOrders, List<WrittenSourceAssociation> associations,
-    List<DeclarationTypeEvidence> declarationTypes) {
+    List<DeclarationMemberOrder> memberOrders, List<WrittenSourceAssociation> associations, List<DeclarationTypeEvidence> declarationTypes,
+    List<Scope> scopes) {
   /** Defensively copies every submitted collection. */
   public CopiedAstValues {
     Objects.requireNonNull(snapshot, "snapshot");
@@ -44,6 +47,29 @@ public record CopiedAstValues(InputSnapshot snapshot, List<SyntaxSourceContribut
     memberOrders = List.copyOf(memberOrders);
     associations = List.copyOf(associations);
     declarationTypes = List.copyOf(declarationTypes);
+    scopes = List.copyOf(scopes);
+  }
+
+  /**
+   * Copies historical method-only values without adding declaration scopes.
+   *
+   * @param snapshot
+   *          captured input
+   * @param sources
+   *          copied source contributions
+   * @param bodies
+   *          actual method registrations
+   * @param memberOrders
+   *          declaration order
+   * @param associations
+   *          written source associations
+   * @param declarationTypes
+   *          declaration type components
+   */
+  public CopiedAstValues(InputSnapshot snapshot, List<SyntaxSourceContribution> sources, List<Body> bodies,
+      List<DeclarationMemberOrder> memberOrders, List<WrittenSourceAssociation> associations,
+      List<DeclarationTypeEvidence> declarationTypes) {
+    this(snapshot, sources, bodies, memberOrders, associations, declarationTypes, List.of());
   }
 
   /**
@@ -80,8 +106,47 @@ public record CopiedAstValues(InputSnapshot snapshot, List<SyntaxSourceContribut
       return new Body(methodKey, syntax.root(), aggregate.methodBodyOrigin(methodKey).orElseThrow(), facts.uses(), facts.invocations(),
           facts.staticMembers(), facts.stringExpressions(), facts.constructors(), aggregate.bodyAttributions(methodKey));
     }).toList();
+    var scopes = aggregate.executionScopes().stream().filter(scope -> !(scope instanceof ExecutionScope.Method)).map(scope -> {
+      var syntax = aggregate.executionSyntax(scope.key()).orElseThrow();
+      var facts = syntax.evidence();
+      return new Scope(scope, syntax.root(), facts.uses(), facts.invocations(), facts.staticMembers(), facts.stringExpressions(),
+          syntax.attributedOccurrences());
+    }).toList();
     return new CopiedAstValues(aggregate.snapshot(), sources, bodies, aggregate.declarationMemberOrders(),
-        aggregate.writtenSourceAssociations(), aggregate.declarationTypeEvidence());
+        aggregate.writtenSourceAssociations(), aggregate.declarationTypeEvidence(), scopes);
+  }
+
+  /**
+   * Copied declaration execution syntax and independently retained facts.
+   *
+   * @param scope
+   *          actual field or initializer owner
+   * @param root
+   *          identical canonical declaration anchor
+   * @param uses
+   *          selected child targets
+   * @param invocations
+   *          selected applicability
+   * @param staticAccesses
+   *          selected static owners
+   * @param concatenations
+   *          String expression facts
+   * @param attributedOccurrences
+   *          copied compiler addresses
+   */
+  public record Scope(ExecutionScope scope, SyntaxNode root, List<ChildUseEvidence> uses, List<InvocationEvidence> invocations,
+      List<StaticMemberEvidence> staticAccesses, List<StringExpressionEvidence> concatenations,
+      List<AttributedBodyOccurrence> attributedOccurrences) {
+    /** Copies collections and retains explicit source ownership. */
+    public Scope {
+      Objects.requireNonNull(scope, "scope");
+      Objects.requireNonNull(root, "root");
+      uses = List.copyOf(uses);
+      invocations = List.copyOf(invocations);
+      staticAccesses = List.copyOf(staticAccesses);
+      concatenations = List.copyOf(concatenations);
+      attributedOccurrences = List.copyOf(attributedOccurrences);
+    }
   }
 
   /**

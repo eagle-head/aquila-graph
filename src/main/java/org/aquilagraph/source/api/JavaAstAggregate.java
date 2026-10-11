@@ -4,6 +4,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import java.util.Optional;
 import java.util.Set;
 import org.aquilagraph.identity.api.InputSnapshot;
@@ -20,16 +21,17 @@ public final class JavaAstAggregate {
   private final List<SyntaxStructuralEdge> orderedStructuralRelations;
   private final List<SyntaxSemanticEdge> orderedSemanticRelations;
   private final List<NodeFacts> orderedFacts;
-  private final Map<String, SourceBodyFacts> methodBodies;
+  private final Map<String, SourceExecutionFacts> executionsByKey;
   private final Map<String, DeclarationMemberOrder> memberOrdersByType;
-  private final Map<String, MethodDecisionIndex> methodDecisions;
+  private final Map<String, ExecutionDecisionIndex> executionDecisions;
   private final Map<String, WrittenSourceAssociation> sourceAssociationsByNode;
   private final Map<String, DeclarationTypeEvidence> declarationTypes;
 
   JavaAstAggregate(InputSnapshot inputSnapshot, List<SyntaxNode> sourceRoots, List<SyntaxNode> orderedNodes,
       Map<String, SyntaxNode> ownedNodes, List<SyntaxStructuralEdge> orderedStructuralEdges, List<SyntaxSemanticEdge> orderedSemanticEdges,
-      Map<String, SourceBodyFacts> bodies, Map<String, DeclarationMemberOrder> memberOrders, Map<String, MethodDecisionIndex> decisions,
-      Map<String, WrittenSourceAssociation> associations, Map<String, DeclarationTypeEvidence> types) {
+      Map<String, SourceExecutionFacts> bodies, Map<String, DeclarationMemberOrder> memberOrders,
+      Map<String, ExecutionDecisionIndex> decisions, Map<String, WrittenSourceAssociation> associations,
+      Map<String, DeclarationTypeEvidence> types) {
     capturedInput = Objects.requireNonNull(inputSnapshot, "inputSnapshot");
     this.sourceRoots = List.copyOf(sourceRoots);
     orderedOccurrences = List.copyOf(orderedNodes);
@@ -39,9 +41,9 @@ public final class JavaAstAggregate {
     orderedIdentities = List.copyOf(orderedOccurrences.stream().map(SyntaxNode::nodeTuple).toList());
     orderedRanges = List.copyOf(orderedOccurrences.stream().map(node -> node.rangeTuple().orElseThrow()).toList());
     orderedFacts = orderedOccurrences.stream().map(NodeFacts::from).toList();
-    methodBodies = Map.copyOf(bodies);
+    executionsByKey = Map.copyOf(bodies);
     memberOrdersByType = Map.copyOf(memberOrders);
-    methodDecisions = Map.copyOf(decisions);
+    executionDecisions = Map.copyOf(decisions);
     sourceAssociationsByNode = Map.copyOf(associations);
     declarationTypes = Map.copyOf(types);
   }
@@ -138,15 +140,16 @@ public final class JavaAstAggregate {
    */
   public Optional<MethodSyntax> methodSyntax(String methodKey) {
     Objects.requireNonNull(methodKey, "methodKey");
-    return methodBodies.containsKey(methodKey) ? Optional.of(new MethodSyntax(this, methodKey)) : Optional.empty();
+    return Optional.ofNullable(executionsByKey.get(methodKey)).filter(facts -> facts.scope() instanceof ExecutionScope.Method)
+        .map(facts -> new MethodSyntax(this, methodKey));
   }
 
-  SyntaxNode methodBodyRoot(String methodKey) {
-    return Objects.requireNonNull(methodBodies.get(methodKey), "method body").root();
+  SyntaxNode executionRoot(String methodKey) {
+    return Objects.requireNonNull(executionsByKey.get(methodKey), "method body").root();
   }
 
-  MethodDecisionIndex methodDecisionIndex(String methodKey) {
-    return Objects.requireNonNull(methodDecisions.get(methodKey), "method decisions");
+  ExecutionDecisionIndex executionDecisionIndex(String methodKey) {
+    return Objects.requireNonNull(executionDecisions.get(methodKey), "method decisions");
   }
 
   /**
@@ -158,7 +161,7 @@ public final class JavaAstAggregate {
    */
   public Optional<MethodBodyOrigin> methodBodyOrigin(String methodKey) {
     Objects.requireNonNull(methodKey, "methodKey");
-    return Optional.ofNullable(methodBodies.get(methodKey)).map(SourceBodyFacts::origin);
+    return Optional.ofNullable(executionsByKey.get(methodKey)).flatMap(SourceExecutionFacts::methodOrigin);
   }
 
   /**
@@ -167,7 +170,37 @@ public final class JavaAstAggregate {
    * @return immutable method identity set
    */
   public Set<String> methodBodyKeys() {
-    return methodBodies.keySet();
+    return executionsByKey.values().stream().filter(facts -> facts.scope() instanceof ExecutionScope.Method)
+        .map(facts -> facts.scope().key()).collect(Collectors.toUnmodifiableSet());
+  }
+
+  /**
+   * Returns every actual execution scope in canonical identity order.
+   *
+   * @return immutable method, field and initializer scopes
+   */
+  public List<ExecutionScope> executionScopes() {
+    return executionsByKey.values().stream().map(SourceExecutionFacts::scope).sorted(Comparator.comparing(ExecutionScope::key)).toList();
+  }
+
+  /**
+   * Finds executable syntax and copied facts for an actual source owner.
+   *
+   * @param scopeKey
+   *          canonical source scope identity
+   * @return immutable view when registered
+   */
+  public Optional<ExecutionSyntax> executionSyntax(String scopeKey) {
+    Objects.requireNonNull(scopeKey, "scopeKey");
+    return executionsByKey.containsKey(scopeKey) ? Optional.of(new ExecutionSyntax(this, scopeKey)) : Optional.empty();
+  }
+
+  ExecutionScope executionScope(String scopeKey) {
+    return Objects.requireNonNull(executionsByKey.get(scopeKey), "execution scope").scope();
+  }
+
+  List<AttributedBodyOccurrence> executionAttributions(String scopeKey) {
+    return Objects.requireNonNull(executionsByKey.get(scopeKey), "execution scope").attributedOccurrences();
   }
 
   /**
@@ -236,8 +269,8 @@ public final class JavaAstAggregate {
   public boolean equals(Object other) {
     return this == other || (other instanceof JavaAstAggregate that && capturedInput.equals(that.capturedInput)
         && orderedFacts.equals(that.orderedFacts) && orderedStructuralRelations.equals(that.orderedStructuralRelations)
-        && orderedSemanticRelations.equals(that.orderedSemanticRelations) && methodBodies.equals(that.methodBodies)
-        && methodDecisions.equals(that.methodDecisions) && memberOrdersByType.equals(that.memberOrdersByType)
+        && orderedSemanticRelations.equals(that.orderedSemanticRelations) && executionsByKey.equals(that.executionsByKey)
+        && executionDecisions.equals(that.executionDecisions) && memberOrdersByType.equals(that.memberOrdersByType)
         && sourceAssociationsByNode.equals(that.sourceAssociationsByNode) && declarationTypes.equals(that.declarationTypes));
   }
 
@@ -252,14 +285,14 @@ public final class JavaAstAggregate {
     if (Objects.requireNonNull(methodKey, "methodKey").isBlank()) {
       throw new IllegalArgumentException("A body attribution query requires a nonblank method key");
     }
-    var body = methodBodies.get(methodKey);
-    return body == null ? List.of() : body.attributedOccurrences();
+    var body = executionsByKey.get(methodKey);
+    return body == null || !(body.scope() instanceof ExecutionScope.Method) ? List.of() : body.attributedOccurrences();
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(capturedInput, orderedFacts, orderedStructuralRelations, orderedSemanticRelations, methodBodies, memberOrdersByType,
-        sourceAssociationsByNode, declarationTypes, methodDecisions);
+    return Objects.hash(capturedInput, orderedFacts, orderedStructuralRelations, orderedSemanticRelations, executionsByKey,
+        memberOrdersByType, sourceAssociationsByNode, declarationTypes, executionDecisions);
   }
 
   private record NodeFacts(SyntaxNodeTuple identity, SourceSpan range, SyntaxKind syntaxKind, SyntaxType type, SyntaxValue value,

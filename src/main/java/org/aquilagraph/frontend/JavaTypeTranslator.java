@@ -60,6 +60,11 @@ final class JavaTypeTranslator {
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
   private final JavaMethodTranslator methodTranslator;
+  private boolean memberInitialization;
+
+  void enableMemberInitialization(boolean enabled) {
+    memberInitialization = enabled;
+  }
 
   JavaTypeTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
       JavaDeclarationPropertyObserver propertyObserver, JavaMethodTranslator methodTranslator) {
@@ -93,6 +98,13 @@ final class JavaTypeTranslator {
     var memberOrders = new ArrayList<DeclarationMemberOrder>();
     var declarationTypes = new ArrayList<DeclarationTypeEvidence>();
     var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, typeKey + ":declaration");
+    if (memberInitialization) {
+      for (var declaration : treeInventory.emptyBodyDeclarations(classTree)) {
+        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+            FrontendDiagnosticFactory.capabilityError(typeKey + ":EMPTY_STATEMENT", "frontend.unsupported-class-member",
+                "Empty Java body declarations are not represented by this source profile", Optional.of(declaration)));
+      }
+    }
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
     if (typeElement == null) {
@@ -143,7 +155,8 @@ final class JavaTypeTranslator {
       var orderedKeys = members.stream().map(DeclarationMemberOrder.Member::declarationKey).toList();
       fields.sort(Comparator.comparingInt(field -> orderedKeys.indexOf(field.fieldKey())));
       methods.sort(Comparator.comparingInt(method -> orderedKeys.indexOf(method.methodKey())));
-      memberOrders.addFirst(new DeclarationMemberOrder(sourceFile.sourceFileKey(), typeKey, members));
+      memberOrders.addFirst(new DeclarationMemberOrder(sourceFile.sourceFileKey(), typeKey, members,
+          memberInitialization ? Optional.of(treeInventory.attributedTreeOrder(classPath)) : Optional.empty()));
     }
     var type = new JavaType(typeKey, qualifiedName, javaTypeKind(classTree.getKind()), modifiers, enclosingType, directSuperclass,
         directInterfaces, permittedSubclasses, typeParameters, origin.isPresent(), fields, recordComponents, methods,
@@ -357,10 +370,14 @@ final class JavaTypeTranslator {
         observations.addAll(translation.featureObservations());
         return translation.value().isPresent();
       }
-      case BlockTree initializer ->
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, initializerDiagnostic(unit, sourceFile, typeKey, initializer));
+      case BlockTree initializer -> {
+        if (!memberInitialization) {
+          TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+              initializerDiagnostic(unit, sourceFile, typeKey, initializer));
+        }
+      }
       case EmptyStatementTree _ -> {
-        // Empty class-body declarations have no executable or declaration semantics.
+        // Empty body declarations are classified from the pre-attribution source inventory.
       }
       default -> TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
           unsupportedMemberDiagnostic(unit, sourceFile, typeKey, member));
@@ -410,7 +427,7 @@ final class JavaTypeTranslator {
         .collect(Collectors.toSet());
     var field = new JavaField(fieldKey, typeKey, variableTree.getName().toString(), staticType, modifiers, enumConstant,
         !recordBacking && written && origin.isPresent(), recordBacking || !written ? List.of() : origin.stream().toList());
-    if (variableTree.getInitializer() != null) {
+    if (variableTree.getInitializer() != null && (!memberInitialization || enumConstant)) {
       TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
           fieldInitializerDiagnostic(unit, sourceFile, fieldKey, variableTree, enumConstant));
     }

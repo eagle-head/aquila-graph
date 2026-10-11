@@ -137,7 +137,7 @@ class ConstructorEvidenceAdmissionTest {
     var errors = List.of(assertThrows(IllegalArgumentException.class,
         () -> fixture.builder(fixture.syntax().root(), fixture.arity(), List.of(valid, valid)).seal()),
         assertThrows(IllegalArgumentException.class, () -> copied(valid, "type:Status#<init>(long)", valid.invocationNodeId())),
-        assertThrows(IllegalArgumentException.class, () -> copied(valid, valid.methodKey(), "foreign")));
+        assertThrows(IllegalArgumentException.class, () -> copied(valid, valid.scopeKey(), "foreign")));
 
     // Assert
     assertEquals(3, errors.size());
@@ -154,10 +154,10 @@ class ConstructorEvidenceAdmissionTest {
 
     // Act
     var reversed = assertThrows(IllegalArgumentException.class,
-        () -> new ConstructorEvidence(value.methodKey(), value.invocationNodeId(), value.ownerTypeKey(), value.selectedConstructorKey(), value.form(),
-            EvidenceValue.known(value.corroboration().knownValue().orElseThrow(), new EvidenceOrigin(origin.methodKey(), origin.nodeKey(), "foreign", origin.sourceRange()))));
+        () -> new ConstructorEvidence(value.scopeKey(), value.invocationNodeId(), value.ownerTypeKey(), value.selectedConstructorKey(), value.form(),
+            EvidenceValue.known(value.corroboration().knownValue().orElseThrow(), new EvidenceOrigin(origin.scopeKey(), origin.nodeKey(), "foreign", origin.sourceRange()))));
     var foreign = assertThrows(IllegalArgumentException.class,
-        () -> new ConstructorEvidence(value.methodKey(), value.invocationNodeId(), value.ownerTypeKey(), "type:java.lang.Object#<init>()", value.form(), value.corroboration()));
+        () -> new ConstructorEvidence(value.scopeKey(), value.invocationNodeId(), value.ownerTypeKey(), "type:java.lang.Object#<init>()", value.form(), value.corroboration()));
 
     // Assert
     assertTrue(reversed.getMessage().contains("exact applicable creating slot"));
@@ -200,10 +200,10 @@ class ConstructorEvidenceAdmissionTest {
     var payload = evidence.knownValue().orElseThrow();
     var insertion = payload.insertedInvocation().orElseThrow();
     var copiedInsertion = new CompilerInsertedInvocation(insertion.sourceFileKey(), insertion.compilerPath(), insertion.reference(), insertion.semantics(),
-        new InvocationEvidence(EvidenceValue.missing(new EvidenceOrigin(context.methodKey(), written.nodeId(), InvocationEvidence.SLOT, written.origin()), "Applicability unavailable")));
-    var changedContext = new ConstructorEvidence(context.methodKey(), context.invocationNodeId(), context.ownerTypeKey(),
+        new InvocationEvidence(EvidenceValue.missing(new EvidenceOrigin(context.scopeKey(), written.nodeId(), InvocationEvidence.SLOT, written.origin()), "Applicability unavailable")));
+    var changedContext = new ConstructorEvidence(context.scopeKey(), context.invocationNodeId(), context.ownerTypeKey(),
         context.selectedConstructorKey(), context.form(), new EvidenceValue<>(evidence.state(), Optional.of(new ConstructorContext(payload.superclassParameterTypes(), Optional.of(copiedInsertion))),
-            new EvidenceOrigin(context.methodKey(), written.nodeId(), ConstructorEvidence.SLOT, written.origin()), evidence.explanation()));
+            new EvidenceOrigin(context.scopeKey(), written.nodeId(), ConstructorEvidence.SLOT, written.origin()), evidence.explanation()));
 
     // Act
     var error = assertThrows(IllegalArgumentException.class,
@@ -267,7 +267,7 @@ class ConstructorEvidenceAdmissionTest {
       aggregate.declarationTypeEvidence().forEach(builder::addDeclarationTypeEvidence);
       var invocations = arity.equals(arity()) ? syntax.evidence().invocations()
           : arity.stream().map(value -> InvocationEvidence.known(value, call.origin())).toList();
-      var evidence = new MethodEvidence(syntax.evidence().uses(), invocations, syntax.evidence().staticMembers(), syntax.evidence().stringExpressions(), contexts);
+      var evidence = new ExecutionEvidence(syntax.evidence().uses(), invocations, syntax.evidence().staticMembers(), syntax.evidence().stringExpressions(), contexts);
       return builder.addMethodEvidenceBody(syntax.methodKey(), body, aggregate.methodBodyOrigin(syntax.methodKey()).orElseThrow(), evidence);
     }
   }

@@ -36,6 +36,11 @@ final class JavaProgramTranslator {
 
   JavaProgramTranslator(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
       ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage) {
+    this(sources, semantics, sourceEvidence, treeInventory, coverage, false);
+  }
+
+  JavaProgramTranslator(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
+      ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage, boolean memberInitialization) {
     this.sources = Objects.requireNonNull(sources, "sources");
     Objects.requireNonNull(semantics, "semantics");
     Objects.requireNonNull(sourceEvidence, "sourceEvidence");
@@ -43,7 +48,9 @@ final class JavaProgramTranslator {
     var bodyTranslator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory);
     var methodTranslator = new JavaMethodTranslator(semantics, sourceEvidence, treeInventory, bodyTranslator);
     typeTranslator = new JavaTypeTranslator(semantics, sourceEvidence, treeInventory, propertyObserver, methodTranslator);
+    typeTranslator.enableMemberInitialization(memberInitialization);
     astTranslator = new JavaAstContributionTranslator(semantics, sourceEvidence, treeInventory);
+    astTranslator.enableMemberInitialization(memberInitialization);
   }
 
   TranslationResult<TranslatedProgram> translate(InputSnapshot snapshot, List<CompilationUnitTree> units) {
@@ -69,6 +76,7 @@ final class JavaProgramTranslator {
     var retainedOrders = new ArrayList<DeclarationMemberOrder>();
     var retainedAssociations = new ArrayList<WrittenSourceAssociation>();
     var retainedTypes = new ArrayList<DeclarationTypeEvidence>();
+    var retainedScopes = new ArrayList<CopiedAstValues.Scope>();
     var incompleteRoot = false;
     for (var source : snapshot.sourceFiles()) {
       var unit = Objects.requireNonNull(unitsBySource.get(source.sourceFileKey()), "parsed compilation unit");
@@ -99,6 +107,7 @@ final class JavaProgramTranslator {
       if (ast.contribution().isPresent()) {
         sourceContributions.add(ast.contribution().orElseThrow());
         retainedAssociations.addAll(ast.sourceAssociations());
+        retainedScopes.addAll(ast.scopes());
         var retainedSource = ast.contribution().orElseThrow();
         declarationTypes.subList(firstDeclarationType, declarationTypes.size()).stream()
             .filter(evidence -> retainsTypeOwner(retainedSource, evidence.sourceFileKey(), evidence.ownerTypeKey()))
@@ -117,8 +126,8 @@ final class JavaProgramTranslator {
     var program = incompleteRoot ? new JavaProgram(List.of()) : new JavaProgram(types);
     var aggregate = incompleteRoot
         ? Optional.<JavaAstAggregate>empty()
-        : Optional.of(AstValueAdmission.admit(
-            new CopiedAstValues(snapshot, sourceContributions, retainedBodies, retainedOrders, retainedAssociations, retainedTypes)));
+        : Optional.of(AstValueAdmission.admit(new CopiedAstValues(snapshot, sourceContributions, retainedBodies, retainedOrders,
+            retainedAssociations, retainedTypes, retainedScopes)));
     return new TranslationResult<>(new TranslatedProgram(program, aggregate), diagnostics, occurrences, observations);
   }
 
@@ -173,7 +182,8 @@ final class JavaProgramTranslator {
     }
     return new DeclarationMemberOrder(order.sourceFileKey(), order.ownerTypeKey(),
         order.members().stream().map(member -> new DeclarationMemberOrder.Member(member.declarationKey(), member.kind(),
-            member.displayValue(), member.provenance(), Optional.ofNullable(positions.get(member.declarationKey())))).toList());
+            member.displayValue(), member.provenance(), Optional.ofNullable(positions.get(member.declarationKey())))).toList(),
+        order.attributedTreeOrder());
   }
 
   private static Optional<String> sourceMemberKey(SyntaxNode member) {

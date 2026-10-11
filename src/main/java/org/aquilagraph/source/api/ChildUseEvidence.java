@@ -7,8 +7,8 @@ import org.aquilagraph.identity.api.SourceSpan;
 /**
  * Required source and target types retained independently of optional conversion classification.
  *
- * @param methodKey
- *          canonical containing method
+ * @param scopeKey
+ *          canonical containing execution scope
  * @param consumerNodeId
  *          exact consuming occurrence
  * @param role
@@ -24,11 +24,11 @@ import org.aquilagraph.identity.api.SourceSpan;
  * @param referenceCheck
  *          independent reference-cast classification
  */
-public record ChildUseEvidence(String methodKey, String consumerNodeId, SyntaxRole role, int position, JavaTypeIdentity sourceType,
+public record ChildUseEvidence(String scopeKey, String consumerNodeId, SyntaxRole role, int position, JavaTypeIdentity sourceType,
     JavaTypeIdentity selectedTarget, EvidenceValue<ConversionEvidence> conversion, EvidenceValue<Boolean> referenceCheck) {
   /** Checks exact independent slots and all supplied known correlations. */
   public ChildUseEvidence {
-    DecisionValueValidation.requireKey(methodKey, "methodKey");
+    DecisionValueValidation.requireKey(scopeKey, "scopeKey");
     DecisionValueValidation.requireKey(consumerNodeId, "consumerNodeId");
     Objects.requireNonNull(role, "role");
     if (position < 0) {
@@ -38,13 +38,13 @@ public record ChildUseEvidence(String methodKey, String consumerNodeId, SyntaxRo
     DecisionValueValidation.requireValueType(selectedTarget, "selectedTarget");
     Objects.requireNonNull(conversion, "conversion");
     Objects.requireNonNull(referenceCheck, "referenceCheck");
-    validateOrigin(methodKey, consumerNodeId, slot("conversion", role, position), conversion.origin());
-    validateOrigin(methodKey, consumerNodeId, slot("reference-check", role, position), referenceCheck.origin());
+    validateOrigin(scopeKey, consumerNodeId, slot("conversion", role, position), conversion.origin());
+    validateOrigin(scopeKey, consumerNodeId, slot("reference-check", role, position), referenceCheck.origin());
     if (conversion.state() == EvidenceState.NOT_APPLICABLE) {
       throw new IllegalArgumentException("An actual child use has an applicable conversion classification slot");
     }
     conversion.knownValue().ifPresent(value -> {
-      if (!methodKey.equals(value.methodKey()) || !consumerNodeId.equals(value.consumerNodeId()) || role != value.role()
+      if (!scopeKey.equals(value.scopeKey()) || !consumerNodeId.equals(value.consumerNodeId()) || role != value.role()
           || position != value.position() || !sourceType.equals(value.sourceType()) || !selectedTarget.equals(value.selectedTarget())) {
         throw new IllegalArgumentException("Conversion classification contradicts its exact required child-use facts");
       }
@@ -72,16 +72,16 @@ public record ChildUseEvidence(String methodKey, String consumerNodeId, SyntaxRo
    * @return independently retained child use
    */
   public static ChildUseEvidence known(ConversionEvidence value, SyntaxKind consumerKind, Optional<SourceSpan> range) {
-    var conversionOrigin = new EvidenceOrigin(value.methodKey(), value.consumerNodeId(), slot("conversion", value.role(), value.position()),
+    var conversionOrigin = new EvidenceOrigin(value.scopeKey(), value.consumerNodeId(), slot("conversion", value.role(), value.position()),
         range);
-    var checkOrigin = new EvidenceOrigin(value.methodKey(), value.consumerNodeId(), slot("reference-check", value.role(), value.position()),
+    var checkOrigin = new EvidenceOrigin(value.scopeKey(), value.consumerNodeId(), slot("reference-check", value.role(), value.position()),
         range);
     var applicable = consumerKind == SyntaxKind.TYPE_CAST && DecisionValueValidation.isReference(value.selectedTarget())
         && (DecisionValueValidation.isReference(value.sourceType()) || value.sourceType().category() == JavaTypeCategory.NULL);
     var check = applicable
         ? EvidenceValue.<Boolean>missing(checkOrigin, "The compiler reference-cast classification is unavailable")
         : EvidenceValue.<Boolean>notApplicable(checkOrigin, "This source use has no reference-cast classification");
-    return new ChildUseEvidence(value.methodKey(), value.consumerNodeId(), value.role(), value.position(), value.sourceType(),
+    return new ChildUseEvidence(value.scopeKey(), value.consumerNodeId(), value.role(), value.position(), value.sourceType(),
         value.selectedTarget(), EvidenceValue.known(value, conversionOrigin), check);
   }
 
@@ -89,8 +89,8 @@ public record ChildUseEvidence(String methodKey, String consumerNodeId, SyntaxRo
     return "child-use." + field + "/" + role.stableId() + "/" + position;
   }
 
-  private static void validateOrigin(String methodKey, String nodeKey, String slot, EvidenceOrigin origin) {
-    if (!methodKey.equals(origin.methodKey()) || !nodeKey.equals(origin.nodeKey()) || !slot.equals(origin.slot())) {
+  private static void validateOrigin(String scopeKey, String nodeKey, String slot, EvidenceOrigin origin) {
+    if (!scopeKey.equals(origin.scopeKey()) || !nodeKey.equals(origin.nodeKey()) || !slot.equals(origin.slot())) {
       throw new IllegalArgumentException("Child-use evidence requires its exact creating slot");
     }
   }

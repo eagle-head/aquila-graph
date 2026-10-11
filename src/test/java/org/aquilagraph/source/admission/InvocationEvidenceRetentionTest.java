@@ -73,7 +73,7 @@ class InvocationEvidenceRetentionTest {
     var decoded = AstCodec.decode(bytes, source.identity());
     var retained = invocation(decoded).applicability();
     var outcome = CfgDerivers.standard().derive(decoded,
-        new CfgRequest(decoded.identity(), List.of(fact.methodKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
+        new CfgRequest(decoded.identity(), List.of(fact.scopeKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
     var blocker = outcome.blockers().stream().filter(value -> value.slot().equals(InvocationEvidence.SLOT)).findFirst().orElseThrow();
 
     // Assert
@@ -104,16 +104,16 @@ class InvocationEvidenceRetentionTest {
     var bytes = AstCodec.encode(retained);
     var decoded = AstCodec.decode(bytes, retained.identity());
     var outcome = CfgDerivers.standard().derive(decoded,
-        new CfgRequest(decoded.identity(), List.of(invocation.methodKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
+        new CfgRequest(decoded.identity(), List.of(invocation.scopeKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, retained.completion());
     assertNotEquals(original.identity(), retained.identity());
     assertNotEquals(original.aggregate(), decoded.aggregate());
-    assertNotEquals(original.body(invocation.methodKey()), decoded.body(invocation.methodKey()));
+    assertNotEquals(original.body(invocation.scopeKey()), decoded.body(invocation.scopeKey()));
     assertEquals(original.program(), decoded.program());
     assertEquals(original.aggregate().node(invocation.consumerNodeId()), decoded.aggregate().node(invocation.consumerNodeId()));
-    assertEquals(Optional.of(replacement), decoded.body(invocation.methodKey()).orElseThrow().invocationEvidence(invocation.consumerNodeId()));
+    assertEquals(Optional.of(replacement), decoded.body(invocation.scopeKey()).orElseThrow().invocationEvidence(invocation.consumerNodeId()));
     assertArrayEquals(bytes, AstCodec.encode(decoded));
     assertEquals(MethodCfgState.INSUFFICIENT_EVIDENCE, outcome.state());
     assertEquals(List.of(InvocationEvidence.SLOT), outcome.blockers().stream().map(value -> value.slot()).toList());
@@ -132,7 +132,7 @@ class InvocationEvidenceRetentionTest {
     var retained = replace(original, replacement);
     var decoded = AstCodec.decode(AstCodec.encode(retained), retained.identity());
     var outcome = CfgDerivers.standard().derive(decoded,
-        new CfgRequest(decoded.identity(), List.of(invocation.methodKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
+        new CfgRequest(decoded.identity(), List.of(invocation.scopeKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, decoded.completion());
@@ -150,7 +150,7 @@ class InvocationEvidenceRetentionTest {
     // Arrange
     var original = produce();
     var invocation = invocation(original);
-    var origin = new EvidenceOrigin(invocation.methodKey(), invocation.consumerNodeId(), InvocationEvidence.SLOT, Optional.empty());
+    var origin = new EvidenceOrigin(invocation.scopeKey(), invocation.consumerNodeId(), InvocationEvidence.SLOT, Optional.empty());
     var replacement = new InvocationEvidence(EvidenceValue.missing(origin, "Classification unavailable"));
 
     // Act
@@ -166,7 +166,7 @@ class InvocationEvidenceRetentionTest {
     // Arrange
     var original = produce();
     var invocation = invocation(original);
-    var syntax = original.body(invocation.methodKey()).orElseThrow();
+    var syntax = original.body(invocation.scopeKey()).orElseThrow();
 
     // Act
     var unknown = syntax.invocationEvidence("unknown");
@@ -193,7 +193,7 @@ class InvocationEvidenceRetentionTest {
   private static AstResult replace(AstResult original, InvocationEvidence replacement) {
     var copied = CopiedAstValues.capture(original.aggregate());
     var bodies = copied.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), body.root(), body.origin(), body.uses(),
-        body.invocations().stream().map(value -> body.methodKey().equals(replacement.methodKey())
+        body.invocations().stream().map(value -> body.methodKey().equals(replacement.scopeKey())
             && value.consumerNodeId().equals(replacement.consumerNodeId()) ? replacement : value).toList(),
         body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), bodies, copied.memberOrders(),

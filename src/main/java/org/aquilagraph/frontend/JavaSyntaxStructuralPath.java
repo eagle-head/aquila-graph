@@ -11,21 +11,21 @@ import java.util.Objects;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
 
-/** Maps the currently represented declaration/body chain to a typed source-root-relative path. */
+/** Maps an actual attributed declaration or body chain to a typed source-root-relative path. */
 final class JavaSyntaxStructuralPath {
   private JavaSyntaxStructuralPath() {
   }
 
-  static SyntaxStructuralPath methodBody(TreePath bodyPath) {
-    Objects.requireNonNull(bodyPath, "bodyPath");
+  static SyntaxStructuralPath executionRoot(TreePath creatingPath) {
+    Objects.requireNonNull(creatingPath, "creatingPath");
     var descendants = new ArrayDeque<Tree>();
-    var cursor = bodyPath;
+    var cursor = creatingPath;
     while (cursor.getParentPath() != null) {
       descendants.addFirst(cursor.getLeaf());
       cursor = cursor.getParentPath();
     }
     if (!(cursor.getLeaf() instanceof CompilationUnitTree)) {
-      throw new IllegalArgumentException("A method-body structural path must begin at a compilation unit");
+      throw new IllegalArgumentException("An execution structural path must begin at a compilation unit");
     }
 
     var path = SyntaxStructuralPath.sourceFileRoot();
@@ -39,7 +39,7 @@ final class JavaSyntaxStructuralPath {
       } else if (parent instanceof MethodTree method && JavaProjectionIdentity.sameInstance(method.getBody(), child)) {
         path = path.child(SyntaxRole.BODY, 0);
       } else {
-        throw new IllegalArgumentException("A method-body structural path contains an unsupported declaration step");
+        throw new IllegalArgumentException("An execution structural path contains an unsupported declaration step");
       }
       parent = child;
     }

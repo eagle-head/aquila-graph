@@ -24,6 +24,7 @@ import com.sun.source.tree.LabeledStatementTree;
 import com.sun.source.tree.BreakTree;
 import com.sun.source.tree.ContinueTree;
 import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewArrayTree;
@@ -70,7 +71,7 @@ final class JavaDeclarationPropertyCoverage {
   static final String EXECUTABLE_ELEMENT_VARARGS = "ExecutableElement::ExecutableElement#isVarArgs()";
 
   private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
-      VariableTree.class, NewArrayTree.class, AssertTree.class, SynchronizedTree.class, LambdaExpressionTree.class,
+      VariableTree.class, BlockTree.class, NewArrayTree.class, AssertTree.class, SynchronizedTree.class, LambdaExpressionTree.class,
       MemberReferenceTree.class, MemberSelectTree.class, InstanceOfTree.class, BindingPatternTree.class, DeconstructionPatternTree.class,
       AnyPatternTree.class, SwitchTree.class, SwitchExpressionTree.class, CaseTree.class, YieldTree.class, WhileLoopTree.class,
       DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class, ContinueTree.class,
@@ -137,6 +138,7 @@ final class JavaDeclarationPropertyCoverage {
     classifications.addAll(classClassifications());
     classifications.addAll(methodClassifications());
     classifications.addAll(variableClassifications());
+    classifications.addAll(blockClassifications());
     classifications.addAll(arrayClassifications());
     classifications.addAll(iterationClassifications());
     classifications.addAll(assertionMonitorClassifications());
@@ -149,6 +151,14 @@ final class JavaDeclarationPropertyCoverage {
     classifications.addAll(typeElementClassifications());
     classifications.addAll(executableElementClassifications());
     return List.copyOf(classifications);
+  }
+
+  private static List<LanguageFeatureClassification> blockClassifications() {
+    return List.of(
+        irrelevant("BlockTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
+        represented("BlockTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY),
+        represented("BlockTree::BlockTree#isStatic()", "Written static initializer distinction"),
+        represented("BlockTree::BlockTree#getStatements()", "Complete ordered written block statements, including empty blocks"));
   }
 
   private static List<LanguageFeatureClassification> assertionMonitorClassifications() {

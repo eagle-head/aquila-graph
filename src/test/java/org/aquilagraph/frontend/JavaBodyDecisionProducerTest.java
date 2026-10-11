@@ -327,7 +327,7 @@ class JavaBodyDecisionProducerTest {
     var arity = create.invocationArity(creation.nodeId()).orElseThrow();
     assertEquals(InvocationApplicabilityMode.FIXED, arity.mode());
     assertEquals(1, arity.formalCount());
-    assertEquals(create.methodKey(), arity.methodKey());
+    assertEquals(create.methodKey(), arity.scopeKey());
     assertEquals(creation.nodeId(), arity.consumerNodeId());
     assertEquals(Optional.of("type:Example#<init>(java.lang.Object)"), creation.requiredReference().symbolKey());
     var use = create.useDecision(creation.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow();

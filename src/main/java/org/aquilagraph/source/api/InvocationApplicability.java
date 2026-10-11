@@ -6,8 +6,8 @@ import java.util.Optional;
 /**
  * Selected applicability and array value shapes of one invocation.
  *
- * @param methodKey
- *          canonical owning method key
+ * @param scopeKey
+ *          canonical owning execution scope key
  * @param consumerNodeId
  *          invocation syntax identity
  * @param mode
@@ -21,11 +21,11 @@ import java.util.Optional;
  * @param elementType
  *          selected trailing element use type in variable mode
  */
-public record InvocationApplicability(String methodKey, String consumerNodeId, InvocationApplicabilityMode mode, int formalCount,
+public record InvocationApplicability(String scopeKey, String consumerNodeId, InvocationApplicabilityMode mode, int formalCount,
     Optional<JavaTypeIdentity> varargArrayType, Optional<JavaTypeIdentity> erasedArrayType, Optional<JavaTypeIdentity> elementType) {
   /** Validates local mode and type shape; argument and formal correlation require the owned invocation. */
   public InvocationApplicability {
-    DecisionValueValidation.requireKey(methodKey, "methodKey");
+    DecisionValueValidation.requireKey(scopeKey, "scopeKey");
     DecisionValueValidation.requireKey(consumerNodeId, "consumerNodeId");
     Objects.requireNonNull(mode, "mode");
     Objects.requireNonNull(varargArrayType, "varargArrayType");

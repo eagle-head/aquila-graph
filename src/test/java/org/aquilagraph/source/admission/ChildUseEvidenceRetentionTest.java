@@ -54,7 +54,7 @@ class ChildUseEvidenceRetentionTest {
     var states = List.of(EvidenceValue.<ConversionEvidence>missing(use.conversion().origin(), "Classification unavailable"),
         EvidenceValue.<ConversionEvidence>erroneous(use.conversion().origin(), "Classification erroneous"));
     // Act
-    var replacements = states.stream().map(state -> new ChildUseEvidence(use.methodKey(), use.consumerNodeId(), use.role(), use.position(), use.sourceType(),
+    var replacements = states.stream().map(state -> new ChildUseEvidence(use.scopeKey(), use.consumerNodeId(), use.role(), use.position(), use.sourceType(),
         use.selectedTarget(), state, use.referenceCheck())).toList();
     var refusals = replacements.stream().map(replacement -> observeRefusal(original, replacement)).toList();
 
@@ -74,7 +74,7 @@ class ChildUseEvidenceRetentionTest {
     var states = List.of(EvidenceValue.<Boolean>missing(use.referenceCheck().origin(), "Check unavailable"),
         EvidenceValue.<Boolean>erroneous(use.referenceCheck().origin(), "Check erroneous"));
     // Act
-    var replacements = states.stream().map(state -> new ChildUseEvidence(use.methodKey(), use.consumerNodeId(), use.role(), use.position(), use.sourceType(),
+    var replacements = states.stream().map(state -> new ChildUseEvidence(use.scopeKey(), use.consumerNodeId(), use.role(), use.position(), use.sourceType(),
         use.selectedTarget(), use.conversion(), state)).toList();
     var refusals = replacements.stream().map(replacement -> observeRefusal(original, replacement)).toList();
 
@@ -91,9 +91,9 @@ class ChildUseEvidenceRetentionTest {
     var original = produce("class Stored { Object value(int n) { return n; } }");
     var use = use(original, SyntaxKind.RETURN);
     var origin = use.conversion().origin();
-    var foreign = new EvidenceOrigin(origin.methodKey(), origin.nodeKey(), origin.slot(),
+    var foreign = new EvidenceOrigin(origin.scopeKey(), origin.nodeKey(), origin.slot(),
         Optional.of(new SourceSpan(origin.sourceRange().orElseThrow().sourceFileKey(), 0, 1)));
-    var replacement = new ChildUseEvidence(use.methodKey(), use.consumerNodeId(), use.role(), use.position(), use.sourceType(),
+    var replacement = new ChildUseEvidence(use.scopeKey(), use.consumerNodeId(), use.role(), use.position(), use.sourceType(),
         use.selectedTarget(), EvidenceValue.missing(foreign, "Classification unavailable"), use.referenceCheck());
     // Act
     var failure = assertThrows(IllegalArgumentException.class, () -> replace(original, replacement));
@@ -109,7 +109,7 @@ class ChildUseEvidenceRetentionTest {
     var use = use(original, SyntaxKind.TYPE_CAST);
     assertEquals(AstCompletion.COMPLETE, original.completion());
     assertEquals(Optional.of(true), use.referenceCheck().knownValue());
-    var replacement = new ChildUseEvidence(use.methodKey(), use.consumerNodeId(), use.role(), use.position(), use.sourceType(),
+    var replacement = new ChildUseEvidence(use.scopeKey(), use.consumerNodeId(), use.role(), use.position(), use.sourceType(),
         use.selectedTarget(), use.conversion(), EvidenceValue.notApplicable(use.referenceCheck().origin(), "No classification"));
 
     // Act
@@ -128,7 +128,7 @@ class ChildUseEvidenceRetentionTest {
       // Arrange
       var original = produce(example.content());
       var use = use(original, example.kind());
-      var call = original.body(use.methodKey()).orElseThrow().invocationEvidence(use.consumerNodeId());
+      var call = original.body(use.scopeKey()).orElseThrow().invocationEvidence(use.consumerNodeId());
       assertEquals(AstCompletion.COMPLETE, original.completion());
       assertTrue(call.isPresent());
 
@@ -140,7 +140,7 @@ class ChildUseEvidenceRetentionTest {
       assertEquals(AstCompletion.INCOMPLETE, retained.completion());
       assertEquals(AstCompletion.INCOMPLETE, decoded.completion());
       assertNotEquals(original.identity(), decoded.identity());
-      var body = decoded.body(use.methodKey()).orElseThrow();
+      var body = decoded.body(use.scopeKey()).orElseThrow();
       assertTrue(body.useEvidence(use.consumerNodeId(), use.role(), use.position()).isEmpty());
       assertEquals(call, body.invocationEvidence(use.consumerNodeId()));
       assertEquals(original.aggregate().node(use.consumerNodeId()), decoded.aggregate().node(use.consumerNodeId()));
@@ -188,10 +188,10 @@ class ChildUseEvidenceRetentionTest {
 
   private static ChildUseEvidence withTarget(ChildUseEvidence use, JavaTypeIdentity target) {
     var conversion = use.conversion().knownValue().orElseThrow();
-    var changed = new ConversionEvidence(conversion.methodKey(), conversion.consumerNodeId(), conversion.role(), conversion.position(),
+    var changed = new ConversionEvidence(conversion.scopeKey(), conversion.consumerNodeId(), conversion.role(), conversion.position(),
         conversion.sourceType(), target, conversion.checkedReferenceTarget(), conversion.unboxedType(), conversion.effectivePrimitiveType(),
         conversion.preBoxPrimitiveType(), conversion.boxedType());
-    return new ChildUseEvidence(use.methodKey(), use.consumerNodeId(), use.role(), use.position(), use.sourceType(), target,
+    return new ChildUseEvidence(use.scopeKey(), use.consumerNodeId(), use.role(), use.position(), use.sourceType(), target,
         EvidenceValue.known(changed, use.conversion().origin()), use.referenceCheck());
   }
 
@@ -244,9 +244,9 @@ class ChildUseEvidenceRetentionTest {
     // Arrange
     var original = produce("class Stored { static void takes(Integer... n) {} void value(int n) { takes(n, n); } }");
     var first = use(original, SyntaxKind.INVOCATION);
-    var use = original.body(first.methodKey()).orElseThrow().evidence().uses().stream()
+    var use = original.body(first.scopeKey()).orElseThrow().evidence().uses().stream()
         .filter(value -> value.consumerNodeId().equals(first.consumerNodeId()) && value.position() == 1).findFirst().orElseThrow();
-    var invocation = original.body(use.methodKey()).orElseThrow().invocationEvidence(use.consumerNodeId()).orElseThrow();
+    var invocation = original.body(use.scopeKey()).orElseThrow().invocationEvidence(use.consumerNodeId()).orElseThrow();
     var states = List.of(EvidenceValue.missing(invocation.applicability().origin(), "Classification unavailable"),
         EvidenceValue.erroneous(invocation.applicability().origin(), "Classification erroneous"));
     var replacement = withTarget(use, new JavaTypeIdentity(JavaTypeCategory.DECLARED, "java.lang.Object", "java.lang.Object"));
@@ -265,7 +265,7 @@ class ChildUseEvidenceRetentionTest {
       // Assert
       assertEquals(AstCompletion.COMPLETE, decoded.completion());
       assertEquals(retained.aggregate(), decoded.aggregate());
-      assertEquals(state.state(), decoded.body(use.methodKey()).orElseThrow().invocationEvidence(use.consumerNodeId()).orElseThrow()
+      assertEquals(state.state(), decoded.body(use.scopeKey()).orElseThrow().invocationEvidence(use.consumerNodeId()).orElseThrow()
           .applicability().state());
       assertTrue(failure.getMessage().contains("parameter target"));
     }));
@@ -275,7 +275,7 @@ class ChildUseEvidenceRetentionTest {
     var retained = replace(original, replacement);
     var decoded = AstCodec.decode(AstCodec.encode(retained), retained.identity());
     var outcome = CfgDerivers.standard().derive(decoded,
-        new CfgRequest(decoded.identity(), List.of(replacement.methodKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
+        new CfgRequest(decoded.identity(), List.of(replacement.scopeKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
     return new Refusal(decoded, outcome);
   }
 
@@ -313,7 +313,7 @@ class ChildUseEvidenceRetentionTest {
 
   private static AstResult replace(AstResult original, ChildUseEvidence replacement) {
     return withUses(original,
-        uses -> uses.stream().map(value -> value.methodKey().equals(replacement.methodKey())
+        uses -> uses.stream().map(value -> value.scopeKey().equals(replacement.scopeKey())
             && value.consumerNodeId().equals(replacement.consumerNodeId()) && value.role() == replacement.role()
             && value.position() == replacement.position() ? replacement : value).toList());
   }

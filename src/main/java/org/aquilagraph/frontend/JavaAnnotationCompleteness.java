@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.AnnotationTree;
+import com.sun.source.tree.ClassTree;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -134,8 +135,10 @@ final class JavaAnnotationCompleteness {
 
   private void checkDeclaration(JavaAnnotationSourceInventory.Declaration declaration, List<SyntaxNode> nodes) {
     var matches = nodes.stream()
-        .filter(node -> node.origin().equals(declaration.range()) && node.sourceFileKey().equals(declaration.source().sourceFileKey())
+        .filter(node -> node.sourceFileKey().equals(declaration.source().sourceFileKey()) && ((node.origin().equals(declaration.range())
             && (node.syntaxKind() == SyntaxKind.TYPE_DECLARATION || node.syntaxKind() == SyntaxKind.METHOD_DECLARATION))
+            || (declaration.range().isEmpty() && declaration.path().getLeaf() instanceof ClassTree
+                && node.value() instanceof SyntaxValue.CompilationUnit unit && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT)))
         .toList();
     if (matches.size() != UNIQUE_OCCURRENCE_COUNT) {
       report(declaration.source(), declaration.path().getLeaf().getKind() + ":declaration:" + declaration.ordinal(),
@@ -145,10 +148,15 @@ final class JavaAnnotationCompleteness {
     }
     var node = matches.getFirst();
     var element = semantics.element(declaration.path());
-    var retainedKey = node.value() instanceof SyntaxValue.TypeDeclaration type
-        ? type.declarationKey()
-        : node.value(SyntaxValue.ExecutableDeclaration.class).declarationKey();
-    if (element == null || !semantics.declarationKey(element).filter(retainedKey::equals).isPresent()) {
+    var retainedKeys = node.value() instanceof SyntaxValue.TypeDeclaration type
+        ? List.of(type.declarationKey())
+        : node.value() instanceof SyntaxValue.ExecutableDeclaration executable
+            ? List.of(executable.declarationKey())
+            : node.children(SyntaxRole.COMPACT_MEMBER).stream()
+                .filter(member -> member.value() instanceof SyntaxValue.ExecutableDeclaration)
+                .map(member -> member.value(SyntaxValue.ExecutableDeclaration.class).ownerKey()).distinct().toList();
+    if (retainedKeys.size() != UNIQUE_OCCURRENCE_COUNT || element == null
+        || !semantics.declarationKey(element).filter(retainedKeys.getFirst()::equals).isPresent()) {
       report(declaration.source(), node.nodeId(), "frontend.inconsistent-annotation-declaration-reference",
           "The declaration surface does not select its attributed declaration", node.origin());
     }

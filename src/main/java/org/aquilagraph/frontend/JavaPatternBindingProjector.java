@@ -3,7 +3,6 @@ package org.aquilagraph.frontend;
 import com.sun.source.tree.BindingPatternTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.IdentifierTree;
-import com.sun.source.tree.MethodTree;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.TreePathScanner;
 import java.util.ArrayList;
@@ -22,7 +21,7 @@ import org.aquilagraph.source.api.SyntaxValue;
 final class JavaPatternBindingProjector {
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
-  private final Map<SourceSpan, Map<Element, List<SourceSpan>>> methodAccesses = new HashMap<>();
+  private final Map<SourceSpan, Map<Element, List<SourceSpan>>> executionAccesses = new HashMap<>();
 
   JavaPatternBindingProjector(SemanticResolver semantics, JavaSourceEvidence sourceEvidence) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
@@ -31,19 +30,16 @@ final class JavaPatternBindingProjector {
 
   SyntaxValue.PatternBinding project(CompilationUnitTree unit, SourceFile source, BindingPatternTree pattern, TreePath path) {
     var binding = semantics.element(new TreePath(path, pattern.getVariable()));
-    var owner = path;
-    while (owner != null && !(owner.getLeaf() instanceof MethodTree)) {
-      owner = owner.getParentPath();
-    }
+    var owner = JavaExecutionOwner.find(path).orElse(null);
     if (binding == null || owner == null || binding.getKind() != ElementKind.BINDING_VARIABLE) {
       return new SyntaxValue.PatternBinding(Optional.empty());
     }
-    var methodPath = owner;
-    var methodOrigin = sourceEvidence.origin(unit, source, owner.getLeaf());
-    if (methodOrigin.isEmpty()) {
+    var executionPath = owner;
+    var executionOrigin = sourceEvidence.origin(unit, source, owner.getLeaf());
+    if (executionOrigin.isEmpty()) {
       return new SyntaxValue.PatternBinding(Optional.empty());
     }
-    var accesses = methodAccesses.computeIfAbsent(methodOrigin.orElseThrow(), ignored -> capture(unit, source, methodPath));
+    var accesses = executionAccesses.computeIfAbsent(executionOrigin.orElseThrow(), ignored -> capture(unit, source, executionPath));
     return new SyntaxValue.PatternBinding(Optional.of(accesses.getOrDefault(binding, List.of())));
   }
 

@@ -6,41 +6,42 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import org.aquilagraph.source.api.MethodDecisionIndex.UseKey;
+import org.aquilagraph.source.api.ExecutionDecisionIndex.UseKey;
 import org.aquilagraph.source.api.SyntaxValue.ExecutableDeclaration.ExecutableKind;
 
 /** Checks supplied lowering facts against the admitted body and locally available source evidence. */
-final class MethodDecisionValidation {
+final class ExecutionDecisionValidation {
 
-  private MethodDecisionValidation() {
+  private ExecutionDecisionValidation() {
   }
 
-  static MethodDecisionIndex validate(String methodKey, SyntaxNode root, MethodDecisionRegistration registration,
+  static ExecutionDecisionIndex validate(String scopeKey, SyntaxNode root, ExecutionDecisionRegistration registration,
       Map<String, SyntaxNode> sourceNodes, List<AttributedBodyOccurrence> attributions, Map<String, DeclarationMemberOrder> memberOrders) {
     var nodes = new HashMap<String, SyntaxNode>();
     root.descendantsAndSelf().forEach(node -> nodes.put(node.nodeId(), node));
-    var uses = validateUses(methodKey, root, registration.uses(), nodes, sourceNodes);
-    var constructors = validateEnumContexts(methodKey, root, registration.constructors(), nodes, sourceNodes, attributions, memberOrders);
-    var invocations = validateInvocations(methodKey, registration.invocations(), nodes, uses, constructors);
+    var uses = validateUses(scopeKey, root, registration.uses(), nodes, sourceNodes);
+    var constructors = validateEnumContexts(scopeKey, root, registration.constructors(), nodes, sourceNodes, attributions, memberOrders);
+    var invocations = validateInvocations(scopeKey, registration.invocations(), nodes, uses, constructors);
     validateParameterTargets(nodes, sourceNodes, uses, invocations);
-    var staticAccesses = validateStaticAccesses(methodKey, registration.staticAccesses(), nodes, sourceNodes);
-    var concatenations = validateConcatenations(methodKey, registration.concatenations(), nodes);
-    nodes.values().stream().filter(MethodDecisionValidation::isCreation).forEach(MethodDecisionValidation::validateCreation);
-    nodes.values().stream().filter(node -> node.syntaxKind() == SyntaxKind.ARRAY_ACCESS).forEach(MethodDecisionValidation::validateArray);
-    return new MethodDecisionIndex(uses, invocations, staticAccesses, concatenations, constructors);
+    var staticAccesses = validateStaticAccesses(scopeKey, registration.staticAccesses(), nodes, sourceNodes);
+    var concatenations = validateConcatenations(scopeKey, registration.concatenations(), nodes);
+    nodes.values().stream().filter(ExecutionDecisionValidation::isCreation).forEach(ExecutionDecisionValidation::validateCreation);
+    nodes.values().stream().filter(node -> node.syntaxKind() == SyntaxKind.ARRAY_ACCESS)
+        .forEach(ExecutionDecisionValidation::validateArray);
+    return new ExecutionDecisionIndex(uses, invocations, staticAccesses, concatenations, constructors);
   }
 
-  private static Map<UseKey, ChildUseEvidence> validateUses(String methodKey, SyntaxNode root, List<ChildUseEvidence> decisions,
+  private static Map<UseKey, ChildUseEvidence> validateUses(String scopeKey, SyntaxNode root, List<ChildUseEvidence> decisions,
       Map<String, SyntaxNode> nodes, Map<String, SyntaxNode> sourceNodes) {
     var uses = new HashMap<UseKey, ChildUseEvidence>();
     var resultTargets = new HashMap<String, JavaTypeIdentity>();
     var returnTarget = sourceNodes.values().stream()
         .filter(
-            node -> node.value() instanceof SyntaxValue.ExecutableDeclaration declaration && declaration.declarationKey().equals(methodKey))
+            node -> node.value() instanceof SyntaxValue.ExecutableDeclaration declaration && declaration.declarationKey().equals(scopeKey))
         .flatMap(node -> node.children(SyntaxRole.RETURN_TYPE).stream()).findFirst().flatMap(SyntaxNode::resolvedType);
     collectExecutionTargets(root, Optional.empty(), returnTarget, resultTargets);
     for (var decision : decisions) {
-      var consumer = ownedNode(methodKey, decision.methodKey(), decision.consumerNodeId(), nodes);
+      var consumer = ownedNode(scopeKey, decision.scopeKey(), decision.consumerNodeId(), nodes);
       var child = eligibleChild(consumer, decision);
       requireEqual(consumer.origin(), decision.conversion().origin().sourceRange(), "Conversion evidence source range");
       requireEqual(consumer.origin(), decision.referenceCheck().origin().sourceRange(), "Reference-check evidence source range");
@@ -75,6 +76,9 @@ final class MethodDecisionValidation {
   private static Optional<JavaTypeIdentity> expectedTarget(SyntaxNode consumer, SyntaxRole role,
       Map<String, JavaTypeIdentity> resultTargets) {
     return switch (consumer.syntaxKind()) {
+      case FIELD_DECLARATION -> role == SyntaxRole.INITIALIZER
+          ? Optional.of(consumer.value(SyntaxValue.VariableDeclaration.class).declaredType())
+          : Optional.empty();
       case LOCAL_DECLARATION, TYPE_CAST, UNARY -> consumer.resolvedType();
       case CONDITIONAL_EXPRESSION -> role == SyntaxRole.CONDITION ? Optional.empty() : consumer.resolvedType();
       case ASSIGNMENT -> consumer.requiredChild(SyntaxRole.LOCATION).resolvedType();
@@ -116,11 +120,11 @@ final class MethodDecisionValidation {
     node.children().forEach(child -> collectExecutionTargets(child.node(), selectedSwitch, selectedReturn, targets));
   }
 
-  private static Map<String, InvocationEvidence> validateInvocations(String methodKey, List<InvocationEvidence> decisions,
+  private static Map<String, InvocationEvidence> validateInvocations(String scopeKey, List<InvocationEvidence> decisions,
       Map<String, SyntaxNode> nodes, Map<UseKey, ChildUseEvidence> uses, Map<String, ConstructorEvidence> constructors) {
     var invocations = new HashMap<String, InvocationEvidence>();
     for (var evidence : decisions) {
-      var node = ownedNode(methodKey, evidence.methodKey(), evidence.consumerNodeId(), nodes);
+      var node = ownedNode(scopeKey, evidence.scopeKey(), evidence.consumerNodeId(), nodes);
       if (!isInvocation(node)) {
         throw new IllegalArgumentException("An invocation-arity decision requires an invocation node");
       }
@@ -215,7 +219,7 @@ final class MethodDecisionValidation {
   private static List<ParameterTarget> parameterTargets(SyntaxType.Resolved type, boolean variable,
       Optional<InvocationApplicabilityMode> mode, Optional<JavaTypeIdentity> exact, Optional<JavaTypeIdentity> exactComponent) {
     if (type.identity().category() == JavaTypeCategory.TYPE_VARIABLE || (type.identity().category() == JavaTypeCategory.ARRAY
-        && !type.structure().map(MethodDecisionValidation::stableErasure).orElse(false))) {
+        && !type.structure().map(ExecutionDecisionValidation::stableErasure).orElse(false))) {
       return List.of();
     }
     var fixed = new ParameterTarget(type.identity().category(), type.identity().erasedName(), exact);
@@ -266,7 +270,7 @@ final class MethodDecisionValidation {
 
   private static Optional<JavaTypeIdentity> exactIdentity(SyntaxType.Resolved type, boolean unchanged) {
     return unchanged
-        && type.structure().map(MethodDecisionValidation::closedType).orElse(DecisionValueValidation.isPrimitive(type.identity()))
+        && type.structure().map(ExecutionDecisionValidation::closedType).orElse(DecisionValueValidation.isPrimitive(type.identity()))
             ? Optional.of(type.identity())
             : Optional.empty();
   }
@@ -274,12 +278,12 @@ final class MethodDecisionValidation {
   private static boolean closedType(JavaTypeStructure type) {
     return switch (type) {
       case JavaTypeStructure.Primitive _ -> true;
-      case JavaTypeStructure.Declared declared -> declared.enclosingType().map(MethodDecisionValidation::closedType).orElse(true)
-          && declared.arguments().stream().allMatch(MethodDecisionValidation::closedType);
-      case JavaTypeStructure.LocalDeclared local -> local.enclosingType().map(MethodDecisionValidation::closedType).orElse(true)
-          && local.arguments().stream().allMatch(MethodDecisionValidation::closedType);
+      case JavaTypeStructure.Declared declared -> declared.enclosingType().map(ExecutionDecisionValidation::closedType).orElse(true)
+          && declared.arguments().stream().allMatch(ExecutionDecisionValidation::closedType);
+      case JavaTypeStructure.LocalDeclared local -> local.enclosingType().map(ExecutionDecisionValidation::closedType).orElse(true)
+          && local.arguments().stream().allMatch(ExecutionDecisionValidation::closedType);
       case JavaTypeStructure.Array array -> closedType(array.component());
-      case JavaTypeStructure.Wildcard wildcard -> wildcard.bound().map(MethodDecisionValidation::closedType).orElse(true);
+      case JavaTypeStructure.Wildcard wildcard -> wildcard.bound().map(ExecutionDecisionValidation::closedType).orElse(true);
       default -> false;
     };
   }
@@ -289,7 +293,7 @@ final class MethodDecisionValidation {
     if (component.isPresent()) {
       return component.map(SyntaxNode::type).filter(SyntaxType.Resolved.class::isInstance).map(SyntaxType.Resolved.class::cast);
     }
-    return node.children(SyntaxRole.UNDERLYING_TYPE).stream().findFirst().flatMap(MethodDecisionValidation::componentType);
+    return node.children(SyntaxRole.UNDERLYING_TYPE).stream().findFirst().flatMap(ExecutionDecisionValidation::componentType);
   }
 
   private record ParameterTarget(JavaTypeCategory category, String erasedName, Optional<JavaTypeIdentity> exactIdentity) {
@@ -298,7 +302,7 @@ final class MethodDecisionValidation {
     }
   }
 
-  private static Map<String, ConstructorEvidence> validateEnumContexts(String methodKey, SyntaxNode root,
+  private static Map<String, ConstructorEvidence> validateEnumContexts(String scopeKey, SyntaxNode root,
       List<ConstructorEvidence> decisions, Map<String, SyntaxNode> nodes, Map<String, SyntaxNode> sourceNodes,
       List<AttributedBodyOccurrence> attributions, Map<String, DeclarationMemberOrder> memberOrders) {
     var contexts = new HashMap<String, ConstructorEvidence>();
@@ -306,15 +310,15 @@ final class MethodDecisionValidation {
     root.children(SyntaxRole.STATEMENT).stream().filter(statement -> statement.syntaxKind() == SyntaxKind.EXPRESSION_STATEMENT)
         .forEach(statement -> directInvocations.put(statement.requiredChild(SyntaxRole.EXPRESSION), Boolean.TRUE));
     for (var decision : decisions) {
-      var node = ownedNode(methodKey, decision.methodKey(), decision.invocationNodeId(), nodes);
+      var node = ownedNode(scopeKey, decision.scopeKey(), decision.invocationNodeId(), nodes);
       requireEqual(node.origin(), decision.corroboration().origin().sourceRange(), "Constructor corroboration source range");
-      memberOrders.values().stream().filter(order -> order.members().stream().anyMatch(member -> member.declarationKey().equals(methodKey)))
+      memberOrders.values().stream().filter(order -> order.members().stream().anyMatch(member -> member.declarationKey().equals(scopeKey)))
           .forEach(order -> {
             requireEqual(root.sourceFileKey(), order.sourceFileKey(), "Constructor containing source");
             requireEqual(decision.ownerTypeKey(), order.ownerTypeKey(), "Constructor containing declaration");
           });
       sourceNodes.values().stream().filter(
-          value -> value.value() instanceof SyntaxValue.ExecutableDeclaration declaration && declaration.declarationKey().equals(methodKey))
+          value -> value.value() instanceof SyntaxValue.ExecutableDeclaration declaration && declaration.declarationKey().equals(scopeKey))
           .forEach(value -> {
             var declaration = value.value(SyntaxValue.ExecutableDeclaration.class);
             requireEqual(decision.ownerTypeKey(), declaration.ownerKey(), "Constructor source owner");
@@ -371,7 +375,7 @@ final class MethodDecisionValidation {
       requireEqual(root.sourceFileKey(), inserted.sourceFileKey(), "Inserted invocation source");
       requireEqual(address.compilerPath().child(SyntaxRole.STATEMENT, 0).child(SyntaxRole.EXPRESSION, 0), inserted.compilerPath(),
           "Inserted invocation attribution address");
-      requireEqual(evidence.methodKey(), inserted.applicability().methodKey(), "Inserted applicability method");
+      requireEqual(evidence.scopeKey(), inserted.applicability().scopeKey(), "Inserted applicability method");
       requireEqual(root.nodeId(), inserted.applicability().consumerNodeId(), "Inserted applicability creating body");
       requireEqual(root.origin(), inserted.applicability().applicability().origin().sourceRange(), "Inserted applicability creating range");
     });
@@ -381,11 +385,11 @@ final class MethodDecisionValidation {
     return invocation.semantics().orElseThrow(() -> new IllegalArgumentException("Enum context requires selected semantics"));
   }
 
-  private static Map<String, StaticMemberEvidence> validateStaticAccesses(String methodKey, List<StaticMemberEvidence> decisions,
+  private static Map<String, StaticMemberEvidence> validateStaticAccesses(String scopeKey, List<StaticMemberEvidence> decisions,
       Map<String, SyntaxNode> nodes, Map<String, SyntaxNode> sourceNodes) {
     var accesses = new HashMap<String, StaticMemberEvidence>();
     for (var decision : decisions) {
-      var node = ownedNode(methodKey, decision.methodKey(), decision.accessNodeId(), nodes);
+      var node = ownedNode(scopeKey, decision.scopeKey(), decision.accessNodeId(), nodes);
       requireEqual(node.origin(), decision.constantVariable().origin().sourceRange(), "Static constant evidence source range");
       requireEqual(node.origin(), decision.declaringOwner().origin().sourceRange(), "Static owner evidence source range");
       if (!staticKind(node, nodes).equals(Optional.of(decision.kind()))) {
@@ -442,11 +446,11 @@ final class MethodDecisionValidation {
     }
   }
 
-  private static Map<String, StringExpressionEvidence> validateConcatenations(String methodKey, List<StringExpressionEvidence> decisions,
+  private static Map<String, StringExpressionEvidence> validateConcatenations(String scopeKey, List<StringExpressionEvidence> decisions,
       Map<String, SyntaxNode> nodes) {
     var concatenations = new HashMap<String, StringExpressionEvidence>();
     for (var decision : decisions) {
-      var node = ownedNode(methodKey, decision.methodKey(), decision.binaryNodeId(), nodes);
+      var node = ownedNode(scopeKey, decision.scopeKey(), decision.binaryNodeId(), nodes);
       if (!isPlus(node)) {
         throw new IllegalArgumentException("String concatenation requires a binary PLUS node");
       }
@@ -529,8 +533,8 @@ final class MethodDecisionValidation {
     return type.category() == JavaTypeCategory.DECLARED && "java.lang.String".equals(type.erasedName());
   }
 
-  private static SyntaxNode ownedNode(String methodKey, String decisionMethodKey, String nodeId, Map<String, SyntaxNode> nodes) {
-    if (!methodKey.equals(decisionMethodKey) || !nodes.containsKey(nodeId)) {
+  private static SyntaxNode ownedNode(String scopeKey, String decisionScopeKey, String nodeId, Map<String, SyntaxNode> nodes) {
+    if (!scopeKey.equals(decisionScopeKey) || !nodes.containsKey(nodeId)) {
       throw new IllegalArgumentException("Selected decision must belong to its registered method and body");
     }
     return nodes.get(nodeId);

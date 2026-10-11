@@ -9,6 +9,7 @@ import org.aquilagraph.source.api.CoveragePropertyValue.State;
 
 /** Reconciles independent executable accessors against canonical written source values. */
 final class CoverageExecutableFacts {
+  private static final String SCALAR_ITEM_KEY = "item:0";
   private static final Map<String, JavaSourceKind> SURFACES = Map.ofEntries(Map.entry("WhileLoopTree", JavaSourceKind.WHILE_LOOP),
       Map.entry("DoWhileLoopTree", JavaSourceKind.DO_WHILE_LOOP), Map.entry("ForLoopTree", JavaSourceKind.FOR_LOOP),
       Map.entry("EnhancedForLoopTree", JavaSourceKind.ENHANCED_FOR_LOOP),
@@ -21,7 +22,7 @@ final class CoverageExecutableFacts {
       Map.entry("SwitchExpressionTree", JavaSourceKind.SWITCH_EXPRESSION), Map.entry("CaseTree", JavaSourceKind.CASE),
       Map.entry("YieldTree", JavaSourceKind.YIELD), Map.entry("AnyPatternTree", JavaSourceKind.ANY_PATTERN),
       Map.entry("TryTree", JavaSourceKind.TRY), Map.entry("CatchTree", JavaSourceKind.CATCH),
-      Map.entry("UnionTypeTree", JavaSourceKind.UNION_TYPE));
+      Map.entry("UnionTypeTree", JavaSourceKind.UNION_TYPE), Map.entry("BlockTree", JavaSourceKind.BLOCK));
 
   private CoverageExecutableFacts() {
   }
@@ -44,8 +45,12 @@ final class CoverageExecutableFacts {
       return CoverageSwitchFacts.supports(accessor, expected, owner, facts, snapshot);
     }
     return switch (accessor) {
+      case "isStatic" -> expected.equals(new CoveragePropertyValue(State.SCALAR, List
+          .of(new Item(SCALAR_ITEM_KEY, Boolean.toString(owner.syntaxKind() == SyntaxKind.STATIC_INITIALIZER_BLOCK), Provenance.WRITTEN))));
+      case "getStatements" ->
+        CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.STATEMENT), facts, snapshot, false);
       case "getIdentifier" -> (owner.syntaxKind() == SyntaxKind.CLASS_LITERAL || owner.syntaxKind() == SyntaxKind.ANNOTATION_CLASS_LITERAL)
-          && expected.equals(new CoveragePropertyValue(State.SCALAR, List.of(new Item("item:0", "class", Provenance.WRITTEN))));
+          && expected.equals(new CoveragePropertyValue(State.SCALAR, List.of(new Item(SCALAR_ITEM_KEY, "class", Provenance.WRITTEN))));
       case "getCases" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.CASE), facts, snapshot, false);
       case "getResources" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.RESOURCE), facts, snapshot, false);
       case "getCatches" ->
@@ -66,7 +71,7 @@ final class CoverageExecutableFacts {
             List.of(new Item(reference.mode() == SyntaxValue.ReferenceMode.CONSTRUCTOR ? "NEW" : "INVOKE",
                 reference.mode() == SyntaxValue.ReferenceMode.CONSTRUCTOR ? "NEW" : "INVOKE", Provenance.WRITTEN))));
       case "getName" -> owner.value() instanceof SyntaxValue.MemberReference reference
-          && expected.equals(new CoveragePropertyValue(State.SCALAR, List.of(new Item("item:0",
+          && expected.equals(new CoveragePropertyValue(State.SCALAR, List.of(new Item(SCALAR_ITEM_KEY,
               reference.mode() == SyntaxValue.ReferenceMode.CONSTRUCTOR ? "<init>" : reference.name(), Provenance.WRITTEN))));
       case "getQualifierExpression" ->
         CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.QUALIFIER), facts, snapshot, true);
@@ -75,8 +80,8 @@ final class CoverageExecutableFacts {
           : CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.TYPE_ARGUMENT), facts, snapshot, false);
       case "getKind" -> expected.equals(new CoveragePropertyValue(State.SCALAR,
           List.of(new Item(owner.sourceKind().name(), owner.sourceKind().name(), Provenance.WRITTEN))));
-      case "getLabel" -> owner.value() instanceof SyntaxValue.StatementLabel label && expected
-          .equals(label.name().map(name -> new CoveragePropertyValue(State.SCALAR, List.of(new Item("item:0", name, Provenance.WRITTEN))))
+      case "getLabel" -> owner.value() instanceof SyntaxValue.StatementLabel label && expected.equals(
+          label.name().map(name -> new CoveragePropertyValue(State.SCALAR, List.of(new Item(SCALAR_ITEM_KEY, name, Provenance.WRITTEN))))
               .orElse(new CoveragePropertyValue(State.ABSENT, List.of())));
       case "getCondition" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.CONDITION), facts, snapshot, true);
       case "getBlock" -> CoverageActualFacts.writtenAttachments(expected, owner,

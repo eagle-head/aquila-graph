@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test;
 
 class SourcePartitionBoundaryTest {
   private static final List<String> ADMISSION_TYPES = List.of("AstAggregateAdmission", "JavaAstAggregateBuilder",
-      "MethodDecisionRegistration", "MethodDecisionValidation");
+      "AttributedDeclarationPaths", "ExecutionDecisionRegistration", "ExecutionDecisionValidation");
   private static final Set<String> NULLNESS_METADATA = Set.of("org.jspecify.annotations.NullMarked", "org.jspecify.annotations.Nullable");
 
   @Test

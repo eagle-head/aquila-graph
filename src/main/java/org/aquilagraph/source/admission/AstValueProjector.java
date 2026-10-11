@@ -26,8 +26,12 @@ final class AstValueProjector {
   private final List<Link> links = new ArrayList<>();
   private final Function<SyntaxNode, Optional<Integer>> sourceOrdinal;
   private final BiConsumer<SyntaxNode, Integer> rememberSource;
+  private final String format;
+  private final int formatVersion;
 
-  AstValueProjector() {
+  AstValueProjector(String format) {
+    this.format = format;
+    formatVersion = Integer.parseInt(format.substring(format.indexOf('/') + 1));
     var occurrences = new IdentityHashMap<SyntaxNode, Integer>();
     sourceOrdinal = node -> Optional.ofNullable(occurrences.get(node));
     rememberSource = occurrences::put;
@@ -60,7 +64,7 @@ final class AstValueProjector {
     links.add(new Link(owner, target, field, position));
   }
 
-  private static Shape shape(Object value) {
+  private Shape shape(Object value) {
     return switch (value) {
       case String _ -> scalar("text");
       case Boolean _ -> scalar("flag");
@@ -97,11 +101,11 @@ final class AstValueProjector {
     };
   }
 
-  private static Shape registered(Object value) {
+  private Shape registered(Object value) {
     var registered = AstValueSchema.type(value.getClass());
     return value instanceof Enum<?>
         ? scalar(registered.tag())
-        : fields(registered.tag(), registered.fields(), registered.components(value));
+        : fields(registered.tag(), registered.retainedFields(formatVersion), registered.retainedComponents(value, formatVersion));
   }
 
   private static Shape scalar(String tag) {
@@ -122,8 +126,10 @@ final class AstValueProjector {
     return ordered;
   }
 
-  private static String encoded(Object value) {
-    return Base64.getEncoder().encodeToString(bytes(value));
+  private String encoded(Object value) {
+    var writer = new CanonicalValueWriter("source-value/1");
+    new RetainedValueCodec(false, format).write(writer, value);
+    return Base64.getEncoder().encodeToString(writer.toByteArray());
   }
 
   private static byte[] bytes(Object value) {

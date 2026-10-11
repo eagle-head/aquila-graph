@@ -97,7 +97,8 @@ public final class CfgAdmission {
   }
 
   static boolean supportsSourceProfile(AstProfile profile) {
-    return AstProfile.JAVA_SOURCE_BOUNDED.equals(profile) || AstProfile.JAVA_SOURCE_EXPANDED.equals(profile);
+    return AstProfile.JAVA_SOURCE_BOUNDED.equals(profile) || AstProfile.JAVA_SOURCE_EXPANDED.equals(profile)
+        || AstProfile.JAVA_SOURCE_INITIALIZATION.equals(profile);
   }
 
   private static void observeNode(AstResult ast, String methodKey, MethodSyntax syntax, SyntaxNode node, CfgProfile profile,

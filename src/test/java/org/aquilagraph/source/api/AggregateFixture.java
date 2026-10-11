@@ -188,7 +188,7 @@ public final class AggregateFixture {
    * @param evidence complete copied facts
    * @return this fixture builder
    */
-  public AggregateFixture addMethodEvidenceBody(String methodKey, SyntaxNode root, MethodBodyOrigin origin, MethodEvidence evidence) {
+  public AggregateFixture addMethodEvidenceBody(String methodKey, SyntaxNode root, MethodBodyOrigin origin, ExecutionEvidence evidence) {
     validator.addMethodBody(methodKey, root, origin, evidence.uses(), evidence.invocations(), evidence.staticMembers(), evidence.stringExpressions(), evidence.constructors());
     return this;
   }

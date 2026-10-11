@@ -7,8 +7,8 @@ import org.aquilagraph.identity.api.SourceSpan;
 /**
  * Selected static member, actual declaring owner, and independent constant classification.
  *
- * @param methodKey
- *          canonical owning method key
+ * @param scopeKey
+ *          canonical owning execution scope key
  * @param accessNodeId
  *          access syntax identity
  * @param selectedMemberKey
@@ -20,7 +20,7 @@ import org.aquilagraph.identity.api.SourceSpan;
  * @param constantVariable
  *          attributed constant-variable read classification
  */
-public record StaticMemberEvidence(String methodKey, String accessNodeId, String selectedMemberKey, StaticMemberKind kind,
+public record StaticMemberEvidence(String scopeKey, String accessNodeId, String selectedMemberKey, StaticMemberKind kind,
     EvidenceValue<JavaTypeReference> declaringOwner, EvidenceValue<Boolean> constantVariable) {
   /** Exact required compiler-selected owner slot. */
   public static final String OWNER_SLOT = "static-member.declaring-owner";
@@ -28,18 +28,18 @@ public record StaticMemberEvidence(String methodKey, String accessNodeId, String
   public static final String CONSTANT_SLOT = "static-member.constant-variable";
   /** Validates supplied shape without inferring a declaring owner from the member key. */
   public StaticMemberEvidence {
-    DecisionValueValidation.requireKey(methodKey, "methodKey");
+    DecisionValueValidation.requireKey(scopeKey, "scopeKey");
     DecisionValueValidation.requireKey(accessNodeId, "accessNodeId");
     DecisionValueValidation.requireKey(selectedMemberKey, "selectedMemberKey");
     Objects.requireNonNull(kind, "kind");
     Objects.requireNonNull(declaringOwner, "declaringOwner");
     Objects.requireNonNull(constantVariable, "constantVariable");
     var origin = constantVariable.origin();
-    if (!methodKey.equals(origin.methodKey()) || !accessNodeId.equals(origin.nodeKey()) || !CONSTANT_SLOT.equals(origin.slot())) {
+    if (!scopeKey.equals(origin.scopeKey()) || !accessNodeId.equals(origin.nodeKey()) || !CONSTANT_SLOT.equals(origin.slot())) {
       throw new IllegalArgumentException("Static constant evidence must retain its exact creating slot");
     }
     var ownerOrigin = declaringOwner.origin();
-    if (!methodKey.equals(ownerOrigin.methodKey()) || !accessNodeId.equals(ownerOrigin.nodeKey()) || !OWNER_SLOT.equals(ownerOrigin.slot())
+    if (!scopeKey.equals(ownerOrigin.scopeKey()) || !accessNodeId.equals(ownerOrigin.nodeKey()) || !OWNER_SLOT.equals(ownerOrigin.slot())
         || !ownerOrigin.sourceRange().equals(origin.sourceRange()) || declaringOwner.state() == EvidenceState.NOT_APPLICABLE) {
       throw new IllegalArgumentException("A static member requires its exact applicable declaring-owner slot");
     }
@@ -59,8 +59,8 @@ public record StaticMemberEvidence(String methodKey, String accessNodeId, String
   /**
    * Retains a supplied known owner and an independent classification.
    *
-   * @param methodKey
-   *          canonical containing method
+   * @param scopeKey
+   *          canonical containing execution scope
    * @param accessNodeId
    *          actual member occurrence
    * @param selectedMemberKey
@@ -72,10 +72,11 @@ public record StaticMemberEvidence(String methodKey, String accessNodeId, String
    * @param constantVariable
    *          independently retained classification
    */
-  public StaticMemberEvidence(String methodKey, String accessNodeId, String selectedMemberKey, StaticMemberKind kind,
+  public StaticMemberEvidence(String scopeKey, String accessNodeId, String selectedMemberKey, StaticMemberKind kind,
       JavaTypeReference declaringType, EvidenceValue<Boolean> constantVariable) {
-    this(methodKey, accessNodeId, selectedMemberKey, kind, EvidenceValue.known(declaringType,
-        new EvidenceOrigin(methodKey, accessNodeId, OWNER_SLOT, constantVariable.origin().sourceRange())), constantVariable);
+    this(scopeKey, accessNodeId, selectedMemberKey, kind,
+        EvidenceValue.known(declaringType, new EvidenceOrigin(scopeKey, accessNodeId, OWNER_SLOT, constantVariable.origin().sourceRange())),
+        constantVariable);
   }
 
   /**
@@ -92,8 +93,8 @@ public record StaticMemberEvidence(String methodKey, String accessNodeId, String
   /**
    * Copies an actual compiler classification and explicitly accounts for inapplicable access forms.
    *
-   * @param methodKey
-   *          canonical containing method
+   * @param scopeKey
+   *          canonical containing execution scope
    * @param accessNodeId
    *          actual access occurrence
    * @param selectedMemberKey
@@ -108,15 +109,15 @@ public record StaticMemberEvidence(String methodKey, String accessNodeId, String
    *          actual optional source range
    * @return independently retained member facts
    */
-  public static StaticMemberEvidence known(String methodKey, String accessNodeId, String selectedMemberKey, StaticMemberKind kind,
+  public static StaticMemberEvidence known(String scopeKey, String accessNodeId, String selectedMemberKey, StaticMemberKind kind,
       JavaTypeReference declaringType, boolean constantVariableRead, Optional<SourceSpan> range) {
-    DecisionValueValidation.requireKey(methodKey, "methodKey");
+    DecisionValueValidation.requireKey(scopeKey, "scopeKey");
     DecisionValueValidation.requireKey(accessNodeId, "accessNodeId");
-    var origin = new EvidenceOrigin(methodKey, accessNodeId, CONSTANT_SLOT, range);
+    var origin = new EvidenceOrigin(scopeKey, accessNodeId, CONSTANT_SLOT, range);
     var classification = kind == StaticMemberKind.FIELD_READ || constantVariableRead
         ? EvidenceValue.known(constantVariableRead, origin)
         : EvidenceValue.<Boolean>notApplicable(origin, "This access form does not read a constant variable");
-    return new StaticMemberEvidence(methodKey, accessNodeId, selectedMemberKey, kind, declaringType, classification);
+    return new StaticMemberEvidence(scopeKey, accessNodeId, selectedMemberKey, kind, declaringType, classification);
   }
 
 }

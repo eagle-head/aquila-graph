@@ -879,7 +879,7 @@ public final class SyntaxNode {
       case RECORD_COMPONENT_DECLARATION ->
         validateRecordComponentDeclaration(SyntaxValue.RecordComponentDeclaration.class.cast(value), children);
       case METHOD_DECLARATION -> validateExecutableDeclaration(SyntaxValue.ExecutableDeclaration.class.cast(value), children);
-      case BLOCK -> requireShape(children, Set.of(SyntaxRole.STATEMENT));
+      case BLOCK, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK -> requireShape(children, Set.of(SyntaxRole.STATEMENT));
       case LOCAL_DECLARATION -> {
         requireShape(children, Set.of(SyntaxRole.INITIALIZER, SyntaxRole.DECLARED_TYPE, SyntaxRole.ANNOTATION), SyntaxRole.INITIALIZER, 0,
             1);
@@ -1069,9 +1069,7 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.QUALIFIER, 0,
             receiver == SyntaxValue.ReceiverKind.QUALIFIED_THIS || receiver == SyntaxValue.ReceiverKind.QUALIFIED_SUPER ? 1 : 0);
       }
-      case BREAK, CONTINUE, ANNOTATION_ELEMENT_NAME, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, VARIABLE_ACCESS, LITERAL, EMPTY,
-          ANY_PATTERN ->
-        requireShape(children, Set.of());
+      case BREAK, CONTINUE, ANNOTATION_ELEMENT_NAME, VARIABLE_ACCESS, LITERAL, EMPTY, ANY_PATTERN -> requireShape(children, Set.of());
       case RECEIVER_NAME -> {
         requireShape(children, Set.of());
         validateReceiverName(sourceKind, SyntaxValue.SourceSymbol.class.cast(value));
@@ -1964,7 +1962,11 @@ public final class SyntaxNode {
     if ((kind == SyntaxKind.FIELD_DECLARATION) != (declaration.kind() == SyntaxValue.VariableDeclaration.Kind.FIELD)) {
       throw new IllegalArgumentException("Variable declaration form does not match its syntax kind");
     }
-    requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.DECLARED_TYPE));
+    requireShape(children,
+        kind == SyntaxKind.FIELD_DECLARATION
+            ? Set.of(SyntaxRole.ANNOTATION, SyntaxRole.DECLARED_TYPE, SyntaxRole.INITIALIZER)
+            : Set.of(SyntaxRole.ANNOTATION, SyntaxRole.DECLARED_TYPE));
+    requireCount(children, SyntaxRole.INITIALIZER, 0, declaration.initializer() && kind == SyntaxKind.FIELD_DECLARATION ? 1 : 0);
     requireCount(children, SyntaxRole.ANNOTATION, declaration.annotations(), declaration.annotations());
     requireCount(children, SyntaxRole.DECLARED_TYPE, declaration.type() ? 1 : 0, declaration.type() ? 1 : 0);
     for (var child : children) {

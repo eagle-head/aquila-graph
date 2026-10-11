@@ -37,8 +37,8 @@ final class JavaMethodBodyTranslator {
         || !semantics.declarationKey(executable).equals(Optional.of(methodKey))) {
       throw new IllegalArgumentException("A method body projection requires its attributed executable and exact body path");
     }
-    var projection = syntax.project(unit, sourceFile, methodKey, body, bodyPath, JavaSyntaxStructuralPath.methodBody(bodyPath), constructor,
-        implicitDeclaration);
+    var projection = syntax.project(unit, sourceFile, methodKey, body, bodyPath, JavaSyntaxStructuralPath.executionRoot(bodyPath),
+        constructor, implicitDeclaration);
     var translation = projection.translation();
     var nodeProjections = projection.nodes();
     var decisions = new JavaBodyDecisionProducer(semantics).produce(methodKey, translation.value(), nodeProjections,

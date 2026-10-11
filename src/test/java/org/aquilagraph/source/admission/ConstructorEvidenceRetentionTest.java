@@ -48,19 +48,19 @@ class ConstructorEvidenceRetentionTest {
     var classifications = List.of(EvidenceValue.<ConstructorContext>missing(context.corroboration().origin(), "Corroboration unavailable"),
         EvidenceValue.<ConstructorContext>erroneous(context.corroboration().origin(), "Corroboration erroneous"));
     for (var classification : classifications) {
-      var replacement = new ConstructorEvidence(context.methodKey(), context.invocationNodeId(), context.ownerTypeKey(),
+      var replacement = new ConstructorEvidence(context.scopeKey(), context.invocationNodeId(), context.ownerTypeKey(),
           context.selectedConstructorKey(), context.form(), classification);
       // Act
       var retained = replace(original, replacement);
       var decoded = AstCodec.decode(AstCodec.encode(retained), retained.identity());
       var outcome = CfgDerivers.standard().derive(decoded,
-          new CfgRequest(decoded.identity(), List.of(context.methodKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
+          new CfgRequest(decoded.identity(), List.of(context.scopeKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
 
       // Assert
       assertEquals(AstCompletion.COMPLETE, decoded.completion());
       assertNotEquals(original.identity(), decoded.identity());
       assertEquals(replacement, context(decoded));
-      assertEquals(original.body(context.methodKey()).orElseThrow().root(), decoded.body(context.methodKey()).orElseThrow().root());
+      assertEquals(original.body(context.scopeKey()).orElseThrow().root(), decoded.body(context.scopeKey()).orElseThrow().root());
       var expected = classification.state() == EvidenceState.ERRONEOUS ? MethodCfgState.ERRONEOUS_EVIDENCE : MethodCfgState.INSUFFICIENT_EVIDENCE;
       assertEquals(expected, outcome.state());
       assertEquals(List.of(expected), outcome.blockers().stream().map(value -> value.kind()).toList());
@@ -87,13 +87,13 @@ class ConstructorEvidenceRetentionTest {
     for (var classification : classifications) {
       var changed = new CompilerInsertedInvocation(insertion.sourceFileKey(), insertion.compilerPath(), insertion.reference(), insertion.semantics(),
           new InvocationEvidence(classification));
-      var replacement = new ConstructorEvidence(evidence.methodKey(), evidence.invocationNodeId(), evidence.ownerTypeKey(), evidence.selectedConstructorKey(),
+      var replacement = new ConstructorEvidence(evidence.scopeKey(), evidence.invocationNodeId(), evidence.ownerTypeKey(), evidence.selectedConstructorKey(),
           evidence.form(), EvidenceValue.known(new ConstructorContext(corroboration.superclassParameterTypes(), Optional.of(changed)), evidence.corroboration().origin()));
       // Act
       var retained = replace(original, replacement);
       var decoded = AstCodec.decode(AstCodec.encode(retained), retained.identity());
       var outcome = CfgDerivers.standard().derive(decoded,
-          new CfgRequest(decoded.identity(), List.of(evidence.methodKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
+          new CfgRequest(decoded.identity(), List.of(evidence.scopeKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
 
       // Assert
       assertEquals(AstCompletion.COMPLETE, decoded.completion());

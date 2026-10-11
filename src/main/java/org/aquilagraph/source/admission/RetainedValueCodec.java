@@ -233,11 +233,12 @@ final class RetainedValueCodec {
       writer.text(enumeration.name());
       return;
     }
-    var components = shape.components(value);
+    var components = shape.retainedComponents(value, formatVersion);
+    var fields = shape.retainedFields(formatVersion);
     var excluded = canonical && (value instanceof InputSnapshot || value instanceof DependencySnapshot);
     writer.count(components.size() - (excluded ? 1 : 0));
     for (var index = excluded ? 1 : 0; index < components.size(); index++) {
-      writer.text(shape.fields().get(index));
+      writer.text(fields.get(index));
       write(writer, components.get(index));
     }
   }
@@ -265,20 +266,32 @@ final class RetainedValueCodec {
           .filter(value -> value instanceof Enum<?> enumeration && enumeration.name().equals(name)).findFirst()
           .orElseThrow(() -> new IllegalArgumentException("Unknown retained enum value: " + tag + "/" + name));
     }
-    if (reader.count() != shape.fields().size()) {
+    var fields = shape.retainedFields(formatVersion);
+    var historicalScopes = formatVersion < 14 && "copied-ast-values".equals(tag);
+    if (reader.count() != fields.size()) {
       throw new IllegalArgumentException("Wrong retained field count: " + tag);
     }
     var components = new ArrayList<Object>(shape.fields().size());
-    for (var field : shape.fields()) {
+    for (var field : fields) {
       if (!field.equals(reader.text())) {
         throw new IllegalArgumentException("Wrong retained field order: " + tag + "/" + field);
       }
       components.add(read(reader));
     }
+    if (historicalScopes) {
+      components.add(List.of());
+    }
+    if (formatVersion < 14 && "declaration-member-order".equals(tag)) {
+      components.add(Optional.empty());
+    }
     return shape.construct(components);
   }
 
   private void validateFormatTag(String tag) {
+    if (formatVersion < 14 && (tag.startsWith("execution-scope/") || "copied-ast-values/scope".equals(tag)
+        || "declaration-member-order/tree-order".equals(tag))) {
+      throw new IllegalArgumentException("Declaration execution scopes require retained AST format java-source/14");
+    }
     if (formatVersion < 11 && "syntax-value/switch-label/pattern".equals(tag)) {
       throw new IllegalArgumentException("Pattern switch labels require retained AST format java-source/11");
     }

@@ -76,6 +76,9 @@ import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
+import org.aquilagraph.source.admission.CopiedAstValues;
+import org.aquilagraph.source.api.ExecutionScope;
+import org.aquilagraph.source.api.ChildUseEvidence;
 import org.jspecify.annotations.Nullable;
 
 /** Assembles the source-only declaration/body tree for one attributed compilation unit. */
@@ -94,6 +97,8 @@ final class JavaAstContributionTranslator {
   private final JavaWrittenSourceAssociations sourceAssociations;
   private final Map<String, Map<SourceSpan, String>> sharedFieldAnnotations = new HashMap<>();
   private final Map<String, SyntaxNode> canonicalBodyCopies = new HashMap<>();
+  private boolean memberInitialization;
+  private final List<CopiedAstValues.Scope> declarationScopes = new ArrayList<>();
   private final Map<String, Map<SourceSpan, String>> sharedLocalAnnotations = new HashMap<>();
 
   JavaAstContributionTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory) {
@@ -119,6 +124,7 @@ final class JavaAstContributionTranslator {
     Objects.requireNonNull(bodies, "bodies");
     sourceAssociations.clear();
     canonicalBodyCopies.clear();
+    declarationScopes.clear();
     var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, sourceFile.sourceFileKey());
     var typesByKey = new HashMap<String, JavaType>();
     for (var type : Objects.requireNonNull(declaredTypes, "declaredTypes")) {
@@ -248,7 +254,12 @@ final class JavaAstContributionTranslator {
           : MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY;
       registrations.add(new BodyRegistration(body.methodKey(), body.root(), origin, body.decisions(), attributions(body, false)));
     }
-    return new UnitTranslation(Optional.of(contribution), registrations, diagnostics, sourceAssociations.forNodes(nodes));
+    return new UnitTranslation(Optional.of(contribution), registrations, diagnostics, sourceAssociations.forNodes(nodes),
+        declarationScopes);
+  }
+
+  void enableMemberInitialization(boolean enabled) {
+    memberInitialization = enabled;
   }
 
   private void corroborateBody(CompilationUnitTree unit, SourceFile sourceFile, TranslatedMethodBody body,
@@ -284,7 +295,7 @@ final class JavaAstContributionTranslator {
     if (!sameTreePath(independentBodyPath, projection.bodyPath())
         || !JavaProjectionIdentity.sameInstance(body.root(), projection.producedRoot())
         || !body.root().sourceFileKey().equals(sourceFile.sourceFileKey())
-        || !body.root().structuralPath().equals(JavaSyntaxStructuralPath.methodBody(independentBodyPath))) {
+        || !body.root().structuralPath().equals(JavaSyntaxStructuralPath.executionRoot(independentBodyPath))) {
       throw new IllegalArgumentException("Translated body does not retain its executable body projection: " + body.methodKey());
     }
     new JavaBodyDecisionProducer(semantics).corroborate(body.root(), projection.nodeProjections());
@@ -859,6 +870,8 @@ final class JavaAstContributionTranslator {
         field(unit, sourceFile, memberTreePath, field, memberPath, memberOccurrencePath, semanticEdges, diagnostics);
       case ClassTree nested -> type(unit, sourceFile, memberTreePath, nested, memberPath, memberOccurrencePath, bodies, publishedBodies,
           unavailableBodies, semanticEdges, diagnostics, typesByKey);
+      case BlockTree initializer when memberInitialization ->
+        initializer(unit, sourceFile, memberTreePath, initializer, memberPath, diagnostics);
       case BlockTree initializer -> requiredRange(unit, sourceFile, initializer, memberOccurrencePath, diagnostics)
           .map(range -> sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), memberPath, JavaSourceKind.BLOCK,
               initializer.isStatic() ? SyntaxKind.STATIC_INITIALIZER_BLOCK : SyntaxKind.INSTANCE_INITIALIZER_BLOCK,
@@ -881,7 +894,7 @@ final class JavaAstContributionTranslator {
     var range = requiredRange(unit, sourceFile, declaration, occurrencePath, diagnostics);
     var body = declaration.getBody() == null
         ? null
-        : bodies.get(JavaSyntaxStructuralPath.methodBody(new TreePath(methodPath, declaration.getBody())));
+        : bodies.get(JavaSyntaxStructuralPath.executionRoot(new TreePath(methodPath, declaration.getBody())));
     if (range.isEmpty()) {
       if (body != null) {
         unavailableBodies.add(body.methodKey());
@@ -1268,12 +1281,97 @@ final class JavaAstContributionTranslator {
         semantics.declarationKey(variable).orElseThrow(), kind, writtenModifiers, declarationModifiers(variable.getModifiers()),
         resolved.identity(), modifierAnnotations.size(), !enumConstant, initializer != null, argumentList.orElseThrow(),
         creation == null ? 0 : creation.getArguments().size(), creation != null && creation.getClassBody() != null, sharedKeys);
+    JavaExecutableSyntaxProjector.Projection initializerProjection = null;
+    JavaBodyDecisions initializerDecisions = null;
+    if (memberInitialization && !enumConstant && initializer != null) {
+      var initializerPath = path.child(SyntaxRole.INITIALIZER, 0);
+      initializerProjection = executableProjection(unit, sourceFile, value.declarationKey(), initializer,
+          new TreePath(fieldPath, initializer), JavaSyntaxStructuralPath.executionRoot(fieldPath).child(SyntaxRole.INITIALIZER, 0));
+      initializerDecisions = new JavaBodyDecisionProducer(semantics).produce(value.declarationKey(),
+          initializerProjection.translation().value(), initializerProjection.nodes(), diagnostics);
+      var copied = projectExecutable(initializerProjection, initializerPath, unit, sourceFile, diagnostics);
+      if (copied.isEmpty()) {
+        return Optional.empty();
+      }
+      children.add(new SyntaxChild(SyntaxRole.INITIALIZER, 0, copied.orElseThrow()));
+    }
     var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.VARIABLE,
         enumConstant ? SyntaxKind.ENUM_CONSTANT_DECLARATION : SyntaxKind.FIELD_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value,
         children, Optional.empty(), range.orElseThrow());
     sourceAssociations.created(node, fieldPath);
     declarationEdge(fieldPath, node, semanticEdges);
+    if (memberInitialization && !enumConstant) {
+      var uses = new ArrayList<ChildUseEvidence>();
+      var decisions = initializerDecisions == null
+          ? new JavaBodyDecisions(List.of(), List.of(), List.of(), List.of())
+          : initializerDecisions.rebind(canonicalBodyCopies, node.requiredChild(SyntaxRole.INITIALIZER));
+      uses.addAll(decisions.uses());
+      new JavaBodyDecisionProducer(semantics).fieldInitializer(value.declarationKey(), node, fieldPath).ifPresent(uses::add);
+      var attributions = initializerProjection == null
+          ? new ArrayList<AttributedBodyOccurrence>()
+          : new ArrayList<>(executionAttributions(value.declarationKey(), initializerProjection));
+      attributions.add(new AttributedBodyOccurrence(value.declarationKey(), node.nodeId(), node.sourceFileKey(), node.sourceKind(),
+          JavaSyntaxStructuralPath.executionRoot(fieldPath)));
+      declarationScopes.add(new CopiedAstValues.Scope(new ExecutionScope.Field(value.declarationKey(), value.ownerKey()), node, uses,
+          decisions.invocations(), decisions.staticAccesses(), decisions.concatenations(), attributions));
+    }
     return Optional.of(node);
+  }
+
+  private JavaExecutableSyntaxProjector.Projection executableProjection(CompilationUnitTree unit, SourceFile sourceFile, String scopeKey,
+      Tree tree, TreePath treePath, SyntaxStructuralPath path) {
+    return new JavaExecutableSyntaxProjector(semantics, sourceEvidence, treeInventory, DIAGNOSTIC_PRODUCER, "declaration-initialization")
+        .project(unit, sourceFile, scopeKey, tree, treePath, path, false, false);
+  }
+
+  private Optional<SyntaxNode> projectExecutable(JavaExecutableSyntaxProjector.Projection projection, SyntaxStructuralPath path,
+      CompilationUnitTree unit, SourceFile sourceFile, List<AnalysisDiagnostic> diagnostics) {
+    diagnostics.addAll(projection.translation().diagnostics());
+    var paths = new HashMap<String, TreePath>();
+    projection.nodes().forEach(binding -> {
+      paths.put(binding.node().nodeId(), binding.path());
+      binding.sourceAssociation().ifPresent(value -> sourceAssociations.retain(binding.node(), value));
+    });
+    return project(projection.translation().value(), path, false, true, new BodySourceContext(unit, sourceFile, paths, diagnostics));
+  }
+
+  private Optional<SyntaxNode> initializer(CompilationUnitTree unit, SourceFile sourceFile, TreePath treePath, BlockTree block,
+      SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
+    var range = requiredRange(unit, sourceFile, block, path, diagnostics);
+    if (range.isEmpty()) {
+      return Optional.empty();
+    }
+    var ownerKey = semantics.declarationKey(semantics.element(treePath.getParentPath()));
+    if (ownerKey.isEmpty()) {
+      return Optional.empty();
+    }
+    var origin = range.orElseThrow();
+    var key = ownerKey.orElseThrow() + ":initializer:" + origin.startOffset() + ':' + origin.endOffsetExclusive();
+    var projection = executableProjection(unit, sourceFile, key, block, treePath, JavaSyntaxStructuralPath.executionRoot(treePath));
+    var original = projection.translation().value();
+    var decisions = new JavaBodyDecisionProducer(semantics).produce(key, original, projection.nodes(), diagnostics);
+    var projected = projectExecutable(projection, path, unit, sourceFile, diagnostics);
+    if (projected.isEmpty()) {
+      return Optional.empty();
+    }
+    var kind = block.isStatic() ? SyntaxKind.STATIC_INITIALIZER_BLOCK : SyntaxKind.INSTANCE_INITIALIZER_BLOCK;
+    var node = sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.BLOCK, kind,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, projected.orElseThrow().children(), Optional.empty(), origin),
+        treePath);
+    canonicalBodyCopies.put(original.nodeId(), node);
+    var retained = decisions.rebind(canonicalBodyCopies, node);
+    declarationScopes
+        .add(new CopiedAstValues.Scope(new ExecutionScope.Initializer(key, ownerKey.orElseThrow(), origin, kind), node, retained.uses(),
+            retained.invocations(), retained.staticAccesses(), retained.concatenations(), executionAttributions(key, projection)));
+    return Optional.of(node);
+  }
+
+  private List<AttributedBodyOccurrence> executionAttributions(String scopeKey, JavaExecutableSyntaxProjector.Projection projection) {
+    return projection.nodes().stream().map(binding -> {
+      var node = Objects.requireNonNull(canonicalBodyCopies.get(binding.node().nodeId()), "canonical execution occurrence");
+      return new AttributedBodyOccurrence(scopeKey, node.nodeId(), node.sourceFileKey(), node.sourceKind(),
+          binding.node().structuralPath());
+    }).toList();
   }
 
   private List<String> sharedFieldKeys(CompilationUnitTree unit, TreePath fieldPath, VariableTree declaration) {
@@ -1513,9 +1611,9 @@ final class JavaAstContributionTranslator {
   }
 
   record UnitTranslation(Optional<SyntaxSourceContribution> contribution, List<BodyRegistration> bodies,
-      List<AnalysisDiagnostic> diagnostics, List<WrittenSourceAssociation> sourceAssociations) {
+      List<AnalysisDiagnostic> diagnostics, List<WrittenSourceAssociation> sourceAssociations, List<CopiedAstValues.Scope> scopes) {
     UnitTranslation(Optional<SyntaxSourceContribution> contribution, List<BodyRegistration> bodies, List<AnalysisDiagnostic> diagnostics) {
-      this(contribution, bodies, diagnostics, List.of());
+      this(contribution, bodies, diagnostics, List.of(), List.of());
     }
 
     UnitTranslation {
@@ -1523,6 +1621,7 @@ final class JavaAstContributionTranslator {
       bodies = List.copyOf(bodies);
       diagnostics = TranslationDiagnosticEvidence.copyOf(diagnostics);
       sourceAssociations = List.copyOf(sourceAssociations);
+      scopes = List.copyOf(scopes);
     }
   }
 

@@ -25,6 +25,7 @@ import com.sun.source.tree.LabeledStatementTree;
 import com.sun.source.tree.BreakTree;
 import com.sun.source.tree.ContinueTree;
 import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
@@ -132,6 +133,7 @@ final class JavaCoverageTopology {
       return Optional.of(VariableTree.class);
     }
     return switch (tree) {
+      case BlockTree _ -> Optional.of(BlockTree.class);
       case AssertTree _ -> Optional.of(AssertTree.class);
       case SynchronizedTree _ -> Optional.of(SynchronizedTree.class);
       case LambdaExpressionTree _ -> Optional.of(LambdaExpressionTree.class);

@@ -2,6 +2,10 @@ package org.aquilagraph.frontend;
 
 import com.sun.source.util.TreePath;
 import com.sun.source.tree.LambdaExpressionTree;
+import com.sun.source.tree.BlockTree;
+import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.VariableTree;
 import com.sun.source.util.Trees;
 import java.util.IdentityHashMap;
 import java.util.Locale;
@@ -181,13 +185,38 @@ final class DeclarationIdentityRegistry {
   }
 
   private Optional<String> keyOfLocalVariable(VariableElement variable) {
-    var owner = enclosingExecutableOf(variable);
-    if (owner.isEmpty()) {
+    var category = variable.getKind().name().toLowerCase(Locale.ROOT);
+    return lexicalExecutionOwner(variable)
+        .flatMap(ownerKey -> coordinateOf(variable).map(coordinate -> ownerKey + ':' + category + ':' + coordinate));
+  }
+
+  private Optional<String> lexicalExecutionOwner(VariableElement variable) {
+    if (variable.getEnclosingElement() == null) {
       return Optional.empty();
     }
-    var category = variable.getKind().name().toLowerCase(Locale.ROOT);
-    return keyOfExecutable(owner.orElseThrow())
-        .flatMap(ownerKey -> coordinateOf(variable).map(coordinate -> ownerKey + ':' + category + ':' + coordinate));
+    var path = identityState.sourceLookup().apply(variable).orElseGet(() -> trees.getPath(variable));
+    var cursor = path == null ? null : JavaExecutionOwner.find(path).orElse(null);
+    if (cursor != null && cursor.getParentPath() != null) {
+      if (cursor.getLeaf() instanceof MethodTree) {
+        return enclosingExecutableOf(variable).flatMap(this::keyOfExecutable);
+      }
+      if (cursor.getParentPath().getLeaf() instanceof ClassTree && trees.getElement(cursor.getParentPath()) instanceof TypeElement owner) {
+        if (cursor.getLeaf() instanceof VariableTree && trees.getElement(cursor) instanceof VariableElement field
+            && field.getKind() == ElementKind.FIELD) {
+          return keyOfOwnedVariable(field, "field");
+        }
+        if (cursor.getLeaf() instanceof BlockTree) {
+          var positions = trees.getSourcePositions();
+          var start = positions.getStartPosition(cursor.getCompilationUnit(), cursor.getLeaf());
+          var end = positions.getEndPosition(cursor.getCompilationUnit(), cursor.getLeaf());
+          if (start != Diagnostic.NOPOS && end >= start) {
+            return keyOfType(owner).map(ownerKey -> ownerKey + ":initializer:" + start + ':' + end);
+          }
+          return Optional.empty();
+        }
+      }
+    }
+    return enclosingExecutableOf(variable).flatMap(this::keyOfExecutable);
   }
 
   private Optional<String> keyOfOwnedStructure(Element element, String category) {

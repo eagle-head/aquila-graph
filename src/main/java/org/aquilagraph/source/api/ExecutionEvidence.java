@@ -17,10 +17,10 @@ import java.util.ArrayList;
  * @param constructors
  *          copied constructor evidence in occurrence order
  */
-public record MethodEvidence(List<ChildUseEvidence> uses, List<InvocationEvidence> invocations, List<StaticMemberEvidence> staticMembers,
+public record ExecutionEvidence(List<ChildUseEvidence> uses, List<InvocationEvidence> invocations, List<StaticMemberEvidence> staticMembers,
     List<StringExpressionEvidence> stringExpressions, List<ConstructorEvidence> constructors) {
   /** Defensively copies every fact family without dropping negative evidence. */
-  public MethodEvidence {
+  public ExecutionEvidence {
     uses = List.copyOf(uses);
     invocations = List.copyOf(invocations);
     staticMembers = List.copyOf(staticMembers);

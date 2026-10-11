@@ -3,10 +3,10 @@ package org.aquilagraph.source.api;
 import java.util.Objects;
 
 /**
- * Actual attributed compiler-tree address copied for one retained body occurrence.
+ * Actual attributed compiler-tree address copied for one retained execution occurrence.
  *
- * @param methodKey
- *          canonical containing method
+ * @param scopeKey
+ *          canonical containing execution scope
  * @param nodeKey
  *          exact retained occurrence
  * @param sourceFileKey
@@ -16,11 +16,11 @@ import java.util.Objects;
  * @param compilerPath
  *          actual root-relative attributed tree address
  */
-public record AttributedBodyOccurrence(String methodKey, String nodeKey, String sourceFileKey, JavaSourceKind sourceKind,
+public record AttributedBodyOccurrence(String scopeKey, String nodeKey, String sourceFileKey, JavaSourceKind sourceKind,
     SyntaxStructuralPath compilerPath) {
   /** Checks copied address shape without authenticating compiler provenance. */
   public AttributedBodyOccurrence {
-    DecisionValueValidation.requireKey(methodKey, "methodKey");
+    DecisionValueValidation.requireKey(scopeKey, "scopeKey");
     DecisionValueValidation.requireKey(nodeKey, "nodeKey");
     DecisionValueValidation.requireKey(sourceFileKey, "sourceFileKey");
     Objects.requireNonNull(sourceKind, "sourceKind");

@@ -21,7 +21,7 @@ class InvocationApplicabilityTest {
     // Assert
     for (var position = 0; position < counts.size(); position++) {
       var decision = decisions.get(position);
-      assertEquals("method", decision.methodKey());
+      assertEquals("method", decision.scopeKey());
       assertEquals("call", decision.consumerNodeId());
       assertEquals(InvocationApplicabilityMode.FIXED, decision.mode());
       assertEquals(counts.get(position).intValue(), decision.formalCount());

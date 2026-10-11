@@ -153,7 +153,16 @@ public final class SharedVariableDeclarations {
 
   private static boolean sameTypePosition(SyntaxNode first, SyntaxNode second) {
     return first.sourceKind() == JavaSourceKind.ANNOTATED_TYPE && second.sourceKind() == JavaSourceKind.ANNOTATED_TYPE
-        && first.origin().equals(second.origin()) && first.type().equals(second.type());
+        && first.origin().equals(second.origin()) && sameSemanticType(first.type(), second.type());
+  }
+
+  private static boolean sameSemanticType(SyntaxType first, SyntaxType second) {
+    if (first.equals(second)) {
+      return true;
+    }
+    return first instanceof SyntaxType.Resolved left && second instanceof SyntaxType.Resolved right
+        && left.identity().category() == right.identity().category() && left.identity().erasedName().equals(right.identity().erasedName())
+        && left.structure().isPresent() && left.structure().equals(right.structure());
   }
 
   private static void requireCompleteAnnotations(SyntaxNode physicalOwner, SyntaxNode context, SyntaxValue.SharedTypeAnnotations shared) {

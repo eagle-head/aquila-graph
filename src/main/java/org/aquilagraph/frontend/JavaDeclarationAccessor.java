@@ -23,6 +23,7 @@ import com.sun.source.tree.LabeledStatementTree;
 import com.sun.source.tree.BreakTree;
 import com.sun.source.tree.ContinueTree;
 import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewArrayTree;
@@ -52,6 +53,7 @@ final class JavaDeclarationAccessor {
   private static final String MODIFIERS = "getModifiers";
   private static final String TYPE_PARAMETERS = "getTypeParameters";
   private static final Map<Method, Function<Object, @Nullable Object>> READERS = Map.ofEntries(
+      reader(BlockTree.class, "isStatic", BlockTree::isStatic), reader(BlockTree.class, "getStatements", BlockTree::getStatements),
       reader(ClassTree.class, "getExtendsClause", ClassTree::getExtendsClause),
       reader(ClassTree.class, "getImplementsClause", ClassTree::getImplementsClause),
       reader(ClassTree.class, "getMembers", ClassTree::getMembers), reader(ClassTree.class, MODIFIERS, ClassTree::getModifiers),

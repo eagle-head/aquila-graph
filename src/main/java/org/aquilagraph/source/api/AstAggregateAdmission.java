@@ -27,6 +27,10 @@ public final class AstAggregateAdmission {
     values.sources().forEach(builder::add);
     values.bodies().forEach(body -> builder.addMethodBody(body.methodKey(), body.root(), body.origin(), body.uses(), body.invocations(),
         body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences()));
+    values.scopes()
+        .forEach(scope -> builder.addDeclarationScope(scope.scope(), scope.root(),
+            new ExecutionDecisionRegistration(scope.uses(), scope.invocations(), scope.staticAccesses(), scope.concatenations(), List.of()),
+            scope.attributedOccurrences()));
     values.memberOrders().forEach(builder::addDeclarationMemberOrder);
     values.associations().forEach(builder::addWrittenSourceAssociation);
     values.declarationTypes().forEach(builder::addDeclarationTypeEvidence);

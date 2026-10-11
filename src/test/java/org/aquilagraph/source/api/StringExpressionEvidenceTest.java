@@ -12,11 +12,19 @@ import org.junit.jupiter.api.Test;
 class StringExpressionEvidenceTest {
   @Test
   void givenEitherOrBothStringOperands_whenRetaining_thenEachClassificationIsIndependentOfRuntimeConversionPolicy() {
+    // Arrange
     var classifications = List.of(List.of(true, true), List.of(false, true), List.of(true, false));
-    for (var pair : classifications) {
-      var evidence = new StringExpressionEvidence("method", "binary", stringType(), known(StringExpressionEvidence.LEFT_SLOT, pair.getFirst()),
-          known(StringExpressionEvidence.RIGHT_SLOT, pair.getLast()), known(StringExpressionEvidence.CONSTANT_SLOT, false));
-      assertEquals("method", evidence.methodKey());
+
+    // Act
+    var retained = classifications.stream().map(pair -> new StringExpressionEvidence("method", "binary", stringType(),
+        known(StringExpressionEvidence.LEFT_SLOT, pair.getFirst()), known(StringExpressionEvidence.RIGHT_SLOT, pair.getLast()),
+        known(StringExpressionEvidence.CONSTANT_SLOT, false))).toList();
+
+    // Assert
+    for (var index = 0; index < classifications.size(); index++) {
+      var pair = classifications.get(index);
+      var evidence = retained.get(index);
+      assertEquals("method", evidence.scopeKey());
       assertEquals("binary", evidence.binaryNodeId());
       assertEquals(stringType(), evidence.stringType());
       assertEquals(Optional.of(pair.getFirst()), evidence.leftIsString().knownValue());

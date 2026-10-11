@@ -21,6 +21,8 @@ import org.junit.jupiter.api.Test;
 class JavaDeclarationPropertyCoverageTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final Set<String> EXPECTED_PROPERTIES = Set.of(
+      "BlockTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", "BlockTree::Tree#getKind()",
+      "BlockTree::BlockTree#isStatic()", "BlockTree::BlockTree#getStatements()",
       "MemberSelectTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", "MemberSelectTree::Tree#getKind()",
       "MemberSelectTree::MemberSelectTree#getIdentifier()", "MemberSelectTree::MemberSelectTree#getExpression()",
       "TryTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", "TryTree::Tree#getKind()",
@@ -182,6 +184,7 @@ class JavaDeclarationPropertyCoverageTest {
       "ExecutableElement::ExecutableElement#isDefault()",
       "ExecutableElement::ExecutableElement#isVarArgs()");
   private static final Set<String> EXPECTED_IRRELEVANT_PROPERTIES = Set.of(
+      "BlockTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "MemberSelectTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "TryTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "CatchTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
@@ -409,7 +412,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:aa7f14c098cdf30b107ec6b2c7670c85cc1f66fd4001c71b0287f664a907503d",
+    assertEquals("java-language-feature-coverage:eef5d9c12e297d9a4b530a7b84d7f7d25af272382b954b8ace2efb7522d2ccb6",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 

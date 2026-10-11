@@ -4,10 +4,10 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Selected ordinary conversion at one method-owned direct child use.
+ * Selected ordinary conversion at one execution-scope-owned direct child use.
  *
- * @param methodKey
- *          canonical owning method key
+ * @param scopeKey
+ *          canonical owning execution scope key
  * @param consumerNodeId
  *          consuming syntax node identity
  * @param role
@@ -29,13 +29,13 @@ import java.util.Optional;
  * @param boxedType
  *          selected wrapper type
  */
-public record ConversionEvidence(String methodKey, String consumerNodeId, SyntaxRole role, int position, JavaTypeIdentity sourceType,
+public record ConversionEvidence(String scopeKey, String consumerNodeId, SyntaxRole role, int position, JavaTypeIdentity sourceType,
     JavaTypeIdentity selectedTarget, Optional<JavaTypeIdentity> checkedReferenceTarget, Optional<JavaTypeIdentity> unboxedType,
     Optional<JavaTypeIdentity> effectivePrimitiveType, Optional<JavaTypeIdentity> preBoxPrimitiveType,
     Optional<JavaTypeIdentity> boxedType) {
   /** Validates the supplied value shape without authenticating compiler selection. */
   public ConversionEvidence {
-    DecisionValueValidation.requireKey(methodKey, "methodKey");
+    DecisionValueValidation.requireKey(scopeKey, "scopeKey");
     DecisionValueValidation.requireKey(consumerNodeId, "consumerNodeId");
     Objects.requireNonNull(role, "role");
     if (position < 0) {

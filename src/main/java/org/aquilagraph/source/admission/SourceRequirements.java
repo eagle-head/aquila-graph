@@ -11,7 +11,9 @@ import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
-import org.aquilagraph.source.api.MethodSyntax;
+import org.aquilagraph.source.api.ExecutionSyntax;
+import org.aquilagraph.source.api.ExecutionScope;
+import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.JavaSourceKind;
@@ -32,9 +34,12 @@ final class SourceRequirements {
         || input.languageFeatureCoverageResult().validationEvidence().outcomes().stream()
             .anyMatch(outcome -> outcome.support().mode() == FeatureContextOutcome.Mode.FAILED)
         || !input.languageFeatureCoverageResult().validationEvidence().unmatchedFacts().isEmpty()
-        || input.aggregate().orElseThrow().nodes().stream().anyMatch(node -> hasRequiredSourceGap(node) || hasProfileGap(node, profile))
-        || input.program().methods().stream().flatMap(method -> input.aggregate().orElseThrow().methodSyntax(method.methodKey()).stream())
-            .anyMatch(SourceRequirements::hasRequiredBodyFactGap)
+        || input.aggregate().orElseThrow().nodes().stream()
+            .anyMatch(node -> hasRequiredSourceGap(node, profile) || hasProfileGap(node, profile)
+                || hasDeclarationScopeGap(input.aggregate().orElseThrow(), node, profile))
+        || input.aggregate().orElseThrow().executionScopes().stream()
+            .flatMap(scope -> input.aggregate().orElseThrow().executionSyntax(scope.key()).stream())
+            .anyMatch(execution -> hasRequiredExecutionFactGap(execution, profile))
         || input.program().types().stream().flatMap(type -> type.methods().stream()).filter(method -> method.hasBody())
             .anyMatch(method -> input.aggregate().orElseThrow().methodBodyOrigin(method.methodKey())
                 .map(origin -> origin == MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION).orElse(true))) {
@@ -71,10 +76,29 @@ final class SourceRequirements {
         || (!"_".equals(local.name()) && node.semanticReference().isEmpty());
   }
 
-  private static boolean hasRequiredBodyFactGap(MethodSyntax body) {
-    return !SourceFormRequirements.supportsBody(body.root()) || body.root().descendantsAndSelf().stream()
-        .anyMatch(node -> (isStaticMember(node) && body.staticAccess(node.nodeId()).flatMap(value -> value.declaringOwner().knownValue())
-            .flatMap(owner -> owner.declarationKey()).isEmpty()) || hasSelectedArgumentTargetGap(body, node));
+  private static boolean hasRequiredExecutionFactGap(ExecutionSyntax execution, AstProfile profile) {
+    if (profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION) && !(execution.scope() instanceof ExecutionScope.Method)
+        && execution.attributedOccurrences().stream().noneMatch(address -> address.nodeKey().equals(execution.root().nodeId()))) {
+      return true;
+    }
+    return !SourceFormRequirements.supportsBody(execution.root()) || execution.root().descendantsAndSelf().stream().anyMatch(
+        node -> (isStaticMember(node) && execution.staticAccess(node.nodeId()).flatMap(value -> value.declaringOwner().knownValue())
+            .flatMap(owner -> owner.declarationKey()).isEmpty()) || hasSelectedArgumentTargetGap(execution, node)
+            || (node.syntaxKind() == SyntaxKind.FIELD_DECLARATION && !node.children(SyntaxRole.INITIALIZER).isEmpty()
+                && execution.useEvidence(node.nodeId(), SyntaxRole.INITIALIZER, 0).isEmpty()));
+  }
+
+  private static boolean hasDeclarationScopeGap(JavaAstAggregate aggregate, SyntaxNode node, AstProfile profile) {
+    if (!profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION)) {
+      return false;
+    }
+    if (node.syntaxKind() == SyntaxKind.FIELD_DECLARATION) {
+      return aggregate.executionSyntax(node.value(SyntaxValue.VariableDeclaration.class).declarationKey())
+          .filter(scope -> scope.scope() instanceof ExecutionScope.Field).isEmpty();
+    }
+    return (node.syntaxKind() == SyntaxKind.STATIC_INITIALIZER_BLOCK || node.syntaxKind() == SyntaxKind.INSTANCE_INITIALIZER_BLOCK)
+        && aggregate.executionScopes().stream().filter(ExecutionScope.Initializer.class::isInstance)
+            .noneMatch(scope -> aggregate.executionSyntax(scope.key()).orElseThrow().root().nodeId().equals(node.nodeId()));
   }
 
   private static boolean isIteration(SyntaxKind kind) {
@@ -84,7 +108,7 @@ final class SourceRequirements {
     };
   }
 
-  private static boolean hasSelectedArgumentTargetGap(MethodSyntax body, SyntaxNode node) {
+  private static boolean hasSelectedArgumentTargetGap(ExecutionSyntax body, SyntaxNode node) {
     return (node.syntaxKind() == SyntaxKind.INVOCATION || node.syntaxKind() == SyntaxKind.OBJECT_CREATION)
         && node.children().stream().filter(child -> child.role() == SyntaxRole.ARGUMENT)
             .anyMatch(child -> body.useEvidence(node.nodeId(), child.role(), child.position()).isEmpty());
@@ -96,12 +120,12 @@ final class SourceRequirements {
             && invocation.form().isStatic());
   }
 
-  private static boolean hasRequiredSourceGap(SyntaxNode node) {
+  private static boolean hasRequiredSourceGap(SyntaxNode node, AstProfile profile) {
     if (node.syntaxKind() == SyntaxKind.TYPE_USE && node.value() instanceof SyntaxValue.PackageQualifier
         && node.type() == SyntaxType.NotApplicable.INSTANCE) {
       return false;
     }
-    if (!SourceFormRequirements.supports(node)) {
+    if (!SourceFormRequirements.supports(node, profile)) {
       return true;
     }
     if (node.syntaxKind().requiresType() && (!(node.type() instanceof SyntaxType.Resolved resolved)

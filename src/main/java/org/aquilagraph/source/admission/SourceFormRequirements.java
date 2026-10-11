@@ -8,6 +8,7 @@ import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeStructure;
+import org.aquilagraph.source.api.AstProfile;
 
 /** Source-owned form and written-role requirements shared by the initial two profile versions. */
 final class SourceFormRequirements {
@@ -104,6 +105,18 @@ final class SourceFormRequirements {
           ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, CONDITIONAL_EXPRESSION, EMPTY, ANY_PATTERN ->
         true;
     };
+  }
+
+  static boolean supports(SyntaxNode node, AstProfile profile) {
+    if (profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION)) {
+      if (node.syntaxKind() == SyntaxKind.STATIC_INITIALIZER_BLOCK || node.syntaxKind() == SyntaxKind.INSTANCE_INITIALIZER_BLOCK) {
+        return true;
+      }
+      if (node.syntaxKind() == SyntaxKind.FIELD_DECLARATION) {
+        return node.children(SyntaxRole.INITIALIZER).size() == (node.value(SyntaxValue.VariableDeclaration.class).initializer() ? 1 : 0);
+      }
+    }
+    return supports(node);
   }
 
   private static boolean isAssignable(SyntaxNode node) {

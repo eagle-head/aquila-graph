@@ -171,6 +171,18 @@ public final class SourceAnalysisFixture {
     return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.EXCEPTION_SOURCE_MODEL_VERSION);
   }
 
+  /**
+   * Admits compatible method values with the catalog preceding declaration initialization.
+   * @param original compatible values without declaration execution scopes
+   * @return class-literal format with its original coverage contract
+   */
+  public static AstResult classLiteralResult(AstResult original) {
+    var compatible = withCoverage(original, 13);
+    var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
+        compatible.diagnostics(), compatible.coverage());
+    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.CLASS_LITERAL_SOURCE_MODEL_VERSION);
+  }
+
   private static AstResult withCoverage(AstResult original, int formatVersion) {
     var updates = formatVersion >= 4;
     var arrays = formatVersion >= 5;
@@ -193,7 +205,8 @@ public final class SourceAnalysisFixture {
         "POSTFIX_DECREMENT", "INTERSECTION_TYPE");
     var catalog = LanguageFeatureCoverage.forRelease(original.coverage().coverage().release(),
         original.coverage().coverage().classifications().stream()
-            .filter(classification -> !classification.feature().identifier().startsWith("MemberSelectTree::") && (arrays || !classification.feature().identifier().startsWith("NewArrayTree::"))
+            .filter(classification -> !classification.feature().identifier().startsWith("BlockTree::")
+                && (formatVersion >= 13 || !classification.feature().identifier().startsWith("MemberSelectTree::")) && (arrays || !classification.feature().identifier().startsWith("NewArrayTree::"))
                 && exceptionSurfaces.stream().noneMatch(surface -> classification.feature().identifier().startsWith(surface + "::"))
                 && (references || !classification.feature().identifier().startsWith("MemberReferenceTree::"))
                 && (patterns || patternSurfaces.stream().noneMatch(surface -> classification.feature().identifier().startsWith(surface + "::")))
@@ -214,7 +227,8 @@ public final class SourceAnalysisFixture {
     var evidence = original.coverage().validationEvidence();
     var written = evidence.writtenInventory();
     var contexts = written.contexts().stream().filter(context -> context.feature()
-        .map(feature -> !feature.identifier().startsWith("MemberSelectTree::") && (arrays || !feature.identifier().startsWith("NewArrayTree::"))
+        .map(feature -> !feature.identifier().startsWith("BlockTree::")
+            && (formatVersion >= 13 || !feature.identifier().startsWith("MemberSelectTree::")) && (arrays || !feature.identifier().startsWith("NewArrayTree::"))
             && exceptionSurfaces.stream().noneMatch(surface -> feature.identifier().startsWith(surface + "::"))
             && (references || !feature.identifier().startsWith("MemberReferenceTree::"))
             && (patterns || patternSurfaces.stream().noneMatch(surface -> feature.identifier().startsWith(surface + "::")))

@@ -201,10 +201,12 @@
                   <exclude>org/aquilagraph/source/api/AstAggregateAdmission$*.class</exclude>
                   <exclude>org/aquilagraph/source/api/JavaAstAggregateBuilder.class</exclude>
                   <exclude>org/aquilagraph/source/api/JavaAstAggregateBuilder$*.class</exclude>
-                  <exclude>org/aquilagraph/source/api/MethodDecisionRegistration.class</exclude>
-                  <exclude>org/aquilagraph/source/api/MethodDecisionRegistration$*.class</exclude>
-                  <exclude>org/aquilagraph/source/api/MethodDecisionValidation.class</exclude>
-                  <exclude>org/aquilagraph/source/api/MethodDecisionValidation$*.class</exclude>
+                  <exclude>org/aquilagraph/source/api/AttributedDeclarationPaths.class</exclude>
+                  <exclude>org/aquilagraph/source/api/AttributedDeclarationPaths$*.class</exclude>
+                  <exclude>org/aquilagraph/source/api/ExecutionDecisionRegistration.class</exclude>
+                  <exclude>org/aquilagraph/source/api/ExecutionDecisionRegistration$*.class</exclude>
+                  <exclude>org/aquilagraph/source/api/ExecutionDecisionValidation.class</exclude>
+                  <exclude>org/aquilagraph/source/api/ExecutionDecisionValidation$*.class</exclude>
                 </excludes>
                 </resource>
               </resources>
@@ -228,10 +230,12 @@
                   <include>org/aquilagraph/source/api/AstAggregateAdmission$*.class</include>
                   <include>org/aquilagraph/source/api/JavaAstAggregateBuilder.class</include>
                   <include>org/aquilagraph/source/api/JavaAstAggregateBuilder$*.class</include>
-                  <include>org/aquilagraph/source/api/MethodDecisionRegistration.class</include>
-                  <include>org/aquilagraph/source/api/MethodDecisionRegistration$*.class</include>
-                  <include>org/aquilagraph/source/api/MethodDecisionValidation.class</include>
-                  <include>org/aquilagraph/source/api/MethodDecisionValidation$*.class</include>
+                  <include>org/aquilagraph/source/api/AttributedDeclarationPaths.class</include>
+                  <include>org/aquilagraph/source/api/AttributedDeclarationPaths$*.class</include>
+                  <include>org/aquilagraph/source/api/ExecutionDecisionRegistration.class</include>
+                  <include>org/aquilagraph/source/api/ExecutionDecisionRegistration$*.class</include>
+                  <include>org/aquilagraph/source/api/ExecutionDecisionValidation.class</include>
+                  <include>org/aquilagraph/source/api/ExecutionDecisionValidation$*.class</include>
                   </includes>
                 </resource>
               </resources>
@@ -433,8 +437,9 @@
               <excludes>
                 <exclude>org/aquilagraph/source/api/AstAggregateAdmission.java</exclude>
                 <exclude>org/aquilagraph/source/api/JavaAstAggregateBuilder.java</exclude>
-                <exclude>org/aquilagraph/source/api/MethodDecisionRegistration.java</exclude>
-                <exclude>org/aquilagraph/source/api/MethodDecisionValidation.java</exclude>
+                <exclude>org/aquilagraph/source/api/AttributedDeclarationPaths.java</exclude>
+                <exclude>org/aquilagraph/source/api/ExecutionDecisionRegistration.java</exclude>
+                <exclude>org/aquilagraph/source/api/ExecutionDecisionValidation.java</exclude>
               </excludes>
             </configuration>
             <phase>generate-sources</phase>
@@ -491,8 +496,9 @@
                 <include>org/aquilagraph/source/admission/**/*.java</include>
                 <include>org/aquilagraph/source/api/AstAggregateAdmission.java</include>
                 <include>org/aquilagraph/source/api/JavaAstAggregateBuilder.java</include>
-                <include>org/aquilagraph/source/api/MethodDecisionRegistration.java</include>
-                <include>org/aquilagraph/source/api/MethodDecisionValidation.java</include>
+                <include>org/aquilagraph/source/api/AttributedDeclarationPaths.java</include>
+                <include>org/aquilagraph/source/api/ExecutionDecisionRegistration.java</include>
+                <include>org/aquilagraph/source/api/ExecutionDecisionValidation.java</include>
               </includes>
             </configuration>
             <phase>process-sources</phase>

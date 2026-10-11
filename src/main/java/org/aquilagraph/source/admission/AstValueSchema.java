@@ -81,7 +81,8 @@ import org.aquilagraph.source.api.LanguageFeatureObservation;
 import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 import org.aquilagraph.source.api.LanguageFeaturePolicy;
 import org.aquilagraph.source.api.MethodBodyOrigin;
-import org.aquilagraph.source.api.MethodEvidence;
+import org.aquilagraph.source.api.ExecutionEvidence;
+import org.aquilagraph.source.api.ExecutionScope;
 import org.aquilagraph.source.api.PackageQualifierEvidence;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.ResolutionStatus;
@@ -133,12 +134,14 @@ final class AstValueSchema {
   private static final String KIND_FIELD = "kind";
   private static final String LEXICAL_OWNER_KEY_FIELD = "lexicalOwnerKey";
   private static final String METHOD_KEY_FIELD = "methodKey";
+  private static final String SCOPE_KEY_FIELD = "scopeKey";
   private static final String NAME_FIELD = "name";
   private static final String NODE_KEY_FIELD = "nodeKey";
   private static final String ORDINAL_FIELD = "ordinal";
   private static final String ORIGIN_FIELD = "origin";
   private static final String ORIGINS_FIELD = "origins";
   private static final String OWNER_KEY_FIELD = "ownerKey";
+  private static final String OWNER_PATH_FIELD = "ownerPath";
   private static final String OWNER_TYPE_KEY_FIELD = "ownerTypeKey";
   private static final String POSITION_FIELD = "position";
   private static final String QUALIFIED_NAME_FIELD = "qualifiedName";
@@ -235,7 +238,7 @@ final class AstValueSchema {
     record(types, CoverageSourceFact.Step.class, "coverage-source-fact/step", ROLE_FIELD, ORDINAL_FIELD);
     record(types, CoverageSourceFact.Child.class, "coverage-source-fact/child", ROLE_FIELD, ORDINAL_FIELD, NODE_KEY_FIELD);
     record(types, CoverageSourceFact.Association.class, "coverage-source-fact/association", NODE_KEY_FIELD, SOURCE_FILE_KEY_FIELD,
-        "ownerPath", SOURCE_KIND_FIELD, ORIGIN_FIELD);
+        OWNER_PATH_FIELD, SOURCE_KIND_FIELD, ORIGIN_FIELD);
     record(types, CoverageSyntaxFactValue.class, "coverage-syntax-fact-value", "structuralPath", SOURCE_KIND_FIELD, "syntaxKind",
         TYPE_FIELD, VALUE_FIELD, "children", "semanticReference", "sourceAssociation");
     record(types, CoverageSyntaxFactValue.Child.class, "coverage-syntax-fact-value/child", ROLE_FIELD, ORDINAL_FIELD, NODE_KEY_FIELD);
@@ -249,7 +252,9 @@ final class AstValueSchema {
     record(types, CoverageTypeStructure.Union.class, "coverage-type-structure/union", "alternatives");
     record(types, CoverageValidationEvidence.class, "coverage-validation-evidence", "writtenInventory", "attributedExpectations",
         "outcomes", "unmatchedFacts", "diagnosticEmissions");
-    record(types, DeclarationMemberOrder.class, "declaration-member-order", SOURCE_FILE_KEY_FIELD, OWNER_TYPE_KEY_FIELD, "members");
+    record(types, DeclarationMemberOrder.class, "declaration-member-order", SOURCE_FILE_KEY_FIELD, OWNER_TYPE_KEY_FIELD, "members",
+        "attributedTreeOrder");
+    record(types, DeclarationMemberOrder.TreeOrder.class, "declaration-member-order/tree-order", OWNER_PATH_FIELD, "members");
     record(types, DeclarationMemberOrder.Member.class, "declaration-member-order/member", DECLARATION_KEY_FIELD, KIND_FIELD, "displayValue",
         "provenance", "writtenOrdinal");
     record(types, DeclarationTypeEvidence.class, "declaration-type-evidence", OWNER_TYPE_KEY_FIELD, SOURCE_FILE_KEY_FIELD, IDENTITY_FIELD,
@@ -258,12 +263,12 @@ final class AstValueSchema {
     record(types, DiagnosticEmission.Address.class, "diagnostic-emission/address", "producer", "owner", ORDINAL_FIELD);
     enumeration(types, DiagnosticSeverity.class, "diagnostic-severity");
     enumeration(types, DiagnosticStage.class, "diagnostic-stage");
-    record(types, ConstructorEvidence.class, "constructor-evidence", METHOD_KEY_FIELD, "invocationNodeId", "ownerTypeKey",
+    record(types, ConstructorEvidence.class, "constructor-evidence", SCOPE_KEY_FIELD, "invocationNodeId", "ownerTypeKey",
         "selectedConstructorKey", FORM_FIELD, "corroboration");
     record(types, ConstructorContext.class, "constructor-context", "superclassParameterTypes", "insertedInvocation");
     record(types, CompilerInsertedInvocation.class, "compiler-inserted-invocation", SOURCE_FILE_KEY_FIELD, "compilerPath", "reference",
         "semantics", "applicability");
-    record(types, EvidenceOrigin.class, "evidence-origin", METHOD_KEY_FIELD, NODE_KEY_FIELD, "slot", "sourceRange");
+    record(types, EvidenceOrigin.class, "evidence-origin", SCOPE_KEY_FIELD, NODE_KEY_FIELD, "slot", "sourceRange");
     enumeration(types, EvidenceState.class, "evidence-state");
     record(types, EvidenceValue.class, "evidence-value", "state", "knownValue", ORIGIN_FIELD, "explanation", "diagnostic");
     record(types, FeatureContextOutcome.class, "feature-context-outcome", ADDRESS_FIELD, "occurrence", "observation", "encounteredValue",
@@ -271,7 +276,7 @@ final class AstValueSchema {
     record(types, FeatureContextOutcome.Support.class, "feature-context-outcome/support", MODE_FIELD, "facts", "policyContext",
         "sourceFile", "negativeState");
     enumeration(types, FeatureContextOutcome.Mode.class, "feature-context-outcome/mode");
-    record(types, InvocationApplicability.class, "invocation-applicability", METHOD_KEY_FIELD, "consumerNodeId", MODE_FIELD, "formalCount",
+    record(types, InvocationApplicability.class, "invocation-applicability", SCOPE_KEY_FIELD, "consumerNodeId", MODE_FIELD, "formalCount",
         "varargArrayType", "erasedArrayType", "elementType");
     enumeration(types, InvocationApplicabilityMode.class, "invocation-applicability-mode");
     record(types, InvocationEvidence.class, "invocation-evidence", "applicability");
@@ -328,7 +333,7 @@ final class AstValueSchema {
     record(types, LanguageFeatureOccurrence.class, "language-feature-occurrence", SOURCE_FILE_KEY_FIELD, "classification", ORIGINS_FIELD);
     enumeration(types, LanguageFeaturePolicy.class, "language-feature-policy");
     enumeration(types, MethodBodyOrigin.class, "method-body-origin");
-    record(types, MethodEvidence.class, "method-evidence", "uses", "invocations", "staticMembers", "stringExpressions", "constructors");
+    record(types, ExecutionEvidence.class, "method-evidence", "uses", "invocations", "staticMembers", "stringExpressions", "constructors");
     record(types, PackageQualifierEvidence.class, "package-qualifier-evidence", SOURCE_KIND_FIELD, ORIGIN_FIELD);
     enumeration(types, ReferenceKind.class, "reference-kind");
     enumeration(types, ResolutionStatus.class, "resolution-status");
@@ -336,16 +341,16 @@ final class AstValueSchema {
         "assignableToTypeNames");
     record(types, SourceContext.class, "source-context", ADDRESS_FIELD, "feature", ORIGINS_FIELD, "writtenValue", "requiresAttribution");
     enumeration(types, SourceContext.Partition.class, "source-context/partition");
-    record(types, SourceContext.Address.class, "source-context/address", SOURCE_FILE_KEY_FIELD, "partition", "ownerPath", ROLE_FIELD,
+    record(types, SourceContext.Address.class, "source-context/address", SOURCE_FILE_KEY_FIELD, "partition", OWNER_PATH_FIELD, ROLE_FIELD,
         ORDINAL_FIELD);
     record(types, SourceCoverageInventory.class, "source-coverage-inventory", "snapshot", "release", "contractIdentity", "contexts");
     record(types, SourceOwnerPath.class, "source-owner-path", "steps");
     record(types, SourceOwnerPath.Step.class, "source-owner-path/step", ROLE_FIELD, ORDINAL_FIELD);
     enumeration(types, SourceOwnerPath.Role.class, "source-owner-path/role");
-    record(types, StaticMemberEvidence.class, "static-member-evidence", METHOD_KEY_FIELD, "accessNodeId", "selectedMemberKey", KIND_FIELD,
+    record(types, StaticMemberEvidence.class, "static-member-evidence", SCOPE_KEY_FIELD, "accessNodeId", "selectedMemberKey", KIND_FIELD,
         "declaringOwner", "constantVariable");
     enumeration(types, StaticMemberKind.class, "static-member-kind");
-    record(types, StringExpressionEvidence.class, "string-expression-evidence", METHOD_KEY_FIELD, "binaryNodeId", "stringType",
+    record(types, StringExpressionEvidence.class, "string-expression-evidence", SCOPE_KEY_FIELD, "binaryNodeId", "stringType",
         "leftIsString", "rightIsString", "compileTimeConstant");
     record(types, SyntaxAnalysisInput.class, "syntax-analysis-input", "snapshot", "environmentSnapshot", "program", "aggregate",
         "diagnostics", "languageFeatureCoverageResult");
@@ -434,21 +439,26 @@ final class AstValueSchema {
     record(types, SyntaxValue.SwitchLabel.Expression.class, "syntax-value/switch-label/expression", "childPosition");
     record(types, SyntaxValue.SwitchLabel.Pattern.class, "syntax-value/switch-label/pattern", "childPosition");
     record(types, SyntaxValue.Unsupported.class, "syntax-value/unsupported", "compilerKind");
-    record(types, ChildUseEvidence.class, "child-use-evidence", METHOD_KEY_FIELD, "consumerNodeId", ROLE_FIELD, POSITION_FIELD,
-        "sourceType", "selectedTarget", "conversion", "referenceCheck");
-    record(types, ConversionEvidence.class, "conversion-evidence", METHOD_KEY_FIELD, "consumerNodeId", ROLE_FIELD, POSITION_FIELD,
+    record(types, ChildUseEvidence.class, "child-use-evidence", SCOPE_KEY_FIELD, "consumerNodeId", ROLE_FIELD, POSITION_FIELD, "sourceType",
+        "selectedTarget", "conversion", "referenceCheck");
+    record(types, ConversionEvidence.class, "conversion-evidence", SCOPE_KEY_FIELD, "consumerNodeId", ROLE_FIELD, POSITION_FIELD,
         "sourceType", "selectedTarget", "checkedReferenceTarget", "unboxedType", "effectivePrimitiveType", "preBoxPrimitiveType",
         "boxedType");
     record(types, UnmatchedSourceFact.class, "unmatched-source-fact", "owner", "fact", ORDINAL_FIELD, "reason", "emission");
     enumeration(types, UnmatchedSourceFact.Reason.class, "unmatched-source-fact/reason");
-    record(types, WrittenSourceAssociation.class, "written-source-association", NODE_KEY_FIELD, SOURCE_FILE_KEY_FIELD, "ownerPath",
+    record(types, WrittenSourceAssociation.class, "written-source-association", NODE_KEY_FIELD, SOURCE_FILE_KEY_FIELD, OWNER_PATH_FIELD,
         SOURCE_KIND_FIELD, ORIGIN_FIELD);
     record(types, WrittenTypeEvidence.class, "written-type-evidence", SOURCE_KIND_FIELD, ORIGIN_FIELD, TYPE_FIELD);
     record(types, CopiedAstValues.class, "copied-ast-values", "snapshot", "sources", "bodies", "memberOrders", "associations",
-        "declarationTypes");
+        "declarationTypes", "scopes");
+    record(types, ExecutionScope.Method.class, "execution-scope/method", "key");
+    record(types, ExecutionScope.Field.class, "execution-scope/field", "key", "ownerKey");
+    record(types, ExecutionScope.Initializer.class, "execution-scope/initializer", "key", "ownerKey", "origin", "kind");
+    record(types, CopiedAstValues.Scope.class, "copied-ast-values/scope", "scope", "root", "uses", "invocations", "staticAccesses",
+        "concatenations", "attributedOccurrences");
     record(types, CopiedAstValues.Body.class, "copied-ast-values/body", METHOD_KEY_FIELD, "root", ORIGIN_FIELD, "uses", "invocations",
         "staticAccesses", "concatenations", "constructors", "attributedOccurrences");
-    record(types, AttributedBodyOccurrence.class, "attributed-body-occurrence", METHOD_KEY_FIELD, "nodeKey", SOURCE_FILE_KEY_FIELD,
+    record(types, AttributedBodyOccurrence.class, "attributed-body-occurrence", SCOPE_KEY_FIELD, "nodeKey", SOURCE_FILE_KEY_FIELD,
         "sourceKind", "compilerPath");
     value(types, AnalysisDiagnostic.class, "analysis-diagnostic", "diagnosticKey", "code", "stage", "severity", "message", ORIGINS_FIELD,
         "outcomeKind");
@@ -548,6 +558,30 @@ final class AstValueSchema {
   record Shape(Class<?> type, String tag, List<String> fields, List<Method> accessors, @Nullable Constructor<?> constructor) {
     List<Object> components(Object value) {
       return accessors.stream().map(accessor -> invoke(accessor, value)).toList();
+    }
+
+    List<String> retainedFields(int version) {
+      var retained = version < 14 && (type == CopiedAstValues.class || type == DeclarationMemberOrder.class)
+          ? fields.subList(0, fields.size() - 1)
+          : fields;
+      return version < 14 ? retained.stream().map(field -> SCOPE_KEY_FIELD.equals(field) ? "methodKey" : field).toList() : retained;
+    }
+
+    List<Object> retainedComponents(Object value, int version) {
+      var values = components(value);
+      if (version < 14 && value instanceof CopiedAstValues copied) {
+        if (!copied.scopes().isEmpty()) {
+          throw new IllegalArgumentException("Declaration execution scopes require retained AST format java-source/14");
+        }
+        return values.subList(0, values.size() - 1);
+      }
+      if (version < 14 && value instanceof DeclarationMemberOrder order) {
+        if (order.attributedTreeOrder().isPresent()) {
+          throw new IllegalArgumentException("Attributed declaration tree order requires retained AST format java-source/14");
+        }
+        return values.subList(0, values.size() - 1);
+      }
+      return values;
     }
 
     Object construct(List<Object> values) {

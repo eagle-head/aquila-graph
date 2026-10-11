@@ -28,6 +28,7 @@ import com.sun.source.tree.SwitchTree;
 import com.sun.source.tree.SwitchExpressionTree;
 import com.sun.source.tree.YieldTree;
 import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewArrayTree;
@@ -48,7 +49,7 @@ import org.aquilagraph.source.api.LanguageFeatureCoverage;
 import org.junit.jupiter.api.Test;
 
 class DeclarationAccessorDispatchTest {
-  private static final List<Class<?>> SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
+  private static final List<Class<?>> SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class, BlockTree.class,
       VariableTree.class, NewArrayTree.class, AssertTree.class, SynchronizedTree.class, LambdaExpressionTree.class, MemberReferenceTree.class, MemberSelectTree.class, InstanceOfTree.class, BindingPatternTree.class, DeconstructionPatternTree.class, AnyPatternTree.class, WhileLoopTree.class, DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class, ContinueTree.class, SwitchTree.class, SwitchExpressionTree.class, CaseTree.class, YieldTree.class, TryTree.class, CatchTree.class, UnionTypeTree.class, TypeElement.class, ExecutableElement.class);
 
   @Test
@@ -75,7 +76,7 @@ class DeclarationAccessorDispatchTest {
         visited++;
       }
     }
-    assertEquals(141, visited);
+    assertEquals(144, visited);
   }
 
   @Test
@@ -101,7 +102,7 @@ class DeclarationAccessorDispatchTest {
         visited++;
       }
     }
-    assertEquals(141, visited);
+    assertEquals(144, visited);
   }
 
   @Test

@@ -23,7 +23,7 @@ class DurableSyntaxBoundaryTest {
   @Test
   void givenImmutableAggregateReader_whenCompiledReferencesAreInspected_thenAdmissionAndBuildersAreAbsent() throws IOException {
     // Arrange
-    var classFiles = List.of("JavaAstAggregate", "JavaAstAggregate$NodeFacts", "SourceBodyFacts", "MethodSyntax", "MethodDecisionIndex");
+    var classFiles = List.of("JavaAstAggregate", "JavaAstAggregate$NodeFacts", "SourceExecutionFacts", "ExecutionSyntax", "ExecutionScope", "MethodSyntax", "ExecutionDecisionIndex");
 
     // Act
     for (var name : classFiles) {
@@ -53,8 +53,8 @@ class DurableSyntaxBoundaryTest {
         WrittenSourceAssociation.class, WrittenTypeEvidence.class, PackageQualifierEvidence.class, ConversionEvidence.class,
         InvocationApplicability.class, InvocationApplicabilityMode.class, StaticMemberEvidence.class,
         StaticMemberKind.class, StringExpressionEvidence.class, EvidenceValue.class, EvidenceOrigin.class, EvidenceState.class,
-        AstContractException.class, MethodDecisionIndex.class,
-        MethodDecisionRegistration.class, MethodDecisionValidation.class, DecisionValueValidation.class,
+        AstContractException.class, ExecutionDecisionIndex.class,
+        ExecutionDecisionRegistration.class, ExecutionDecisionValidation.class, DecisionValueValidation.class,
         AttributedCoverageExpectations.class, CoverageAnnotationValue.class,
         Class.forName("org.aquilagraph.source.api.CoverageAnnotationValueSupport", false, CoverageAnnotationValue.class.getClassLoader()),
         Class.forName("org.aquilagraph.source.api.CoverageValueValidation", false, CoverageFactValue.class.getClassLoader()),

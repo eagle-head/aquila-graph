@@ -62,7 +62,7 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
     aggregate.ifPresent(value -> validateMethodSyntax(program, value));
     validateActualEvidence(snapshot, program, aggregate, diagnostics, languageFeatureCoverageResult);
     var retainedDiagnostics = diagnostics;
-    if (aggregate.stream().flatMap(value -> program.methods().stream().flatMap(method -> value.methodSyntax(method.methodKey()).stream()))
+    if (aggregate.stream().flatMap(value -> value.executionScopes().stream().flatMap(scope -> value.executionSyntax(scope.key()).stream()))
         .flatMap(body -> body.evidence().diagnostics().stream()).anyMatch(diagnostic -> !retainedDiagnostics.contains(diagnostic))) {
       throw new IllegalArgumentException("Evidence diagnostics must retain an exact emitted source diagnostic");
     }

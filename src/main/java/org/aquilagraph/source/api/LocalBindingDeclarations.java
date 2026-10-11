@@ -6,12 +6,12 @@ import java.util.Optional;
 import java.util.List;
 import org.aquilagraph.identity.api.SourceSpan;
 
-/** Intrinsic binding ownership and referability within an admitted executable body. */
+/** Intrinsic binding ownership and referability within an admitted execution scope. */
 final class LocalBindingDeclarations {
   private LocalBindingDeclarations() {
   }
 
-  static void validate(String methodKey, SyntaxNode root) {
+  static void validate(String scopeKey, SyntaxNode root) {
     var bindings = new HashMap<String, SyntaxNode>();
     var nodes = root.descendantsAndSelf();
     var parents = new HashMap<String, SyntaxNode>();
@@ -22,7 +22,7 @@ final class LocalBindingDeclarations {
         var copiedKey = local.bindingEvidence().flatMap(LocalBindingEvidence::declarationKey);
         var key = copiedKey.or(() -> node.semanticReference().flatMap(SemanticReference::symbolKey));
         key.ifPresent(identity -> {
-          if (!identity.startsWith(methodKey + ':') || bindings.putIfAbsent(identity, node) != null) {
+          if (!identity.startsWith(scopeKey + ':') || bindings.putIfAbsent(identity, node) != null) {
             throw new IllegalArgumentException("A local binding requires a unique identity in its declared executable owner");
           }
         });
@@ -32,7 +32,7 @@ final class LocalBindingDeclarations {
       if (node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS) {
         node.semanticReference()
             .filter(reference -> reference.referenceKind() == ReferenceKind.LOCAL && reference.status() == ResolutionStatus.RESOLVED)
-            .flatMap(SemanticReference::symbolKey).ifPresent(key -> validateAccess(methodKey, node, key, bindings, parents));
+            .flatMap(SemanticReference::symbolKey).ifPresent(key -> validateAccess(scopeKey, node, key, bindings, parents));
       }
     }
     validatePatternScopes(nodes);
@@ -81,10 +81,10 @@ final class LocalBindingDeclarations {
     }
   }
 
-  private static void validateAccess(String methodKey, SyntaxNode access, String key, Map<String, SyntaxNode> bindings,
+  private static void validateAccess(String scopeKey, SyntaxNode access, String key, Map<String, SyntaxNode> bindings,
       Map<String, SyntaxNode> parents) {
     var declaration = bindings.get(key);
-    if (declaration == null && key.startsWith(methodKey + ':') && hasUnsupportedOwner(access, parents)) {
+    if (declaration == null && key.startsWith(scopeKey + ':') && hasUnsupportedOwner(access, parents)) {
       return;
     }
     if (declaration == null || "_".equals(declaration.value(SyntaxValue.LocalDeclaration.class).name())
@@ -113,7 +113,9 @@ final class LocalBindingDeclarations {
     }
     var declarationStep = declaration.structuralPath().steps().getLast();
     var accessStep = accessPath.get(scopePath.size());
-    if (parent.syntaxKind() == SyntaxKind.BLOCK && declarationStep.role() == SyntaxRole.STATEMENT
+    var blockStatements = parent.syntaxKind() == SyntaxKind.BLOCK || parent.syntaxKind() == SyntaxKind.STATIC_INITIALIZER_BLOCK
+        || parent.syntaxKind() == SyntaxKind.INSTANCE_INITIALIZER_BLOCK;
+    if (blockStatements && declarationStep.role() == SyntaxRole.STATEMENT
         && (accessStep.role() != SyntaxRole.STATEMENT || accessStep.position() < declarationStep.position())) {
       throw new IllegalArgumentException("A local access cannot precede its binding declaration");
     }

@@ -15,6 +15,9 @@ public record AstProfile(String version) {
   /** Expanded non-preview Java 25 source profile; unrepresented forms remain incomplete. */
   public static final AstProfile JAVA_SOURCE_EXPANDED = new AstProfile("java-source-expanded/1");
 
+  /** Expanded Java 25 executable syntax in methods, fields and static/instance initializer blocks. */
+  public static final AstProfile JAVA_SOURCE_INITIALIZATION = new AstProfile("java-source-expanded/2");
+
   /** Requires an explicit version without interpreting unknown versions. */
   public AstProfile {
     if (Objects.requireNonNull(version, "version").isBlank()) {
@@ -28,6 +31,6 @@ public record AstProfile(String version) {
    * @return whether source admission recognizes this exact profile version
    */
   public boolean isSupported() {
-    return JAVA_SOURCE_BOUNDED.equals(this) || JAVA_SOURCE_EXPANDED.equals(this);
+    return JAVA_SOURCE_BOUNDED.equals(this) || JAVA_SOURCE_EXPANDED.equals(this) || JAVA_SOURCE_INITIALIZATION.equals(this);
   }
 }

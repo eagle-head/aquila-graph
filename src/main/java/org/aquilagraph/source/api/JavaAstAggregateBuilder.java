@@ -33,8 +33,8 @@ final class JavaAstAggregateBuilder {
   private final InputSnapshot snapshot;
   private final Map<String, SourceFile> sources = new HashMap<>();
   private final Map<String, SyntaxSourceContribution> contributions = new HashMap<>();
-  private final Map<String, SourceBodyFacts> methodBodies = new HashMap<>();
-  private final Map<String, MethodDecisionRegistration> methodDecisions = new HashMap<>();
+  private final Map<String, SourceExecutionFacts> executionScopes = new HashMap<>();
+  private final Map<String, ExecutionDecisionRegistration> executionDecisions = new HashMap<>();
   private final Map<String, DeclarationMemberOrder> declarationMemberOrders = new HashMap<>();
   private final Map<String, WrittenSourceAssociation> writtenSourceAssociations = new HashMap<>();
   private final Map<String, DeclarationTypeEvidence> declarationTypes = new HashMap<>();
@@ -89,12 +89,13 @@ final class JavaAstAggregateBuilder {
       throw new IllegalArgumentException("A method body root must be a block");
     }
     root.descendantsAndSelf();
-    var decisions = new MethodDecisionRegistration(uses, invocations, staticAccesses, concatenations, constructors);
-    validateAttributions(methodKey, root, attributedOccurrences);
-    if (methodBodies.putIfAbsent(methodKey, new SourceBodyFacts(root, origin, attributedOccurrences)) != null) {
+    var decisions = new ExecutionDecisionRegistration(uses, invocations, staticAccesses, concatenations, constructors);
+    var scope = new ExecutionScope.Method(methodKey);
+    validateAttributions(scope, root, attributedOccurrences);
+    if (executionScopes.putIfAbsent(methodKey, new SourceExecutionFacts(scope, root, Optional.of(origin), attributedOccurrences)) != null) {
       throw new IllegalArgumentException("Duplicate method body identity: " + methodKey);
     }
-    methodDecisions.put(methodKey, decisions);
+    executionDecisions.put(methodKey, decisions);
     return this;
   }
 
@@ -107,13 +108,30 @@ final class JavaAstAggregateBuilder {
     return this;
   }
 
-  private static void validateAttributions(String methodKey, SyntaxNode root, List<AttributedBodyOccurrence> attributedOccurrences) {
+  JavaAstAggregateBuilder addDeclarationScope(ExecutionScope scope, SyntaxNode root, ExecutionDecisionRegistration decisions,
+      List<AttributedBodyOccurrence> attributions) {
+    requireOpen();
+    if (scope instanceof ExecutionScope.Method) {
+      throw new IllegalArgumentException("A declaration registration cannot replace a method body");
+    }
+    validateAttributions(scope, root, attributions);
+    if (!decisions.constructors().isEmpty()) {
+      throw new IllegalArgumentException("Declaration initialization cannot own incoming constructor contexts");
+    }
+    if (executionScopes.putIfAbsent(scope.key(), new SourceExecutionFacts(scope, root, Optional.empty(), attributions)) != null) {
+      throw new IllegalArgumentException("Duplicate execution scope identity: " + scope.key());
+    }
+    executionDecisions.put(scope.key(), decisions);
+    return this;
+  }
+
+  private static void validateAttributions(ExecutionScope scope, SyntaxNode root, List<AttributedBodyOccurrence> attributedOccurrences) {
     var nodes = root.descendantsAndSelf().stream().collect(Collectors.toMap(SyntaxNode::nodeId, node -> node));
     var retainedKeys = new HashSet<String>();
     var attributedKeys = new HashSet<SyntaxNodeKey>();
     for (var occurrence : attributedOccurrences) {
       var node = nodes.get(occurrence.nodeKey());
-      if (!methodKey.equals(occurrence.methodKey()) || node == null || !node.sourceFileKey().equals(occurrence.sourceFileKey())
+      if (!scope.key().equals(occurrence.scopeKey()) || node == null || !node.sourceFileKey().equals(occurrence.sourceFileKey())
           || node.sourceKind() != occurrence.sourceKind() || !retainedKeys.add(occurrence.nodeKey())
           || !attributedKeys.add(SyntaxNodeKey.from(occurrence.sourceFileKey(), occurrence.compilerPath(), occurrence.sourceKind()))) {
         throw new IllegalArgumentException("Attributed body addresses require unique exact owned occurrences and source kinds");
@@ -143,8 +161,8 @@ final class JavaAstAggregateBuilder {
   JavaAstAggregate seal() {
     var validated = validate();
     return new JavaAstAggregate(validated.snapshot(), validated.roots(), validated.nodes(), validated.ownedNodes(),
-        validated.structuralEdges(), validated.semanticEdges(), validated.methodBodies(), validated.declarationMemberOrders(),
-        validated.methodDecisions(), validated.writtenSourceAssociations(), validated.declarationTypes());
+        validated.structuralEdges(), validated.semanticEdges(), validated.executionScopes(), validated.declarationMemberOrders(),
+        validated.executionDecisions(), validated.writtenSourceAssociations(), validated.declarationTypes());
   }
 
   ValidatedAggregate validate() {
@@ -178,13 +196,14 @@ final class JavaAstAggregateBuilder {
     validateAnnotationRanges(orderedNodes);
     validateSemanticEdges(semantic, nodes);
     validateMethodBodies(nodes);
+    validateAttributionOwnership(nodes);
     validateDeclarationMemberOrders(orderedNodes);
     validateDeclarationTypes(orderedNodes);
-    var decisionIndexes = new HashMap<String, MethodDecisionIndex>();
-    for (var body : methodBodies.entrySet()) {
+    var decisionIndexes = new HashMap<String, ExecutionDecisionIndex>();
+    for (var body : executionScopes.entrySet()) {
       decisionIndexes.put(body.getKey(),
-          MethodDecisionValidation.validate(body.getKey(), body.getValue().root(),
-              Objects.requireNonNull(methodDecisions.get(body.getKey()), "method decision registration"), nodes,
+          ExecutionDecisionValidation.validate(body.getKey(), body.getValue().root(),
+              Objects.requireNonNull(executionDecisions.get(body.getKey()), "method decision registration"), nodes,
               body.getValue().attributedOccurrences(), declarationMemberOrders));
     }
     var orderedStructural = new ArrayList<SyntaxStructuralEdge>();
@@ -193,8 +212,99 @@ final class JavaAstAggregateBuilder {
     }
     semantic.sort(SEMANTIC_ORDER);
     sealed = true;
-    return new ValidatedAggregate(snapshot, roots, orderedNodes, nodes, orderedStructural, semantic, methodBodies, declarationMemberOrders,
-        decisionIndexes, writtenSourceAssociations, declarationTypes);
+    return new ValidatedAggregate(snapshot, roots, orderedNodes, nodes, orderedStructural, semantic, executionScopes,
+        declarationMemberOrders, decisionIndexes, writtenSourceAssociations, declarationTypes);
+  }
+
+  private void validateAttributionOwnership(Map<String, SyntaxNode> nodes) {
+    var declarations = new AttributedDeclarationPaths(List.copyOf(declarationMemberOrders.values()), nodes, writtenSourceAssociations);
+    var addresses = new HashMap<SyntaxNodeKey, AttributedBodyOccurrence>();
+    for (var facts : executionScopes.values()) {
+      for (var occurrence : facts.attributedOccurrences()) {
+        var key = SyntaxNodeKey.from(occurrence.sourceFileKey(), occurrence.compilerPath(), occurrence.sourceKind());
+        if (addresses.putIfAbsent(key, occurrence) != null) {
+          throw new IllegalArgumentException("An attributed compiler address cannot belong to multiple execution occurrences");
+        }
+      }
+    }
+    executionScopes.values().forEach(facts -> validateExecutionAttributionPaths(facts, nodes, declarations));
+  }
+
+  private void validateExecutionAttributionPaths(SourceExecutionFacts facts, Map<String, SyntaxNode> nodes,
+      AttributedDeclarationPaths declarations) {
+    var occurrences = facts.attributedOccurrences();
+    if (occurrences.isEmpty()) {
+      return;
+    }
+    var root = facts.root();
+    var addresses = occurrences.stream().collect(Collectors.toMap(AttributedBodyOccurrence::nodeKey, occurrence -> occurrence));
+    var compilerRoot = Optional.ofNullable(addresses.get(root.nodeId()))
+        .orElseThrow(() -> new IllegalArgumentException("Execution attributions require their actual scope-root address")).compilerPath();
+    var constructor = nodes.values().stream()
+        .anyMatch(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration declaration
+            && declaration.declarationKey().equals(facts.scope().key())
+            && (declaration.kind() == ExecutableKind.CONSTRUCTOR || declaration.kind() == ExecutableKind.COMPACT_CONSTRUCTOR));
+    var method = facts.scope() instanceof ExecutionScope.Method;
+    if (!method || facts.methodOrigin().orElseThrow() == MethodBodyOrigin.SOURCE_AST) {
+      var association = writtenSourceAssociations.get(root.nodeId());
+      var expected = association == null
+          ? Optional.<SyntaxStructuralPath>empty()
+          : declarations.compilerPath(root.sourceFileKey(), association.ownerPath());
+      if ((!method && expected.isEmpty()) || (expected.isPresent() && !expected.orElseThrow().equals(compilerRoot))) {
+        throw new IllegalArgumentException(
+            "Execution attribution root must match its independently copied declaration owner and member order");
+      }
+    }
+    var statementOffset = method ? methodStatementOffset(root, compilerRoot, addresses) : 0;
+    var writtenDelegation = root.children(SyntaxRole.STATEMENT).stream()
+        .filter(statement -> statement.syntaxKind() == SyntaxKind.EXPRESSION_STATEMENT)
+        .map(statement -> statement.requiredChild(SyntaxRole.EXPRESSION))
+        .anyMatch(node -> node.value() instanceof SyntaxValue.Invocation invocation
+            && (invocation.form() == InvocationForm.SUPER_CONSTRUCTOR || invocation.form() == InvocationForm.THIS_CONSTRUCTOR));
+    if (!method) {
+      if (compilerRoot.steps().getLast().role() != SyntaxRole.MEMBER) {
+        throw new IllegalArgumentException("Declaration attributions require an actual compiler member-root address");
+      }
+    } else if (facts.methodOrigin().orElseThrow() != MethodBodyOrigin.SOURCE_AST) {
+      if (statementOffset != 0 || !compilerRoot.equals(root.structuralPath())) {
+        throw new IllegalArgumentException("Auxiliary method attribution paths cannot be rebased");
+      }
+    } else if (statementOffset < 0 || statementOffset > 1 || (statementOffset != 0 && (!constructor || writtenDelegation))
+        || !compilerRoot.steps().getLast().equals(new SyntaxStructuralPath.Step(SyntaxRole.BODY, 0))) {
+      throw new IllegalArgumentException("Source method attribution paths require their body and constructor correspondence");
+    }
+    for (var node : root.descendantsAndSelf()) {
+      var occurrence = addresses.get(node.nodeId());
+      if (occurrence == null) {
+        continue;
+      }
+      var relative = node.structuralPath().steps().subList(root.structuralPath().steps().size(), node.structuralPath().steps().size());
+      var expected = compilerRoot;
+      for (var index = 0; index < relative.size(); index++) {
+        var step = relative.get(index);
+        expected = expected.child(step.role(), step.position() + (index == 0 && step.role() == SyntaxRole.STATEMENT ? statementOffset : 0));
+      }
+      if (!expected.equals(occurrence.compilerPath())) {
+        throw new IllegalArgumentException("Execution attribution paths must preserve exact scope-relative occurrences");
+      }
+    }
+  }
+
+  private static int methodStatementOffset(SyntaxNode root, SyntaxStructuralPath compilerRoot,
+      Map<String, AttributedBodyOccurrence> addresses) {
+    var rootDepth = root.structuralPath().steps().size();
+    for (var node : root.descendantsAndSelf()) {
+      var address = addresses.get(node.nodeId());
+      if (address != null && node.structuralPath().steps().size() > rootDepth
+          && address.compilerPath().steps().size() > compilerRoot.steps().size()) {
+        var retained = node.structuralPath().steps().get(rootDepth);
+        var step = address.compilerPath().steps().get(compilerRoot.steps().size());
+        if (retained.role() == SyntaxRole.STATEMENT && step.role() == SyntaxRole.STATEMENT) {
+          return step.position() - retained.position();
+        }
+      }
+    }
+    return 0;
   }
 
   private void validateDeclarationTypes(List<SyntaxNode> nodes) {
@@ -237,19 +347,25 @@ final class JavaAstAggregateBuilder {
 
   private void validateDeclarationMemberOrders(List<SyntaxNode> nodes) {
     for (var order : declarationMemberOrders.values()) {
-      var owner = nodes.stream().filter(node -> node.sourceFileKey().equals(order.sourceFileKey())
-          && node.value() instanceof SyntaxValue.TypeDeclaration declaration && declaration.declarationKey().equals(order.ownerTypeKey()))
-          .findFirst();
-      var compactOwner = nodes.stream()
-          .filter(node -> node.sourceFileKey().equals(order.sourceFileKey()) && node.value() instanceof SyntaxValue.CompilationUnit unit
-              && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT)
-          .anyMatch(node -> node.children(SyntaxRole.COMPACT_MEMBER).stream()
-              .anyMatch(member -> member.value() instanceof SyntaxValue.ExecutableDeclaration declaration
-                  && declaration.ownerKey().equals(order.ownerTypeKey())));
-      if (owner.isEmpty() && !compactOwner) {
+      if (nodes.stream().noneMatch(node -> sourceMemberRole(node, order.sourceFileKey(), order.ownerTypeKey()).isPresent())) {
         throw new IllegalArgumentException("Declaration member order requires an actual source-owned declaration");
       }
     }
+  }
+
+  private static Optional<SyntaxRole> sourceMemberRole(SyntaxNode node, String sourceFileKey, String ownerKey) {
+    if (!node.sourceFileKey().equals(sourceFileKey)) {
+      return Optional.empty();
+    }
+    if (node.value() instanceof SyntaxValue.TypeDeclaration declaration && declaration.declarationKey().equals(ownerKey)) {
+      return Optional.of(SyntaxRole.MEMBER);
+    }
+    if (node.value() instanceof SyntaxValue.CompilationUnit unit && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT
+        && node.children(SyntaxRole.COMPACT_MEMBER).stream().anyMatch(
+            member -> member.value() instanceof SyntaxValue.ExecutableDeclaration declaration && declaration.ownerKey().equals(ownerKey))) {
+      return Optional.of(SyntaxRole.COMPACT_MEMBER);
+    }
+    return Optional.empty();
   }
 
   private void validateMethodBodies(Map<String, SyntaxNode> nodes) {
@@ -261,10 +377,14 @@ final class JavaAstAggregateBuilder {
         .forEach(declaration -> declaration.children(SyntaxRole.BODY).forEach(body -> sourceBodyOwners.put(body, methodKey))));
     var rootOwners = new IdentityHashMap<SyntaxNode, String>();
     var auxiliaryOwners = new IdentityHashMap<SyntaxNode, String>();
-    for (var entry : methodBodies.entrySet()) {
+    for (var entry : executionScopes.entrySet()) {
       var methodKey = entry.getKey();
       var registration = entry.getValue();
       var root = registration.root();
+      if (!(registration.scope() instanceof ExecutionScope.Method)) {
+        validateDeclarationScope(registration, nodes);
+        continue;
+      }
       LocalBindingDeclarations.validate(methodKey, root);
       if (!sources.containsKey(root.sourceFileKey())) {
         throw new IllegalArgumentException("Method body source is not in the captured snapshot: " + methodKey);
@@ -280,7 +400,7 @@ final class JavaAstAggregateBuilder {
         throw new IllegalArgumentException(
             "Method body root is shared by executable declarations: " + previousRootOwner + " and " + methodKey);
       }
-      if (registration.origin() == MethodBodyOrigin.SOURCE_AST) {
+      if (registration.methodOrigin().orElseThrow() == MethodBodyOrigin.SOURCE_AST) {
         if (!sourceInstances.contains(root)) {
           throw new IllegalArgumentException("Source method body must be the identical aggregate occurrence: " + methodKey);
         }
@@ -291,7 +411,7 @@ final class JavaAstAggregateBuilder {
         }
       }
       for (var node : root.descendantsAndSelf()) {
-        if (registration.origin() != MethodBodyOrigin.SOURCE_AST) {
+        if (registration.methodOrigin().orElseThrow() != MethodBodyOrigin.SOURCE_AST) {
           var previousOwner = auxiliaryOwners.putIfAbsent(node, methodKey);
           if (previousOwner != null) {
             throw new IllegalArgumentException(
@@ -303,11 +423,42 @@ final class JavaAstAggregateBuilder {
           validateAuxiliaryBodyNode(node, root.sourceFileKey(), methodKey);
         }
       }
-      if (registration.origin() != MethodBodyOrigin.SOURCE_AST && sourceExecutables.getOrDefault(methodKey, List.of()).stream()
-          .anyMatch(declaration -> !declaration.children(SyntaxRole.BODY).isEmpty())) {
+      if (registration.methodOrigin().orElseThrow() != MethodBodyOrigin.SOURCE_AST && sourceExecutables.getOrDefault(methodKey, List.of())
+          .stream().anyMatch(declaration -> !declaration.children(SyntaxRole.BODY).isEmpty())) {
         throw new IllegalArgumentException("A published written body must retain its source occurrence provenance: " + methodKey);
       }
     }
+  }
+
+  private static void validateDeclarationScope(SourceExecutionFacts facts, Map<String, SyntaxNode> nodes) {
+    var root = facts.root();
+    if (!ownedInstances(nodes).contains(root)) {
+      throw new IllegalArgumentException("A declaration scope requires its identical canonical source anchor");
+    }
+    String ownerKey;
+    if (facts.scope() instanceof ExecutionScope.Field field) {
+      if (root.syntaxKind() != SyntaxKind.FIELD_DECLARATION
+          || !root.value(SyntaxValue.VariableDeclaration.class).declarationKey().equals(field.key())
+          || !root.value(SyntaxValue.VariableDeclaration.class).ownerKey().equals(field.ownerKey())) {
+        throw new IllegalArgumentException("A field scope requires its exact source declaration and owner");
+      }
+      ownerKey = field.ownerKey();
+    } else if (facts.scope() instanceof ExecutionScope.Initializer initializer) {
+      if (!root.origin().equals(Optional.of(initializer.origin())) || root.syntaxKind() != initializer.kind()) {
+        throw new IllegalArgumentException("An initializer scope requires its exact written block occurrence");
+      }
+      ownerKey = initializer.ownerKey();
+    } else {
+      throw new IllegalArgumentException("A declaration scope requires field or initializer ownership");
+    }
+    var ownedMember = nodes.values().stream()
+        .anyMatch(node -> sourceMemberRole(node, root.sourceFileKey(), ownerKey)
+            .filter(role -> role == SyntaxRole.MEMBER || facts.scope() instanceof ExecutionScope.Field)
+            .filter(role -> node.children(role).stream().anyMatch(member -> member.nodeId().equals(root.nodeId()))).isPresent());
+    if (!ownedMember) {
+      throw new IllegalArgumentException("A declaration execution anchor must belong directly to its actual type owner");
+    }
+    LocalBindingDeclarations.validate(facts.scope().key(), root);
   }
 
   private void validateAuxiliaryBodyNode(SyntaxNode node, String sourceFileKey, String methodKey) {
@@ -872,8 +1023,8 @@ final class JavaAstAggregateBuilder {
   }
 
   record ValidatedAggregate(InputSnapshot snapshot, List<SyntaxNode> roots, List<SyntaxNode> nodes, Map<String, SyntaxNode> ownedNodes,
-      List<SyntaxStructuralEdge> structuralEdges, List<SyntaxSemanticEdge> semanticEdges, Map<String, SourceBodyFacts> methodBodies,
-      Map<String, DeclarationMemberOrder> declarationMemberOrders, Map<String, MethodDecisionIndex> methodDecisions,
+      List<SyntaxStructuralEdge> structuralEdges, List<SyntaxSemanticEdge> semanticEdges, Map<String, SourceExecutionFacts> executionScopes,
+      Map<String, DeclarationMemberOrder> declarationMemberOrders, Map<String, ExecutionDecisionIndex> executionDecisions,
       Map<String, WrittenSourceAssociation> writtenSourceAssociations, Map<String, DeclarationTypeEvidence> declarationTypes) {
   }
 

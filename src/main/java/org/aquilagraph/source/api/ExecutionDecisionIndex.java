@@ -4,10 +4,10 @@ import java.util.Map;
 import java.util.Optional;
 
 /** Immutable indexes scoped to one admitted body registration. */
-record MethodDecisionIndex(Map<UseKey, ChildUseEvidence> uses, Map<String, InvocationEvidence> invocations,
+record ExecutionDecisionIndex(Map<UseKey, ChildUseEvidence> uses, Map<String, InvocationEvidence> invocations,
     Map<String, StaticMemberEvidence> staticAccesses, Map<String, StringExpressionEvidence> concatenations,
     Map<String, ConstructorEvidence> constructors) {
-  MethodDecisionIndex {
+  ExecutionDecisionIndex {
     uses = Map.copyOf(uses);
     invocations = Map.copyOf(invocations);
     staticAccesses = Map.copyOf(staticAccesses);

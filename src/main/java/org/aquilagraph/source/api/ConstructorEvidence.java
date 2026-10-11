@@ -7,7 +7,7 @@ import java.util.Optional;
 /**
  * Required constructor selection retained independently of optional inserted-call corroboration.
  *
- * @param methodKey
+ * @param scopeKey
  *          canonical containing constructor
  * @param invocationNodeId
  *          exact creating body occurrence
@@ -20,21 +20,21 @@ import java.util.Optional;
  * @param corroboration
  *          independent superclass declaration and insertion evidence
  */
-public record ConstructorEvidence(String methodKey, String invocationNodeId, String ownerTypeKey, String selectedConstructorKey,
+public record ConstructorEvidence(String scopeKey, String invocationNodeId, String ownerTypeKey, String selectedConstructorKey,
     InvocationForm form, EvidenceValue<ConstructorContext> corroboration) {
   /** Exact creating slot for optional constructor corroboration. */
   public static final String SLOT = "constructor.context";
 
   /** Checks supplied owned slots without choosing runtime bindings or argument adaptation. */
   public ConstructorEvidence {
-    DecisionValueValidation.requireKey(methodKey, "methodKey");
+    DecisionValueValidation.requireKey(scopeKey, "scopeKey");
     DecisionValueValidation.requireKey(invocationNodeId, "invocationNodeId");
     DecisionValueValidation.requireKey(ownerTypeKey, "ownerTypeKey");
     DecisionValueValidation.requireKey(selectedConstructorKey, "selectedConstructorKey");
     Objects.requireNonNull(form, "form");
     Objects.requireNonNull(corroboration, "corroboration");
     var origin = corroboration.origin();
-    if (!methodKey.equals(origin.methodKey()) || !invocationNodeId.equals(origin.nodeKey()) || !SLOT.equals(origin.slot())
+    if (!scopeKey.equals(origin.scopeKey()) || !invocationNodeId.equals(origin.nodeKey()) || !SLOT.equals(origin.slot())
         || (form != InvocationForm.SUPER_CONSTRUCTOR && form != InvocationForm.THIS_CONSTRUCTOR)
         || corroboration.state() == EvidenceState.NOT_APPLICABLE) {
       throw new IllegalArgumentException("Constructor evidence requires its exact applicable creating slot and delegation form");
@@ -44,7 +44,7 @@ public record ConstructorEvidence(String methodKey, String invocationNodeId, Str
         throw new IllegalArgumentException("Inserted invocation contradicts the selected constructor");
       }
       var applicabilityOrigin = value.applicability().applicability().origin();
-      if (!methodKey.equals(applicabilityOrigin.methodKey()) || !invocationNodeId.equals(applicabilityOrigin.nodeKey())
+      if (!scopeKey.equals(applicabilityOrigin.scopeKey()) || !invocationNodeId.equals(applicabilityOrigin.nodeKey())
           || !origin.sourceRange().equals(applicabilityOrigin.sourceRange())) {
         throw new IllegalArgumentException("Inserted applicability must retain the exact creating constructor evidence slot");
       }
@@ -54,7 +54,7 @@ public record ConstructorEvidence(String methodKey, String invocationNodeId, Str
   /**
    * Copies actual public declaration types and insertion provenance.
    *
-   * @param methodKey
+   * @param scopeKey
    *          actual containing constructor
    * @param invocation
    *          actual correlated compiler occurrence
@@ -66,18 +66,18 @@ public record ConstructorEvidence(String methodKey, String invocationNodeId, Str
    *          ordered public superclass constructor types
    * @return independently retained constructor facts
    */
-  public static ConstructorEvidence known(String methodKey, SyntaxNode invocation, String ownerTypeKey, String selectedConstructorKey,
+  public static ConstructorEvidence known(String scopeKey, SyntaxNode invocation, String ownerTypeKey, String selectedConstructorKey,
       List<JavaTypeIdentity> superclassParameterTypes) {
     var selection = invocation.value(SyntaxValue.Invocation.class);
     var applicability = new InvocationEvidence(
-        EvidenceValue.missing(new EvidenceOrigin(methodKey, invocation.nodeId(), InvocationEvidence.SLOT, invocation.origin()),
+        EvidenceValue.missing(new EvidenceOrigin(scopeKey, invocation.nodeId(), InvocationEvidence.SLOT, invocation.origin()),
             "Compiler applicability has not yet been independently copied"));
     var inserted = selection.form() == InvocationForm.SUPER_CONSTRUCTOR && invocation.origin().isEmpty()
         ? Optional.of(new CompilerInsertedInvocation(invocation.sourceFileKey(), invocation.structuralPath(),
             invocation.requiredReference(), selection.semantics().orElseThrow(), applicability))
         : Optional.<CompilerInsertedInvocation>empty();
-    var origin = new EvidenceOrigin(methodKey, invocation.nodeId(), SLOT, invocation.origin());
-    return new ConstructorEvidence(methodKey, invocation.nodeId(), ownerTypeKey, selectedConstructorKey, selection.form(),
+    var origin = new EvidenceOrigin(scopeKey, invocation.nodeId(), SLOT, invocation.origin());
+    return new ConstructorEvidence(scopeKey, invocation.nodeId(), ownerTypeKey, selectedConstructorKey, selection.form(),
         EvidenceValue.known(new ConstructorContext(superclassParameterTypes, inserted), origin));
   }
 }

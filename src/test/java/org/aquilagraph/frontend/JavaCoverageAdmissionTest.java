@@ -765,8 +765,7 @@ class JavaCoverageAdmissionTest {
         new UnitPropertyFixture("package-qualified", "package sample.nested; class Example {}", "CompilationUnitTree::CompilationUnitTree#getPackageName()",
             CoveragePropertyValue.State.SCALAR, "MEMBER_SELECT:0", "sample.nested", List.of()),
         new UnitPropertyFixture("compact-types", "void main() {}", "CompilationUnitTree::CompilationUnitTree#getTypeDecls()",
-            CoveragePropertyValue.State.ITEMS, "CLASS:0", "CLASS", List.of("frontend.unrepresented-annotation-declaration",
-                "frontend.missing-source-evidence", "frontend.missing-source-evidence")));
+            CoveragePropertyValue.State.ITEMS, "CLASS:0", "CLASS", List.of()));
   }
 
   private static void assertUnitItemRejected(UnitPropertyFixture fixture, UnitItemField field) throws IOException {
@@ -1088,7 +1087,7 @@ class JavaCoverageAdmissionTest {
   }
 
   @Test
-  void givenSixDeclarationSurfaces_whenFrontendCapturesCoverage_thenEveryActualRepresentedAccessorHasIndependentEvidence() throws IOException {
+  void givenDeclarationPropertySurfaces_whenFrontendCapturesCoverage_thenEveryActualRepresentedAccessorHasIndependentEvidence() throws IOException {
     // Arrange
     var source = "class Example { int field; int value(int parameter) { return parameter; } }";
 
@@ -1099,7 +1098,7 @@ class JavaCoverageAdmissionTest {
         observation.classification().feature().category() == LanguageFeatureCategory.DECLARATION_PROPERTY).isPresent()).toList();
 
     // Assert
-    assertEquals(List.of("ClassTree", "CompilationUnitTree", "ExecutableElement", "MethodTree", "TypeElement", "VariableTree"),
+    assertEquals(List.of("BlockTree", "ClassTree", "CompilationUnitTree", "ExecutableElement", "MethodTree", "TypeElement", "VariableTree"),
         properties.stream().map(outcome -> outcome.address().role().substring(0, outcome.address().role().indexOf("::"))).distinct().sorted().toList());
     assertEquals(evidence.writtenInventory().contexts().stream().map(SourceContext::address).toList(), evidence.outcomes().stream().map(FeatureContextOutcome::address).toList());
     assertTrue(properties.stream().allMatch(outcome -> outcome.occurrence().isPresent() && outcome.encounteredValue().isPresent()));

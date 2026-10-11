@@ -14,17 +14,64 @@ import java.util.Optional;
  *          canonical declaring type identity
  * @param members
  *          copied direct members in compiler order
+ * @param attributedTreeOrder
+ *          parsed ownership of each attributed tree member, including inserted members without written owners
  */
-public record DeclarationMemberOrder(String sourceFileKey, String ownerTypeKey, List<Member> members) {
+public record DeclarationMemberOrder(String sourceFileKey, String ownerTypeKey, List<Member> members,
+    Optional<TreeOrder> attributedTreeOrder) {
   /** Validates source ownership and unique member identities without claiming compiler provenance. */
   public DeclarationMemberOrder {
     requireText(sourceFileKey);
     requireText(ownerTypeKey);
+    Objects.requireNonNull(attributedTreeOrder, "attributedTreeOrder");
     members = List.copyOf(Objects.requireNonNull(members, "members"));
     var keys = new HashSet<String>();
     for (var member : members) {
       if (member.declarationKey().equals(ownerTypeKey) || !keys.add(member.declarationKey())) {
         throw new IllegalArgumentException("Ordered declaration members require unique canonical owner identities");
+      }
+    }
+  }
+
+  /**
+   * Creates the historical element-order value without attributed tree correspondence.
+   *
+   * @param sourceFileKey
+   *          captured source identity
+   * @param ownerTypeKey
+   *          canonical declaring type identity
+   * @param members
+   *          copied element members
+   */
+  public DeclarationMemberOrder(String sourceFileKey, String ownerTypeKey, List<Member> members) {
+    this(sourceFileKey, ownerTypeKey, members, Optional.empty());
+  }
+
+  /**
+   * Independent parsed ownership in the actual attributed ClassTree member order.
+   *
+   * @param ownerPath
+   *          parsed type declaration path
+   * @param members
+   *          one slot per attributed tree member, empty only for compiler-inserted members
+   */
+  public record TreeOrder(SourceOwnerPath ownerPath, List<Optional<SourceOwnerPath>> members) {
+    /** Copies and validates direct, unique parsed member attachments. */
+    public TreeOrder {
+      Objects.requireNonNull(ownerPath, "ownerPath");
+      members = List.copyOf(Objects.requireNonNull(members, "members"));
+      var owners = new HashSet<SourceOwnerPath>();
+      for (var member : members) {
+        Objects.requireNonNull(member, "member").ifPresent(path -> {
+          if (!path.parent().equals(Optional.of(ownerPath)) || path.lastStep().orElseThrow().role() != SourceOwnerPath.Role.MEMBER
+              || !owners.add(path)) {
+            throw new IllegalArgumentException("Attributed tree order requires unique direct parsed member owners");
+          }
+        });
+      }
+      var writtenOrder = members.stream().flatMap(Optional::stream).map(path -> path.lastStep().orElseThrow().ordinal()).toList();
+      if (!writtenOrder.equals(writtenOrder.stream().sorted().toList())) {
+        throw new IllegalArgumentException("Attributed tree order must preserve parsed member ordering");
       }
     }
   }

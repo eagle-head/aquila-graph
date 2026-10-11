@@ -95,7 +95,7 @@ class StaticMemberEvidenceRetentionTest {
           EvidenceValue.<JavaTypeReference>erroneous(owner.origin(), "Owner erroneous"));
       incomplete.add(replaceMembers(original, members.stream().filter(value -> !value.equals(selected)).toList()));
       for (var variant : variants) {
-        var replacement = new StaticMemberEvidence(selected.methodKey(), selected.accessNodeId(), selected.selectedMemberKey(),
+        var replacement = new StaticMemberEvidence(selected.scopeKey(), selected.accessNodeId(), selected.selectedMemberKey(),
             selected.kind(), variant, selected.constantVariable());
         incomplete.add(replaceMembers(original, members.stream().map(value -> value.equals(selected) ? replacement : value).toList()));
       }
@@ -132,13 +132,13 @@ class StaticMemberEvidenceRetentionTest {
         EvidenceValue.<Boolean>erroneous(origin, "Classification erroneous"));
 
     for (var classification : classifications) {
-      var replacement = new StaticMemberEvidence(member.methodKey(), member.accessNodeId(), member.selectedMemberKey(), member.kind(),
+      var replacement = new StaticMemberEvidence(member.scopeKey(), member.accessNodeId(), member.selectedMemberKey(), member.kind(),
           member.declaringType(), classification);
       // Act
       var retained = replace(original, replacement);
       var decoded = AstCodec.decode(AstCodec.encode(retained), retained.identity());
       var outcome = CfgDerivers.standard().derive(decoded,
-          new CfgRequest(decoded.identity(), List.of(member.methodKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
+          new CfgRequest(decoded.identity(), List.of(member.scopeKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
 
       // Assert
       assertEquals(AstCompletion.COMPLETE, decoded.completion());
@@ -168,7 +168,7 @@ class StaticMemberEvidenceRetentionTest {
   }
 
   private static AstResult replace(AstResult original, StaticMemberEvidence replacement) {
-    var members = original.body(replacement.methodKey()).orElseThrow().evidence().staticMembers().stream()
+    var members = original.body(replacement.scopeKey()).orElseThrow().evidence().staticMembers().stream()
         .map(value -> value.accessNodeId().equals(replacement.accessNodeId()) ? replacement : value).toList();
     return replaceMembers(original, members);
   }

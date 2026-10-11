@@ -78,7 +78,7 @@ class DeclarationPropertyCorrespondenceTest {
   Path directory;
 
   @Test
-  void givenActualSixSurfaceProducer_whenReconciledAgainstEarlierCaptures_thenEveryEncounterRetainsItsExactPairAndValue()
+  void givenActualDeclarationPropertyProducer_whenReconciledAgainstEarlierCaptures_thenEveryEncounterRetainsItsExactPairAndValue()
       throws IOException {
     // Arrange
     var original = analyze();
@@ -92,7 +92,7 @@ class DeclarationPropertyCorrespondenceTest {
       assertEquals(List.of(), admitted.diagnostics());
       assertEquals(original.languageFeatureCoverageResult().validationEvidence().writtenInventory(), fixture.capture().inventory());
       assertEquals(original.languageFeatureCoverageResult().validationEvidence().attributedExpectations(), fixture.expectations());
-      assertEquals(Set.of("CompilationUnitTree", "ClassTree", "MethodTree", "VariableTree", "TypeElement", "ExecutableElement"),
+      assertEquals(Set.of("CompilationUnitTree", "ClassTree", "MethodTree", "VariableTree", "BlockTree", "TypeElement", "ExecutableElement"),
           Stream.concat(fixture.written().encounters().stream(), fixture.attributed().encounters().stream())
               .map(encounter -> encounter.address().role().substring(0, encounter.address().role().indexOf("::"))).collect(Collectors.toSet()));
       var outcomes = admitted.languageFeatureCoverageResult().validationEvidence().outcomes();

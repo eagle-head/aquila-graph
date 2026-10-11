@@ -49,10 +49,16 @@ final class JavaAnalysisPipeline {
           List.of(), List.of(), List.of());
       return AstResultAdmission.empty(snapshot, configuration, profile, coverage);
     }
-    return AstResultAdmission.outcome(analyze(snapshot, configuration), profile, semanticRevision);
+    return AstResultAdmission.outcome(analyze(snapshot, configuration, profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION)), profile,
+        semanticRevision);
   }
 
   SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
+    return analyze(snapshot, configuration, false);
+  }
+
+  private SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration, boolean memberInitialization)
+      throws IOException {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(configuration, "configuration");
     var compiler = systemCompiler(configuration);
@@ -84,7 +90,7 @@ final class JavaAnalysisPipeline {
       var typeEvidence = new JavaTypeKindObserver(sources, compilation.semantics(), compilation.sourceEvidence(),
           compilation.treeInventory(), languageFeatureCoverage).observe(compilation.units());
       var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
-          compilation.treeInventory(), languageFeatureCoverage).translate(snapshot, compilation.units());
+          compilation.treeInventory(), languageFeatureCoverage, memberInitialization).translate(snapshot, compilation.units());
       var annotationCompleteness = new JavaAnnotationCompleteness(annotationInventory, compilation.semantics(), translation.diagnostics());
       var typeUseEvents = JavaTypeUseCompleteness.diagnosticsWithEvents(snapshot, kindEvidence.observations(),
           translation.value().aggregate());

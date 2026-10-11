@@ -5,7 +5,7 @@ import java.util.Optional;
 import org.aquilagraph.identity.api.SourceSpan;
 
 /**
- * Independently retained applicability slot for an actual method-owned invocation.
+ * Independently retained applicability slot for an actual execution-scope-owned invocation.
  *
  * @param applicability
  *          typed copied classification and exact creating provenance
@@ -22,19 +22,19 @@ public record InvocationEvidence(EvidenceValue<InvocationApplicability> applicab
       throw new IllegalArgumentException("An invocation has one applicable, explicitly accounted classification slot");
     }
     applicability.knownValue().ifPresent(value -> {
-      if (!value.methodKey().equals(origin.methodKey()) || !value.consumerNodeId().equals(origin.nodeKey())) {
+      if (!value.scopeKey().equals(origin.scopeKey()) || !value.consumerNodeId().equals(origin.nodeKey())) {
         throw new IllegalArgumentException("Invocation classification differs from its exact creating occurrence");
       }
     });
   }
 
   /**
-   * Returns the exact containing method.
+   * Returns the exact containing execution scope.
    *
-   * @return canonical method key
+   * @return canonical execution scope key
    */
-  public String methodKey() {
-    return applicability.origin().methodKey();
+  public String scopeKey() {
+    return applicability.origin().scopeKey();
   }
 
   /**
@@ -57,6 +57,6 @@ public record InvocationEvidence(EvidenceValue<InvocationApplicability> applicab
    */
   public static InvocationEvidence known(InvocationApplicability value, Optional<SourceSpan> range) {
     Objects.requireNonNull(value, "value");
-    return new InvocationEvidence(EvidenceValue.known(value, new EvidenceOrigin(value.methodKey(), value.consumerNodeId(), SLOT, range)));
+    return new InvocationEvidence(EvidenceValue.known(value, new EvidenceOrigin(value.scopeKey(), value.consumerNodeId(), SLOT, range)));
   }
 }
