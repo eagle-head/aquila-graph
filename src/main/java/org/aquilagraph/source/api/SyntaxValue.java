@@ -1053,7 +1053,9 @@ public sealed interface SyntaxValue {
 
     private TypeDeclaration(String name, Details details) {
       super(name, Form.TYPE_DECLARATION, details);
-      SyntaxValueSupport.requireName(name);
+      if (!name.isEmpty()) {
+        SyntaxValueSupport.requireName(name);
+      }
       this.details = details;
     }
 

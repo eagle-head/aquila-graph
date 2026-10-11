@@ -57,6 +57,9 @@ final class SourceSwitchRequirements {
         return false;
       }
     }
+    if (node.syntaxKind() == SyntaxKind.TYPE_DECLARATION) {
+      return true;
+    }
     var selectedExpression = node.syntaxKind() == SyntaxKind.LAMBDA_EXPRESSION ? false : expression || enclosingExpression;
     return node.children().stream().allMatch(child -> supportsBody(child.node(), selectedExpression));
   }

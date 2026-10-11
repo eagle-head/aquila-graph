@@ -66,6 +66,7 @@ import org.aquilagraph.source.api.JavaRecordComponent;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.JavaSynthesizedDeclaration;
 import org.aquilagraph.source.api.JavaType;
+import org.aquilagraph.source.api.JavaTypeNesting;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
 import org.aquilagraph.source.api.JavaTypeKind;
@@ -132,6 +133,7 @@ final class AstValueSchema {
   private static final String FORM_FIELD = "form";
   private static final String IDENTITY_FIELD = "identity";
   private static final String KIND_FIELD = "kind";
+  private static final String STATIC_TYPE_FIELD = "staticType";
   private static final String LEXICAL_OWNER_KEY_FIELD = "lexicalOwnerKey";
   private static final String METHOD_KEY_FIELD = "methodKey";
   private static final String SCOPE_KEY_FIELD = "scopeKey";
@@ -284,11 +286,12 @@ final class AstValueSchema {
     enumeration(types, InvocationMode.class, "invocation-mode");
     record(types, InvocationSemantics.class, "invocation-semantics", MODE_FIELD, "qualifyingType", FORM_FIELD);
     enumeration(types, JavaDeclarationModifier.class, "java-declaration-modifier");
-    record(types, JavaField.class, "java-field", "fieldKey", OWNER_TYPE_KEY_FIELD, NAME_FIELD, "staticType", "modifiers", "enumConstant",
-        SOURCE_DECLARED_FIELD, ORIGINS_FIELD);
+    record(types, JavaField.class, "java-field", "fieldKey", OWNER_TYPE_KEY_FIELD, NAME_FIELD, STATIC_TYPE_FIELD, "modifiers",
+        "enumConstant", SOURCE_DECLARED_FIELD, ORIGINS_FIELD);
     record(types, JavaMethod.class, "java-method", METHOD_KEY_FIELD, OWNER_TYPE_KEY_FIELD, NAME_FIELD, "signature", RETURN_TYPE_FIELD,
         PARAMETERS_FIELD, "modifiers", "constructor", SOURCE_DECLARED_FIELD, "hasBody", ORIGINS_FIELD);
-    record(types, JavaParameter.class, "java-parameter", "parameterKey", NAME_FIELD, "staticType", SOURCE_DECLARED_FIELD, ORIGINS_FIELD);
+    record(types, JavaParameter.class, "java-parameter", "parameterKey", NAME_FIELD, STATIC_TYPE_FIELD, SOURCE_DECLARED_FIELD,
+        ORIGINS_FIELD);
     record(types, JavaProgram.class, "java-program", "types");
     record(types, JavaRecordComponent.class, "java-record-component", "componentKey", OWNER_TYPE_KEY_FIELD, ORDINAL_FIELD, NAME_FIELD,
         "staticType", WRITTEN_MODIFIERS_FIELD, EFFECTIVE_MODIFIERS_FIELD, VAR_ARGS_FIELD, "accessorKey", "backingFieldKey",
@@ -299,7 +302,10 @@ final class AstValueSchema {
     enumeration(types, JavaSynthesizedDeclaration.Kind.class, "java-synthesized-declaration/kind");
     record(types, JavaType.class, "java-type", "typeKey", QUALIFIED_NAME_FIELD, KIND_FIELD, "modifiers", ENCLOSING_TYPE_FIELD,
         "directSuperclass", "directInterfaces", "permittedSubclasses", "typeParameters", SOURCE_DECLARED_FIELD, "fields",
-        "recordComponents", "methods", "synthesizedDeclarations", ORIGINS_FIELD);
+        "recordComponents", "methods", "synthesizedDeclarations", ORIGINS_FIELD, "nesting", STATIC_TYPE_FIELD, "displayName");
+    record(types, JavaTypeNesting.class, "java-type-nesting", KIND_FIELD, "lexicalOwnerKey", "ownerDetails");
+    record(types, JavaTypeNesting.OwnerDetails.class, "java-type-nesting/owner-details", KIND_FIELD, "displayName", "written");
+    enumeration(types, JavaTypeNesting.Kind.class, "java-type-nesting/kind");
     enumeration(types, JavaTypeCategory.class, "java-type-category");
     record(types, JavaTypeIdentity.class, "java-type-identity", CATEGORY_FIELD, "displayName", "erasedName");
     enumeration(types, JavaTypeKind.class, "java-type-kind");
@@ -564,11 +570,20 @@ final class AstValueSchema {
       var retained = version < 14 && (type == CopiedAstValues.class || type == DeclarationMemberOrder.class)
           ? fields.subList(0, fields.size() - 1)
           : fields;
+      if (version < 15 && type == JavaType.class) {
+        retained = retained.subList(0, retained.size() - 3);
+      }
       return version < 14 ? retained.stream().map(field -> SCOPE_KEY_FIELD.equals(field) ? "methodKey" : field).toList() : retained;
     }
 
     List<Object> retainedComponents(Object value, int version) {
       var values = components(value);
+      if (version < 15 && value instanceof JavaType declaration) {
+        if (declaration.nesting().kind() == JavaTypeNesting.Kind.LOCAL || declaration.nesting().kind() == JavaTypeNesting.Kind.ANONYMOUS) {
+          throw new IllegalArgumentException("Nested declaration metadata requires retained AST format java-source/15");
+        }
+        return values.subList(0, values.size() - 3);
+      }
       if (version < 14 && value instanceof CopiedAstValues copied) {
         if (!copied.scopes().isEmpty()) {
           throw new IllegalArgumentException("Declaration execution scopes require retained AST format java-source/14");

@@ -425,7 +425,7 @@ class MemberInitializationAstTest {
     assertEquals(original.aggregate(), retained.aggregate());
     assertEquals(original.coverage(), retained.coverage());
     assertEquals(AstProfile.JAVA_SOURCE_INITIALIZATION, retained.profile());
-    assertEquals("java-source/14", retained.identity().sourceModelVersion());
+    assertEquals(AstResult.SOURCE_MODEL_VERSION, retained.identity().sourceModelVersion());
   }
 
   private AstResult produce(String source, AstProfile profile) throws IOException {

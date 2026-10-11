@@ -1,18 +1,32 @@
 package org.aquilagraph.source.api;
 
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /** Correlates parsed declaration attachments with independently retained attributed member order. */
 final class AttributedDeclarationPaths {
   private final Map<String, Map<SourceOwnerPath, DeclarationMemberOrder.TreeOrder>> orders;
+  private final Map<String, Map<SourceOwnerPath, JavaSourceKind>> sourceKinds;
+  private final Map<String, Map<SourceOwnerPath, Integer>> statementOffsets = new HashMap<>();
 
   AttributedDeclarationPaths(List<DeclarationMemberOrder> declarations, Map<String, SyntaxNode> nodes,
       Map<String, WrittenSourceAssociation> associations) {
+    sourceKinds = associations.values().stream()
+        .collect(Collectors.groupingBy(WrittenSourceAssociation::sourceFileKey,
+            Collectors.toMap(WrittenSourceAssociation::ownerPath,
+                association -> Objects.requireNonNull(nodes.get(association.nodeKey()), "parsed source occurrence").sourceKind(),
+                (first, second) -> {
+                  if (first != second) {
+                    throw new IllegalArgumentException("Parsed source owners require one exact source kind");
+                  }
+                  return first;
+                })));
     for (var declaration : declarations) {
       declaration.attributedTreeOrder().ifPresent(order -> {
         validateOwner(declaration, order, nodes, associations);
@@ -44,14 +58,26 @@ final class AttributedDeclarationPaths {
           throw new IllegalArgumentException("Attributed declaration order omits its actual parsed member");
         }
         attributed = attributed.child(SyntaxRole.MEMBER, position);
-      } else if (step.role() == SourceOwnerPath.Role.BODY && step.ordinal() == 0) {
-        attributed = attributed.child(SyntaxRole.BODY, 0);
       } else {
-        throw new IllegalArgumentException("Execution root requires a declaration member or method body attachment");
+        var parentKind = Optional.ofNullable(sourceKinds.getOrDefault(sourceFileKey, Map.of()).get(parsed));
+        var role = JavaSourcePathRoles.syntaxRole(step.role(), parentKind);
+        var offset = role == SyntaxRole.STATEMENT ? statementOffsets.getOrDefault(sourceFileKey, Map.of()).getOrDefault(parsed, 0) : 0;
+        attributed = attributed.child(role, step.ordinal() + offset);
       }
       parsed = next;
     }
     return Optional.of(attributed);
+  }
+
+  boolean requiresExactPath(String sourceFileKey, SourceOwnerPath ownerPath) {
+    // Earlier formats did not retain attributed member order for ordinary method bodies.
+    return orders.containsKey(sourceFileKey)
+        || ownerPath.steps().stream().anyMatch(step -> step.role() != SourceOwnerPath.Role.TYPE_DECLARATION
+            && step.role() != SourceOwnerPath.Role.MEMBER && step.role() != SourceOwnerPath.Role.BODY);
+  }
+
+  void retainStatementOffset(String sourceFileKey, SourceOwnerPath ownerPath, int offset) {
+    statementOffsets.computeIfAbsent(sourceFileKey, ignored -> new HashMap<>()).put(ownerPath, offset);
   }
 
   private static void validateOwner(DeclarationMemberOrder declaration, DeclarationMemberOrder.TreeOrder order,

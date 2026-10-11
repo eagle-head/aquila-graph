@@ -2,6 +2,7 @@ package org.aquilagraph.frontend;
 
 import java.util.Optional;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.VariableElement;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
@@ -23,7 +24,7 @@ final class JavaCoverageTypeProjection {
       case ArrayType array -> new CoverageTypeStructure.Array(copy(array.getComponentType(), semantics));
       case DeclaredType declared -> {
         var owner = declared.asElement().getEnclosingElement();
-        var lexical = owner instanceof TypeElement || owner instanceof ExecutableElement
+        var lexical = owner instanceof TypeElement || owner instanceof ExecutableElement || owner instanceof VariableElement
             ? semantics.declarationKey(owner)
             : Optional.<String>empty();
         yield new CoverageTypeStructure.Declared(semantics.declarationKey(declared.asElement()).orElseThrow(), lexical,

@@ -32,6 +32,7 @@ import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewArrayTree;
+import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import java.lang.reflect.InvocationHandler;
@@ -50,7 +51,7 @@ import org.junit.jupiter.api.Test;
 
 class DeclarationAccessorDispatchTest {
   private static final List<Class<?>> SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class, BlockTree.class,
-      VariableTree.class, NewArrayTree.class, AssertTree.class, SynchronizedTree.class, LambdaExpressionTree.class, MemberReferenceTree.class, MemberSelectTree.class, InstanceOfTree.class, BindingPatternTree.class, DeconstructionPatternTree.class, AnyPatternTree.class, WhileLoopTree.class, DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class, ContinueTree.class, SwitchTree.class, SwitchExpressionTree.class, CaseTree.class, YieldTree.class, TryTree.class, CatchTree.class, UnionTypeTree.class, TypeElement.class, ExecutableElement.class);
+      VariableTree.class, NewArrayTree.class, NewClassTree.class, AssertTree.class, SynchronizedTree.class, LambdaExpressionTree.class, MemberReferenceTree.class, MemberSelectTree.class, InstanceOfTree.class, BindingPatternTree.class, DeconstructionPatternTree.class, AnyPatternTree.class, WhileLoopTree.class, DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class, ContinueTree.class, SwitchTree.class, SwitchExpressionTree.class, CaseTree.class, YieldTree.class, TryTree.class, CatchTree.class, UnionTypeTree.class, TypeElement.class, ExecutableElement.class);
 
   @Test
   void givenEveryRepresentedAccessor_whenItsTargetThrowsRuntimeFailure_thenTheExactMethodAndFailureArePreserved() {
@@ -76,7 +77,7 @@ class DeclarationAccessorDispatchTest {
         visited++;
       }
     }
-    assertEquals(144, visited);
+    assertEquals(150, visited);
   }
 
   @Test
@@ -102,7 +103,7 @@ class DeclarationAccessorDispatchTest {
         visited++;
       }
     }
-    assertEquals(144, visited);
+    assertEquals(150, visited);
   }
 
   @Test

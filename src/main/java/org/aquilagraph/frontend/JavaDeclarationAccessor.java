@@ -27,6 +27,7 @@ import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewArrayTree;
+import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import javax.lang.model.element.Element;
@@ -53,7 +54,12 @@ final class JavaDeclarationAccessor {
   private static final String MODIFIERS = "getModifiers";
   private static final String TYPE_PARAMETERS = "getTypeParameters";
   private static final Map<Method, Function<Object, @Nullable Object>> READERS = Map.ofEntries(
-      reader(BlockTree.class, "isStatic", BlockTree::isStatic), reader(BlockTree.class, "getStatements", BlockTree::getStatements),
+      reader(NewClassTree.class, "getEnclosingExpression", NewClassTree::getEnclosingExpression),
+      reader(NewClassTree.class, "getIdentifier", NewClassTree::getIdentifier),
+      reader(NewClassTree.class, "getTypeArguments", NewClassTree::getTypeArguments),
+      reader(NewClassTree.class, "getArguments", NewClassTree::getArguments),
+      reader(NewClassTree.class, "getClassBody", NewClassTree::getClassBody), reader(BlockTree.class, "isStatic", BlockTree::isStatic),
+      reader(BlockTree.class, "getStatements", BlockTree::getStatements),
       reader(ClassTree.class, "getExtendsClause", ClassTree::getExtendsClause),
       reader(ClassTree.class, "getImplementsClause", ClassTree::getImplementsClause),
       reader(ClassTree.class, "getMembers", ClassTree::getMembers), reader(ClassTree.class, MODIFIERS, ClassTree::getModifiers),

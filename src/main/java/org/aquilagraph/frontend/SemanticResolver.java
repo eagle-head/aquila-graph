@@ -77,7 +77,7 @@ final class SemanticResolver {
 
   Element element(TreePath path) {
     var element = trees.getElement(Objects.requireNonNull(path, PATH_ARGUMENT));
-    if (element != null && path.getLeaf() instanceof VariableTree) {
+    if (element != null && (path.getLeaf() instanceof VariableTree || path.getLeaf() instanceof ClassTree)) {
       identities.registerSourceDeclaration(element, path);
     }
     return element;

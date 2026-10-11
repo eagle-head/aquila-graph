@@ -22,6 +22,7 @@ import com.sun.source.tree.TypeCastTree;
 import com.sun.source.tree.TypeParameterTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
+import com.sun.source.util.TreePathScanner;
 import java.lang.annotation.ElementType;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -37,6 +38,7 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.SourceVersion;
@@ -67,6 +69,7 @@ import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxNodeKey;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxSemanticEdge;
 import org.aquilagraph.source.api.SyntaxSemanticRelation;
@@ -96,8 +99,21 @@ final class JavaAstContributionTranslator {
   private final RecordAnnotationMirrorCorrelation recordMirrorCorrelation;
   private final JavaWrittenSourceAssociations sourceAssociations;
   private final Map<String, Map<SourceSpan, String>> sharedFieldAnnotations = new HashMap<>();
-  private final Map<String, SyntaxNode> canonicalBodyCopies = new HashMap<>();
+  private final JavaSourceCopyCorrespondence sourceCopies = new JavaSourceCopyCorrespondence();
+  private final Map<SyntaxSemanticEdge, SyntaxNode> declarationSources = new HashMap<>();
   private boolean memberInitialization;
+  private boolean nestedDeclarations;
+  private final List<TranslatedMethodBody> projectedBodies = new ArrayList<>();
+  private Optional<NestedProduction> nestedProduction = Optional.empty();
+
+  private record NestedProduction(CompilationUnitTree unit, SourceFile sourceFile, Map<SyntaxStructuralPath, TranslatedMethodBody> bodies,
+      Map<String, SyntaxNode> publishedBodies, List<String> unavailableBodies, List<SyntaxSemanticEdge> semanticEdges,
+      Map<String, JavaType> typesByKey) {
+  }
+
+  void enableNestedDeclarations(boolean enabled) {
+    nestedDeclarations = enabled;
+  }
   private final List<CopiedAstValues.Scope> declarationScopes = new ArrayList<>();
   private final Map<String, Map<SourceSpan, String>> sharedLocalAnnotations = new HashMap<>();
 
@@ -123,8 +139,12 @@ final class JavaAstContributionTranslator {
     Objects.requireNonNull(sourceFile, "sourceFile");
     Objects.requireNonNull(bodies, "bodies");
     sourceAssociations.clear();
-    canonicalBodyCopies.clear();
+    sourceCopies.clear();
+    declarationSources.clear();
     declarationScopes.clear();
+    projectedBodies.clear();
+    projectedBodies.addAll(bodies);
+    nestedProduction = Optional.empty();
     var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, sourceFile.sourceFileKey());
     var typesByKey = new HashMap<String, JavaType>();
     for (var type : Objects.requireNonNull(declaredTypes, "declaredTypes")) {
@@ -157,6 +177,10 @@ final class JavaAstContributionTranslator {
     var publishedBodies = new HashMap<String, SyntaxNode>();
     var unavailableBodies = new ArrayList<String>();
     var declarationEdges = new ArrayList<SyntaxSemanticEdge>();
+    if (nestedDeclarations) {
+      nestedProduction = Optional
+          .of(new NestedProduction(unit, sourceFile, bodyByPath, publishedBodies, unavailableBodies, declarationEdges, typesByKey));
+    }
     var rootPath = SyntaxStructuralPath.sourceFileRoot();
     var unitPath = new TreePath(unit);
     var compactClass = compactWrapper(unit, sourceFile, unitPath);
@@ -216,6 +240,25 @@ final class JavaAstContributionTranslator {
       }
       children.addAll(typeChildren);
     }
+    if (nestedDeclarations) {
+      new TreePathScanner<Void, Void>() {
+        @Override
+        public Void visitMethod(MethodTree method, Void unused) {
+          var element = semantics.element(getCurrentPath());
+          var key = element instanceof ExecutableElement ? semantics.declarationKey(element) : Optional.<String>empty();
+          if (method.getBody() != null && key.isPresent()
+              && projectedBodies.stream().noneMatch(body -> body.methodKey().equals(key.orElseThrow()))) {
+            var translator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory);
+            var translated = translator.translate(unit, sourceFile, key.orElseThrow(), method.getBody(),
+                new TreePath(getCurrentPath(), method.getBody()), element.getKind() == ElementKind.CONSTRUCTOR,
+                semantics.isImplicitDeclaration(getCurrentPath()));
+            projectedBodies.add(translated.value());
+            diagnostics.addAll(translated.diagnostics());
+          }
+          return super.visitMethod(method, null);
+        }
+      }.scan(unit, null);
+    }
     var form = unit.getModule() != null
         ? SyntaxValue.CompilationUnitForm.MODULAR
         : compactClass.isPresent() ? SyntaxValue.CompilationUnitForm.COMPACT : SyntaxValue.CompilationUnitForm.ORDINARY;
@@ -224,7 +267,11 @@ final class JavaAstContributionTranslator {
     sourceAssociations.created(root, unitPath);
     var nodes = root.descendantsAndSelf();
     var structural = nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList();
-    var semantic = new ArrayList<>(declarationEdges);
+    var semantic = new ArrayList<>(declarationEdges.stream()
+        .map(edge -> new SyntaxSemanticEdge(
+            sourceCopies.finalCopy(Objects.requireNonNull(declarationSources.get(edge), "declaration edge source")).nodeId(),
+            edge.relation(), edge.target()))
+        .toList());
     nodes.forEach(node -> semantic.addAll(node.semanticEdges()));
     var recordTypeOwners = new HashMap<String, SyntaxNode>();
     var fieldGroups = SharedVariableDeclarations.index(nodes);
@@ -239,14 +286,17 @@ final class JavaAstContributionTranslator {
                 Optional.ofNullable(recordTypeOwners.get(parent.nodeId())), fieldGroups.getOrDefault(parent.nodeId(), List.of()))))));
     var contribution = new SyntaxSourceContribution(sourceFile.sourceFileKey(), root, nodes, structural, semantic);
     var registrations = new ArrayList<BodyRegistration>();
-    for (var body : bodies) {
+    for (var body : projectedBodies) {
       if (!body.root().sourceFileKey().equals(sourceFile.sourceFileKey())) {
         continue;
       }
       var published = publishedBodies.get(body.methodKey());
       if (published != null) {
+        published = sourceCopies.finalCopy(published);
+      }
+      if (published != null) {
         registrations.add(new BodyRegistration(body.methodKey(), published, MethodBodyOrigin.SOURCE_AST,
-            body.decisions().rebind(canonicalBodyCopies, published), attributions(body, true)));
+            body.decisions().rebind(sourceCopies.scopeCopies(body.root(), true), published), attributions(body, true)));
         continue;
       }
       var origin = unavailableBodies.contains(body.methodKey())
@@ -255,7 +305,7 @@ final class JavaAstContributionTranslator {
       registrations.add(new BodyRegistration(body.methodKey(), body.root(), origin, body.decisions(), attributions(body, false)));
     }
     return new UnitTranslation(Optional.of(contribution), registrations, diagnostics, sourceAssociations.forNodes(nodes),
-        declarationScopes);
+        declarationScopes.stream().map(this::sealScope).toList());
   }
 
   void enableMemberInitialization(boolean enabled) {
@@ -501,8 +551,10 @@ final class JavaAstContributionTranslator {
               "A written type has no matching explicit declaration element and stable key", range));
       return Optional.empty();
     }
+    var anonymous = typeElement.getNestingKind() == NestingKind.ANONYMOUS;
     var name = declaration.getSimpleName().toString();
-    if (!SourceVersion.isIdentifier(name)) {
+    if (!SourceVersion.isIdentifier(name)
+        && !(nestedDeclarations && name.isEmpty() && classPath.getParentPath().getLeaf() instanceof NewClassTree)) {
       TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.missing-type-name", "A written type declaration has no valid simple name", range));
       return Optional.empty();
@@ -533,7 +585,7 @@ final class JavaAstContributionTranslator {
       }
       complete &= translated.isPresent();
     }
-    if (declaration.getExtendsClause() != null) {
+    if (!anonymous && declaration.getExtendsClause() != null) {
       complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getExtendsClause(), path, occurrencePath, SyntaxRole.SUPERCLASS,
           0, typeElement.getSuperclass(), children, diagnostics);
     }
@@ -544,7 +596,7 @@ final class JavaAstContributionTranslator {
           "frontend.inconsistent-type-header", "Written hierarchy attachments do not match compiler-attributed declaration order", range));
       complete = false;
     }
-    for (var ordinal = 0; ordinal < declaration.getImplementsClause().size(); ordinal++) {
+    for (var ordinal = 0; !anonymous && ordinal < declaration.getImplementsClause().size(); ordinal++) {
       if (ordinal < typeElement.getInterfaces().size()) {
         complete &= appendTypeHeaderAttachment(unit, sourceFile, declaration.getImplementsClause().get(ordinal), path, occurrencePath,
             SyntaxRole.INTERFACE, ordinal, typeElement.getInterfaces().get(ordinal), children, diagnostics);
@@ -593,8 +645,8 @@ final class JavaAstContributionTranslator {
     }
     children.addAll(members);
     var shape = new SyntaxValue.TypeDeclaration.Shape(annotations.size(), declaration.getTypeParameters().size(),
-        declaration.getExtendsClause() != null, declaration.getImplementsClause().size(), declaration.getPermitsClause().size(),
-        modeledType == null ? 0 : modeledType.recordComponents().size(), members.size());
+        !anonymous && declaration.getExtendsClause() != null, anonymous ? 0 : declaration.getImplementsClause().size(),
+        declaration.getPermitsClause().size(), modeledType == null ? 0 : modeledType.recordComponents().size(), members.size());
     var value = new SyntaxValue.TypeDeclaration(name, semantics.declarationKey(typeElement).orElseThrow(),
         JavaTypeTranslator.typeModifiers(treeInventory.writtenModifiers(declaration.getModifiers())),
         JavaTypeTranslator.typeModifiers(typeElement.getModifiers()), shape);
@@ -694,8 +746,7 @@ final class JavaAstContributionTranslator {
     sourceAssociations.created(node, tree);
     var reference = new SemanticReference(ReferenceKind.RECORD_COMPONENT, ResolutionStatus.RESOLVED, Optional.of(component.componentKey()),
         Optional.empty(), List.of(), List.of());
-    semanticEdges.add(new SyntaxSemanticEdge(node.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
-        new SyntaxSemanticTarget.Declaration(reference)));
+    addDeclarationEdge(node, reference, semanticEdges);
     return Optional.of(node);
   }
 
@@ -950,6 +1001,18 @@ final class JavaAstContributionTranslator {
       return Optional.empty();
     }
     var methodKey = semantics.declarationKey(executable).orElseThrow();
+    if (nestedDeclarations && declaration.getBody() != null && body == null) {
+      var translator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory);
+      translator.useDeclarations(this::projectNestedDeclaration);
+      var translated = translator.translate(unit, sourceFile, methodKey, declaration.getBody(),
+          new TreePath(methodPath, declaration.getBody()), constructor, false);
+      body = translated.value();
+      projectedBodies.add(body);
+      bodies.put(body.root().structuralPath(), body);
+      diagnostics.addAll(translated.diagnostics());
+      body.projection().nodeProjections().forEach(
+          projection -> projection.sourceAssociation().ifPresent(association -> sourceAssociations.retain(projection.node(), association)));
+    }
     var children = new ArrayList<SyntaxChild>();
     var stagedBodies = new HashMap<String, SyntaxNode>();
     var stagedEdges = new ArrayList<SyntaxSemanticEdge>();
@@ -1304,7 +1367,9 @@ final class JavaAstContributionTranslator {
       var uses = new ArrayList<ChildUseEvidence>();
       var decisions = initializerDecisions == null
           ? new JavaBodyDecisions(List.of(), List.of(), List.of(), List.of())
-          : initializerDecisions.rebind(canonicalBodyCopies, node.requiredChild(SyntaxRole.INITIALIZER));
+          : initializerDecisions.rebind(
+              sourceCopies.scopeCopies(Objects.requireNonNull(initializerProjection, "initializer projection").translation().value(), true),
+              node.requiredChild(SyntaxRole.INITIALIZER));
       uses.addAll(decisions.uses());
       new JavaBodyDecisionProducer(semantics).fieldInitializer(value.declarationKey(), node, fieldPath).ifPresent(uses::add);
       var attributions = initializerProjection == null
@@ -1318,10 +1383,39 @@ final class JavaAstContributionTranslator {
     return Optional.of(node);
   }
 
+  private TranslationResult<SyntaxNode> projectNestedDeclaration(ClassTree declaration, TreePath treePath, SyntaxStructuralPath path) {
+    var context = nestedProduction.orElseThrow();
+    var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, context.sourceFile().sourceFileKey());
+    var node = type(context.unit(), context.sourceFile(), treePath, declaration, path, path, context.bodies(), context.publishedBodies(),
+        context.unavailableBodies(), context.semanticEdges(), diagnostics, context.typesByKey());
+    if (node.isEmpty()) {
+      throw new JavaSourceProjectionFailure(diagnostics);
+    }
+    return new TranslationResult<>(node.orElseThrow(), diagnostics, List.of(), List.of());
+  }
+
+  private CopiedAstValues.Scope sealScope(CopiedAstValues.Scope scope) {
+    var copied = sourceCopies.finalCopy(scope.root());
+    var nodes = sourceCopies.scopeCopies(scope.root(), false);
+    var decisions = new JavaBodyDecisions(scope.uses(), scope.invocations(), scope.staticAccesses(), scope.concatenations(), List.of())
+        .rebind(nodes, copied);
+    var attributions = scope.attributedOccurrences().stream()
+        .map(occurrence -> new AttributedBodyOccurrence(occurrence.scopeKey(),
+            Objects.requireNonNull(nodes.get(occurrence.nodeKey()), "canonical scope occurrence").nodeId(), occurrence.sourceFileKey(),
+            occurrence.sourceKind(), occurrence.compilerPath()))
+        .toList();
+    return new CopiedAstValues.Scope(scope.scope(), copied, decisions.uses(), decisions.invocations(), decisions.staticAccesses(),
+        decisions.concatenations(), attributions);
+  }
+
   private JavaExecutableSyntaxProjector.Projection executableProjection(CompilationUnitTree unit, SourceFile sourceFile, String scopeKey,
       Tree tree, TreePath treePath, SyntaxStructuralPath path) {
-    return new JavaExecutableSyntaxProjector(semantics, sourceEvidence, treeInventory, DIAGNOSTIC_PRODUCER, "declaration-initialization")
-        .project(unit, sourceFile, scopeKey, tree, treePath, path, false, false);
+    var projector = new JavaExecutableSyntaxProjector(semantics, sourceEvidence, treeInventory, DIAGNOSTIC_PRODUCER,
+        "declaration-initialization");
+    if (nestedDeclarations) {
+      projector.useDeclarations(this::projectNestedDeclaration);
+    }
+    return projector.project(unit, sourceFile, scopeKey, tree, treePath, path, false, false);
   }
 
   private Optional<SyntaxNode> projectExecutable(JavaExecutableSyntaxProjector.Projection projection, SyntaxStructuralPath path,
@@ -1358,8 +1452,8 @@ final class JavaAstContributionTranslator {
     var node = sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.BLOCK, kind,
         SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, projected.orElseThrow().children(), Optional.empty(), origin),
         treePath);
-    canonicalBodyCopies.put(original.nodeId(), node);
-    var retained = decisions.rebind(canonicalBodyCopies, node);
+    sourceCopies.retain(original, node);
+    var retained = decisions.rebind(sourceCopies.scopeCopies(original, true), node);
     declarationScopes
         .add(new CopiedAstValues.Scope(new ExecutionScope.Initializer(key, ownerKey.orElseThrow(), origin, kind), node, retained.uses(),
             retained.invocations(), retained.staticAccesses(), retained.concatenations(), executionAttributions(key, projection)));
@@ -1368,7 +1462,7 @@ final class JavaAstContributionTranslator {
 
   private List<AttributedBodyOccurrence> executionAttributions(String scopeKey, JavaExecutableSyntaxProjector.Projection projection) {
     return projection.nodes().stream().map(binding -> {
-      var node = Objects.requireNonNull(canonicalBodyCopies.get(binding.node().nodeId()), "canonical execution occurrence");
+      var node = sourceCopies.finalCopy(binding.node());
       return new AttributedBodyOccurrence(scopeKey, node.nodeId(), node.sourceFileKey(), node.sourceKind(),
           binding.node().structuralPath());
     }).toList();
@@ -1401,6 +1495,9 @@ final class JavaAstContributionTranslator {
 
   private Optional<SyntaxNode> project(SyntaxNode original, SyntaxStructuralPath path, boolean omitInsertedCall, boolean bodyRoot,
       BodySourceContext context) {
+    if (original.syntaxKind() == SyntaxKind.TYPE_DECLARATION) {
+      return Optional.of(copyDeclaration(original, path));
+    }
     var range = original.origin();
     if (range.isEmpty()) {
       return Optional.empty();
@@ -1430,7 +1527,7 @@ final class JavaAstContributionTranslator {
     }
     unchanged &= children.size() == previousSize;
     if (unchanged) {
-      canonicalBodyCopies.put(original.nodeId(), original);
+      sourceCopies.retain(original, original);
       return Optional.of(original);
     }
     var value = original.value();
@@ -1447,8 +1544,43 @@ final class JavaAstContributionTranslator {
     }
     var copied = sourceAssociations.copied(original, SyntaxNode.source(original.sourceFileKey(), path, original.sourceKind(),
         original.syntaxKind(), original.type(), value, children, original.semanticReference(), range.orElseThrow()));
-    canonicalBodyCopies.put(original.nodeId(), copied);
+    sourceCopies.retain(original, copied);
     return Optional.of(copied);
+  }
+
+  private SyntaxNode copyDeclaration(SyntaxNode original, SyntaxStructuralPath path) {
+    var keys = new HashMap<String, String>();
+    declarationCopyKeys(original, path, keys);
+    return copyDeclaration(original, path, keys);
+  }
+
+  private void declarationCopyKeys(SyntaxNode original, SyntaxStructuralPath path, Map<String, String> keys) {
+    keys.put(original.nodeId(), SyntaxNodeKey.from(original.sourceFileKey(), path, original.sourceKind()).value());
+    original.children().forEach(child -> declarationCopyKeys(child.node(), path.child(child.role(), child.position()), keys));
+  }
+
+  private SyntaxNode copyDeclaration(SyntaxNode original, SyntaxStructuralPath path, Map<String, String> keys) {
+    var children = original.children().stream().map(child -> new SyntaxChild(child.role(), child.position(),
+        copyDeclaration(child.node(), path.child(child.role(), child.position()), keys))).toList();
+    var copy = sourceAssociations.copied(original,
+        SyntaxNode.source(original.sourceFileKey(), path, original.sourceKind(), original.syntaxKind(), original.type(),
+            declarationCopyValue(original.value(), keys), children, original.semanticReference(), original.origin().orElseThrow()));
+    sourceCopies.retain(original, copy);
+    return copy;
+  }
+
+  private static SyntaxValue declarationCopyValue(SyntaxValue value, Map<String, String> keys) {
+    if (value instanceof SyntaxValue.SharedTypeAnnotations shared) {
+      return new SyntaxValue.SharedTypeAnnotations(shared.annotationNodeKeys().stream().map(key -> keys.getOrDefault(key, key)).toList());
+    }
+    if (!(value instanceof SyntaxValue.LocalDeclaration local) || local.bindingEvidence().isEmpty()) {
+      return value;
+    }
+    var binding = local.bindingEvidence().orElseThrow();
+    var annotations = binding.sharedAnnotationKeys().stream().map(key -> keys.getOrDefault(key, key)).toList();
+    return new SyntaxValue.LocalDeclaration(local.name(), local.writtenType(), local.writtenModifiers(),
+        Optional.of(new LocalBindingEvidence(binding.declarationKey(), binding.typeForm(), binding.context(), binding.initialized(),
+            binding.annotations(), annotations)));
   }
 
   private boolean appendBodySourceAttachments(SyntaxNode original, TreePath creatingPath, SyntaxStructuralPath path,
@@ -1592,8 +1724,14 @@ final class JavaAstContributionTranslator {
       return;
     }
     var reference = new SemanticReference(kind.orElseThrow(), ResolutionStatus.RESOLVED, key, Optional.empty(), List.of(), List.of());
-    edges.add(new SyntaxSemanticEdge(node.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
-        new SyntaxSemanticTarget.Declaration(reference)));
+    addDeclarationEdge(node, reference, edges);
+  }
+
+  private void addDeclarationEdge(SyntaxNode node, SemanticReference reference, List<SyntaxSemanticEdge> edges) {
+    var edge = new SyntaxSemanticEdge(node.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
+        new SyntaxSemanticTarget.Declaration(reference));
+    declarationSources.put(edge, node);
+    edges.add(edge);
   }
 
   private static Optional<ReferenceKind> referenceKind(ElementKind kind) {
@@ -1630,12 +1768,10 @@ final class JavaAstContributionTranslator {
   }
 
   private List<AttributedBodyOccurrence> attributions(TranslatedMethodBody body, boolean copied) {
-    return body.projection().nodeProjections().stream()
-        .filter(projection -> !copied || canonicalBodyCopies.containsKey(projection.node().nodeId())).map(projection -> {
+    return body.projection().nodeProjections().stream().filter(projection -> !copied || sourceCopies.contains(projection.node()))
+        .map(projection -> {
           var original = projection.node();
-          var retained = copied
-              ? Objects.requireNonNull(canonicalBodyCopies.get(original.nodeId()), "exact canonical occurrence")
-              : original;
+          var retained = copied ? sourceCopies.finalCopy(original) : original;
           return new AttributedBodyOccurrence(body.methodKey(), retained.nodeId(), retained.sourceFileKey(), retained.sourceKind(),
               original.structuralPath());
         }).toList();

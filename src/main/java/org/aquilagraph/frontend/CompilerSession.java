@@ -43,6 +43,10 @@ final class CompilerSession implements AutoCloseable {
   }
 
   JavaCompilation analyze(ParsedJavaSource parsedSource) throws IOException {
+    return analyze(parsedSource, false);
+  }
+
+  JavaCompilation analyze(ParsedJavaSource parsedSource, boolean nestedDeclarations) throws IOException {
     Objects.requireNonNull(parsedSource, "parsedSource");
     task.analyze();
     var trees = Trees.instance(task);
@@ -50,7 +54,7 @@ final class CompilerSession implements AutoCloseable {
     var identities = new DeclarationIdentityRegistry(trees, types);
     var selection = new JavaConstructorSelection(compiler, invocation, sources, fileManager.standardFileManager(), trees, types,
         task.getElements());
-    selection.prepare(parsedSource.units());
+    selection.prepare(parsedSource.units(), nestedDeclarations);
     return new JavaCompilation(parsedSource.units(),
         new SemanticResolver(trees, types, task.getElements(), identities, Optional.of(selection)), parsedSource.sourceEvidence(),
         parsedSource.treeInventory(), diagnostics.getDiagnostics());

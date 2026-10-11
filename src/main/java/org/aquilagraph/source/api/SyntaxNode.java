@@ -48,6 +48,9 @@ public final class SyntaxNode {
     validateChildPositions(childNodes);
     validateAnnotationChildLocations(childNodes);
     validateShape(syntaxKind, sourceKind, value, childNodes, semanticReference);
+    if (value instanceof SyntaxValue.TypeDeclaration declaration) {
+      validateTypePlacement(structuralPath, sourceKind, declaration);
+    }
     validateKnownWrittenBodyType(syntaxKind, type, childNodes);
     validateUpdateType(syntaxKind, type, childNodes);
     validateArrayType(syntaxKind, type, value, childNodes);
@@ -89,6 +92,19 @@ public final class SyntaxNode {
     validateBoundSourceRanges(path, syntaxKind, sourceKind, sourceOrigin, childNodes);
     if (syntaxKind == SyntaxKind.TYPE_USE) {
       validateTypeUseAttribution(path, sourceKind, type, value, semanticReference, childNodes);
+    }
+  }
+
+  private static void validateTypePlacement(SyntaxStructuralPath path, JavaSourceKind sourceKind, SyntaxValue.TypeDeclaration declaration) {
+    var anonymous = !path.steps().isEmpty() && path.steps().getLast().role() == SyntaxRole.CLASS_BODY;
+    if (anonymous != declaration.name().isEmpty()) {
+      throw new IllegalArgumentException("Only an anonymous creation body can have a nameless type declaration");
+    }
+    var shape = declaration.shape();
+    if (anonymous && (sourceKind != JavaSourceKind.CLASS || !declaration.writtenModifiers().isEmpty() || shape.annotations() != 0
+        || shape.typeParameters() != 0 || shape.superclass() || shape.interfaces() != 0 || shape.permittedSubclasses() != 0
+        || shape.recordComponents() != 0)) {
+      throw new IllegalArgumentException("An anonymous creation body cannot invent a written type header");
     }
   }
 
@@ -1158,6 +1174,7 @@ public final class SyntaxNode {
         };
         case INVOCATION, OBJECT_CREATION -> switch (child.role()) {
           case TYPE_ARGUMENT, TYPE_OPERAND -> true;
+          case CLASS_BODY -> node.syntaxKind() == SyntaxKind.TYPE_DECLARATION;
           case QUALIFIER -> node.syntaxKind() == SyntaxKind.TYPE_USE || node.syntaxKind() == SyntaxKind.RECEIVER;
           default -> isExpression(node);
         };
@@ -2178,7 +2195,14 @@ public final class SyntaxNode {
   }
 
   private static void validateObjectCreation(SyntaxValue.Invocation invocation, List<SyntaxChild> children) {
-    requireShape(children, Set.of(SyntaxRole.ENCLOSING_INSTANCE, SyntaxRole.ARGUMENT, SyntaxRole.TYPE_OPERAND, SyntaxRole.TYPE_ARGUMENT));
+    requireShape(children, Set.of(SyntaxRole.ENCLOSING_INSTANCE, SyntaxRole.ARGUMENT, SyntaxRole.TYPE_OPERAND, SyntaxRole.TYPE_ARGUMENT,
+        SyntaxRole.CLASS_BODY));
+    requireCount(children, SyntaxRole.CLASS_BODY, 0, 1);
+    if (children.stream().filter(child -> child.role() == SyntaxRole.CLASS_BODY)
+        .anyMatch(child -> child.node().syntaxKind() != SyntaxKind.TYPE_DECLARATION
+            || !child.node().value(SyntaxValue.TypeDeclaration.class).name().isEmpty())) {
+      throw new IllegalArgumentException("An anonymous creation requires a nameless type body");
+    }
     var expectedEnclosingInstances = invocation.form() == InvocationForm.QUALIFIED_OBJECT_CREATION ? 1 : 0;
     if (invocation.form() != InvocationForm.OBJECT_CREATION && invocation.form() != InvocationForm.QUALIFIED_OBJECT_CREATION) {
       throw new IllegalArgumentException("OBJECT_CREATION requires a construction invocation form");

@@ -7,6 +7,7 @@ import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SourceExecutionTraversal;
 
 /** Qualifies non-preview pattern placement while retaining diagnosed invalid source as incomplete. */
 final class SourcePatternRequirements {
@@ -15,8 +16,9 @@ final class SourcePatternRequirements {
 
   static boolean supports(SyntaxNode root) {
     var parents = new HashMap<String, SyntaxNode>();
-    root.descendantsAndSelf().forEach(node -> node.children().forEach(child -> parents.put(child.node().nodeId(), node)));
-    for (var node : root.descendantsAndSelf()) {
+    var nodes = SourceExecutionTraversal.nodes(root);
+    nodes.forEach(node -> node.children().forEach(child -> parents.put(child.node().nodeId(), node)));
+    for (var node : nodes) {
       if (node.syntaxKind() == SyntaxKind.ANY_PATTERN) {
         var parent = parents.get(node.nodeId());
         if (parent == null || parent.syntaxKind() != SyntaxKind.DECONSTRUCTION_PATTERN) {

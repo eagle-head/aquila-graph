@@ -22,7 +22,8 @@ final class CoverageExecutableFacts {
       Map.entry("SwitchExpressionTree", JavaSourceKind.SWITCH_EXPRESSION), Map.entry("CaseTree", JavaSourceKind.CASE),
       Map.entry("YieldTree", JavaSourceKind.YIELD), Map.entry("AnyPatternTree", JavaSourceKind.ANY_PATTERN),
       Map.entry("TryTree", JavaSourceKind.TRY), Map.entry("CatchTree", JavaSourceKind.CATCH),
-      Map.entry("UnionTypeTree", JavaSourceKind.UNION_TYPE), Map.entry("BlockTree", JavaSourceKind.BLOCK));
+      Map.entry("UnionTypeTree", JavaSourceKind.UNION_TYPE), Map.entry("BlockTree", JavaSourceKind.BLOCK),
+      Map.entry("NewClassTree", JavaSourceKind.NEW_CLASS));
 
   private CoverageExecutableFacts() {
   }
@@ -49,8 +50,10 @@ final class CoverageExecutableFacts {
           .of(new Item(SCALAR_ITEM_KEY, Boolean.toString(owner.syntaxKind() == SyntaxKind.STATIC_INITIALIZER_BLOCK), Provenance.WRITTEN))));
       case "getStatements" ->
         CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.STATEMENT), facts, snapshot, false);
-      case "getIdentifier" -> (owner.syntaxKind() == SyntaxKind.CLASS_LITERAL || owner.syntaxKind() == SyntaxKind.ANNOTATION_CLASS_LITERAL)
-          && expected.equals(new CoveragePropertyValue(State.SCALAR, List.of(new Item(SCALAR_ITEM_KEY, "class", Provenance.WRITTEN))));
+      case "getIdentifier" -> owner.sourceKind() == JavaSourceKind.NEW_CLASS
+          ? CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.TYPE_OPERAND), facts, snapshot, true)
+          : (owner.syntaxKind() == SyntaxKind.CLASS_LITERAL || owner.syntaxKind() == SyntaxKind.ANNOTATION_CLASS_LITERAL)
+              && expected.equals(new CoveragePropertyValue(State.SCALAR, List.of(new Item(SCALAR_ITEM_KEY, "class", Provenance.WRITTEN))));
       case "getCases" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.CASE), facts, snapshot, false);
       case "getResources" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.RESOURCE), facts, snapshot, false);
       case "getCatches" ->
@@ -59,6 +62,10 @@ final class CoverageExecutableFacts {
         CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.FINALLY_BLOCK), facts, snapshot, true);
       case "getTypeAlternatives" ->
         CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.UNION_ALTERNATIVE), facts, snapshot, false);
+      case "getEnclosingExpression" ->
+        CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.ENCLOSING_INSTANCE), facts, snapshot, true);
+      case "getArguments" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.ARGUMENT), facts, snapshot, false);
+      case "getClassBody" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.CLASS_BODY), facts, snapshot, true);
       case "getValue" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.VALUE), facts, snapshot, true);
       case "getPattern" -> CoverageActualFacts.writtenAttachments(expected, owner, List.of(SyntaxRole.PATTERN), facts, snapshot, true);
       case "getDeconstructor" ->

@@ -108,7 +108,7 @@ final class SourceFormRequirements {
   }
 
   static boolean supports(SyntaxNode node, AstProfile profile) {
-    if (profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION)) {
+    if (profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION) || profile.equals(AstProfile.JAVA_SOURCE_NESTED)) {
       if (node.syntaxKind() == SyntaxKind.STATIC_INITIALIZER_BLOCK || node.syntaxKind() == SyntaxKind.INSTANCE_INITIALIZER_BLOCK) {
         return true;
       }
@@ -153,7 +153,6 @@ final class SourceFormRequirements {
   }
 
   static boolean supportsBody(SyntaxNode root) {
-    return root.descendantsAndSelf().stream().noneMatch(node -> node.syntaxKind() == SyntaxKind.TYPE_DECLARATION)
-        && SourcePatternRequirements.supports(root) && SourceSwitchRequirements.supportsBody(root, false);
+    return SourcePatternRequirements.supports(root) && SourceSwitchRequirements.supportsBody(root, false);
   }
 }

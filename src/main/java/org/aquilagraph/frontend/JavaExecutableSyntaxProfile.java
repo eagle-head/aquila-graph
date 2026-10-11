@@ -74,6 +74,11 @@ final class JavaExecutableSyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapp
   private static final String SUPER_NAME = "super";
   private static final String CONSTRUCTOR_NAME = "<init>";
   private final SemanticResolver semantics;
+  private boolean anonymousDeclarations;
+
+  void enableAnonymousDeclarations() {
+    anonymousDeclarations = true;
+  }
 
   JavaExecutableSyntaxProfile(SemanticResolver semantics) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
@@ -450,7 +455,10 @@ final class JavaExecutableSyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapp
     var element = semantics.element(context.treePath());
     var executable = element instanceof ExecutableElement candidate ? candidate : null;
     var form = creation.getEnclosingExpression() == null ? InvocationForm.OBJECT_CREATION : InvocationForm.QUALIFIED_OBJECT_CREATION;
-    return creation.getClassBody() == null
+    if (anonymousDeclarations) {
+      children.add(SyntaxRole.CLASS_BODY, creation.getClassBody());
+    }
+    return creation.getClassBody() == null || anonymousDeclarations
         ? accepted(SyntaxKind.OBJECT_CREATION, invocationValue(CONSTRUCTOR_NAME, form, context, executable), children,
             semantics.reference(context.treePath(), ReferenceKind.CONSTRUCTOR))
         : unsupported(creation, children);

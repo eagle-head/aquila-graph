@@ -1,5 +1,11 @@
 package org.aquilagraph.frontend;
 
+import com.sun.source.tree.ClassTree;
+import com.sun.source.util.TreePath;
+import com.sun.source.util.TreePathScanner;
+import com.sun.source.util.Trees;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -19,6 +25,8 @@ import org.jspecify.annotations.Nullable;
 final class ConstructorTypeCorrespondence {
   private final Elements originalElements;
   private final Elements witnessElements;
+  private final ConstructorIdentityLookup<TypeElement, TypeElement> copiedDeclarations = ConstructorIdentityLookup.usingReferenceIdentity();
+  private final ConstructorIdentityLookup<TypeElement, TypeElement> copiedOriginals = ConstructorIdentityLookup.usingReferenceIdentity();
   private final ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> originals = ConstructorIdentityLookup
       .usingReferenceIdentity();
   private final ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> witnesses = ConstructorIdentityLookup
@@ -29,6 +37,50 @@ final class ConstructorTypeCorrespondence {
   ConstructorTypeCorrespondence(Elements originalElements, Elements witnessElements) {
     this.originalElements = Objects.requireNonNull(originalElements, "originalElements");
     this.witnessElements = Objects.requireNonNull(witnessElements, "witnessElements");
+  }
+
+  boolean matchesArgument(TreePath original, Trees originalTrees, TreePath witness, Trees witnessTrees) throws IOException {
+    if (!sourceText(original, originalTrees).equals(sourceText(witness, witnessTrees))) {
+      return false;
+    }
+    var originals = declarations(original, originalTrees);
+    var witnesses = declarations(witness, witnessTrees);
+    if (originals.size() != witnesses.size()) {
+      return false;
+    }
+    for (var index = 0; index < originals.size(); index++) {
+      var originalDeclaration = originals.get(index);
+      var witnessDeclaration = witnesses.get(index);
+      if (originalDeclaration.getNestingKind() != witnessDeclaration.getNestingKind()
+          || !originalDeclaration.getSimpleName().contentEquals(witnessDeclaration.getSimpleName())) {
+        return false;
+      }
+      copiedDeclarations.remember(originalDeclaration, witnessDeclaration);
+      copiedOriginals.remember(witnessDeclaration, originalDeclaration);
+    }
+    return matches(originalTrees.getTypeMirror(original), witnessTrees.getTypeMirror(witness));
+  }
+
+  private static String sourceText(TreePath path, Trees trees) throws IOException {
+    var unit = path.getCompilationUnit();
+    var positions = trees.getSourcePositions();
+    var start = Math.toIntExact(positions.getStartPosition(unit, path.getLeaf()));
+    var end = Math.toIntExact(positions.getEndPosition(unit, path.getLeaf()));
+    return unit.getSourceFile().getCharContent(true).subSequence(start, end).toString();
+  }
+
+  private static List<TypeElement> declarations(TreePath path, Trees trees) {
+    var declarations = new ArrayList<TypeElement>();
+    new TreePathScanner<Void, Void>() {
+      @Override
+      public Void visitClass(ClassTree tree, Void ignored) {
+        if (trees.getElement(getCurrentPath()) instanceof TypeElement declaration) {
+          declarations.add(declaration);
+        }
+        return super.visitClass(tree, null);
+      }
+    }.scan(path, null);
+    return declarations;
   }
 
   boolean matches(@Nullable TypeMirror original, @Nullable TypeMirror witness) {
@@ -60,7 +112,10 @@ final class ConstructorTypeCorrespondence {
     if (!(original.asElement() instanceof TypeElement originalOwner) || !(witness.asElement() instanceof TypeElement witnessOwner)) {
       return false;
     }
-    return originalElements.getBinaryName(originalOwner).contentEquals(witnessElements.getBinaryName(witnessOwner))
+    var copied = copiedDeclarations.find(originalOwner);
+    return (copied.isPresent()
+        ? copied.orElseThrow().equals(witnessOwner)
+        : originalElements.getBinaryName(originalOwner).contentEquals(witnessElements.getBinaryName(witnessOwner)))
         && originalElements.getModuleOf(originalOwner).getQualifiedName()
             .contentEquals(witnessElements.getModuleOf(witnessOwner).getQualifiedName())
         && matches(original.getEnclosingType(), witness.getEnclosingType())
@@ -137,6 +192,10 @@ final class ConstructorTypeCorrespondence {
   private Optional<TypeMirror> originalDeclared(DeclaredType witness, Types originalTypes, Types witnessTypes) {
     if (!(witness.asElement() instanceof TypeElement witnessOwner)) {
       return Optional.empty();
+    }
+    var copied = copiedOriginals.find(witnessOwner);
+    if (copied.isPresent()) {
+      return Optional.of(copied.orElseThrow().asType());
     }
     var moduleName = witnessElements.getModuleOf(witnessOwner).getQualifiedName();
     var module = originalElements.getModuleElement(moduleName);

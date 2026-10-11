@@ -10,6 +10,8 @@ import com.sun.source.tree.Tree;
 import com.sun.source.tree.TypeParameterTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
+import com.sun.source.util.TreePathScanner;
+import org.aquilagraph.source.api.JavaTypeNesting;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -25,6 +27,7 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.RecordComponentElement;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeKind;
@@ -60,7 +63,13 @@ final class JavaTypeTranslator {
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
   private final JavaMethodTranslator methodTranslator;
+  private final JavaMethodDeclarationTranslator methodDeclarations;
   private boolean memberInitialization;
+  private boolean nestedDeclarations;
+
+  void enableNestedDeclarations(boolean enabled) {
+    nestedDeclarations = enabled;
+  }
 
   void enableMemberInitialization(boolean enabled) {
     memberInitialization = enabled;
@@ -73,6 +82,7 @@ final class JavaTypeTranslator {
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
     Objects.requireNonNull(propertyObserver, "propertyObserver");
     this.methodTranslator = Objects.requireNonNull(methodTranslator, "methodTranslator");
+    methodDeclarations = new JavaMethodDeclarationTranslator(semantics, sourceEvidence, treeInventory);
   }
 
   TranslationResult<Optional<TranslatedType>> translate(CompilationUnitTree unit, TreePath parentPath, SourceFile sourceFile,
@@ -133,6 +143,28 @@ final class JavaTypeTranslator {
         completeMembers = false;
       }
     }
+    if (nestedDeclarations) {
+      new TreePathScanner<Void, Void>() {
+        @Override
+        public Void visitClass(ClassTree nested, Void unused) {
+          var translation = translate(unit, getCurrentPath().getParentPath(), sourceFile, nested);
+          translation.value().ifPresent(value -> {
+            nestedTypes.addAll(value.types());
+            methodBodies.addAll(value.methodBodies());
+            memberOrders.addAll(value.memberOrders());
+            declarationTypes.addAll(value.declarationTypes());
+          });
+          diagnostics.addAll(translation.diagnostics());
+          occurrences.addAll(translation.featureOccurrences());
+          observations.addAll(translation.featureObservations());
+          return null;
+        }
+        void capture() {
+          classTree.getMembers().stream().filter(member -> !(member instanceof ClassTree) && treeInventory.isWritten(member))
+              .map(member -> new TreePath(classPath, member)).forEach(path -> scan(path, null));
+        }
+      }.capture();
+    }
     if (!completeComponents || !completeMembers) {
       return new TranslationResult<>(Optional.empty(), diagnostics, occurrences, observations);
     }
@@ -160,7 +192,11 @@ final class JavaTypeTranslator {
     }
     var type = new JavaType(typeKey, qualifiedName, javaTypeKind(classTree.getKind()), modifiers, enclosingType, directSuperclass,
         directInterfaces, permittedSubclasses, typeParameters, origin.isPresent(), fields, recordComponents, methods,
-        synthesizedDeclarations, origin.stream().toList());
+        synthesizedDeclarations, origin.stream().toList(), typeNesting(typeElement),
+        typeElement == null
+            ? new JavaTypeIdentity(JavaTypeCategory.DECLARED, qualifiedName, qualifiedName)
+            : semantics.typeIdentity(typeElement.asType()),
+        typeElement == null ? qualifiedName : typeElement.toString());
     var types = new ArrayList<JavaType>();
     types.add(type);
     types.addAll(nestedTypes);
@@ -189,7 +225,8 @@ final class JavaTypeTranslator {
     fields.stream().map(JavaField::fieldKey).forEach(representedKeys::add);
     components.stream().map(JavaRecordComponent::componentKey).forEach(representedKeys::add);
     methods.stream().map(JavaMethod::methodKey).forEach(representedKeys::add);
-    nestedTypes.stream().filter(type -> type.enclosingType().flatMap(JavaTypeReference::declarationKey).filter(typeKey::equals).isPresent())
+    nestedTypes.stream().filter(type -> type.nesting().kind() == JavaTypeNesting.Kind.MEMBER)
+        .filter(type -> type.enclosingType().flatMap(JavaTypeReference::declarationKey).filter(typeKey::equals).isPresent())
         .map(JavaType::typeKey).forEach(representedKeys::add);
     var synthesized = new ArrayList<JavaSynthesizedDeclaration>();
     var compilerKeys = new HashSet<String>();
@@ -329,15 +366,21 @@ final class JavaTypeTranslator {
       List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
     switch (member) {
       case MethodTree methodTree -> {
-        var translation = methodTranslator.translate(unit, classPath, sourceFile, typeKey, methodTree);
-        var method = translation.value().method();
+        var translated = nestedDeclarations
+            ? Optional.<TranslationResult<TranslatedMethod>>empty()
+            : Optional.of(methodTranslator.translate(unit, classPath, sourceFile, typeKey, methodTree));
+        var translation = translated
+            .map(value -> new TranslationResult<>(value.value().method(), value.diagnostics(), value.featureOccurrences(),
+                value.featureObservations()))
+            .orElseGet(() -> methodDeclarations.translate(unit, classPath, sourceFile, typeKey, methodTree));
+        var method = translation.value();
         if (methods.stream().anyMatch(existing -> existing.methodKey().equals(method.methodKey()))) {
           TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
               FrontendDiagnosticFactory.otherError(method.methodKey(), "frontend.duplicate-member-declaration",
                   "Written members share a canonical declaration key", sourceEvidence.origin(unit, sourceFile, methodTree)));
         } else {
           methods.add(method);
-          translation.value().body().ifPresent(methodBodies::add);
+          translated.flatMap(value -> value.value().body()).ifPresent(methodBodies::add);
         }
         diagnostics.addAll(translation.diagnostics());
         occurrences.addAll(translation.featureOccurrences());
@@ -466,11 +509,26 @@ final class JavaTypeTranslator {
         "Unsupported Java class-body declaration: " + member.getKind(), origin);
   }
 
+  private JavaTypeNesting typeNesting(@Nullable TypeElement element) {
+    if (element == null || element.getNestingKind() == NestingKind.TOP_LEVEL) {
+      return new JavaTypeNesting(JavaTypeNesting.Kind.TOP_LEVEL, Optional.empty());
+    }
+    var owner = Objects.requireNonNull(element.getEnclosingElement(), "nested declaration owner");
+    return new JavaTypeNesting(JavaTypeNesting.Kind.valueOf(element.getNestingKind().name()), semantics.declarationKey(owner),
+        Optional.of(new JavaTypeNesting.OwnerDetails(owner.getKind().name(), owner.toString(),
+            semantics.declarationOrigin(owner) == Elements.Origin.EXPLICIT)));
+  }
+
   private Optional<JavaTypeReference> enclosingType(@Nullable TypeElement typeElement, String typeKey, Optional<SourceSpan> origin,
       List<AnalysisDiagnostic> diagnostics) {
-    if (typeElement == null || !(typeElement.getEnclosingElement() instanceof TypeElement owner)) {
+    var element = typeElement == null ? null : typeElement.getEnclosingElement();
+    while (element != null && !(element instanceof TypeElement)) {
+      element = element.getEnclosingElement();
+    }
+    if (element == null) {
       return Optional.empty();
     }
+    var owner = (TypeElement) element;
     var reference = semantics.typeReference(owner.asType());
     if (reference.isEmpty()) {
       TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(typeKey,

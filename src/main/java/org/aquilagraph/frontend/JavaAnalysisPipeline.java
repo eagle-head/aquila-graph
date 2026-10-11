@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.function.Supplier;
 import java.util.List;
 import java.util.Objects;
+import javax.tools.Diagnostic;
 import java.util.Optional;
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
@@ -49,16 +50,17 @@ final class JavaAnalysisPipeline {
           List.of(), List.of(), List.of());
       return AstResultAdmission.empty(snapshot, configuration, profile, coverage);
     }
-    return AstResultAdmission.outcome(analyze(snapshot, configuration, profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION)), profile,
-        semanticRevision);
+    return AstResultAdmission.outcome(analyze(snapshot, configuration,
+        profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION) || profile.equals(AstProfile.JAVA_SOURCE_NESTED),
+        profile.equals(AstProfile.JAVA_SOURCE_NESTED)), profile, semanticRevision);
   }
 
   SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
-    return analyze(snapshot, configuration, false);
+    return analyze(snapshot, configuration, false, false);
   }
 
-  private SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration, boolean memberInitialization)
-      throws IOException {
+  private SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration, boolean memberInitialization,
+      boolean nestedDeclarations) throws IOException {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(configuration, "configuration");
     var compiler = systemCompiler(configuration);
@@ -84,13 +86,15 @@ final class JavaAnalysisPipeline {
       var annotationInventory = JavaAnnotationSourceInventory.capture(parsedSource, sources);
       var kindEvidence = new JavaCompilerKindDiagnostics(sources, parsedSource.sourceEvidence(), languageFeatureCoverage)
           .observe(parsedSource.units());
-      var compilation = session.analyze(parsedSource);
+      var compilation = session.analyze(parsedSource, nestedDeclarations);
       var attributedExpectations = coverageCapture.captureAttributed(compilation.semantics());
       var attributedProperties = propertyProducer.observeAttributed(compilation.semantics());
       var typeEvidence = new JavaTypeKindObserver(sources, compilation.semantics(), compilation.sourceEvidence(),
           compilation.treeInventory(), languageFeatureCoverage).observe(compilation.units());
       var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
-          compilation.treeInventory(), languageFeatureCoverage, memberInitialization).translate(snapshot, compilation.units());
+          compilation.treeInventory(), languageFeatureCoverage, memberInitialization, nestedDeclarations).translate(snapshot,
+              compilation.units(),
+              compilation.diagnostics().stream().anyMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
       var annotationCompleteness = new JavaAnnotationCompleteness(annotationInventory, compilation.semantics(), translation.diagnostics());
       var typeUseEvents = JavaTypeUseCompleteness.diagnosticsWithEvents(snapshot, kindEvidence.observations(),
           translation.value().aggregate());

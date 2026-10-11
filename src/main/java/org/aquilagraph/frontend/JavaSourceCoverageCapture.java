@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.MemberSelectTree;
@@ -136,7 +137,7 @@ final class JavaSourceCoverageCapture {
     } else {
       var element = semantics.element(descriptor.path());
       ownerIdentity = element == null ? Optional.empty() : semantics.declarationKey(element);
-      value = element instanceof TypeElement || element instanceof ExecutableElement
+      value = ownerIdentity.isPresent() && (element instanceof TypeElement || element instanceof ExecutableElement)
           ? JavaCoveragePropertyProjection.query(descriptor.accessor().orElseThrow(), element, descriptor.owner(), sourceEvidence,
               Optional.of(semantics))
           : new CoveragePropertyValue(State.UNAVAILABLE, List.of());
@@ -181,9 +182,8 @@ final class JavaSourceCoverageCapture {
         tree.getImplementsClause().forEach(this::capture);
         tree.getPermitsClause().forEach(this::capture);
         tree.getTypeParameters().forEach(parameter -> scan(parameter, file));
-        tree.getMembers().stream()
-            .filter(member -> member instanceof ClassTree || member instanceof MethodTree || member instanceof VariableTree)
-            .forEach(member -> scan(member, file));
+        tree.getMembers().stream().filter(member -> member instanceof ClassTree || member instanceof MethodTree
+            || member instanceof VariableTree || member instanceof BlockTree).forEach(member -> scan(member, file));
         return null;
       }
 
@@ -198,6 +198,9 @@ final class JavaSourceCoverageCapture {
         tree.getParameters().stream().filter(
             parameter -> !JavaCoverageTopology.isDerivedCompactParameter(parameter, getCurrentPath(), unit, file, parsed.sourceEvidence()))
             .forEach(parameter -> scan(parameter, file));
+        if (tree.getBody() != null) {
+          JavaNestedDeclarationTraversal.scan(new TreePath(getCurrentPath(), tree.getBody()), path -> scan(path, file));
+        }
         return null;
       }
 
@@ -206,6 +209,15 @@ final class JavaSourceCoverageCapture {
         if (parsed.treeInventory().isWritten(tree)) {
           capture(tree.getType());
         }
+        if (tree.getInitializer() != null) {
+          JavaNestedDeclarationTraversal.scan(new TreePath(getCurrentPath(), tree.getInitializer()), path -> scan(path, file));
+        }
+        return null;
+      }
+
+      @Override
+      public Void visitBlock(BlockTree tree, SourceFile file) {
+        JavaNestedDeclarationTraversal.scan(getCurrentPath(), path -> scan(path, file));
         return null;
       }
 

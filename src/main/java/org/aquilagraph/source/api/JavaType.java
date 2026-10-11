@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.aquilagraph.identity.api.SourceSpan;
 
 /**
@@ -15,13 +16,13 @@ import org.aquilagraph.identity.api.SourceSpan;
  * @param typeKey
  *          stable type identifier
  * @param qualifiedName
- *          compiler-reported or derived qualified name
+ *          compiler-reported qualified name, empty for local and anonymous types
  * @param kind
  *          declaration category
  * @param modifiers
  *          compiler-derived declaration modifiers
  * @param enclosingType
- *          immediately enclosing member type, when present
+ *          nearest enclosing type, independent of lexical declaration ownership
  * @param directSuperclass
  *          compiler-resolved direct superclass, when present
  * @param directInterfaces
@@ -40,6 +41,12 @@ import org.aquilagraph.identity.api.SourceSpan;
  *          declared methods
  * @param synthesizedDeclarations
  *          compiler-exposed direct members without a written declaration or detailed member aggregate
+ * @param displayName
+ *          copied compiler declaration display, independent of written name and canonical key
+ * @param staticType
+ *          compiler-selected declaration type identity
+ * @param nesting
+ *          lexical nesting and declaration owner
  * @param origins
  *          declaration source locations
  */
@@ -47,11 +54,85 @@ public record JavaType(String typeKey, String qualifiedName, JavaTypeKind kind, 
     Optional<JavaTypeReference> enclosingType, Optional<JavaTypeReference> directSuperclass, List<JavaTypeReference> directInterfaces,
     List<JavaTypeReference> permittedSubclasses, List<JavaTypeParameter> typeParameters, boolean sourceDeclared, List<JavaField> fields,
     List<JavaRecordComponent> recordComponents, List<JavaMethod> methods, List<JavaSynthesizedDeclaration> synthesizedDeclarations,
-    List<SourceSpan> origins) {
+    List<SourceSpan> origins, JavaTypeNesting nesting, JavaTypeIdentity staticType, String displayName) {
+  /**
+   * Creates an earlier-profile top-level or member declaration.
+   *
+   * @param typeKey
+   *          stable type identifier
+   * @param qualifiedName
+   *          compiler-reported or derived name
+   * @param kind
+   *          declaration category
+   * @param modifiers
+   *          effective modifiers
+   * @param enclosingType
+   *          enclosing member type
+   * @param directSuperclass
+   *          direct superclass
+   * @param directInterfaces
+   *          direct interfaces
+   * @param permittedSubclasses
+   *          permitted subclasses
+   * @param typeParameters
+   *          type parameters
+   * @param sourceDeclared
+   *          source provenance
+   * @param fields
+   *          fields
+   * @param recordComponents
+   *          record components
+   * @param methods
+   *          methods
+   * @param synthesizedDeclarations
+   *          nonwritten members
+   * @param origins
+   *          source locations
+   */
+  public JavaType(String typeKey, String qualifiedName, JavaTypeKind kind, Set<JavaTypeModifier> modifiers,
+      Optional<JavaTypeReference> enclosingType, Optional<JavaTypeReference> directSuperclass, List<JavaTypeReference> directInterfaces,
+      List<JavaTypeReference> permittedSubclasses, List<JavaTypeParameter> typeParameters, boolean sourceDeclared, List<JavaField> fields,
+      List<JavaRecordComponent> recordComponents, List<JavaMethod> methods, List<JavaSynthesizedDeclaration> synthesizedDeclarations,
+      List<SourceSpan> origins) {
+    this(typeKey, qualifiedName, kind, modifiers, enclosingType, directSuperclass, directInterfaces, permittedSubclasses, typeParameters,
+        sourceDeclared, fields, recordComponents, methods, synthesizedDeclarations, origins, historicalNesting(enclosingType),
+        declarationIdentity(typeKey, qualifiedName, modifiers, enclosingType, typeParameters), qualifiedName);
+  }
+
+  private static JavaTypeNesting historicalNesting(Optional<JavaTypeReference> enclosingType) {
+    var owner = Objects.requireNonNull(enclosingType, "enclosingType").flatMap(JavaTypeReference::declarationKey);
+    return new JavaTypeNesting(owner.isEmpty() ? JavaTypeNesting.Kind.TOP_LEVEL : JavaTypeNesting.Kind.MEMBER, owner);
+  }
+
+  private static JavaTypeIdentity declarationIdentity(String typeKey, String qualifiedName, Set<JavaTypeModifier> modifiers,
+      Optional<JavaTypeReference> enclosingType, List<JavaTypeParameter> typeParameters) {
+    requireText(typeKey, "typeKey");
+    requireText(qualifiedName, "qualifiedName");
+    Objects.requireNonNull(modifiers, "modifiers");
+    Objects.requireNonNull(typeParameters, "typeParameters");
+    var declarationName = enclosingType.isPresent() && !modifiers.contains(JavaTypeModifier.STATIC)
+        && qualifiedName.startsWith(enclosingType.orElseThrow().identity().erasedName() + '.')
+            ? enclosingType.orElseThrow().identity().displayName() + '.' + qualifiedName.substring(qualifiedName.lastIndexOf('.') + 1)
+            : qualifiedName;
+    var arguments = typeParameters.isEmpty()
+        ? ""
+        : typeParameters.stream().map(parameter -> Objects.requireNonNull(parameter, "typeParameters entry").name())
+            .collect(Collectors.joining(",", "<", ">"));
+    return new JavaTypeIdentity(JavaTypeCategory.DECLARED, declarationName + arguments, qualifiedName);
+  }
   /** Validates and defensively copies type data. */
   public JavaType {
     requireText(typeKey, "typeKey");
-    requireText(qualifiedName, "qualifiedName");
+    Objects.requireNonNull(nesting, "nesting");
+    Objects.requireNonNull(staticType, "staticType");
+    if (staticType.category() != JavaTypeCategory.DECLARED && staticType.category() != JavaTypeCategory.ERROR) {
+      throw new IllegalArgumentException("A Java type declaration requires its selected declared type");
+    }
+    Objects.requireNonNull(displayName, "displayName");
+    Objects.requireNonNull(qualifiedName, "qualifiedName");
+    if (nesting.kind() != JavaTypeNesting.Kind.ANONYMOUS && nesting.kind() != JavaTypeNesting.Kind.LOCAL) {
+      requireText(qualifiedName, "qualifiedName");
+    }
     Objects.requireNonNull(kind, "kind");
     Objects.requireNonNull(modifiers, "modifiers");
     var copiedModifiers = modifiers.isEmpty() ? EnumSet.noneOf(JavaTypeModifier.class) : EnumSet.copyOf(modifiers);

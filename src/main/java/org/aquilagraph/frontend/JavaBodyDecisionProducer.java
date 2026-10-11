@@ -8,6 +8,7 @@ import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.NewClassTree;
+import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.SwitchExpressionTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.util.TreePath;
@@ -47,6 +48,7 @@ import org.aquilagraph.source.api.EvidenceValue;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SourceExecutionTraversal;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
@@ -75,8 +77,11 @@ final class JavaBodyDecisionProducer {
     var staticAccesses = new ArrayList<StaticMemberEvidence>();
     var concatenations = new ArrayList<StringExpressionEvidence>();
     var constructorContexts = new ArrayList<ConstructorEvidence>();
-    for (var consumer : root.descendantsAndSelf()) {
+    for (var consumer : SourceExecutionTraversal.nodes(root)) {
       var binding = Objects.requireNonNull(bindings.get(consumer));
+      if (consumer.syntaxKind() == SyntaxKind.TYPE_DECLARATION) {
+        continue;
+      }
       if (consumer.syntaxKind() == SyntaxKind.INVOCATION || consumer.syntaxKind() == SyntaxKind.OBJECT_CREATION) {
         var context = constructors.produce(scopeKey, root, binding);
         context.ifPresent(constructorContexts::add);
@@ -95,7 +100,7 @@ final class JavaBodyDecisionProducer {
     }
     var selectedInvocations = new HashMap<String, InvocationApplicability>();
     invocations.forEach(value -> selectedInvocations.put(value.consumerNodeId(), value));
-    var retainedInvocations = root.descendantsAndSelf().stream()
+    var retainedInvocations = SourceExecutionTraversal.nodes(root).stream()
         .filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION || node.syntaxKind() == SyntaxKind.OBJECT_CREATION)
         .map(
             node -> Optional.ofNullable(selectedInvocations.get(node.nodeId())).map(value -> InvocationEvidence.known(value, node.origin()))
@@ -124,12 +129,18 @@ final class JavaBodyDecisionProducer {
         throw new IllegalArgumentException("One produced body instance cannot have two compiler projections");
       }
     }
-    var nodes = root.descendantsAndSelf();
+    var nodes = SourceExecutionTraversal.nodes(root);
     if (nodes.size() != bindings.size()) {
       throw new IllegalArgumentException("The final registered body must retain exactly its produced compiler projection");
     }
     for (var node : nodes) {
       var binding = bindings.get(node);
+      if (node.syntaxKind() == SyntaxKind.TYPE_DECLARATION) {
+        if (binding == null || !(binding.path().getLeaf() instanceof ClassTree)) {
+          throw new IllegalArgumentException("A nested declaration boundary requires its exact compiler path");
+        }
+        continue;
+      }
       if (binding == null || !binding.path().getLeaf().getKind().name().equals(node.sourceKind().name())
           || !semantics.type(binding.path()).equals(node.type()) || binding.children().size() != node.children().size()) {
         throw new IllegalArgumentException("A final body node requires its exact attributed source projection");
@@ -163,7 +174,8 @@ final class JavaBodyDecisionProducer {
     if (!(semantics.element(consumer.path()) instanceof ExecutableElement executable) || !referenceMatches(consumer.node(), executable)) {
       return;
     }
-    if (consumer.path().getLeaf() instanceof NewClassTree && !executable.getTypeParameters().isEmpty()) {
+    if (consumer.path().getLeaf() instanceof NewClassTree creation
+        && (!executable.getTypeParameters().isEmpty() || (creation.getClassBody() != null && !creation.getArguments().isEmpty()))) {
       constructorInvocation(scopeKey, consumer, executable, uses, invocations);
       return;
     }

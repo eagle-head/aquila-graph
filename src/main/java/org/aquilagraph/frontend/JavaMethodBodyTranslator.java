@@ -22,6 +22,10 @@ final class JavaMethodBodyTranslator {
     syntax = new JavaExecutableSyntaxProjector(semantics, sourceEvidence, treeInventory, DIAGNOSTIC_PRODUCER, "method body");
   }
 
+  void useDeclarations(JavaExecutableSyntaxProjector.DeclarationProjection projection) {
+    syntax.useDeclarations(projection);
+  }
+
   TranslationResult<TranslatedMethodBody> translate(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, BlockTree body,
       TreePath bodyPath, boolean constructor, boolean implicitDeclaration) {
     Objects.requireNonNull(unit, "unit");

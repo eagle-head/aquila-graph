@@ -206,6 +206,7 @@ public final class SourceAnalysisFixture {
     var catalog = LanguageFeatureCoverage.forRelease(original.coverage().coverage().release(),
         original.coverage().coverage().classifications().stream()
             .filter(classification -> !classification.feature().identifier().startsWith("BlockTree::")
+                && !classification.feature().identifier().startsWith("NewClassTree::")
                 && (formatVersion >= 13 || !classification.feature().identifier().startsWith("MemberSelectTree::")) && (arrays || !classification.feature().identifier().startsWith("NewArrayTree::"))
                 && exceptionSurfaces.stream().noneMatch(surface -> classification.feature().identifier().startsWith(surface + "::"))
                 && (references || !classification.feature().identifier().startsWith("MemberReferenceTree::"))
@@ -228,6 +229,7 @@ public final class SourceAnalysisFixture {
     var written = evidence.writtenInventory();
     var contexts = written.contexts().stream().filter(context -> context.feature()
         .map(feature -> !feature.identifier().startsWith("BlockTree::")
+            && !feature.identifier().startsWith("NewClassTree::")
             && (formatVersion >= 13 || !feature.identifier().startsWith("MemberSelectTree::")) && (arrays || !feature.identifier().startsWith("NewArrayTree::"))
             && exceptionSurfaces.stream().noneMatch(surface -> feature.identifier().startsWith(surface + "::"))
             && (references || !feature.identifier().startsWith("MemberReferenceTree::"))

@@ -102,7 +102,7 @@ public record JavaProgram(List<JavaType> types) {
     var enclosingKey = type.enclosingType().orElseThrow().declarationKey().orElseThrow(JavaProgram::missingEnclosingTypeKey);
     var enclosingDeclaration = typesByKey.get(enclosingKey);
     if (enclosingKey.equals(type.typeKey()) || enclosingDeclaration == null
-        || !enclosingDeclaration.qualifiedName().equals(type.enclosingType().orElseThrow().identity().erasedName())) {
+        || !enclosingDeclaration.staticType().equals(type.enclosingType().orElseThrow().identity())) {
       throw invalidEnclosingType();
     }
     var visited = new HashSet<String>();

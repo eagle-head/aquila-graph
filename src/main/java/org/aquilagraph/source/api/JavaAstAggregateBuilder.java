@@ -227,7 +227,10 @@ final class JavaAstAggregateBuilder {
         }
       }
     }
-    executionScopes.values().forEach(facts -> validateExecutionAttributionPaths(facts, nodes, declarations));
+    executionScopes.values().stream()
+        .sorted(Comparator.comparingInt(facts -> Optional.ofNullable(writtenSourceAssociations.get(facts.root().nodeId()))
+            .map(association -> association.ownerPath().size()).orElse(0)))
+        .forEach(facts -> validateExecutionAttributionPaths(facts, nodes, declarations));
   }
 
   private void validateExecutionAttributionPaths(SourceExecutionFacts facts, Map<String, SyntaxNode> nodes,
@@ -250,7 +253,8 @@ final class JavaAstAggregateBuilder {
       var expected = association == null
           ? Optional.<SyntaxStructuralPath>empty()
           : declarations.compilerPath(root.sourceFileKey(), association.ownerPath());
-      if ((!method && expected.isEmpty()) || (expected.isPresent() && !expected.orElseThrow().equals(compilerRoot))) {
+      var required = !method || association == null || declarations.requiresExactPath(root.sourceFileKey(), association.ownerPath());
+      if ((required && expected.isEmpty()) || (expected.isPresent() && !expected.orElseThrow().equals(compilerRoot))) {
         throw new IllegalArgumentException(
             "Execution attribution root must match its independently copied declaration owner and member order");
       }
@@ -287,6 +291,10 @@ final class JavaAstAggregateBuilder {
       if (!expected.equals(occurrence.compilerPath())) {
         throw new IllegalArgumentException("Execution attribution paths must preserve exact scope-relative occurrences");
       }
+    }
+    if (method && facts.methodOrigin().orElseThrow() == MethodBodyOrigin.SOURCE_AST) {
+      var association = Objects.requireNonNull(writtenSourceAssociations.get(root.nodeId()), "parsed method body");
+      declarations.retainStatementOffset(root.sourceFileKey(), association.ownerPath(), statementOffset);
     }
   }
 
@@ -385,7 +393,7 @@ final class JavaAstAggregateBuilder {
         validateDeclarationScope(registration, nodes);
         continue;
       }
-      LocalBindingDeclarations.validate(methodKey, root);
+      LocalBindingDeclarations.validate(methodKey, root, List.copyOf(nodes.values()));
       if (!sources.containsKey(root.sourceFileKey())) {
         throw new IllegalArgumentException("Method body source is not in the captured snapshot: " + methodKey);
       }
@@ -458,7 +466,7 @@ final class JavaAstAggregateBuilder {
     if (!ownedMember) {
       throw new IllegalArgumentException("A declaration execution anchor must belong directly to its actual type owner");
     }
-    LocalBindingDeclarations.validate(facts.scope().key(), root);
+    LocalBindingDeclarations.validate(facts.scope().key(), root, List.copyOf(nodes.values()));
   }
 
   private void validateAuxiliaryBodyNode(SyntaxNode node, String sourceFileKey, String methodKey) {

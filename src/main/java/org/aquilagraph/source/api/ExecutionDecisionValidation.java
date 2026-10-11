@@ -18,7 +18,7 @@ final class ExecutionDecisionValidation {
   static ExecutionDecisionIndex validate(String scopeKey, SyntaxNode root, ExecutionDecisionRegistration registration,
       Map<String, SyntaxNode> sourceNodes, List<AttributedBodyOccurrence> attributions, Map<String, DeclarationMemberOrder> memberOrders) {
     var nodes = new HashMap<String, SyntaxNode>();
-    root.descendantsAndSelf().forEach(node -> nodes.put(node.nodeId(), node));
+    SourceExecutionTraversal.nodes(root).forEach(node -> nodes.put(node.nodeId(), node));
     var uses = validateUses(scopeKey, root, registration.uses(), nodes, sourceNodes);
     var constructors = validateEnumContexts(scopeKey, root, registration.constructors(), nodes, sourceNodes, attributions, memberOrders);
     var invocations = validateInvocations(scopeKey, registration.invocations(), nodes, uses, constructors);

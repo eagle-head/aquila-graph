@@ -6,6 +6,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -23,6 +25,12 @@ import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.CoverageValidationEvidence;
 import org.aquilagraph.source.api.CoverageEvidenceValue;
 import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.JavaTypeNesting;
+import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.JavaTypeReference;
+import org.aquilagraph.source.api.JavaType;
+import org.aquilagraph.source.api.JavaProgram;
 import org.aquilagraph.source.api.CoverageSourceFact;
 import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.JavaSourceKind;
@@ -49,6 +57,7 @@ final class RetainedValueCodec {
   private final boolean canonical;
   private final String format;
   private final int formatVersion;
+  private final Map<String, JavaTypeIdentity> historicalTypeIdentities = new HashMap<>();
   private final Function<SyntaxNode, @Nullable Integer> nodeOrdinal;
   private final ToIntFunction<SyntaxNode> registerNode;
   private final List<@Nullable SyntaxNode> readNodes = new ArrayList<>();
@@ -284,10 +293,45 @@ final class RetainedValueCodec {
     if (formatVersion < 14 && "declaration-member-order".equals(tag)) {
       components.add(Optional.empty());
     }
+    if (formatVersion < 15 && "java-type".equals(tag)) {
+      var owner = ((Optional<?>) components.get(4)).map(JavaTypeReference.class::cast).flatMap(JavaTypeReference::declarationKey);
+      components.add(new JavaTypeNesting(owner.isEmpty() ? JavaTypeNesting.Kind.TOP_LEVEL : JavaTypeNesting.Kind.MEMBER, owner));
+      var name = (String) components.get(1);
+      components.add(historicalTypeIdentities.getOrDefault((String) components.getFirst(),
+          new JavaTypeIdentity(JavaTypeCategory.DECLARED, name, name)));
+      components.add(name);
+    }
+    if (formatVersion < 15 && "declaration-type-evidence".equals(tag)) {
+      historicalTypeIdentities.put((String) components.getFirst(), (JavaTypeIdentity) components.get(2));
+    }
+    if (formatVersion < 15 && "java-program".equals(tag)) {
+      components.set(0, historicalTypes(((List<?>) components.getFirst()).stream().map(JavaType.class::cast).toList(), Optional.empty()));
+    }
+    if (formatVersion < 15 && "syntax-analysis-input".equals(tag)) {
+      var program = (JavaProgram) components.get(2);
+      var aggregate = ((Optional<?>) components.get(3)).map(JavaAstAggregate.class::cast);
+      components.set(2, new JavaProgram(historicalTypes(program.types(), aggregate)));
+    }
     return shape.construct(components);
   }
 
+  private static List<JavaType> historicalTypes(List<JavaType> types, Optional<JavaAstAggregate> aggregate) {
+    return types.stream().map(type -> {
+      var identity = aggregate.flatMap(value -> value.declarationTypeEvidence(type.typeKey())).map(value -> value.identity())
+          .orElseGet(() -> types.stream().flatMap(value -> value.enclosingType().stream())
+              .filter(reference -> reference.declarationKey().filter(type.typeKey()::equals).isPresent()).map(JavaTypeReference::identity)
+              .findFirst().orElse(type.staticType()));
+      return new JavaType(type.typeKey(), type.qualifiedName(), type.kind(), type.modifiers(), type.enclosingType(),
+          type.directSuperclass(), type.directInterfaces(), type.permittedSubclasses(), type.typeParameters(), type.sourceDeclared(),
+          type.fields(), type.recordComponents(), type.methods(), type.synthesizedDeclarations(), type.origins(), type.nesting(), identity,
+          type.displayName());
+    }).toList();
+  }
+
   private void validateFormatTag(String tag) {
+    if (formatVersion < 15 && tag.startsWith("java-type-nesting")) {
+      throw new IllegalArgumentException("Nested declaration metadata requires retained AST format java-source/15");
+    }
     if (formatVersion < 14 && (tag.startsWith("execution-scope/") || "copied-ast-values/scope".equals(tag)
         || "declaration-member-order/tree-order".equals(tag))) {
       throw new IllegalArgumentException("Declaration execution scopes require retained AST format java-source/14");
@@ -318,6 +362,9 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatEnum(Class<?> type, String name) {
+    if (formatVersion < 15 && type == SyntaxRole.class && "CLASS_BODY".equals(name)) {
+      throw new IllegalArgumentException("Anonymous declaration bodies require retained AST format java-source/15");
+    }
     if (formatVersion < 13 && type == SyntaxKind.class && "CLASS_LITERAL".equals(name)) {
       throw new IllegalArgumentException("Executable class literals require retained AST format java-source/13");
     }

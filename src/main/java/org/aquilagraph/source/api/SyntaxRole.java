@@ -28,6 +28,8 @@ public enum SyntaxRole {
   PATTERN_COMPONENT("pattern-component"),
   /** Top-level type declaration within a compilation unit. */
   TYPE_DECLARATION("type-declaration"),
+  /** Nameless declaration body of an anonymous creation. */
+  CLASS_BODY("class-body"),
   /** Member declaration within a type. */
   MEMBER("member"),
   /** Type parameter written in a type or executable declaration header. */

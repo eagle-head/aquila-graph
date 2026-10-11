@@ -41,6 +41,11 @@ final class JavaProgramTranslator {
 
   JavaProgramTranslator(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
       ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage, boolean memberInitialization) {
+    this(sources, semantics, sourceEvidence, treeInventory, coverage, memberInitialization, false);
+  }
+
+  JavaProgramTranslator(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
+      ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage, boolean memberInitialization, boolean nestedDeclarations) {
     this.sources = Objects.requireNonNull(sources, "sources");
     Objects.requireNonNull(semantics, "semantics");
     Objects.requireNonNull(sourceEvidence, "sourceEvidence");
@@ -49,11 +54,17 @@ final class JavaProgramTranslator {
     var methodTranslator = new JavaMethodTranslator(semantics, sourceEvidence, treeInventory, bodyTranslator);
     typeTranslator = new JavaTypeTranslator(semantics, sourceEvidence, treeInventory, propertyObserver, methodTranslator);
     typeTranslator.enableMemberInitialization(memberInitialization);
+    typeTranslator.enableNestedDeclarations(nestedDeclarations);
     astTranslator = new JavaAstContributionTranslator(semantics, sourceEvidence, treeInventory);
     astTranslator.enableMemberInitialization(memberInitialization);
+    astTranslator.enableNestedDeclarations(nestedDeclarations);
   }
 
   TranslationResult<TranslatedProgram> translate(InputSnapshot snapshot, List<CompilationUnitTree> units) {
+    return translate(snapshot, units, false);
+  }
+
+  TranslationResult<TranslatedProgram> translate(InputSnapshot snapshot, List<CompilationUnitTree> units, boolean compilerErrors) {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(units, "units");
     var types = new ArrayList<JavaType>();
@@ -102,7 +113,14 @@ final class JavaProgramTranslator {
         incompleteRoot = true;
         continue;
       }
-      var ast = astTranslator.translate(unit, source, methodBodies.subList(firstBody, methodBodies.size()), unitTypes);
+      final JavaAstContributionTranslator.UnitTranslation ast;
+      try {
+        ast = astTranslator.translate(unit, source, methodBodies.subList(firstBody, methodBodies.size()), unitTypes);
+      } catch (JavaSourceProjectionFailure failure) {
+        diagnostics.addAll(failure.diagnostics());
+        incompleteRoot = true;
+        continue;
+      }
       diagnostics.addAll(ast.diagnostics());
       if (ast.contribution().isPresent()) {
         sourceContributions.add(ast.contribution().orElseThrow());
@@ -123,11 +141,26 @@ final class JavaProgramTranslator {
         incompleteRoot = true;
       }
     }
-    var program = incompleteRoot ? new JavaProgram(List.of()) : new JavaProgram(types);
-    var aggregate = incompleteRoot
-        ? Optional.<JavaAstAggregate>empty()
-        : Optional.of(AstValueAdmission.admit(new CopiedAstValues(snapshot, sourceContributions, retainedBodies, retainedOrders,
-            retainedAssociations, retainedTypes, retainedScopes)));
+    var program = new JavaProgram(List.of());
+    Optional<JavaAstAggregate> aggregate;
+    try {
+      if (!incompleteRoot) {
+        program = new JavaProgram(types);
+      }
+      aggregate = incompleteRoot
+          ? Optional.empty()
+          : Optional.of(AstValueAdmission.admit(new CopiedAstValues(snapshot, sourceContributions, retainedBodies, retainedOrders,
+              retainedAssociations, retainedTypes, retainedScopes)));
+    } catch (IllegalArgumentException failure) {
+      if (!compilerErrors) {
+        throw failure;
+      }
+      TranslationDiagnosticEvidence.emit(diagnostics, "JavaProgramTranslator",
+          FrontendDiagnosticFactory.otherError(snapshot.snapshotDigest(), "frontend.unavailable-source-structure",
+              Objects.toString(failure.getMessage(), failure.getClass().getSimpleName()), Optional.empty()));
+      aggregate = Optional.empty();
+      program = new JavaProgram(List.of());
+    }
     return new TranslationResult<>(new TranslatedProgram(program, aggregate), diagnostics, occurrences, observations);
   }
 

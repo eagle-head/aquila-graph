@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.AnyPatternTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
@@ -107,13 +108,14 @@ final class JavaTypeKindObserver {
 
     @Override
     public Void visitClass(ClassTree declaration, SourceFile source) {
-      observeType(declaration.getExtendsClause(), source);
-      declaration.getImplementsClause().forEach(tree -> observeType(tree, source));
-      declaration.getPermitsClause().forEach(tree -> observeType(tree, source));
+      if (!declaration.getSimpleName().isEmpty()) {
+        observeType(declaration.getExtendsClause(), source);
+        declaration.getImplementsClause().forEach(tree -> observeType(tree, source));
+        declaration.getPermitsClause().forEach(tree -> observeType(tree, source));
+      }
       declaration.getTypeParameters().forEach(parameter -> scan(parameter, source));
-      declaration.getMembers().stream()
-          .filter(member -> member instanceof ClassTree || member instanceof MethodTree || member instanceof VariableTree)
-          .forEach(member -> scan(member, source));
+      declaration.getMembers().stream().filter(member -> member instanceof ClassTree || member instanceof MethodTree
+          || member instanceof VariableTree || member instanceof BlockTree).forEach(member -> scan(member, source));
       return null;
     }
 
@@ -127,6 +129,9 @@ final class JavaTypeKindObserver {
       declaration.getTypeParameters().forEach(parameter -> scan(parameter, source));
       declaration.getParameters().stream().filter(parameter -> !JavaCoverageTopology.isDerivedCompactParameter(parameter, getCurrentPath(),
           getCurrentPath().getCompilationUnit(), source, sourceEvidence)).forEach(parameter -> scan(parameter, source));
+      if (declaration.getBody() != null) {
+        JavaNestedDeclarationTraversal.scan(new TreePath(getCurrentPath(), declaration.getBody()), path -> scan(path, source));
+      }
       return null;
     }
 
@@ -135,6 +140,15 @@ final class JavaTypeKindObserver {
       if (treeInventory.isWritten(declaration)) {
         observeType(declaration.getType(), source);
       }
+      if (declaration.getInitializer() != null) {
+        JavaNestedDeclarationTraversal.scan(new TreePath(getCurrentPath(), declaration.getInitializer()), path -> scan(path, source));
+      }
+      return null;
+    }
+
+    @Override
+    public Void visitBlock(BlockTree tree, SourceFile source) {
+      JavaNestedDeclarationTraversal.scan(getCurrentPath(), path -> scan(path, source));
       return null;
     }
 

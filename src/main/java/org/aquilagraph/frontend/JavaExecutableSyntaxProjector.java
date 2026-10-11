@@ -1,6 +1,8 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.BindingPatternTree;
+import com.sun.source.tree.ClassTree;
+import org.jspecify.annotations.Nullable;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.Tree;
@@ -38,6 +40,17 @@ final class JavaExecutableSyntaxProjector {
   private final JavaPatternBindingProjector patterns;
   private final String diagnosticProducer;
   private final String syntaxContext;
+  private @Nullable DeclarationProjection declarations;
+
+  @FunctionalInterface
+  interface DeclarationProjection {
+    TranslationResult<SyntaxNode> project(ClassTree tree, TreePath path, SyntaxStructuralPath structuralPath);
+  }
+
+  void useDeclarations(DeclarationProjection projection) {
+    declarations = Objects.requireNonNull(projection, "projection");
+    syntaxProfile.enableAnonymousDeclarations();
+  }
 
   JavaExecutableSyntaxProjector(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
       String diagnosticProducer, String syntaxContext) {
@@ -88,6 +101,14 @@ final class JavaExecutableSyntaxProjector {
 
   private SyntaxTreeTranslation translateTree(CompilationUnitTree unit, SourceFile sourceFile, String ownerKey, Tree tree, TreePath path,
       SyntaxStructuralPath structuralPath, boolean constructor, boolean compilerGenerated, List<NodeProjection> nodeProjections) {
+    var collaborator = declarations;
+    if (tree instanceof ClassTree declaration && collaborator != null) {
+      var translated = collaborator.project(declaration, path, structuralPath);
+      nodeProjections
+          .add(new NodeProjection(translated.value(), path, List.of(), treeInventory.sourceAssociation(translated.value(), path)));
+      return new SyntaxTreeTranslation(translated.value(), translated.diagnostics(), translated.featureOccurrences(),
+          translated.featureObservations());
+    }
     var generated = compilerGenerated || (constructor && treeInventory.isCompilerInsertedSuperCall(path));
     var mapping = syntaxProfile.describe(tree, path, structuralPath);
     var children = translateChildren(unit, sourceFile, ownerKey, mapping.children(), constructor, generated, nodeProjections);

@@ -16,6 +16,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.Modifier;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.Parameterizable;
@@ -53,6 +54,21 @@ final class DeclarationIdentityRegistry {
       throw new IllegalArgumentException("A source declaration requires its exact compiler element and creating path");
     }
     identityState.sourceStorage().accept(element, path);
+    var owner = element.getEnclosingElement();
+    if (owner != null && (owner.getKind() == ElementKind.STATIC_INIT || owner.getKind() == ElementKind.INSTANCE_INIT)) {
+      var scope = JavaExecutionOwner.find(path);
+      if (scope.isPresent() && scope.orElseThrow().getLeaf() instanceof BlockTree block && scope.orElseThrow().getParentPath() != null
+          && Objects.equals(trees.getElement(scope.orElseThrow().getParentPath()), owner.getEnclosingElement())
+          && block.isStatic() == (owner.getKind() == ElementKind.STATIC_INIT)) {
+        identityState.sourceStorage().accept(owner, scope.orElseThrow());
+      }
+      if (scope.isPresent() && scope.orElseThrow().getLeaf() instanceof VariableTree && scope.orElseThrow().getParentPath() != null
+          && Objects.equals(trees.getElement(scope.orElseThrow().getParentPath()), owner.getEnclosingElement())
+          && trees.getElement(scope.orElseThrow()) instanceof VariableElement field && field.getKind() == ElementKind.FIELD
+          && field.getModifiers().contains(Modifier.STATIC) && owner.getKind() == ElementKind.STATIC_INIT) {
+        identityState.sourceStorage().accept(owner, scope.orElseThrow());
+      }
+    }
   }
 
   boolean isLambdaParameter(Element element) {
@@ -98,6 +114,7 @@ final class DeclarationIdentityRegistry {
   private Optional<String> deriveKey(Element element) {
     return switch (element.getKind()) {
       case CLASS, INTERFACE, ENUM, RECORD, ANNOTATION_TYPE -> keyOfType((TypeElement) element);
+      case STATIC_INIT, INSTANCE_INIT -> keyOfOwnedStructure(element, "initializer");
       case CONSTRUCTOR, METHOD -> keyOfExecutable((ExecutableElement) element);
       case FIELD -> keyOfOwnedVariable((VariableElement) element, "field");
       case ENUM_CONSTANT -> keyOfOwnedVariable((VariableElement) element, "enum");

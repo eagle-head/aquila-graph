@@ -28,6 +28,7 @@ import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewArrayTree;
+import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.VariableTree;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -71,11 +72,11 @@ final class JavaDeclarationPropertyCoverage {
   static final String EXECUTABLE_ELEMENT_VARARGS = "ExecutableElement::ExecutableElement#isVarArgs()";
 
   private static final List<Class<?>> DECLARATION_SURFACES = List.of(CompilationUnitTree.class, ClassTree.class, MethodTree.class,
-      VariableTree.class, BlockTree.class, NewArrayTree.class, AssertTree.class, SynchronizedTree.class, LambdaExpressionTree.class,
-      MemberReferenceTree.class, MemberSelectTree.class, InstanceOfTree.class, BindingPatternTree.class, DeconstructionPatternTree.class,
-      AnyPatternTree.class, SwitchTree.class, SwitchExpressionTree.class, CaseTree.class, YieldTree.class, WhileLoopTree.class,
-      DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class, ContinueTree.class,
-      TryTree.class, CatchTree.class, UnionTypeTree.class, TypeElement.class, ExecutableElement.class);
+      VariableTree.class, BlockTree.class, NewArrayTree.class, NewClassTree.class, AssertTree.class, SynchronizedTree.class,
+      LambdaExpressionTree.class, MemberReferenceTree.class, MemberSelectTree.class, InstanceOfTree.class, BindingPatternTree.class,
+      DeconstructionPatternTree.class, AnyPatternTree.class, SwitchTree.class, SwitchExpressionTree.class, CaseTree.class, YieldTree.class,
+      WhileLoopTree.class, DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class,
+      ContinueTree.class, TryTree.class, CatchTree.class, UnionTypeTree.class, TypeElement.class, ExecutableElement.class);
   private static final String STATEMENT_KIND_BOUNDARY = "Canonical written statement kind";
   private static final String STATEMENT_VALUE_BOUNDARY = "Canonical written statement value and ordered children";
   private static final String TREE_API = "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/";
@@ -140,6 +141,7 @@ final class JavaDeclarationPropertyCoverage {
     classifications.addAll(variableClassifications());
     classifications.addAll(blockClassifications());
     classifications.addAll(arrayClassifications());
+    classifications.addAll(creationClassifications());
     classifications.addAll(iterationClassifications());
     classifications.addAll(assertionMonitorClassifications());
     classifications.addAll(lambdaClassifications());
@@ -151,6 +153,17 @@ final class JavaDeclarationPropertyCoverage {
     classifications.addAll(typeElementClassifications());
     classifications.addAll(executableElementClassifications());
     return List.copyOf(classifications);
+  }
+
+  private static List<LanguageFeatureClassification> creationClassifications() {
+    var result = new ArrayList<LanguageFeatureClassification>();
+    result.add(
+        irrelevant("NewClassTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE));
+    result.add(represented("NewClassTree::Tree#getKind()", "Canonical object creation kind"));
+    for (var accessor : List.of("getEnclosingExpression", "getIdentifier", "getTypeArguments", "getArguments", "getClassBody")) {
+      result.add(represented("NewClassTree::NewClassTree#" + accessor + "()", "Written creation operands and optional anonymous body"));
+    }
+    return List.copyOf(result);
   }
 
   private static List<LanguageFeatureClassification> blockClassifications() {

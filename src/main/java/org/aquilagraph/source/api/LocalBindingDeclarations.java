@@ -11,9 +11,9 @@ final class LocalBindingDeclarations {
   private LocalBindingDeclarations() {
   }
 
-  static void validate(String scopeKey, SyntaxNode root) {
+  static void validate(String scopeKey, SyntaxNode root, List<SyntaxNode> containingNodes) {
     var bindings = new HashMap<String, SyntaxNode>();
-    var nodes = root.descendantsAndSelf();
+    var nodes = SourceExecutionTraversal.nodes(root);
     var parents = new HashMap<String, SyntaxNode>();
     for (var node : nodes) {
       node.children().forEach(child -> parents.put(child.node().nodeId(), node));
@@ -28,6 +28,12 @@ final class LocalBindingDeclarations {
         });
       }
     }
+    for (var node : containingNodes) {
+      node.children().forEach(child -> parents.put(child.node().nodeId(), node));
+      if (node.value() instanceof SyntaxValue.LocalDeclaration local) {
+        local.bindingEvidence().flatMap(LocalBindingEvidence::declarationKey).ifPresent(key -> bindings.putIfAbsent(key, node));
+      }
+    }
     for (var node : nodes) {
       if (node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS) {
         node.semanticReference()
@@ -35,10 +41,10 @@ final class LocalBindingDeclarations {
             .flatMap(SemanticReference::symbolKey).ifPresent(key -> validateAccess(scopeKey, node, key, bindings, parents));
       }
     }
-    validatePatternScopes(nodes);
+    validatePatternScopes(nodes, containingNodes);
   }
 
-  private static void validatePatternScopes(List<SyntaxNode> nodes) {
+  private static void validatePatternScopes(List<SyntaxNode> nodes, List<SyntaxNode> containingNodes) {
     for (var pattern : nodes) {
       if (pattern.syntaxKind() != SyntaxKind.BINDING_PATTERN) {
         continue;
@@ -47,11 +53,12 @@ final class LocalBindingDeclarations {
       var key = binding.bindingEvidence().flatMap(LocalBindingEvidence::declarationKey);
       pattern.value(SyntaxValue.PatternBinding.class).resolvedAccesses().ifPresent(accesses -> {
         for (var origin : accesses) {
-          var matches = nodes.stream()
+          var matches = containingNodes.stream()
               .anyMatch(node -> node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS && node.origin().equals(Optional.of(origin))
                   && node.semanticReference().flatMap(SemanticReference::symbolKey).equals(key)
                   && binding.name().equals(node.value(SyntaxValue.SourceSymbol.class).name()));
-          if (!matches && nodes.stream().noneMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED && contains(node, origin))) {
+          if (!matches
+              && containingNodes.stream().noneMatch(node -> node.syntaxKind() == SyntaxKind.UNSUPPORTED && contains(node, origin))) {
             throw new IllegalArgumentException("Copied pattern scope must select actual accesses to its exact named binding");
           }
         }

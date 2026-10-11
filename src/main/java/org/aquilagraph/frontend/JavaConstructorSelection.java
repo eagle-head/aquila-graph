@@ -5,6 +5,7 @@ import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.MethodInvocationTree;
+import com.sun.source.tree.ExpressionStatementTree;
 import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.ParameterizedTypeTree;
 import com.sun.source.tree.ParenthesizedTree;
@@ -82,16 +83,19 @@ final class JavaConstructorSelection {
   }
 
   void prepare(List<CompilationUnitTree> units) throws IOException {
+    prepare(units, false);
+  }
+
+  void prepare(List<CompilationUnitTree> units, boolean nestedDeclarations) throws IOException {
     var paths = new ArrayList<TreePath>();
     var scanner = new TreePathScanner<Void, Void>() {
       @Override
       public Void visitNewClass(NewClassTree creation, Void ignored) {
-        if (creation.getClassBody() != null) {
+        if (!nestedDeclarations && creation.getClassBody() != null) {
           return null;
         }
-        var path = getCurrentPath();
-        if (insideMethod(path)) {
-          paths.add(path);
+        if (nestedDeclarations || insideMethod(getCurrentPath())) {
+          paths.add(getCurrentPath());
         }
         return super.visitNewClass(creation, null);
       }
@@ -99,11 +103,17 @@ final class JavaConstructorSelection {
     };
     units.forEach(unit -> scanner.scan(unit, null));
     for (var path : paths) {
-      if (!(path.getLeaf() instanceof NewClassTree creation) || !(originalTrees.getElement(path) instanceof ExecutableElement selected)
-          || selected.getTypeParameters().isEmpty() || !(selected.getEnclosingElement() instanceof TypeElement owner)
-          || !(originalTrees.getTypeMirror(path) instanceof DeclaredType created) || !created.asElement().equals(owner)) {
+      if (!(path.getLeaf() instanceof NewClassTree creation) || !(originalTrees.getElement(path) instanceof ExecutableElement original)
+          || (original.getTypeParameters().isEmpty() && (creation.getClassBody() == null || creation.getArguments().isEmpty()))) {
         continue;
       }
+      var target = constructorTarget(path, creation, original);
+      if (target.isEmpty()) {
+        continue;
+      }
+      var selected = target.orElseThrow().constructor();
+      var created = target.orElseThrow().created();
+      var owner = target.orElseThrow().owner();
       var fixed = creation.getArguments().size() == selected.getParameters().size()
           && !fixedArrayCannotAcceptCast(path, creation, selected, created)
               ? attribute(path, creation, selected, owner, created, false)
@@ -113,6 +123,15 @@ final class JavaConstructorSelection {
           : fixed.facts();
       selections.remember(creation, facts);
     }
+  }
+
+  private static boolean insideMethod(TreePath path) {
+    for (var current = path.getParentPath(); current != null; current = current.getParentPath()) {
+      if (current.getLeaf() instanceof MethodTree method) {
+        return method.getBody() != null;
+      }
+    }
+    return false;
   }
 
   private boolean fixedArrayCannotAcceptCast(TreePath path, NewClassTree creation, ExecutableElement selected, DeclaredType created) {
@@ -126,25 +145,48 @@ final class JavaConstructorSelection {
         && !new JavaInvocationApplicability(originalSemantics).looseConversion(source, array);
   }
 
-  private static boolean insideMethod(TreePath path) {
-    for (var current = path.getParentPath(); current != null; current = current.getParentPath()) {
-      if (current.getLeaf() instanceof MethodTree method) {
-        return method.getBody() != null;
-      }
+  private Optional<ConstructorTarget> constructorTarget(TreePath path, NewClassTree creation, ExecutableElement original) {
+    if (creation.getClassBody() == null) {
+      return original.getEnclosingElement() instanceof TypeElement owner
+          && originalTrees.getTypeMirror(path) instanceof DeclaredType created && created.asElement().equals(owner)
+              ? Optional.of(new ConstructorTarget(original, created, owner))
+              : Optional.empty();
     }
-    return false;
+    var declaration = originalTrees.getPath(original);
+    if (declaration == null || !(declaration.getLeaf() instanceof MethodTree method) || method.getBody() == null
+        || method.getBody().getStatements().isEmpty()
+        || !(method.getBody().getStatements().getFirst() instanceof ExpressionStatementTree statement)
+        || !(statement.getExpression() instanceof MethodInvocationTree delegation)) {
+      return Optional.empty();
+    }
+    var call = new TreePath(new TreePath(new TreePath(declaration, method.getBody()), statement), delegation);
+    if (!(originalTrees.getElement(call) instanceof ExecutableElement selected)
+        || !(selected.getEnclosingElement() instanceof TypeElement owner)
+        || !(originalTrees.getTypeMirror(new TreePath(path, creation.getIdentifier())) instanceof DeclaredType created)
+        || !created.asElement().equals(owner)) {
+      return Optional.empty();
+    }
+    return Optional.of(new ConstructorTarget(selected, created, owner));
+  }
+
+  private record ConstructorTarget(ExecutableElement constructor, DeclaredType created, TypeElement owner) {
   }
 
   private WitnessAttribution attribute(TreePath path, NewClassTree creation, ExecutableElement selected, TypeElement owner,
       DeclaredType created, boolean expanded) throws IOException {
+    if (creation.getClassBody() != null && creation.getArguments().isEmpty()) {
+      return WitnessAttribution.unavailable();
+    }
     var name = uniqueName(owner);
-    var diamond = creation.getIdentifier() instanceof ParameterizedTypeTree parameterized && parameterized.getTypeArguments().isEmpty();
+    var diamond = creation.getClassBody() == null && creation.getIdentifier() instanceof ParameterizedTypeTree parameterized
+        && parameterized.getTypeArguments().isEmpty();
     var notional = new ConstructorNotionalMethod(selected, owner, originalTypes, originalElements, name, diamond,
         creation.getArguments().size(), expanded);
     var original = path.getCompilationUnit();
     var content = original.getSourceFile().getCharContent(true).toString();
-    var start = position(original, creation, false);
-    var end = position(original, creation, true);
+    var replaced = creation.getClassBody() == null ? creation : creation.getArguments().getFirst();
+    var start = position(original, replaced, false);
+    var end = position(original, replaced, true);
     if (start < 0 || end < start) {
       return WitnessAttribution.unavailable();
     }
@@ -154,6 +196,11 @@ final class JavaConstructorSelection {
     }
     var replacement = replacement(original, creation, receiver.orElseThrow(), content, name, diamond, expanded,
         selected.getParameters().size() - 1);
+    if (creation.getClassBody() != null) {
+      // Only the original argument arm completes normally; proof arguments cannot change its flow.
+      replacement = "switch (0) { case 1 -> { " + replacement + "; throw null; } default -> " + sourceText(original, replaced, content)
+          + "; }";
+    }
     var edits = new ArrayList<SourceEdit>();
     edits.add(new SourceEdit(original.getSourceFile(), start, end, replacement));
     var adaptation = Optional.<BinaryAdaptation>empty();
@@ -273,11 +320,16 @@ final class JavaConstructorSelection {
     if (method.getArguments().size() != creation.getArguments().size() + (expanded ? 1 : 0)) {
       return WitnessAttribution.unavailable();
     }
+    var witnessArgumentPaths = method.getArguments().stream().map(argument -> new TreePath(call, argument)).toList();
+    var originalArgumentPaths = creation.getArguments().stream().map(argument -> new TreePath(path, argument)).toList();
     for (var index = 0; index < creation.getArguments().size(); index++) {
       var witnessIndex = expanded && index >= prefix ? index + 1 : index;
-      var argument = childType(trees, call, method.getArguments().get(witnessIndex));
-      var originalArgument = childType(originalTrees, path, creation.getArguments().get(index));
-      if (argument == null || originalArgument == null || !correspondence.matches(originalArgument, argument)) {
+      var witnessArgumentPath = witnessArgumentPaths.get(witnessIndex);
+      var originalArgumentPath = originalArgumentPaths.get(index);
+      var argument = trees.getTypeMirror(witnessArgumentPath);
+      var originalArgument = originalTrees.getTypeMirror(originalArgumentPath);
+      if (argument == null || originalArgument == null
+          || !correspondence.matchesArgument(originalArgumentPath, originalTrees, witnessArgumentPath, trees)) {
         return WitnessAttribution.unavailable();
       }
       arguments.add(argument);
@@ -463,9 +515,11 @@ final class JavaConstructorSelection {
 
   private Optional<JavaTypeIdentity> selectedTypeIdentity(SemanticResolver resolver, ConstructorTypeCorrespondence correspondence,
       Types witnessTypes, TypeMirror type) {
-    return ConstructorTypeCorrespondence.containsVariable(type)
-        ? correspondence.originalType(type, originalTypes, witnessTypes).map(originalSemantics::typeIdentity)
-        : Optional.of(resolver.typeIdentity(type));
+    var original = correspondence.originalType(type, originalTypes, witnessTypes);
+    if (original.isPresent()) {
+      return original.map(originalSemantics::typeIdentity);
+    }
+    return ConstructorTypeCorrespondence.containsVariable(type) ? Optional.empty() : Optional.of(resolver.typeIdentity(type));
   }
 
   private String uniqueName(TypeElement owner) {

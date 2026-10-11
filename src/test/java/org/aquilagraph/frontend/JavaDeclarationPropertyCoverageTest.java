@@ -21,6 +21,9 @@ import org.junit.jupiter.api.Test;
 class JavaDeclarationPropertyCoverageTest {
   private static final CompilerConfiguration JAVA_25_CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final Set<String> EXPECTED_PROPERTIES = Set.of(
+      "NewClassTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", "NewClassTree::Tree#getKind()",
+      "NewClassTree::NewClassTree#getEnclosingExpression()", "NewClassTree::NewClassTree#getIdentifier()",
+      "NewClassTree::NewClassTree#getTypeArguments()", "NewClassTree::NewClassTree#getArguments()", "NewClassTree::NewClassTree#getClassBody()",
       "BlockTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", "BlockTree::Tree#getKind()",
       "BlockTree::BlockTree#isStatic()", "BlockTree::BlockTree#getStatements()",
       "MemberSelectTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", "MemberSelectTree::Tree#getKind()",
@@ -212,6 +215,7 @@ class JavaDeclarationPropertyCoverageTest {
 
       "NewArrayTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "CompilationUnitTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
+      "NewClassTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "CompilationUnitTree::CompilationUnitTree#getLineMap()",
       "ClassTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
       "MethodTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)",
@@ -412,7 +416,7 @@ class JavaDeclarationPropertyCoverageTest {
     assertEquals(first, second);
     assertEquals(first.toString(), second.toString());
     assertEquals(first.classifications(), second.classifications());
-    assertEquals("java-language-feature-coverage:eef5d9c12e297d9a4b530a7b84d7f7d25af272382b954b8ace2efb7522d2ccb6",
+    assertEquals("java-language-feature-coverage:9d5a88ba411e31bcdf981f74f58d6adc7e18bc08ec98339347d7620f49ce1b93",
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 

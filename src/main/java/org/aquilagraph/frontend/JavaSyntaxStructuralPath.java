@@ -5,9 +5,11 @@ import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.util.TreePath;
-import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.JavaSourcePathRoles;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
 
@@ -18,30 +20,27 @@ final class JavaSyntaxStructuralPath {
 
   static SyntaxStructuralPath executionRoot(TreePath creatingPath) {
     Objects.requireNonNull(creatingPath, "creatingPath");
-    var descendants = new ArrayDeque<Tree>();
-    var cursor = creatingPath;
-    while (cursor.getParentPath() != null) {
-      descendants.addFirst(cursor.getLeaf());
-      cursor = cursor.getParentPath();
-    }
-    if (!(cursor.getLeaf() instanceof CompilationUnitTree)) {
-      throw new IllegalArgumentException("An execution structural path must begin at a compilation unit");
-    }
-
-    var path = SyntaxStructuralPath.sourceFileRoot();
-    Tree parent = cursor.getLeaf();
-    while (!descendants.isEmpty()) {
-      var child = descendants.removeFirst();
-      if (parent instanceof CompilationUnitTree unit) {
-        path = path.child(SyntaxRole.TYPE_DECLARATION, identityIndex(unit.getTypeDecls(), child));
-      } else if (parent instanceof ClassTree type) {
-        path = path.child(SyntaxRole.MEMBER, identityIndex(type.getMembers(), child));
-      } else if (parent instanceof MethodTree method && JavaProjectionIdentity.sameInstance(method.getBody(), child)) {
-        path = path.child(SyntaxRole.BODY, 0);
-      } else {
-        throw new IllegalArgumentException("An execution structural path contains an unsupported declaration step");
+    var containingPath = creatingPath.getParentPath();
+    if (containingPath == null) {
+      if (!(creatingPath.getLeaf() instanceof CompilationUnitTree)) {
+        throw new IllegalArgumentException("An execution structural path must begin at a compilation unit");
       }
-      parent = child;
+      return SyntaxStructuralPath.sourceFileRoot();
+    }
+    var path = executionRoot(containingPath);
+    var parent = containingPath.getLeaf();
+    var child = creatingPath.getLeaf();
+    if (parent instanceof CompilationUnitTree unit) {
+      path = path.child(SyntaxRole.TYPE_DECLARATION, identityIndex(unit.getTypeDecls(), child));
+    } else if (parent instanceof ClassTree type) {
+      path = path.child(SyntaxRole.MEMBER, identityIndex(type.getMembers(), child));
+    } else if (parent instanceof MethodTree method && JavaProjectionIdentity.sameInstance(method.getBody(), child)) {
+      path = path.child(SyntaxRole.BODY, 0);
+    } else {
+      var step = JavaParsedChildRoles.children(parent).stream().filter(slot -> JavaProjectionIdentity.sameInstance(slot.tree(), child))
+          .findFirst().orElseThrow(() -> new IllegalArgumentException("An execution path child is absent from its actual parent")).step();
+      var role = JavaSourcePathRoles.syntaxRole(step.role(), Optional.of(JavaSourceKind.valueOf(parent.getKind().name())));
+      path = path.child(role, step.ordinal());
     }
     return path;
   }

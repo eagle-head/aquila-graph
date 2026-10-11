@@ -44,7 +44,7 @@ final class ExecutableSyntaxTraversal {
   }
 
   private static boolean executable(SyntaxNode parent, SyntaxRole role) {
-    if (parent.sourceKind() == JavaSourceKind.LAMBDA_EXPRESSION) {
+    if (parent.sourceKind() == JavaSourceKind.LAMBDA_EXPRESSION || parent.syntaxKind() == SyntaxKind.TYPE_DECLARATION) {
       return false;
     }
     if (role == SyntaxRole.QUALIFIER) {
