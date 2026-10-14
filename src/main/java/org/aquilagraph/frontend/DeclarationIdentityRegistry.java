@@ -64,7 +64,8 @@ final class DeclarationIdentityRegistry {
       }
       if (scope.isPresent() && scope.orElseThrow().getLeaf() instanceof VariableTree && scope.orElseThrow().getParentPath() != null
           && Objects.equals(trees.getElement(scope.orElseThrow().getParentPath()), owner.getEnclosingElement())
-          && trees.getElement(scope.orElseThrow()) instanceof VariableElement field && field.getKind() == ElementKind.FIELD
+          && trees.getElement(scope.orElseThrow()) instanceof VariableElement field
+          && (field.getKind() == ElementKind.FIELD || field.getKind() == ElementKind.ENUM_CONSTANT)
           && field.getModifiers().contains(Modifier.STATIC) && owner.getKind() == ElementKind.STATIC_INIT) {
         identityState.sourceStorage().accept(owner, scope.orElseThrow());
       }
@@ -219,8 +220,8 @@ final class DeclarationIdentityRegistry {
       }
       if (cursor.getParentPath().getLeaf() instanceof ClassTree && trees.getElement(cursor.getParentPath()) instanceof TypeElement owner) {
         if (cursor.getLeaf() instanceof VariableTree && trees.getElement(cursor) instanceof VariableElement field
-            && field.getKind() == ElementKind.FIELD) {
-          return keyOfOwnedVariable(field, "field");
+            && (field.getKind() == ElementKind.FIELD || field.getKind() == ElementKind.ENUM_CONSTANT)) {
+          return keyOfOwnedVariable(field, field.getKind() == ElementKind.ENUM_CONSTANT ? "enum" : "field");
         }
         if (cursor.getLeaf() instanceof BlockTree) {
           var positions = trees.getSourcePositions();

@@ -202,7 +202,7 @@ final class JavaAstAggregateBuilder {
     var decisionIndexes = new HashMap<String, ExecutionDecisionIndex>();
     for (var body : executionScopes.entrySet()) {
       decisionIndexes.put(body.getKey(),
-          ExecutionDecisionValidation.validate(body.getKey(), body.getValue().root(),
+          ExecutionDecisionValidation.validate(body.getValue().scope(), body.getValue().root(),
               Objects.requireNonNull(executionDecisions.get(body.getKey()), "method decision registration"), nodes,
               body.getValue().attributedOccurrences(), declarationMemberOrders));
     }
@@ -284,6 +284,11 @@ final class JavaAstAggregateBuilder {
       }
       var relative = node.structuralPath().steps().subList(root.structuralPath().steps().size(), node.structuralPath().steps().size());
       var expected = compilerRoot;
+      if (facts.scope() instanceof ExecutionScope.EnumConstant && !relative.isEmpty()
+          && (relative.getFirst().role() == SyntaxRole.ARGUMENT || relative.getFirst().role() == SyntaxRole.CLASS_BODY)) {
+        // Javac places constant arguments and bodies under an implicit creation wrapper.
+        expected = expected.child(SyntaxRole.INITIALIZER, 0);
+      }
       for (var index = 0; index < relative.size(); index++) {
         var step = relative.get(index);
         expected = expected.child(step.role(), step.position() + (index == 0 && step.role() == SyntaxRole.STATEMENT ? statementOffset : 0));
@@ -438,7 +443,7 @@ final class JavaAstAggregateBuilder {
     }
   }
 
-  private static void validateDeclarationScope(SourceExecutionFacts facts, Map<String, SyntaxNode> nodes) {
+  private void validateDeclarationScope(SourceExecutionFacts facts, Map<String, SyntaxNode> nodes) {
     var root = facts.root();
     if (!ownedInstances(nodes).contains(root)) {
       throw new IllegalArgumentException("A declaration scope requires its identical canonical source anchor");
@@ -451,13 +456,26 @@ final class JavaAstAggregateBuilder {
         throw new IllegalArgumentException("A field scope requires its exact source declaration and owner");
       }
       ownerKey = field.ownerKey();
+    } else if (facts.scope() instanceof ExecutionScope.EnumConstant constant) {
+      var declaration = root.value(SyntaxValue.VariableDeclaration.class);
+      if (root.syntaxKind() != SyntaxKind.ENUM_CONSTANT_DECLARATION || !declaration.declarationKey().equals(constant.key())
+          || !declaration.ownerKey().equals(constant.ownerKey())) {
+        throw new IllegalArgumentException("An enum scope requires its exact constant declaration and enum owner");
+      }
+      constant.selectedConstructor().flatMap(SemanticReference::symbolKey).ifPresent(selected -> {
+        var members = declarationMemberOrders.get(constant.ownerKey());
+        if (members != null && members.members().stream().noneMatch(member -> member.declarationKey().equals(selected))) {
+          throw new IllegalArgumentException("An enum constant must select an actual constructor in its declared enum");
+        }
+      });
+      ownerKey = constant.ownerKey();
     } else if (facts.scope() instanceof ExecutionScope.Initializer initializer) {
       if (!root.origin().equals(Optional.of(initializer.origin())) || root.syntaxKind() != initializer.kind()) {
         throw new IllegalArgumentException("An initializer scope requires its exact written block occurrence");
       }
       ownerKey = initializer.ownerKey();
     } else {
-      throw new IllegalArgumentException("A declaration scope requires field or initializer ownership");
+      throw new IllegalArgumentException("A declaration scope requires field, enum constant or initializer ownership");
     }
     var ownedMember = nodes.values().stream()
         .anyMatch(node -> sourceMemberRole(node, root.sourceFileKey(), ownerKey)

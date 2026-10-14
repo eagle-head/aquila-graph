@@ -495,8 +495,11 @@ public final class CoverageActualFacts {
               .orElse(false)
           : sourceSyntax.map(value -> writtenAttachments(expected, value, List.of(SyntaxRole.RETURN_TYPE), actualFacts, snapshot))
               .orElse(false);
-      case "getInitializer" -> sourceSyntax
-          .map(value -> writtenAttachments(expected, value, List.of(SyntaxRole.INITIALIZER), actualFacts, snapshot)).orElse(false);
+      case "getInitializer" -> sourceSyntax.map(value -> writtenAttachments(expected, value,
+          value.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION && (expected.state() == State.ITEMS || expected.state() == State.EMPTY)
+              ? List.of(SyntaxRole.ARGUMENT, SyntaxRole.CLASS_BODY)
+              : List.of(SyntaxRole.INITIALIZER),
+          actualFacts, snapshot)).orElse(false);
       case "getPackage" -> sourceSyntax
           .map(value -> writtenAttachments(expected, value, List.of(SyntaxRole.PACKAGE_DECLARATION), actualFacts, snapshot)).orElse(false);
       case "getPackageName" -> sourceSyntax.map(value -> {

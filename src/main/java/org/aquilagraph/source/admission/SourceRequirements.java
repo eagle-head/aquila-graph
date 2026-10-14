@@ -32,7 +32,7 @@ final class SourceRequirements {
       return AstCompletion.UNAVAILABLE;
     }
     if (input.program().types().stream().anyMatch(type -> type.staticType().category() != JavaTypeCategory.DECLARED)
-        || (profile.equals(AstProfile.JAVA_SOURCE_NESTED) && input.program().types().stream()
+        || (profile.supportsNestedDeclarations() && input.program().types().stream()
             .anyMatch(type -> (type.nesting().lexicalOwnerKey().isPresent() && type.nesting().ownerDetails().isEmpty())
                 || (type.sourceDeclared() && input.aggregate().orElseThrow().declarationMemberOrder(type.typeKey())
                     .flatMap(order -> order.attributedTreeOrder()).isEmpty())))
@@ -68,7 +68,7 @@ final class SourceRequirements {
         || node.sourceKind() == JavaSourceKind.UNION_TYPE || node.sourceKind() == JavaSourceKind.INTERSECTION_TYPE)) {
       return true;
     }
-    if (!profile.equals(AstProfile.JAVA_SOURCE_NESTED)
+    if (!profile.supportsNestedDeclarations()
         && (!node.children(SyntaxRole.CLASS_BODY).isEmpty() || (node.syntaxKind() == SyntaxKind.TYPE_DECLARATION
             && node.structuralPath().steps().stream().anyMatch(step -> step.role() == SyntaxRole.STATEMENT)))) {
       return true;
@@ -88,8 +88,7 @@ final class SourceRequirements {
   }
 
   private static boolean hasRequiredExecutionFactGap(ExecutionSyntax execution, AstProfile profile) {
-    if ((profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION) || profile.equals(AstProfile.JAVA_SOURCE_NESTED))
-        && !(execution.scope() instanceof ExecutionScope.Method)
+    if (profile.supportsMemberInitialization() && !(execution.scope() instanceof ExecutionScope.Method)
         && execution.attributedOccurrences().stream().noneMatch(address -> address.nodeKey().equals(execution.root().nodeId()))) {
       return true;
     }
@@ -101,12 +100,18 @@ final class SourceRequirements {
   }
 
   private static boolean hasDeclarationScopeGap(JavaAstAggregate aggregate, SyntaxNode node, AstProfile profile) {
-    if (!profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION) && !profile.equals(AstProfile.JAVA_SOURCE_NESTED)) {
+    if (!profile.supportsMemberInitialization()) {
       return false;
     }
     if (node.syntaxKind() == SyntaxKind.FIELD_DECLARATION) {
       return aggregate.executionSyntax(node.value(SyntaxValue.VariableDeclaration.class).declarationKey())
           .filter(scope -> scope.scope() instanceof ExecutionScope.Field).isEmpty();
+    }
+    if (profile.supportsEnumInitialization() && node.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION) {
+      return aggregate.executionSyntax(node.value(SyntaxValue.VariableDeclaration.class).declarationKey())
+          .filter(scope -> scope.scope() instanceof ExecutionScope.EnumConstant constant && constant.selectedConstructor()
+              .filter(reference -> reference.status() == ResolutionStatus.RESOLVED).flatMap(reference -> reference.symbolKey()).isPresent())
+          .isEmpty();
     }
     return (node.syntaxKind() == SyntaxKind.STATIC_INITIALIZER_BLOCK || node.syntaxKind() == SyntaxKind.INSTANCE_INITIALIZER_BLOCK)
         && aggregate.executionScopes().stream().filter(ExecutionScope.Initializer.class::isInstance)
@@ -121,7 +126,8 @@ final class SourceRequirements {
   }
 
   private static boolean hasSelectedArgumentTargetGap(ExecutionSyntax body, SyntaxNode node) {
-    return (node.syntaxKind() == SyntaxKind.INVOCATION || node.syntaxKind() == SyntaxKind.OBJECT_CREATION)
+    return (node.syntaxKind() == SyntaxKind.INVOCATION || node.syntaxKind() == SyntaxKind.OBJECT_CREATION
+        || node.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION)
         && node.children().stream().filter(child -> child.role() == SyntaxRole.ARGUMENT)
             .anyMatch(child -> body.useEvidence(node.nodeId(), child.role(), child.position()).isEmpty());
   }

@@ -1,5 +1,7 @@
 package org.aquilagraph.frontend;
 
+import com.sun.source.tree.NewClassTree;
+
 import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.AssignmentTree;
 import com.sun.source.tree.BlockTree;
@@ -220,14 +222,24 @@ final class ParsedTreeInventory {
             envelope = Optional.of(new SourceSpan(file.sourceFileKey(), 0, file.content().length()));
           }
           envelope.ifPresent(origin -> {
+            var bodyStart = origin.startOffset();
+            if (tree.getSimpleName().isEmpty() && parent != null && parent.getLeaf() instanceof NewClassTree creation) {
+              var boundary = creation.getArguments().isEmpty()
+                  ? origin.startOffset()
+                  : evidence.rawEnd(unit, creation.getArguments().getLast());
+              bodyStart = tokens.stream()
+                  .filter(token -> "{".equals(token.value()) && token.start() >= boundary && token.end() <= origin.endOffsetExclusive())
+                  .findFirst().map(token -> (long) token.start()).orElse(bodyStart);
+            }
+            var memberStart = bodyStart;
             var represented = Stream.concat(tree.getMembers().stream(), unit.getImports().stream())
                 .flatMap(member -> evidence.origin(unit, file, member).stream()).toList();
             var declarations = tokens.stream().filter(token -> ";".equals(token.value()))
-                .filter(token -> token.start() >= origin.startOffset() && token.end() <= origin.endOffsetExclusive())
+                .filter(token -> token.start() >= memberStart && token.end() <= origin.endOffsetExclusive())
                 .filter(token -> represented.stream()
                     .noneMatch(member -> token.start() >= member.startOffset() && token.end() <= member.endOffsetExclusive()))
-                .skip(tree.getKind() == Kind.ENUM ? 1 : 0).map(token -> new SourceSpan(file.sourceFileKey(), token.start(), token.end()))
-                .toList();
+                .skip(tree.getKind() == Kind.ENUM && !tree.getSimpleName().isEmpty() ? 1 : 0)
+                .map(token -> new SourceSpan(file.sourceFileKey(), token.start(), token.end())).toList();
             emptyDeclarations.put(tree, declarations);
           });
         });

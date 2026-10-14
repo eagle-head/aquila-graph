@@ -9,20 +9,22 @@ import java.util.Optional;
 import org.aquilagraph.source.api.ExecutionDecisionIndex.UseKey;
 import org.aquilagraph.source.api.SyntaxValue.ExecutableDeclaration.ExecutableKind;
 
-/** Checks supplied lowering facts against the admitted body and locally available source evidence. */
+/** Checks supplied source-use facts against their admitted scope and available declaration evidence. */
 final class ExecutionDecisionValidation {
 
   private ExecutionDecisionValidation() {
   }
 
-  static ExecutionDecisionIndex validate(String scopeKey, SyntaxNode root, ExecutionDecisionRegistration registration,
+  static ExecutionDecisionIndex validate(ExecutionScope scope, SyntaxNode root, ExecutionDecisionRegistration registration,
       Map<String, SyntaxNode> sourceNodes, List<AttributedBodyOccurrence> attributions, Map<String, DeclarationMemberOrder> memberOrders) {
+    var scopeKey = scope.key();
     var nodes = new HashMap<String, SyntaxNode>();
     SourceExecutionTraversal.nodes(root).forEach(node -> nodes.put(node.nodeId(), node));
     var uses = validateUses(scopeKey, root, registration.uses(), nodes, sourceNodes);
     var constructors = validateEnumContexts(scopeKey, root, registration.constructors(), nodes, sourceNodes, attributions, memberOrders);
     var invocations = validateInvocations(scopeKey, registration.invocations(), nodes, uses, constructors);
-    validateParameterTargets(nodes, sourceNodes, uses, invocations);
+    validateEnumConstructorSignature(scope, root, sourceNodes, invocations);
+    validateParameterTargets(scope, nodes, sourceNodes, uses, invocations);
     var staticAccesses = validateStaticAccesses(scopeKey, registration.staticAccesses(), nodes, sourceNodes);
     var concatenations = validateConcatenations(scopeKey, registration.concatenations(), nodes);
     nodes.values().stream().filter(ExecutionDecisionValidation::isCreation).forEach(ExecutionDecisionValidation::validateCreation);
@@ -164,14 +166,16 @@ final class ExecutionDecisionValidation {
     return invocations;
   }
 
-  private static void validateParameterTargets(Map<String, SyntaxNode> nodes, Map<String, SyntaxNode> sourceNodes,
+  private static void validateParameterTargets(ExecutionScope scope, Map<String, SyntaxNode> nodes, Map<String, SyntaxNode> sourceNodes,
       Map<UseKey, ChildUseEvidence> uses, Map<String, InvocationEvidence> invocations) {
     for (var use : uses.values()) {
       var call = Objects.requireNonNull(nodes.get(use.consumerNodeId()), "owned use consumer");
       if (use.role() != SyntaxRole.ARGUMENT || !isInvocation(call)) {
         continue;
       }
-      var selected = call.semanticReference().flatMap(SemanticReference::symbolKey);
+      var selected = (call.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION && scope instanceof ExecutionScope.EnumConstant constant
+          ? constant.selectedConstructor()
+          : call.semanticReference()).flatMap(SemanticReference::symbolKey);
       var declaration = sourceNodes.values().stream().filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration executable
           && selected.equals(Optional.of(executable.declarationKey()))).findFirst();
       if (declaration.isEmpty()) {
@@ -202,6 +206,31 @@ final class ExecutionDecisionValidation {
       if (!targets.isEmpty() && targets.stream().noneMatch(target -> target.matches(use.selectedTarget()))) {
         throw new IllegalArgumentException("Argument parameter target contradicts the selected source declaration");
       }
+    }
+  }
+
+  private static void validateEnumConstructorSignature(ExecutionScope scope, SyntaxNode root, Map<String, SyntaxNode> sourceNodes,
+      Map<String, InvocationEvidence> invocations) {
+    if (!(scope instanceof ExecutionScope.EnumConstant constant)) {
+      return;
+    }
+    var selected = constant.selectedConstructor().flatMap(SemanticReference::symbolKey);
+    var declaration = sourceNodes.values().stream().filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration executable
+        && selected.equals(Optional.of(executable.declarationKey()))).findFirst();
+    if (declaration.isEmpty()) {
+      return;
+    }
+    var parameters = sourceParameters(declaration.orElseThrow(), sourceNodes);
+    var variable = !parameters.isEmpty() && parameters.getLast().value() instanceof SyntaxValue.ParameterDeclaration formal
+        && formal.varArgs();
+    var argumentCount = root.children(SyntaxRole.ARGUMENT).size();
+    if ((!variable && argumentCount != parameters.size()) || (variable && argumentCount < parameters.size() - 1)) {
+      throw new IllegalArgumentException("Enum constructor source signature contradicts its written argument count");
+    }
+    var applicability = Optional.ofNullable(invocations.get(root.nodeId())).flatMap(value -> value.applicability().knownValue());
+    if (applicability.isPresent() && (parameters.size() != applicability.orElseThrow().formalCount()
+        || (!variable && applicability.orElseThrow().mode() == InvocationApplicabilityMode.VARIABLE))) {
+      throw new IllegalArgumentException("Enum constructor applicability contradicts its selected source signature");
     }
   }
 
@@ -518,7 +547,8 @@ final class ExecutionDecisionValidation {
   }
 
   static boolean isInvocation(SyntaxNode node) {
-    return node.syntaxKind() == SyntaxKind.INVOCATION || node.syntaxKind() == SyntaxKind.OBJECT_CREATION;
+    return node.syntaxKind() == SyntaxKind.INVOCATION || node.syntaxKind() == SyntaxKind.OBJECT_CREATION
+        || node.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION;
   }
 
   private static boolean isCreation(SyntaxNode node) {

@@ -46,6 +46,12 @@ final class JavaProgramTranslator {
 
   JavaProgramTranslator(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
       ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage, boolean memberInitialization, boolean nestedDeclarations) {
+    this(sources, semantics, sourceEvidence, treeInventory, coverage, memberInitialization, nestedDeclarations, false);
+  }
+
+  JavaProgramTranslator(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
+      ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage, boolean memberInitialization, boolean nestedDeclarations,
+      boolean enumInitialization) {
     this.sources = Objects.requireNonNull(sources, "sources");
     Objects.requireNonNull(semantics, "semantics");
     Objects.requireNonNull(sourceEvidence, "sourceEvidence");
@@ -55,9 +61,11 @@ final class JavaProgramTranslator {
     typeTranslator = new JavaTypeTranslator(semantics, sourceEvidence, treeInventory, propertyObserver, methodTranslator);
     typeTranslator.enableMemberInitialization(memberInitialization);
     typeTranslator.enableNestedDeclarations(nestedDeclarations);
+    typeTranslator.enableEnumInitialization(enumInitialization);
     astTranslator = new JavaAstContributionTranslator(semantics, sourceEvidence, treeInventory);
     astTranslator.enableMemberInitialization(memberInitialization);
     astTranslator.enableNestedDeclarations(nestedDeclarations);
+    astTranslator.enableEnumInitialization(enumInitialization);
   }
 
   TranslationResult<TranslatedProgram> translate(InputSnapshot snapshot, List<CompilationUnitTree> units) {

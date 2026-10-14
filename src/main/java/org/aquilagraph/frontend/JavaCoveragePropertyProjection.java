@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend;
 
+import com.sun.source.tree.VariableTree;
+import com.sun.source.tree.NewClassTree;
+
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.DefaultCaseLabelTree;
 import com.sun.source.tree.NewArrayTree;
@@ -61,6 +64,36 @@ final class JavaCoveragePropertyProjection {
 
   static CoveragePropertyValue query(Accessor accessor, Object owner, JavaCoverageTopology.Owner sourceOwner, JavaSourceEvidence evidence,
       Optional<SemanticResolver> semantics) {
+    return query(accessor, owner, sourceOwner, evidence, semantics, false);
+  }
+
+  static CoveragePropertyValue query(Accessor accessor, Object owner, JavaCoverageTopology.Owner sourceOwner, JavaSourceEvidence evidence,
+      Optional<SemanticResolver> semantics, boolean enumInitialization) {
+    if (enumInitialization && owner instanceof VariableTree variable
+        && JavaEnumConstantSyntax.isConstant(sourceOwner.treePath(), evidence)) {
+      switch (accessor.method().getName()) {
+        case "getType" -> {
+          return new CoveragePropertyValue(State.ABSENT, List.of());
+        }
+        case "getModifiers" -> {
+          var flags = List.<String>of();
+          return new CoveragePropertyValue(State.SCALAR, List.of(new Item("MODIFIERS:0", CoveragePropertyValue.canonicalFlags(flags),
+              Provenance.WRITTEN, Optional.empty(), Optional.empty(), Optional.of(flags))));
+        }
+        case "getInitializer" -> {
+          var creation = (NewClassTree) variable.getInitializer();
+          var items = new ArrayList<Item>();
+          creation.getArguments().forEach(argument -> items.add(copy(argument, items.size(), sourceOwner, evidence, semantics)));
+          if (creation.getClassBody() != null) {
+            items.add(copy(creation.getClassBody(), items.size(), sourceOwner, evidence, semantics));
+          }
+          return new CoveragePropertyValue(items.isEmpty() ? State.EMPTY : State.ITEMS, items);
+        }
+        default -> {
+          // Other accessors describe the constant's actual written declaration.
+        }
+      }
+    }
     if (owner instanceof NewArrayTree array && "getDimAnnotations".equals(accessor.method().getName())) {
       var items = new ArrayList<Item>();
       for (var dimension = 0; dimension < array.getDimAnnotations().size(); dimension++) {

@@ -329,6 +329,9 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatTag(String tag) {
+    if (formatVersion < 16 && "execution-scope/enum-constant".equals(tag)) {
+      throw new IllegalArgumentException("Enum initialization scopes require retained AST format java-source/16");
+    }
     if (formatVersion < 15 && tag.startsWith("java-type-nesting")) {
       throw new IllegalArgumentException("Nested declaration metadata requires retained AST format java-source/15");
     }

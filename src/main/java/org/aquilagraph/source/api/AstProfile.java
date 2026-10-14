@@ -21,6 +21,9 @@ public record AstProfile(String version) {
   /** Expanded Java 25 source including local and anonymous type declarations. */
   public static final AstProfile JAVA_SOURCE_NESTED = new AstProfile("java-source-expanded/3");
 
+  /** Expanded Java 25 source including enum arguments and constant-specific bodies. */
+  public static final AstProfile JAVA_SOURCE_ENUM_INITIALIZATION = new AstProfile("java-source-expanded/4");
+
   /** Requires an explicit version without interpreting unknown versions. */
   public AstProfile {
     if (Objects.requireNonNull(version, "version").isBlank()) {
@@ -35,6 +38,33 @@ public record AstProfile(String version) {
    */
   public boolean isSupported() {
     return JAVA_SOURCE_BOUNDED.equals(this) || JAVA_SOURCE_EXPANDED.equals(this) || JAVA_SOURCE_INITIALIZATION.equals(this)
-        || JAVA_SOURCE_NESTED.equals(this);
+        || JAVA_SOURCE_NESTED.equals(this) || JAVA_SOURCE_ENUM_INITIALIZATION.equals(this);
+  }
+
+  /**
+   * Identifies contracts with declaration-owned field and block execution scopes.
+   *
+   * @return whether member initialization is represented
+   */
+  public boolean supportsMemberInitialization() {
+    return JAVA_SOURCE_INITIALIZATION.equals(this) || supportsNestedDeclarations();
+  }
+
+  /**
+   * Identifies contracts with local and anonymous declaration bodies.
+   *
+   * @return whether nested declarations are represented
+   */
+  public boolean supportsNestedDeclarations() {
+    return JAVA_SOURCE_NESTED.equals(this) || supportsEnumInitialization();
+  }
+
+  /**
+   * Identifies contracts with directly owned enum arguments and constant bodies.
+   *
+   * @return whether enum initialization is represented
+   */
+  public boolean supportsEnumInitialization() {
+    return JAVA_SOURCE_ENUM_INITIALIZATION.equals(this);
   }
 }

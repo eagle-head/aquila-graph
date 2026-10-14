@@ -55,6 +55,7 @@ import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.JavaTypeReference;
 import org.aquilagraph.source.api.ConversionEvidence;
 import org.aquilagraph.source.api.ChildUseEvidence;
+import org.aquilagraph.source.api.SemanticReference;
 
 /** Copies selected use facts while exact compiler paths and body instances remain live. */
 final class JavaBodyDecisionProducer {
@@ -167,6 +168,43 @@ final class JavaBodyDecisionProducer {
     return semantics.attributedMirror(fieldPath)
         .flatMap(target -> conversion(scopeKey, field, new SyntaxChild(SyntaxRole.INITIALIZER, 0, initializer.orElseThrow()),
             new TreePath(fieldPath, variable.getInitializer()), target, false, true));
+  }
+
+  JavaBodyDecisions enumConstant(String scopeKey, SyntaxNode constant, TreePath creationPath, Optional<SemanticReference> constructor) {
+    var uses = new ArrayList<ChildUseEvidence>();
+    var invocations = new ArrayList<InvocationApplicability>();
+    var selectedPath = semantics.enumConstructorPath(creationPath);
+    if (selectedPath.isEmpty() || !(semantics.element(selectedPath.orElseThrow()) instanceof ExecutableElement executable)
+        || !constructor.flatMap(reference -> reference.symbolKey()).equals(semantics.declarationKey(executable))
+        || !(creationPath.getLeaf() instanceof NewClassTree creation)) {
+      return new JavaBodyDecisions(List.of(), List.of(), List.of(), List.of());
+    }
+    if (!executable.getTypeParameters().isEmpty()) {
+      if (semantics.element(creationPath) instanceof ExecutableElement actual) {
+        constructorInvocation(scopeKey, new NodeProjection(constant, creationPath, List.of(), Optional.empty()), actual, uses, invocations);
+      }
+    } else if (executable.asType() instanceof ExecutableType signature) {
+      var arguments = creation.getArguments().stream().map(argument -> semantics.attributedMirror(new TreePath(creationPath, argument)))
+          .toList();
+      if (arguments.stream().allMatch(Optional::isPresent)) {
+        applicability.select(signature, executable.isVarArgs(), arguments.stream().map(Optional::orElseThrow).toList())
+            .ifPresent(selected -> {
+              var array = selected.variableArray();
+              invocations.add(new InvocationApplicability(scopeKey, constant.nodeId(), selected.mode(), selected.formalCount(),
+                  array.map(semantics::typeIdentity), array.map(value -> semantics.typeIdentity(semantics.erasedType(value))),
+                  array.map(value -> semantics.typeIdentity(value.getComponentType()))));
+              for (var child : constant.children()) {
+                if (child.role() == SyntaxRole.ARGUMENT) {
+                  conversion(scopeKey, constant, child, Objects
+                      .requireNonNull(TreePath.getPath(creationPath, creation.getArguments().get(child.position())), "enum argument path"),
+                      selected.argumentTargets().get(child.position()), false, false).ifPresent(uses::add);
+                }
+              }
+            });
+      }
+    }
+    return new JavaBodyDecisions(uses, invocations.stream().map(value -> InvocationEvidence.known(value, constant.origin())).toList(),
+        List.of(), List.of());
   }
 
   private void invocation(String scopeKey, NodeProjection consumer, Map<SyntaxNode, NodeProjection> bindings, List<ChildUseEvidence> uses,

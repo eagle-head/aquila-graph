@@ -27,6 +27,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.ArrayType;
@@ -184,7 +185,12 @@ final class JavaConstructorSelection {
         creation.getArguments().size(), expanded);
     var original = path.getCompilationUnit();
     var content = original.getSourceFile().getCharContent(true).toString();
-    var replaced = creation.getClassBody() == null ? creation : creation.getArguments().getFirst();
+    var enumConstant = path.getParentPath() != null && originalTrees.getElement(path.getParentPath()) != null
+        && originalTrees.getElement(path.getParentPath()).getKind() == ElementKind.ENUM_CONSTANT;
+    if (enumConstant && creation.getArguments().isEmpty()) {
+      return WitnessAttribution.unavailable();
+    }
+    var replaced = creation.getClassBody() == null && !enumConstant ? creation : creation.getArguments().getFirst();
     var start = position(original, replaced, false);
     var end = position(original, replaced, true);
     if (start < 0 || end < start) {
@@ -196,7 +202,7 @@ final class JavaConstructorSelection {
     }
     var replacement = replacement(original, creation, receiver.orElseThrow(), content, name, diamond, expanded,
         selected.getParameters().size() - 1);
-    if (creation.getClassBody() != null) {
+    if (creation.getClassBody() != null || enumConstant) {
       // Only the original argument arm completes normally; proof arguments cannot change its flow.
       replacement = "switch (0) { case 1 -> { " + replacement + "; throw null; } default -> " + sourceText(original, replaced, content)
           + "; }";

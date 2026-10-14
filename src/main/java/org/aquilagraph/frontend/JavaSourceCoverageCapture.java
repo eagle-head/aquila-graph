@@ -56,7 +56,14 @@ final class JavaSourceCoverageCapture {
 
   static JavaSourceCoverageCapture capture(InputSnapshot snapshot, ParsedJavaSource parsed, SnapshotSourceCatalog sources,
       LanguageFeatureCoverage coverage) {
-    var owners = JavaCoverageTopology.owners(parsed.units(), sources, parsed.sourceEvidence());
+    return capture(snapshot, parsed, sources, coverage, false);
+  }
+
+  static JavaSourceCoverageCapture capture(InputSnapshot snapshot, ParsedJavaSource parsed, SnapshotSourceCatalog sources,
+      LanguageFeatureCoverage coverage, boolean enumInitialization) {
+    var owners = JavaCoverageTopology.owners(parsed.units(), sources, parsed.sourceEvidence()).stream()
+        .filter(owner -> !enumInitialization || !JavaEnumConstantSyntax.isImplicitEnvelope(owner.treePath(), parsed.sourceEvidence()))
+        .toList();
     var contexts = new ArrayList<SourceContext>();
     for (var owner : owners) {
       contexts.add(new SourceContext(address(owner, Partition.TREE, "tree", 0),
@@ -78,7 +85,8 @@ final class JavaSourceCoverageCapture {
     for (var owner : owners) {
       JavaCoverageTopology.surface(owner.tree()).ifPresent(surface -> {
         for (var accessor : JavaCoveragePropertyProjection.accessors(surface, coverage)) {
-          var value = JavaCoveragePropertyProjection.query(accessor, owner.tree(), owner, parsed.sourceEvidence(), Optional.empty());
+          var value = JavaCoveragePropertyProjection.query(accessor, owner.tree(), owner, parsed.sourceEvidence(), Optional.empty(),
+              enumInitialization);
           contexts.add(new SourceContext(address(owner, Partition.WRITTEN_PROPERTY, accessor.classification().feature().identifier(), 0),
               Optional.of(accessor.classification().feature()), owner.origin().stream().toList(), Optional.of(value), false));
         }
@@ -207,7 +215,10 @@ final class JavaSourceCoverageCapture {
       @Override
       public Void visitVariable(VariableTree tree, SourceFile file) {
         if (parsed.treeInventory().isWritten(tree)) {
-          capture(tree.getType());
+          if (!JavaEnumConstantSyntax.isConstant(getCurrentPath(), parsed.sourceEvidence())
+              || owners.stream().anyMatch(owner -> JavaProjectionIdentity.sameInstance(owner.tree(), tree.getType()))) {
+            capture(tree.getType());
+          }
         }
         if (tree.getInitializer() != null) {
           JavaNestedDeclarationTraversal.scan(new TreePath(getCurrentPath(), tree.getInitializer()), path -> scan(path, file));
@@ -262,6 +273,11 @@ final class JavaSourceCoverageCapture {
         var classOperand = owner.tree() instanceof MemberSelectTree selection && selection.getIdentifier().contentEquals("class")
             && child.step().role() == Role.TYPE_QUALIFIER;
         if ((!BODY_TYPE_ROLES.contains(child.step().role()) && !classOperand) || !parsed.treeInventory().isWritten(child.tree())) {
+          continue;
+        }
+        var childPath = Objects.requireNonNull(TreePath.getPath(owner.treePath(), child.tree()), "parsed type child path");
+        if (JavaEnumConstantSyntax.isImplicitEnvelope(childPath, parsed.sourceEvidence())
+            && owners.stream().noneMatch(candidate -> samePath(candidate.treePath(), childPath))) {
           continue;
         }
         var childOwner = writtenTypeChild(owner, child.tree(), owners);

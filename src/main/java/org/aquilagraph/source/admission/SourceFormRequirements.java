@@ -10,7 +10,7 @@ import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeStructure;
 import org.aquilagraph.source.api.AstProfile;
 
-/** Source-owned form and written-role requirements shared by the initial two profile versions. */
+/** Source-owned form and written-role requirements qualified by the declared profile. */
 final class SourceFormRequirements {
   private SourceFormRequirements() {
   }
@@ -96,7 +96,8 @@ final class SourceFormRequirements {
         default -> true;
       };
       case FIELD_DECLARATION -> node.children(SyntaxRole.INITIALIZER).isEmpty();
-      case ENUM_CONSTANT_DECLARATION -> node.children(SyntaxRole.ARGUMENT).isEmpty() && node.children(SyntaxRole.BODY).isEmpty();
+      case ENUM_CONSTANT_DECLARATION -> node.children(SyntaxRole.ARGUMENT).isEmpty() && node.children(SyntaxRole.BODY).isEmpty()
+          && node.children(SyntaxRole.CLASS_BODY).isEmpty() && node.semanticReference().isEmpty();
       case COMPILATION_UNIT, ANNOTATION, ANNOTATION_ARRAY, ANNOTATION_ARGUMENT, ANNOTATION_ELEMENT_NAME, ANNOTATION_NAME_REFERENCE,
           ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST, TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, PARAMETER_DECLARATION,
           RECEIVER_PARAMETER, RECEIVER_NAME, TYPE_USE, METHOD_DECLARATION, RECORD_COMPONENT_DECLARATION, BLOCK, EXPRESSION_STATEMENT,
@@ -108,7 +109,12 @@ final class SourceFormRequirements {
   }
 
   static boolean supports(SyntaxNode node, AstProfile profile) {
-    if (profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION) || profile.equals(AstProfile.JAVA_SOURCE_NESTED)) {
+    if (profile.supportsEnumInitialization() && node.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION) {
+      var declaration = node.value(SyntaxValue.VariableDeclaration.class);
+      return node.children(SyntaxRole.ARGUMENT).size() == declaration.arguments()
+          && node.children(SyntaxRole.CLASS_BODY).size() == (declaration.constantBody() ? 1 : 0);
+    }
+    if (profile.supportsMemberInitialization()) {
       if (node.syntaxKind() == SyntaxKind.STATIC_INITIALIZER_BLOCK || node.syntaxKind() == SyntaxKind.INSTANCE_INITIALIZER_BLOCK) {
         return true;
       }

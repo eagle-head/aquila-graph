@@ -99,6 +99,10 @@ final class JavaSourceEvidence {
     return positions.getStartPosition(Objects.requireNonNull(unit, "unit"), Objects.requireNonNull(tree, "tree"));
   }
 
+  long rawEnd(CompilationUnitTree unit, Tree tree) {
+    return positions.getEndPosition(Objects.requireNonNull(unit, "unit"), Objects.requireNonNull(tree, "tree"));
+  }
+
   sealed interface Position {
     record Available(SourceSpan span) implements Position {
     }

@@ -101,9 +101,9 @@ public final class SyntaxNode {
       throw new IllegalArgumentException("Only an anonymous creation body can have a nameless type declaration");
     }
     var shape = declaration.shape();
-    if (anonymous && (sourceKind != JavaSourceKind.CLASS || !declaration.writtenModifiers().isEmpty() || shape.annotations() != 0
-        || shape.typeParameters() != 0 || shape.superclass() || shape.interfaces() != 0 || shape.permittedSubclasses() != 0
-        || shape.recordComponents() != 0)) {
+    if (anonymous && ((sourceKind != JavaSourceKind.CLASS && sourceKind != JavaSourceKind.ENUM) || !declaration.writtenModifiers().isEmpty()
+        || shape.annotations() != 0 || shape.typeParameters() != 0 || shape.superclass() || shape.interfaces() != 0
+        || shape.permittedSubclasses() != 0 || shape.recordComponents() != 0)) {
       throw new IllegalArgumentException("An anonymous creation body cannot invent a written type header");
     }
   }
@@ -1982,10 +1982,23 @@ public final class SyntaxNode {
     requireShape(children,
         kind == SyntaxKind.FIELD_DECLARATION
             ? Set.of(SyntaxRole.ANNOTATION, SyntaxRole.DECLARED_TYPE, SyntaxRole.INITIALIZER)
-            : Set.of(SyntaxRole.ANNOTATION, SyntaxRole.DECLARED_TYPE));
+            : Set.of(SyntaxRole.ANNOTATION, SyntaxRole.DECLARED_TYPE, SyntaxRole.ARGUMENT, SyntaxRole.CLASS_BODY));
     requireCount(children, SyntaxRole.INITIALIZER, 0, declaration.initializer() && kind == SyntaxKind.FIELD_DECLARATION ? 1 : 0);
     requireCount(children, SyntaxRole.ANNOTATION, declaration.annotations(), declaration.annotations());
     requireCount(children, SyntaxRole.DECLARED_TYPE, declaration.type() ? 1 : 0, declaration.type() ? 1 : 0);
+    if (kind == SyntaxKind.ENUM_CONSTANT_DECLARATION) {
+      var represented = children.stream().anyMatch(child -> child.role() == SyntaxRole.ARGUMENT || child.role() == SyntaxRole.CLASS_BODY);
+      if (represented) {
+        requireCount(children, SyntaxRole.ARGUMENT, declaration.arguments(), declaration.arguments());
+        requireCount(children, SyntaxRole.CLASS_BODY, declaration.constantBody() ? 1 : 0, declaration.constantBody() ? 1 : 0);
+      }
+      children.stream().filter(child -> child.role() == SyntaxRole.CLASS_BODY).forEach(child -> {
+        if (child.node().syntaxKind() != SyntaxKind.TYPE_DECLARATION
+            || !child.node().value(SyntaxValue.TypeDeclaration.class).name().isEmpty()) {
+          throw new IllegalArgumentException("An enum constant body requires its nameless type declaration");
+        }
+      });
+    }
     for (var child : children) {
       if (child.role() == SyntaxRole.ANNOTATION && !(child.node().value() instanceof SyntaxValue.Annotation)) {
         throw new IllegalArgumentException("A variable annotation requires a written annotation attachment");

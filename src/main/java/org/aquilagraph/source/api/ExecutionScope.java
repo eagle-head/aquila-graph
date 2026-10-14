@@ -1,6 +1,7 @@
 package org.aquilagraph.source.api;
 
 import java.util.Objects;
+import java.util.Optional;
 import org.aquilagraph.identity.api.SourceSpan;
 
 /** A source owner whose executable descendants share copied fact addresses. */
@@ -21,7 +22,7 @@ public sealed interface ExecutionScope {
   record Method(String key) implements ExecutionScope {
     /** Requires a nonblank executable identity. */
     public Method {
-      DecisionValueValidation.requireKey(key, "key");
+      DecisionValueValidation.requireKey(key, "method key");
     }
   }
 
@@ -36,10 +37,37 @@ public sealed interface ExecutionScope {
   record Field(String key, String ownerKey) implements ExecutionScope {
     /** Validates the field's actual type owner. */
     public Field {
-      DecisionValueValidation.requireKey(key, "key");
+      DecisionValueValidation.requireKey(key, "field key");
       DecisionValueValidation.requireKey(ownerKey, "ownerKey");
       if (!key.startsWith(ownerKey + "#field:") || key.length() == ownerKey.length() + 7) {
         throw new IllegalArgumentException("A field execution scope requires its canonical declaration owner");
+      }
+    }
+  }
+
+  /**
+   * A written enum constant and its constructor arguments.
+   *
+   * @param key
+   *          canonical constant declaration identity
+   * @param ownerKey
+   *          canonical containing enum identity
+   * @param selectedConstructor
+   *          copied source constructor target, absent when attribution is unavailable
+   */
+  record EnumConstant(String key, String ownerKey, Optional<SemanticReference> selectedConstructor) implements ExecutionScope {
+    /** Requires the constant's actual enum owner. */
+    public EnumConstant {
+      DecisionValueValidation.requireKey(key, "enum constant key");
+      DecisionValueValidation.requireKey(ownerKey, "ownerKey");
+      Objects.requireNonNull(selectedConstructor, "selectedConstructor").ifPresent(reference -> {
+        if (reference.referenceKind() != ReferenceKind.CONSTRUCTOR
+            || reference.symbolKey().filter(selected -> !selected.startsWith(ownerKey + "#<init>(")).isPresent()) {
+          throw new IllegalArgumentException("An enum constant requires a source constructor of its containing enum");
+        }
+      });
+      if (!key.startsWith(ownerKey + "#enum:") || key.length() == ownerKey.length() + 6) {
+        throw new IllegalArgumentException("An enum execution scope requires its canonical constant owner");
       }
     }
   }
@@ -59,7 +87,7 @@ public sealed interface ExecutionScope {
   record Initializer(String key, String ownerKey, SourceSpan origin, SyntaxKind kind) implements ExecutionScope {
     /** Requires an actual initializer form and explicit owner. */
     public Initializer {
-      DecisionValueValidation.requireKey(key, "key");
+      DecisionValueValidation.requireKey(key, "initializer key");
       DecisionValueValidation.requireKey(ownerKey, "ownerKey");
       Objects.requireNonNull(origin, "origin");
       Objects.requireNonNull(kind, "kind");

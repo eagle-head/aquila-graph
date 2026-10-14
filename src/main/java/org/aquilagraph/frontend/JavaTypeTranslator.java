@@ -66,6 +66,11 @@ final class JavaTypeTranslator {
   private final JavaMethodDeclarationTranslator methodDeclarations;
   private boolean memberInitialization;
   private boolean nestedDeclarations;
+  private boolean enumInitialization;
+
+  void enableEnumInitialization(boolean enabled) {
+    enumInitialization = enabled;
+  }
 
   void enableNestedDeclarations(boolean enabled) {
     nestedDeclarations = enabled;
@@ -470,7 +475,7 @@ final class JavaTypeTranslator {
         .collect(Collectors.toSet());
     var field = new JavaField(fieldKey, typeKey, variableTree.getName().toString(), staticType, modifiers, enumConstant,
         !recordBacking && written && origin.isPresent(), recordBacking || !written ? List.of() : origin.stream().toList());
-    if (variableTree.getInitializer() != null && (!memberInitialization || enumConstant)) {
+    if (variableTree.getInitializer() != null && (!memberInitialization || (enumConstant && !enumInitialization))) {
       TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
           fieldInitializerDiagnostic(unit, sourceFile, fieldKey, variableTree, enumConstant));
     }

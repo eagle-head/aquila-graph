@@ -1,5 +1,9 @@
 package org.aquilagraph.frontend;
 
+import com.sun.source.tree.NewClassTree;
+import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.ExpressionStatementTree;
+
 import com.sun.source.tree.CatchTree;
 import com.sun.source.tree.AnyPatternTree;
 import com.sun.source.tree.ClassTree;
@@ -423,6 +427,24 @@ final class SemanticResolver {
   boolean isEnumConstant(TreePath path) {
     var element = trees.getElement(Objects.requireNonNull(path, PATH_ARGUMENT));
     return element != null && element.getKind() == ElementKind.ENUM_CONSTANT;
+  }
+
+  Optional<TreePath> enumConstructorPath(TreePath path) {
+    if (!(path.getLeaf() instanceof NewClassTree creation)) {
+      return Optional.empty();
+    }
+    if (creation.getClassBody() == null) {
+      return Optional.of(path);
+    }
+    var selected = element(path);
+    var declaration = selected == null ? null : trees.getPath(selected);
+    if (declaration == null || !(declaration.getLeaf() instanceof MethodTree method) || method.getBody() == null
+        || method.getBody().getStatements().isEmpty()
+        || !(method.getBody().getStatements().getFirst() instanceof ExpressionStatementTree statement)
+        || !(statement.getExpression() instanceof MethodInvocationTree call)) {
+      return Optional.empty();
+    }
+    return Optional.of(new TreePath(new TreePath(new TreePath(declaration, method.getBody()), statement), call));
   }
 
   boolean isArrayLength(MemberSelectTree tree, TreePath path) {

@@ -71,6 +71,39 @@ class Neo4jAstResultRepositoryNeo4jIT {
   @TempDir Path directory;
 
   @Test
+  void givenEnumArgumentsAndConstantBody_whenSavedClosedAndIndependentlyQueried_thenSourceSelectionOwnershipAndFactsSurvive() throws IOException {
+    // Arrange
+    var settings = settings();
+    var outcome = frontend().produce(snapshot("enum Stored { FIRST(Math.abs(-2)) { int field = 3; int nested() { return field; } }, SECOND(4); Stored(int n) {} }"), configuration(), AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION);
+    var original = outcome.result().orElseThrow();
+    try {
+      // Act
+      var publication = retention(settings).retainAst(outcome);
+      var lookup = retention(settings).findAst(original.identity());
+      var retained = lookup.outcome().orElseThrow().result().orElseThrow();
+      var constants = retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION).toList();
+      var first = constants.getFirst();
+      var scope = retained.aggregate().executionSyntax(first.value(SyntaxValue.VariableDeclaration.class).declarationKey()).orElseThrow();
+      var body = first.requiredChild(SyntaxRole.CLASS_BODY);
+      var method = body.children(SyntaxRole.MEMBER).getLast();
+
+      // Assert
+      assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
+      assertEquals(PublicationStatus.SAVED, publication.status());
+      assertEquals(AstLookupStatus.FOUND, lookup.status());
+      assertEquals(original.identity(), retained.identity());
+      assertEquals(original.aggregate(), retained.aggregate());
+      assertEquals(original.aggregate().executionScopes(), retained.aggregate().executionScopes());
+      assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retained));
+      assertEquals("int", scope.useEvidence(first.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow().selectedTarget().erasedName());
+      assertEquals(method.requiredChild(SyntaxRole.BODY), retained.body(method.value(SyntaxValue.ExecutableDeclaration.class).declarationKey()).orElseThrow().root());
+      assertEquals("4", constants.getLast().children(SyntaxRole.ARGUMENT).getFirst().value(SyntaxValue.Literal.class).text());
+    } finally {
+      deleteAst(settings, original.identity());
+    }
+  }
+
+  @Test
   void givenLocalAndAnonymousDeclarations_whenSavedClosedAndIndependentlyQueried_thenCanonicalOwnershipAndNestedBodyFactsSurvive() throws IOException {
     // Arrange
     var settings = settings();

@@ -136,6 +136,7 @@ final class AstValueSchema {
   private static final String STATIC_TYPE_FIELD = "staticType";
   private static final String LEXICAL_OWNER_KEY_FIELD = "lexicalOwnerKey";
   private static final String METHOD_KEY_FIELD = "methodKey";
+  private static final String KEY_FIELD = "key";
   private static final String SCOPE_KEY_FIELD = "scopeKey";
   private static final String NAME_FIELD = "name";
   private static final String NODE_KEY_FIELD = "nodeKey";
@@ -457,9 +458,10 @@ final class AstValueSchema {
     record(types, WrittenTypeEvidence.class, "written-type-evidence", SOURCE_KIND_FIELD, ORIGIN_FIELD, TYPE_FIELD);
     record(types, CopiedAstValues.class, "copied-ast-values", "snapshot", "sources", "bodies", "memberOrders", "associations",
         "declarationTypes", "scopes");
-    record(types, ExecutionScope.Method.class, "execution-scope/method", "key");
-    record(types, ExecutionScope.Field.class, "execution-scope/field", "key", "ownerKey");
-    record(types, ExecutionScope.Initializer.class, "execution-scope/initializer", "key", "ownerKey", "origin", "kind");
+    record(types, ExecutionScope.Method.class, "execution-scope/method", KEY_FIELD);
+    record(types, ExecutionScope.Field.class, "execution-scope/field", KEY_FIELD, OWNER_KEY_FIELD);
+    record(types, ExecutionScope.EnumConstant.class, "execution-scope/enum-constant", KEY_FIELD, OWNER_KEY_FIELD, "selectedConstructor");
+    record(types, ExecutionScope.Initializer.class, "execution-scope/initializer", KEY_FIELD, OWNER_KEY_FIELD, ORIGIN_FIELD, KIND_FIELD);
     record(types, CopiedAstValues.Scope.class, "copied-ast-values/scope", "scope", "root", "uses", "invocations", "staticAccesses",
         "concatenations", "attributedOccurrences");
     record(types, CopiedAstValues.Body.class, "copied-ast-values/body", METHOD_KEY_FIELD, "root", ORIGIN_FIELD, "uses", "invocations",

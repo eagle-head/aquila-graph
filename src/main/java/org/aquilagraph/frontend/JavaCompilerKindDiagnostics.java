@@ -3,6 +3,7 @@ package org.aquilagraph.frontend;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.util.TreePathScanner;
+import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -26,11 +27,18 @@ final class JavaCompilerKindDiagnostics {
   private final SnapshotSourceCatalog sources;
   private final JavaSourceEvidence sourceEvidence;
   private final LanguageFeatureCoverage coverage;
+  private final boolean enumInitialization;
 
   JavaCompilerKindDiagnostics(SnapshotSourceCatalog sources, JavaSourceEvidence sourceEvidence, LanguageFeatureCoverage coverage) {
+    this(sources, sourceEvidence, coverage, false);
+  }
+
+  JavaCompilerKindDiagnostics(SnapshotSourceCatalog sources, JavaSourceEvidence sourceEvidence, LanguageFeatureCoverage coverage,
+      boolean enumInitialization) {
     this.sources = Objects.requireNonNull(sources, "sources");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.coverage = Objects.requireNonNull(coverage, "coverage");
+    this.enumInitialization = enumInitialization;
   }
 
   ObservedLanguageFeatures observe(List<CompilationUnitTree> units) {
@@ -70,6 +78,10 @@ final class JavaCompilerKindDiagnostics {
       }
       if (JavaCoverageTopology.isDerivedCompactParameter(tree, getCurrentPath(), context.unit(), context.sourceFile(), sourceEvidence)) {
         return null;
+      }
+      var parent = getCurrentPath();
+      if (enumInitialization && parent != null && JavaEnumConstantSyntax.isImplicitEnvelope(new TreePath(parent, tree), sourceEvidence)) {
+        return super.scan(tree, context);
       }
       var kind = tree.getKind();
       var origins = sourceEvidence.origins(context.unit(), context.sourceFile(), tree);

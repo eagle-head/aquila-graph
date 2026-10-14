@@ -33,14 +33,21 @@ final class JavaTypeKindObserver {
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
   private final LanguageFeatureCoverage coverage;
+  private final boolean enumInitialization;
 
   JavaTypeKindObserver(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
       ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage) {
+    this(sources, semantics, sourceEvidence, treeInventory, coverage, false);
+  }
+
+  JavaTypeKindObserver(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
+      ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage, boolean enumInitialization) {
     this.sources = Objects.requireNonNull(sources, "sources");
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
     this.coverage = Objects.requireNonNull(coverage, "coverage");
+    this.enumInitialization = enumInitialization;
   }
 
   ObservedTypeKinds observe(List<CompilationUnitTree> units) {
@@ -137,7 +144,8 @@ final class JavaTypeKindObserver {
 
     @Override
     public Void visitVariable(VariableTree declaration, SourceFile source) {
-      if (treeInventory.isWritten(declaration)) {
+      if (treeInventory.isWritten(declaration)
+          && (!enumInitialization || !JavaEnumConstantSyntax.isConstant(getCurrentPath(), sourceEvidence))) {
         observeType(declaration.getType(), source);
       }
       if (declaration.getInitializer() != null) {

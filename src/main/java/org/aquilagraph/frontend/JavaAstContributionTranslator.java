@@ -82,6 +82,9 @@ import org.aquilagraph.source.api.WrittenSourceAssociation;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.api.ExecutionScope;
 import org.aquilagraph.source.api.ChildUseEvidence;
+import org.aquilagraph.source.api.InvocationEvidence;
+import org.aquilagraph.source.api.StaticMemberEvidence;
+import org.aquilagraph.source.api.StringExpressionEvidence;
 import org.jspecify.annotations.Nullable;
 
 /** Assembles the source-only declaration/body tree for one attributed compilation unit. */
@@ -103,6 +106,11 @@ final class JavaAstContributionTranslator {
   private final Map<SyntaxSemanticEdge, SyntaxNode> declarationSources = new HashMap<>();
   private boolean memberInitialization;
   private boolean nestedDeclarations;
+  private boolean enumInitialization;
+
+  void enableEnumInitialization(boolean enabled) {
+    enumInitialization = enabled;
+  }
   private final List<TranslatedMethodBody> projectedBodies = new ArrayList<>();
   private Optional<NestedProduction> nestedProduction = Optional.empty();
 
@@ -1346,6 +1354,9 @@ final class JavaAstContributionTranslator {
         creation == null ? 0 : creation.getArguments().size(), creation != null && creation.getClassBody() != null, sharedKeys);
     JavaExecutableSyntaxProjector.Projection initializerProjection = null;
     JavaBodyDecisions initializerDecisions = null;
+    if (enumInitialization && creation != null) {
+      return enumConstant(unit, sourceFile, fieldPath, creation, value, path, children, range.orElseThrow(), semanticEdges, diagnostics);
+    }
     if (memberInitialization && !enumConstant && initializer != null) {
       var initializerPath = path.child(SyntaxRole.INITIALIZER, 0);
       initializerProjection = executableProjection(unit, sourceFile, value.declarationKey(), initializer,
@@ -1380,6 +1391,58 @@ final class JavaAstContributionTranslator {
       declarationScopes.add(new CopiedAstValues.Scope(new ExecutionScope.Field(value.declarationKey(), value.ownerKey()), node, uses,
           decisions.invocations(), decisions.staticAccesses(), decisions.concatenations(), attributions));
     }
+    return Optional.of(node);
+  }
+
+  private Optional<SyntaxNode> enumConstant(CompilationUnitTree unit, SourceFile sourceFile, TreePath fieldPath, NewClassTree creation,
+      SyntaxValue.VariableDeclaration value, SyntaxStructuralPath path, List<SyntaxChild> children, SourceSpan range,
+      List<SyntaxSemanticEdge> semanticEdges, List<AnalysisDiagnostic> diagnostics) {
+    var enumUses = new ArrayList<ChildUseEvidence>();
+    var enumInvocations = new ArrayList<InvocationEvidence>();
+    var enumStaticAccesses = new ArrayList<StaticMemberEvidence>();
+    var enumConcatenations = new ArrayList<StringExpressionEvidence>();
+    var enumAttributions = new ArrayList<AttributedBodyOccurrence>();
+    var creationPath = new TreePath(fieldPath, creation);
+    var decisionProducer = new JavaBodyDecisionProducer(semantics);
+    var constructor = semantics.enumConstructorPath(creationPath)
+        .flatMap(selected -> semantics.reference(selected, ReferenceKind.CONSTRUCTOR));
+    for (var index = 0; index < creation.getArguments().size(); index++) {
+      var argument = creation.getArguments().get(index);
+      var argumentPath = Objects.requireNonNull(TreePath.getPath(creationPath, argument), "enum argument path");
+      var projection = executableProjection(unit, sourceFile, value.declarationKey(), argument, argumentPath,
+          JavaSyntaxStructuralPath.executionRoot(argumentPath));
+      var decisions = decisionProducer.produce(value.declarationKey(), projection.translation().value(), projection.nodes(), diagnostics);
+      var copied = projectExecutable(projection, path.child(SyntaxRole.ARGUMENT, index), unit, sourceFile, diagnostics);
+      if (copied.isEmpty()) {
+        return Optional.empty();
+      }
+      var retained = decisions.rebind(sourceCopies.scopeCopies(projection.translation().value(), true), copied.orElseThrow());
+      children.add(new SyntaxChild(SyntaxRole.ARGUMENT, index, copied.orElseThrow()));
+      enumUses.addAll(retained.uses());
+      enumInvocations.addAll(retained.invocations());
+      enumStaticAccesses.addAll(retained.staticAccesses());
+      enumConcatenations.addAll(retained.concatenations());
+      enumAttributions.addAll(executionAttributions(value.declarationKey(), projection));
+    }
+    if (creation.getClassBody() != null) {
+      var bodyPath = new TreePath(creationPath, creation.getClassBody());
+      var body = projectNestedDeclaration(creation.getClassBody(), bodyPath, path.child(SyntaxRole.CLASS_BODY, 0)).value();
+      children.add(new SyntaxChild(SyntaxRole.CLASS_BODY, 0, body));
+      enumAttributions.add(new AttributedBodyOccurrence(value.declarationKey(), body.nodeId(), body.sourceFileKey(), body.sourceKind(),
+          JavaSyntaxStructuralPath.executionRoot(bodyPath)));
+    }
+
+    var node = sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.VARIABLE,
+        SyntaxKind.ENUM_CONSTANT_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), range), fieldPath);
+    declarationEdge(fieldPath, node, semanticEdges);
+    var decisions = decisionProducer.enumConstant(value.declarationKey(), node, creationPath, constructor);
+    enumUses.addAll(decisions.uses());
+    enumInvocations.addAll(decisions.invocations());
+    enumAttributions.add(new AttributedBodyOccurrence(value.declarationKey(), node.nodeId(), node.sourceFileKey(), node.sourceKind(),
+        JavaSyntaxStructuralPath.executionRoot(fieldPath)));
+    declarationScopes.add(new CopiedAstValues.Scope(new ExecutionScope.EnumConstant(value.declarationKey(), value.ownerKey(), constructor),
+        node, enumUses, enumInvocations, enumStaticAccesses, enumConcatenations, enumAttributions));
+
     return Optional.of(node);
   }
 

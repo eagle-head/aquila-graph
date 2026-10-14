@@ -50,17 +50,16 @@ final class JavaAnalysisPipeline {
           List.of(), List.of(), List.of());
       return AstResultAdmission.empty(snapshot, configuration, profile, coverage);
     }
-    return AstResultAdmission.outcome(analyze(snapshot, configuration,
-        profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION) || profile.equals(AstProfile.JAVA_SOURCE_NESTED),
-        profile.equals(AstProfile.JAVA_SOURCE_NESTED)), profile, semanticRevision);
+    return AstResultAdmission.outcome(analyze(snapshot, configuration, profile.supportsMemberInitialization(),
+        profile.supportsNestedDeclarations(), profile.supportsEnumInitialization()), profile, semanticRevision);
   }
 
   SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
-    return analyze(snapshot, configuration, false, false);
+    return analyze(snapshot, configuration, false, false, false);
   }
 
   private SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration, boolean memberInitialization,
-      boolean nestedDeclarations) throws IOException {
+      boolean nestedDeclarations, boolean enumInitialization) throws IOException {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(configuration, "configuration");
     var compiler = systemCompiler(configuration);
@@ -79,21 +78,21 @@ final class JavaAnalysisPipeline {
     SyntaxAnalysisInput result;
     try (var session = openCompilerSession(compiler, invocation, sources)) {
       var parsedSource = session.parse();
-      var coverageCapture = JavaSourceCoverageCapture.capture(snapshot, parsedSource, sources, languageFeatureCoverage);
+      var coverageCapture = JavaSourceCoverageCapture.capture(snapshot, parsedSource, sources, languageFeatureCoverage, enumInitialization);
       var propertyProducer = new JavaDeclarationPropertyEncounterProducer(parsedSource.units(), sources, parsedSource.sourceEvidence(),
-          languageFeatureCoverage);
+          languageFeatureCoverage, enumInitialization);
       var writtenProperties = propertyProducer.observeWritten();
       var annotationInventory = JavaAnnotationSourceInventory.capture(parsedSource, sources);
-      var kindEvidence = new JavaCompilerKindDiagnostics(sources, parsedSource.sourceEvidence(), languageFeatureCoverage)
-          .observe(parsedSource.units());
+      var kindEvidence = new JavaCompilerKindDiagnostics(sources, parsedSource.sourceEvidence(), languageFeatureCoverage,
+          enumInitialization).observe(parsedSource.units());
       var compilation = session.analyze(parsedSource, nestedDeclarations);
       var attributedExpectations = coverageCapture.captureAttributed(compilation.semantics());
       var attributedProperties = propertyProducer.observeAttributed(compilation.semantics());
       var typeEvidence = new JavaTypeKindObserver(sources, compilation.semantics(), compilation.sourceEvidence(),
-          compilation.treeInventory(), languageFeatureCoverage).observe(compilation.units());
+          compilation.treeInventory(), languageFeatureCoverage, enumInitialization).observe(compilation.units());
       var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
-          compilation.treeInventory(), languageFeatureCoverage, memberInitialization, nestedDeclarations).translate(snapshot,
-              compilation.units(),
+          compilation.treeInventory(), languageFeatureCoverage, memberInitialization, nestedDeclarations, enumInitialization)
+          .translate(snapshot, compilation.units(),
               compilation.diagnostics().stream().anyMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
       var annotationCompleteness = new JavaAnnotationCompleteness(annotationInventory, compilation.semantics(), translation.diagnostics());
       var typeUseEvents = JavaTypeUseCompleteness.diagnosticsWithEvents(snapshot, kindEvidence.observations(),
