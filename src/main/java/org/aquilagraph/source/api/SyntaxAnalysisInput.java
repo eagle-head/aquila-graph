@@ -101,6 +101,19 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
         accounted.add(actualReference(reference, facts));
       }
       if (outcome.support().mode() == FeatureContextOutcome.Mode.FACTS) {
+        if (context.address().partition() == SourceContext.Partition.EMPTY_BODY_DECLARATION && (outcome.support().facts().size() != 1
+            || !CoverageActualFacts.matchesEmptyDeclaration(context, outcome.support().facts().getFirst(), facts))) {
+          throw new IllegalArgumentException("Empty declaration support requires its exact actual member occurrence and order");
+        }
+        if (context.address().partition() == SourceContext.Partition.EMPTY_BODY_DECLARATION) {
+          var range = context.origins().getFirst();
+          var source = snapshot.sourceFiles().stream().filter(file -> file.sourceFileKey().equals(range.sourceFileKey())).findFirst()
+              .orElseThrow();
+          var text = source.content().substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive()));
+          if (!";".equals(text) && !text.matches("\\\\u+003[bB]")) {
+            throw new IllegalArgumentException("An empty declaration must retain its actual written semicolon");
+          }
+        }
         if (context.address().partition() == SourceContext.Partition.WRITTEN_TYPE_USE
             && !writtenTypeUseSupport(context, outcome.support().facts(), evidence, facts)) {
           throw new IllegalArgumentException("Recursive written type support requires its exact actual source occurrence");

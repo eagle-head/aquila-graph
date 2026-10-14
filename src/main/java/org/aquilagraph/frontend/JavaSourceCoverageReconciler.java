@@ -43,6 +43,7 @@ import org.aquilagraph.source.api.SyntaxKind;
 final class JavaSourceCoverageReconciler {
   private static final String MISSING_SOURCE_EVIDENCE = "frontend.missing-source-evidence";
   private static final int EXPECTED_WRITTEN_TYPE_USE_FACTS = 1;
+  private static final int EXPECTED_EMPTY_DECLARATION_FACTS = 1;
   private static final String UNIT_KIND_PROPERTY = "CompilationUnitTree::Tree#getKind()";
   private static final String UNIT_SOURCE_PROPERTY = "CompilationUnitTree::CompilationUnitTree#getSourceFile()";
   private static final String UNIT_TYPES_PROPERTY = "CompilationUnitTree::CompilationUnitTree#getTypeDecls()";
@@ -123,7 +124,26 @@ final class JavaSourceCoverageReconciler {
     writtenTypeUses();
     properties(Partition.WRITTEN_PROPERTY, writtenProperties);
     properties(Partition.ATTRIBUTED_PROPERTY, attributedProperties);
+    emptyBodyDeclarations();
     return finish(coverage);
+  }
+
+  private void emptyBodyDeclarations() {
+    inventory.contexts().stream().filter(value -> value.address().partition() == Partition.EMPTY_BODY_DECLARATION)
+        .forEach(this::emptyBodyDeclaration);
+  }
+
+  private void emptyBodyDeclaration(SourceContext context) {
+    var facts = actualFacts.stream().filter(fact -> CoverageActualFacts.matchesEmptyDeclaration(context, fact, actualFacts)).toList();
+    var emissions = List.<DiagnosticEmission.Address>of();
+    var disposition = support(Mode.FAILED);
+    if (facts.size() == EXPECTED_EMPTY_DECLARATION_FACTS) {
+      disposition = new Support(Mode.FACTS, facts, Optional.empty(), Optional.empty(), Optional.empty());
+    } else {
+      emissions = failure(context, MISSING_SOURCE_EVIDENCE, "A written empty body declaration has no exact ordered source occurrence");
+    }
+    outcomes
+        .add(new FeatureContextOutcome(context.address(), Optional.empty(), Optional.empty(), Optional.empty(), disposition, emissions));
   }
 
   ReconciledCoverage reconcileRetained(LanguageFeatureCoverage coverage, List<FeatureContextOutcome> actualEncounters) {
@@ -138,12 +158,13 @@ final class JavaSourceCoverageReconciler {
         addKnown(context, encounter.occurrence().orElseThrow(), encounter.observation().orElseThrow(), encounter.encounteredValue());
       } else if (context.address().partition() == Partition.WRITTEN_TYPE_USE) {
         writtenTypeUse(context);
-      } else {
+      } else if (context.address().partition() != Partition.EMPTY_BODY_DECLARATION) {
         var addresses = failure(context, "frontend.unresolved-attributed-type-kind", unavailableTypeMessage(context));
         outcomes.add(new FeatureContextOutcome(context.address(), Optional.empty(), Optional.empty(), encounter.encounteredValue(),
             support(Mode.FAILED), addresses));
       }
     }
+    emptyBodyDeclarations();
     return finish(coverage);
   }
 

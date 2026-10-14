@@ -21,6 +21,7 @@ public final class JavaSourcePathRoles {
     Objects.requireNonNull(role, "role");
     Objects.requireNonNull(parentKind, "parentKind");
     return switch (role) {
+      case EMPTY_DECLARATION -> SyntaxRole.MEMBER;
       case ENCLOSING_EXPRESSION -> SyntaxRole.ENCLOSING_INSTANCE;
       case STATEMENT -> switch (requireParent(parentKind)) {
         case BLOCK, CASE -> SyntaxRole.STATEMENT;

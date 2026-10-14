@@ -193,6 +193,7 @@ final class JavaAstAggregateBuilder {
     var outgoing = validateStructuralEdges(structural, nodes, roots);
     var orderedNodes = orderNodes(roots, nodes, outgoing);
     validateEmbeddedChildren(nodes, outgoing);
+    validateEmptyDeclarationOwners(nodes);
     validateAnnotationRanges(orderedNodes);
     validateSemanticEdges(semantic, nodes);
     validateMethodBodies(nodes);
@@ -342,6 +343,29 @@ final class JavaAstAggregateBuilder {
           || (node.sourceKind() != association.sourceKind()
               && !(node.value() instanceof SyntaxValue.Annotation && association.sourceKind() == JavaSourceKind.TYPE_ANNOTATION))) {
         throw new IllegalArgumentException("Written source associations must bind exact actual source nodes, kinds, and ranges");
+      }
+    }
+  }
+
+  private void validateEmptyDeclarationOwners(Map<String, SyntaxNode> nodes) {
+    for (var node : nodes.values()) {
+      if (node.syntaxKind() != SyntaxKind.EMPTY || node.structuralPath().steps().getLast().role() != SyntaxRole.MEMBER) {
+        continue;
+      }
+      var association = writtenSourceAssociations.get(node.nodeId());
+      var parent = nodes.values().stream().filter(owner -> owner.syntaxKind() == SyntaxKind.TYPE_DECLARATION
+          && owner.children(SyntaxRole.MEMBER).stream().anyMatch(member -> member.nodeId().equals(node.nodeId()))).findFirst();
+      if (parent.isEmpty()) {
+        throw new IllegalArgumentException("An empty body declaration requires a source type parent");
+      }
+      var owner = writtenSourceAssociations.get(parent.orElseThrow().nodeId());
+      var ordinal = parent.orElseThrow().children(SyntaxRole.MEMBER).stream().filter(member -> member.syntaxKind() == SyntaxKind.EMPTY)
+          .toList().indexOf(node);
+      if (association == null || owner == null || !association.ownerPath().parent().equals(Optional.of(owner.ownerPath()))
+          || association.ownerPath().lastStep()
+              .filter(step -> step.role() == SourceOwnerPath.Role.EMPTY_DECLARATION && step.ordinal() == ordinal).isEmpty()) {
+        throw new IllegalArgumentException(
+            "An empty body declaration requires its exact parsed type owner association and role-local ordinal");
       }
     }
   }

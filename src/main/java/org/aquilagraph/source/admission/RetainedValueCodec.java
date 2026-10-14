@@ -40,6 +40,8 @@ import org.aquilagraph.source.api.LanguageFeatureClassification;
 import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SourceContext;
+import org.aquilagraph.source.api.SourceOwnerPath;
 import org.aquilagraph.source.api.SyntaxOperator;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -365,6 +367,10 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatEnum(Class<?> type, String name) {
+    if (formatVersion < 17 && ((type == SourceContext.Partition.class && "EMPTY_BODY_DECLARATION".equals(name))
+        || (type == SourceOwnerPath.Role.class && "EMPTY_DECLARATION".equals(name)))) {
+      throw new IllegalArgumentException("Empty body declarations require retained AST format java-source/17");
+    }
     if (formatVersion < 15 && type == SyntaxRole.class && "CLASS_BODY".equals(name)) {
       throw new IllegalArgumentException("Anonymous declaration bodies require retained AST format java-source/15");
     }
@@ -418,6 +424,10 @@ final class RetainedValueCodec {
   }
 
   private void validateSourceFormat(SyntaxNode node) {
+    if (formatVersion < 17 && node.syntaxKind() == SyntaxKind.EMPTY
+        && node.structuralPath().steps().getLast().role() == SyntaxRole.MEMBER) {
+      throw new IllegalArgumentException("Empty body declarations require retained AST format java-source/17");
+    }
     if (formatVersion < 13 && node.syntaxKind() == SyntaxKind.CLASS_LITERAL) {
       throw new IllegalArgumentException("Executable class literals require retained AST format java-source/13");
     }

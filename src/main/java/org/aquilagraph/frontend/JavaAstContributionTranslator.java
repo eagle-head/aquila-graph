@@ -107,6 +107,11 @@ final class JavaAstContributionTranslator {
   private boolean memberInitialization;
   private boolean nestedDeclarations;
   private boolean enumInitialization;
+  private boolean declarationFidelity;
+
+  void enableDeclarationFidelity(boolean enabled) {
+    declarationFidelity = enabled;
+  }
 
   void enableEnumInitialization(boolean enabled) {
     enumInitialization = enabled;
@@ -633,6 +638,8 @@ final class JavaAstContributionTranslator {
       }
     }
     var members = new ArrayList<SyntaxChild>();
+    var emptyDeclarations = declarationFidelity ? treeInventory.emptyBodyDeclarations(declaration) : List.<SourceSpan>of();
+    var emptyOrdinal = 0;
     for (var sourceOrdinal = 0; sourceOrdinal < declaration.getMembers().size(); sourceOrdinal++) {
       var member = declaration.getMembers().get(sourceOrdinal);
       if (!treeInventory.isWritten(member) || member instanceof EmptyStatementTree) {
@@ -642,10 +649,19 @@ final class JavaAstContributionTranslator {
           && typeElement.getRecordComponents().stream().anyMatch(component -> component.getSimpleName().contentEquals(field.getName()))) {
         continue;
       }
+      var memberStart = sourceEvidence.rawStart(unit, member);
+      while (emptyOrdinal < emptyDeclarations.size() && emptyDeclarations.get(emptyOrdinal).startOffset() < memberStart) {
+        appendEmptyDeclaration(sourceFile, classPath, path, emptyOrdinal, emptyDeclarations.get(emptyOrdinal), members);
+        emptyOrdinal++;
+      }
       var before = members.size();
       appendMember(unit, sourceFile, classPath, member, path, occurrencePath, sourceOrdinal, SyntaxRole.MEMBER, members, bodies,
           stagedBodies, stagedUnavailableBodies, stagedEdges, diagnostics, typesByKey);
       complete &= members.size() == before + 1;
+    }
+    while (emptyOrdinal < emptyDeclarations.size()) {
+      appendEmptyDeclaration(sourceFile, classPath, path, emptyOrdinal, emptyDeclarations.get(emptyOrdinal), members);
+      emptyOrdinal++;
     }
     if (!complete) {
       unavailableBodies.addAll(stagedUnavailableBodies);
@@ -666,6 +682,15 @@ final class JavaAstContributionTranslator {
     unavailableBodies.addAll(stagedUnavailableBodies);
     semanticEdges.addAll(stagedEdges);
     return Optional.of(node);
+  }
+
+  private void appendEmptyDeclaration(SourceFile sourceFile, TreePath classPath, SyntaxStructuralPath typePath, int ordinal,
+      SourceSpan range, List<SyntaxChild> members) {
+    var position = members.size();
+    var node = SyntaxNode.source(sourceFile.sourceFileKey(), typePath.child(SyntaxRole.MEMBER, position), JavaSourceKind.EMPTY_STATEMENT,
+        SyntaxKind.EMPTY, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range);
+    sourceAssociations.retain(node, treeInventory.emptyDeclarationAssociation(node, classPath, ordinal));
+    members.add(new SyntaxChild(SyntaxRole.MEMBER, position, node));
   }
 
   private boolean appendTypeHeaderAttachment(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath parentPath,

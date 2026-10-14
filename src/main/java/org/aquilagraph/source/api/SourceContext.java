@@ -45,7 +45,9 @@ public record SourceContext(Address address, Optional<LanguageFeature> feature, 
     /** Written declaration accessors. */
     WRITTEN_PROPERTY,
     /** Attributed declaration accessors. */
-    ATTRIBUTED_PROPERTY
+    ATTRIBUTED_PROPERTY,
+    /** Written standalone body declarations absent from the public compiler tree list. */
+    EMPTY_BODY_DECLARATION
   }
 
   /**

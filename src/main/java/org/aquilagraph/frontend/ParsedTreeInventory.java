@@ -473,6 +473,19 @@ final class ParsedTreeInventory {
     return capturedEmptyDeclarations.getOrDefault(tree, List.of());
   }
 
+  WrittenSourceAssociation emptyDeclarationAssociation(SyntaxNode node, TreePath owner, int ordinal) {
+    var range = emptyBodyDeclarations((ClassTree) owner.getLeaf()).get(ordinal);
+    if (node.sourceKind() != JavaSourceKind.EMPTY_STATEMENT || !node.origin().equals(Optional.of(range))) {
+      throw new IllegalArgumentException("An empty declaration requires its exact captured source occurrence");
+    }
+    var path = emptyDeclarationPath(owner, ordinal);
+    return new WrittenSourceAssociation(node.nodeId(), range.sourceFileKey(), path, JavaSourceKind.EMPTY_STATEMENT, Optional.of(range));
+  }
+
+  SourceOwnerPath emptyDeclarationPath(TreePath owner, int ordinal) {
+    return parsedOwnerPath(owner).orElseThrow().child(SourceOwnerPath.Role.EMPTY_DECLARATION, ordinal);
+  }
+
   private record SourceToken(String value, int start, int end) {
   }
 

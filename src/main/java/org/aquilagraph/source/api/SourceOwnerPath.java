@@ -147,6 +147,8 @@ public record SourceOwnerPath(List<Step> steps) {
     PERMITTED_SUBCLASS,
     /** Type declaration's ordered parsed member. */
     MEMBER,
+    /** Standalone body semicolon captured directly from written source. */
+    EMPTY_DECLARATION,
     /** Method's written return type. */
     RETURN_TYPE,
     /** Declaration's formal or handler parameter. */

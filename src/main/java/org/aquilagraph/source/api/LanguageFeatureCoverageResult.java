@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.aquilagraph.identity.api.JavaRelease;
@@ -13,6 +14,7 @@ import org.aquilagraph.identity.api.JavaRelease;
 public final class LanguageFeatureCoverageResult {
   private static final long EXPECTED_COMPILATION_UNIT_CONTEXTS = 1L;
   private static final int EXPECTED_WRITTEN_TYPE_USE_FACTS = 1;
+  private static final int EXPECTED_EMPTY_DECLARATION_FACTS = 1;
   private static final int EXPECTED_WRITTEN_TYPE_USE_OWNERS = 1;
   private static final Map<JavaRelease, Set<String>> AUTHORITATIVE_CONTRACT_IDENTITIES = Map.of(JavaRelease.JAVA_25,
       Set.of("java-language-feature-coverage:1aa72c351c5b0c6af37bed7951ef08eb038cdb214148b933ac6a6bf93db97bb5",
@@ -224,13 +226,17 @@ public final class LanguageFeatureCoverageResult {
       }
     });
     if (outcome.occurrence().isEmpty() && outcome.support().mode() != FeatureContextOutcome.Mode.FAILED
-        && context.address().partition() != SourceContext.Partition.WRITTEN_TYPE_USE) {
+        && context.address().partition() != SourceContext.Partition.WRITTEN_TYPE_USE
+        && context.address().partition() != SourceContext.Partition.EMPTY_BODY_DECLARATION) {
       throw new IllegalArgumentException("Unavailable feature identity requires blocking failed support without a guessed pair");
     }
     outcome.occurrence().ifPresent(occurrence -> validateOccurrence(coverage, occurrence));
     validateContextBoundary(context, outcome);
     if (context.address().partition() == SourceContext.Partition.WRITTEN_TYPE_USE) {
       validateWrittenTypeUse(context, outcome, evidence);
+    }
+    if (context.address().partition() == SourceContext.Partition.EMPTY_BODY_DECLARATION) {
+      validateEmptyDeclaration(context, outcome, evidence);
     }
     outcome.occurrence().ifPresent(occurrence -> {
       if (!occurrence.origins().equals(context.origins())) {
@@ -348,7 +354,7 @@ public final class LanguageFeatureCoverageResult {
     var correctCategory = switch (context.address().partition()) {
       case TREE -> feature.filter(value -> value.category() == LanguageFeatureCategory.COMPILER_TREE_KIND).isPresent();
       case TYPE -> feature.isEmpty() || feature.orElseThrow().category() == LanguageFeatureCategory.COMPILER_TYPE_KIND;
-      case WRITTEN_TYPE_USE -> feature.isEmpty();
+      case WRITTEN_TYPE_USE, EMPTY_BODY_DECLARATION -> feature.isEmpty();
       case WRITTEN_PROPERTY, ATTRIBUTED_PROPERTY ->
         feature.filter(value -> value.category() == LanguageFeatureCategory.DECLARATION_PROPERTY).isPresent();
       case TRANSLATION -> true;
@@ -377,12 +383,7 @@ public final class LanguageFeatureCoverageResult {
   }
 
   private static void validateWrittenTypeUse(SourceContext context, FeatureContextOutcome outcome, CoverageValidationEvidence evidence) {
-    if (context.feature().isPresent() || context.writtenValue().isPresent() || context.requiresAttribution()
-        || outcome.occurrence().isPresent() || outcome.observation().isPresent() || outcome.encounteredValue().isPresent()
-        || (outcome.support().mode() != FeatureContextOutcome.Mode.FACTS
-            && outcome.support().mode() != FeatureContextOutcome.Mode.FAILED)) {
-      throw new IllegalArgumentException("Written type-use obligations require independent source facts or blocking failed support");
-    }
+    validateWrittenOccurrenceSupport(context, outcome);
     var owners = evidence.writtenInventory().contexts().stream()
         .filter(candidate -> candidate.address().partition() == SourceContext.Partition.TREE
             && candidate.address().sourceFileKey().equals(context.address().sourceFileKey())
@@ -409,6 +410,57 @@ public final class LanguageFeatureCoverageResult {
                 && association.origin().equals(fact.origin()))
             .isEmpty()) {
       throw new IllegalArgumentException("Written type-use support must retain its exact source kind, owner path and origin");
+    }
+  }
+
+  private static void validateWrittenOccurrenceSupport(SourceContext context, FeatureContextOutcome outcome) {
+    if (context.feature().isPresent() || context.writtenValue().isPresent() || context.requiresAttribution()
+        || outcome.occurrence().isPresent() || outcome.observation().isPresent() || outcome.encounteredValue().isPresent()
+        || (outcome.support().mode() != FeatureContextOutcome.Mode.FACTS
+            && outcome.support().mode() != FeatureContextOutcome.Mode.FAILED)) {
+      throw new IllegalArgumentException("Written source occurrence obligations require independent facts or blocking failed support");
+    }
+  }
+
+  private static void validateEmptyDeclaration(SourceContext context, FeatureContextOutcome outcome, CoverageValidationEvidence evidence) {
+    validateWrittenOccurrenceSupport(context, outcome);
+    if (context.origins().size() != 1 || context.address().ownerPath().lastStep()
+        .filter(step -> step.role() == SourceOwnerPath.Role.EMPTY_DECLARATION && step.ordinal() == context.address().ordinal()).isEmpty()
+        || !"empty-body-declaration".equals(context.address().role())) {
+      throw new IllegalArgumentException("Empty body declarations require exact written source obligations");
+    }
+    var parents = evidence.writtenInventory().contexts().stream()
+        .filter(parent -> parent.address().partition() == SourceContext.Partition.TREE
+            && parent.address().sourceFileKey().equals(context.address().sourceFileKey())
+            && Optional.of(parent.address().ownerPath()).equals(context.address().ownerPath().parent())
+            && parent.feature()
+                .filter(feature -> List.of("CLASS", "INTERFACE", "ENUM", "RECORD", "ANNOTATION_TYPE").contains(feature.identifier()))
+                .isPresent())
+        .toList();
+    if (parents.size() != 1 || parents.getFirst().origins().size() != 1) {
+      throw new IllegalArgumentException("An empty body declaration requires its exact written type owner");
+    }
+    var range = context.origins().getFirst();
+    var owner = parents.getFirst().origins().getFirst();
+    if (range.startOffset() < owner.startOffset() || range.endOffsetExclusive() > owner.endOffsetExclusive()) {
+      throw new IllegalArgumentException("An empty body declaration must be inside its written owner");
+    }
+    if (outcome.support().mode() == FeatureContextOutcome.Mode.FAILED) {
+      return;
+    }
+    if (outcome.support().facts().size() != EXPECTED_EMPTY_DECLARATION_FACTS) {
+      throw new IllegalArgumentException("An empty body declaration requires one exact occurrence");
+    }
+    var fact = outcome.support().facts().getFirst();
+    if (!(fact.value() instanceof CoverageFactValue.Source source) || fact.kind() != CoverageFactReference.Kind.SYNTAX
+        || !"EMPTY".equals(source.value().syntaxKind()) || !"EMPTY_STATEMENT".equals(source.value().sourceKind())
+        || !fact.origin().stream().toList().equals(context.origins())
+        || source.value().sourceAssociation()
+            .filter(association -> association.nodeKey().equals(fact.identity())
+                && association.ownerPath().equals(context.address().ownerPath())
+                && association.sourceFileKey().equals(context.address().sourceFileKey()) && association.origin().equals(fact.origin()))
+            .isEmpty()) {
+      throw new IllegalArgumentException("Empty declaration support must preserve its exact source occurrence");
     }
   }
 

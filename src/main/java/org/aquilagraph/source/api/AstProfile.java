@@ -24,6 +24,9 @@ public record AstProfile(String version) {
   /** Expanded Java 25 source including enum arguments and constant-specific bodies. */
   public static final AstProfile JAVA_SOURCE_ENUM_INITIALIZATION = new AstProfile("java-source-expanded/4");
 
+  /** Expanded Java 25 declaration fidelity, including standalone body declarations. */
+  public static final AstProfile JAVA_SOURCE_DECLARATIONS = new AstProfile("java-source-expanded/5");
+
   /** Requires an explicit version without interpreting unknown versions. */
   public AstProfile {
     if (Objects.requireNonNull(version, "version").isBlank()) {
@@ -38,7 +41,7 @@ public record AstProfile(String version) {
    */
   public boolean isSupported() {
     return JAVA_SOURCE_BOUNDED.equals(this) || JAVA_SOURCE_EXPANDED.equals(this) || JAVA_SOURCE_INITIALIZATION.equals(this)
-        || JAVA_SOURCE_NESTED.equals(this) || JAVA_SOURCE_ENUM_INITIALIZATION.equals(this);
+        || JAVA_SOURCE_NESTED.equals(this) || JAVA_SOURCE_ENUM_INITIALIZATION.equals(this) || JAVA_SOURCE_DECLARATIONS.equals(this);
   }
 
   /**
@@ -65,6 +68,15 @@ public record AstProfile(String version) {
    * @return whether enum initialization is represented
    */
   public boolean supportsEnumInitialization() {
-    return JAVA_SOURCE_ENUM_INITIALIZATION.equals(this);
+    return JAVA_SOURCE_ENUM_INITIALIZATION.equals(this) || supportsDeclarationFidelity();
+  }
+
+  /**
+   * Identifies contracts retaining exact empty body-declaration occurrences.
+   *
+   * @return whether declaration fidelity is represented
+   */
+  public boolean supportsDeclarationFidelity() {
+    return JAVA_SOURCE_DECLARATIONS.equals(this);
   }
 }

@@ -71,6 +71,49 @@ class Neo4jAstResultRepositoryNeo4jIT {
   @TempDir Path directory;
 
   @Test
+  void givenDeclarationFidelityWithSharedAnnotationsAndNestedEmptyMembers_whenSavedClosedAndIndependentlyQueried_thenAllSourceValuesSurvive()
+      throws IOException {
+    // Arrange
+    var settings = settings();
+    var outcome = frontend().produce(snapshot("""
+        import java.lang.annotation.ElementType;
+        import java.lang.annotation.Target;
+        @Target({ElementType.FIELD, ElementType.TYPE_USE}) @interface Dual { int value() default 7; }
+        @Target({ElementType.RECORD_COMPONENT, ElementType.FIELD, ElementType.METHOD, ElementType.PARAMETER, ElementType.TYPE_USE})
+        @interface Component {}
+        class Stored {
+          ; @Dual int first = 1, second = 2; ;
+          record Part(@Component String text) { ; Part {} }
+          enum Choice { FIRST { ; int value() { return 2; } }; ; }
+        }
+        """), configuration(), AstProfile.JAVA_SOURCE_DECLARATIONS);
+    var original = outcome.result().orElseThrow();
+    try {
+      // Act
+      var publication = retention(settings).retainAst(outcome);
+      var lookup = retention(settings).findAst(original.identity());
+      var retained = lookup.outcome().orElseThrow().result().orElseThrow();
+      // Assert
+      assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
+      assertEquals(PublicationStatus.SAVED, publication.status());
+      assertEquals(AstLookupStatus.FOUND, lookup.status());
+      assertEquals(original.identity(), retained.identity());
+      assertEquals(AstProfile.JAVA_SOURCE_DECLARATIONS, retained.profile());
+      assertEquals(original.aggregate(), retained.aggregate());
+      assertEquals(original.coverage(), retained.coverage());
+      assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retained));
+      var empty = retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.EMPTY).toList();
+      assertEquals(5, empty.size());
+      assertTrue(empty.stream().allMatch(node -> retained.aggregate().writtenSourceAssociation(node.nodeId()).isPresent()));
+      assertEquals(2, retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION
+          && node.semanticReference().flatMap(reference -> reference.symbolKey()).filter(Set.of("type:Dual", "type:Component")::contains)
+              .isPresent()).count());
+    } finally {
+      deleteAst(settings, original.identity());
+    }
+  }
+
+  @Test
   void givenEnumArgumentsAndConstantBody_whenSavedClosedAndIndependentlyQueried_thenSourceSelectionOwnershipAndFactsSurvive() throws IOException {
     // Arrange
     var settings = settings();

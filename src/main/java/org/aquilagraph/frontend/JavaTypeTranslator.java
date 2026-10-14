@@ -67,6 +67,11 @@ final class JavaTypeTranslator {
   private boolean memberInitialization;
   private boolean nestedDeclarations;
   private boolean enumInitialization;
+  private boolean declarationFidelity;
+
+  void enableDeclarationFidelity(boolean enabled) {
+    declarationFidelity = enabled;
+  }
 
   void enableEnumInitialization(boolean enabled) {
     enumInitialization = enabled;
@@ -113,7 +118,7 @@ final class JavaTypeTranslator {
     var memberOrders = new ArrayList<DeclarationMemberOrder>();
     var declarationTypes = new ArrayList<DeclarationTypeEvidence>();
     var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, typeKey + ":declaration");
-    if (memberInitialization) {
+    if (memberInitialization && (!declarationFidelity || origin.isEmpty())) {
       for (var declaration : treeInventory.emptyBodyDeclarations(classTree)) {
         TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
             FrontendDiagnosticFactory.capabilityError(typeKey + ":EMPTY_STATEMENT", "frontend.unsupported-class-member",

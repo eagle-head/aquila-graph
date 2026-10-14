@@ -14,6 +14,7 @@ import org.aquilagraph.source.api.CoveragePropertyValue.State;
 
 /** Enumerates actual retained facts without consulting either expected inventory or producer encounter list. */
 public final class CoverageActualFacts {
+  private static final int EXPECTED_EMPTY_DECLARATION_OWNERS = 1;
   /** Captured component attribution at a match-all occurrence. */
   public static final String MATCH_ALL_TYPE_ROLE = "match-all-type";
 
@@ -879,8 +880,45 @@ public final class CoverageActualFacts {
 
   private static List<CoverageFactReference> attachments(CoverageSyntaxFactValue owner, List<SyntaxRole> roles,
       CoverageActualFactView actualFacts) {
-    return owner.children().stream().filter(child -> roles.contains(child.role())).map(child -> actualFacts.stream()
-        .filter(fact -> fact.kind() == Kind.SYNTAX && fact.identity().equals(child.nodeKey())).findFirst().orElseThrow()).toList();
+    return owner.children().stream().filter(child -> roles.contains(child.role()))
+        .map(child -> actualFacts.stream().filter(fact -> fact.kind() == Kind.SYNTAX && fact.identity().equals(child.nodeKey())).findFirst()
+            .orElseThrow())
+        .filter(fact -> actualFacts.requiredSyntax(fact).sourceAssociation().flatMap(association -> association.ownerPath().lastStep())
+            .filter(step -> step.role() == SourceOwnerPath.Role.EMPTY_DECLARATION).isEmpty())
+        .toList();
+  }
+
+  /**
+   * Matches a written body semicolon to its exact copied occurrence and enclosing type.
+   *
+   * @param context
+   *          independently captured source obligation
+   * @param fact
+   *          candidate copied syntax fact
+   * @param facts
+   *          complete actual source view
+   * @return whether the exact source ownership and member order agree
+   */
+  public static boolean matchesEmptyDeclaration(SourceContext context, CoverageFactReference fact, CoverageActualFactView facts) {
+    if (fact.kind() != Kind.SYNTAX || !fact.sourceFileKey().equals(context.address().sourceFileKey())
+        || !fact.origin().stream().toList().equals(context.origins())) {
+      return false;
+    }
+    var node = facts.requiredSyntax(fact);
+    if (node.syntaxKind() != SyntaxKind.EMPTY || node.sourceKind() != JavaSourceKind.EMPTY_STATEMENT
+        || node.sourceAssociation().filter(value -> value.ownerPath().equals(context.address().ownerPath())).isEmpty()) {
+      return false;
+    }
+    var parentPath = context.address().ownerPath().parent().orElseThrow();
+    var parents = facts.stream().flatMap(facts::syntaxValues)
+        .filter(parent -> parent.syntaxKind() == SyntaxKind.TYPE_DECLARATION && parent.sourceAssociation()
+            .filter(value -> value.sourceFileKey().equals(fact.sourceFileKey()) && value.ownerPath().equals(parentPath)).isPresent())
+        .toList();
+    if (parents.size() != EXPECTED_EMPTY_DECLARATION_OWNERS) {
+      return false;
+    }
+    return parents.getFirst().children().stream()
+        .anyMatch(child -> child.role() == SyntaxRole.MEMBER && child.nodeKey().equals(fact.identity()));
   }
 
   static boolean writtenAttachments(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, List<SyntaxRole> roles,

@@ -136,7 +136,7 @@ public enum SyntaxKind {
   TYPE_CAST,
   /** Ternary conditional expression. */
   CONDITIONAL_EXPRESSION,
-  /** Empty statement. */
+  /** Standalone semicolon; its containing role distinguishes a statement from a body declaration. */
   EMPTY,
   /** Syntax outside the accepted translation profile. */
   UNSUPPORTED;

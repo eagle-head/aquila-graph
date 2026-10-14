@@ -61,6 +61,11 @@ final class JavaSourceCoverageCapture {
 
   static JavaSourceCoverageCapture capture(InputSnapshot snapshot, ParsedJavaSource parsed, SnapshotSourceCatalog sources,
       LanguageFeatureCoverage coverage, boolean enumInitialization) {
+    return capture(snapshot, parsed, sources, coverage, enumInitialization, false);
+  }
+
+  static JavaSourceCoverageCapture capture(InputSnapshot snapshot, ParsedJavaSource parsed, SnapshotSourceCatalog sources,
+      LanguageFeatureCoverage coverage, boolean enumInitialization, boolean declarationFidelity) {
     var owners = JavaCoverageTopology.owners(parsed.units(), sources, parsed.sourceEvidence()).stream()
         .filter(owner -> !enumInitialization || !JavaEnumConstantSyntax.isImplicitEnvelope(owner.treePath(), parsed.sourceEvidence()))
         .toList();
@@ -104,6 +109,21 @@ final class JavaSourceCoverageCapture {
         contexts.add(new SourceContext(address, Optional.of(accessor.classification().feature()), owner.origin().stream().toList(),
             Optional.empty(), true));
         descriptors.put(address, descriptor(owner, Optional.of(accessor), owner.treePath()));
+      }
+    }
+    if (declarationFidelity) {
+      for (var owner : owners) {
+        if (!(owner.tree() instanceof ClassTree declaration) || owner.origin().isEmpty()) {
+          continue;
+        }
+        var emptyDeclarations = parsed.treeInventory().emptyBodyDeclarations(declaration);
+        for (var ordinal = 0; ordinal < emptyDeclarations.size(); ordinal++) {
+          var range = emptyDeclarations.get(ordinal);
+          var path = parsed.treeInventory().emptyDeclarationPath(owner.treePath(), ordinal);
+          contexts.add(new SourceContext(
+              new SourceContext.Address(range.sourceFileKey(), Partition.EMPTY_BODY_DECLARATION, path, "empty-body-declaration", ordinal),
+              Optional.empty(), List.of(range), Optional.empty(), false));
+        }
       }
     }
     return new JavaSourceCoverageCapture(new SourceCoverageInventory(snapshot, coverage.release(), coverage.contractIdentity(), contexts),

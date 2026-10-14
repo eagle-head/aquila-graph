@@ -1921,7 +1921,7 @@ public final class SyntaxNode {
               && node.value(SyntaxValue.RecordComponentDeclaration.class).ownerKey().equals(declaration.declarationKey())
               && node.value(SyntaxValue.RecordComponentDeclaration.class).ordinal() == child.position();
         case MEMBER -> switch (node.syntaxKind()) {
-          case TYPE_DECLARATION, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK -> true;
+          case TYPE_DECLARATION, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK, EMPTY -> true;
           case FIELD_DECLARATION -> node.value(SyntaxValue.VariableDeclaration.class).kind() == SyntaxValue.VariableDeclaration.Kind.FIELD
               && node.value(SyntaxValue.VariableDeclaration.class).ownerKey().equals(declaration.declarationKey());
           case ENUM_CONSTANT_DECLARATION -> sourceKind == JavaSourceKind.ENUM
@@ -1939,6 +1939,24 @@ public final class SyntaxNode {
     }
     if (sourceKind == JavaSourceKind.RECORD) {
       validateRecordCounterpartOrigins(children);
+    }
+    validateEmptyMemberOrder(children);
+  }
+
+  private static void validateEmptyMemberOrder(List<SyntaxChild> children) {
+    var members = children.stream().filter(child -> child.role() == SyntaxRole.MEMBER).toList();
+    for (var empty : members.stream().filter(child -> child.node().syntaxKind() == SyntaxKind.EMPTY).toList()) {
+      if (empty.node().origin().isEmpty()) {
+        throw new IllegalArgumentException("An empty body declaration requires its exact written source range");
+      }
+      var range = empty.node().origin().orElseThrow();
+      for (var member : members) {
+        var origin = member.node().origin();
+        if (origin.isEmpty() || (member.position() < empty.position() && origin.orElseThrow().endOffsetExclusive() > range.startOffset())
+            || (member.position() > empty.position() && origin.orElseThrow().startOffset() < range.endOffsetExclusive())) {
+          throw new IllegalArgumentException("Empty body declaration order conflicts with written member ranges");
+        }
+      }
     }
   }
 

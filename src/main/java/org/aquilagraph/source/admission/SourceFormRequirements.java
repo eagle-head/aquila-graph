@@ -109,6 +109,9 @@ final class SourceFormRequirements {
   }
 
   static boolean supports(SyntaxNode node, AstProfile profile) {
+    if (node.syntaxKind() == SyntaxKind.EMPTY && node.structuralPath().steps().getLast().role() == SyntaxRole.MEMBER) {
+      return profile.supportsDeclarationFidelity();
+    }
     if (profile.supportsEnumInitialization() && node.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION) {
       var declaration = node.value(SyntaxValue.VariableDeclaration.class);
       return node.children(SyntaxRole.ARGUMENT).size() == declaration.arguments()

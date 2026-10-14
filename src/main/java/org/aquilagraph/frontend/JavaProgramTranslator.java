@@ -72,6 +72,11 @@ final class JavaProgramTranslator {
     return translate(snapshot, units, false);
   }
 
+  void enableDeclarationFidelity(boolean enabled) {
+    typeTranslator.enableDeclarationFidelity(enabled);
+    astTranslator.enableDeclarationFidelity(enabled);
+  }
+
   TranslationResult<TranslatedProgram> translate(InputSnapshot snapshot, List<CompilationUnitTree> units, boolean compilerErrors) {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(units, "units");
