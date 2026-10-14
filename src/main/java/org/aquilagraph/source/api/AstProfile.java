@@ -27,6 +27,9 @@ public record AstProfile(String version) {
   /** Expanded Java 25 declaration fidelity, including standalone body declarations. */
   public static final AstProfile JAVA_SOURCE_DECLARATIONS = new AstProfile("java-source-expanded/5");
 
+  /** Expanded Java 25 compilation units, including captured legal units without types. */
+  public static final AstProfile JAVA_SOURCE_UNITS = new AstProfile("java-source-expanded/6");
+
   /** Requires an explicit version without interpreting unknown versions. */
   public AstProfile {
     if (Objects.requireNonNull(version, "version").isBlank()) {
@@ -41,7 +44,7 @@ public record AstProfile(String version) {
    */
   public boolean isSupported() {
     return JAVA_SOURCE_BOUNDED.equals(this) || JAVA_SOURCE_EXPANDED.equals(this) || JAVA_SOURCE_INITIALIZATION.equals(this)
-        || JAVA_SOURCE_NESTED.equals(this) || JAVA_SOURCE_ENUM_INITIALIZATION.equals(this) || JAVA_SOURCE_DECLARATIONS.equals(this);
+        || JAVA_SOURCE_NESTED.equals(this) || JAVA_SOURCE_ENUM_INITIALIZATION.equals(this) || supportsDeclarationFidelity();
   }
 
   /**
@@ -77,6 +80,15 @@ public record AstProfile(String version) {
    * @return whether declaration fidelity is represented
    */
   public boolean supportsDeclarationFidelity() {
-    return JAVA_SOURCE_DECLARATIONS.equals(this);
+    return JAVA_SOURCE_DECLARATIONS.equals(this) || supportsSourceEnvelope();
+  }
+
+  /**
+   * Identifies contracts using the captured file envelope independently of declared types.
+   *
+   * @return whether complete unit envelopes are represented
+   */
+  public boolean supportsSourceEnvelope() {
+    return JAVA_SOURCE_UNITS.equals(this);
   }
 }

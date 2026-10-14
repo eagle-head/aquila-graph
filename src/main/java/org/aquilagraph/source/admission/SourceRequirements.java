@@ -28,7 +28,17 @@ final class SourceRequirements {
     if (!profile.isSupported()) {
       throw new IllegalArgumentException("Unsupported source profile: " + profile.version());
     }
-    if (input.snapshot().sourceFiles().isEmpty() || input.aggregate().isEmpty() || input.program().types().isEmpty()) {
+    if (input.snapshot().sourceFiles().isEmpty() || input.aggregate().isEmpty()) {
+      return AstCompletion.UNAVAILABLE;
+    }
+    if (input.aggregate().orElseThrow().roots().stream()
+        .anyMatch(root -> root.value(SyntaxValue.CompilationUnit.class)
+            .range() != (profile.supportsSourceEnvelope()
+                ? SyntaxValue.CompilationUnitRange.CAPTURED_SOURCE
+                : SyntaxValue.CompilationUnitRange.LEGACY_PROFILE))) {
+      throw new IllegalArgumentException("Compilation unit range policy must agree with its source profile");
+    }
+    if (!profile.supportsSourceEnvelope() && input.program().types().isEmpty()) {
       return AstCompletion.UNAVAILABLE;
     }
     if (input.program().types().stream().anyMatch(type -> type.staticType().category() != JavaTypeCategory.DECLARED)

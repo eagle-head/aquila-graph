@@ -14,6 +14,7 @@ import org.aquilagraph.source.api.SyntaxType;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.TreePathScanner;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,6 +67,11 @@ final class JavaSourceCoverageCapture {
 
   static JavaSourceCoverageCapture capture(InputSnapshot snapshot, ParsedJavaSource parsed, SnapshotSourceCatalog sources,
       LanguageFeatureCoverage coverage, boolean enumInitialization, boolean declarationFidelity) {
+    return capture(snapshot, parsed, sources, coverage, enumInitialization, declarationFidelity, false);
+  }
+
+  static JavaSourceCoverageCapture capture(InputSnapshot snapshot, ParsedJavaSource parsed, SnapshotSourceCatalog sources,
+      LanguageFeatureCoverage coverage, boolean enumInitialization, boolean declarationFidelity, boolean sourceEnvelope) {
     var owners = JavaCoverageTopology.owners(parsed.units(), sources, parsed.sourceEvidence()).stream()
         .filter(owner -> !enumInitialization || !JavaEnumConstantSyntax.isImplicitEnvelope(owner.treePath(), parsed.sourceEvidence()))
         .toList();
@@ -113,19 +119,37 @@ final class JavaSourceCoverageCapture {
     }
     if (declarationFidelity) {
       for (var owner : owners) {
-        if (!(owner.tree() instanceof ClassTree declaration) || owner.origin().isEmpty()) {
+        if (!(owner.tree() instanceof ClassTree declaration) || (owner.origin().isEmpty() && !sourceEnvelope)) {
           continue;
         }
         var emptyDeclarations = parsed.treeInventory().emptyBodyDeclarations(declaration);
         for (var ordinal = 0; ordinal < emptyDeclarations.size(); ordinal++) {
           var range = emptyDeclarations.get(ordinal);
-          var path = parsed.treeInventory().emptyDeclarationPath(owner.treePath(), ordinal);
+          var compact = owner.origin().isEmpty();
+          var path = compact
+              ? parsed.treeInventory().emptyUnitDeclarationPath(owner.unit(), range, ordinal)
+              : parsed.treeInventory().emptyDeclarationPath(owner.treePath(), ordinal);
           contexts.add(new SourceContext(
-              new SourceContext.Address(range.sourceFileKey(), Partition.EMPTY_BODY_DECLARATION, path, "empty-body-declaration", ordinal),
+              new SourceContext.Address(range.sourceFileKey(),
+                  compact ? Partition.EMPTY_UNIT_DECLARATION : Partition.EMPTY_BODY_DECLARATION, path,
+                  compact ? "empty-unit-declaration" : "empty-body-declaration", ordinal),
               Optional.empty(), List.of(range), Optional.empty(), false));
         }
       }
     }
+    if (sourceEnvelope) {
+      for (var unit : parsed.units()) {
+        var declarations = parsed.treeInventory().emptyUnitDeclarations(unit);
+        for (var ordinal = 0; ordinal < declarations.size(); ordinal++) {
+          var range = declarations.get(ordinal);
+          contexts.add(new SourceContext(
+              new SourceContext.Address(range.sourceFileKey(), Partition.EMPTY_UNIT_DECLARATION,
+                  parsed.treeInventory().emptyUnitDeclarationPath(unit, range, ordinal), "empty-unit-declaration", ordinal),
+              Optional.empty(), List.of(range), Optional.empty(), false));
+        }
+      }
+    }
+    contexts.sort(Comparator.comparing(context -> context.address().partition()));
     return new JavaSourceCoverageCapture(new SourceCoverageInventory(snapshot, coverage.release(), coverage.contractIdentity(), contexts),
         descriptors, parsed.sourceEvidence());
   }

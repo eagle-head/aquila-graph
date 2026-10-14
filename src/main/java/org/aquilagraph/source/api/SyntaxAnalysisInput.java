@@ -101,11 +101,11 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
         accounted.add(actualReference(reference, facts));
       }
       if (outcome.support().mode() == FeatureContextOutcome.Mode.FACTS) {
-        if (context.address().partition() == SourceContext.Partition.EMPTY_BODY_DECLARATION && (outcome.support().facts().size() != 1
+        if (context.address().partition().isEmptyDeclaration() && (outcome.support().facts().size() != 1
             || !CoverageActualFacts.matchesEmptyDeclaration(context, outcome.support().facts().getFirst(), facts))) {
           throw new IllegalArgumentException("Empty declaration support requires its exact actual member occurrence and order");
         }
-        if (context.address().partition() == SourceContext.Partition.EMPTY_BODY_DECLARATION) {
+        if (context.address().partition().isEmptyDeclaration()) {
           var range = context.origins().getFirst();
           var source = snapshot.sourceFiles().stream().filter(file -> file.sourceFileKey().equals(range.sourceFileKey())).findFirst()
               .orElseThrow();

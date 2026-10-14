@@ -401,6 +401,7 @@ final class AstValueSchema {
     record(types, SyntaxValue.AnnotationArgumentHeader.class, "syntax-value/annotation-argument-header", "explicitName");
     enumeration(types, SyntaxValue.None.class, "syntax-value/none");
     enumeration(types, SyntaxValue.CompilationUnitForm.class, "syntax-value/compilation-unit-form");
+    enumeration(types, SyntaxValue.CompilationUnitRange.class, "syntax-value/compilation-unit-range");
     record(types, SyntaxValue.QualifiedName.class, "syntax-value/qualified-name", "components");
     record(types, SyntaxValue.StatementLabel.class, "syntax-value/statement-label", NAME_FIELD);
     record(types, SyntaxValue.LocalDeclaration.class, "syntax-value/local-binding", NAME_FIELD, "writtenType", WRITTEN_MODIFIERS_FIELD,
@@ -499,7 +500,7 @@ final class AstValueSchema {
         EFFECTIVE_MODIFIERS_FIELD, ANNOTATIONS_FIELD);
     value(types, SyntaxValue.SourceSymbol.class, "syntax-value/source-symbol", NAME_FIELD);
     value(types, SyntaxValue.InferredRecordType.class, "syntax-value/inferred-record-type", NAME_FIELD);
-    value(types, SyntaxValue.CompilationUnit.class, "syntax-value/compilation-unit", FORM_FIELD);
+    value(types, SyntaxValue.CompilationUnit.class, "syntax-value/compilation-unit", FORM_FIELD, "range");
     value(types, SyntaxValue.PackageDeclaration.class, "syntax-value/package-declaration", QUALIFIED_NAME_FIELD, "qualifier");
     value(types, SyntaxValue.ImportDeclaration.class, "syntax-value/import-declaration", QUALIFIED_NAME_FIELD, "staticImport",
         "moduleImport", "onDemand");
@@ -569,6 +570,9 @@ final class AstValueSchema {
     }
 
     List<String> retainedFields(int version) {
+      if (version < 18 && type == SyntaxValue.CompilationUnit.class) {
+        return fields.subList(0, 1);
+      }
       var retained = version < 14 && (type == CopiedAstValues.class || type == DeclarationMemberOrder.class)
           ? fields.subList(0, fields.size() - 1)
           : fields;
@@ -580,6 +584,12 @@ final class AstValueSchema {
 
     List<Object> retainedComponents(Object value, int version) {
       var values = components(value);
+      if (version < 18 && value instanceof SyntaxValue.CompilationUnit unit) {
+        if (unit.range() != SyntaxValue.CompilationUnitRange.LEGACY_PROFILE) {
+          throw new IllegalArgumentException("Captured source envelopes require retained AST format java-source/18");
+        }
+        return values.subList(0, 1);
+      }
       if (version < 15 && value instanceof JavaType declaration) {
         if (declaration.nesting().kind() == JavaTypeNesting.Kind.LOCAL || declaration.nesting().kind() == JavaTypeNesting.Kind.ANONYMOUS) {
           throw new IllegalArgumentException("Nested declaration metadata requires retained AST format java-source/15");

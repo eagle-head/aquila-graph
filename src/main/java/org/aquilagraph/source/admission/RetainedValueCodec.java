@@ -292,6 +292,9 @@ final class RetainedValueCodec {
     if (historicalScopes) {
       components.add(List.of());
     }
+    if (formatVersion < 18 && "syntax-value/compilation-unit".equals(tag)) {
+      components.add(SyntaxValue.CompilationUnitRange.LEGACY_PROFILE);
+    }
     if (formatVersion < 14 && "declaration-member-order".equals(tag)) {
       components.add(Optional.empty());
     }
@@ -331,6 +334,9 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatTag(String tag) {
+    if (formatVersion < 18 && "syntax-value/compilation-unit-range".equals(tag)) {
+      throw new IllegalArgumentException("Compilation unit range provenance requires retained AST format java-source/18");
+    }
     if (formatVersion < 16 && "execution-scope/enum-constant".equals(tag)) {
       throw new IllegalArgumentException("Enum initialization scopes require retained AST format java-source/16");
     }
@@ -367,6 +373,9 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatEnum(Class<?> type, String name) {
+    if (formatVersion < 18 && type == SourceContext.Partition.class && "EMPTY_UNIT_DECLARATION".equals(name)) {
+      throw new IllegalArgumentException("Empty unit declarations require retained AST format java-source/18");
+    }
     if (formatVersion < 17 && ((type == SourceContext.Partition.class && "EMPTY_BODY_DECLARATION".equals(name))
         || (type == SourceOwnerPath.Role.class && "EMPTY_DECLARATION".equals(name)))) {
       throw new IllegalArgumentException("Empty body declarations require retained AST format java-source/17");

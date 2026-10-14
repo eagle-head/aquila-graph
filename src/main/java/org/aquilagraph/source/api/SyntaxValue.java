@@ -292,6 +292,14 @@ public sealed interface SyntaxValue {
     MODULAR
   }
 
+  /** Range policy of a compilation-unit root, separate from original compiler-position evidence. */
+  enum CompilationUnitRange {
+    /** The earlier profile's compiler range or captured-source fallback for a compact unit. */
+    LEGACY_PROFILE,
+    /** The entire captured source; compiler positions remain in the written association. */
+    CAPTURED_SOURCE
+  }
+
   /**
    * Ordered identifier components supplied by a source-name tree.
    *
@@ -2094,6 +2102,7 @@ public sealed interface SyntaxValue {
   /** Parsed compilation-unit form, independent of its filename and children. */
   final class CompilationUnit extends Symbol {
     private final CompilationUnitForm sourceForm;
+    private final CompilationUnitRange sourceRange;
 
     /**
      * Creates a typed compilation-unit value.
@@ -2102,8 +2111,22 @@ public sealed interface SyntaxValue {
      *          the parsed unit form
      */
     public CompilationUnit(CompilationUnitForm form) {
-      super("compilation-unit", Form.COMPILATION_UNIT, Objects.requireNonNull(form, "compilation unit form"));
+      this(form, CompilationUnitRange.LEGACY_PROFILE);
+    }
+
+    /**
+     * Creates a unit value with explicit root-range policy.
+     *
+     * @param form
+     *          parsed unit form
+     * @param range
+     *          policy for the retained root range; original compiler positions are independent
+     */
+    public CompilationUnit(CompilationUnitForm form, CompilationUnitRange range) {
+      super("compilation-unit", Form.COMPILATION_UNIT,
+          range == CompilationUnitRange.LEGACY_PROFILE ? Objects.requireNonNull(form, "compilation unit form") : List.of(form, range));
       this.sourceForm = form;
+      this.sourceRange = Objects.requireNonNull(range, "range");
     }
 
     /**
@@ -2115,9 +2138,18 @@ public sealed interface SyntaxValue {
       return sourceForm;
     }
 
+    /**
+     * Returns the policy for the root's retained range, without asserting available compiler positions.
+     *
+     * @return captured-source or original-profile range policy
+     */
+    public CompilationUnitRange range() {
+      return sourceRange;
+    }
+
     @Override
     public String toString() {
-      return "CompilationUnit[form=" + sourceForm + ']';
+      return "CompilationUnit[form=" + sourceForm + ", range=" + sourceRange + ']';
     }
   }
 

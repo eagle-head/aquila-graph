@@ -337,6 +337,12 @@ final class JavaAstAggregateBuilder {
   }
 
   private void validateWrittenSourceAssociations(Map<String, SyntaxNode> nodes) {
+    for (var node : nodes.values()) {
+      if (node.value() instanceof SyntaxValue.CompilationUnit unit && unit.range() == SyntaxValue.CompilationUnitRange.CAPTURED_SOURCE
+          && !writtenSourceAssociations.containsKey(node.nodeId())) {
+        throw new IllegalArgumentException("A captured source envelope requires its original compilation unit association");
+      }
+    }
     for (var association : writtenSourceAssociations.values()) {
       var node = nodes.get(association.nodeKey());
       if (node == null || !node.sourceFileKey().equals(association.sourceFileKey()) || !associationRangeMatches(node, association)
@@ -348,6 +354,30 @@ final class JavaAstAggregateBuilder {
   }
 
   private void validateEmptyDeclarationOwners(Map<String, SyntaxNode> nodes) {
+    for (var root : nodes.values()) {
+      if (!(root.value() instanceof SyntaxValue.CompilationUnit unit)) {
+        continue;
+      }
+      var members = root
+          .children(unit.form() == SyntaxValue.CompilationUnitForm.COMPACT ? SyntaxRole.COMPACT_MEMBER : SyntaxRole.TYPE_DECLARATION);
+      var emptyOrdinal = 0;
+      for (var member : members) {
+        if (member.syntaxKind() != SyntaxKind.EMPTY) {
+          continue;
+        }
+        var ordinal = emptyOrdinal;
+        emptyOrdinal++;
+        var association = writtenSourceAssociations.get(member.nodeId());
+        if (unit.range() != SyntaxValue.CompilationUnitRange.CAPTURED_SOURCE || association == null
+            || !association.ownerPath().parent().equals(Optional.of(SourceOwnerPath.root()))
+            || association.ownerPath().lastStep()
+                .filter(step -> (step.role() == SourceOwnerPath.Role.EMPTY_DECLARATION && step.ordinal() == ordinal)
+                    || (step.role() == SourceOwnerPath.Role.TYPE_DECLARATION && step.ordinal() == members.indexOf(member)))
+                .isEmpty()) {
+          throw new IllegalArgumentException("An empty unit declaration requires its exact parsed or captured unit owner and ordinal");
+        }
+      }
+    }
     for (var node : nodes.values()) {
       if (node.syntaxKind() != SyntaxKind.EMPTY || node.structuralPath().steps().getLast().role() != SyntaxRole.MEMBER) {
         continue;
@@ -371,10 +401,16 @@ final class JavaAstAggregateBuilder {
   }
 
   private boolean associationRangeMatches(SyntaxNode node, WrittenSourceAssociation association) {
+    var source = sources.get(node.sourceFileKey());
+    if (node.value() instanceof SyntaxValue.CompilationUnit unit && unit.range() == SyntaxValue.CompilationUnitRange.CAPTURED_SOURCE) {
+      return source != null && node.sourceKind() == JavaSourceKind.COMPILATION_UNIT
+          && association.sourceKind() == JavaSourceKind.COMPILATION_UNIT && association.ownerPath().isEmpty()
+          && node.origin().filter(span -> span.startOffset() == 0 && span.endOffsetExclusive() == source.content().length()).isPresent()
+          && association.origin().map(span -> span.endOffsetExclusive() <= source.content().length()).orElse(true);
+    }
     if (node.origin().equals(association.origin())) {
       return true;
     }
-    var source = sources.get(node.sourceFileKey());
     return source != null && node.value() instanceof SyntaxValue.CompilationUnit unit
         && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT && association.sourceKind() == JavaSourceKind.COMPILATION_UNIT
         && association.ownerPath().isEmpty()
@@ -565,6 +601,10 @@ final class JavaAstAggregateBuilder {
           + " belongs to " + node.sourceFileKey());
     }
     var range = node.origin().orElseThrow(() -> new IllegalArgumentException("AST node lacks a required source range: " + node.nodeId()));
+    if (node.value() instanceof SyntaxValue.CompilationUnit unit && unit.range() == SyntaxValue.CompilationUnitRange.CAPTURED_SOURCE
+        && (range.startOffset() != 0 || range.endOffsetExclusive() != source.content().length())) {
+      throw new IllegalArgumentException("A captured source envelope must cover the exact complete source file");
+    }
     if (!range.sourceFileKey().equals(source.sourceFileKey()) || range.startOffset() < 0 || range.endOffsetExclusive() < range.startOffset()
         || range.endOffsetExclusive() > source.content().length()) {
       throw new IllegalArgumentException("AST source range is outside captured source " + source.sourceFileKey() + " for node "

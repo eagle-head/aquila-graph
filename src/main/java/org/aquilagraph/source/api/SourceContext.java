@@ -47,7 +47,18 @@ public record SourceContext(Address address, Optional<LanguageFeature> feature, 
     /** Attributed declaration accessors. */
     ATTRIBUTED_PROPERTY,
     /** Written standalone body declarations absent from the public compiler tree list. */
-    EMPTY_BODY_DECLARATION
+    EMPTY_BODY_DECLARATION,
+    /** A written empty declaration directly owned by an ordinary or compact unit. */
+    EMPTY_UNIT_DECLARATION;
+
+    /**
+     * Identifies independent expectations for written empty declarations.
+     *
+     * @return whether this partition describes an empty declaration
+     */
+    public boolean isEmptyDeclaration() {
+      return this == EMPTY_BODY_DECLARATION || this == EMPTY_UNIT_DECLARATION;
+    }
   }
 
   /**

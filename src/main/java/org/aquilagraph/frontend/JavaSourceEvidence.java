@@ -99,6 +99,10 @@ final class JavaSourceEvidence {
     return positions.getStartPosition(Objects.requireNonNull(unit, "unit"), Objects.requireNonNull(tree, "tree"));
   }
 
+  SourceSpan capturedUnitRange(SourceFile source) {
+    return new SourceSpan(source.sourceFileKey(), 0, source.content().length());
+  }
+
   long rawEnd(CompilationUnitTree unit, Tree tree) {
     return positions.getEndPosition(Objects.requireNonNull(unit, "unit"), Objects.requireNonNull(tree, "tree"));
   }

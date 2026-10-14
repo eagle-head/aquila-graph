@@ -50,17 +50,18 @@ final class JavaAnalysisPipeline {
           List.of(), List.of(), List.of());
       return AstResultAdmission.empty(snapshot, configuration, profile, coverage);
     }
-    return AstResultAdmission.outcome(analyze(snapshot, configuration, profile.supportsMemberInitialization(),
-        profile.supportsNestedDeclarations(), profile.supportsEnumInitialization(), profile.supportsDeclarationFidelity()), profile,
-        semanticRevision);
+    return AstResultAdmission.outcome(
+        analyze(snapshot, configuration, profile.supportsMemberInitialization(), profile.supportsNestedDeclarations(),
+            profile.supportsEnumInitialization(), profile.supportsDeclarationFidelity(), profile.supportsSourceEnvelope()),
+        profile, semanticRevision);
   }
 
   SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
-    return analyze(snapshot, configuration, false, false, false, false);
+    return analyze(snapshot, configuration, false, false, false, false, false);
   }
 
   private SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration, boolean memberInitialization,
-      boolean nestedDeclarations, boolean enumInitialization, boolean declarationFidelity) throws IOException {
+      boolean nestedDeclarations, boolean enumInitialization, boolean declarationFidelity, boolean sourceEnvelope) throws IOException {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(configuration, "configuration");
     var compiler = systemCompiler(configuration);
@@ -80,7 +81,7 @@ final class JavaAnalysisPipeline {
     try (var session = openCompilerSession(compiler, invocation, sources)) {
       var parsedSource = session.parse();
       var coverageCapture = JavaSourceCoverageCapture.capture(snapshot, parsedSource, sources, languageFeatureCoverage, enumInitialization,
-          declarationFidelity);
+          declarationFidelity, sourceEnvelope);
       var propertyProducer = new JavaDeclarationPropertyEncounterProducer(parsedSource.units(), sources, parsedSource.sourceEvidence(),
           languageFeatureCoverage, enumInitialization);
       var writtenProperties = propertyProducer.observeWritten();
@@ -95,6 +96,7 @@ final class JavaAnalysisPipeline {
       var translator = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
           compilation.treeInventory(), languageFeatureCoverage, memberInitialization, nestedDeclarations, enumInitialization);
       translator.enableDeclarationFidelity(declarationFidelity);
+      translator.enableSourceEnvelope(sourceEnvelope);
       var translation = translator.translate(snapshot, compilation.units(),
           compilation.diagnostics().stream().anyMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
       var annotationCompleteness = new JavaAnnotationCompleteness(annotationInventory, compilation.semantics(), translation.diagnostics());

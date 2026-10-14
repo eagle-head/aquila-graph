@@ -81,13 +81,15 @@ public final class JavaFrontend implements AstProducer, SourceAnalyzer {
   public AstOutcome produce(InputSnapshot snapshot, CompilerConfiguration configuration, AstProfile profile) throws IOException {
     requireProfile(profile);
     return analysisPipeline.produce(snapshot, configuration, profile,
-        profile.supportsDeclarationFidelity()
-            ? "javac-public/5"
-            : profile.supportsEnumInitialization()
-                ? "javac-public/4"
-                : profile.equals(AstProfile.JAVA_SOURCE_NESTED)
-                    ? "javac-public/3"
-                    : profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION) ? "javac-public/2" : SEMANTIC_PRODUCTION_REVISION);
+        profile.supportsSourceEnvelope()
+            ? "javac-public/6"
+            : profile.supportsDeclarationFidelity()
+                ? "javac-public/5"
+                : profile.supportsEnumInitialization()
+                    ? "javac-public/4"
+                    : profile.equals(AstProfile.JAVA_SOURCE_NESTED)
+                        ? "javac-public/3"
+                        : profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION) ? "javac-public/2" : SEMANTIC_PRODUCTION_REVISION);
   }
 
   private static void requireProfile(AstProfile profile) {

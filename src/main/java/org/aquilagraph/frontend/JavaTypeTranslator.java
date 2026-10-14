@@ -58,6 +58,11 @@ import org.aquilagraph.source.api.SyntaxType;
 import org.jspecify.annotations.Nullable;
 
 final class JavaTypeTranslator {
+  private boolean sourceEnvelope;
+
+  void enableSourceEnvelope(boolean enabled) {
+    sourceEnvelope = enabled;
+  }
   private static final String DIAGNOSTIC_PRODUCER = "JavaTypeTranslator";
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
@@ -118,7 +123,7 @@ final class JavaTypeTranslator {
     var memberOrders = new ArrayList<DeclarationMemberOrder>();
     var declarationTypes = new ArrayList<DeclarationTypeEvidence>();
     var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, typeKey + ":declaration");
-    if (memberInitialization && (!declarationFidelity || origin.isEmpty())) {
+    if (memberInitialization && (!declarationFidelity || (origin.isEmpty() && !sourceEnvelope))) {
       for (var declaration : treeInventory.emptyBodyDeclarations(classTree)) {
         TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
             FrontendDiagnosticFactory.capabilityError(typeKey + ":EMPTY_STATEMENT", "frontend.unsupported-class-member",

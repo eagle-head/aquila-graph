@@ -910,15 +910,19 @@ public final class CoverageActualFacts {
       return false;
     }
     var parentPath = context.address().ownerPath().parent().orElseThrow();
-    var parents = facts.stream().flatMap(facts::syntaxValues)
-        .filter(parent -> parent.syntaxKind() == SyntaxKind.TYPE_DECLARATION && parent.sourceAssociation()
-            .filter(value -> value.sourceFileKey().equals(fact.sourceFileKey()) && value.ownerPath().equals(parentPath)).isPresent())
+    var unitOwned = context.address().partition() == SourceContext.Partition.EMPTY_UNIT_DECLARATION;
+    var parents = facts.stream().flatMap(facts::syntaxValues).filter(
+        parent -> (unitOwned ? parent.value() instanceof SyntaxValue.CompilationUnit : parent.syntaxKind() == SyntaxKind.TYPE_DECLARATION)
+            && parent.sourceAssociation()
+                .filter(value -> value.sourceFileKey().equals(fact.sourceFileKey()) && value.ownerPath().equals(parentPath)).isPresent())
         .toList();
     if (parents.size() != EXPECTED_EMPTY_DECLARATION_OWNERS) {
       return false;
     }
     return parents.getFirst().children().stream()
-        .anyMatch(child -> child.role() == SyntaxRole.MEMBER && child.nodeKey().equals(fact.identity()));
+        .anyMatch(child -> (unitOwned
+            ? child.role() == SyntaxRole.TYPE_DECLARATION || child.role() == SyntaxRole.COMPACT_MEMBER
+            : child.role() == SyntaxRole.MEMBER) && child.nodeKey().equals(fact.identity()));
   }
 
   static boolean writtenAttachments(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, List<SyntaxRole> roles,
@@ -934,7 +938,10 @@ public final class CoverageActualFacts {
 
   static boolean writtenAttachments(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, List<SyntaxRole> roles,
       CoverageActualFactView actualFacts, InputSnapshot snapshot, boolean scalar) {
-    var children = attachments(owner, roles, actualFacts);
+    var children = attachments(owner, roles, actualFacts).stream()
+        .filter(child -> !roles.equals(List.of(SyntaxRole.TYPE_DECLARATION)) || actualFacts.requiredSyntax(child).sourceAssociation()
+            .flatMap(value -> value.ownerPath().lastStep()).filter(step -> step.role() == SourceOwnerPath.Role.EMPTY_DECLARATION).isEmpty())
+        .toList();
     var actualState = children.isEmpty() ? (scalar ? State.ABSENT : State.EMPTY) : (scalar ? State.SCALAR : State.ITEMS);
     if (expected.state() != actualState) {
       return false;

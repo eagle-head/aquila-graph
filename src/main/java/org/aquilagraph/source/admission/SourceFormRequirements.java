@@ -109,6 +109,10 @@ final class SourceFormRequirements {
   }
 
   static boolean supports(SyntaxNode node, AstProfile profile) {
+    if (node.syntaxKind() == SyntaxKind.EMPTY && (node.structuralPath().steps().getLast().role() == SyntaxRole.TYPE_DECLARATION
+        || node.structuralPath().steps().getLast().role() == SyntaxRole.COMPACT_MEMBER)) {
+      return profile.supportsSourceEnvelope();
+    }
     if (node.syntaxKind() == SyntaxKind.EMPTY && node.structuralPath().steps().getLast().role() == SyntaxRole.MEMBER) {
       return profile.supportsDeclarationFidelity();
     }

@@ -29,6 +29,7 @@ import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
 
 final class JavaProgramTranslator {
+  private static final String DIAGNOSTIC_PRODUCER = "JavaProgramTranslator";
   private final SnapshotSourceCatalog sources;
   private final JavaDeclarationPropertyObserver propertyObserver;
   private final JavaTypeTranslator typeTranslator;
@@ -77,6 +78,11 @@ final class JavaProgramTranslator {
     astTranslator.enableDeclarationFidelity(enabled);
   }
 
+  void enableSourceEnvelope(boolean enabled) {
+    astTranslator.enableSourceEnvelope(enabled);
+    typeTranslator.enableSourceEnvelope(enabled);
+  }
+
   TranslationResult<TranslatedProgram> translate(InputSnapshot snapshot, List<CompilationUnitTree> units, boolean compilerErrors) {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(units, "units");
@@ -84,7 +90,7 @@ final class JavaProgramTranslator {
     var methodBodies = new ArrayList<TranslatedMethodBody>();
     var memberOrders = new ArrayList<DeclarationMemberOrder>();
     var declarationTypes = new ArrayList<DeclarationTypeEvidence>();
-    var diagnostics = new TranslationDiagnosticEvidence("JavaProgramTranslator", "input-program-translation");
+    var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, "input-program-translation");
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
     var unitsBySource = new HashMap<String, CompilationUnitTree>();
@@ -103,7 +109,13 @@ final class JavaProgramTranslator {
     var retainedScopes = new ArrayList<CopiedAstValues.Scope>();
     var incompleteRoot = false;
     for (var source : snapshot.sourceFiles()) {
-      var unit = Objects.requireNonNull(unitsBySource.get(source.sourceFileKey()), "parsed compilation unit");
+      var unit = unitsBySource.get(source.sourceFileKey());
+      if (unit == null) {
+        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(source.sourceFileKey(),
+            "frontend.missing-compilation-unit", "A captured source has no correlated compiler compilation unit", Optional.empty()));
+        incompleteRoot = true;
+        continue;
+      }
       var firstBody = methodBodies.size();
       var firstType = types.size();
       var firstDiagnostic = diagnostics.size();
@@ -114,7 +126,7 @@ final class JavaProgramTranslator {
       var duplicateType = false;
       for (var type : unitTypes) {
         if (!translatedTypeKeys.add(type.typeKey())) {
-          TranslationDiagnosticEvidence.emit(diagnostics, "JavaProgramTranslator",
+          TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
               FrontendDiagnosticFactory.otherError(type.typeKey(), "frontend.duplicate-type-declaration",
                   "Translated type declarations share a canonical key", type.origins().stream().findFirst()));
           duplicateType = true;
@@ -168,7 +180,7 @@ final class JavaProgramTranslator {
       if (!compilerErrors) {
         throw failure;
       }
-      TranslationDiagnosticEvidence.emit(diagnostics, "JavaProgramTranslator",
+      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(snapshot.snapshotDigest(), "frontend.unavailable-source-structure",
               Objects.toString(failure.getMessage(), failure.getClass().getSimpleName()), Optional.empty()));
       aggregate = Optional.empty();

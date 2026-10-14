@@ -33,6 +33,8 @@ public final class AstResultAdmission {
    * @param semanticRevision
    *          copied semantic production revision
    * @return available admitted result or truthful unavailable provenance
+   * @throws AstContractException
+   *           if copied values contradict the requested source contract
    */
   public static AstOutcome outcome(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision) {
     Objects.requireNonNull(input, "input");
@@ -40,13 +42,17 @@ public final class AstResultAdmission {
     if (Objects.requireNonNull(semanticRevision, "semanticRevision").isBlank()) {
       throw new AstContractException("Semantic production revision cannot be blank", new IllegalArgumentException("semanticRevision"));
     }
-    var completion = SourceRequirements.assess(input, profile);
-    if (completion == AstCompletion.UNAVAILABLE) {
-      return AstAggregateAdmission.unavailable(profile, Optional.of(input.snapshot()), Optional.of(input.environmentSnapshot()),
-          Optional.of(input.compilerConfiguration()), Optional.of(input.languageFeatureCoverageResult()), input.diagnostics(),
-          AstCodec.canonicalDigest(input, profile, semanticRevision));
+    try {
+      var completion = SourceRequirements.assess(input, profile);
+      if (completion == AstCompletion.UNAVAILABLE) {
+        return AstAggregateAdmission.unavailable(profile, Optional.of(input.snapshot()), Optional.of(input.environmentSnapshot()),
+            Optional.of(input.compilerConfiguration()), Optional.of(input.languageFeatureCoverageResult()), input.diagnostics(),
+            AstCodec.canonicalDigest(input, profile, semanticRevision));
+      }
+      return AstOutcome.available(admit(input, profile, semanticRevision));
+    } catch (IllegalArgumentException exception) {
+      throw rejection(exception);
     }
-    return AstOutcome.available(admit(input, profile, semanticRevision));
   }
 
   /**
@@ -61,6 +67,8 @@ public final class AstResultAdmission {
    * @param coverage
    *          complete independently admitted empty coverage
    * @return unavailable source subject with explicit environment absence
+   * @throws AstContractException
+   *           if capture, coverage, configuration, or profile values contradict the empty-source contract
    */
   public static AstOutcome empty(InputSnapshot snapshot, CompilerConfiguration configuration, AstProfile profile,
       LanguageFeatureCoverageResult coverage) {
@@ -68,20 +76,24 @@ public final class AstResultAdmission {
     Objects.requireNonNull(configuration, "configuration");
     Objects.requireNonNull(profile, "profile");
     Objects.requireNonNull(coverage, "coverage");
-    if (!snapshot.sourceFiles().isEmpty() || !profile.isSupported()
-        || !coverage.validationEvidence().writtenInventory().snapshot().equals(snapshot)
-        || coverage.coverage().release() != configuration.release()) {
-      throw new IllegalArgumentException("Empty source admission requires exact empty capture, coverage, and supported profile");
+    try {
+      if (!snapshot.sourceFiles().isEmpty() || !profile.isSupported()
+          || !coverage.validationEvidence().writtenInventory().snapshot().equals(snapshot)
+          || coverage.coverage().release() != configuration.release()) {
+        throw new IllegalArgumentException("Empty source admission requires exact empty capture, coverage, and supported profile");
+      }
+      var writer = new CanonicalValueWriter("unavailable-java-source/1");
+      writer.text(profile.version());
+      writer.bytes(CapturedValueEncoding.encode(Optional.of(snapshot), Optional.empty()));
+      var codec = new RetainedValueCodec(true);
+      codec.write(writer, configuration);
+      codec.write(writer, coverage);
+      codec.write(writer, List.of());
+      return AstAggregateAdmission.unavailable(profile, Optional.of(snapshot), Optional.empty(), Optional.of(configuration),
+          Optional.of(coverage), List.of(), writer.digest("source-subject"));
+    } catch (IllegalArgumentException exception) {
+      throw rejection(exception);
     }
-    var writer = new CanonicalValueWriter("unavailable-java-source/1");
-    writer.text(profile.version());
-    writer.bytes(CapturedValueEncoding.encode(Optional.of(snapshot), Optional.empty()));
-    var codec = new RetainedValueCodec(true);
-    codec.write(writer, configuration);
-    codec.write(writer, coverage);
-    codec.write(writer, List.of());
-    return AstAggregateAdmission.unavailable(profile, Optional.of(snapshot), Optional.empty(), Optional.of(configuration),
-        Optional.of(coverage), List.of(), writer.digest("source-subject"));
   }
 
   /**
@@ -118,7 +130,13 @@ public final class AstResultAdmission {
           AstCodec.canonicalDigest(input, profile, semanticRevision, format));
       return AstAggregateAdmission.result(identity, profile, completion, input);
     } catch (IllegalArgumentException exception) {
-      throw new AstContractException("Copied AST result admission failed: " + exception.getMessage(), exception);
+      throw rejection(exception);
     }
+  }
+
+  private static AstContractException rejection(IllegalArgumentException exception) {
+    return exception instanceof AstContractException contract
+        ? contract
+        : new AstContractException("Copied AST result admission failed: " + exception.getMessage(), exception);
   }
 }

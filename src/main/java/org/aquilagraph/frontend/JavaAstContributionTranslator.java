@@ -108,6 +108,11 @@ final class JavaAstContributionTranslator {
   private boolean nestedDeclarations;
   private boolean enumInitialization;
   private boolean declarationFidelity;
+  private boolean sourceEnvelope;
+
+  void enableSourceEnvelope(boolean enabled) {
+    sourceEnvelope = enabled;
+  }
 
   void enableDeclarationFidelity(boolean enabled) {
     declarationFidelity = enabled;
@@ -197,9 +202,11 @@ final class JavaAstContributionTranslator {
     var rootPath = SyntaxStructuralPath.sourceFileRoot();
     var unitPath = new TreePath(unit);
     var compactClass = compactWrapper(unit, sourceFile, unitPath);
-    var rootRange = compactClass.isPresent() && sourceEvidence.rawStart(unit, unit) == 0
-        ? Optional.of(new SourceSpan(sourceFile.sourceFileKey(), 0, sourceFile.content().length()))
-        : requiredRange(unit, sourceFile, unit, rootPath, diagnostics);
+    var rootRange = sourceEnvelope
+        ? Optional.of(sourceEvidence.capturedUnitRange(sourceFile))
+        : compactClass.isPresent() && sourceEvidence.rawStart(unit, unit) == 0
+            ? Optional.of(new SourceSpan(sourceFile.sourceFileKey(), 0, sourceFile.content().length()))
+            : requiredRange(unit, sourceFile, unit, rootPath, diagnostics);
     if (rootRange.isEmpty()) {
       return new UnitTranslation(Optional.empty(), List.of(), diagnostics);
     }
@@ -228,12 +235,25 @@ final class JavaAstContributionTranslator {
       var declaration = compactClass.orElseThrow();
       var classPath = new TreePath(unitPath, declaration);
       var compactMembers = new ArrayList<SyntaxChild>();
+      var emptyDeclarations = sourceEnvelope ? treeInventory.emptyBodyDeclarations(declaration) : List.<SourceSpan>of();
+      var emptyOrdinal = 0;
       for (var sourceOrdinal = 0; sourceOrdinal < declaration.getMembers().size(); sourceOrdinal++) {
         var member = declaration.getMembers().get(sourceOrdinal);
         if (isWrittenMember(classPath, member)) {
+          while (emptyOrdinal < emptyDeclarations.size()
+              && emptyDeclarations.get(emptyOrdinal).startOffset() < sourceEvidence.rawStart(unit, member)) {
+            appendEmptyUnitDeclaration(unit, sourceFile, rootPath, SyntaxRole.COMPACT_MEMBER, emptyOrdinal,
+                emptyDeclarations.get(emptyOrdinal), compactMembers);
+            emptyOrdinal++;
+          }
           appendMember(unit, sourceFile, classPath, member, rootPath, rootPath, sourceOrdinal, SyntaxRole.COMPACT_MEMBER, compactMembers,
               bodyByPath, publishedBodies, unavailableBodies, declarationEdges, diagnostics, typesByKey);
         }
+      }
+      while (emptyOrdinal < emptyDeclarations.size()) {
+        appendEmptyUnitDeclaration(unit, sourceFile, rootPath, SyntaxRole.COMPACT_MEMBER, emptyOrdinal, emptyDeclarations.get(emptyOrdinal),
+            compactMembers);
+        emptyOrdinal++;
       }
       children.addAll(compactMembers);
       if (compactMembers.stream().noneMatch(child -> child.node().syntaxKind() == SyntaxKind.METHOD_DECLARATION)) {
@@ -244,12 +264,25 @@ final class JavaAstContributionTranslator {
       }
     } else {
       var typeChildren = new ArrayList<SyntaxChild>();
+      var emptyDeclarations = sourceEnvelope ? treeInventory.emptyUnitDeclarations(unit) : List.<SourceSpan>of();
+      var emptyOrdinal = 0;
       for (var sourceOrdinal = 0; sourceOrdinal < unit.getTypeDecls().size(); sourceOrdinal++) {
         var declaration = unit.getTypeDecls().get(sourceOrdinal);
         if (declaration instanceof ClassTree type) {
+          while (emptyOrdinal < emptyDeclarations.size()
+              && emptyDeclarations.get(emptyOrdinal).startOffset() < sourceEvidence.rawStart(unit, type)) {
+            appendEmptyUnitDeclaration(unit, sourceFile, rootPath, SyntaxRole.TYPE_DECLARATION, emptyOrdinal,
+                emptyDeclarations.get(emptyOrdinal), typeChildren);
+            emptyOrdinal++;
+          }
           appendTopLevelType(unit, sourceFile, unitPath, type, rootPath, sourceOrdinal, typeChildren, bodyByPath, publishedBodies,
               unavailableBodies, declarationEdges, diagnostics, typesByKey);
         }
+      }
+      while (emptyOrdinal < emptyDeclarations.size()) {
+        appendEmptyUnitDeclaration(unit, sourceFile, rootPath, SyntaxRole.TYPE_DECLARATION, emptyOrdinal,
+            emptyDeclarations.get(emptyOrdinal), typeChildren);
+        emptyOrdinal++;
       }
       children.addAll(typeChildren);
     }
@@ -276,7 +309,10 @@ final class JavaAstContributionTranslator {
         ? SyntaxValue.CompilationUnitForm.MODULAR
         : compactClass.isPresent() ? SyntaxValue.CompilationUnitForm.COMPACT : SyntaxValue.CompilationUnitForm.ORDINARY;
     var root = SyntaxNode.source(sourceFile.sourceFileKey(), rootPath, JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT,
-        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.CompilationUnit(form), children, Optional.empty(), rootRange.orElseThrow());
+        SyntaxType.NotApplicable.INSTANCE,
+        new SyntaxValue.CompilationUnit(form,
+            sourceEnvelope ? SyntaxValue.CompilationUnitRange.CAPTURED_SOURCE : SyntaxValue.CompilationUnitRange.LEGACY_PROFILE),
+        children, Optional.empty(), rootRange.orElseThrow());
     sourceAssociations.created(root, unitPath);
     var nodes = root.descendantsAndSelf();
     var structural = nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList();
@@ -691,6 +727,15 @@ final class JavaAstContributionTranslator {
         SyntaxKind.EMPTY, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range);
     sourceAssociations.retain(node, treeInventory.emptyDeclarationAssociation(node, classPath, ordinal));
     members.add(new SyntaxChild(SyntaxRole.MEMBER, position, node));
+  }
+
+  private void appendEmptyUnitDeclaration(CompilationUnitTree unit, SourceFile source, SyntaxStructuralPath rootPath, SyntaxRole role,
+      int ordinal, SourceSpan range, List<SyntaxChild> children) {
+    var position = children.size();
+    var node = SyntaxNode.source(source.sourceFileKey(), rootPath.child(role, position), JavaSourceKind.EMPTY_STATEMENT, SyntaxKind.EMPTY,
+        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range);
+    sourceAssociations.retain(node, treeInventory.emptyUnitDeclarationAssociation(node, unit, ordinal));
+    children.add(new SyntaxChild(role, position, node));
   }
 
   private boolean appendTypeHeaderAttachment(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath parentPath,

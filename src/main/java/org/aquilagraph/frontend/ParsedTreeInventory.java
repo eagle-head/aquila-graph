@@ -7,6 +7,7 @@ import com.sun.source.tree.AssignmentTree;
 import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.EmptyStatementTree;
 import com.sun.source.tree.ExpressionStatementTree;
 import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.IdentifierTree;
@@ -57,6 +58,7 @@ final class ParsedTreeInventory {
   private final Map<LambdaExpressionTree, SyntaxValue.Lambda> lambdaForms;
   private final Map<VariableTree, LocalBindingEvidence.TypeForm> lambdaParameterTypes;
   private final Map<ClassTree, List<SourceSpan>> capturedEmptyDeclarations;
+  private final Map<CompilationUnitTree, List<SourceSpan>> capturedUnitEmptyDeclarations;
 
   private ParsedTreeInventory(Set<Tree> writtenTrees, Map<AnnotationTree, SyntaxValue.Annotation> annotations,
       Map<AnnotationTree, TreePath> annotationTypePaths, Map<AnnotationTree, TreePath> annotationPaths,
@@ -64,7 +66,7 @@ final class ParsedTreeInventory {
       Map<VariableTree, List<AnnotationTree>> variableAnnotations, Map<ModifiersTree, Set<Modifier>> modifiers,
       Map<Tree, List<ParsedSourceOwner>> owners, Map<VariableTree, Boolean> inferredTypes,
       Map<LambdaExpressionTree, SyntaxValue.Lambda> lambdas, Map<VariableTree, LocalBindingEvidence.TypeForm> parameterTypes,
-      Map<ClassTree, List<SourceSpan>> emptyDeclarations) {
+      Map<ClassTree, List<SourceSpan>> emptyDeclarations, Map<CompilationUnitTree, List<SourceSpan>> unitEmptyDeclarations) {
     this.writtenTrees = writtenTrees;
     this.annotations = annotations;
     this.annotationTypePaths = annotationTypePaths;
@@ -78,6 +80,7 @@ final class ParsedTreeInventory {
     this.lambdaForms = lambdas;
     this.lambdaParameterTypes = parameterTypes;
     this.capturedEmptyDeclarations = emptyDeclarations;
+    this.capturedUnitEmptyDeclarations = unitEmptyDeclarations;
   }
 
   static ParsedTreeInventory capture(List<CompilationUnitTree> units, Function<CompilationUnitTree, Optional<SourceFile>> sources,
@@ -98,6 +101,7 @@ final class ParsedTreeInventory {
     var lambdas = new IdentityHashMap<LambdaExpressionTree, SyntaxValue.Lambda>();
     var parameterTypes = new IdentityHashMap<VariableTree, LocalBindingEvidence.TypeForm>();
     var emptyDeclarations = new IdentityHashMap<ClassTree, List<SourceSpan>>();
+    var unitEmptyDeclarations = new IdentityHashMap<CompilationUnitTree, List<SourceSpan>>();
     JavaCoverageTopology.owners(units, sources, evidence).forEach(owner -> {
       owners.computeIfAbsent(owner.tree(), ignored -> new ArrayList<>()).add(new ParsedSourceOwner(owner.treePath(),
           owner.source().sourceFileKey(), owner.path(), JavaSourceKind.valueOf(owner.tree().getKind().name()), owner.origin()));
@@ -107,6 +111,7 @@ final class ParsedTreeInventory {
     });
     owners.replaceAll((tree, values) -> List.copyOf(values));
     for (var unit : units) {
+      sources.apply(unit).ifPresent(source -> unitEmptyDeclarations.put(unit, captureUnitEmptyDeclarations(unit, source, evidence)));
       scanUnit(unit, sources.apply(unit), evidence, writtenTrees, annotations, annotationTypePaths, annotationPaths, annotationArguments,
           annotationsByOwner, variableAnnotations, modifiers, inferredTypes, emptyDeclarations);
     }
@@ -114,7 +119,39 @@ final class ParsedTreeInventory {
         Collections.unmodifiableMap(annotationPaths), Collections.unmodifiableMap(annotationArguments),
         Collections.unmodifiableMap(annotationsByOwner), Collections.unmodifiableMap(variableAnnotations),
         Collections.unmodifiableMap(modifiers), Collections.unmodifiableMap(owners), Collections.unmodifiableMap(inferredTypes),
-        Collections.unmodifiableMap(lambdas), Collections.unmodifiableMap(parameterTypes), Collections.unmodifiableMap(emptyDeclarations));
+        Collections.unmodifiableMap(lambdas), Collections.unmodifiableMap(parameterTypes), Collections.unmodifiableMap(emptyDeclarations),
+        Collections.unmodifiableMap(unitEmptyDeclarations));
+  }
+
+  private static List<SourceSpan> captureUnitEmptyDeclarations(CompilationUnitTree unit, SourceFile source, JavaSourceEvidence evidence) {
+    if (unit.getTypeDecls().stream().anyMatch(tree -> tree instanceof ClassTree && evidence.origin(unit, source, tree).isEmpty())) {
+      return List.of();
+    }
+    var occupied = Stream.concat(unit.getImports().stream(), unit.getTypeDecls().stream())
+        .filter(tree -> !(tree instanceof EmptyStatementTree)).flatMap(tree -> evidence.origin(unit, source, tree).stream()).toList();
+    var header = Stream.of(unit.getPackage(), unit.getModule()).filter(Objects::nonNull)
+        .flatMap(tree -> evidence.origin(unit, source, tree).stream()).toList();
+    return sourceTokens(source.content()).stream().filter(token -> ";".equals(token.value()))
+        .filter(token -> Stream.concat(occupied.stream(), header.stream())
+            .noneMatch(range -> token.start() >= range.startOffset() && token.end() <= range.endOffsetExclusive()))
+        .map(token -> new SourceSpan(source.sourceFileKey(), token.start(), token.end())).toList();
+  }
+
+  List<SourceSpan> emptyUnitDeclarations(CompilationUnitTree unit) {
+    return capturedUnitEmptyDeclarations.getOrDefault(unit, List.of());
+  }
+
+  SourceOwnerPath emptyUnitDeclarationPath(CompilationUnitTree unit, SourceSpan range, int ordinal) {
+    return unit.getTypeDecls().stream().filter(EmptyStatementTree.class::isInstance)
+        .flatMap(tree -> capturedOwners.getOrDefault(tree, List.of()).stream()).filter(owner -> owner.origin().equals(Optional.of(range)))
+        .map(ParsedSourceOwner::path).findFirst()
+        .orElseGet(() -> SourceOwnerPath.root().child(SourceOwnerPath.Role.EMPTY_DECLARATION, ordinal));
+  }
+
+  WrittenSourceAssociation emptyUnitDeclarationAssociation(SyntaxNode node, CompilationUnitTree unit, int ordinal) {
+    var range = node.origin().orElseThrow();
+    return new WrittenSourceAssociation(node.nodeId(), node.sourceFileKey(), emptyUnitDeclarationPath(unit, range, ordinal),
+        JavaSourceKind.EMPTY_STATEMENT, Optional.of(range));
   }
 
   private static void captureLambda(JavaCoverageTopology.Owner owner, LambdaExpressionTree lambda, JavaSourceEvidence evidence,

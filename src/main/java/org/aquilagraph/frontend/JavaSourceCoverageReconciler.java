@@ -129,8 +129,7 @@ final class JavaSourceCoverageReconciler {
   }
 
   private void emptyBodyDeclarations() {
-    inventory.contexts().stream().filter(value -> value.address().partition() == Partition.EMPTY_BODY_DECLARATION)
-        .forEach(this::emptyBodyDeclaration);
+    inventory.contexts().stream().filter(value -> value.address().partition().isEmptyDeclaration()).forEach(this::emptyBodyDeclaration);
   }
 
   private void emptyBodyDeclaration(SourceContext context) {
@@ -158,7 +157,7 @@ final class JavaSourceCoverageReconciler {
         addKnown(context, encounter.occurrence().orElseThrow(), encounter.observation().orElseThrow(), encounter.encounteredValue());
       } else if (context.address().partition() == Partition.WRITTEN_TYPE_USE) {
         writtenTypeUse(context);
-      } else if (context.address().partition() != Partition.EMPTY_BODY_DECLARATION) {
+      } else if (!context.address().partition().isEmptyDeclaration()) {
         var addresses = failure(context, "frontend.unresolved-attributed-type-kind", unavailableTypeMessage(context));
         outcomes.add(new FeatureContextOutcome(context.address(), Optional.empty(), Optional.empty(), encounter.encounteredValue(),
             support(Mode.FAILED), addresses));

@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceSpan;
 
 /** Immutable admitted per-input language-feature outcome and independent validation evidence. */
 public final class LanguageFeatureCoverageResult {
@@ -227,7 +228,7 @@ public final class LanguageFeatureCoverageResult {
     });
     if (outcome.occurrence().isEmpty() && outcome.support().mode() != FeatureContextOutcome.Mode.FAILED
         && context.address().partition() != SourceContext.Partition.WRITTEN_TYPE_USE
-        && context.address().partition() != SourceContext.Partition.EMPTY_BODY_DECLARATION) {
+        && !context.address().partition().isEmptyDeclaration()) {
       throw new IllegalArgumentException("Unavailable feature identity requires blocking failed support without a guessed pair");
     }
     outcome.occurrence().ifPresent(occurrence -> validateOccurrence(coverage, occurrence));
@@ -235,7 +236,7 @@ public final class LanguageFeatureCoverageResult {
     if (context.address().partition() == SourceContext.Partition.WRITTEN_TYPE_USE) {
       validateWrittenTypeUse(context, outcome, evidence);
     }
-    if (context.address().partition() == SourceContext.Partition.EMPTY_BODY_DECLARATION) {
+    if (context.address().partition().isEmptyDeclaration()) {
       validateEmptyDeclaration(context, outcome, evidence);
     }
     outcome.occurrence().ifPresent(occurrence -> {
@@ -354,7 +355,7 @@ public final class LanguageFeatureCoverageResult {
     var correctCategory = switch (context.address().partition()) {
       case TREE -> feature.filter(value -> value.category() == LanguageFeatureCategory.COMPILER_TREE_KIND).isPresent();
       case TYPE -> feature.isEmpty() || feature.orElseThrow().category() == LanguageFeatureCategory.COMPILER_TYPE_KIND;
-      case WRITTEN_TYPE_USE, EMPTY_BODY_DECLARATION -> feature.isEmpty();
+      case WRITTEN_TYPE_USE, EMPTY_BODY_DECLARATION, EMPTY_UNIT_DECLARATION -> feature.isEmpty();
       case WRITTEN_PROPERTY, ATTRIBUTED_PROPERTY ->
         feature.filter(value -> value.category() == LanguageFeatureCategory.DECLARATION_PROPERTY).isPresent();
       case TRANSLATION -> true;
@@ -424,24 +425,33 @@ public final class LanguageFeatureCoverageResult {
 
   private static void validateEmptyDeclaration(SourceContext context, FeatureContextOutcome outcome, CoverageValidationEvidence evidence) {
     validateWrittenOccurrenceSupport(context, outcome);
-    if (context.origins().size() != 1 || context.address().ownerPath().lastStep()
-        .filter(step -> step.role() == SourceOwnerPath.Role.EMPTY_DECLARATION && step.ordinal() == context.address().ordinal()).isEmpty()
-        || !"empty-body-declaration".equals(context.address().role())) {
-      throw new IllegalArgumentException("Empty body declarations require exact written source obligations");
+    var unitOwned = context.address().partition() == SourceContext.Partition.EMPTY_UNIT_DECLARATION;
+    if (context.origins().size() != 1
+        || context.address().ownerPath().lastStep()
+            .filter(step -> (step.role() == SourceOwnerPath.Role.EMPTY_DECLARATION && step.ordinal() == context.address().ordinal())
+                || (unitOwned && step.role() == SourceOwnerPath.Role.TYPE_DECLARATION))
+            .isEmpty()
+        || !(unitOwned ? "empty-unit-declaration" : "empty-body-declaration").equals(context.address().role())) {
+      throw new IllegalArgumentException("Empty declarations require exact written source obligations");
     }
     var parents = evidence.writtenInventory().contexts().stream()
         .filter(parent -> parent.address().partition() == SourceContext.Partition.TREE
             && parent.address().sourceFileKey().equals(context.address().sourceFileKey())
             && Optional.of(parent.address().ownerPath()).equals(context.address().ownerPath().parent())
-            && parent.feature()
-                .filter(feature -> List.of("CLASS", "INTERFACE", "ENUM", "RECORD", "ANNOTATION_TYPE").contains(feature.identifier()))
+            && parent.feature().filter(
+                feature -> (unitOwned ? List.of("COMPILATION_UNIT") : List.of("CLASS", "INTERFACE", "ENUM", "RECORD", "ANNOTATION_TYPE"))
+                    .contains(feature.identifier()))
                 .isPresent())
         .toList();
-    if (parents.size() != 1 || parents.getFirst().origins().size() != 1) {
-      throw new IllegalArgumentException("An empty body declaration requires its exact written type owner");
+    if (parents.size() != 1 || (!unitOwned && parents.getFirst().origins().size() != 1)) {
+      throw new IllegalArgumentException("An empty declaration requires its exact written owner");
     }
     var range = context.origins().getFirst();
-    var owner = parents.getFirst().origins().getFirst();
+    var owner = unitOwned
+        ? evidence.writtenInventory().snapshot().sourceFiles().stream()
+            .filter(file -> file.sourceFileKey().equals(context.address().sourceFileKey()))
+            .map(file -> new SourceSpan(file.sourceFileKey(), 0, file.content().length())).findFirst().orElseThrow()
+        : parents.getFirst().origins().getFirst();
     if (range.startOffset() < owner.startOffset() || range.endOffsetExclusive() > owner.endOffsetExclusive()) {
       throw new IllegalArgumentException("An empty body declaration must be inside its written owner");
     }

@@ -765,6 +765,8 @@ public final class SyntaxNode {
         switch (sourceKind) {
           case COMPILATION_UNIT -> {
             var form = SyntaxValue.CompilationUnit.class.cast(value).form();
+            validateEmptyDeclarationOrder(children, SyntaxRole.TYPE_DECLARATION);
+            validateEmptyDeclarationOrder(children, SyntaxRole.COMPACT_MEMBER);
             var roles = switch (form) {
               case ORDINARY -> Set.of(SyntaxRole.PACKAGE_DECLARATION, SyntaxRole.IMPORT_DECLARATION, SyntaxRole.TYPE_DECLARATION);
               case COMPACT -> Set.of(SyntaxRole.IMPORT_DECLARATION, SyntaxRole.COMPACT_MEMBER);
@@ -787,9 +789,10 @@ public final class SyntaxNode {
                   child.node().sourceKind() == JavaSourceKind.IMPORT && child.node().syntaxKind() == SyntaxKind.COMPILATION_UNIT;
                 case MODULE_DECLARATION ->
                   child.node().sourceKind() == JavaSourceKind.MODULE && child.node().syntaxKind() == SyntaxKind.COMPILATION_UNIT;
-                case TYPE_DECLARATION -> child.node().syntaxKind() == SyntaxKind.TYPE_DECLARATION;
-                case COMPACT_MEMBER -> Set.of(SyntaxKind.TYPE_DECLARATION, SyntaxKind.METHOD_DECLARATION, SyntaxKind.FIELD_DECLARATION)
-                    .contains(child.node().syntaxKind());
+                case TYPE_DECLARATION -> Set.of(SyntaxKind.TYPE_DECLARATION, SyntaxKind.EMPTY).contains(child.node().syntaxKind());
+                case COMPACT_MEMBER ->
+                  Set.of(SyntaxKind.TYPE_DECLARATION, SyntaxKind.METHOD_DECLARATION, SyntaxKind.FIELD_DECLARATION, SyntaxKind.EMPTY)
+                      .contains(child.node().syntaxKind());
                 default -> throw new IllegalStateException("Unexpected compilation-unit child role");
               };
               if (!valid) {
@@ -1940,21 +1943,21 @@ public final class SyntaxNode {
     if (sourceKind == JavaSourceKind.RECORD) {
       validateRecordCounterpartOrigins(children);
     }
-    validateEmptyMemberOrder(children);
+    validateEmptyDeclarationOrder(children, SyntaxRole.MEMBER);
   }
 
-  private static void validateEmptyMemberOrder(List<SyntaxChild> children) {
-    var members = children.stream().filter(child -> child.role() == SyntaxRole.MEMBER).toList();
+  private static void validateEmptyDeclarationOrder(List<SyntaxChild> children, SyntaxRole role) {
+    var members = children.stream().filter(child -> child.role() == role).toList();
     for (var empty : members.stream().filter(child -> child.node().syntaxKind() == SyntaxKind.EMPTY).toList()) {
       if (empty.node().origin().isEmpty()) {
-        throw new IllegalArgumentException("An empty body declaration requires its exact written source range");
+        throw new IllegalArgumentException("An empty declaration requires its exact written source range");
       }
       var range = empty.node().origin().orElseThrow();
       for (var member : members) {
         var origin = member.node().origin();
         if (origin.isEmpty() || (member.position() < empty.position() && origin.orElseThrow().endOffsetExclusive() > range.startOffset())
             || (member.position() > empty.position() && origin.orElseThrow().startOffset() < range.endOffsetExclusive())) {
-          throw new IllegalArgumentException("Empty body declaration order conflicts with written member ranges");
+          throw new IllegalArgumentException("Empty declaration order conflicts with written member ranges");
         }
       }
     }
