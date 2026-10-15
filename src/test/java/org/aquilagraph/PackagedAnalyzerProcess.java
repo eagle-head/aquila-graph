@@ -29,7 +29,7 @@ final class PackagedAnalyzerProcess {
     var javaExecutable = Path.of(System.getProperty("java.home"), "bin", javaName);
     var jar = Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath().normalize();
     var temporaryDirectory = Files.createDirectories(directory.resolve("process-tmp"));
-    var command = new ArrayList<>(List.of(javaExecutable.toString(), "-Djava.io.tmpdir=" + temporaryDirectory));
+    var command = new ArrayList<>(List.of(javaExecutable.toString(), "-Xms64m", "-Xmx512m", "-Djava.io.tmpdir=" + temporaryDirectory));
     command.addAll(javaOptions);
     command.addAll(List.of("-jar", jar.toString(), sourceRoot.toString()));
     command.addAll(List.of(options));

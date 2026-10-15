@@ -62,6 +62,8 @@ import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.aquilagraph.testsupport.Neo4jIntegration;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Config;
@@ -75,6 +77,7 @@ import org.neo4j.driver.Values;
 import org.neo4j.driver.async.AsyncSession;
 import org.neo4j.driver.exceptions.Neo4jException;
 
+@ExtendWith(Neo4jIntegration.class)
 class Neo4jCommitAcknowledgementNeo4jIT {
   private static final int DRIVER_WAIT_SECONDS = 10;
   private static final int PUBLICATION_WAIT_SECONDS = 30;
@@ -86,7 +89,7 @@ class Neo4jCommitAcknowledgementNeo4jIT {
   void givenCommitResponseWithheldOnLoopbackBolt_whenPublicationFails_thenDirectQueriesObserveWholeReplacementAndIndependentRun()
       throws Exception {
     // Arrange
-    var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    var settings = Neo4jIntegration.settings();
     var target = loopbackTarget(settings.uri());
     var directUri = directUri(target);
     var sessionConfig = SessionConfig.forDatabase(settings.database());
@@ -151,7 +154,7 @@ class Neo4jCommitAcknowledgementNeo4jIT {
   void givenAstCommitResponseWithheld_whenRetentionFails_thenExactReplacementIsDurableWhileCommitKnowledgeRemainsUnknown()
       throws Exception {
     // Arrange
-    var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    var settings = Neo4jIntegration.settings();
     var target = loopbackTarget(settings.uri());
     var directUri = directUri(target);
     var sessionConfig = SessionConfig.forDatabase(settings.database());
@@ -243,7 +246,7 @@ class Neo4jCommitAcknowledgementNeo4jIT {
   @Test
   void givenAstReplacementRejectedBeforeCommit_whenRetentionFails_thenPriorAndIndependentSubjectsRemainIntact() throws Exception {
     // Arrange
-    var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    var settings = Neo4jIntegration.settings();
     var target = loopbackTarget(settings.uri());
     var directUri = directUri(target);
     var sessionConfig = SessionConfig.forDatabase(settings.database());
@@ -369,7 +372,8 @@ class Neo4jCommitAcknowledgementNeo4jIT {
 
   private static void cleanupAst(Driver driver, SessionConfig configuration, List<AstIdentity> identities) throws IOException {
     try (var session = new SessionOwner(driver.session(AsyncSession.class, configuration))) {
-      await(session.value.runAsync("MATCH (entity:AstEntity) WHERE entity.astResultKey IN $scopes DETACH DELETE entity",
+      await(session.value.runAsync("MATCH (entity:AstEntity) WHERE entity.astResultKey IN $scopes "
+          + "CALL (entity) { DETACH DELETE entity } IN TRANSACTIONS OF 1000 ROWS",
           Values.parameters("scopes", identities.stream().map(AstIdentity::astResultKey).toList())).thenCompose(cursor -> cursor.consumeAsync()));
     }
   }

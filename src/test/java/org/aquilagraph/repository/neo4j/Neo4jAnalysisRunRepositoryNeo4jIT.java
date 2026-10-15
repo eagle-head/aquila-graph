@@ -40,6 +40,8 @@ import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.JavaParameter;
 import org.aquilagraph.source.api.JavaType;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.aquilagraph.testsupport.Neo4jIntegration;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
@@ -49,13 +51,14 @@ import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 import org.neo4j.driver.exceptions.Neo4jException;
 
+@ExtendWith(Neo4jIntegration.class)
 class Neo4jAnalysisRunRepositoryNeo4jIT {
   @TempDir Path temporaryDirectory;
 
   @Test
   void givenNullableExplicitThrow_whenCompilerRunIsPublished_thenStoredCategoriesRetainNonNullBeforeNull() throws IOException {
     // Arrange
-    var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    var settings = Neo4jIntegration.settings();
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("nullable-throw"));
     Files.writeString(sourceRoot.resolve("Example.java"),
         "class Example { void execute(Exception failure) throws Exception { throw failure; } }");
@@ -89,7 +92,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
   void givenRunningNeo4j_whenRunsArePersisted_thenStorageIsIdempotentIsolatedAndTransactional()
       throws IOException {
     // Arrange
-    var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    var settings = Neo4jIntegration.settings();
     var primarySourceRoot = Files.createDirectories(temporaryDirectory.resolve("primary"));
     var primaryRun = completedRun(primarySourceRoot, "PersistentSample" + UUID.randomUUID().toString().replace("-", ""));
     var independentSourceRoot = Files.createDirectories(temporaryDirectory.resolve("independent"));
@@ -309,7 +312,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
   void givenEqualDiagnosticValuesAtTwoSlots_whenRunIsPublishedToNeo4j_thenOneDiagnosticAndOriginRetainBothPositions()
       throws IOException {
     // Arrange
-    var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    var settings = Neo4jIntegration.settings();
     var original = completedRun(Files.createDirectories(temporaryDirectory.resolve("diagnostics")),
         "DiagnosticSample" + UUID.randomUUID().toString().replace("-", ""));
     var origin = original.representation().ast().result().orElseThrow().program().types().getFirst().origins().getFirst();
@@ -344,7 +347,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
   void givenAcknowledgedNeo4jCommit_whenLaterCloseSignalsFailure_thenApplicationRetainsRunAndStoredProjection()
       throws IOException {
     // Arrange
-    var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    var settings = Neo4jIntegration.settings();
     var sessionConfig = SessionConfig.forDatabase(settings.database());
     var phases = List.of(CloseFailurePhase.PUBLICATION_SESSION, CloseFailurePhase.DRIVER);
 

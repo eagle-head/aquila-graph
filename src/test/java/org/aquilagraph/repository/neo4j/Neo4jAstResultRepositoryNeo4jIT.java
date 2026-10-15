@@ -60,6 +60,8 @@ import org.aquilagraph.source.api.SyntaxType;
 import java.util.stream.Collectors;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.aquilagraph.testsupport.Neo4jIntegration;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.GraphDatabase;
@@ -67,6 +69,7 @@ import org.neo4j.driver.Session;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 
+@ExtendWith(Neo4jIntegration.class)
 class Neo4jAstResultRepositoryNeo4jIT {
   @TempDir Path directory;
 
@@ -1428,7 +1431,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
   }
 
   private static Neo4jConnectionSettings settings() {
-    return Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    return Neo4jIntegration.settings();
   }
 
   private static AstRetentionService retention(Neo4jConnectionSettings settings) {
@@ -1436,8 +1439,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
   }
 
   private static void deleteAst(Neo4jConnectionSettings settings, AstIdentity identity) {
-    withSession(settings, session -> session.run("MATCH (entity:AstEntity {astResultKey: $scope}) DETACH DELETE entity",
-        Values.parameters("scope", identity.astResultKey())).consume());
+    withSession(settings, session -> Neo4jIntegration.discardAstFixture(session, identity.astResultKey()));
   }
 
   private static void withSession(Neo4jConnectionSettings settings, Consumer<Session> action) {

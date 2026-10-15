@@ -56,6 +56,8 @@ import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.aquilagraph.testsupport.Neo4jIntegration;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
@@ -64,6 +66,7 @@ import org.neo4j.driver.Session;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 
+@ExtendWith(Neo4jIntegration.class)
 class Neo4jDeclarationAstRetentionNeo4jIT {
   @TempDir Path directory;
 
@@ -137,18 +140,21 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
 
       // Act
       var executable = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
-      var process = new ProcessBuilder(executable.toString(),
+      var builder = new ProcessBuilder(executable.toString(),
+          "-Xms64m", "-Xmx1g",
           "--limit-modules", "java.base,java.logging,java.naming,java.management,jdk.unsupported",
           "-Djava.io.tmpdir=" + directory, "-cp", classpath, RetainedAstQueryProcess.class.getName(), identity.softwareSignature(),
           identity.sourceModelVersion(), identity.astProfileVersion(), identity.semanticProductionRevision(), identity.canonicalContentDigest(),
-          output.toString()).redirectErrorStream(true).redirectOutput(log.toFile()).start();
+          output.toString()).redirectErrorStream(true).redirectOutput(log.toFile());
+      builder.environment().putAll(Neo4jIntegration.environment());
+      var process = builder.start();
       try {
         var completed = process.waitFor(60, TimeUnit.SECONDS);
 
         // Assert
-        assertTrue(completed, () -> "Independent query timed out: " + process.pid());
         var diagnostics = Files.readString(log);
         System.out.print(diagnostics);
+        assertTrue(completed, () -> "Independent query timed out: " + process.pid() + "\n" + diagnostics);
         assertEquals(0, process.exitValue(), diagnostics);
         assertArrayEquals(AstCodec.encode(original), Files.readAllBytes(output));
         DeclarationAstRetentionFixture.assertMixed(AstCodec.decode(Files.readAllBytes(output), identity));
@@ -411,7 +417,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   private record Unit(String filename, String source, boolean hasType) {}
 
   private static Neo4jConnectionSettings settings() {
-    return Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    return Neo4jIntegration.settings();
   }
 
   private static AstRetentionService retention(Neo4jConnectionSettings settings) {
@@ -436,8 +442,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   }
 
   private static void delete(Neo4jConnectionSettings settings, AstIdentity identity) {
-    withSession(settings, session -> session.run("MATCH (entity:AstEntity {astResultKey: $scope}) DETACH DELETE entity",
-        Values.parameters("scope", identity.astResultKey())).consume());
+    withSession(settings, session -> Neo4jIntegration.discardAstFixture(session, identity.astResultKey()));
   }
 
   private static void withSession(Neo4jConnectionSettings settings, Consumer<Session> action) {

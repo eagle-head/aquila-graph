@@ -12,6 +12,7 @@ From the repository root:
 | --- | --- | --- |
 | Run unit tests | `.\Invoke-Build.ps1 test` | `make test` |
 | Package and run process integration tests | `.\Invoke-Build.ps1 integration-test` | `make integration-test` |
+| Run all integration tests with a disposable Neo4j | `.\Invoke-Build.ps1 integration-test-neo4j` | `make integration-test-neo4j` |
 | Run static quality gates | `.\Invoke-Build.ps1 quality` | `make quality` |
 
 Analyze the included calculator without executing its application:
@@ -21,6 +22,8 @@ java -jar target/aquila-graph-0.1.0-SNAPSHOT.jar analysis-targets/calculator/src
 ```
 
 The command accepts one source root, optional `--release 25`, and optional `--persist`. Java 25 is the default. Persistence requires the credentials and database setup in the [Neo4j runbook](deployment/neo4j/README.md).
+
+Database integration tests manage their own memory-limited container and discard its volumes by default. Docker must be available; no separately configured database or password is required. See [integration database ownership](deployment/neo4j/testing.md) for resource budgets, explicit preservation, and recovery.
 
 ## Results and limits
 

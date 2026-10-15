@@ -38,6 +38,10 @@
     <pmd.version>7.27.0</pmd.version>
     <spotbugs-maven-plugin.version>4.10.4.1</spotbugs-maven-plugin.version>
     <spotless-maven-plugin.version>3.10.2</spotless-maven-plugin.version>
+    <testcontainers.version>2.0.5</testcontainers.version>
+    <docker-java.version>3.7.1</docker-java.version>
+    <slf4j.version>1.7.36</slf4j.version>
+    <test.jvm.arguments>-Xms128m -Xmx2g</test.jvm.arguments>
   </properties>
   <dependencies>
     <dependency>
@@ -62,6 +66,24 @@
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-engine</artifactId>
       <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-jdk14</artifactId>
+      <version>${slf4j.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.github.docker-java</groupId>
+      <artifactId>docker-java-api</artifactId>
+      <version>${docker-java.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -335,6 +357,8 @@
         <version>${maven-compiler-plugin.version}</version>
         <configuration>
           <release>${maven.compiler.release}</release>
+          <meminitial>128m</meminitial>
+          <maxmem>1024m</maxmem>
         </configuration>
         <executions>
           <execution>
@@ -1001,7 +1025,7 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>${maven-surefire-plugin.version}</version>
         <configuration>
-          <argLine>@{coverageAgentArguments} -Djava.io.tmpdir="${project.build.directory}"</argLine>
+          <argLine>@{coverageAgentArguments} ${test.jvm.arguments} -Djava.io.tmpdir="${project.build.directory}"</argLine>
           <useManifestOnlyJar>false</useManifestOnlyJar>
           <includes>
             <include>**/*Test.java</include>
@@ -1021,7 +1045,7 @@
           </execution>
         </executions>
         <configuration>
-          <argLine>@{coverageAgentArguments} -Djava.io.tmpdir="${project.build.directory}"</argLine>
+          <argLine>@{coverageAgentArguments} ${test.jvm.arguments} -Djava.io.tmpdir="${project.build.directory}"</argLine>
           <includes>
             <include>**/*ProcessIT.java</include>
           </includes>

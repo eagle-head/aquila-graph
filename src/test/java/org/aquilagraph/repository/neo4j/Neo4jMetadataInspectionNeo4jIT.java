@@ -34,6 +34,8 @@ import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.aquilagraph.testsupport.Neo4jIntegration;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Config;
@@ -45,6 +47,7 @@ import org.neo4j.driver.Values;
 import org.neo4j.driver.async.AsyncSession;
 import org.neo4j.driver.exceptions.Neo4jException;
 
+@ExtendWith(Neo4jIntegration.class)
 class Neo4jMetadataInspectionNeo4jIT {
   private static final int DRIVER_WAIT_SECONDS = 10;
   private static final int SAVE_WAIT_SECONDS = 30;
@@ -56,7 +59,7 @@ class Neo4jMetadataInspectionNeo4jIT {
   void givenBothConstraintResultsCompleted_whenMetadataTransportFails_thenNoPublicationBeginsAndCompletePriorRunsRemain()
       throws Exception {
     // Arrange
-    var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    var settings = Neo4jIntegration.settings();
     var target = loopbackTarget(settings.uri());
     var directUri = new URI("bolt", null, target.getAddress().getHostAddress(), target.getPort(), null, null, null);
     var sessionConfig = SessionConfig.forDatabase(settings.database());

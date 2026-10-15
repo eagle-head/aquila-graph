@@ -19,11 +19,14 @@ import org.aquilagraph.cfg.api.OperationKind;
 import org.aquilagraph.cfg.api.ValueKind;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.aquilagraph.testsupport.Neo4jIntegration;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 
+@ExtendWith(Neo4jIntegration.class)
 class Neo4jEnumContextNeo4jIT {
   @TempDir
   Path sourceRoot;
@@ -32,7 +35,7 @@ class Neo4jEnumContextNeo4jIT {
   void givenActualEnumConstructorAnalysis_whenPublishedToNeo4j_thenStoredContextAndInvocationOperandsRetainOwnershipTypeAndOrder()
       throws IOException {
     // Arrange
-    var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    var settings = Neo4jIntegration.settings();
     var suffix = UUID.randomUUID().toString().replace("-", "");
     var delegated = "Delegated" + suffix;
     var source = SourceFile.fromContent(Path.of("Enums.java"), "enum Empty" + suffix + " { ; } enum " + delegated

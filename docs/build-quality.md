@@ -49,9 +49,16 @@ distribution checksum:
 
 Surefire runs the `*Test` group during Maven's `test` phase. Failsafe runs the `*ProcessIT` group during
 `verify`; the `neo4j-integration` profile broadens that group to all `*IT` classes and requires a configured
-Neo4j instance. The integration-only targets still compile test sources and package the application, but skip
+Docker engine. The database suites acquire one isolated managed Neo4j per test engine and close it after the suites. The integration-only targets still compile test sources and package the application, but skip
 Surefire execution. The `quality` and `supply-chain-check` targets skip test compilation and execution, so
 run the relevant test targets separately when validating behavior.
+
+The [database integration runbook](../deployment/neo4j/testing.md) defines portable memory limits, disposable volumes, explicit preservation, logs, and lifecycle verification. Maven starts with a 128 MiB heap and a 1 GiB maximum through [`.mvn/jvm.config`](../.mvn/jvm.config). Forked compilers have a 1 GiB maximum. Surefire and Failsafe use a 128 MiB initial heap and a 2 GiB maximum; packaged CLI test consumers use a 512 MiB maximum, and the independent retained-AST query consumer uses 1 GiB. These budgets are independent of the container's total memory limit.
+
+Use fresh compiled outputs when switching operating systems in one checkout.
+Keep `target/classes`, `target/test-classes`, `target/partitions`, and
+`target/maven-status` local to one toolchain. The Maven artifact cache under
+`target/maven-repository` can be reused.
 
 ## Product Compilation Partitions
 

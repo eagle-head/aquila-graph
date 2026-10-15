@@ -20,6 +20,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.aquilagraph.testsupport.Neo4jIntegration;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
@@ -27,6 +29,7 @@ import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.async.AsyncSession;
 
+@ExtendWith(Neo4jIntegration.class)
 class Neo4jConnectionLifecycleNeo4jIT {
   private static final int DRIVER_WAIT_SECONDS = 10;
   private static final int CONNECTION_TIMEOUT_SECONDS = 5;
@@ -37,7 +40,7 @@ class Neo4jConnectionLifecycleNeo4jIT {
   void givenSingleConnectionPoolAndOwnedAgent_whenSequentialSessionsAndDriverClose_thenCapacityReturnsAndOwnedConnectionsDisappear()
       throws Exception {
     // Arrange
-    var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    var settings = Neo4jIntegration.settings();
     var uri = directLoopbackUri(settings.uri());
     var sessionConfig = SessionConfig.forDatabase(settings.database());
     var ownership = UUID.randomUUID().toString();

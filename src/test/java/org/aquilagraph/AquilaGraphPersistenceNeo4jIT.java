@@ -11,14 +11,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.aquilagraph.testsupport.Neo4jIntegration;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 
+@ExtendWith(Neo4jIntegration.class)
 class AquilaGraphPersistenceNeo4jIT {
   @TempDir Path temporaryDirectory;
 
@@ -26,7 +28,7 @@ class AquilaGraphPersistenceNeo4jIT {
   void givenCommunityDatabase_whenPackagedProcessesPersistDistinctPrograms_thenCommittedSemanticContentCanBeRead()
       throws IOException, InterruptedException {
     // Arrange
-    var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
+    var settings = Neo4jIntegration.settings();
     var runIds = new ArrayList<String>();
     try (var driver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
         var session = driver.session(SessionConfig.forDatabase(settings.database()))) {
@@ -40,7 +42,7 @@ class AquilaGraphPersistenceNeo4jIT {
               "class " + className + " { int value(int input) { return input + " + literal + "; } }");
 
           // Act
-          var result = new PackagedAnalyzerProcess(caseDirectory).run(sourceRoot, "--release", "25", "--persist");
+          var result = new PackagedAnalyzerProcess(caseDirectory).run(List.of(), Neo4jIntegration.environment(), sourceRoot, "--release", "25", "--persist");
           var runId = result.output().lines().filter(line -> line.startsWith("Run: ")).map(line -> line.substring("Run: ".length()))
               .findFirst().orElseThrow(() -> new AssertionError("Missing run identity: " + result.output() + result.error()));
           runIds.add(runId);
