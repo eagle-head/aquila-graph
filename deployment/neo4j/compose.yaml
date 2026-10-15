@@ -2,11 +2,26 @@ services:
   neo4j:
     image: neo4j:2026.08.1
     restart: unless-stopped
+    mem_limit: 8g
+    memswap_limit: 8g
+    cpus: 2
     ports:
       - "127.0.0.1:7474:7474"
       - "127.0.0.1:7687:7687"
     environment:
       NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?Set NEO4J_PASSWORD in deployment/neo4j/.env}"
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 5g
+      NEO4J_server_memory_pagecache_size: 512m
+      NEO4J_server_jvm_additional: "-XX:MaxDirectMemorySize=512m -XX:TrimNativeHeapInterval=10000"
+      NEO4J_dbms_memory_transaction_total_max: 4g
+      NEO4J_db_tx__log_rotation_size: 32m
+      NEO4J_db_tx__log_rotation_retention__policy: "2 files"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "2"
     volumes:
       - neo4j-data:/data
     healthcheck:

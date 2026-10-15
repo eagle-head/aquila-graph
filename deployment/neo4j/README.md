@@ -5,6 +5,16 @@ Docker and retains its database in the `aquila-graph-neo4j-data` named volume.
 The pinned `neo4j:2026.08.1` image exposes Browser only on local port `7474` and
 Bolt only on local port `7687`.
 
+The service is configured with an 8 GiB container memory limit with no additional swap and a
+two-CPU quota. Neo4j starts with a 512 MiB heap, can grow its heap to 5 GiB, and
+has separate 512 MiB page-cache and direct-buffer budgets. The Linux JVM trims
+unused native heap every 10 seconds. Transaction memory is capped at 4 GiB.
+Transaction logs rotate at 32 MiB with two retained files
+subject to checkpoint requirements; Docker logs rotate at 10 MiB with two files.
+The [Compose configuration](compose.yaml) owns these development settings. The
+[test database runbook](testing.md) describes the separately owned disposable
+integration instances.
+
 ## Supported verification scope
 
 Neo4j Community Edition is the required database verification baseline for this
@@ -37,8 +47,10 @@ records the supported verification boundary.
 
 Copy `.env.example` to `.env`, choose a local password, and keep `.env`
 untracked. Compose interpolates that value into `NEO4J_AUTH`; the same value
-must be available to the CLI and integration tests as `NEO4J_PASSWORD` or
+must be available to the CLI as `NEO4J_PASSWORD` or
 `AQUILA_GRAPH_NEO4J_PASSWORD`.
+
+Database integration tests use their own disposable managed instance and generated credentials. The [test database runbook](testing.md) owns that lifecycle and its resource limits; this Compose service is the persistent local development database.
 
 ## Operations
 
@@ -80,6 +92,9 @@ docker volume rm aquila-graph-neo4j-data
 
 ## References
 
+- [Docker memory constraints](https://docs.docker.com/engine/containers/resource_constraints/)
+- [Neo4j memory configuration](https://neo4j.com/docs/operations-manual/current/performance/memory-configuration/)
+- [JVM direct-buffer limit](https://docs.oracle.com/en/java/javase/25/docs/specs/man/java.html#advanced-runtime-options-for-java)
 - Neo4j Operations Manual, [Run Neo4j in a Docker container](https://neo4j.com/docs/operations-manual/current/docker/)
 - Neo4j Operations Manual, [Deploy a Neo4j standalone server with Docker Compose](https://neo4j.com/docs/operations-manual/current/docker/docker-compose-standalone/)
 - Neo4j Operations Manual, [Persisting data with Docker volumes](https://neo4j.com/docs/operations-manual/current/docker/mounting-volumes/)
