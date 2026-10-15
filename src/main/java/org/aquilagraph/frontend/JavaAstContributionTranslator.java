@@ -89,6 +89,7 @@ import org.jspecify.annotations.Nullable;
 
 /** Assembles the source-only declaration/body tree for one attributed compilation unit. */
 final class JavaAstContributionTranslator {
+  private final JavaTranslationPolicy policy;
   private static final String DIAGNOSTIC_PRODUCER = "JavaAstContributionTranslator";
   private static final char DECLARATION_TERMINATOR = ';';
   private static final String RECEIVER_NAME = "this";
@@ -104,23 +105,7 @@ final class JavaAstContributionTranslator {
   private final Map<String, Map<SourceSpan, String>> sharedFieldAnnotations = new HashMap<>();
   private final JavaSourceCopyCorrespondence sourceCopies = new JavaSourceCopyCorrespondence();
   private final Map<SyntaxSemanticEdge, SyntaxNode> declarationSources = new HashMap<>();
-  private boolean memberInitialization;
-  private boolean nestedDeclarations;
-  private boolean enumInitialization;
-  private boolean declarationFidelity;
-  private boolean sourceEnvelope;
 
-  void enableSourceEnvelope(boolean enabled) {
-    sourceEnvelope = enabled;
-  }
-
-  void enableDeclarationFidelity(boolean enabled) {
-    declarationFidelity = enabled;
-  }
-
-  void enableEnumInitialization(boolean enabled) {
-    enumInitialization = enabled;
-  }
   private final List<TranslatedMethodBody> projectedBodies = new ArrayList<>();
   private Optional<NestedProduction> nestedProduction = Optional.empty();
 
@@ -129,18 +114,17 @@ final class JavaAstContributionTranslator {
       Map<String, JavaType> typesByKey) {
   }
 
-  void enableNestedDeclarations(boolean enabled) {
-    nestedDeclarations = enabled;
-  }
   private final List<CopiedAstValues.Scope> declarationScopes = new ArrayList<>();
   private final Map<String, Map<SourceSpan, String>> sharedLocalAnnotations = new HashMap<>();
 
-  JavaAstContributionTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory) {
-    this(semantics, sourceEvidence, treeInventory, new JavaAnnotationMirrorCorrelation(semantics));
+  JavaAstContributionTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
+      JavaTranslationPolicy policy) {
+    this(semantics, sourceEvidence, treeInventory, new JavaAnnotationMirrorCorrelation(semantics), policy);
   }
 
   JavaAstContributionTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
-      RecordAnnotationMirrorCorrelation recordMirrorCorrelation) {
+      RecordAnnotationMirrorCorrelation recordMirrorCorrelation, JavaTranslationPolicy policy) {
+    this.policy = Objects.requireNonNull(policy, "policy");
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
@@ -195,14 +179,14 @@ final class JavaAstContributionTranslator {
     var publishedBodies = new HashMap<String, SyntaxNode>();
     var unavailableBodies = new ArrayList<String>();
     var declarationEdges = new ArrayList<SyntaxSemanticEdge>();
-    if (nestedDeclarations) {
+    if (policy.supportsNestedDeclarations()) {
       nestedProduction = Optional
           .of(new NestedProduction(unit, sourceFile, bodyByPath, publishedBodies, unavailableBodies, declarationEdges, typesByKey));
     }
     var rootPath = SyntaxStructuralPath.sourceFileRoot();
     var unitPath = new TreePath(unit);
     var compactClass = compactWrapper(unit, sourceFile, unitPath);
-    var rootRange = sourceEnvelope
+    var rootRange = policy.supportsSourceEnvelope()
         ? Optional.of(sourceEvidence.capturedUnitRange(sourceFile))
         : compactClass.isPresent() && sourceEvidence.rawStart(unit, unit) == 0
             ? Optional.of(new SourceSpan(sourceFile.sourceFileKey(), 0, sourceFile.content().length()))
@@ -235,7 +219,7 @@ final class JavaAstContributionTranslator {
       var declaration = compactClass.orElseThrow();
       var classPath = new TreePath(unitPath, declaration);
       var compactMembers = new ArrayList<SyntaxChild>();
-      var emptyDeclarations = sourceEnvelope ? treeInventory.emptyBodyDeclarations(declaration) : List.<SourceSpan>of();
+      var emptyDeclarations = policy.supportsSourceEnvelope() ? treeInventory.emptyBodyDeclarations(declaration) : List.<SourceSpan>of();
       var emptyOrdinal = 0;
       for (var sourceOrdinal = 0; sourceOrdinal < declaration.getMembers().size(); sourceOrdinal++) {
         var member = declaration.getMembers().get(sourceOrdinal);
@@ -264,7 +248,7 @@ final class JavaAstContributionTranslator {
       }
     } else {
       var typeChildren = new ArrayList<SyntaxChild>();
-      var emptyDeclarations = sourceEnvelope ? treeInventory.emptyUnitDeclarations(unit) : List.<SourceSpan>of();
+      var emptyDeclarations = policy.supportsSourceEnvelope() ? treeInventory.emptyUnitDeclarations(unit) : List.<SourceSpan>of();
       var emptyOrdinal = 0;
       for (var sourceOrdinal = 0; sourceOrdinal < unit.getTypeDecls().size(); sourceOrdinal++) {
         var declaration = unit.getTypeDecls().get(sourceOrdinal);
@@ -286,7 +270,7 @@ final class JavaAstContributionTranslator {
       }
       children.addAll(typeChildren);
     }
-    if (nestedDeclarations) {
+    if (policy.supportsNestedDeclarations()) {
       new TreePathScanner<Void, Void>() {
         @Override
         public Void visitMethod(MethodTree method, Void unused) {
@@ -311,7 +295,9 @@ final class JavaAstContributionTranslator {
     var root = SyntaxNode.source(sourceFile.sourceFileKey(), rootPath, JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT,
         SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.CompilationUnit(form,
-            sourceEnvelope ? SyntaxValue.CompilationUnitRange.CAPTURED_SOURCE : SyntaxValue.CompilationUnitRange.LEGACY_PROFILE),
+            policy.supportsSourceEnvelope()
+                ? SyntaxValue.CompilationUnitRange.CAPTURED_SOURCE
+                : SyntaxValue.CompilationUnitRange.LEGACY_PROFILE),
         children, Optional.empty(), rootRange.orElseThrow());
     sourceAssociations.created(root, unitPath);
     var nodes = root.descendantsAndSelf();
@@ -355,10 +341,6 @@ final class JavaAstContributionTranslator {
     }
     return new UnitTranslation(Optional.of(contribution), registrations, diagnostics, sourceAssociations.forNodes(nodes),
         declarationScopes.stream().map(this::sealScope).toList());
-  }
-
-  void enableMemberInitialization(boolean enabled) {
-    memberInitialization = enabled;
   }
 
   private void corroborateBody(CompilationUnitTree unit, SourceFile sourceFile, TranslatedMethodBody body,
@@ -603,7 +585,7 @@ final class JavaAstContributionTranslator {
     var anonymous = typeElement.getNestingKind() == NestingKind.ANONYMOUS;
     var name = declaration.getSimpleName().toString();
     if (!SourceVersion.isIdentifier(name)
-        && !(nestedDeclarations && name.isEmpty() && classPath.getParentPath().getLeaf() instanceof NewClassTree)) {
+        && !(policy.supportsNestedDeclarations() && name.isEmpty() && classPath.getParentPath().getLeaf() instanceof NewClassTree)) {
       TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.missing-type-name", "A written type declaration has no valid simple name", range));
       return Optional.empty();
@@ -674,7 +656,7 @@ final class JavaAstContributionTranslator {
       }
     }
     var members = new ArrayList<SyntaxChild>();
-    var emptyDeclarations = declarationFidelity ? treeInventory.emptyBodyDeclarations(declaration) : List.<SourceSpan>of();
+    var emptyDeclarations = policy.supportsDeclarationFidelity() ? treeInventory.emptyBodyDeclarations(declaration) : List.<SourceSpan>of();
     var emptyOrdinal = 0;
     for (var sourceOrdinal = 0; sourceOrdinal < declaration.getMembers().size(); sourceOrdinal++) {
       var member = declaration.getMembers().get(sourceOrdinal);
@@ -999,7 +981,7 @@ final class JavaAstContributionTranslator {
         field(unit, sourceFile, memberTreePath, field, memberPath, memberOccurrencePath, semanticEdges, diagnostics);
       case ClassTree nested -> type(unit, sourceFile, memberTreePath, nested, memberPath, memberOccurrencePath, bodies, publishedBodies,
           unavailableBodies, semanticEdges, diagnostics, typesByKey);
-      case BlockTree initializer when memberInitialization ->
+      case BlockTree initializer when policy.supportsMemberInitialization() ->
         initializer(unit, sourceFile, memberTreePath, initializer, memberPath, diagnostics);
       case BlockTree initializer -> requiredRange(unit, sourceFile, initializer, memberOccurrencePath, diagnostics)
           .map(range -> sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), memberPath, JavaSourceKind.BLOCK,
@@ -1079,7 +1061,7 @@ final class JavaAstContributionTranslator {
       return Optional.empty();
     }
     var methodKey = semantics.declarationKey(executable).orElseThrow();
-    if (nestedDeclarations && declaration.getBody() != null && body == null) {
+    if (policy.supportsNestedDeclarations() && declaration.getBody() != null && body == null) {
       var translator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory);
       translator.useDeclarations(this::projectNestedDeclaration);
       var translated = translator.translate(unit, sourceFile, methodKey, declaration.getBody(),
@@ -1424,10 +1406,10 @@ final class JavaAstContributionTranslator {
         creation == null ? 0 : creation.getArguments().size(), creation != null && creation.getClassBody() != null, sharedKeys);
     JavaExecutableSyntaxProjector.Projection initializerProjection = null;
     JavaBodyDecisions initializerDecisions = null;
-    if (enumInitialization && creation != null) {
+    if (policy.supportsEnumInitialization() && creation != null) {
       return enumConstant(unit, sourceFile, fieldPath, creation, value, path, children, range.orElseThrow(), semanticEdges, diagnostics);
     }
-    if (memberInitialization && !enumConstant && initializer != null) {
+    if (policy.supportsMemberInitialization() && !enumConstant && initializer != null) {
       var initializerPath = path.child(SyntaxRole.INITIALIZER, 0);
       initializerProjection = executableProjection(unit, sourceFile, value.declarationKey(), initializer,
           new TreePath(fieldPath, initializer), JavaSyntaxStructuralPath.executionRoot(fieldPath).child(SyntaxRole.INITIALIZER, 0));
@@ -1444,7 +1426,7 @@ final class JavaAstContributionTranslator {
         children, Optional.empty(), range.orElseThrow());
     sourceAssociations.created(node, fieldPath);
     declarationEdge(fieldPath, node, semanticEdges);
-    if (memberInitialization && !enumConstant) {
+    if (policy.supportsMemberInitialization() && !enumConstant) {
       var uses = new ArrayList<ChildUseEvidence>();
       var decisions = initializerDecisions == null
           ? new JavaBodyDecisions(List.of(), List.of(), List.of(), List.of())
@@ -1545,7 +1527,7 @@ final class JavaAstContributionTranslator {
       Tree tree, TreePath treePath, SyntaxStructuralPath path) {
     var projector = new JavaExecutableSyntaxProjector(semantics, sourceEvidence, treeInventory, DIAGNOSTIC_PRODUCER,
         "declaration-initialization");
-    if (nestedDeclarations) {
+    if (policy.supportsNestedDeclarations()) {
       projector.useDeclarations(this::projectNestedDeclaration);
     }
     return projector.project(unit, sourceFile, scopeKey, tree, treePath, path, false, false);

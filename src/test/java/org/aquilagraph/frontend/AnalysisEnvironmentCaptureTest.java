@@ -118,7 +118,7 @@ class AnalysisEnvironmentCaptureTest {
         List.of(SourceFile.fromContent(Path.of("Sample.java"), "class Sample { int read() { return 1; } }")));
     try (var session = CompilerSessionAcquisition.open(compiler, invocation, new SnapshotSourceCatalog(snapshot))) {
       var parsed = session.parse();
-      var compilation = session.analyze(parsed);
+      var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       assertEquals(List.of(), compilation.diagnostics());
       Files.write(dependency.resolve("late.bin"), new byte[] {0, (byte) 0xff});
     }
@@ -147,7 +147,7 @@ class AnalysisEnvironmentCaptureTest {
     var snapshot = InputSnapshot.fromSources(temporaryDirectory,
         List.of(SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}")));
     try (var session = CompilerSessionAcquisition.open(compiler, invocation, new SnapshotSourceCatalog(snapshot))) {
-      session.analyze(session.parse());
+      session.analyze(session.parse(), JavaTranslationPolicy.legacyAnalysis());
     }
     var originalRuntime = System.getProperty("java.runtime.version");
     System.setProperty("java.runtime.version", originalRuntime + "-changed");

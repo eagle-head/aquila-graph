@@ -17,7 +17,6 @@ import org.aquilagraph.source.api.SourceInput;
 
 /** Public facade for source discovery and Java analysis. */
 public final class JavaFrontend implements AstProducer, SourceAnalyzer {
-  private static final String SEMANTIC_PRODUCTION_REVISION = "javac-public/1";
   private final JavaSourceLoader sourceLoader;
   private final JavaAnalysisPipeline analysisPipeline;
 
@@ -47,7 +46,7 @@ public final class JavaFrontend implements AstProducer, SourceAnalyzer {
   @Override
   public AstOutcome produce(AstProductionRequest request) {
     Objects.requireNonNull(request, "request");
-    requireProfile(request.profile());
+    var policy = JavaTranslationPolicy.forProfile(request.profile());
     final InputSnapshot snapshot;
     try {
       snapshot = switch (request.input()) {
@@ -58,7 +57,7 @@ public final class JavaFrontend implements AstProducer, SourceAnalyzer {
       throw new AnalysisInputException("Java source input could not be captured: " + exception.getMessage(), exception);
     }
     try {
-      return produce(snapshot, request.configuration(), request.profile());
+      return analysisPipeline.produce(snapshot, request.configuration(), policy);
     } catch (IOException exception) {
       throw new AnalysisEnvironmentException("Java analysis environment could not be captured consistently: " + exception.getMessage(),
           exception);
@@ -79,23 +78,7 @@ public final class JavaFrontend implements AstProducer, SourceAnalyzer {
    *           if compiler dependencies cannot be captured consistently
    */
   public AstOutcome produce(InputSnapshot snapshot, CompilerConfiguration configuration, AstProfile profile) throws IOException {
-    requireProfile(profile);
-    return analysisPipeline.produce(snapshot, configuration, profile,
-        profile.supportsSourceEnvelope()
-            ? "javac-public/6"
-            : profile.supportsDeclarationFidelity()
-                ? "javac-public/5"
-                : profile.supportsEnumInitialization()
-                    ? "javac-public/4"
-                    : profile.equals(AstProfile.JAVA_SOURCE_NESTED)
-                        ? "javac-public/3"
-                        : profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION) ? "javac-public/2" : SEMANTIC_PRODUCTION_REVISION);
-  }
-
-  private static void requireProfile(AstProfile profile) {
-    if (!Objects.requireNonNull(profile, "profile").isSupported()) {
-      throw new IllegalArgumentException("Unsupported source profile: " + profile.version());
-    }
+    return analysisPipeline.produce(snapshot, configuration, JavaTranslationPolicy.forProfile(profile));
   }
 
   /**
@@ -115,6 +98,7 @@ public final class JavaFrontend implements AstProducer, SourceAnalyzer {
   public SyntaxAnalysisInput analyze(Path sourceRoot, CompilerConfiguration configuration) {
     Objects.requireNonNull(sourceRoot, "sourceRoot");
     Objects.requireNonNull(configuration, "configuration");
+    var policy = JavaTranslationPolicy.legacyAnalysis();
     final InputSnapshot snapshot;
     try {
       snapshot = sourceLoader.discover(sourceRoot);
@@ -123,7 +107,7 @@ public final class JavaFrontend implements AstProducer, SourceAnalyzer {
     }
 
     try {
-      return analyze(snapshot, configuration);
+      return analysisPipeline.analyze(snapshot, configuration, policy);
     } catch (IOException exception) {
       throw new AnalysisEnvironmentException("Java analysis environment could not be captured consistently: " + exception.getMessage(),
           exception);
@@ -142,6 +126,6 @@ public final class JavaFrontend implements AstProducer, SourceAnalyzer {
    *           if compiler dependencies cannot be captured
    */
   public SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
-    return analysisPipeline.analyze(snapshot, configuration);
+    return analysisPipeline.analyze(snapshot, configuration, JavaTranslationPolicy.legacyAnalysis());
   }
 }

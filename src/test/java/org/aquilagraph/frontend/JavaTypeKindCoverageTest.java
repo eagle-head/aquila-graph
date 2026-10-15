@@ -267,7 +267,7 @@ class JavaTypeKindCoverageTest {
     var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION);
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
       var parsed = session.parse();
-      var compilation = session.analyze(parsed);
+      var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       var unit = compilation.units().getFirst();
       var declaration = (ClassTree) unit.getTypeDecls().getFirst();
       var fields = declaration.getMembers().stream().filter(VariableTree.class::isInstance).map(VariableTree.class::cast).toList();
@@ -279,17 +279,17 @@ class JavaTypeKindCoverageTest {
       // Act
       var located = new JavaTypeKindObserver(sources, compilation.semantics(),
           new JavaSourceEvidence(withMissingPositions(parsed.sourceEvidence(), sources, missingTypes)),
-          compilation.treeInventory(), coverage).observe(compilation.units());
+          compilation.treeInventory(), coverage, JavaTranslationPolicy.legacyAnalysis()).observe(compilation.units());
       var missingOwners = new ArrayList<Tree>(missingTypes);
       missingOwners.addAll(fields);
       var ancestorLocated = new JavaTypeKindObserver(sources, compilation.semantics(),
           new JavaSourceEvidence(withMissingPositions(parsed.sourceEvidence(), sources, missingOwners)),
-          compilation.treeInventory(), coverage).observe(compilation.units());
+          compilation.treeInventory(), coverage, JavaTranslationPolicy.legacyAnalysis()).observe(compilation.units());
       missingOwners.add(declaration);
       missingOwners.add(unit);
       var unlocated = new JavaTypeKindObserver(sources, compilation.semantics(),
           new JavaSourceEvidence(withMissingPositions(parsed.sourceEvidence(), sources, missingOwners)),
-          compilation.treeInventory(), coverage).observe(compilation.units());
+          compilation.treeInventory(), coverage, JavaTranslationPolicy.legacyAnalysis()).observe(compilation.units());
 
       // Assert
       assertEquals(2, fields.size());
@@ -332,7 +332,7 @@ class JavaTypeKindCoverageTest {
     var sources = new SnapshotSourceCatalog(snapshot);
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
       var parsed = session.parse();
-      var compilation = session.analyze(parsed);
+      var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       var bUnit = compilation.units().stream()
           .filter(unit -> sources.find(unit).orElseThrow().relativePath().equals(Path.of("B.java"))).findFirst().orElseThrow();
       var declaration = (ClassTree) bUnit.getTypeDecls().getFirst();
@@ -341,7 +341,7 @@ class JavaTypeKindCoverageTest {
       missing.addAll(fields);
       var observed = new JavaTypeKindObserver(sources, compilation.semantics(),
           new JavaSourceEvidence(withMissingPositions(parsed.sourceEvidence(), sources, missing)),
-          compilation.treeInventory(), JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION)).observe(compilation.units());
+          compilation.treeInventory(), JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION), JavaTranslationPolicy.legacyAnalysis()).observe(compilation.units());
       return observed.diagnostics().stream().filter(diagnostic -> diagnostic.code().equals("frontend.erroneous-type-kind.error"))
           .map(diagnostic -> diagnostic.diagnosticKey()).toList();
     }

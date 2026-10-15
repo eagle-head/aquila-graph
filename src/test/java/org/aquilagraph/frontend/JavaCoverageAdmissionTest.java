@@ -443,7 +443,7 @@ class JavaCoverageAdmissionTest {
       var accessor = JavaCoveragePropertyProjection.accessors(ClassTree.class, JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION)).stream()
           .filter(value -> value.method().getName().equals("getKind")).findFirst().orElseThrow();
       var supplied = Proxy.newProxyInstance(ClassTree.class.getClassLoader(), new Class<?>[] { ClassTree.class }, (_, _, _) -> { throw failure; });
-      JavaCoveragePropertyProjection.query(accessor, supplied, owner, parsed.sourceEvidence(), Optional.empty());
+      JavaCoveragePropertyProjection.query(accessor, supplied, owner, parsed.sourceEvidence(), Optional.empty(), JavaTranslationPolicy.legacyAnalysis());
     }
   }
 

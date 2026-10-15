@@ -20,20 +20,16 @@ final class JavaDeclarationPropertyEncounterProducer {
   private final List<JavaCoverageTopology.Owner> actualOwners;
   private final JavaSourceEvidence sourceEvidence;
   private final LanguageFeatureCoverage coverage;
-  private final boolean enumInitialization;
+  private final JavaTranslationPolicy policy;
 
   JavaDeclarationPropertyEncounterProducer(List<CompilationUnitTree> units, SnapshotSourceCatalog sources, JavaSourceEvidence evidence,
-      LanguageFeatureCoverage coverage) {
-    this(units, sources, evidence, coverage, false);
-  }
-
-  JavaDeclarationPropertyEncounterProducer(List<CompilationUnitTree> units, SnapshotSourceCatalog sources, JavaSourceEvidence evidence,
-      LanguageFeatureCoverage coverage, boolean enumInitialization) {
+      LanguageFeatureCoverage coverage, JavaTranslationPolicy policy) {
     actualOwners = JavaCoverageTopology.owners(units, sources, evidence).stream()
-        .filter(owner -> !enumInitialization || !JavaEnumConstantSyntax.isImplicitEnvelope(owner.treePath(), evidence)).toList();
+        .filter(owner -> !policy.supportsEnumInitialization() || !JavaEnumConstantSyntax.isImplicitEnvelope(owner.treePath(), evidence))
+        .toList();
     sourceEvidence = evidence;
     this.coverage = coverage;
-    this.enumInitialization = enumInitialization;
+    this.policy = policy;
   }
 
   ObservedPropertyEncounters observeWritten() {
@@ -70,7 +66,7 @@ final class JavaDeclarationPropertyEncounterProducer {
   private void observe(JavaCoverageTopology.Owner sourceOwner, Object actualOwner, Class<?> surface, Partition partition,
       Optional<SemanticResolver> semantics, List<ObservedPropertyEncounters.Encounter> encounters) {
     for (var accessor : JavaCoveragePropertyProjection.accessors(surface, coverage)) {
-      var value = JavaCoveragePropertyProjection.query(accessor, actualOwner, sourceOwner, sourceEvidence, semantics, enumInitialization);
+      var value = JavaCoveragePropertyProjection.query(accessor, actualOwner, sourceOwner, sourceEvidence, semantics, policy);
       encounters.add(encounter(sourceOwner, accessor, partition, value));
     }
   }

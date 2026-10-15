@@ -58,40 +58,18 @@ import org.aquilagraph.source.api.SyntaxType;
 import org.jspecify.annotations.Nullable;
 
 final class JavaTypeTranslator {
-  private boolean sourceEnvelope;
+  private final JavaTranslationPolicy policy;
 
-  void enableSourceEnvelope(boolean enabled) {
-    sourceEnvelope = enabled;
-  }
   private static final String DIAGNOSTIC_PRODUCER = "JavaTypeTranslator";
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
   private final JavaMethodTranslator methodTranslator;
   private final JavaMethodDeclarationTranslator methodDeclarations;
-  private boolean memberInitialization;
-  private boolean nestedDeclarations;
-  private boolean enumInitialization;
-  private boolean declarationFidelity;
-
-  void enableDeclarationFidelity(boolean enabled) {
-    declarationFidelity = enabled;
-  }
-
-  void enableEnumInitialization(boolean enabled) {
-    enumInitialization = enabled;
-  }
-
-  void enableNestedDeclarations(boolean enabled) {
-    nestedDeclarations = enabled;
-  }
-
-  void enableMemberInitialization(boolean enabled) {
-    memberInitialization = enabled;
-  }
 
   JavaTypeTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
-      JavaDeclarationPropertyObserver propertyObserver, JavaMethodTranslator methodTranslator) {
+      JavaDeclarationPropertyObserver propertyObserver, JavaMethodTranslator methodTranslator, JavaTranslationPolicy policy) {
+    this.policy = Objects.requireNonNull(policy, "policy");
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
@@ -123,7 +101,8 @@ final class JavaTypeTranslator {
     var memberOrders = new ArrayList<DeclarationMemberOrder>();
     var declarationTypes = new ArrayList<DeclarationTypeEvidence>();
     var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, typeKey + ":declaration");
-    if (memberInitialization && (!declarationFidelity || (origin.isEmpty() && !sourceEnvelope))) {
+    if (policy.supportsMemberInitialization()
+        && (!policy.supportsDeclarationFidelity() || (origin.isEmpty() && !policy.supportsSourceEnvelope()))) {
       for (var declaration : treeInventory.emptyBodyDeclarations(classTree)) {
         TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
             FrontendDiagnosticFactory.capabilityError(typeKey + ":EMPTY_STATEMENT", "frontend.unsupported-class-member",
@@ -158,7 +137,7 @@ final class JavaTypeTranslator {
         completeMembers = false;
       }
     }
-    if (nestedDeclarations) {
+    if (policy.supportsNestedDeclarations()) {
       new TreePathScanner<Void, Void>() {
         @Override
         public Void visitClass(ClassTree nested, Void unused) {
@@ -203,7 +182,7 @@ final class JavaTypeTranslator {
       fields.sort(Comparator.comparingInt(field -> orderedKeys.indexOf(field.fieldKey())));
       methods.sort(Comparator.comparingInt(method -> orderedKeys.indexOf(method.methodKey())));
       memberOrders.addFirst(new DeclarationMemberOrder(sourceFile.sourceFileKey(), typeKey, members,
-          memberInitialization ? Optional.of(treeInventory.attributedTreeOrder(classPath)) : Optional.empty()));
+          policy.supportsMemberInitialization() ? Optional.of(treeInventory.attributedTreeOrder(classPath)) : Optional.empty()));
     }
     var type = new JavaType(typeKey, qualifiedName, javaTypeKind(classTree.getKind()), modifiers, enclosingType, directSuperclass,
         directInterfaces, permittedSubclasses, typeParameters, origin.isPresent(), fields, recordComponents, methods,
@@ -381,7 +360,7 @@ final class JavaTypeTranslator {
       List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
     switch (member) {
       case MethodTree methodTree -> {
-        var translated = nestedDeclarations
+        var translated = policy.supportsNestedDeclarations()
             ? Optional.<TranslationResult<TranslatedMethod>>empty()
             : Optional.of(methodTranslator.translate(unit, classPath, sourceFile, typeKey, methodTree));
         var translation = translated
@@ -429,7 +408,7 @@ final class JavaTypeTranslator {
         return translation.value().isPresent();
       }
       case BlockTree initializer -> {
-        if (!memberInitialization) {
+        if (!policy.supportsMemberInitialization()) {
           TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
               initializerDiagnostic(unit, sourceFile, typeKey, initializer));
         }
@@ -485,7 +464,8 @@ final class JavaTypeTranslator {
         .collect(Collectors.toSet());
     var field = new JavaField(fieldKey, typeKey, variableTree.getName().toString(), staticType, modifiers, enumConstant,
         !recordBacking && written && origin.isPresent(), recordBacking || !written ? List.of() : origin.stream().toList());
-    if (variableTree.getInitializer() != null && (!memberInitialization || (enumConstant && !enumInitialization))) {
+    if (variableTree.getInitializer() != null
+        && (!policy.supportsMemberInitialization() || (enumConstant && !policy.supportsEnumInitialization()))) {
       TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
           fieldInitializerDiagnostic(unit, sourceFile, fieldKey, variableTree, enumConstant));
     }

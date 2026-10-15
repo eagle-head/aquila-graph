@@ -83,19 +83,15 @@ final class JavaConstructorSelection {
     return selections.find(path.getLeaf()).orElseGet(Optional::empty);
   }
 
-  void prepare(List<CompilationUnitTree> units) throws IOException {
-    prepare(units, false);
-  }
-
-  void prepare(List<CompilationUnitTree> units, boolean nestedDeclarations) throws IOException {
+  void prepare(List<CompilationUnitTree> units, JavaTranslationPolicy policy) throws IOException {
     var paths = new ArrayList<TreePath>();
     var scanner = new TreePathScanner<Void, Void>() {
       @Override
       public Void visitNewClass(NewClassTree creation, Void ignored) {
-        if (!nestedDeclarations && creation.getClassBody() != null) {
+        if (!policy.supportsNestedDeclarations() && creation.getClassBody() != null) {
           return null;
         }
-        if (nestedDeclarations || insideMethod(getCurrentPath())) {
+        if (policy.supportsNestedDeclarations() || insideMethod(getCurrentPath())) {
           paths.add(getCurrentPath());
         }
         return super.visitNewClass(creation, null);

@@ -149,7 +149,7 @@ class CompilerSessionAcquisitionTest {
       // Act
       try (var session = CompilerSessionAcquisition.open(fixture.compiler, INVOCATION, sources)) {
         assertEquals(0, fixture.closeAttempts.get());
-        var compilation = session.analyze(session.parse());
+        var compilation = session.analyze(session.parse(), JavaTranslationPolicy.legacyAnalysis());
         unitCount = compilation.units().size();
         diagnosticCodes = compilation.diagnostics().stream().map(diagnostic -> diagnostic.getCode()).toList();
       }
@@ -199,7 +199,7 @@ class CompilerSessionAcquisitionTest {
       // Act
       var actual = assertThrows(IOException.class, () -> {
         try (var session = CompilerSessionAcquisition.open(fixture.compiler, INVOCATION, sources)) {
-          session.analyze(session.parse());
+          session.analyze(session.parse(), JavaTranslationPolicy.legacyAnalysis());
         }
       });
 

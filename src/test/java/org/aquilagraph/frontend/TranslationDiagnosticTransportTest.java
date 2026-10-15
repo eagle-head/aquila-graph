@@ -189,7 +189,7 @@ class TranslationDiagnosticTransportTest {
 
       // Act
       var child = new JavaAstContributionTranslator(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
-          fixture.compilation().treeInventory()).translate(unit, fixture.source(), translatedBodies, declarations);
+          fixture.compilation().treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(unit, fixture.source(), translatedBodies, declarations);
       var program = programTranslation(fixture);
       var childEvents = TranslationDiagnosticEvidence.events(child.diagnostics()).stream()
           .filter(event -> event.address().producer().equals(VALUE_PRODUCER)).toList();
@@ -220,21 +220,21 @@ class TranslationDiagnosticTransportTest {
         sources)) {
       var parsed = session.parse();
       var inventory = JavaAnnotationSourceInventory.capture(parsed, sources);
-      var compilation = session.analyze(parsed);
+      var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       assertion.accept(new Fixture(snapshot, snapshot.sourceFiles().getFirst(), sources, parsed, inventory, compilation));
     }
   }
 
   private static TranslationResult<TranslatedProgram> programTranslation(Fixture fixture) {
     return new JavaProgramTranslator(fixture.sources(), fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
-        fixture.compilation().treeInventory(), JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION))
+        fixture.compilation().treeInventory(), JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION), JavaTranslationPolicy.legacyAnalysis())
             .translate(fixture.snapshot(), fixture.compilation().units());
   }
 
   private static JavaTypeTranslator typeTranslator(Fixture fixture, JavaMethodTranslator methods) {
     return new JavaTypeTranslator(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
         fixture.compilation().treeInventory(), new JavaDeclarationPropertyObserver(JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION)),
-        methods);
+        methods, JavaTranslationPolicy.legacyAnalysis());
   }
 
   private static MethodTree writtenMethod(ClassTree type, String name) {

@@ -166,7 +166,7 @@ public class DeclarationAccessorInvocationTest {
       var accessor = JavaCoveragePropertyProjection.accessors(surface, JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION)).stream()
           .filter(value -> value.method().getName().equals(getter)).findFirst().orElseThrow();
       return JavaCoveragePropertyProjection.query(accessor, owner, sourceOwner,
-          parsed.sourceEvidence(), Optional.empty());
+          parsed.sourceEvidence(), Optional.empty(), JavaTranslationPolicy.legacyAnalysis());
     }
   }
 

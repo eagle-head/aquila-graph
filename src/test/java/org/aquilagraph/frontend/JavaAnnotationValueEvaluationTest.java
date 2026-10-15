@@ -94,7 +94,7 @@ class JavaAnnotationValueEvaluationTest {
         () -> result.diagnostics().toString());
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration),
         new SnapshotSourceCatalog(result.snapshot()))) {
-      var compilation = session.analyze(session.parse());
+      var compilation = session.analyze(session.parse(), JavaTranslationPolicy.legacyAnalysis());
       var unit = compilation.units().getFirst();
       var sample = unit.getTypeDecls().stream().filter(ClassTree.class::isInstance).map(ClassTree.class::cast)
           .filter(tree -> tree.getSimpleName().contentEquals("Sample")).findFirst().orElseThrow();
@@ -149,7 +149,7 @@ class JavaAnnotationValueEvaluationTest {
     // Act
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration),
         new SnapshotSourceCatalog(result.snapshot()))) {
-      var compilation = session.analyze(session.parse());
+      var compilation = session.analyze(session.parse(), JavaTranslationPolicy.legacyAnalysis());
       var unit = compilation.units().getFirst();
       var correlation = new JavaAnnotationMirrorCorrelation(compilation.semantics());
       var mirrors = unit.getTypeDecls().stream().filter(ClassTree.class::isInstance).map(ClassTree.class::cast)

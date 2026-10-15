@@ -36,51 +36,19 @@ final class JavaProgramTranslator {
   private final JavaAstContributionTranslator astTranslator;
 
   JavaProgramTranslator(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
-      ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage) {
-    this(sources, semantics, sourceEvidence, treeInventory, coverage, false);
-  }
-
-  JavaProgramTranslator(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
-      ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage, boolean memberInitialization) {
-    this(sources, semantics, sourceEvidence, treeInventory, coverage, memberInitialization, false);
-  }
-
-  JavaProgramTranslator(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
-      ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage, boolean memberInitialization, boolean nestedDeclarations) {
-    this(sources, semantics, sourceEvidence, treeInventory, coverage, memberInitialization, nestedDeclarations, false);
-  }
-
-  JavaProgramTranslator(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
-      ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage, boolean memberInitialization, boolean nestedDeclarations,
-      boolean enumInitialization) {
+      ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage, JavaTranslationPolicy policy) {
     this.sources = Objects.requireNonNull(sources, "sources");
     Objects.requireNonNull(semantics, "semantics");
     Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     propertyObserver = new JavaDeclarationPropertyObserver(coverage);
     var bodyTranslator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory);
     var methodTranslator = new JavaMethodTranslator(semantics, sourceEvidence, treeInventory, bodyTranslator);
-    typeTranslator = new JavaTypeTranslator(semantics, sourceEvidence, treeInventory, propertyObserver, methodTranslator);
-    typeTranslator.enableMemberInitialization(memberInitialization);
-    typeTranslator.enableNestedDeclarations(nestedDeclarations);
-    typeTranslator.enableEnumInitialization(enumInitialization);
-    astTranslator = new JavaAstContributionTranslator(semantics, sourceEvidence, treeInventory);
-    astTranslator.enableMemberInitialization(memberInitialization);
-    astTranslator.enableNestedDeclarations(nestedDeclarations);
-    astTranslator.enableEnumInitialization(enumInitialization);
+    typeTranslator = new JavaTypeTranslator(semantics, sourceEvidence, treeInventory, propertyObserver, methodTranslator, policy);
+    astTranslator = new JavaAstContributionTranslator(semantics, sourceEvidence, treeInventory, policy);
   }
 
   TranslationResult<TranslatedProgram> translate(InputSnapshot snapshot, List<CompilationUnitTree> units) {
     return translate(snapshot, units, false);
-  }
-
-  void enableDeclarationFidelity(boolean enabled) {
-    typeTranslator.enableDeclarationFidelity(enabled);
-    astTranslator.enableDeclarationFidelity(enabled);
-  }
-
-  void enableSourceEnvelope(boolean enabled) {
-    astTranslator.enableSourceEnvelope(enabled);
-    typeTranslator.enableSourceEnvelope(enabled);
   }
 
   TranslationResult<TranslatedProgram> translate(InputSnapshot snapshot, List<CompilationUnitTree> units, boolean compilerErrors) {

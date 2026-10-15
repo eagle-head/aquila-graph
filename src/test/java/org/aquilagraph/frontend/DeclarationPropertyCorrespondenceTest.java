@@ -370,10 +370,10 @@ class DeclarationPropertyCorrespondenceTest {
       var inventory = ParsedTreeInventory.capture(units, sources::find, sourceEvidence);
       var parsed = new ParsedJavaSource(units, sourceEvidence, inventory);
       var coverage = original.languageFeatureCoverage();
-      var capture = JavaSourceCoverageCapture.capture(original.snapshot(), parsed, sources, coverage);
-      var producer = new JavaDeclarationPropertyEncounterProducer(units, sources, sourceEvidence, coverage);
+      var capture = JavaSourceCoverageCapture.capture(original.snapshot(), parsed, sources, coverage, JavaTranslationPolicy.legacyAnalysis());
+      var producer = new JavaDeclarationPropertyEncounterProducer(units, sources, sourceEvidence, coverage, JavaTranslationPolicy.legacyAnalysis());
       var written = producer.observeWritten();
-      var kinds = new JavaCompilerKindDiagnostics(sources, sourceEvidence, coverage).observe(units);
+      var kinds = new JavaCompilerKindDiagnostics(sources, sourceEvidence, coverage, JavaTranslationPolicy.legacyAnalysis()).observe(units);
       task.analyze();
       assertTrue(diagnostics.getDiagnostics().stream().noneMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
       var types = task.getTypes();
@@ -382,8 +382,8 @@ class DeclarationPropertyCorrespondenceTest {
       var projectionSemantics = new SemanticResolver(projectionTrees, types, task.getElements(), new DeclarationIdentityRegistry(projectionTrees, types));
       var expectations = capture.captureAttributed(projectionSemantics);
       var attributed = producer.observeAttributed(projectionSemantics);
-      var typeKinds = new JavaTypeKindObserver(sources, semantics, sourceEvidence, inventory, coverage).observe(units);
-      var translation = new JavaProgramTranslator(sources, semantics, sourceEvidence, inventory, coverage).translate(original.snapshot(), units);
+      var typeKinds = new JavaTypeKindObserver(sources, semantics, sourceEvidence, inventory, coverage, JavaTranslationPolicy.legacyAnalysis()).observe(units);
+      var translation = new JavaProgramTranslator(sources, semantics, sourceEvidence, inventory, coverage, JavaTranslationPolicy.legacyAnalysis()).translate(original.snapshot(), units);
       assertEquals(List.of(), kinds.diagnostics());
       assertEquals(List.of(), typeKinds.diagnostics());
       assertEquals(List.of(), translation.diagnostics());
