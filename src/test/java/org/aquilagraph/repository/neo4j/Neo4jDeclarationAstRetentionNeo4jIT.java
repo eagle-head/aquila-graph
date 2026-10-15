@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -47,7 +48,12 @@ import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.CoveragePropertyValue;
+import org.aquilagraph.source.api.FeatureContextOutcome;
+import org.aquilagraph.source.api.SourceContext;
 import org.aquilagraph.source.api.SourceInput;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxRole;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
@@ -60,6 +66,60 @@ import org.neo4j.driver.Values;
 
 class Neo4jDeclarationAstRetentionNeo4jIT {
   @TempDir Path directory;
+
+  @Test
+  void givenQualifiedAnonymousCreation_whenSavedClosedAndQueried_thenInstantiatedConstructorTargetsRemainExact() throws IOException {
+    // Arrange
+    var settings = settings();
+    var ast = DeclarationAstRetentionFixture.produce(directory, "Example.java",
+        "class Outer<T> { class Inner { Inner(T value) {} } } class Example { "
+            + "Outer<String> owner = new Outer<>(); Object value = owner.new Inner(\"x\") { String text = \"retained\"; }; }");
+    var original = ast.result().orElseThrow();
+    try {
+      // Act
+      var publication = retention(settings).retainAst(ast);
+      var lookup = retention(settings).findAst(original.identity());
+      var retained = lookup.outcome().orElseThrow().result().orElseThrow();
+
+      // Assert
+      assertEquals(AstCompletion.COMPLETE, original.completion());
+      assertEquals(PublicationStatus.SAVED, publication.status());
+      assertEquals(CommitKnowledge.KNOWN_COMMIT, publication.knowledge());
+      assertEquals(AstLookupStatus.FOUND, lookup.status());
+      DeclarationAstRetentionFixture.assertPreserved(original, retained);
+      var creation = retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION
+          && !node.children(SyntaxRole.CLASS_BODY).isEmpty()).findFirst().orElseThrow();
+      var evidence = retained.aggregate().executionScopes().stream()
+          .flatMap(scope -> retained.aggregate().executionSyntax(scope.key()).orElseThrow()
+              .useEvidence(creation.nodeId(), SyntaxRole.ARGUMENT, 0).stream()).toList();
+      assertEquals(1, evidence.size());
+      assertEquals("java.lang.String", evidence.getFirst().selectedTarget().displayName());
+      var properties = retained.coverage().validationEvidence().outcomes().stream()
+          .filter(outcome -> outcome.address().partition() == SourceContext.Partition.WRITTEN_PROPERTY
+              && outcome.address().role().startsWith("NewClassTree::")
+              && outcome.occurrence().orElseThrow().origins().equals(List.of(creation.origin().orElseThrow())))
+          .collect(Collectors.toMap(outcome -> outcome.address().role(), outcome -> outcome));
+      var expected = Map.of("NewClassTree::Tree#getKind()", List.of("NEW_CLASS"),
+          "NewClassTree::NewClassTree#getEnclosingExpression()", List.of("owner"),
+          "NewClassTree::NewClassTree#getIdentifier()", List.of("Inner"),
+          "NewClassTree::NewClassTree#getTypeArguments()", List.<String>of(),
+          "NewClassTree::NewClassTree#getArguments()", List.of("\"x\""),
+          "NewClassTree::NewClassTree#getClassBody()", List.of("{ String text = \"retained\"; }"));
+      assertEquals(expected.keySet(), properties.keySet());
+      expected.forEach((role, values) -> {
+        var outcome = properties.get(role);
+        var property = outcome.encounteredValue().orElseThrow();
+        assertEquals(values, property.items().stream().map(CoveragePropertyValue.Item::value).toList());
+        assertEquals(values.isEmpty() ? CoveragePropertyValue.State.EMPTY
+            : role.endsWith("#getArguments()") ? CoveragePropertyValue.State.ITEMS : CoveragePropertyValue.State.SCALAR, property.state());
+        assertEquals(values.isEmpty() ? FeatureContextOutcome.Mode.NEGATIVE : FeatureContextOutcome.Mode.FACTS, outcome.support().mode());
+      });
+      assertMaterialization(settings, ast);
+    } finally {
+      delete(settings, original.identity());
+    }
+    assertEquals(AstLookupStatus.NOT_FOUND, retention(settings).findAst(original.identity()).status());
+  }
 
   @Test
   void givenSavedMixedDeclarations_whenQueriedInAnIndependentProcessWithoutCompilerModules_thenClosedSourceBytesRemainExact() throws Exception {

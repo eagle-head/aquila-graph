@@ -30,6 +30,7 @@ import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.NewArrayTree;
+import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.TreeScanner;
@@ -133,6 +134,7 @@ final class JavaCoverageTopology {
       return Optional.of(VariableTree.class);
     }
     return switch (tree) {
+      case NewClassTree _ -> Optional.of(NewClassTree.class);
       case BlockTree _ -> Optional.of(BlockTree.class);
       case AssertTree _ -> Optional.of(AssertTree.class);
       case SynchronizedTree _ -> Optional.of(SynchronizedTree.class);
