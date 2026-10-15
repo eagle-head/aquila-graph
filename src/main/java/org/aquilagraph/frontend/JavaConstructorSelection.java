@@ -163,8 +163,8 @@ final class JavaConstructorSelection {
     var call = new TreePath(new TreePath(new TreePath(declaration, method.getBody()), statement), delegation);
     if (!(originalTrees.getElement(call) instanceof ExecutableElement selected)
         || !(selected.getEnclosingElement() instanceof TypeElement owner)
-        || !(originalTrees.getTypeMirror(new TreePath(path, creation.getIdentifier())) instanceof DeclaredType created)
-        || !created.asElement().equals(owner)) {
+        || !(original.getEnclosingElement() instanceof TypeElement anonymous)
+        || !(anonymous.getSuperclass() instanceof DeclaredType created) || !created.asElement().equals(owner)) {
       return Optional.empty();
     }
     return Optional.of(new ConstructorTarget(selected, created, owner));
