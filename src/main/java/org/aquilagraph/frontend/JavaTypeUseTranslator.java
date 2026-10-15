@@ -17,7 +17,6 @@ import com.sun.source.tree.WildcardTree;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import javax.lang.model.type.TypeKind;
@@ -43,7 +42,7 @@ final class JavaTypeUseTranslator {
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory inventory;
-  private final Optional<Map<SourceSpan, String>> sharedAnnotations;
+  private final Optional<JavaSharedAnnotations> sharedAnnotations;
   private final JavaWrittenSourceAssociations sourceAssociations;
 
   JavaTypeUseTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory inventory) {
@@ -51,12 +50,12 @@ final class JavaTypeUseTranslator {
   }
 
   JavaTypeUseTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory inventory,
-      Optional<Map<SourceSpan, String>> sharedAnnotations) {
+      Optional<JavaSharedAnnotations> sharedAnnotations) {
     this(semantics, sourceEvidence, inventory, sharedAnnotations, new JavaWrittenSourceAssociations(inventory));
   }
 
   JavaTypeUseTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory inventory,
-      Optional<Map<SourceSpan, String>> sharedAnnotations, JavaWrittenSourceAssociations sourceAssociations) {
+      Optional<JavaSharedAnnotations> sharedAnnotations, JavaWrittenSourceAssociations sourceAssociations) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.inventory = Objects.requireNonNull(inventory, "inventory");
@@ -159,14 +158,14 @@ final class JavaTypeUseTranslator {
         for (var ordinal = 0; ordinal < annotated.getAnnotations().size(); ordinal++) {
           var annotation = annotated.getAnnotations().get(ordinal);
           var origin = sourceEvidence.origin(unit, sourceFile, annotation);
-          var previousOwner = origin.flatMap(span -> sharedAnnotations.map(owners -> owners.get(span)));
+          var previousOwner = origin.flatMap(span -> sharedAnnotations.map(owners -> owners.find(span)));
           if (previousOwner.isPresent()) {
             sharedKeys.add(previousOwner.orElseThrow());
           } else {
             var position = (int) children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION).count();
             complete &= appendAnnotation(unit, sourceFile, annotation, path, occurrencePath, position, children, diagnostics);
             if (complete && sharedAnnotations.isPresent()) {
-              sharedAnnotations.orElseThrow().put(origin.orElseThrow(), children.getLast().node().nodeId());
+              sharedAnnotations.orElseThrow().retain(origin.orElseThrow(), children.getLast().node().nodeId());
             }
           }
         }

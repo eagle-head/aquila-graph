@@ -12,17 +12,11 @@ import org.aquilagraph.source.api.SyntaxNode;
 final class JavaSourceCopyCorrespondence {
   private final Function<SyntaxNode, Optional<SyntaxNode>> lookup;
   private final BiConsumer<SyntaxNode, SyntaxNode> retention;
-  private final Runnable reset;
 
   JavaSourceCopyCorrespondence() {
     var occurrences = new IdentityHashMap<SyntaxNode, SyntaxNode>();
     lookup = node -> Optional.ofNullable(occurrences.get(node));
     retention = occurrences::put;
-    reset = occurrences::clear;
-  }
-
-  void clear() {
-    reset.run();
   }
 
   void retain(SyntaxNode original, SyntaxNode copied) {

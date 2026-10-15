@@ -1,8 +1,6 @@
 package org.aquilagraph.frontend;
 
-import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
-import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -11,7 +9,6 @@ import java.util.Objects;
 import java.util.Optional;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.DeclarationMemberOrder;
 import org.aquilagraph.source.api.DeclarationTypeEvidence;
 import org.aquilagraph.source.api.JavaProgram;
@@ -31,20 +28,12 @@ import org.aquilagraph.source.api.WrittenSourceAssociation;
 final class JavaProgramTranslator {
   private static final String DIAGNOSTIC_PRODUCER = "JavaProgramTranslator";
   private final SnapshotSourceCatalog sources;
-  private final JavaDeclarationPropertyObserver propertyObserver;
-  private final JavaTypeTranslator typeTranslator;
-  private final JavaAstContributionTranslator astTranslator;
+  private final JavaUnitTranslationFactory unitTranslations;
 
   JavaProgramTranslator(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
       ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage, JavaTranslationPolicy policy) {
     this.sources = Objects.requireNonNull(sources, "sources");
-    Objects.requireNonNull(semantics, "semantics");
-    Objects.requireNonNull(sourceEvidence, "sourceEvidence");
-    propertyObserver = new JavaDeclarationPropertyObserver(coverage);
-    var bodyTranslator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory);
-    var methodTranslator = new JavaMethodTranslator(semantics, sourceEvidence, treeInventory, bodyTranslator);
-    typeTranslator = new JavaTypeTranslator(semantics, sourceEvidence, treeInventory, propertyObserver, methodTranslator, policy);
-    astTranslator = new JavaAstContributionTranslator(semantics, sourceEvidence, treeInventory, policy);
+    unitTranslations = new JavaUnitTranslationFactory(semantics, sourceEvidence, treeInventory, coverage, policy);
   }
 
   TranslationResult<TranslatedProgram> translate(InputSnapshot snapshot, List<CompilationUnitTree> units) {
@@ -55,9 +44,6 @@ final class JavaProgramTranslator {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(units, "units");
     var types = new ArrayList<JavaType>();
-    var methodBodies = new ArrayList<TranslatedMethodBody>();
-    var memberOrders = new ArrayList<DeclarationMemberOrder>();
-    var declarationTypes = new ArrayList<DeclarationTypeEvidence>();
     var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, "input-program-translation");
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
@@ -84,13 +70,14 @@ final class JavaProgramTranslator {
         incompleteRoot = true;
         continue;
       }
-      var firstBody = methodBodies.size();
-      var firstType = types.size();
-      var firstDiagnostic = diagnostics.size();
-      var firstOrder = memberOrders.size();
-      var firstDeclarationType = declarationTypes.size();
-      var completeUnit = translateUnit(unit, types, methodBodies, memberOrders, declarationTypes, diagnostics, occurrences, observations);
-      var unitTypes = types.subList(firstType, types.size());
+      var unitTranslator = unitTranslations.create(unit, source);
+      var translated = unitTranslator.translateDeclarations();
+      var declarations = translated.value();
+      var unitTypes = declarations.types();
+      types.addAll(unitTypes);
+      diagnostics.addAll(translated.diagnostics());
+      occurrences.addAll(translated.featureOccurrences());
+      observations.addAll(translated.featureObservations());
       var duplicateType = false;
       for (var type : unitTypes) {
         if (!translatedTypeKeys.add(type.typeKey())) {
@@ -100,15 +87,15 @@ final class JavaProgramTranslator {
           duplicateType = true;
         }
       }
-      var duplicateMember = diagnostics.subList(firstDiagnostic, diagnostics.size()).stream()
+      var duplicateMember = translated.diagnostics().stream()
           .anyMatch(diagnostic -> "frontend.duplicate-member-declaration".equals(diagnostic.code()));
-      if (!completeUnit || duplicateType || duplicateMember) {
+      if (!declarations.complete() || duplicateType || duplicateMember) {
         incompleteRoot = true;
         continue;
       }
       final JavaAstContributionTranslator.UnitTranslation ast;
       try {
-        ast = astTranslator.translate(unit, source, methodBodies.subList(firstBody, methodBodies.size()), unitTypes);
+        ast = unitTranslator.projectSource();
       } catch (JavaSourceProjectionFailure failure) {
         diagnostics.addAll(failure.diagnostics());
         incompleteRoot = true;
@@ -120,16 +107,12 @@ final class JavaProgramTranslator {
         retainedAssociations.addAll(ast.sourceAssociations());
         retainedScopes.addAll(ast.scopes());
         var retainedSource = ast.contribution().orElseThrow();
-        declarationTypes.subList(firstDeclarationType, declarationTypes.size()).stream()
+        declarations.declarationTypes().stream()
             .filter(evidence -> retainsTypeOwner(retainedSource, evidence.sourceFileKey(), evidence.ownerTypeKey()))
             .forEach(retainedTypes::add);
-        memberOrders.subList(firstOrder, memberOrders.size()).stream()
-            .filter(order -> retainsTypeOwner(retainedSource, order.sourceFileKey(), order.ownerTypeKey()))
+        declarations.memberOrders().stream().filter(order -> retainsTypeOwner(retainedSource, order.sourceFileKey(), order.ownerTypeKey()))
             .map(order -> attachWrittenOrder(order, retainedSource)).forEach(retainedOrders::add);
-        ast.bodies()
-            .forEach(body -> retainedBodies.add(new CopiedAstValues.Body(body.methodKey(), body.root(), body.origin(),
-                body.decisions().uses(), body.decisions().invocations(), body.decisions().staticAccesses(),
-                body.decisions().concatenations(), body.decisions().constructors(), body.attributedOccurrences())));
+        retainedBodies.addAll(ast.bodies());
       } else {
         incompleteRoot = true;
       }
@@ -155,31 +138,6 @@ final class JavaProgramTranslator {
       program = new JavaProgram(List.of());
     }
     return new TranslationResult<>(new TranslatedProgram(program, aggregate), diagnostics, occurrences, observations);
-  }
-
-  private boolean translateUnit(CompilationUnitTree unit, List<JavaType> types, List<TranslatedMethodBody> methodBodies,
-      List<DeclarationMemberOrder> memberOrders, List<DeclarationTypeEvidence> declarationTypes, List<AnalysisDiagnostic> diagnostics,
-      List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
-    var sourceFile = sourceFor(unit);
-    var unitPath = new TreePath(unit);
-    var complete = true;
-    for (var declaration : unit.getTypeDecls()) {
-      if (declaration instanceof ClassTree classTree) {
-        var translation = typeTranslator.translate(unit, unitPath, sourceFile, classTree);
-        if (translation.value().isPresent()) {
-          types.addAll(translation.value().orElseThrow().types());
-          methodBodies.addAll(translation.value().orElseThrow().methodBodies());
-          memberOrders.addAll(translation.value().orElseThrow().memberOrders());
-          declarationTypes.addAll(translation.value().orElseThrow().declarationTypes());
-        } else {
-          complete = false;
-        }
-        diagnostics.addAll(translation.diagnostics());
-        occurrences.addAll(translation.featureOccurrences());
-        observations.addAll(translation.featureObservations());
-      }
-    }
-    return complete;
   }
 
   private SourceFile sourceFor(CompilationUnitTree unit) {
