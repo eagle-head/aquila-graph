@@ -2,10 +2,12 @@ package org.aquilagraph.repository.neo4j;
 
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.aquilagraph.application.AstLookup;
 import org.aquilagraph.application.AstLookupStatus;
@@ -23,15 +25,18 @@ import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Record;
+import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.TransactionContext;
 import org.neo4j.driver.Values;
 import org.neo4j.driver.exceptions.Neo4jException;
+import org.neo4j.driver.exceptions.value.ValueException;
 
 /** One owned AST save or lookup with exact phase-bearing failures and conservative commit knowledge. */
 public final class Neo4jAstResultRepository implements AstResultRepository {
   private static final int REQUIRED_ROOT_COUNT = 1;
+  private static final int WRITE_BATCH_SIZE = 512;
   private static final String PROPERTIES_FIELD = "properties";
   private static final String SCOPE_PARAMETER = "scope";
   private static final String EXPECTED_PARAMETER = "expected";
@@ -170,24 +175,30 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
     var nodeGroups = new LinkedHashMap<String, List<Map<String, Object>>>();
     projection.nodes().stream().map(Neo4jNode::label).distinct().forEach(label -> nodeGroups.put(label,
         projection.nodes().stream().filter(node -> node.label().equals(label)).map(Neo4jNode::properties).toList()));
-    nodeGroups
-        .forEach((label, nodes) -> transaction
+    nodeGroups.forEach((label, nodes) -> forEachBatch(nodes,
+        batch -> transaction
             .run("UNWIND $nodes AS expected MERGE (entity:AstEntity {astResultKey: $scope, key: expected.key}) " + "ON CREATE SET entity:`"
                 + label + "` FOREACH (missing IN CASE WHEN $label IN labels(entity) THEN [] ELSE [1] END | SET entity:`" + label
                 + "`) WITH entity, expected FOREACH (changed IN CASE WHEN " + exactProperties("entity", "expected")
-                + " THEN [] ELSE [1] END | SET entity = expected)", Map.of(SCOPE_PARAMETER, scope, "nodes", nodes, "label", label))
-            .consume());
+                + " THEN [] ELSE [1] END | SET entity = expected)", Map.of(SCOPE_PARAMETER, scope, "nodes", batch, "label", label))
+            .consume()));
     var relationshipGroups = new LinkedHashMap<String, List<Neo4jRelationship>>();
     projection.relationships().stream().map(Neo4jRelationship::type).distinct().forEach(type -> relationshipGroups.put(type,
         projection.relationships().stream().filter(relationship -> relationship.type().equals(type)).toList()));
-    relationshipGroups.forEach((type,
-        relationships) -> transaction.run(
+    relationshipGroups.forEach((type, relationships) -> forEachBatch(relationships, batch -> transaction
+        .run(
             "UNWIND $relationships AS item MATCH (source:AstEntity {astResultKey: $scope, key: item.sourceKey}), "
                 + "(target:AstEntity {astResultKey: $scope, key: item.targetKey}) MERGE (source)-[relation:`" + type
                 + "` {key: item.properties.key}]->(target) ON CREATE SET relation = item.properties",
-            Map.of(SCOPE_PARAMETER, scope, "relationships",
-                relationships.stream().map(Neo4jAstResultRepository::relationshipProperties).toList()))
-            .consume());
+            Map.of(SCOPE_PARAMETER, scope, "relationships", batch.stream().map(Neo4jAstResultRepository::relationshipProperties).toList()))
+        .consume()));
+  }
+
+  private static <T> void forEachBatch(List<T> values, Consumer<List<T>> action) {
+    for (var first = 0; first < values.size(); first += Math.min(WRITE_BATCH_SIZE, values.size() - first)) {
+      var end = first + Math.min(WRITE_BATCH_SIZE, values.size() - first);
+      action.accept(values.subList(first, end));
+    }
   }
 
   private static void removeStaleMaterialization(TransactionContext transaction, Neo4jAstProjection projection) {
@@ -201,18 +212,26 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
         "MATCH (entity:AstEntity {astResultKey: $scope}) WITH entity, $expected[entity.key] AS expected "
             + "REMOVE entity:$([existing IN labels(entity) WHERE existing <> 'AstEntity' AND existing <> expected])",
         Map.of(SCOPE_PARAMETER, scope, EXPECTED_PARAMETER, expectedNodes)).consume();
-    var expectedRelationships = new LinkedHashMap<String, Object>();
-    projection.relationships()
-        .forEach(relationship -> expectedRelationships.put(relationship.key(), Map.of("sourceKey", relationship.sourceKey(), "targetKey",
-            relationship.targetKey(), "type", relationship.type(), PROPERTIES_FIELD, relationship.properties())));
-    transaction.run("MATCH (source)-[relation]->(target) "
-        + "WHERE (source:AstEntity AND source.astResultKey = $scope) OR relation.astResultKey = $scope "
-        + "OR (target:AstEntity AND target.astResultKey = $scope) " + "WITH source, relation, target, "
-        + "CASE WHEN relation.key IS :: STRING NOT NULL THEN $expected[relation.key] ELSE null END AS expected "
-        + "WHERE expected IS NULL OR type(relation) <> expected.type OR NOT (" + exactProperties("relation", "expected.properties") + ") "
-        + "OR NOT coalesce(source:AstEntity AND source.astResultKey = $scope AND source.key = expected.sourceKey, false) "
-        + "OR NOT coalesce(target:AstEntity AND target.astResultKey = $scope AND target.key = expected.targetKey, false) DELETE relation",
-        Map.of(SCOPE_PARAMETER, scope, EXPECTED_PARAMETER, expectedRelationships)).consume();
+    var expectedSources = new LinkedHashMap<String, String>();
+    projection.relationships().forEach(relationship -> expectedSources.put(relationship.key(), relationship.sourceKey()));
+    transaction.run(
+        "MATCH (source)-[relation]->(target) "
+            + "WHERE (source:AstEntity AND source.astResultKey = $scope) OR relation.astResultKey = $scope "
+            + "OR (target:AstEntity AND target.astResultKey = $scope) " + "WITH source, relation, target, "
+            + "CASE WHEN relation.key IS :: STRING NOT NULL THEN $expected[relation.key] ELSE null END AS expectedSource "
+            + "WHERE expectedSource IS NULL "
+            + "OR NOT coalesce(source:AstEntity AND source.astResultKey = $scope AND source.key = expectedSource, false) DELETE relation",
+        Map.of(SCOPE_PARAMETER, scope, EXPECTED_PARAMETER, expectedSources)).consume();
+    forEachBatch(projection.relationships(), batch -> {
+      var expected = new LinkedHashMap<String, Object>();
+      batch.forEach(relationship -> expected.put(relationship.key(), relationshipProperties(relationship)));
+      transaction.run("UNWIND keys($expected) AS key WITH key, $expected[key] AS expected "
+          + "MATCH (source:AstEntity {astResultKey: $scope, key: expected.sourceKey})-[relation]->(target) "
+          + "WHERE relation.key = key AND (type(relation) <> expected.type OR NOT (" + exactProperties("relation", "expected.properties")
+          + ") " + "OR NOT coalesce(target:AstEntity AND target.astResultKey = $scope "
+          + "AND target.key = expected.targetKey, false)) DELETE relation", Map.of(SCOPE_PARAMETER, scope, EXPECTED_PARAMETER, expected))
+          .consume();
+    });
     transaction.run("MATCH ()-[relation {astResultKey: $scope}]->() "
         + "WITH relation.key AS key, collect(relation) AS duplicates WHERE size(duplicates) > 1 "
         + "FOREACH (relation IN duplicates | DELETE relation)", Values.parameters(SCOPE_PARAMETER, scope)).consume();
@@ -224,37 +243,61 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
   }
 
   private static Map<String, Object> relationshipProperties(Neo4jRelationship relationship) {
-    return Map.of("sourceKey", relationship.sourceKey(), "targetKey", relationship.targetKey(), PROPERTIES_FIELD,
-        relationship.properties());
+    return Map.of("sourceKey", relationship.sourceKey(), "targetKey", relationship.targetKey(), "type", relationship.type(),
+        PROPERTIES_FIELD, relationship.properties());
   }
 
   private static StoredAst read(TransactionContext transaction, AstIdentity identity) {
     var parameters = Values.parameters(SCOPE_PARAMETER, identity.astResultKey());
     var roots = transaction
-        .run("MATCH (result:AstEntity:AstResult {astResultKey: $scope}) RETURN properties(result) AS properties", parameters).list();
+        .run("MATCH (result:AstEntity:AstResult {astResultKey: $scope}) RETURN properties(result) AS properties LIMIT 2", parameters)
+        .list();
     if (roots.isEmpty()) {
       var remaining = transaction.run("MATCH (entity:AstEntity {astResultKey: $scope}) RETURN count(entity) AS count", parameters).single()
           .get("count").asLong();
-      return new StoredAst(Optional.empty(), remaining > 0, List.of(), List.of());
+      return new StoredAst(Optional.empty(), remaining > 0, List.of(), List.of(), Optional.empty());
     }
     if (roots.size() != REQUIRED_ROOT_COUNT) {
       throw new IllegalArgumentException("AST lookup requires one exact stored result root");
     }
     var root = roots.getFirst().get(PROPERTIES_FIELD).asMap();
     if (!(root.get("formatVersion") instanceof String format) || !AstResult.supportsSourceModelVersion(format)) {
-      return new StoredAst(Optional.of(root), true, List.of(), List.of());
+      return new StoredAst(Optional.of(root), true, List.of(), List.of(), Optional.empty());
     }
-    var nodes = transaction.run("MATCH (entity:AstEntity {astResultKey: $scope}) "
-        + "RETURN entity.key AS key, labels(entity) AS labels, properties(entity) AS properties", parameters).list();
-    var relationships = transaction.run(
+    var nodes = readRows(
+        transaction.run("MATCH (entity:AstEntity {astResultKey: $scope}) "
+            + "RETURN entity.key AS key, labels(entity) AS labels, properties(entity) AS properties", parameters),
+        Neo4jAstResultRepository::storedNode);
+    var relationships = readRows(transaction.run(
         "MATCH (source)-[relation]->(target) "
             + "WHERE (source:AstEntity AND source.astResultKey = $scope) OR relation.astResultKey = $scope "
             + "OR (target:AstEntity AND target.astResultKey = $scope) "
             + "RETURN relation.key AS key, type(relation) AS type, source.key AS sourceKey, target.key AS targetKey, "
             + "labels(source) AS sourceLabels, source.astResultKey AS sourceAstResultKey, "
             + "labels(target) AS targetLabels, target.astResultKey AS targetAstResultKey, " + "properties(relation) AS properties",
-        parameters).list();
-    return new StoredAst(Optional.of(root), true, nodes, relationships);
+        parameters), record -> storedRelationship(identity, record));
+    return new StoredAst(Optional.of(root), true, nodes.values(), relationships.values(),
+        nodes.decodingFailure().or(relationships::decodingFailure));
+  }
+
+  private static <T> ReadRows<T> readRows(Result result, Function<Record, T> decoder) {
+    var values = new ArrayList<T>();
+    Optional<RuntimeException> decodingFailure = Optional.empty();
+    try (var records = result.stream()) {
+      var iterator = records.iterator();
+      while (iterator.hasNext()) {
+        var record = iterator.next();
+        if (decodingFailure.isEmpty()) {
+          try {
+            values.add(decoder.apply(record));
+          } catch (IllegalArgumentException | ValueException invalid) {
+            decodingFailure = Optional.of(invalid);
+            values.clear();
+          }
+        }
+      }
+    }
+    return new ReadRows<>(List.copyOf(values), decodingFailure);
   }
 
   private static Neo4jNode storedNode(Record record) {
@@ -289,10 +332,21 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
         return new AstLookup(identity, AstLookupStatus.INCOMPATIBLE, Optional.empty(), Optional.of(profile));
       }
     }
-    var nodes = stored.nodes().stream().map(Neo4jAstResultRepository::storedNode).toList();
-    var relationships = stored.relationships().stream().map(record -> storedRelationship(identity, record)).toList();
-    var outcome = codec.decode(new Neo4jAstProjection(identity, nodes, relationships), identity);
+    if (stored.decodingFailure().isPresent()) {
+      rejectStoredValue(stored.decodingFailure().orElseThrow());
+    }
+    var outcome = codec.decode(new Neo4jAstProjection(identity, stored.nodes(), stored.relationships()), identity);
     return new AstLookup(identity, AstLookupStatus.FOUND, Optional.of(outcome), Optional.empty());
+  }
+
+  private static void rejectStoredValue(RuntimeException failure) {
+    if (failure instanceof IllegalArgumentException invalid) {
+      throw invalid;
+    }
+    if (failure instanceof ValueException invalid) {
+      throw invalid;
+    }
+    throw new IllegalStateException("Unexpected deferred stored-value failure", failure);
   }
 
   private static Neo4jRelationship storedRelationship(AstIdentity identity, Record record) {
@@ -309,7 +363,11 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
     }
   }
 
-  private record StoredAst(Optional<Map<String, Object>> root, boolean hasScopedEntities, List<Record> nodes, List<Record> relationships) {
+  private record StoredAst(Optional<Map<String, Object>> root, boolean hasScopedEntities, List<Neo4jNode> nodes,
+      List<Neo4jRelationship> relationships, Optional<RuntimeException> decodingFailure) {
+  }
+
+  private record ReadRows<T>(List<T> values, Optional<RuntimeException> decodingFailure) {
   }
 
   private final class PhasedSession implements AutoCloseable {

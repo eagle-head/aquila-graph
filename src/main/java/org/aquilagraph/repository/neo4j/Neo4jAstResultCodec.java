@@ -7,18 +7,28 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.StableId;
 import org.aquilagraph.source.admission.AstCodec;
+import org.aquilagraph.source.admission.AstValueProjection.Node;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
+import org.jspecify.annotations.Nullable;
 
 /** Complete AST envelope and every ordered materialized field, independent of CFG. */
 final class Neo4jAstResultCodec {
   static final String FORMAT_VERSION = AstCodec.FORMAT_VERSION;
 
   Neo4jAstProjection map(AstOutcome outcome) {
+    var nodes = new ArrayList<Neo4jNode>();
+    var relationships = new ArrayList<Neo4jRelationship>();
+    project(outcome, nodes::add, relationships::add);
+    return new Neo4jAstProjection(outcome.result().orElseThrow().identity(), nodes, relationships);
+  }
+
+  private static void project(AstOutcome outcome, Consumer<Neo4jNode> nodes, Consumer<Neo4jRelationship> relationships) {
     Objects.requireNonNull(outcome, "outcome");
     if (outcome.completion() != AstCompletion.COMPLETE) {
       throw new IllegalArgumentException("AST retention requires complete admitted source");
@@ -27,24 +37,25 @@ final class Neo4jAstResultCodec {
     var identity = result.identity();
     var bytes = AstCodec.encode(result);
     var values = AstCodec.materialize(result);
-    var nodes = new ArrayList<Neo4jNode>();
-    var relationships = new ArrayList<Neo4jRelationship>();
-    nodes.add(root(identity, Base64.getEncoder().encodeToString(bytes)));
+    nodes.accept(root(identity, Base64.getEncoder().encodeToString(bytes)));
     for (var value : values.nodes()) {
-      var key = valueKey(identity, value.ordinal());
-      var properties = scoped(identity, key);
-      properties.put("ordinal", (long) value.ordinal());
-      properties.put("tag", value.tag());
-      value.scalarEncoding().ifPresent(encoding -> properties.put("scalarEncoding", encoding));
-      value.sourceNodeKey().ifPresent(sourceKey -> properties.put("sourceNodeKey", sourceKey));
-      nodes.add(new Neo4jNode(key, Neo4jAstSchema.label(value.tag()), properties));
+      nodes.accept(node(identity, value));
     }
-    relationships.add(link(identity, identity.astResultKey(), valueKey(identity, 0), "HAS_AST_VALUES", "values", 0));
+    relationships.accept(link(identity, identity.astResultKey(), valueKey(identity, 0), "HAS_AST_VALUES", "values", 0));
     for (var component : values.links()) {
-      relationships.add(link(identity, valueKey(identity, component.sourceOrdinal()), valueKey(identity, component.targetOrdinal()),
+      relationships.accept(link(identity, valueKey(identity, component.sourceOrdinal()), valueKey(identity, component.targetOrdinal()),
           Neo4jAstSchema.relationship(component.field()), component.field(), component.position()));
     }
-    return new Neo4jAstProjection(identity, nodes, relationships);
+  }
+
+  private static Neo4jNode node(AstIdentity identity, Node value) {
+    var key = valueKey(identity, value.ordinal());
+    var properties = scoped(identity, key);
+    properties.put("ordinal", (long) value.ordinal());
+    properties.put("tag", value.tag());
+    value.scalarEncoding().ifPresent(encoding -> properties.put("scalarEncoding", encoding));
+    value.sourceNodeKey().ifPresent(sourceKey -> properties.put("sourceNodeKey", sourceKey));
+    return new Neo4jNode(key, Neo4jAstSchema.label(value.tag()), properties);
   }
 
   AstOutcome decode(Neo4jAstProjection stored, AstIdentity expected) {
@@ -56,12 +67,24 @@ final class Neo4jAstResultCodec {
       throw new IllegalArgumentException("Supported AST result requires its complete retained envelope");
     }
     var outcome = AstOutcome.available(AstCodec.decode(Base64.getDecoder().decode(encoded), expected));
-    var admitted = map(outcome);
-    if (!byKey(admitted.nodes(), Neo4jNode::key).equals(byKey(stored.nodes(), Neo4jNode::key))
-        || !byKey(admitted.relationships(), Neo4jRelationship::key).equals(byKey(stored.relationships(), Neo4jRelationship::key))) {
-      throw new IllegalArgumentException("Materialized AST fields, order, labels, or correlations differ from the admitted envelope");
+    var nodes = byKey(stored.nodes(), Neo4jNode::key);
+    var relationships = byKey(stored.relationships(), Neo4jRelationship::key);
+    project(outcome, node -> requireEqual(nodes.remove(node.key()), node),
+        relationship -> requireEqual(relationships.remove(relationship.key()), relationship));
+    if (!nodes.isEmpty() || !relationships.isEmpty()) {
+      throw materializationMismatch();
     }
     return outcome;
+  }
+
+  private static <T> void requireEqual(@Nullable T actual, T expected) {
+    if (!expected.equals(actual)) {
+      throw materializationMismatch();
+    }
+  }
+
+  private static IllegalArgumentException materializationMismatch() {
+    return new IllegalArgumentException("Materialized AST fields, order, labels, or correlations differ from the admitted envelope");
   }
 
   private static Neo4jNode root(AstIdentity identity, String payload) {

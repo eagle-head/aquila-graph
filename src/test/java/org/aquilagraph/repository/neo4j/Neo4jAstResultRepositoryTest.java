@@ -18,6 +18,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.aquilagraph.application.AstLookupStatus;
 import org.aquilagraph.application.AstLookup;
 import org.aquilagraph.application.CommitKnowledge;
@@ -457,6 +458,45 @@ class Neo4jAstResultRepositoryTest {
     assertEquals(List.of("driver.close"), backend.events);
   }
 
+  @Test
+  void givenMalformedStreamedNode_whenReadCompletes_thenContentFailureRetainsDecodePhase() throws IOException {
+    // Arrange
+    var ast = produce();
+    var backend = new Backend();
+    backend.stored = new Neo4jAstResultCodec().map(ast);
+    backend.malformedNodeRecords = true;
+
+    // Act
+    var failure = assertThrows(RepositoryOperationException.class,
+        () -> repository(ast, RepositoryOperationKind.QUERY_AST, backend).find(ast.result().orElseThrow().identity()));
+
+    // Assert
+    assertEquals(RepositoryPhase.DECODE, failure.phase());
+    assertInstanceOf(IllegalArgumentException.class, failure.effectivePrimary());
+    assertTrue(backend.queries.stream().anyMatch(query -> query.contains("type(relation)")));
+    assertEquals("session.close:0", backend.events.getLast());
+  }
+
+  @Test
+  void givenMalformedNodeAndLaterStreamFailure_whenFinding_thenTransportFailureRetainsReadPriority() throws IOException {
+    // Arrange
+    var ast = produce();
+    var backend = new Backend();
+    backend.stored = new Neo4jAstResultCodec().map(ast);
+    backend.malformedNodeRecords = true;
+    backend.nodeStreamFailure = new Neo4jException("Transport failed after malformed content");
+
+    // Act
+    var failure = assertThrows(RepositoryOperationException.class,
+        () -> repository(ast, RepositoryOperationKind.QUERY_AST, backend).find(ast.result().orElseThrow().identity()));
+
+    // Assert
+    assertEquals(RepositoryPhase.READ, failure.phase());
+    assertSame(backend.nodeStreamFailure, failure.effectivePrimary().getCause());
+    assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge());
+    assertEquals("session.close:0", backend.events.getLast());
+  }
+
   AstOutcome produce() throws IOException {
     return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory,
         List.of(SourceFile.fromContent(Path.of("Stored.java"), "class Stored { int value() { return 1; } }"))),
@@ -491,6 +531,8 @@ class Neo4jAstResultRepositoryTest {
     private RuntimeException writeFailure;
     private RuntimeException closeFailure;
     private RuntimeException driverCloseFailure;
+    private RuntimeException nodeStreamFailure;
+    private boolean malformedNodeRecords;
     private String version = "absent";
     private Neo4jAstProjection stored;
 
@@ -548,7 +590,8 @@ class Neo4jAstResultRepositoryTest {
           if (query.contains("RETURN properties(result)")) {
             rows = List.of(record(Map.of("properties", stored.root().properties())));
           } else if (query.contains("labels(entity)")) {
-            rows = stored.nodes().stream().map(node -> record(Map.of("key", node.key(), "labels", List.of("AstEntity", node.label()),
+            rows = stored.nodes().stream().map(node -> record(Map.of("key", node.key(), "labels",
+                malformedNodeRecords ? List.of("AstEntity", node.label(), "Unexpected") : List.of("AstEntity", node.label()),
                 "properties", node.properties()))).toList();
           } else if (query.contains("type(relation)")) {
             var labelsByKey = new HashMap<String, List<String>>();
@@ -562,13 +605,20 @@ class Neo4jAstResultRepositoryTest {
         if (query.contains("RETURN count(entity)")) {
           rows = List.of(record(Map.of("count", 0L)));
         }
-        return result(rows);
+        return result(rows, query.contains("labels(entity)") ? nodeStreamFailure : null);
       });
     }
 
     private static Result result(List<Record> records) {
+      return result(records, null);
+    }
+
+    private static Result result(List<Record> records, RuntimeException streamFailure) {
       return proxy(Result.class, (ignored, method, arguments) -> switch (method.getName()) {
         case "consume" -> null;
+        case "stream" -> streamFailure == null ? records.stream() : Stream.concat(records.stream(), Stream.<Record>generate(() -> {
+          throw streamFailure;
+        }).limit(1));
         case "single" -> records.getFirst();
         case "list" -> {
           if (arguments != null && arguments.length != 0) { throw new AssertionError("Unexpected mapped result"); }

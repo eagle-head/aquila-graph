@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
@@ -117,6 +118,55 @@ class Neo4jAstResultCodecTest {
 
     // Act and assert
     assertThrows(IllegalArgumentException.class, () -> codec.decode(stored, second.result().orElseThrow().identity()));
+  }
+
+  @Test
+  void givenUnorderedStoredRows_whenDecoding_thenAllValuesAndCorrelationsRemainExact() throws IOException {
+    // Arrange
+    var outcome = produce("class Stored { int value(int x) { return x + x; } }");
+    var codec = new Neo4jAstResultCodec();
+    var projection = codec.map(outcome);
+    var nodes = new ArrayList<>(projection.nodes());
+    var relationships = new ArrayList<>(projection.relationships());
+    Collections.reverse(nodes);
+    Collections.reverse(relationships);
+
+    // Act
+    var decoded = codec.decode(new Neo4jAstProjection(projection.identity(), nodes, relationships), projection.identity());
+
+    // Assert
+    assertArrayEquals(AstCodec.encode(outcome.result().orElseThrow()), AstCodec.encode(decoded.result().orElseThrow()));
+  }
+
+  @Test
+  void givenMissingStoredRelationship_whenDecoding_thenExactMaterializationIsStillRequired() throws IOException {
+    assertRelationshipMutation(false);
+  }
+
+  @Test
+  void givenExtraStoredRelationship_whenDecoding_thenExactMaterializationIsStillRequired() throws IOException {
+    assertRelationshipMutation(true);
+  }
+
+  private void assertRelationshipMutation(boolean extra) throws IOException {
+    // Arrange
+    var outcome = produce("class Stored { int value(int x) { return x + x; } }");
+    var codec = new Neo4jAstResultCodec();
+    var projection = codec.map(outcome);
+    var relationships = new ArrayList<>(projection.relationships());
+    if (extra) {
+      var original = relationships.getFirst();
+      var key = original.key() + ":extra";
+      var properties = new HashMap<>(original.properties());
+      properties.put("key", key);
+      relationships.add(new Neo4jRelationship(key, original.type(), original.sourceKey(), original.targetKey(), properties));
+    } else {
+      relationships.removeLast();
+    }
+    var corrupted = new Neo4jAstProjection(projection.identity(), projection.nodes(), relationships);
+
+    // Act and assert
+    assertThrows(IllegalArgumentException.class, () -> codec.decode(corrupted, projection.identity()));
   }
 
   private AstOutcome produce(String source) throws IOException {
