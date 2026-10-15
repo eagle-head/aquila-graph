@@ -457,7 +457,7 @@ class Neo4jAstResultRepositoryTest {
     assertEquals(List.of("driver.close"), backend.events);
   }
 
-  private AstOutcome produce() throws IOException {
+  AstOutcome produce() throws IOException {
     return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory,
         List.of(SourceFile.fromContent(Path.of("Stored.java"), "class Stored { int value() { return 1; } }"))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED);
