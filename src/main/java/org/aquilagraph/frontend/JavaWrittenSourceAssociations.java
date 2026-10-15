@@ -20,10 +20,6 @@ final class JavaWrittenSourceAssociations {
     this.inventory = Objects.requireNonNull(inventory, "inventory");
   }
 
-  void clear() {
-    values.clear();
-  }
-
   SyntaxNode created(SyntaxNode node, TreePath path) {
     inventory.sourceAssociation(node, path).ifPresent(value -> retain(node, value));
     return node;
