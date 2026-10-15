@@ -23,8 +23,10 @@ import javax.tools.SimpleJavaFileObject;
 import javax.tools.ToolProvider;
 import org.jspecify.annotations.NullMarked;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class SourcePartitionBoundaryTest {
+  @TempDir Path consumerDirectory;
   private static final List<String> ADMISSION_TYPES = List.of("AstAggregateAdmission", "JavaAstAggregateBuilder",
       "AttributedDeclarationPaths", "ExecutionDecisionRegistration", "ExecutionDecisionValidation");
   private static final Set<String> NULLNESS_METADATA = Set.of("org.jspecify.annotations.NullMarked", "org.jspecify.annotations.Nullable");
@@ -193,7 +195,7 @@ class SourcePartitionBoundaryTest {
     return Path.of("target", "partitions", name, "classes");
   }
 
-  private static boolean compileConsumer(String source, boolean withCfg, DiagnosticCollector<JavaFileObject> diagnostics)
+  private boolean compileConsumer(String source, boolean withCfg, DiagnosticCollector<JavaFileObject> diagnostics)
       throws IOException, URISyntaxException {
     var compiler = ToolProvider.getSystemJavaCompiler();
     var nullnessDefinitions = Path.of(NullMarked.class.getProtectionDomain().getCodeSource().getLocation().toURI());
@@ -202,7 +204,7 @@ class SourcePartitionBoundaryTest {
       dependencies.add(partition("cfg-reader"));
     }
     var classPath = dependencies.stream().map(Path::toString).collect(Collectors.joining(File.pathSeparator));
-    var output = Files.createTempDirectory(Path.of("target"), "source-reader-consumer-");
+    var output = Files.createTempDirectory(consumerDirectory, "consumer-");
     var options = List.of("--release", "25", "--limit-modules", "java.base", "--class-path", classPath, "--source-path",
         partition("identity").toString(), "-proc:none", "-d", output.toString());
     var input = new SimpleJavaFileObject(URI.create("string:///reader/Consumer.java"), JavaFileObject.Kind.SOURCE) {

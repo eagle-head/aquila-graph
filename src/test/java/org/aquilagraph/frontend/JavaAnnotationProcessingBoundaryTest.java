@@ -22,15 +22,16 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.source.api.SyntaxAnalysisInput;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class JavaAnnotationProcessingBoundaryTest {
+  @TempDir Path workspace;
   private static final String PROCESSOR = "probe.BoundaryProcessor";
   private static final String LIFECYCLE_PROPERTY = "aquilagraph.processor.lifecycle";
 
   @Test
   void givenDiscoverableAndExplicitProcessors_whenAnalyzed_thenNeitherClassLoadingNorLifecycleRuns() throws IOException {
     // Arrange
-    var workspace = Files.createTempDirectory(Path.of("target").toAbsolutePath(), "annotation-processor-");
     var processorJar = processorJar(workspace);
     var input = Files.createDirectory(workspace.resolve("input"));
     Files.writeString(input.resolve("Input.java"), "@Deprecated class Input {}\n");

@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 
 class JavaAnnotationAstTest {
   @TempDir Path sourceRoot;
+  @TempDir Path libraryRoot;
 
   @Test
   void givenDeclarationMarkersAndEmptyNormals_whenAnalyzed_thenEachOccurrenceKeepsItsFormTypeAndTarget() throws IOException {
@@ -321,7 +322,7 @@ class JavaAnnotationAstTest {
   @Test
   void givenCompiledRepeatableAnnotation_whenAnalyzed_thenWrittenMarkersCompleteWithoutSourceContainer() throws IOException {
     // Arrange
-    var library = Files.createTempDirectory(Path.of("target").toAbsolutePath(), "repeatable-library-");
+    var library = Files.createTempDirectory(libraryRoot, "repeatable-library-");
     var classes = Files.createDirectory(library.resolve("classes"));
     var definition = library.resolve("Repeat.java");
     Files.writeString(definition, "import java.lang.annotation.Repeatable; "
