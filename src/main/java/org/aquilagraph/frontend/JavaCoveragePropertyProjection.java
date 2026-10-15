@@ -63,13 +63,8 @@ final class JavaCoveragePropertyProjection {
   }
 
   static CoveragePropertyValue query(Accessor accessor, Object owner, JavaCoverageTopology.Owner sourceOwner, JavaSourceEvidence evidence,
-      Optional<SemanticResolver> semantics) {
-    return query(accessor, owner, sourceOwner, evidence, semantics, false);
-  }
-
-  static CoveragePropertyValue query(Accessor accessor, Object owner, JavaCoverageTopology.Owner sourceOwner, JavaSourceEvidence evidence,
-      Optional<SemanticResolver> semantics, boolean enumInitialization) {
-    if (enumInitialization && owner instanceof VariableTree variable
+      Optional<SemanticResolver> semantics, JavaTranslationPolicy policy) {
+    if (policy.supportsEnumInitialization() && owner instanceof VariableTree variable
         && JavaEnumConstantSyntax.isConstant(sourceOwner.treePath(), evidence)) {
       switch (accessor.method().getName()) {
         case "getType" -> {

@@ -892,7 +892,7 @@ class JavaTypeUseAstTest {
 
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(JAVA_25), sources)) {
       var parsed = session.parse();
-      var compilation = session.analyze(parsed);
+      var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       var unit = compilation.units().getFirst();
       var typeTree = unit.getPackageName();
       var translator = new JavaTypeUseTranslator(compilation.semantics(), compilation.sourceEvidence(), parsed.treeInventory());
@@ -930,7 +930,7 @@ class JavaTypeUseAstTest {
 
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(JAVA_25), sources)) {
       var parsed = session.parse();
-      var compilation = session.analyze(parsed);
+      var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       var unit = compilation.units().getFirst();
       var owner = (ClassTree) unit.getTypeDecls().getFirst();
       var field = owner.getMembers().stream().filter(VariableTree.class::isInstance).map(VariableTree.class::cast).findFirst().orElseThrow();

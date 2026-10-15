@@ -523,7 +523,7 @@ class JavaAnnotationAstTest {
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
       var parsed = session.parse();
       var captured = JavaAnnotationSourceInventory.capture(new ParsedJavaSource(parsed.units(), missingPositions, parsed.treeInventory()), sources);
-      var compilation = session.analyze(parsed);
+      var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
 
       // Act
       var diagnostics = new JavaAnnotationCompleteness(captured, compilation.semantics(), List.of()).diagnostics(Optional.empty()).stream()

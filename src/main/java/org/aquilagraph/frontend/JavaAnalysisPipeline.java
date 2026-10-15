@@ -21,7 +21,6 @@ import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.api.SyntaxAnalysisInput;
 import org.aquilagraph.source.api.AstOutcome;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.admission.AstResultAdmission;
 import org.jspecify.annotations.Nullable;
 
@@ -38,30 +37,22 @@ final class JavaAnalysisPipeline {
     this.compilerSupplier = Objects.requireNonNull(compilerSupplier, "compilerSupplier");
   }
 
-  AstOutcome produce(InputSnapshot snapshot, CompilerConfiguration configuration, AstProfile profile, String semanticRevision)
-      throws IOException {
+  AstOutcome produce(InputSnapshot snapshot, CompilerConfiguration configuration, JavaTranslationPolicy policy) throws IOException {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(configuration, "configuration");
-    Objects.requireNonNull(profile, "profile");
+    Objects.requireNonNull(policy, "policy");
     if (snapshot.sourceFiles().isEmpty()) {
       var contract = JavaLanguageFeatureCoverage.fromConfiguration(configuration);
       var written = JavaSourceCoverageCapture.empty(snapshot, contract);
       var coverage = LanguageFeatureCoverageResult.fromEvidence(contract, written, new AttributedCoverageExpectations(written, List.of()),
           List.of(), List.of(), List.of());
-      return AstResultAdmission.empty(snapshot, configuration, profile, coverage);
+      return AstResultAdmission.empty(snapshot, configuration, policy.profile(), coverage);
     }
-    return AstResultAdmission.outcome(
-        analyze(snapshot, configuration, profile.supportsMemberInitialization(), profile.supportsNestedDeclarations(),
-            profile.supportsEnumInitialization(), profile.supportsDeclarationFidelity(), profile.supportsSourceEnvelope()),
-        profile, semanticRevision);
+    return AstResultAdmission.outcome(analyze(snapshot, configuration, policy), policy.profile(), policy.semanticRevision());
   }
 
-  SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration) throws IOException {
-    return analyze(snapshot, configuration, false, false, false, false, false);
-  }
-
-  private SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration, boolean memberInitialization,
-      boolean nestedDeclarations, boolean enumInitialization, boolean declarationFidelity, boolean sourceEnvelope) throws IOException {
+  SyntaxAnalysisInput analyze(InputSnapshot snapshot, CompilerConfiguration configuration, JavaTranslationPolicy policy)
+      throws IOException {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(configuration, "configuration");
     var compiler = systemCompiler(configuration);
@@ -80,23 +71,20 @@ final class JavaAnalysisPipeline {
     SyntaxAnalysisInput result;
     try (var session = openCompilerSession(compiler, invocation, sources)) {
       var parsedSource = session.parse();
-      var coverageCapture = JavaSourceCoverageCapture.capture(snapshot, parsedSource, sources, languageFeatureCoverage, enumInitialization,
-          declarationFidelity, sourceEnvelope);
+      var coverageCapture = JavaSourceCoverageCapture.capture(snapshot, parsedSource, sources, languageFeatureCoverage, policy);
       var propertyProducer = new JavaDeclarationPropertyEncounterProducer(parsedSource.units(), sources, parsedSource.sourceEvidence(),
-          languageFeatureCoverage, enumInitialization);
+          languageFeatureCoverage, policy);
       var writtenProperties = propertyProducer.observeWritten();
       var annotationInventory = JavaAnnotationSourceInventory.capture(parsedSource, sources);
-      var kindEvidence = new JavaCompilerKindDiagnostics(sources, parsedSource.sourceEvidence(), languageFeatureCoverage,
-          enumInitialization).observe(parsedSource.units());
-      var compilation = session.analyze(parsedSource, nestedDeclarations);
+      var kindEvidence = new JavaCompilerKindDiagnostics(sources, parsedSource.sourceEvidence(), languageFeatureCoverage, policy)
+          .observe(parsedSource.units());
+      var compilation = session.analyze(parsedSource, policy);
       var attributedExpectations = coverageCapture.captureAttributed(compilation.semantics());
       var attributedProperties = propertyProducer.observeAttributed(compilation.semantics());
       var typeEvidence = new JavaTypeKindObserver(sources, compilation.semantics(), compilation.sourceEvidence(),
-          compilation.treeInventory(), languageFeatureCoverage, enumInitialization).observe(compilation.units());
+          compilation.treeInventory(), languageFeatureCoverage, policy).observe(compilation.units());
       var translator = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
-          compilation.treeInventory(), languageFeatureCoverage, memberInitialization, nestedDeclarations, enumInitialization);
-      translator.enableDeclarationFidelity(declarationFidelity);
-      translator.enableSourceEnvelope(sourceEnvelope);
+          compilation.treeInventory(), languageFeatureCoverage, policy);
       var translation = translator.translate(snapshot, compilation.units(),
           compilation.diagnostics().stream().anyMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
       var annotationCompleteness = new JavaAnnotationCompleteness(annotationInventory, compilation.semantics(), translation.diagnostics());

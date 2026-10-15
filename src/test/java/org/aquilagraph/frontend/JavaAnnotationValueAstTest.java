@@ -457,7 +457,7 @@ class JavaAnnotationValueAstTest {
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(),
         JavaCompilerInvocation.from(configuration), catalog)) {
       var parsed = session.parse();
-      var compilation = session.analyze(parsed);
+      var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       var unit = compilation.units().getFirst();
       var declarations = unit.getTypeDecls().stream().map(ClassTree.class::cast).toList();
       var annotation = declarations.getLast().getModifiers().getAnnotations().getFirst();

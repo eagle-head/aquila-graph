@@ -250,7 +250,7 @@ class JavaMethodBodyAdmissionTest {
   void givenCanonicalMethodMissingFromContribution_whenCorrelated_thenBodyIsRejected() throws IOException {
     // Arrange
     withCompiledSource("missing-method", fixture -> {
-      var contributor = new JavaAstContributionTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory());
+      var contributor = new JavaAstContributionTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaTranslationPolicy.legacyAnalysis());
 
       // Act
       var error = assertThrows(IllegalArgumentException.class,
@@ -283,7 +283,7 @@ class JavaMethodBodyAdmissionTest {
           type.directSuperclass(), type.directInterfaces(), type.permittedSubclasses(), type.typeParameters(), type.sourceDeclared(),
           type.fields(), type.recordComponents(), type.methods().stream().map(method -> method.equals(original) ? changed : method).toList(),
           type.synthesizedDeclarations(), type.origins());
-      var contributor = new JavaAstContributionTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory());
+      var contributor = new JavaAstContributionTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaTranslationPolicy.legacyAnalysis());
 
       // Act
       var error = assertThrows(IllegalArgumentException.class,
@@ -416,7 +416,7 @@ class JavaMethodBodyAdmissionTest {
       var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(), new DeclarationIdentityRegistry(trees, task.getTypes()));
       var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
       var methodTranslator = new JavaMethodTranslator(semantics, evidence, inventory, new JavaMethodBodyTranslator(semantics, evidence, inventory));
-      var typeTranslator = new JavaTypeTranslator(semantics, evidence, inventory, new JavaDeclarationPropertyObserver(coverage), methodTranslator);
+      var typeTranslator = new JavaTypeTranslator(semantics, evidence, inventory, new JavaDeclarationPropertyObserver(coverage), methodTranslator, JavaTranslationPolicy.legacyAnalysis());
       var translated = typeTranslator.translate(unit, new TreePath(unit), source, (ClassTree) unit.getTypeDecls().getFirst())
           .value().orElseThrow();
       action.accept(new Fixture(snapshot, source, unit, task, trees, semantics, evidence, inventory, translated));
@@ -440,7 +440,7 @@ class JavaMethodBodyAdmissionTest {
     }
 
     JavaAstContributionTranslator.UnitTranslation contribute(List<TranslatedMethodBody> bodies, SemanticResolver resolver) {
-      return new JavaAstContributionTranslator(resolver, evidence, inventory).translate(unit, source, bodies, translated.types());
+      return new JavaAstContributionTranslator(resolver, evidence, inventory, JavaTranslationPolicy.legacyAnalysis()).translate(unit, source, bodies, translated.types());
     }
   }
 

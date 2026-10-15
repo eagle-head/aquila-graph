@@ -47,33 +47,21 @@ final class JavaSourceCoverageCapture {
   private final SourceCoverageInventory writtenInventory;
   private final Map<SourceContext.Address, SemanticDescriptor> descriptors;
   private final JavaSourceEvidence sourceEvidence;
+  private final JavaTranslationPolicy policy;
 
   private JavaSourceCoverageCapture(SourceCoverageInventory inventory, Map<SourceContext.Address, SemanticDescriptor> descriptors,
-      JavaSourceEvidence sourceEvidence) {
+      JavaSourceEvidence sourceEvidence, JavaTranslationPolicy policy) {
     writtenInventory = inventory;
     this.descriptors = Map.copyOf(descriptors);
     this.sourceEvidence = sourceEvidence;
+    this.policy = policy;
   }
 
   static JavaSourceCoverageCapture capture(InputSnapshot snapshot, ParsedJavaSource parsed, SnapshotSourceCatalog sources,
-      LanguageFeatureCoverage coverage) {
-    return capture(snapshot, parsed, sources, coverage, false);
-  }
-
-  static JavaSourceCoverageCapture capture(InputSnapshot snapshot, ParsedJavaSource parsed, SnapshotSourceCatalog sources,
-      LanguageFeatureCoverage coverage, boolean enumInitialization) {
-    return capture(snapshot, parsed, sources, coverage, enumInitialization, false);
-  }
-
-  static JavaSourceCoverageCapture capture(InputSnapshot snapshot, ParsedJavaSource parsed, SnapshotSourceCatalog sources,
-      LanguageFeatureCoverage coverage, boolean enumInitialization, boolean declarationFidelity) {
-    return capture(snapshot, parsed, sources, coverage, enumInitialization, declarationFidelity, false);
-  }
-
-  static JavaSourceCoverageCapture capture(InputSnapshot snapshot, ParsedJavaSource parsed, SnapshotSourceCatalog sources,
-      LanguageFeatureCoverage coverage, boolean enumInitialization, boolean declarationFidelity, boolean sourceEnvelope) {
+      LanguageFeatureCoverage coverage, JavaTranslationPolicy policy) {
     var owners = JavaCoverageTopology.owners(parsed.units(), sources, parsed.sourceEvidence()).stream()
-        .filter(owner -> !enumInitialization || !JavaEnumConstantSyntax.isImplicitEnvelope(owner.treePath(), parsed.sourceEvidence()))
+        .filter(owner -> !policy.supportsEnumInitialization()
+            || !JavaEnumConstantSyntax.isImplicitEnvelope(owner.treePath(), parsed.sourceEvidence()))
         .toList();
     var contexts = new ArrayList<SourceContext>();
     for (var owner : owners) {
@@ -97,7 +85,7 @@ final class JavaSourceCoverageCapture {
       JavaCoverageTopology.surface(owner.tree()).ifPresent(surface -> {
         for (var accessor : JavaCoveragePropertyProjection.accessors(surface, coverage)) {
           var value = JavaCoveragePropertyProjection.query(accessor, owner.tree(), owner, parsed.sourceEvidence(), Optional.empty(),
-              enumInitialization);
+              policy);
           contexts.add(new SourceContext(address(owner, Partition.WRITTEN_PROPERTY, accessor.classification().feature().identifier(), 0),
               Optional.of(accessor.classification().feature()), owner.origin().stream().toList(), Optional.of(value), false));
         }
@@ -117,9 +105,9 @@ final class JavaSourceCoverageCapture {
         descriptors.put(address, descriptor(owner, Optional.of(accessor), owner.treePath()));
       }
     }
-    if (declarationFidelity) {
+    if (policy.supportsDeclarationFidelity()) {
       for (var owner : owners) {
-        if (!(owner.tree() instanceof ClassTree declaration) || (owner.origin().isEmpty() && !sourceEnvelope)) {
+        if (!(owner.tree() instanceof ClassTree declaration) || (owner.origin().isEmpty() && !policy.supportsSourceEnvelope())) {
           continue;
         }
         var emptyDeclarations = parsed.treeInventory().emptyBodyDeclarations(declaration);
@@ -137,7 +125,7 @@ final class JavaSourceCoverageCapture {
         }
       }
     }
-    if (sourceEnvelope) {
+    if (policy.supportsSourceEnvelope()) {
       for (var unit : parsed.units()) {
         var declarations = parsed.treeInventory().emptyUnitDeclarations(unit);
         for (var ordinal = 0; ordinal < declarations.size(); ordinal++) {
@@ -151,7 +139,7 @@ final class JavaSourceCoverageCapture {
     }
     contexts.sort(Comparator.comparing(context -> context.address().partition()));
     return new JavaSourceCoverageCapture(new SourceCoverageInventory(snapshot, coverage.release(), coverage.contractIdentity(), contexts),
-        descriptors, parsed.sourceEvidence());
+        descriptors, parsed.sourceEvidence(), policy);
   }
 
   static SourceCoverageInventory empty(InputSnapshot snapshot, LanguageFeatureCoverage coverage) {
@@ -191,7 +179,7 @@ final class JavaSourceCoverageCapture {
       ownerIdentity = element == null ? Optional.empty() : semantics.declarationKey(element);
       value = ownerIdentity.isPresent() && (element instanceof TypeElement || element instanceof ExecutableElement)
           ? JavaCoveragePropertyProjection.query(descriptor.accessor().orElseThrow(), element, descriptor.owner(), sourceEvidence,
-              Optional.of(semantics))
+              Optional.of(semantics), policy)
           : new CoveragePropertyValue(State.UNAVAILABLE, List.of());
     }
     return new AttributedCoverageExpectations.Projection(context.address(), value, ownerIdentity);

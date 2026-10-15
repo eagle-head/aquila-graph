@@ -665,7 +665,7 @@ class JavaConstructorSelectionTest {
       var collection = task.getTypes().getDeclaredType(task.getElements().getTypeElement("java.util.Collection"),
           argument.getTypeArguments().getFirst());
       var selection = new JavaConstructorSelection(compiler, invocation, catalog, manager, trees, task.getTypes(), task.getElements());
-      selection.prepare(units);
+      selection.prepare(units, JavaTranslationPolicy.legacyAnalysis());
       var facts = selection.select(path, selected).orElseThrow();
 
       // Assert
@@ -883,7 +883,7 @@ class JavaConstructorSelectionTest {
       var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(), new DeclarationIdentityRegistry(trees, task.getTypes()));
       var selection = new JavaConstructorSelection(compiler, invocation, catalog, owned.standardFileManager(), trees, task.getTypes(),
           task.getElements());
-      selection.prepare(units);
+      selection.prepare(units, JavaTranslationPolicy.legacyAnalysis());
       assertEquals(semantics.typeIdentity(originalCapture), selection.select(path, selected).orElseThrow().arguments().getFirst().selectedTarget());
       assertEquals(List.of(), diagnostics.getDiagnostics());
     }

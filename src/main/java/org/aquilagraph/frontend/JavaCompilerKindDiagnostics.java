@@ -27,18 +27,14 @@ final class JavaCompilerKindDiagnostics {
   private final SnapshotSourceCatalog sources;
   private final JavaSourceEvidence sourceEvidence;
   private final LanguageFeatureCoverage coverage;
-  private final boolean enumInitialization;
-
-  JavaCompilerKindDiagnostics(SnapshotSourceCatalog sources, JavaSourceEvidence sourceEvidence, LanguageFeatureCoverage coverage) {
-    this(sources, sourceEvidence, coverage, false);
-  }
+  private final JavaTranslationPolicy policy;
 
   JavaCompilerKindDiagnostics(SnapshotSourceCatalog sources, JavaSourceEvidence sourceEvidence, LanguageFeatureCoverage coverage,
-      boolean enumInitialization) {
+      JavaTranslationPolicy policy) {
     this.sources = Objects.requireNonNull(sources, "sources");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.coverage = Objects.requireNonNull(coverage, "coverage");
-    this.enumInitialization = enumInitialization;
+    this.policy = policy;
   }
 
   ObservedLanguageFeatures observe(List<CompilationUnitTree> units) {
@@ -80,7 +76,8 @@ final class JavaCompilerKindDiagnostics {
         return null;
       }
       var parent = getCurrentPath();
-      if (enumInitialization && parent != null && JavaEnumConstantSyntax.isImplicitEnvelope(new TreePath(parent, tree), sourceEvidence)) {
+      if (policy.supportsEnumInitialization() && parent != null
+          && JavaEnumConstantSyntax.isImplicitEnvelope(new TreePath(parent, tree), sourceEvidence)) {
         return super.scan(tree, context);
       }
       var kind = tree.getKind();

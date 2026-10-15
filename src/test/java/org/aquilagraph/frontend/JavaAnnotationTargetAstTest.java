@@ -760,7 +760,7 @@ class JavaAnnotationTargetAstTest {
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(),
         JavaCompilerInvocation.from(configuration), sources)) {
       var parsed = session.parse();
-      var compilation = session.analyze(parsed);
+      var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       var semantics = compilation.semantics();
       var attributed = new JavaAnnotationMirrorCorrelation(semantics);
       RecordAnnotationMirrorCorrelation missingValue = new RecordAnnotationMirrorCorrelation() {
@@ -787,7 +787,7 @@ class JavaAnnotationTargetAstTest {
       };
       var outcomes = List.of(missingValue, wrongTypePosition).stream()
           .map(correlation -> new JavaAstContributionTranslator(semantics, parsed.sourceEvidence(), parsed.treeInventory(),
-              correlation).translate(compilation.units().getFirst(), snapshot.sourceFiles().getFirst(), List.of(),
+              correlation, JavaTranslationPolicy.legacyAnalysis()).translate(compilation.units().getFirst(), snapshot.sourceFiles().getFirst(), List.of(),
                   valid.program().types()))
           .toList();
 
@@ -830,7 +830,7 @@ class JavaAnnotationTargetAstTest {
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration),
         new SnapshotSourceCatalog(valid.snapshot()))) {
       var parsed = session.parse();
-      var compilation = session.analyze(parsed);
+      var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       var unit = compilation.units().getFirst();
       var classes = unit.getTypeDecls().stream().filter(ClassTree.class::isInstance).map(ClassTree.class::cast)
           .collect(Collectors.toMap(tree -> tree.getSimpleName().toString(), tree -> tree));
@@ -924,7 +924,7 @@ class JavaAnnotationTargetAstTest {
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration),
         new SnapshotSourceCatalog(valid.snapshot()))) {
       var parsed = session.parse();
-      var compilation = session.analyze(parsed);
+      var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       var unit = compilation.units().getFirst();
       var classes = unit.getTypeDecls().stream().filter(ClassTree.class::isInstance).map(ClassTree.class::cast)
           .collect(Collectors.toMap(tree -> tree.getSimpleName().toString(), tree -> tree));

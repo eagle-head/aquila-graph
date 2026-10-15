@@ -204,7 +204,7 @@ class JavaAnnotationDefaultAstTest {
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(),
         JavaCompilerInvocation.from(configuration), new SnapshotSourceCatalog(snapshot))) {
       var parsed = session.parse();
-      var compilation = session.analyze(parsed);
+      var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       var unit = compilation.units().getFirst();
       var method = (MethodTree) ((ClassTree) unit.getTypeDecls().getFirst()).getMembers().stream()
           .filter(member -> member instanceof MethodTree).findFirst().orElseThrow();
@@ -224,7 +224,7 @@ class JavaAnnotationDefaultAstTest {
       var callerDiagnostics = new ArrayList<AnalysisDiagnostic>();
       var callerChildren = new ArrayList<SyntaxChild>();
       var translator = new JavaAstContributionTranslator(compilation.semantics(), parsed.sourceEvidence(),
-          compilation.treeInventory());
+          compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis());
 
       // Act
       var projected = projector.defaultValue(unit, source, method, missing, path, diagnostics);

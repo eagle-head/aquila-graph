@@ -580,9 +580,9 @@ class JavaAnnotationCompletionTest {
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
       var parsed = session.parse();
       var inventory = JavaAnnotationSourceInventory.capture(parsed, sources);
-      var compilation = session.analyze(parsed);
+      var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       var translation = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(), compilation.treeInventory(),
-          JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION)).translate(snapshot, compilation.units());
+          JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
       var fixture = new Fixture(snapshot, parsed, inventory, compilation, translation.value().aggregate().orElseThrow());
       assertEquals(List.of(), translation.diagnostics());
       assertEquals(List.of(), reconcile(fixture, fixture.aggregate()));
