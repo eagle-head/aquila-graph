@@ -334,6 +334,15 @@ class MemberInitializationAstTest {
     assertEquals(AstCompletion.COMPLETE, result.completion(), result.diagnostics().toString());
     var fields = fields(result);
     assertTrue(fields.get("absent").children(SyntaxRole.INITIALIZER).isEmpty());
+    var absent = fields.get("absent");
+    var absentKey = absent.value(SyntaxValue.VariableDeclaration.class).declarationKey();
+    var absentScope = result.aggregate().executionSyntax(absentKey).orElseThrow();
+    assertEquals(new ExecutionScope.Field("type:Example#field:absent", "type:Example"), absentScope.scope());
+    assertSame(absent, absentScope.root());
+    assertTrue(absentScope.useEvidence(absent.nodeId(), SyntaxRole.INITIALIZER, 0).isEmpty());
+    assertTrue(absentScope.evidence().uses().isEmpty());
+    assertEquals(List.of(absent.nodeId()), absentScope.attributedOccurrences().stream()
+        .map(occurrence -> occurrence.nodeKey()).toList());
     assertEquals(List.of(), fields.get("empty").requiredChild(SyntaxRole.INITIALIZER).children(SyntaxRole.ARRAY_ELEMENT));
     var populated = fields.get("populated");
     var array = populated.requiredChild(SyntaxRole.INITIALIZER);
