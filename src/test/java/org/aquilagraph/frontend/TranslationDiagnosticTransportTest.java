@@ -188,7 +188,7 @@ class TranslationDiagnosticTransportTest {
           new SourceSpan(fixture.source().sourceFileKey(), secondStart, secondStart + "@Inner()".length()));
 
       // Act
-      var child = new JavaAstContributionTranslator(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
+      var child = new JavaDeclarationProjector(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
           fixture.compilation().treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(unit, fixture.source(), translatedBodies, declarations);
       var program = programTranslation(fixture);
       var childEvents = TranslationDiagnosticEvidence.events(child.diagnostics()).stream()
