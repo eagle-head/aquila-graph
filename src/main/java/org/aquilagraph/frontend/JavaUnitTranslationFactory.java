@@ -2,6 +2,7 @@ package org.aquilagraph.frontend;
 
 import com.sun.source.tree.CompilationUnitTree;
 import java.util.Objects;
+import java.util.function.UnaryOperator;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.LanguageFeatureCoverage;
 
@@ -12,9 +13,16 @@ final class JavaUnitTranslationFactory {
   private final ParsedTreeInventory treeInventory;
   private final LanguageFeatureCoverage coverage;
   private final JavaTranslationPolicy policy;
+  private final UnaryOperator<JavaUnitTranslator.SourceProjection> projections;
 
   JavaUnitTranslationFactory(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
       LanguageFeatureCoverage coverage, JavaTranslationPolicy policy) {
+    this(semantics, sourceEvidence, treeInventory, coverage, policy, UnaryOperator.identity());
+  }
+
+  JavaUnitTranslationFactory(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
+      LanguageFeatureCoverage coverage, JavaTranslationPolicy policy, UnaryOperator<JavaUnitTranslator.SourceProjection> projections) {
+    this.projections = Objects.requireNonNull(projections, "projections");
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
@@ -27,7 +35,14 @@ final class JavaUnitTranslationFactory {
     var methods = new JavaMethodTranslator(semantics, sourceEvidence, treeInventory, bodies);
     var types = new JavaTypeTranslator(semantics, sourceEvidence, treeInventory, new JavaDeclarationPropertyObserver(coverage), methods,
         policy);
-    var sourceProjection = new JavaDeclarationProjector(semantics, sourceEvidence, treeInventory, policy);
-    return new JavaUnitTranslator(unit, source, types, sourceProjection);
+    var associations = new JavaWrittenSourceAssociations(treeInventory);
+    var declarations = new JavaDeclarationScope();
+    var correlation = new JavaBodySourceCorrelation(semantics, sourceEvidence, treeInventory, associations, declarations);
+    var renderer = new JavaDeclarationProjector(semantics, sourceEvidence, treeInventory, new JavaAnnotationMirrorCorrelation(semantics),
+        policy, associations, declarations, correlation);
+    var sourceProjection = new JavaUnitSourceProjector(semantics, sourceEvidence, treeInventory, policy, associations, correlation,
+        renderer);
+    var finalizer = new JavaUnitFinalizer(correlation, associations, declarations);
+    return new JavaUnitTranslator(unit, source, types, projections.apply(sourceProjection::project), finalizer);
   }
 }

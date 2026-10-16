@@ -7,17 +7,35 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.frontend.JavaProjectionIdentity.Occurrence;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
 import org.jspecify.annotations.Nullable;
 
 /** Collects copied parsed ownership at the actual source-node creating sites. */
 final class JavaWrittenSourceAssociations {
   private final ParsedTreeInventory inventory;
-  private final Map<InstanceKey, WrittenSourceAssociation> values = new HashMap<>();
+  private final Optional<JavaWrittenSourceAssociations> parent;
+  private final Map<Occurrence, WrittenSourceAssociation> values = new HashMap<>();
 
   JavaWrittenSourceAssociations(ParsedTreeInventory inventory) {
     this.inventory = Objects.requireNonNull(inventory, "inventory");
+    parent = Optional.empty();
+  }
+
+  private JavaWrittenSourceAssociations(JavaWrittenSourceAssociations parent) {
+    inventory = parent.inventory;
+    this.parent = Optional.of(parent);
+  }
+
+  JavaWrittenSourceAssociations child() {
+    return new JavaWrittenSourceAssociations(this);
+  }
+
+  void accept() {
+    var owner = parent.orElseThrow();
+    values.forEach((key, value) -> owner.retain(key.node(), value));
   }
 
   SyntaxNode created(SyntaxNode node, TreePath path) {
@@ -34,7 +52,7 @@ final class JavaWrittenSourceAssociations {
     if (!node.nodeId().equals(value.nodeKey())) {
       throw new IllegalArgumentException("A parsed ownership copy must select its actual creating node");
     }
-    var previous = values.putIfAbsent(new InstanceKey(node), value);
+    var previous = values.putIfAbsent(new Occurrence(node), value);
     if (previous != null && !previous.equals(value)) {
       throw new IllegalArgumentException("A source node has contradictory parsed ownership: " + value.nodeKey());
     }
@@ -64,18 +82,8 @@ final class JavaWrittenSourceAssociations {
   }
 
   private @Nullable WrittenSourceAssociation associationFor(SyntaxNode node) {
-    return values.get(new InstanceKey(node));
+    var value = values.get(new Occurrence(node));
+    return value != null ? value : parent.map(owner -> owner.associationFor(node)).orElse(null);
   }
 
-  private record InstanceKey(SyntaxNode node) {
-    @Override
-    public boolean equals(@Nullable Object other) {
-      return other instanceof InstanceKey key && JavaProjectionIdentity.sameInstance(node, key.node);
-    }
-
-    @Override
-    public int hashCode() {
-      return System.identityHashCode(node);
-    }
-  }
 }

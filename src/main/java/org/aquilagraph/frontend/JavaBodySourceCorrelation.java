@@ -55,14 +55,20 @@ final class JavaBodySourceCorrelation {
   private final JavaDeclarationScope declarations;
   private final JavaAnnotationProjector annotationProjector;
   private final JavaTypeUseTranslator typeUseTranslator;
-  private final JavaSourceCopyCorrespondence sourceCopies = new JavaSourceCopyCorrespondence();
-  private final List<TranslatedMethodBody> projectedBodies = new ArrayList<>();
-  private final Map<SyntaxStructuralPath, TranslatedMethodBody> bodies = new HashMap<>();
+  private final JavaSourceCopyCorrespondence sourceCopies;
+  private final Optional<JavaBodySourceCorrelation> parent;
+  private final List<TranslatedMethodBody> projectedBodies;
+  private final Map<SyntaxStructuralPath, TranslatedMethodBody> bodies;
   private final List<CopiedAstValues.Scope> scopes = new ArrayList<>();
-  private final Publication rootPublication = new Publication(Optional.empty());
+  private final Publication rootPublication;
 
   JavaBodySourceCorrelation(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
       JavaWrittenSourceAssociations sourceAssociations, JavaDeclarationScope declarations) {
+    parent = Optional.empty();
+    sourceCopies = new JavaSourceCopyCorrespondence();
+    projectedBodies = new ArrayList<>();
+    bodies = new HashMap<>();
+    rootPublication = new Publication(Optional.empty());
     this.semantics = semantics;
     this.sourceEvidence = sourceEvidence;
     this.treeInventory = treeInventory;
@@ -70,6 +76,37 @@ final class JavaBodySourceCorrelation {
     this.declarations = declarations;
     annotationProjector = new JavaAnnotationProjector(semantics, sourceEvidence, treeInventory, sourceAssociations);
     typeUseTranslator = new JavaTypeUseTranslator(semantics, sourceEvidence, treeInventory, Optional.empty(), sourceAssociations);
+  }
+
+  private JavaBodySourceCorrelation(JavaBodySourceCorrelation parent, JavaWrittenSourceAssociations sourceAssociations,
+      JavaDeclarationScope declarations) {
+    this.parent = Optional.of(parent);
+    semantics = parent.semantics;
+    sourceEvidence = parent.sourceEvidence;
+    treeInventory = parent.treeInventory;
+    this.sourceAssociations = sourceAssociations;
+    this.declarations = declarations;
+    projectedBodies = parent.projectedBodies;
+    bodies = parent.bodies;
+    sourceCopies = parent.sourceCopies.child();
+    rootPublication = parent.rootPublication.child();
+    annotationProjector = new JavaAnnotationProjector(semantics, sourceEvidence, treeInventory, sourceAssociations);
+    typeUseTranslator = new JavaTypeUseTranslator(semantics, sourceEvidence, treeInventory, Optional.empty(), sourceAssociations);
+  }
+
+  JavaBodySourceCorrelation child(JavaWrittenSourceAssociations associations, JavaDeclarationScope scope) {
+    return new JavaBodySourceCorrelation(this, associations, scope);
+  }
+
+  void accept() {
+    var owner = parent.orElseThrow();
+    sourceCopies.accept();
+    rootPublication.accept();
+    owner.scopes.addAll(scopes);
+  }
+
+  void refuse() {
+    rootPublication.refuse();
   }
 
   void correlate(CompilationUnitTree unit, SourceFile sourceFile, List<TranslatedMethodBody> supplied, List<JavaType> types) {
@@ -272,7 +309,8 @@ final class JavaBodySourceCorrelation {
       paths.put(binding.node().nodeId(), binding.path());
       binding.sourceAssociation().ifPresent(value -> sourceAssociations.retain(binding.node(), value));
     });
-    return project(projection.translation().value(), path, false, true, new BodySourceContext(unit, sourceFile, paths, diagnostics));
+    return project(projection.translation().value(), path, false, true,
+        new BodySourceContext(unit, sourceFile, paths, declarations, diagnostics));
   }
 
   List<AttributedBodyOccurrence> executionAttributions(String scopeKey, JavaExecutableSyntaxProjector.Projection projection) {
@@ -291,7 +329,7 @@ final class JavaBodySourceCorrelation {
         && treeInventory.isCompilerInsertedSuperCall(new TreePath(bodyPath, statements.getFirst()));
     var paths = new HashMap<String, TreePath>();
     body.projection().nodeProjections().forEach(projection -> paths.put(projection.node().nodeId(), projection.path()));
-    var context = new BodySourceContext(unit, sourceFile, paths, diagnostics);
+    var context = new BodySourceContext(unit, sourceFile, paths, declarations, diagnostics);
     return project(body.root(), path, omitInsertedCall, true, context);
   }
 
@@ -336,7 +374,7 @@ final class JavaBodySourceCorrelation {
     if (value instanceof SyntaxValue.LocalDeclaration local && creatingPath.getLeaf() instanceof VariableTree variable) {
       var binding = local.bindingEvidence().orElseThrow();
       var annotations = children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION).count();
-      var shared = declarations.localAnnotations(localHeaderKey(context, variable));
+      var shared = context.declarations().localAnnotations(localHeaderKey(context, variable));
       var sharedKeys = variable.getModifiers().getAnnotations().stream()
           .flatMap(annotation -> sourceEvidence.origin(context.unit(), context.sourceFile(), annotation).stream()).map(shared::find)
           .filter(Objects::nonNull).filter(key -> children.stream().noneMatch(child -> child.node().nodeId().equals(key))).toList();
@@ -469,7 +507,7 @@ final class JavaBodySourceCorrelation {
 
   private boolean appendLocalAttachments(VariableTree variable, TreePath creatingPath, SyntaxStructuralPath path,
       List<SyntaxChild> children, BodySourceContext context) {
-    var owners = declarations.localAnnotations(localHeaderKey(context, variable));
+    var owners = context.declarations().localAnnotations(localHeaderKey(context, variable));
     var annotations = treeInventory.variableAnnotations(variable).orElse(List.of());
     var ownAnnotations = annotations.stream()
         .filter(annotation -> sourceEvidence.origin(context.unit(), context.sourceFile(), annotation).filter(owners::contains).isEmpty())
@@ -525,7 +563,7 @@ final class JavaBodySourceCorrelation {
   }
 
   private record BodySourceContext(CompilationUnitTree unit, SourceFile sourceFile, Map<String, TreePath> paths,
-      DiagnosticEmissionCollector diagnostics) {
+      JavaDeclarationScope declarations, DiagnosticEmissionCollector diagnostics) {
   }
 
 }

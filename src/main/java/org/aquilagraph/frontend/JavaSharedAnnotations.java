@@ -9,6 +9,12 @@ import org.jspecify.annotations.Nullable;
 final class JavaSharedAnnotations {
   private final Map<SourceSpan, String> owners = new HashMap<>();
 
+  JavaSharedAnnotations copy() {
+    var copy = new JavaSharedAnnotations();
+    copy.owners.putAll(owners);
+    return copy;
+  }
+
   boolean contains(SourceSpan range) {
     return owners.containsKey(range);
   }

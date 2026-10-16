@@ -250,7 +250,7 @@ class JavaMethodBodyAdmissionTest {
   void givenCanonicalMethodMissingFromContribution_whenCorrelated_thenBodyIsRejected() throws IOException {
     // Arrange
     withCompiledSource("missing-method", fixture -> {
-      var contributor = new JavaDeclarationProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaTranslationPolicy.legacyAnalysis());
+      var contributor = new UnitSourceFixture(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaTranslationPolicy.legacyAnalysis());
 
       // Act
       var error = assertThrows(IllegalArgumentException.class,
@@ -283,7 +283,7 @@ class JavaMethodBodyAdmissionTest {
           type.directSuperclass(), type.directInterfaces(), type.permittedSubclasses(), type.typeParameters(), type.sourceDeclared(),
           type.fields(), type.recordComponents(), type.methods().stream().map(method -> method.equals(original) ? changed : method).toList(),
           type.synthesizedDeclarations(), type.origins());
-      var contributor = new JavaDeclarationProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaTranslationPolicy.legacyAnalysis());
+      var contributor = new UnitSourceFixture(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaTranslationPolicy.legacyAnalysis());
 
       // Act
       var error = assertThrows(IllegalArgumentException.class,
@@ -439,8 +439,8 @@ class JavaMethodBodyAdmissionTest {
       return translated.methodBodies().stream().map(body -> body == original ? replacement : body).toList();
     }
 
-    JavaDeclarationProjector.UnitTranslation contribute(List<TranslatedMethodBody> bodies, SemanticResolver resolver) {
-      return new JavaDeclarationProjector(resolver, evidence, inventory, JavaTranslationPolicy.legacyAnalysis()).translate(unit, source, bodies, translated.types());
+    FinalizedUnit contribute(List<TranslatedMethodBody> bodies, SemanticResolver resolver) {
+      return new UnitSourceFixture(resolver, evidence, inventory, JavaTranslationPolicy.legacyAnalysis()).translate(unit, source, bodies, translated.types());
     }
   }
 

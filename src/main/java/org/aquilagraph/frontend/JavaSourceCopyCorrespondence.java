@@ -1,38 +1,51 @@
 package org.aquilagraph.frontend;
 
 import java.util.HashMap;
-import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.BiConsumer;
-import java.util.function.Function;
 import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.frontend.JavaProjectionIdentity.Occurrence;
 
 /** Tracks source occurrence instances through staged attachment and final scope publication. */
 final class JavaSourceCopyCorrespondence {
-  private final Function<SyntaxNode, Optional<SyntaxNode>> lookup;
-  private final BiConsumer<SyntaxNode, SyntaxNode> retention;
+  private final Map<Occurrence, SyntaxNode> occurrences = new HashMap<>();
+  private final Optional<JavaSourceCopyCorrespondence> parent;
 
   JavaSourceCopyCorrespondence() {
-    var occurrences = new IdentityHashMap<SyntaxNode, SyntaxNode>();
-    lookup = node -> Optional.ofNullable(occurrences.get(node));
-    retention = occurrences::put;
+    parent = Optional.empty();
+  }
+
+  private JavaSourceCopyCorrespondence(JavaSourceCopyCorrespondence parent) {
+    this.parent = Optional.of(parent);
+  }
+
+  JavaSourceCopyCorrespondence child() {
+    return new JavaSourceCopyCorrespondence(this);
+  }
+
+  void accept() {
+    parent.orElseThrow().occurrences.putAll(occurrences);
+  }
+
+  private Optional<SyntaxNode> lookup(SyntaxNode node) {
+    var value = occurrences.get(new Occurrence(node));
+    return value == null ? parent.flatMap(owner -> owner.lookup(node)) : Optional.of(value);
   }
 
   void retain(SyntaxNode original, SyntaxNode copied) {
-    retention.accept(original, copied);
+    occurrences.put(new Occurrence(original), copied);
   }
 
   boolean contains(SyntaxNode node) {
-    return lookup.apply(node).isPresent();
+    return lookup(node).isPresent();
   }
 
   SyntaxNode finalCopy(SyntaxNode original) {
     var current = original;
-    var next = lookup.apply(current);
+    var next = lookup(current);
     while (next.isPresent() && !JavaProjectionIdentity.sameInstance(current, next.orElseThrow())) {
       current = next.orElseThrow();
-      next = lookup.apply(current);
+      next = lookup(current);
     }
     return current;
   }

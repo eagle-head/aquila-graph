@@ -786,7 +786,7 @@ class JavaAnnotationTargetAstTest {
         }
       };
       var outcomes = List.of(missingValue, wrongTypePosition).stream()
-          .map(correlation -> new JavaDeclarationProjector(semantics, parsed.sourceEvidence(), parsed.treeInventory(),
+          .map(correlation -> new UnitSourceFixture(semantics, parsed.sourceEvidence(), parsed.treeInventory(),
               correlation, JavaTranslationPolicy.legacyAnalysis()).translate(compilation.units().getFirst(), snapshot.sourceFiles().getFirst(), List.of(),
                   valid.program().types()))
           .toList();

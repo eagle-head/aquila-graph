@@ -169,7 +169,7 @@ class JavaAstSourcePositionTest {
       // Act
       for (var position : cases) {
         var evidence = new JavaSourceEvidence(new FixedPositions(position.start(), position.end()));
-        var translation = new JavaDeclarationProjector(semantics, evidence, inventory, JavaTranslationPolicy.legacyAnalysis()).translate(unit, sourceFile, List.of(), List.of());
+        var translation = new UnitSourceFixture(semantics, evidence, inventory, JavaTranslationPolicy.legacyAnalysis()).translate(unit, sourceFile, List.of(), List.of());
 
         // Assert
         assertTrue(translation.contribution().isEmpty());
@@ -297,7 +297,7 @@ class JavaAstSourcePositionTest {
           methodTranslator, JavaTranslationPolicy.legacyAnalysis());
       var declaredTypes = typeTranslator.translate(fixture.unit(), new TreePath(fixture.unit()), fixture.sourceFile(), type)
           .value().orElseThrow().types();
-      var contribution = new JavaDeclarationProjector(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
+      var contribution = new UnitSourceFixture(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
           .translate(fixture.unit(), fixture.sourceFile(), List.of(body), declaredTypes);
 
       var missing = method.diagnostics().stream().filter(diagnostic -> diagnostic.code().equals("frontend.missing-source-position"))
@@ -320,7 +320,7 @@ class JavaAstSourcePositionTest {
       var first = fixture.unit().getTypeDecls().get(0);
       var second = fixture.unit().getTypeDecls().get(1);
       var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(first, second)));
-      var result = new JavaDeclarationProjector(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
+      var result = new UnitSourceFixture(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
           .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
 
       assertEquals(2, result.diagnostics().size());
@@ -339,7 +339,7 @@ class JavaAstSourcePositionTest {
         }
       }
       var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), fields));
-      var result = new JavaDeclarationProjector(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
+      var result = new UnitSourceFixture(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
           .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
 
       assertEquals(2, result.diagnostics().size());
@@ -357,7 +357,7 @@ class JavaAstSourcePositionTest {
       var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), type.getImplementsClause()));
 
       // Act
-      var result = new JavaDeclarationProjector(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
+      var result = new UnitSourceFixture(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
           .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
       var root = result.contribution().orElseThrow().root();
 
@@ -383,7 +383,7 @@ class JavaAstSourcePositionTest {
       var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(argument)));
 
       // Act
-      var result = new JavaDeclarationProjector(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
+      var result = new UnitSourceFixture(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
           .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
 
       // Assert
@@ -410,7 +410,7 @@ class JavaAstSourcePositionTest {
           var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(firstArgument, secondArgument)));
 
           // Act
-          var result = new JavaDeclarationProjector(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
+          var result = new UnitSourceFixture(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
               .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
 
           // Assert
@@ -443,7 +443,7 @@ class JavaAstSourcePositionTest {
       // Act
       for (var missing : missingHeaders) {
         var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(missing)));
-        var result = new JavaDeclarationProjector(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
+        var result = new UnitSourceFixture(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
             .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
         var retainedTypes = result.contribution().orElseThrow().root().children(SyntaxRole.TYPE_DECLARATION);
 
@@ -466,7 +466,7 @@ class JavaAstSourcePositionTest {
       var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(receiverName)));
 
       // Act
-      var result = new JavaDeclarationProjector(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
+      var result = new UnitSourceFixture(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
           .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
 
       // Assert
@@ -556,7 +556,7 @@ class JavaAstSourcePositionTest {
           modeledTypes.addAll(typeTranslator.translate(fixture.unit(), unitPath, fixture.sourceFile(), type).value().orElseThrow().types());
         }
       }
-      var contributor = new JavaDeclarationProjector(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis());
+      var contributor = new UnitSourceFixture(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis());
 
       // Act
       var root = contributor.translate(fixture.unit(), fixture.sourceFile(), List.of(), modeledTypes).contribution().orElseThrow().root();
@@ -610,7 +610,7 @@ class JavaAstSourcePositionTest {
   void givenRecordWithoutSemanticInventory_whenTranslated_thenHeaderIsDiagnosedAndTypeIsWithheld() throws IOException {
     // Arrange
     withCompiledSource("record Example(int value) {}", fixture -> {
-      var contributor = new JavaDeclarationProjector(fixture.semantics(), new JavaSourceEvidence(fixture.positions()),
+      var contributor = new UnitSourceFixture(fixture.semantics(), new JavaSourceEvidence(fixture.positions()),
           fixture.inventory(), JavaTranslationPolicy.legacyAnalysis());
 
       // Act
@@ -824,7 +824,7 @@ class JavaAstSourcePositionTest {
       var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(annotations.getFirst())));
 
       // Act
-      var result = new JavaDeclarationProjector(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
+      var result = new UnitSourceFixture(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
           .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
       var root = result.contribution().orElseThrow().root();
       var packageNode = root.requiredChild(SyntaxRole.PACKAGE_DECLARATION);
@@ -848,7 +848,7 @@ class JavaAstSourcePositionTest {
       var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), missing));
 
       // Act
-      var result = new JavaDeclarationProjector(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
+      var result = new UnitSourceFixture(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
           .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
       var root = result.contribution().orElseThrow().root();
 
@@ -869,7 +869,7 @@ class JavaAstSourcePositionTest {
       var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), fixture.unit().getImports()));
 
       // Act
-      var result = new JavaDeclarationProjector(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
+      var result = new UnitSourceFixture(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
           .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
 
       // Assert
@@ -902,7 +902,7 @@ class JavaAstSourcePositionTest {
       var evidence = new JavaSourceEvidence(positions);
 
       // Act
-      var result = new JavaDeclarationProjector(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
+      var result = new UnitSourceFixture(fixture.semantics(), evidence, fixture.inventory(), JavaTranslationPolicy.legacyAnalysis())
           .translate(fixture.unit(), fixture.sourceFile(), List.of(), List.of());
 
       // Assert
