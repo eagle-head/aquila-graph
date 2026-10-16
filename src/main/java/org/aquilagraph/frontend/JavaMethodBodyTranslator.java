@@ -16,18 +16,19 @@ final class JavaMethodBodyTranslator {
   private static final String DIAGNOSTIC_PRODUCER = "JavaMethodBodyTranslator";
   private final SemanticResolver semantics;
   private final JavaExecutableSyntaxProjector syntax;
+  private final JavaExecutableProjectionContext context;
 
-  JavaMethodBodyTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory) {
+  JavaMethodBodyTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
+      JavaExecutableProjectionContext context) {
+    this.context = Objects.requireNonNull(context, "context");
+    context.requireMethodBody();
     this.semantics = Objects.requireNonNull(semantics, "semantics");
-    syntax = new JavaExecutableSyntaxProjector(semantics, sourceEvidence, treeInventory, DIAGNOSTIC_PRODUCER, "method body");
-  }
-
-  void useDeclarations(JavaExecutableSyntaxProjector.DeclarationProjection projection) {
-    syntax.useDeclarations(projection);
+    syntax = new JavaExecutableSyntaxProjector(semantics, sourceEvidence, treeInventory, context, DIAGNOSTIC_PRODUCER, "method body");
   }
 
   TranslationResult<TranslatedMethodBody> translate(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, BlockTree body,
       TreePath bodyPath, boolean constructor, boolean implicitDeclaration) {
+    context.requireProjection();
     Objects.requireNonNull(unit, "unit");
     Objects.requireNonNull(sourceFile, "sourceFile");
     Objects.requireNonNull(methodKey, "methodKey");

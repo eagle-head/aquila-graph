@@ -31,7 +31,7 @@ final class JavaUnitTranslationFactory {
   }
 
   JavaUnitTranslator create(CompilationUnitTree unit, SourceFile source) {
-    var bodies = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory);
+    var bodies = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory, JavaExecutableProjectionContext.metadata(policy));
     var methods = new JavaMethodTranslator(semantics, sourceEvidence, treeInventory, bodies);
     var types = new JavaTypeTranslator(semantics, sourceEvidence, treeInventory, new JavaDeclarationPropertyObserver(coverage), methods,
         policy);

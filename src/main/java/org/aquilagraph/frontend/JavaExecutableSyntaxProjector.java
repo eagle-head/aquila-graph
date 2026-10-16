@@ -2,7 +2,6 @@ package org.aquilagraph.frontend;
 
 import com.sun.source.tree.BindingPatternTree;
 import com.sun.source.tree.ClassTree;
-import org.jspecify.annotations.Nullable;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.Tree;
@@ -40,32 +39,24 @@ final class JavaExecutableSyntaxProjector {
   private final JavaPatternBindingProjector patterns;
   private final String diagnosticProducer;
   private final String syntaxContext;
-  private @Nullable DeclarationProjection declarations;
-
-  @FunctionalInterface
-  interface DeclarationProjection {
-    TranslationResult<SyntaxNode> project(ClassTree tree, TreePath path, SyntaxStructuralPath structuralPath);
-  }
-
-  void useDeclarations(DeclarationProjection projection) {
-    declarations = Objects.requireNonNull(projection, "projection");
-    syntaxProfile.enableAnonymousDeclarations();
-  }
+  private final JavaExecutableProjectionContext context;
 
   JavaExecutableSyntaxProjector(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
-      String diagnosticProducer, String syntaxContext) {
+      JavaExecutableProjectionContext context, String diagnosticProducer, String syntaxContext) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
     this.diagnosticProducer = Objects.requireNonNull(diagnosticProducer, "diagnosticProducer");
     this.syntaxContext = Objects.requireNonNull(syntaxContext, "syntaxContext");
-    syntaxProfile = new JavaExecutableSyntaxProfile(semantics);
+    this.context = Objects.requireNonNull(context, "context");
+    syntaxProfile = new JavaExecutableSyntaxProfile(semantics, context);
     bindings = new JavaLocalBindingProjector(semantics, sourceEvidence, treeInventory);
     patterns = new JavaPatternBindingProjector(semantics, sourceEvidence);
   }
 
   Projection project(CompilationUnitTree unit, SourceFile sourceFile, String ownerKey, Tree tree, TreePath path,
       SyntaxStructuralPath structuralPath, boolean constructor, boolean compilerGenerated) {
+    context.requireProjection();
     Objects.requireNonNull(unit, "unit");
     Objects.requireNonNull(sourceFile, "sourceFile");
     Objects.requireNonNull(ownerKey, "ownerKey");
@@ -101,9 +92,9 @@ final class JavaExecutableSyntaxProjector {
 
   private SyntaxTreeTranslation translateTree(CompilationUnitTree unit, SourceFile sourceFile, String ownerKey, Tree tree, TreePath path,
       SyntaxStructuralPath structuralPath, boolean constructor, boolean compilerGenerated, List<NodeProjection> nodeProjections) {
-    var collaborator = declarations;
-    if (tree instanceof ClassTree declaration && collaborator != null) {
-      var translated = collaborator.project(declaration, path, structuralPath);
+    var collaborator = context.declarations();
+    if (tree instanceof ClassTree declaration && collaborator.isPresent()) {
+      var translated = collaborator.orElseThrow().project(declaration, path, structuralPath);
       nodeProjections
           .add(new NodeProjection(translated.value(), path, List.of(), treeInventory.sourceAssociation(translated.value(), path)));
       return new SyntaxTreeTranslation(translated.value(), translated.emissions(), translated.featureOccurrences(),

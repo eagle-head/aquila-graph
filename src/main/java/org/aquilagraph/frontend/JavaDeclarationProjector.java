@@ -643,9 +643,10 @@ final class JavaDeclarationProjector {
     var stagedPublication = publication;
     var stagedEdges = semanticEdges;
     if (policy.supportsNestedDeclarations() && declaration.getBody() != null && body == null) {
-      var translator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory);
-      translator.useDeclarations((nested, nestedPath, nestedSourcePath) -> projectNestedDeclaration(
-          new ProjectionContext(unit, sourceFile, typesByKey, diagnostics), nested, nestedPath, nestedSourcePath));
+      var context = JavaExecutableProjectionContext.canonicalMethod(policy,
+          (nested, nestedPath, nestedSourcePath) -> projectNestedDeclaration(
+              new ProjectionContext(unit, sourceFile, typesByKey, diagnostics), nested, nestedPath, nestedSourcePath));
+      var translator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory, context);
       var translated = translator.translate(unit, sourceFile, methodKey, declaration.getBody(),
           new TreePath(methodPath, declaration.getBody()), constructor, false);
       body = translated.value();

@@ -74,17 +74,15 @@ final class JavaExecutableSyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapp
   private static final String SUPER_NAME = "super";
   private static final String CONSTRUCTOR_NAME = "<init>";
   private final SemanticResolver semantics;
-  private boolean anonymousDeclarations;
+  private final JavaExecutableProjectionContext context;
 
-  void enableAnonymousDeclarations() {
-    anonymousDeclarations = true;
-  }
-
-  JavaExecutableSyntaxProfile(SemanticResolver semantics) {
+  JavaExecutableSyntaxProfile(SemanticResolver semantics, JavaExecutableProjectionContext context) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
+    this.context = Objects.requireNonNull(context, "context");
   }
 
   SyntaxNodeMapping describe(Tree tree, TreePath treePath, SyntaxStructuralPath structuralPath) {
+    context.requireProjection();
     Objects.requireNonNull(tree, "tree");
     Objects.requireNonNull(treePath, "treePath");
     Objects.requireNonNull(structuralPath, "structuralPath");
@@ -455,10 +453,10 @@ final class JavaExecutableSyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapp
     var element = semantics.element(context.treePath());
     var executable = element instanceof ExecutableElement candidate ? candidate : null;
     var form = creation.getEnclosingExpression() == null ? InvocationForm.OBJECT_CREATION : InvocationForm.QUALIFIED_OBJECT_CREATION;
-    if (anonymousDeclarations) {
+    if (this.context.supportsNestedDeclarations()) {
       children.add(SyntaxRole.CLASS_BODY, creation.getClassBody());
     }
-    return creation.getClassBody() == null || anonymousDeclarations
+    return creation.getClassBody() == null || this.context.supportsNestedDeclarations()
         ? accepted(SyntaxKind.OBJECT_CREATION, invocationValue(CONSTRUCTOR_NAME, form, context, executable), children,
             semantics.reference(context.treePath(), ReferenceKind.CONSTRUCTOR))
         : unsupported(creation, children);
