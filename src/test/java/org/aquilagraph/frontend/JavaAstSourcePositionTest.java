@@ -103,7 +103,7 @@ class JavaAstSourcePositionTest {
       };
       var translated = new JavaProgramTranslator(sources, compilation.semantics(), new JavaSourceEvidence(positions),
           compilation.treeInventory(), baseline.languageFeatureCoverage(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
-      var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(), translated.value().aggregate(), translated.diagnostics());
+      var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(), translated.value().aggregate(), translated.emissions().events());
       var ast = AstResultAdmission.admit(input, AstProfile.JAVA_SOURCE_BOUNDED, "javac-public/1");
       var unavailable = ast.program().methods().stream().filter(method -> method.name().equals("unavailable")).findFirst().orElseThrow();
       var available = ast.program().methods().stream().filter(method -> method.name().equals("available")).findFirst().orElseThrow();
@@ -265,7 +265,7 @@ class JavaAstSourcePositionTest {
         var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
             baseline.languageFeatureCoverage(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
         var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
-            translated.value().aggregate(), translated.diagnostics());
+            translated.value().aggregate(), translated.emissions().events());
         var run = new SourceAnalysisFixture().analyze(input);
 
         assertTrue(input.aggregate().isEmpty());
@@ -512,10 +512,10 @@ class JavaAstSourcePositionTest {
       var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
           baseline.languageFeatureCoverage(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
       var aggregate = translated.value().aggregate().orElseThrow();
-      var diagnostics = JavaCoverageTestSupport.diagnostics(baseline, "source-position-observation");
-      diagnostics.addAll(translated.diagnostics());
+      var diagnostics = JavaCoverageTestSupport.collector(baseline, "source-position-observation");
+      diagnostics.include(translated.emissions());
       var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
-          translated.value().aggregate(), diagnostics);
+          translated.value().aggregate(), diagnostics.snapshot().events());
       var run = new SourceAnalysisFixture().analyze(input);
 
       // Assert
@@ -731,7 +731,7 @@ class JavaAstSourcePositionTest {
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, emptyInventory);
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, bodyTranslator);
       var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, observer, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
-      var diagnostics = new ArrayList<AnalysisDiagnostic>();
+      var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics");
 
       // Act
       var synthesized = translator.reconcileEnclosedDeclarations(fixture.unit(), classPath, declaration, owner,
@@ -739,7 +739,7 @@ class JavaAstSourcePositionTest {
 
       // Assert
       assertTrue(synthesized.stream().noneMatch(member -> member.declarationKey().equals(fieldKey)));
-      var diagnostic = diagnostics.stream().filter(item -> item.code().equals("frontend.unrepresented-written-declaration"))
+      var diagnostic = diagnostics.snapshot().diagnostics().stream().filter(item -> item.code().equals("frontend.unrepresented-written-declaration"))
           .findFirst().orElseThrow();
       assertEquals("frontend.unrepresented-written-declaration", diagnostic.code());
       assertEquals(List.of(evidence.origin(fixture.unit(), fixture.sourceFile(), fixture.semantics().sourceTree(field))
@@ -766,7 +766,7 @@ class JavaAstSourcePositionTest {
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, emptyInventory);
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, bodyTranslator);
       var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, observer, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
-      var diagnostics = new ArrayList<AnalysisDiagnostic>();
+      var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics");
 
       // Act
       var synthesized = translator.reconcileEnclosedDeclarations(fixture.unit(), classPath, declaration, owner,
@@ -777,7 +777,7 @@ class JavaAstSourcePositionTest {
       // Assert
       assertTrue(synthesized.stream().noneMatch(member -> member.declarationKey().equals(methodKey)));
       assertTrue(translated.value().isEmpty());
-      assertTrue(diagnostics.stream().anyMatch(item -> item.code().equals("frontend.unrepresented-written-declaration")
+      assertTrue(diagnostics.snapshot().diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unrepresented-written-declaration")
           && item.origins().equals(evidence.origin(fixture.unit(), fixture.sourceFile(), declaration).stream().toList())));
     });
   }
@@ -961,7 +961,7 @@ class JavaAstSourcePositionTest {
         var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
             baseline.languageFeatureCoverage(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
         var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
-            translated.value().aggregate(), translated.diagnostics());
+            translated.value().aggregate(), translated.emissions().events());
         var run = new SourceAnalysisFixture().analyze(input);
 
         // Assert

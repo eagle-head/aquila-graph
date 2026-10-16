@@ -11,7 +11,6 @@ import java.util.Optional;
 import javax.tools.Diagnostic;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
-import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
 
 final class JavaSourceEvidence {
@@ -79,17 +78,17 @@ final class JavaSourceEvidence {
   }
 
   Optional<SourceSpan> requiredRange(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
     return switch (position(unit, sourceFile, tree)) {
       case Position.Available available -> Optional.of(available.span());
       case Position.Missing _ -> {
-        TranslationDiagnosticEvidence.emit(diagnostics, "JavaSourceEvidence", FrontendDiagnosticFactory.sourcePositionError(sourceFile,
-            path, "frontend.missing-source-position", "A required source occurrence has no compiler position"));
+        diagnostics.emit("JavaSourceEvidence", FrontendDiagnosticFactory.sourcePositionError(sourceFile, path,
+            "frontend.missing-source-position", "A required source occurrence has no compiler position"));
         yield Optional.empty();
       }
       case Position.Invalid _ -> {
-        TranslationDiagnosticEvidence.emit(diagnostics, "JavaSourceEvidence", FrontendDiagnosticFactory.sourcePositionError(sourceFile,
-            path, "frontend.invalid-source-range", "A required source occurrence has an invalid compiler range"));
+        diagnostics.emit("JavaSourceEvidence", FrontendDiagnosticFactory.sourcePositionError(sourceFile, path,
+            "frontend.invalid-source-range", "A required source occurrence has an invalid compiler range"));
         yield Optional.empty();
       }
     };

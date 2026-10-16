@@ -255,7 +255,7 @@ class PatternAstTest {
       var originalInput = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()), original.diagnostics(), original.coverage());
       // Act
       var aggregate = altered(original, fact);
-      var input = JavaCoverageTestSupport.withFacts(originalInput, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.diagnostics(originalInput, "copied-pattern-type"));
+      var input = JavaCoverageTestSupport.withFacts(originalInput, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(originalInput));
       var result = AstResultAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1").result().orElseThrow();
       var decoded = AstCodec.decode(AstCodec.encode(result), result.identity());
       // Assert
@@ -273,7 +273,7 @@ class PatternAstTest {
       var originalInput = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()), original.diagnostics(), original.coverage());
       // Act
       var aggregate = altered(original, fact);
-      var input = JavaCoverageTestSupport.withFacts(originalInput, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.diagnostics(originalInput, "copied-pattern-facts"));
+      var input = JavaCoverageTestSupport.withFacts(originalInput, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(originalInput));
       var result = AstResultAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1").result().orElseThrow();
       var decoded = AstCodec.decode(AstCodec.encode(result), result.identity());
       // Assert

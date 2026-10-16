@@ -64,7 +64,7 @@ final class JavaTypeUseTranslator {
   }
 
   Optional<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
-      SyntaxStructuralPath occurrencePath, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath occurrencePath, DiagnosticEmissionCollector diagnostics) {
     Objects.requireNonNull(unit, "unit");
     Objects.requireNonNull(sourceFile, "sourceFile");
     Objects.requireNonNull(tree, "tree");
@@ -73,7 +73,7 @@ final class JavaTypeUseTranslator {
     Objects.requireNonNull(diagnostics, "diagnostics");
     var treePath = TreePath.getPath(unit, tree);
     if (treePath == null) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-type-tree-path",
               "A written type has no compiler tree path", sourceEvidence.origin(unit, sourceFile, tree)));
       return Optional.empty();
@@ -82,10 +82,10 @@ final class JavaTypeUseTranslator {
   }
 
   Optional<SyntaxNode> translateDeclaration(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
-      SyntaxStructuralPath occurrencePath, SyntaxType attributedType, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath occurrencePath, SyntaxType attributedType, DiagnosticEmissionCollector diagnostics) {
     var treePath = TreePath.getPath(unit, tree);
     if (treePath == null) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-type-tree-path",
               "A written type has no compiler tree path", sourceEvidence.origin(unit, sourceFile, tree)));
       return Optional.empty();
@@ -94,7 +94,7 @@ final class JavaTypeUseTranslator {
   }
 
   Optional<SyntaxNode> translateDeclaration(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
-      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, SyntaxType attributedType, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, SyntaxType attributedType, DiagnosticEmissionCollector diagnostics) {
     if (!JavaProjectionIdentity.sameInstance(treePath.getLeaf(), tree)
         || !JavaProjectionIdentity.sameInstance(treePath.getCompilationUnit(), unit)) {
       throw new IllegalArgumentException("A declaration type projection requires its exact creating tree and compilation unit");
@@ -103,12 +103,12 @@ final class JavaTypeUseTranslator {
   }
 
   private Optional<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
-      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DiagnosticEmissionCollector diagnostics) {
     return translateAttributed(unit, sourceFile, tree, treePath, path, occurrencePath, semantics.explicitType(treePath), diagnostics);
   }
 
   Optional<SyntaxNode> translateAttributed(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
-      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, SyntaxType type, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, SyntaxType type, DiagnosticEmissionCollector diagnostics) {
     Objects.requireNonNull(type, "type");
     var range = requiredRange(unit, sourceFile, tree, occurrencePath, diagnostics);
     if (range.isEmpty()) {
@@ -116,11 +116,11 @@ final class JavaTypeUseTranslator {
     }
     var sourceKind = JavaSourceKind.valueOf(tree.getKind().name());
     if (!sourceKind.identifiesTypeUseSyntax()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.invalid-type-header-attachment", "A type header attachment does not contain type-use syntax", range));
       return Optional.empty();
     }
-    requiredTypeOutcomeDiagnostic(sourceFile.sourceFileKey(), type, range).ifPresent(diagnostics::add);
+    requiredTypeOutcomeDiagnostic(sourceFile.sourceFileKey(), type, range).ifPresent(diagnostics::emit);
     var children = new ArrayList<SyntaxChild>();
     SyntaxValue value = SyntaxValue.None.INSTANCE;
     var complete = true;
@@ -137,9 +137,8 @@ final class JavaTypeUseTranslator {
           var parent = treePath.getParentPath();
           if (parent == null || !(parent.getLeaf() instanceof NewClassTree creation)
               || !JavaProjectionIdentity.sameInstance(creation.getIdentifier(), parameterized)) {
-            TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-                FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.invalid-diamond-owner",
-                    "Diamond syntax requires its exact creating class expression", range));
+            diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+                "frontend.invalid-diamond-owner", "Diamond syntax requires its exact creating class expression", range));
             return Optional.empty();
           }
           value = SyntaxValue.DiamondType.INSTANCE;
@@ -177,13 +176,13 @@ final class JavaTypeUseTranslator {
       }
       case WildcardTree wildcard -> {
         if (wildcard.getKind() != Tree.Kind.UNBOUNDED_WILDCARD && wildcard.getBound() == null) {
-          TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory
-              .otherError(sourceFile.sourceFileKey(), "frontend.missing-wildcard-bound", "A bounded wildcard has no written bound", range));
+          diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+              "frontend.missing-wildcard-bound", "A bounded wildcard has no written bound", range));
           return Optional.empty();
         }
         if (wildcard.getKind() == Tree.Kind.UNBOUNDED_WILDCARD && wildcard.getBound() != null) {
-          TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(
-              sourceFile.sourceFileKey(), "frontend.unexpected-wildcard-bound", "An unbounded wildcard has a written bound", range));
+          diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+              "frontend.unexpected-wildcard-bound", "An unbounded wildcard has a written bound", range));
           return Optional.empty();
         }
         if (wildcard.getBound() != null) {
@@ -221,7 +220,7 @@ final class JavaTypeUseTranslator {
         && resolved.identity().category() == JavaTypeCategory.DECLARED
         && !(children.getFirst().node().value() instanceof SyntaxValue.PackageQualifier)
         && !semantics.selectsTypeMember(treePath, new TreePath(treePath, selection.getExpression()))) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.inconsistent-type-member-selection", "The selected type declaration is not a member of the written qualifier", range));
       return Optional.empty();
     }
@@ -232,13 +231,13 @@ final class JavaTypeUseTranslator {
     if (type instanceof SyntaxType.Resolved resolved
         && (resolved.identity().category() == JavaTypeCategory.DECLARED || resolved.identity().category() == JavaTypeCategory.TYPE_VARIABLE)
         && (reference.isEmpty() || reference.orElseThrow().status() != ResolutionStatus.RESOLVED)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.unavailable-type-declaration-reference", "A written nominal or type-variable use has no selected declaration", range));
       return Optional.empty();
     }
     if (sourceKind == JavaSourceKind.PRIMITIVE_TYPE && type.knownIdentity().isPresent()
         && type.knownIdentity().orElseThrow().category() != ((SyntaxValue.PrimitiveType) value).kind()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.inconsistent-primitive-type", "Written and attributed primitive kinds disagree", range));
       return Optional.empty();
     }
@@ -286,7 +285,7 @@ final class JavaTypeUseTranslator {
 
   private boolean appendTypeChild(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
       SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal, List<SyntaxChild> children,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
     var childPath = parentPath.child(role, ordinal);
     var childOccurrencePath = parentOccurrencePath.child(role, ordinal);
     var child = translate(unit, sourceFile, tree, treePath, childPath, childOccurrencePath, diagnostics);
@@ -296,21 +295,21 @@ final class JavaTypeUseTranslator {
 
   private boolean appendTypeArgument(CompilationUnitTree unit, SourceFile sourceFile, Tree argument, TreePath parentTreePath,
       SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, int ordinal, List<SyntaxChild> children,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
     return appendTypeChildFromParent(unit, sourceFile, argument, parentTreePath, parentPath, parentOccurrencePath, SyntaxRole.TYPE_ARGUMENT,
         ordinal, children, diagnostics);
   }
 
   private boolean appendTypeChildFromParent(CompilationUnitTree unit, SourceFile sourceFile, Tree childTree, TreePath parentTreePath,
       SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal, List<SyntaxChild> children,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
     return appendTypeChild(unit, sourceFile, childTree, new TreePath(parentTreePath, childTree), parentPath, parentOccurrencePath, role,
         ordinal, children, diagnostics);
   }
 
   private boolean appendQualifier(CompilationUnitTree unit, SourceFile sourceFile, Tree qualifier, TreePath qualifierPath,
       SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, List<SyntaxChild> children,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
     var path = parentPath.child(SyntaxRole.TYPE_QUALIFIER, 0);
     var occurrencePath = parentOccurrencePath.child(SyntaxRole.TYPE_QUALIFIER, 0);
     var state = semantics.attributedType(qualifierPath);
@@ -322,7 +321,7 @@ final class JavaTypeUseTranslator {
   }
 
   private Optional<SyntaxNode> packageQualifier(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
-      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DiagnosticEmissionCollector diagnostics) {
     var range = requiredRange(unit, sourceFile, tree, occurrencePath, diagnostics);
     if (range.isEmpty()) {
       return Optional.empty();
@@ -338,7 +337,7 @@ final class JavaTypeUseTranslator {
         return Optional.empty();
       }
     } else {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.invalid-type-name-qualifier", "A package qualifier has no supported written name", range));
       return Optional.empty();
     }
@@ -350,7 +349,7 @@ final class JavaTypeUseTranslator {
 
   private boolean appendAnnotation(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
       SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, int ordinal, List<SyntaxChild> children,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
     var path = parentPath.child(SyntaxRole.ANNOTATION, ordinal);
     var occurrencePath = parentOccurrencePath.child(SyntaxRole.ANNOTATION, ordinal);
     var projected = new JavaAnnotationProjector(semantics, sourceEvidence, inventory, sourceAssociations).typeUse(unit, sourceFile,
@@ -360,7 +359,7 @@ final class JavaTypeUseTranslator {
   }
 
   private Optional<SourceSpan> requiredRange(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
     return sourceEvidence.requiredRange(unit, sourceFile, tree, path, diagnostics);
   }
 

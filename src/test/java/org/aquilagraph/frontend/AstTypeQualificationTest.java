@@ -174,7 +174,7 @@ class AstTypeQualificationTest {
     var supplied = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), sources, bodies, copied.memberOrders(), copied.associations(),
         copied.declarationTypes()));
     return JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied),
-        JavaCoverageTestSupport.diagnostics(original, "copied-type-qualification"));
+        JavaCoverageTestSupport.emissions(original));
   }
 
   private static SyntaxNode copyNode(SyntaxNode node, SyntaxNode selected, SyntaxType type, Map<SyntaxNode, SyntaxNode> replacements) {

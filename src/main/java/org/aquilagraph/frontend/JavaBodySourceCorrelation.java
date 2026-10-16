@@ -29,7 +29,6 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import org.aquilagraph.frontend.JavaAnnotationProjector.DeclarationSite;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.JavaType;
@@ -266,8 +265,8 @@ final class JavaBodySourceCorrelation {
   }
 
   Optional<SyntaxNode> projectExecutable(JavaExecutableSyntaxProjector.Projection projection, SyntaxStructuralPath path,
-      CompilationUnitTree unit, SourceFile sourceFile, List<AnalysisDiagnostic> diagnostics) {
-    diagnostics.addAll(projection.translation().diagnostics());
+      CompilationUnitTree unit, SourceFile sourceFile, DiagnosticEmissionCollector diagnostics) {
+    diagnostics.include(projection.translation().emissions());
     var paths = new HashMap<String, TreePath>();
     projection.nodes().forEach(binding -> {
       paths.put(binding.node().nodeId(), binding.path());
@@ -285,7 +284,7 @@ final class JavaBodySourceCorrelation {
   }
 
   Optional<SyntaxNode> sourceBody(TranslatedMethodBody body, SyntaxStructuralPath path, TreePath methodPath, MethodTree declaration,
-      CompilationUnitTree unit, SourceFile sourceFile, List<AnalysisDiagnostic> diagnostics) {
+      CompilationUnitTree unit, SourceFile sourceFile, DiagnosticEmissionCollector diagnostics) {
     var statements = declaration.getBody().getStatements();
     var bodyPath = new TreePath(methodPath, declaration.getBody());
     var omitInsertedCall = !statements.isEmpty()
@@ -526,7 +525,7 @@ final class JavaBodySourceCorrelation {
   }
 
   private record BodySourceContext(CompilationUnitTree unit, SourceFile sourceFile, Map<String, TreePath> paths,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
   }
 
 }

@@ -899,16 +899,16 @@ class JavaTypeUseAstTest {
 
       // Act and Assert
       for (var index = 0; index < states.size(); index++) {
-        var diagnostics = JavaCoverageTestSupport.diagnostics(baseline, "type-use-observation");
-        var baselineCount = diagnostics.size();
+        var diagnostics = JavaCoverageTestSupport.collector(baseline, "type-use-observation");
+        var baselineCount = diagnostics.emissionCount();
         var translated = translator.translateAttributed(unit, sources.find(unit).orElseThrow(), typeTree,
             TreePath.getPath(unit, typeTree), path, path, states.get(index), diagnostics).orElseThrow();
         assertEquals(states.get(index), translated.type());
-        assertEquals(baselineCount + 1, diagnostics.size());
-        assertEquals(expectedCodes.get(index), diagnostics.getLast().code());
-        assertEquals(List.of(expectedSpan), diagnostics.getLast().origins());
-        assertEquals(DiagnosticSeverity.ERROR, diagnostics.getLast().severity());
-        var analysisInput = JavaCoverageTestSupport.withFacts(baseline, baseline.program(), baseline.aggregate(), diagnostics);
+        assertEquals(baselineCount + 1, diagnostics.emissionCount());
+        assertEquals(expectedCodes.get(index), diagnostics.snapshot().diagnostics().getLast().code());
+        assertEquals(List.of(expectedSpan), diagnostics.snapshot().diagnostics().getLast().origins());
+        assertEquals(DiagnosticSeverity.ERROR, diagnostics.snapshot().diagnostics().getLast().severity());
+        var analysisInput = JavaCoverageTestSupport.withFacts(baseline, baseline.program(), baseline.aggregate(), diagnostics.snapshot().events());
         assertNotEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(analysisInput).completion());
       }
     }
@@ -938,12 +938,12 @@ class JavaTypeUseAstTest {
       var knownType = (SyntaxType.Resolved) compilation.semantics().explicitType(TreePath.getPath(unit, typeTree));
       var type = new SyntaxType.StructureUnavailable(knownType.identity());
       var translator = new JavaTypeUseTranslator(compilation.semantics(), compilation.sourceEvidence(), parsed.treeInventory());
-      var diagnostics = JavaCoverageTestSupport.diagnostics(baseline, "type-use-observation");
+      var diagnostics = JavaCoverageTestSupport.collector(baseline, "type-use-observation");
 
       // Act
       var translated = translator.translateAttributed(unit, sources.find(unit).orElseThrow(), typeTree,
           TreePath.getPath(unit, typeTree), path, path, type, diagnostics);
-      var analysisInput = JavaCoverageTestSupport.withFacts(baseline, baseline.program(), baseline.aggregate(), diagnostics);
+      var analysisInput = JavaCoverageTestSupport.withFacts(baseline, baseline.program(), baseline.aggregate(), diagnostics.snapshot().events());
       var completion = new SourceAnalysisFixture().analyze(analysisInput).completion();
 
       // Assert
@@ -953,9 +953,9 @@ class JavaTypeUseAstTest {
       assertEquals(Optional.of(expectedSpan), node.origin());
       assertEquals(ReferenceKind.TYPE, node.requiredReference().referenceKind());
       assertEquals(ResolutionStatus.RESOLVED, node.requiredReference().status());
-      assertEquals(baseline.diagnostics().size() + 1, diagnostics.size());
-      assertEquals("frontend.unavailable-type-use-structure", diagnostics.getLast().code());
-      assertEquals(List.of(expectedSpan), diagnostics.getLast().origins());
+      assertEquals(baseline.diagnostics().size() + 1, diagnostics.emissionCount());
+      assertEquals("frontend.unavailable-type-use-structure", diagnostics.snapshot().diagnostics().getLast().code());
+      assertEquals(List.of(expectedSpan), diagnostics.snapshot().diagnostics().getLast().origins());
       assertNotEquals(AnalysisCompletion.COMPLETE, completion);
     }
   }

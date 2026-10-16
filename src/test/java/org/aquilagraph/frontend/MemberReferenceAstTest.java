@@ -315,7 +315,7 @@ class MemberReferenceAstTest {
       var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), replaceFact(body.root(), replacements, missingFact),
           body.origin(), body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
       var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes()));
-      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.diagnostics(original, "copied-reference-facts"));
+      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(original));
       // Act
       var outcome = AstResultAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
       var result = outcome.result().orElseThrow();
@@ -403,7 +403,7 @@ class MemberReferenceAstTest {
           var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), replaceFact(body.root(), replacements, "member"),
               body.origin(), body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
           var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes()));
-          var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.diagnostics(original, "copied-reference-selection"));
+          var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(original));
           // Act
           var outcome = AstResultAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
           var result = outcome.result().orElseThrow();
@@ -432,7 +432,7 @@ class MemberReferenceAstTest {
         body.origin(), body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes()));
     // Act
-    var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.diagnostics(original, "copied-reference-name"));
+    var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(original));
     var result = AstResultAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1").result().orElseThrow();
     // Assert
     var failed = result.coverage().validationEvidence().outcomes().stream()

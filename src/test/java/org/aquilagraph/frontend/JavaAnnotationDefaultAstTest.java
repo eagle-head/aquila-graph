@@ -220,8 +220,8 @@ class JavaAnnotationDefaultAstTest {
           compilation.treeInventory());
       var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
           .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DEFAULT_VALUE, 0);
-      var diagnostics = new ArrayList<AnalysisDiagnostic>();
-      var callerDiagnostics = new ArrayList<AnalysisDiagnostic>();
+      var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics");
+      var callerDiagnostics = new DiagnosticEmissionCollector("source-observation", "callerDiagnostics");
       var callerChildren = new ArrayList<SyntaxChild>();
       var translator = new JavaDeclarationProjector(compilation.semantics(), parsed.sourceEvidence(),
           compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis());
@@ -236,13 +236,13 @@ class JavaAnnotationDefaultAstTest {
       assertTrue(projected.isEmpty());
       assertTrue(attached.isEmpty());
       assertTrue(callerChildren.isEmpty());
-      assertEquals(1, diagnostics.size());
-      assertEquals(1, callerDiagnostics.size());
-      assertEquals("frontend.unavailable-annotation-default", diagnostics.getFirst().code());
-      assertEquals("frontend.unavailable-annotation-default", callerDiagnostics.getFirst().code());
+      assertEquals(1, diagnostics.emissionCount());
+      assertEquals(1, callerDiagnostics.emissionCount());
+      assertEquals("frontend.unavailable-annotation-default", diagnostics.snapshot().diagnostics().getFirst().code());
+      assertEquals("frontend.unavailable-annotation-default", callerDiagnostics.snapshot().diagnostics().getFirst().code());
       assertEquals(List.of(new SourceSpan(source.sourceFileKey(), sourceText.indexOf('7'), sourceText.indexOf('7') + 1)),
-          diagnostics.getFirst().origins());
-      assertEquals(diagnostics.getFirst().origins(), callerDiagnostics.getFirst().origins());
+          diagnostics.snapshot().diagnostics().getFirst().origins());
+      assertEquals(diagnostics.snapshot().diagnostics().getFirst().origins(), callerDiagnostics.snapshot().diagnostics().getFirst().origins());
     }
   }
 

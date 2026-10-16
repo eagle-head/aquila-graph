@@ -342,7 +342,7 @@ class ExecutableCompositionAstTest {
     var supplied = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), captured.sources(), bodies, captured.memberOrders(),
         captured.associations(), captured.declarationTypes()));
     var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied),
-        JavaCoverageTestSupport.diagnostics(original, "copied-nested-argument-qualification"));
+        JavaCoverageTestSupport.emissions(original));
     var retention = new AstRetentionService(ignored -> { throw new AssertionError("Incomplete source cannot acquire storage"); });
 
     // Act

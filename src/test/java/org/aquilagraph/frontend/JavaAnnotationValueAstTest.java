@@ -472,9 +472,9 @@ class JavaAnnotationValueAstTest {
       var invalidValue = new JavaAnnotationValueProjector(compilation.semantics(),
           new JavaSourceEvidence(faultedPositions(parsed.sourceEvidence(), source, written.value(), false)),
           compilation.treeInventory());
-      var unavailableDiagnostics = new ArrayList<AnalysisDiagnostic>();
-      var missingDiagnostics = new ArrayList<AnalysisDiagnostic>();
-      var invalidDiagnostics = new ArrayList<AnalysisDiagnostic>();
+      var unavailableDiagnostics = new DiagnosticEmissionCollector("source-observation", "unavailableDiagnostics");
+      var missingDiagnostics = new DiagnosticEmissionCollector("source-observation", "missingDiagnostics");
+      var invalidDiagnostics = new DiagnosticEmissionCollector("source-observation", "invalidDiagnostics");
 
       // Act
       var unavailable = projector.arguments(unit, source, annotation, wrongType, path, unavailableDiagnostics);
@@ -489,12 +489,12 @@ class JavaAnnotationValueAstTest {
       assertTrue(unavailable.isEmpty());
       assertTrue(missing.isEmpty());
       assertTrue(invalid.isEmpty());
-      assertEquals("frontend.unavailable-annotation-attribution", unavailableDiagnostics.getFirst().code());
-      assertEquals(source.sourceFileKey(), unavailableDiagnostics.getFirst().origins().getFirst().sourceFileKey());
-      assertEquals("frontend.missing-source-position", missingDiagnostics.getFirst().code());
-      assertEquals("frontend.invalid-source-range", invalidDiagnostics.getFirst().code());
-      assertTrue(missingDiagnostics.getFirst().message().contains("A.java"));
-      assertTrue(invalidDiagnostics.getFirst().message().contains("A.java"));
+      assertEquals("frontend.unavailable-annotation-attribution", unavailableDiagnostics.snapshot().diagnostics().getFirst().code());
+      assertEquals(source.sourceFileKey(), unavailableDiagnostics.snapshot().diagnostics().getFirst().origins().getFirst().sourceFileKey());
+      assertEquals("frontend.missing-source-position", missingDiagnostics.snapshot().diagnostics().getFirst().code());
+      assertEquals("frontend.invalid-source-range", invalidDiagnostics.snapshot().diagnostics().getFirst().code());
+      assertTrue(missingDiagnostics.snapshot().diagnostics().getFirst().message().contains("A.java"));
+      assertTrue(invalidDiagnostics.snapshot().diagnostics().getFirst().message().contains("A.java"));
     }
   }
 

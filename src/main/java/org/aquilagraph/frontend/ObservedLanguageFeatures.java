@@ -8,10 +8,13 @@ import org.aquilagraph.source.api.AnalysisDiagnostic;
 
 /** Source-context occurrence manifest paired with its retained feature observations. */
 record ObservedLanguageFeatures(List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations,
-    List<AnalysisDiagnostic> diagnostics) {
+    DiagnosticEmissions emissions) {
   ObservedLanguageFeatures {
     occurrences = List.copyOf(Objects.requireNonNull(occurrences, "occurrences"));
     observations = List.copyOf(Objects.requireNonNull(observations, "observations"));
-    diagnostics = TranslationDiagnosticEvidence.copyOf(diagnostics);
+    Objects.requireNonNull(emissions, "emissions");
+  }
+  List<AnalysisDiagnostic> diagnostics() {
+    return emissions.diagnostics();
   }
 }

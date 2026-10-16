@@ -44,7 +44,7 @@ final class JavaProgramTranslator {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(units, "units");
     var types = new ArrayList<JavaType>();
-    var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, "input-program-translation");
+    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, "input-program-translation");
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
     var unitsBySource = new HashMap<String, CompilationUnitTree>();
@@ -65,7 +65,7 @@ final class JavaProgramTranslator {
     for (var source : snapshot.sourceFiles()) {
       var unit = unitsBySource.get(source.sourceFileKey());
       if (unit == null) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(source.sourceFileKey(),
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(source.sourceFileKey(),
             "frontend.missing-compilation-unit", "A captured source has no correlated compiler compilation unit", Optional.empty()));
         incompleteRoot = true;
         continue;
@@ -75,15 +75,14 @@ final class JavaProgramTranslator {
       var declarations = translated.value();
       var unitTypes = declarations.types();
       types.addAll(unitTypes);
-      diagnostics.addAll(translated.diagnostics());
+      diagnostics.include(translated.emissions());
       occurrences.addAll(translated.featureOccurrences());
       observations.addAll(translated.featureObservations());
       var duplicateType = false;
       for (var type : unitTypes) {
         if (!translatedTypeKeys.add(type.typeKey())) {
-          TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-              FrontendDiagnosticFactory.otherError(type.typeKey(), "frontend.duplicate-type-declaration",
-                  "Translated type declarations share a canonical key", type.origins().stream().findFirst()));
+          diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(type.typeKey(), "frontend.duplicate-type-declaration",
+              "Translated type declarations share a canonical key", type.origins().stream().findFirst()));
           duplicateType = true;
         }
       }
@@ -97,11 +96,11 @@ final class JavaProgramTranslator {
       try {
         ast = unitTranslator.projectSource();
       } catch (JavaSourceProjectionFailure failure) {
-        diagnostics.addAll(failure.diagnostics());
+        diagnostics.include(failure.emissions());
         incompleteRoot = true;
         continue;
       }
-      diagnostics.addAll(ast.diagnostics());
+      diagnostics.include(ast.emissions());
       if (ast.contribution().isPresent()) {
         sourceContributions.add(ast.contribution().orElseThrow());
         retainedAssociations.addAll(ast.sourceAssociations());
@@ -131,13 +130,13 @@ final class JavaProgramTranslator {
       if (!compilerErrors) {
         throw failure;
       }
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(snapshot.snapshotDigest(), "frontend.unavailable-source-structure",
               Objects.toString(failure.getMessage(), failure.getClass().getSimpleName()), Optional.empty()));
       aggregate = Optional.empty();
       program = new JavaProgram(List.of());
     }
-    return new TranslationResult<>(new TranslatedProgram(program, aggregate), diagnostics, occurrences, observations);
+    return new TranslationResult<>(new TranslatedProgram(program, aggregate), diagnostics.snapshot(), occurrences, observations);
   }
 
   private SourceFile sourceFor(CompilationUnitTree unit) {

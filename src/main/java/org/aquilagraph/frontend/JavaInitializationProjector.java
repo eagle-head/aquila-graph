@@ -12,7 +12,6 @@ import java.util.Objects;
 import java.util.Optional;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.admission.CopiedAstValues;
-import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AttributedBodyOccurrence;
 import org.aquilagraph.source.api.ChildUseEvidence;
 import org.aquilagraph.source.api.ExecutionScope;
@@ -51,7 +50,7 @@ final class JavaInitializationProjector {
   }
 
   Optional<Initialization> fieldChildren(CompilationUnitTree unit, SourceFile sourceFile, TreePath fieldPath, VariableTree declaration,
-      SyntaxValue.VariableDeclaration value, SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics,
+      SyntaxValue.VariableDeclaration value, SyntaxStructuralPath path, DiagnosticEmissionCollector diagnostics,
       JavaExecutableSyntaxProjector.DeclarationProjection nestedDeclarations) {
     var initializer = declaration.getInitializer();
     if (policy.supportsEnumInitialization() && value.kind() == SyntaxValue.VariableDeclaration.Kind.ENUM_CONSTANT
@@ -68,7 +67,7 @@ final class JavaInitializationProjector {
     var projection = executableProjection(unit, sourceFile, value.declarationKey(), initializer, new TreePath(fieldPath, initializer),
         JavaSyntaxStructuralPath.executionRoot(fieldPath).child(SyntaxRole.INITIALIZER, 0), nestedDeclarations);
     var decisions = new JavaBodyDecisionProducer(semantics).produce(value.declarationKey(), projection.translation().value(),
-        projection.nodes(), diagnostics);
+        projection.nodes(), diagnostics.snapshot().diagnostics());
     var copied = bodyCorrelation.projectExecutable(projection, path.child(SyntaxRole.INITIALIZER, 0), unit, sourceFile, diagnostics);
     return copied.map(node -> new Initialization(List.of(new SyntaxChild(SyntaxRole.INITIALIZER, 0, node)),
         new FieldRegistration(value, fieldPath, Optional.of(projection), decisions)));
@@ -99,7 +98,7 @@ final class JavaInitializationProjector {
   }
 
   private Optional<Initialization> enumChildren(CompilationUnitTree unit, SourceFile sourceFile, TreePath fieldPath, NewClassTree creation,
-      SyntaxValue.VariableDeclaration value, SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics,
+      SyntaxValue.VariableDeclaration value, SyntaxStructuralPath path, DiagnosticEmissionCollector diagnostics,
       JavaExecutableSyntaxProjector.DeclarationProjection nestedDeclarations) {
     var enumUses = new ArrayList<ChildUseEvidence>();
     var enumInvocations = new ArrayList<InvocationEvidence>();
@@ -116,7 +115,8 @@ final class JavaInitializationProjector {
       var argumentPath = Objects.requireNonNull(TreePath.getPath(creationPath, argument), "enum argument path");
       var projection = executableProjection(unit, sourceFile, value.declarationKey(), argument, argumentPath,
           JavaSyntaxStructuralPath.executionRoot(argumentPath), nestedDeclarations);
-      var decisions = decisionProducer.produce(value.declarationKey(), projection.translation().value(), projection.nodes(), diagnostics);
+      var decisions = decisionProducer.produce(value.declarationKey(), projection.translation().value(), projection.nodes(),
+          diagnostics.snapshot().diagnostics());
       var copied = bodyCorrelation.projectExecutable(projection, path.child(SyntaxRole.ARGUMENT, index), unit, sourceFile, diagnostics);
       if (copied.isEmpty()) {
         return Optional.empty();
@@ -131,7 +131,9 @@ final class JavaInitializationProjector {
     }
     if (creation.getClassBody() != null) {
       var bodyPath = new TreePath(creationPath, creation.getClassBody());
-      var body = nestedDeclarations.project(creation.getClassBody(), bodyPath, path.child(SyntaxRole.CLASS_BODY, 0)).value();
+      var translated = nestedDeclarations.project(creation.getClassBody(), bodyPath, path.child(SyntaxRole.CLASS_BODY, 0));
+      diagnostics.include(translated.emissions());
+      var body = translated.value();
       children.add(new SyntaxChild(SyntaxRole.CLASS_BODY, 0, body));
       enumAttributions.add(new AttributedBodyOccurrence(value.declarationKey(), body.nodeId(), body.sourceFileKey(), body.sourceKind(),
           JavaSyntaxStructuralPath.executionRoot(bodyPath)));
@@ -168,7 +170,7 @@ final class JavaInitializationProjector {
   }
 
   Optional<SyntaxNode> initializer(CompilationUnitTree unit, SourceFile sourceFile, TreePath treePath, BlockTree block,
-      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, List<AnalysisDiagnostic> diagnostics,
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DiagnosticEmissionCollector diagnostics,
       JavaExecutableSyntaxProjector.DeclarationProjection nestedDeclarations) {
     if (!policy.supportsMemberInitialization()) {
       return sourceEvidence.requiredRange(unit, sourceFile, block, occurrencePath, diagnostics)
@@ -189,7 +191,8 @@ final class JavaInitializationProjector {
     var projection = executableProjection(unit, sourceFile, key, block, treePath, JavaSyntaxStructuralPath.executionRoot(treePath),
         nestedDeclarations);
     var original = projection.translation().value();
-    var decisions = new JavaBodyDecisionProducer(semantics).produce(key, original, projection.nodes(), diagnostics);
+    var decisions = new JavaBodyDecisionProducer(semantics).produce(key, original, projection.nodes(),
+        diagnostics.snapshot().diagnostics());
     var projected = bodyCorrelation.projectExecutable(projection, path, unit, sourceFile, diagnostics);
     if (projected.isEmpty()) {
       return Optional.empty();

@@ -204,7 +204,7 @@ class DiagnosticEventOwnershipTest {
   private static SyntaxAnalysisInput withheldFacts() throws IOException {
     var input = analyze("class Example { int value() { return 1; } }");
     return JavaCoverageTestSupport.withFacts(input, new JavaProgram(List.of()), Optional.empty(),
-        JavaCoverageTestSupport.diagnostics(input, "withheld-declaration"));
+        JavaCoverageTestSupport.emissions(input));
   }
 
   private static DiagnosticEmission capabilityEvent(SyntaxAnalysisInput input) {

@@ -20,7 +20,6 @@ import javax.lang.model.type.TypeMirror;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
-import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.LanguageFeature;
 import org.aquilagraph.source.api.LanguageFeatureCategory;
 import org.aquilagraph.source.api.LanguageFeatureCoverage;
@@ -42,7 +41,7 @@ final class JavaAnnotationCompleteness {
   private final SemanticResolver semantics;
   private final JavaAnnotationValues values;
   private final List<AnalysisDiagnostic> priorDiagnostics;
-  private final List<AnalysisDiagnostic> reconciliationDiagnostics = new TranslationDiagnosticEvidence("JavaAnnotationCompleteness",
+  private final DiagnosticEmissionCollector reconciliationDiagnostics = new DiagnosticEmissionCollector("JavaAnnotationCompleteness",
       "input-annotation-reconciliation");
   private final Set<String> checked = new HashSet<>();
 
@@ -54,8 +53,8 @@ final class JavaAnnotationCompleteness {
     this.priorDiagnostics = List.copyOf(priorDiagnostics);
   }
 
-  List<AnalysisDiagnostic> diagnostics(Optional<JavaAstAggregate> aggregate) {
-    reconciliationDiagnostics.clear();
+  DiagnosticEmissions reconcile(Optional<JavaAstAggregate> aggregate) {
+    reconciliationDiagnostics.startBatch();
     checked.clear();
     var nodes = aggregate.map(JavaAstAggregate::nodes).orElseGet(List::of);
     var ordinals = new HashMap<String, Integer>();
@@ -73,7 +72,7 @@ final class JavaAnnotationCompleteness {
                 : "frontend.unavailable-source-annotation-range",
             "Written " + expected.sourceKind() + " occurrence " + ordinal + " has no exact source range", Optional.empty());
       } else if (matches.size() != UNIQUE_OCCURRENCE_COUNT) {
-        TranslationDiagnosticEvidence.emit(reconciliationDiagnostics, "JavaAnnotationCompleteness",
+        reconciliationDiagnostics.emit("JavaAnnotationCompleteness",
             FrontendDiagnosticFactory.capabilityError(occurrence.source().sourceFileKey() + ":annotation:" + ordinal,
                 "frontend.unrepresented-source-annotation", "A written annotation has no unique retained occurrence", expected.range()));
       } else {
@@ -93,11 +92,7 @@ final class JavaAnnotationCompleteness {
             "An annotation fact has no matching written obligation", node.origin());
       }
     }
-    return TranslationDiagnosticEvidence.copyOf(reconciliationDiagnostics);
-  }
-
-  List<DiagnosticEmission> reconcileWithEvents(Optional<JavaAstAggregate> aggregate) {
-    return TranslationDiagnosticEvidence.events(diagnostics(aggregate));
+    return reconciliationDiagnostics.snapshot();
   }
 
   List<LanguageFeatureObservation> propertyObservations(LanguageFeatureCoverage coverage) {
@@ -354,7 +349,7 @@ final class JavaAnnotationCompleteness {
   }
 
   private void report(SourceFile source, String context, String code, String message, Optional<SourceSpan> range) {
-    TranslationDiagnosticEvidence.emit(reconciliationDiagnostics, "JavaAnnotationCompleteness", FrontendDiagnosticFactory
+    reconciliationDiagnostics.emit("JavaAnnotationCompleteness", FrontendDiagnosticFactory
         .otherError(source.sourceFileKey() + ':' + context, code, message + " in " + source.relativePath(), range));
   }
 }

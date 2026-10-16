@@ -194,7 +194,7 @@ class WrittenBodyTypeAdmissionTest {
     var baseline = AstResultAdmission.admit(original, profile, "javac-public/1");
     var changed = AstValueAdmission.admit(omitTypeTarget(original.aggregate().orElseThrow(), kind, role));
     var supplied = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(changed),
-        JavaCoverageTestSupport.diagnostics(original, "javac-public/1"));
+        JavaCoverageTestSupport.emissions(original));
 
     // Act
     var admitted = AstResultAdmission.admit(supplied, profile, "javac-public/1");

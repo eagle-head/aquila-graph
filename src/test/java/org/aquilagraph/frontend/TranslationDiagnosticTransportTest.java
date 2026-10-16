@@ -3,6 +3,7 @@ package org.aquilagraph.frontend;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,6 +18,7 @@ import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 import javax.tools.Diagnostic;
 import javax.tools.ToolProvider;
 import org.aquilagraph.identity.api.CompilerConfiguration;
@@ -25,6 +27,8 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
@@ -40,12 +44,123 @@ import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.TestFactory;
 
 class TranslationDiagnosticTransportTest {
   private static final CompilerConfiguration CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final String BODY_PRODUCER = "JavaMethodBodyTranslator";
   private static final String VALUE_PRODUCER = "JavaAnnotationValueProjector";
   @TempDir Path sourceRoot;
+
+  @TestFactory
+  Stream<DynamicTest> givenEmittingNestedDeclarationsAcrossSourceOperations_whenPublicProductionCloses_thenAllocationAndFinalEvidenceRemainDistinct() {
+    return Stream.of(
+        "class Sample { void subject() { @MissingFirst class First {} @MissingSecond class Second {} } }",
+        "class Sample { void first() { @MissingFirst class First {} } void second() { @MissingSecond class Second {} } }",
+        "@MissingFirst class Sample { void subject() { @MissingSecond class Second {} } }",
+        "class Sample { { @MissingFirst class First {} @MissingSecond class Second {} } }",
+        "class Sample { Object first = new Object() { @MissingFirst class First {} }; Object second = new Object() { @MissingSecond class Second {} }; }",
+        "class Sample { void subject() { class Outer { void nested() { @MissingFirst class First {} @MissingSecond class Second {} } } } }",
+        "enum Sample { FIRST { @MissingFirst class First {} }, SECOND { @MissingSecond class Second {} }; }",
+        "enum Sample { FIRST(new Object() { @MissingFirst class First {} }), SECOND(new Object() { @MissingSecond class Second {} }); Sample(Object value) {} }")
+        .map(source -> DynamicTest.dynamicTest(source, () -> {
+          // Arrange
+          var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Sample.java"), source)));
+          var sourceFile = snapshot.sourceFiles().getFirst();
+          var healthy = InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Sample.java"),
+              source.replace("@MissingFirst", "@Deprecated").replace("@MissingSecond", "@Deprecated"))));
+          var frontend = new JavaFrontend(new JavaSourceLoader());
+
+          // Act
+          var outcome = frontend.produce(snapshot, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS);
+          var control = frontend.produce(healthy, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS);
+          var repeated = frontend.produce(snapshot, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS);
+
+          // Assert
+          assertEquals(AstCompletion.INCOMPLETE, outcome.completion());
+          assertEquals(AstCompletion.COMPLETE, control.completion(), control.diagnostics().toString());
+          assertEquals(List.of(), control.diagnostics());
+          var evidence = outcome.coverageQualification().orElseThrow().validationEvidence();
+          var events = evidence.diagnosticEmissions().stream()
+              .filter(event -> event.address().producer().equals("JavaAnnotationProjector")).toList();
+          assertEquals(List.of(new DiagnosticEmission.Address("JavaAnnotationProjector", sourceFile.sourceFileKey(), 0),
+              new DiagnosticEmission.Address("JavaAnnotationProjector", sourceFile.sourceFileKey(), 1)), addresses(events));
+          assertEquals(List.of("frontend.unresolved-annotation-type", "frontend.unresolved-annotation-type"),
+              events.stream().map(event -> event.diagnostic().code()).toList());
+          assertEquals(List.of(span(sourceFile, "@MissingFirst"), span(sourceFile, "@MissingSecond")),
+              events.stream().map(event -> event.diagnostic().origins().getFirst()).toList());
+          for (var event : events) {
+            assertSame(outcome.diagnostics().get(event.slot()), event.diagnostic());
+            assertEquals(List.of(), event.contexts());
+            assertTrue(evidence.outcomes().stream().noneMatch(value -> value.emissions().contains(event.address())));
+          }
+          assertEquals(outcome.diagnostics(), repeated.diagnostics());
+          assertEquals(evidence.diagnosticEmissions(), repeated.coverageQualification().orElseThrow().validationEvidence().diagnosticEmissions());
+        }));
+  }
+
+  @Test
+  void givenWrittenAnnotationsInsideEnumConstantBodies_whenPublicProductionCloses_thenImplicitConstructionEnvelopesDoNotInventOwnerMismatches()
+      throws IOException {
+    // Arrange
+    var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Sample.java"),
+        "enum Sample { FIRST { @Deprecated class First {} }, SECOND { @Deprecated class Second {} }; }")));
+
+    // Act
+    var outcome = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS);
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
+    assertEquals(List.of(), outcome.diagnostics());
+    assertEquals(2, outcome.result().orElseThrow().aggregate().nodes().stream()
+        .filter(node -> node.value() instanceof SyntaxValue.Annotation).count());
+  }
+
+  @Test
+  void givenNestedAnonymousCreationsAndAnOrdinaryControl_whenPublicProductionCloses_thenCreatingAddressesReachFinalSlotsAndContexts()
+      throws IOException {
+    // Arrange
+    var source = """
+        class Sample {
+          Object first() {
+            Object left = new Object() { int value = 1; };
+            { Object nested = new Object() { int value = 2; }; }
+            return left;
+          }
+          Object second() { return new Object() { int value = 3; }; }
+        }
+        """;
+    var creating = new ArrayList<DiagnosticEmission>();
+    withCompilation(source, fixture -> creating.addAll(eventsFrom(programTranslation(fixture), BODY_PRODUCER)));
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+    var ordinary = InputSnapshot.fromSources(sourceRoot.resolve("ordinary"), List.of(SourceFile.fromContent(Path.of("Sample.java"),
+        "class Sample { Object first() { return new Object(); } }")));
+
+    // Act
+    var outcome = frontend.produce(new JavaSourceLoader().discover(sourceRoot), CONFIGURATION, AstProfile.JAVA_SOURCE_BOUNDED);
+    var control = frontend.produce(ordinary, CONFIGURATION, AstProfile.JAVA_SOURCE_BOUNDED);
+
+    // Assert
+    assertEquals(AstCompletion.INCOMPLETE, outcome.completion());
+    assertEquals(AstCompletion.COMPLETE, control.completion(), control.diagnostics().toString());
+    assertEquals(List.of(), control.diagnostics());
+    var coverage = outcome.coverageQualification().orElseThrow().validationEvidence();
+    var finalEvents = coverage.diagnosticEmissions().stream().filter(event -> event.address().producer().equals(BODY_PRODUCER)).toList();
+    assertEquals(3, creating.size());
+    assertEquals(addresses(creating), addresses(finalEvents));
+    assertEquals(creating.stream().map(DiagnosticEmission::diagnostic).toList(), finalEvents.stream().map(DiagnosticEmission::diagnostic).toList());
+    for (var event : finalEvents) {
+      assertSame(outcome.diagnostics().get(event.slot()), event.diagnostic());
+      assertEquals(AnalysisOutcomeKind.UNSUPPORTED_LANGUAGE_FEATURE, event.cause());
+      assertFalse(event.contexts().isEmpty());
+      for (var context : event.contexts()) {
+        assertTrue(coverage.outcomes().stream().anyMatch(value -> value.address().equals(context)
+            && value.emissions().contains(event.address())));
+      }
+    }
+    assertTrue(control.result().orElseThrow().aggregate().nodes().stream().anyMatch(node -> node.sourceKind().name().equals("NEW_CLASS")));
+  }
 
   @Test
   void givenRealWrittenAnnotationAndOneReconciler_whenDamagedAndHealthyAggregatesAreRepeatedlyChecked_thenEqualDiagnosticsKeepFreshCreatorAddresses()
@@ -59,10 +174,10 @@ class TranslationDiagnosticTransportTest {
       var reconciler = new JavaAnnotationCompleteness(fixture.inventory(), fixture.compilation().semantics(), List.of());
 
       // Act
-      var first = reconciler.reconcileWithEvents(Optional.of(damaged));
-      var second = reconciler.reconcileWithEvents(Optional.of(damaged));
-      var complete = reconciler.reconcileWithEvents(Optional.of(healthy));
-      var third = reconciler.reconcileWithEvents(Optional.of(damaged));
+      var first = reconciler.reconcile(Optional.of(damaged)).events();
+      var second = reconciler.reconcile(Optional.of(damaged)).events();
+      var complete = reconciler.reconcile(Optional.of(healthy)).events();
+      var third = reconciler.reconcile(Optional.of(damaged)).events();
 
       // Assert
       assertEquals(List.of(), complete);
@@ -149,7 +264,7 @@ class TranslationDiagnosticTransportTest {
         assertEquals("Unsupported Java construct in method body: NEW_CLASS", event.diagnostic().message());
         assertUnslottedCapabilityEvent(event);
       }
-      assertEquals(program.diagnostics(), program.diagnosticEmissions().stream().map(DiagnosticEmission::diagnostic).toList());
+      assertEquals(program.diagnostics(), program.emissions().events().stream().map(DiagnosticEmission::diagnostic).toList());
       assertEquals(eventsFrom(body, BODY_PRODUCER), eventsFrom(method, BODY_PRODUCER));
       assertEquals(eventsFrom(declaration, BODY_PRODUCER), emitted);
     });
@@ -191,7 +306,7 @@ class TranslationDiagnosticTransportTest {
       var child = new JavaDeclarationProjector(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
           fixture.compilation().treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(unit, fixture.source(), translatedBodies, declarations);
       var program = programTranslation(fixture);
-      var childEvents = TranslationDiagnosticEvidence.events(child.diagnostics()).stream()
+      var childEvents = child.emissions().events().stream()
           .filter(event -> event.address().producer().equals(VALUE_PRODUCER)).toList();
       var parentEvents = eventsFrom(program, VALUE_PRODUCER);
 
@@ -206,9 +321,9 @@ class TranslationDiagnosticTransportTest {
         assertEquals("The nested annotation omits a required element value", event.diagnostic().message());
         assertUnslottedCapabilityEvent(event);
       }
-      assertFalse(program.diagnosticEmissions().stream().anyMatch(event -> event.address().producer().equals("JavaAnnotationProjector")
+      assertFalse(program.emissions().events().stream().anyMatch(event -> event.address().producer().equals("JavaAnnotationProjector")
           && event.diagnostic().code().equals("frontend.unavailable-annotation-attribution")), () -> program.diagnostics().toString());
-      assertEquals(program.diagnostics(), program.diagnosticEmissions().stream().map(DiagnosticEmission::diagnostic).toList());
+      assertEquals(program.diagnostics(), program.emissions().events().stream().map(DiagnosticEmission::diagnostic).toList());
     });
   }
 
@@ -254,7 +369,7 @@ class TranslationDiagnosticTransportTest {
   }
 
   private static List<DiagnosticEmission> eventsFrom(TranslationResult<?> translation, String producer) {
-    return translation.diagnosticEmissions().stream().filter(event -> event.address().producer().equals(producer)).toList();
+    return translation.emissions().events().stream().filter(event -> event.address().producer().equals(producer)).toList();
   }
 
   private static List<DiagnosticEmission.Address> addresses(List<DiagnosticEmission> events) {

@@ -53,7 +53,7 @@ class JavaWrittenQualifierTest {
 
     // Act
     var reconciled = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied),
-        JavaCoverageTestSupport.diagnostics(original, "copied-qualifier-provenance"));
+        JavaCoverageTestSupport.emissions(original));
     var outcome = AstResultAdmission.outcome(reconciled, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
     var ast = outcome.result().orElseThrow();
     var decoded = AstCodec.decode(AstCodec.encode(ast), ast.identity());

@@ -100,11 +100,11 @@ final class JavaTypeTranslator {
     var nestedTypes = new ArrayList<JavaType>();
     var memberOrders = new ArrayList<DeclarationMemberOrder>();
     var declarationTypes = new ArrayList<DeclarationTypeEvidence>();
-    var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, typeKey + ":declaration");
+    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, typeKey + ":declaration");
     if (policy.supportsMemberInitialization()
         && (!policy.supportsDeclarationFidelity() || (origin.isEmpty() && !policy.supportsSourceEnvelope()))) {
       for (var declaration : treeInventory.emptyBodyDeclarations(classTree)) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+        diagnostics.emit(DIAGNOSTIC_PRODUCER,
             FrontendDiagnosticFactory.capabilityError(typeKey + ":EMPTY_STATEMENT", "frontend.unsupported-class-member",
                 "Empty Java body declarations are not represented by this source profile", Optional.of(declaration)));
       }
@@ -112,8 +112,8 @@ final class JavaTypeTranslator {
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
     if (typeElement == null) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(typeKey,
-          "frontend.unresolved-type-declaration", "A type declaration element is unavailable", origin));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(typeKey, "frontend.unresolved-type-declaration",
+          "A type declaration element is unavailable", origin));
     }
 
     var completeComponents = true;
@@ -148,7 +148,7 @@ final class JavaTypeTranslator {
             memberOrders.addAll(value.memberOrders());
             declarationTypes.addAll(value.declarationTypes());
           });
-          diagnostics.addAll(translation.diagnostics());
+          diagnostics.include(translation.emissions());
           occurrences.addAll(translation.featureOccurrences());
           observations.addAll(translation.featureObservations());
           return null;
@@ -160,13 +160,13 @@ final class JavaTypeTranslator {
       }.capture();
     }
     if (!completeComponents || !completeMembers) {
-      return new TranslationResult<>(Optional.empty(), diagnostics, occurrences, observations);
+      return new TranslationResult<>(Optional.empty(), diagnostics.snapshot(), occurrences, observations);
     }
-    var firstReconciliationDiagnostic = diagnostics.size();
+    var firstReconciliationDiagnostic = diagnostics.emissionCount();
     var synthesizedDeclarations = reconcileEnclosedDeclarations(unit, classPath, classTree, typeElement, sourceFile, typeKey, origin,
         fields, recordComponents, methods, nestedTypes, diagnostics);
-    if (diagnostics.size() > firstReconciliationDiagnostic) {
-      return new TranslationResult<>(Optional.empty(), diagnostics, occurrences, observations);
+    if (diagnostics.emissionCount() > firstReconciliationDiagnostic) {
+      return new TranslationResult<>(Optional.empty(), diagnostics.snapshot(), occurrences, observations);
     }
     if (typeElement != null) {
       var members = new ArrayList<DeclarationMemberOrder.Member>();
@@ -205,13 +205,13 @@ final class JavaTypeTranslator {
         }
       }
     }
-    return new TranslationResult<>(Optional.of(new TranslatedType(types, methodBodies, memberOrders, declarationTypes)), diagnostics,
-        occurrences, observations);
+    return new TranslationResult<>(Optional.of(new TranslatedType(types, methodBodies, memberOrders, declarationTypes)),
+        diagnostics.snapshot(), occurrences, observations);
   }
 
   List<JavaSynthesizedDeclaration> reconcileEnclosedDeclarations(CompilationUnitTree unit, TreePath classPath, ClassTree classTree,
       @Nullable TypeElement typeElement, SourceFile sourceFile, String typeKey, Optional<SourceSpan> origin, List<JavaField> fields,
-      List<JavaRecordComponent> components, List<JavaMethod> methods, List<JavaType> nestedTypes, List<AnalysisDiagnostic> diagnostics) {
+      List<JavaRecordComponent> components, List<JavaMethod> methods, List<JavaType> nestedTypes, DiagnosticEmissionCollector diagnostics) {
     if (typeElement == null) {
       return List.of();
     }
@@ -234,7 +234,7 @@ final class JavaTypeTranslator {
             ? semantics.declarationKey(executable)
             : Optional.<String>empty();
         if (writtenKey.isEmpty()) {
-          TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+          diagnostics.emit(DIAGNOSTIC_PRODUCER,
               FrontendDiagnosticFactory.otherError(typeKey, "frontend.unresolved-written-method-provenance",
                   "A written method cannot be correlated with a direct compiler declaration",
                   sourceEvidence.origin(unit, sourceFile, method)));
@@ -247,13 +247,12 @@ final class JavaTypeTranslator {
     for (var enclosed : typeElement.getEnclosedElements()) {
       var key = semantics.declarationKey(enclosed);
       if (!isDirectDeclarationKind(enclosed.getKind()) || key.isEmpty()) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-            FrontendDiagnosticFactory.otherError(typeKey, "frontend.unavailable-enclosed-declaration",
-                "A compiler-exposed direct declaration has no supported kind or canonical key", origin));
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(typeKey, "frontend.unavailable-enclosed-declaration",
+            "A compiler-exposed direct declaration has no supported kind or canonical key", origin));
         continue;
       }
       if (!compilerKeys.add(key.orElseThrow())) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(key.orElseThrow(),
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(key.orElseThrow(),
             "frontend.duplicate-enclosed-declaration", "Compiler-exposed direct declarations share a canonical key", origin));
         continue;
       }
@@ -264,7 +263,7 @@ final class JavaTypeTranslator {
         if (enclosed.getKind() == ElementKind.RECORD_COMPONENT || (sourceTree != null && treeInventory.isWritten(sourceTree))
             || writtenMethodKeys.contains(key.orElseThrow())
             || (semantics.declarationOrigin(enclosed) == Elements.Origin.EXPLICIT && !unwrittenMethod)) {
-          TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+          diagnostics.emit(DIAGNOSTIC_PRODUCER,
               FrontendDiagnosticFactory.otherError(key.orElseThrow(), "frontend.unrepresented-written-declaration",
                   "A written direct declaration is absent from its type aggregate",
                   sourceTree == null ? origin : sourceEvidence.origin(unit, sourceFile, sourceTree)));
@@ -277,7 +276,7 @@ final class JavaTypeTranslator {
     }
     for (var representedKey : representedKeys) {
       if (!compilerKeys.contains(representedKey)) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(representedKey,
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(representedKey,
             "frontend.unmatched-enclosed-declaration", "A modeled direct declaration has no compiler-enclosed counterpart", origin));
       }
     }
@@ -293,7 +292,7 @@ final class JavaTypeTranslator {
   }
 
   private List<JavaRecordComponent> translateRecordComponents(CompilationUnitTree unit, ClassTree classTree, SourceFile sourceFile,
-      TypeElement typeElement, String typeKey, List<AnalysisDiagnostic> diagnostics) {
+      TypeElement typeElement, String typeKey, DiagnosticEmissionCollector diagnostics) {
     var elements = typeElement.getRecordComponents();
     var translated = new ArrayList<JavaRecordComponent>();
     var constructor = canonicalConstructor(typeElement, elements);
@@ -315,9 +314,8 @@ final class JavaTypeTranslator {
           || componentTree == null || sourceStart < 0 || written.size() != 1 || origin.isEmpty() || type.isEmpty()
           || type.orElseThrow().identity().category() == JavaTypeCategory.ERROR
           || type.orElseThrow().identity().category() == JavaTypeCategory.OTHER || constructor.isEmpty()) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-            FrontendDiagnosticFactory.otherError(expectedKey, "frontend.unavailable-record-component",
-                "A written record component lacks a correlated element, source range, type, or canonical constructor", origin));
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(expectedKey, "frontend.unavailable-record-component",
+            "A written record component lacks a correlated element, source range, type, or canonical constructor", origin));
         continue;
       }
       var accessor = component.getAccessor();
@@ -328,9 +326,8 @@ final class JavaTypeTranslator {
           .findFirst().flatMap(semantics::declarationKey);
       var parameterKey = semantics.declarationKey(constructor.orElseThrow().getParameters().get(ordinal));
       if (accessorKey.isEmpty() || backingFieldKey.isEmpty() || parameterKey.isEmpty()) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-            FrontendDiagnosticFactory.otherError(expectedKey, "frontend.unavailable-record-counterpart",
-                "A record component lacks a compiler-correlated accessor, field, or canonical parameter", origin));
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(expectedKey, "frontend.unavailable-record-counterpart",
+            "A record component lacks a compiler-correlated accessor, field, or canonical parameter", origin));
         continue;
       }
       var varArgs = constructor.orElseThrow().isVarArgs() && ordinal == elements.size() - 1;
@@ -356,7 +353,7 @@ final class JavaTypeTranslator {
 
   private boolean classifyMember(CompilationUnitTree unit, TreePath classPath, SourceFile sourceFile, String typeKey, Tree member,
       List<JavaField> fields, List<JavaMethod> methods, List<TranslatedMethodBody> methodBodies, List<JavaType> nestedTypes,
-      List<DeclarationMemberOrder> memberOrders, List<DeclarationTypeEvidence> declarationTypes, List<AnalysisDiagnostic> diagnostics,
+      List<DeclarationMemberOrder> memberOrders, List<DeclarationTypeEvidence> declarationTypes, DiagnosticEmissionCollector diagnostics,
       List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
     switch (member) {
       case MethodTree methodTree -> {
@@ -364,19 +361,19 @@ final class JavaTypeTranslator {
             ? Optional.<TranslationResult<TranslatedMethod>>empty()
             : Optional.of(methodTranslator.translate(unit, classPath, sourceFile, typeKey, methodTree));
         var translation = translated
-            .map(value -> new TranslationResult<>(value.value().method(), value.diagnostics(), value.featureOccurrences(),
+            .map(value -> new TranslationResult<>(value.value().method(), value.emissions(), value.featureOccurrences(),
                 value.featureObservations()))
             .orElseGet(() -> methodDeclarations.translate(unit, classPath, sourceFile, typeKey, methodTree));
         var method = translation.value();
         if (methods.stream().anyMatch(existing -> existing.methodKey().equals(method.methodKey()))) {
-          TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+          diagnostics.emit(DIAGNOSTIC_PRODUCER,
               FrontendDiagnosticFactory.otherError(method.methodKey(), "frontend.duplicate-member-declaration",
                   "Written members share a canonical declaration key", sourceEvidence.origin(unit, sourceFile, methodTree)));
         } else {
           methods.add(method);
           translated.flatMap(value -> value.value().body()).ifPresent(methodBodies::add);
         }
-        diagnostics.addAll(translation.diagnostics());
+        diagnostics.include(translation.emissions());
         occurrences.addAll(translation.featureOccurrences());
         observations.addAll(translation.featureObservations());
       }
@@ -384,13 +381,13 @@ final class JavaTypeTranslator {
         var translation = translateField(unit, classPath, sourceFile, typeKey, variableTree);
         var field = translation.value();
         if (fields.stream().anyMatch(existing -> existing.fieldKey().equals(field.fieldKey()))) {
-          TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+          diagnostics.emit(DIAGNOSTIC_PRODUCER,
               FrontendDiagnosticFactory.otherError(field.fieldKey(), "frontend.duplicate-member-declaration",
                   "Written members share a canonical declaration key", sourceEvidence.origin(unit, sourceFile, variableTree)));
         } else {
           fields.add(field);
         }
-        diagnostics.addAll(translation.diagnostics());
+        diagnostics.include(translation.emissions());
         occurrences.addAll(translation.featureOccurrences());
         observations.addAll(translation.featureObservations());
       }
@@ -402,22 +399,20 @@ final class JavaTypeTranslator {
           memberOrders.addAll(value.memberOrders());
           declarationTypes.addAll(value.declarationTypes());
         });
-        diagnostics.addAll(translation.diagnostics());
+        diagnostics.include(translation.emissions());
         occurrences.addAll(translation.featureOccurrences());
         observations.addAll(translation.featureObservations());
         return translation.value().isPresent();
       }
       case BlockTree initializer -> {
         if (!policy.supportsMemberInitialization()) {
-          TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-              initializerDiagnostic(unit, sourceFile, typeKey, initializer));
+          diagnostics.emit(DIAGNOSTIC_PRODUCER, initializerDiagnostic(unit, sourceFile, typeKey, initializer));
         }
       }
       case EmptyStatementTree _ -> {
         // Empty body declarations are classified from the pre-attribution source inventory.
       }
-      default -> TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-          unsupportedMemberDiagnostic(unit, sourceFile, typeKey, member));
+      default -> diagnostics.emit(DIAGNOSTIC_PRODUCER, unsupportedMemberDiagnostic(unit, sourceFile, typeKey, member));
     }
     return true;
   }
@@ -436,28 +431,28 @@ final class JavaTypeTranslator {
             + origin.map(value -> value.startOffset() + ":" + value.endOffsetExclusive())
                 .orElseGet(() -> StableId.sha256("unresolved-field", typeKey, variableTree.getName().toString()))
         : semantics.declarationKey(variable).orElseThrow();
-    var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, fieldKey + ":field");
+    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, fieldKey + ":field");
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
     if (variable == null) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(fieldKey,
-          "frontend.unresolved-field", "A field declaration element is unavailable", origin));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(fieldKey, "frontend.unresolved-field",
+          "A field declaration element is unavailable", origin));
     }
     var owner = semantics.element(classPath);
     var recordBacking = owner instanceof TypeElement typeElement && typeElement.getKind() == ElementKind.RECORD && typeElement
         .getRecordComponents().stream().anyMatch(component -> component.getSimpleName().contentEquals(variableTree.getName()));
     if (variableTree.getNameExpression() != null) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(fieldKey, "frontend.invalid-field-name-expression",
               "A field declaration cannot have a receiver name expression",
               sourceEvidence.origin(unit, sourceFile, variableTree.getNameExpression())));
     }
     var staticType = declarationType(semantics.type(path));
     if (staticType.category() == JavaTypeCategory.ERROR) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.erroneousCompilerState(fieldKey,
-          "frontend.error-field-type", "javac reported an error type for a field", origin));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.erroneousCompilerState(fieldKey, "frontend.error-field-type",
+          "javac reported an error type for a field", origin));
     } else if (staticType.category() == JavaTypeCategory.OTHER) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(fieldKey, "frontend.unresolved-field-type", "A field type is unavailable", origin));
     }
     var modifiers = variableTree.getModifiers().getFlags().stream().map(modifier -> modifier.name().toLowerCase(Locale.ROOT))
@@ -466,10 +461,9 @@ final class JavaTypeTranslator {
         !recordBacking && written && origin.isPresent(), recordBacking || !written ? List.of() : origin.stream().toList());
     if (variableTree.getInitializer() != null
         && (!policy.supportsMemberInitialization() || (enumConstant && !policy.supportsEnumInitialization()))) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-          fieldInitializerDiagnostic(unit, sourceFile, fieldKey, variableTree, enumConstant));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, fieldInitializerDiagnostic(unit, sourceFile, fieldKey, variableTree, enumConstant));
     }
-    return new TranslationResult<>(field, diagnostics, occurrences, observations);
+    return new TranslationResult<>(field, diagnostics.snapshot(), occurrences, observations);
   }
 
   private AnalysisDiagnostic fieldInitializerDiagnostic(CompilationUnitTree unit, SourceFile sourceFile, String fieldKey,
@@ -515,7 +509,7 @@ final class JavaTypeTranslator {
   }
 
   private Optional<JavaTypeReference> enclosingType(@Nullable TypeElement typeElement, String typeKey, Optional<SourceSpan> origin,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
     var element = typeElement == null ? null : typeElement.getEnclosingElement();
     while (element != null && !(element instanceof TypeElement)) {
       element = element.getEnclosingElement();
@@ -526,59 +520,57 @@ final class JavaTypeTranslator {
     var owner = (TypeElement) element;
     var reference = semantics.typeReference(owner.asType());
     if (reference.isEmpty()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(typeKey,
-          "frontend.unresolved-enclosing-type", "An enclosing type identity is unavailable", origin));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(typeKey, "frontend.unresolved-enclosing-type",
+          "An enclosing type identity is unavailable", origin));
     }
     return reference;
   }
 
   private Optional<JavaTypeReference> directSuperclass(@Nullable TypeElement typeElement, String typeKey, Optional<SourceSpan> origin,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
     if (typeElement == null || typeElement.getSuperclass().getKind() == TypeKind.NONE) {
       return Optional.empty();
     }
     var reference = semantics.typeReference(typeElement.getSuperclass());
     if (reference.isEmpty()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(typeKey,
-          "frontend.unresolved-direct-superclass", "A direct superclass identity is unavailable", origin));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(typeKey, "frontend.unresolved-direct-superclass",
+          "A direct superclass identity is unavailable", origin));
     }
     return reference;
   }
 
   private List<JavaTypeReference> typeReferences(List<? extends TypeMirror> types, String typeKey, String code, String message,
-      Optional<SourceSpan> origin, List<AnalysisDiagnostic> diagnostics) {
+      Optional<SourceSpan> origin, DiagnosticEmissionCollector diagnostics) {
     var references = new ArrayList<JavaTypeReference>(types.size());
     for (var index = 0; index < types.size(); index++) {
       var reference = semantics.typeReference(types.get(index));
       if (reference.isPresent()) {
         references.add(reference.orElseThrow());
       } else {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-            FrontendDiagnosticFactory.otherError(typeKey + ':' + index, code, message, origin));
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(typeKey + ':' + index, code, message, origin));
       }
     }
     return List.copyOf(references);
   }
 
   private List<JavaTypeParameter> translateTypeParameters(CompilationUnitTree unit, SourceFile sourceFile, String typeKey,
-      List<? extends TypeParameterTree> parameterTrees, @Nullable TypeElement typeElement, List<AnalysisDiagnostic> diagnostics) {
+      List<? extends TypeParameterTree> parameterTrees, @Nullable TypeElement typeElement, DiagnosticEmissionCollector diagnostics) {
     var parameters = new ArrayList<JavaTypeParameter>();
     var parameterElements = typeElement == null ? List.<TypeParameterElement>of() : typeElement.getTypeParameters();
     for (var index = 0; index < parameterTrees.size(); index++) {
       var parameterTree = parameterTrees.get(index);
       var origin = sourceEvidence.origin(unit, sourceFile, parameterTree);
       if (index >= parameterElements.size()) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-            FrontendDiagnosticFactory.otherError(typeKey + ":type-parameter:" + index, "frontend.unresolved-type-parameter",
-                "A type parameter declaration element is unavailable", origin));
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(typeKey + ":type-parameter:" + index,
+            "frontend.unresolved-type-parameter", "A type parameter declaration element is unavailable", origin));
         continue;
       }
       var parameterElement = parameterElements.get(index);
       var expectedKey = typeKey + "#type-parameter:" + index;
       var parameterKey = semantics.declarationKey(parameterElement);
       if (parameterKey.filter(expectedKey::equals).isEmpty()) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(expectedKey,
-            "frontend.unresolved-type-parameter", "A type parameter declaration identity is unavailable or inconsistent", origin));
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(expectedKey, "frontend.unresolved-type-parameter",
+            "A type parameter declaration identity is unavailable or inconsistent", origin));
         continue;
       }
       var bounds = typeReferences(parameterElement.getBounds(), parameterKey.orElseThrow(), "frontend.unresolved-type-parameter-bound",

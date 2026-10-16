@@ -11,7 +11,6 @@ import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.identity.api.StableId;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
-import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
 
@@ -22,16 +21,11 @@ final class CompilerDiagnosticTranslator {
     this.sources = Objects.requireNonNull(sources, "sources");
   }
 
-  List<AnalysisDiagnostic> translate(List<Diagnostic<? extends JavaFileObject>> compilerDiagnostics) {
+  DiagnosticEmissions translate(List<Diagnostic<? extends JavaFileObject>> compilerDiagnostics) {
     Objects.requireNonNull(compilerDiagnostics, "compilerDiagnostics");
-    var diagnostics = new TranslationDiagnosticEvidence("CompilerDiagnosticTranslator", "input-compiler-diagnostics");
-    compilerDiagnostics
-        .forEach(diagnostic -> TranslationDiagnosticEvidence.emit(diagnostics, "CompilerDiagnosticTranslator", translate(diagnostic)));
-    return TranslationDiagnosticEvidence.copyOf(diagnostics);
-  }
-
-  List<DiagnosticEmission> translateWithEvents(List<Diagnostic<? extends JavaFileObject>> compilerDiagnostics) {
-    return TranslationDiagnosticEvidence.events(translate(compilerDiagnostics));
+    var diagnostics = new DiagnosticEmissionCollector("CompilerDiagnosticTranslator", "input-compiler-diagnostics");
+    compilerDiagnostics.forEach(diagnostic -> diagnostics.emit("CompilerDiagnosticTranslator", translate(diagnostic)));
+    return diagnostics.snapshot();
   }
 
   private AnalysisDiagnostic translate(Diagnostic<? extends JavaFileObject> diagnostic) {

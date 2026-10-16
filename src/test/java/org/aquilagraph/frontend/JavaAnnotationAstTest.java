@@ -526,7 +526,7 @@ class JavaAnnotationAstTest {
       var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
 
       // Act
-      var diagnostics = new JavaAnnotationCompleteness(captured, compilation.semantics(), List.of()).diagnostics(Optional.empty()).stream()
+      var diagnostics = new JavaAnnotationCompleteness(captured, compilation.semantics(), List.of()).reconcile(Optional.empty()).diagnostics().stream()
           .filter(diagnostic -> diagnostic.code().equals("frontend.unavailable-source-annotation-range")).toList();
 
       // Assert

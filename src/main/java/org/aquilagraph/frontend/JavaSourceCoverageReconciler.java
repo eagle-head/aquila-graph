@@ -58,11 +58,11 @@ final class JavaSourceCoverageReconciler {
   private final List<UnmatchedSourceFact> unmatched = new ArrayList<>();
 
   JavaSourceCoverageReconciler(SourceCoverageInventory inventory, AttributedCoverageExpectations attributed, JavaProgram program,
-      Optional<JavaAstAggregate> aggregate, List<DiagnosticEmission> emissions) {
+      Optional<JavaAstAggregate> aggregate, DiagnosticEmissions emissions) {
     this.inventory = inventory;
     this.attributed = attributed;
     actualFacts = CoverageActualFacts.capture(program, aggregate);
-    events = new ArrayList<>(emissions);
+    events = new ArrayList<>(emissions.events());
     for (var event : events) {
       registerEvent(event);
     }

@@ -240,7 +240,7 @@ class IterationAstTest {
     var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), missingIterableType(body.root(), replacements),
         body.origin(), List.of(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var supplied = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes()));
-    var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied), JavaCoverageTestSupport.diagnostics(original, "copied-iterable-type-qualification"));
+    var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied), JavaCoverageTestSupport.emissions(original));
     // Act
     var outcome = AstResultAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
     var result = outcome.result().orElseThrow();

@@ -4,23 +4,27 @@ import java.io.Serial;
 import java.io.NotSerializableException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.util.List;
 import java.util.Objects;
-import org.aquilagraph.source.api.AnalysisDiagnostic;
 
 /** Stops publication of a source root whose required nested declaration is unavailable. */
 final class JavaSourceProjectionFailure extends RuntimeException {
   @Serial
   private static final long serialVersionUID = 1L;
-  private final transient List<AnalysisDiagnostic> capturedDiagnostics;
+  private static final String MESSAGE = "Required nested source declaration is unavailable";
+  private final transient DiagnosticEmissions capturedEmissions;
 
-  JavaSourceProjectionFailure(List<AnalysisDiagnostic> diagnostics) {
-    super("Required nested source declaration is unavailable");
-    capturedDiagnostics = TranslationDiagnosticEvidence.copyOf(diagnostics);
+  JavaSourceProjectionFailure(DiagnosticEmissions emissions) {
+    super(MESSAGE);
+    capturedEmissions = Objects.requireNonNull(emissions, "emissions");
   }
 
-  List<AnalysisDiagnostic> diagnostics() {
-    return capturedDiagnostics;
+  DiagnosticEmissions emissions() {
+    return capturedEmissions;
+  }
+
+  JavaSourceProjectionFailure(DiagnosticEmissions earlier, JavaSourceProjectionFailure cause) {
+    super(MESSAGE, cause);
+    capturedEmissions = DiagnosticEmissions.combine(earlier, cause.emissions());
   }
 
   @Serial

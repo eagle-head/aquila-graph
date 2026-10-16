@@ -177,7 +177,7 @@ class JavaLanguageCompletionContractTest {
     var translator = new CompilerDiagnosticTranslator(new SnapshotSourceCatalog(new JavaSourceLoader().discover(temporaryDirectory)));
 
     // Act
-    var diagnostics = translator.translate(List.of(new CompilerError(null), new CompilerError("vendor.parse.failure")));
+    var diagnostics = translator.translate(List.of(new CompilerError(null), new CompilerError("vendor.parse.failure"))).diagnostics();
 
     // Assert
     assertEquals(List.of("javac.unknown", "vendor.parse.failure"), diagnostics.stream().map(AnalysisDiagnostic::code).toList());

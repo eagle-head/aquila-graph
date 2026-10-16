@@ -688,7 +688,7 @@ class JavaCoverageAdmissionTest {
 
     // Act
     var partial = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(changed),
-        JavaCoverageTestSupport.diagnostics(original, "missing-package-qualifier"));
+        JavaCoverageTestSupport.emissions(original));
     var selected = property(partial, "CompilationUnitTree::CompilationUnitTree#getPackageName()", CoveragePropertyValue.State.SCALAR);
 
     // Assert
@@ -1127,7 +1127,7 @@ class JavaCoverageAdmissionTest {
   void givenKnownPairsWithWithheldFacts_whenSupportIsReconciled_thenPairsSurviveWithBlockingFailedSupport() throws IOException {
     // Arrange
     var original = analyze("class Example { int value() { return 1; } }");
-    var diagnostics = JavaCoverageTestSupport.diagnostics(original, "withheld-source-root");
+    var diagnostics = JavaCoverageTestSupport.emissions(original);
 
     // Act
     var partial = JavaCoverageTestSupport.withFacts(original, new JavaProgram(List.of()), Optional.empty(), diagnostics);
@@ -1253,50 +1253,50 @@ class JavaCoverageAdmissionTest {
   @Test
   void givenSiblingCreatingCollectorsWithEqualValues_whenNestedTransportJoinsThem_thenCreatingOwnersKeepTwoEvents() {
     // Arrange
-    var left = new TranslationDiagnosticEvidence("nested-producer", "left-source-path");
-    var right = new TranslationDiagnosticEvidence("nested-producer", "right-source-path");
-    TranslationDiagnosticEvidence.emit(left, "nested-error-site", note());
-    TranslationDiagnosticEvidence.emit(right, "nested-error-site", note());
-    var joined = new TranslationDiagnosticEvidence("parent", "source-root");
+    var left = new DiagnosticEmissionCollector("nested-producer", "left-source-path");
+    var right = new DiagnosticEmissionCollector("nested-producer", "right-source-path");
+    left.emit("nested-error-site", note());
+    right.emit("nested-error-site", note());
+    var joined = new DiagnosticEmissionCollector("parent", "source-root");
 
     // Act
-    joined.addAll(TranslationDiagnosticEvidence.copyOf(left));
-    joined.addAll(TranslationDiagnosticEvidence.copyOf(right));
-    var result = new TranslationResult<>("value", joined, List.of(), List.of());
+    joined.include(left.snapshot());
+    joined.include(right.snapshot());
+    var result = new TranslationResult<>("value", joined.snapshot(), List.of(), List.of());
 
     // Assert
     assertEquals(2, result.diagnostics().size());
     assertEquals(result.diagnostics().getFirst(), result.diagnostics().getLast());
-    assertEquals(List.of("left-source-path", "right-source-path"), result.diagnosticEmissions().stream().map(event -> event.address().owner()).toList());
-    assertFalse(result.diagnosticEmissions().getFirst().address().equals(result.diagnosticEmissions().getLast().address()));
+    assertEquals(List.of("left-source-path", "right-source-path"), result.emissions().events().stream().map(event -> event.address().owner()).toList());
+    assertFalse(result.emissions().events().getFirst().address().equals(result.emissions().events().getLast().address()));
   }
 
   @Test
   void givenOneCreatingEventTransportedByTwoCarriers_whenJoined_thenOneEventKeepsItsOriginalAddress() {
     // Arrange
-    var created = new TranslationDiagnosticEvidence("nested-producer", "shared-source-path");
-    TranslationDiagnosticEvidence.emit(created, "nested-error-site", note());
-    var joined = new TranslationDiagnosticEvidence("parent", "source-root");
+    var created = new DiagnosticEmissionCollector("nested-producer", "shared-source-path");
+    created.emit("nested-error-site", note());
+    var joined = new DiagnosticEmissionCollector("parent", "source-root");
 
     // Act
-    joined.addAll(TranslationDiagnosticEvidence.copyOf(created));
-    joined.addAll(TranslationDiagnosticEvidence.copyOf(created));
+    joined.include(created.snapshot());
+    joined.include(created.snapshot());
 
     // Assert
-    assertEquals(1, joined.size());
-    assertEquals(created.emissions(), joined.emissions());
+    assertEquals(1, joined.emissionCount());
+    assertEquals(created.snapshot().events(), joined.snapshot().events());
   }
 
   @Test
   void givenUnequalCreatingEvents_whenActualDiagnosticSlotsAreReversed_thenInputRejectsTheChangedOrder() throws IOException {
     // Arrange
     var original = analyze("class Example {}");
-    var events = new TranslationDiagnosticEvidence("notes", "source-root");
-    TranslationDiagnosticEvidence.emit(events, "first-note", note());
-    TranslationDiagnosticEvidence.emit(events, "second-note", new AnalysisDiagnostic(StableId.sha256("diagnostic", "second-note"), "frontend.second-note",
+    var events = new DiagnosticEmissionCollector("notes", "source-root");
+    events.emit("first-note", note());
+    events.emit("second-note", new AnalysisDiagnostic(StableId.sha256("diagnostic", "second-note"), "frontend.second-note",
         DiagnosticStage.FRONTEND, DiagnosticSeverity.INFO, "Second copied note", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
     var evidence = original.languageFeatureCoverageResult().validationEvidence();
-    var ordered = List.of(events.emissions().getFirst().atSlot(0), events.emissions().getLast().atSlot(1));
+    var ordered = List.of(events.snapshot().events().getFirst().atSlot(0), events.snapshot().events().getLast().atSlot(1));
     var result = LanguageFeatureCoverageResult.fromEvidence(original.languageFeatureCoverage(), evidence.writtenInventory(), evidence.attributedExpectations(),
         evidence.outcomes(), evidence.unmatchedFacts(), ordered);
 
@@ -1388,7 +1388,7 @@ class JavaCoverageAdmissionTest {
     var changed = copyAggregate(original, changedRoot, aggregate.declarationMemberOrders());
 
     // Act
-    var partial = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(changed), JavaCoverageTestSupport.diagnostics(original, "swapped-imports"));
+    var partial = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(changed), JavaCoverageTestSupport.emissions(original));
     var outcome = partial.languageFeatureCoverageResult().validationEvidence().outcomes().stream().filter(value -> value.address().role().equals(JavaDeclarationPropertyCoverage.COMPILATION_UNIT_IMPORTS)).findFirst().orElseThrow();
 
     // Assert
@@ -1809,21 +1809,21 @@ class JavaCoverageAdmissionTest {
   @Test
   void givenAReusedCreatingCollector_whenEarlierEventsAreTransportedThenCleared_thenLaterEqualEventsKeepDistinctAddresses() {
     // Arrange
-    var producer = new TranslationDiagnosticEvidence("nested-producer", "one-source-path");
-    TranslationDiagnosticEvidence.emit(producer, "one-creating-site", note());
-    var earlier = TranslationDiagnosticEvidence.copyOf(producer);
-    var joined = new TranslationDiagnosticEvidence("parent", "source-root");
+    var producer = new DiagnosticEmissionCollector("nested-producer", "one-source-path");
+    producer.emit("one-creating-site", note());
+    var earlier = producer.snapshot();
+    var joined = new DiagnosticEmissionCollector("parent", "source-root");
 
     // Act
-    producer.clear();
-    TranslationDiagnosticEvidence.emit(producer, "one-creating-site", note());
-    joined.addAll(earlier);
-    joined.addAll(TranslationDiagnosticEvidence.copyOf(producer));
-    var result = new TranslationResult<>("value", joined, List.of(), List.of());
+    producer.startBatch();
+    producer.emit("one-creating-site", note());
+    joined.include(earlier);
+    joined.include(producer.snapshot());
+    var result = new TranslationResult<>("value", joined.snapshot(), List.of(), List.of());
 
     // Assert
-    assertEquals(2, result.diagnosticEmissions().size());
-    assertEquals(List.of(0, 1), result.diagnosticEmissions().stream().map(event -> event.address().ordinal()).toList());
+    assertEquals(2, result.emissions().events().size());
+    assertEquals(List.of(0, 1), result.emissions().events().stream().map(event -> event.address().ordinal()).toList());
     assertEquals(result.diagnostics().getFirst(), result.diagnostics().getLast());
   }
 
@@ -1882,7 +1882,7 @@ class JavaCoverageAdmissionTest {
   void givenExceptionFactsWithheld_whenSupportIsReconciled_thenMissingRequiredSourceEvidenceRemainsBlocking() throws IOException {
     // Arrange
     var original = analyze("class Example { void subject() throws Exception { try (AutoCloseable first = null) {} catch (IllegalArgumentException | IllegalStateException failure) {} finally {} } }");
-    var diagnostics = JavaCoverageTestSupport.diagnostics(original, "withheld-exception-facts");
+    var diagnostics = JavaCoverageTestSupport.emissions(original);
     // Act
     var partial = JavaCoverageTestSupport.withFacts(original, new JavaProgram(List.of()), Optional.empty(), diagnostics);
     // Assert
