@@ -88,7 +88,7 @@ final class JavaDeclarationProjector {
   private final JavaWrittenSourceAssociations sourceAssociations;
   private final JavaDeclarationScope declarations = new JavaDeclarationScope();
   private final JavaBodySourceCorrelation bodyCorrelation;
-  private final JavaAstContributionTranslator initializations;
+  private final JavaInitializationProjector initializations;
   private final List<TranslatedMethodBody> unfinishedBodies = new ArrayList<>();
   private Optional<JavaUnitTranslator.Declarations> stagedDeclarations = Optional.empty();
 
@@ -113,7 +113,7 @@ final class JavaDeclarationProjector {
     bodyCorrelation = new JavaBodySourceCorrelation(semantics, sourceEvidence, treeInventory, sourceAssociations, declarations);
     moduleTranslator = new JavaModuleTranslator(sourceEvidence, treeInventory, annotationProjector, sourceAssociations);
     typeUseTranslator = new JavaTypeUseTranslator(semantics, sourceEvidence, treeInventory, Optional.empty(), sourceAssociations);
-    initializations = new JavaAstContributionTranslator(semantics, sourceEvidence, treeInventory, policy, sourceAssociations,
+    initializations = new JavaInitializationProjector(semantics, sourceEvidence, treeInventory, policy, sourceAssociations,
         bodyCorrelation);
   }
 
@@ -893,13 +893,9 @@ final class JavaDeclarationProjector {
           diagnostics, new ProjectionContext(unit, sourceFile, publication, semanticEdges, typesByKey));
       case ClassTree nested -> type(unit, sourceFile, memberTreePath, nested, memberPath, memberOccurrencePath, publication, semanticEdges,
           diagnostics, typesByKey);
-      case BlockTree initializer when policy.supportsMemberInitialization() -> initializations.initializer(unit, sourceFile, memberTreePath,
-          initializer, memberPath, diagnostics, (nested, nestedPath, nestedSourcePath) -> projectNestedDeclaration(
+      case BlockTree initializer -> initializations.initializer(unit, sourceFile, memberTreePath, initializer, memberPath,
+          memberOccurrencePath, diagnostics, (nested, nestedPath, nestedSourcePath) -> projectNestedDeclaration(
               new ProjectionContext(unit, sourceFile, publication, semanticEdges, typesByKey), nested, nestedPath, nestedSourcePath));
-      case BlockTree initializer -> requiredRange(unit, sourceFile, initializer, memberOccurrencePath, diagnostics)
-          .map(range -> sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), memberPath, JavaSourceKind.BLOCK,
-              initializer.isStatic() ? SyntaxKind.STATIC_INITIALIZER_BLOCK : SyntaxKind.INSTANCE_INITIALIZER_BLOCK,
-              SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range), memberTreePath));
       case EmptyStatementTree _ -> Optional.empty();
       default -> {
         TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
@@ -1326,7 +1322,7 @@ final class JavaDeclarationProjector {
         children, Optional.empty(), range.orElseThrow());
     sourceAssociations.created(node, fieldPath);
     declarationEdge(fieldPath, node, semanticEdges);
-    initialization.orElseThrow().retain(node);
+    initializations.retain(initialization.orElseThrow(), node);
     return Optional.of(node);
   }
 

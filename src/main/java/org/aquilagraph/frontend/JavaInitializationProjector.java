@@ -10,7 +10,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Consumer;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
@@ -20,6 +19,7 @@ import org.aquilagraph.source.api.ExecutionScope;
 import org.aquilagraph.source.api.InvocationEvidence;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.SemanticReference;
 import org.aquilagraph.source.api.StaticMemberEvidence;
 import org.aquilagraph.source.api.StringExpressionEvidence;
 import org.aquilagraph.source.api.SyntaxChild;
@@ -31,7 +31,7 @@ import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
 
 /** Projects initialization children and registers facts against their assembled declaration. */
-final class JavaAstContributionTranslator {
+final class JavaInitializationProjector {
   private static final String DIAGNOSTIC_PRODUCER = "JavaAstContributionTranslator";
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
@@ -40,7 +40,7 @@ final class JavaAstContributionTranslator {
   private final JavaWrittenSourceAssociations sourceAssociations;
   private final JavaBodySourceCorrelation bodyCorrelation;
 
-  JavaAstContributionTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
+  JavaInitializationProjector(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
       JavaTranslationPolicy policy, JavaWrittenSourceAssociations sourceAssociations, JavaBodySourceCorrelation bodyCorrelation) {
     this.semantics = semantics;
     this.sourceEvidence = sourceEvidence;
@@ -59,11 +59,11 @@ final class JavaAstContributionTranslator {
       return enumChildren(unit, sourceFile, fieldPath, creation, value, path, diagnostics, nestedDeclarations);
     }
     if (!policy.supportsMemberInitialization() || value.kind() == SyntaxValue.VariableDeclaration.Kind.ENUM_CONSTANT) {
-      return Optional.of(new Initialization(List.of(), Optional.empty()));
+      return Optional.of(new Initialization(List.of(), NoRegistration.INSTANCE));
     }
     if (initializer == null) {
-      return Optional.of(new Initialization(List.of(), Optional.of(node -> retainField(value, node, fieldPath, Optional.empty(),
-          new JavaBodyDecisions(List.of(), List.of(), List.of(), List.of())))));
+      return Optional.of(new Initialization(List.of(),
+          new FieldRegistration(value, fieldPath, Optional.empty(), new JavaBodyDecisions(List.of(), List.of(), List.of(), List.of()))));
     }
     var projection = executableProjection(unit, sourceFile, value.declarationKey(), initializer, new TreePath(fieldPath, initializer),
         JavaSyntaxStructuralPath.executionRoot(fieldPath).child(SyntaxRole.INITIALIZER, 0), nestedDeclarations);
@@ -71,7 +71,16 @@ final class JavaAstContributionTranslator {
         projection.nodes(), diagnostics);
     var copied = bodyCorrelation.projectExecutable(projection, path.child(SyntaxRole.INITIALIZER, 0), unit, sourceFile, diagnostics);
     return copied.map(node -> new Initialization(List.of(new SyntaxChild(SyntaxRole.INITIALIZER, 0, node)),
-        Optional.of(parent -> retainField(value, parent, fieldPath, Optional.of(projection), decisions))));
+        new FieldRegistration(value, fieldPath, Optional.of(projection), decisions)));
+  }
+
+  void retain(Initialization initialization, SyntaxNode declaration) {
+    switch (initialization.registration) {
+      case NoRegistration _ -> {
+      }
+      case FieldRegistration field -> retainField(field.value(), declaration, field.path(), field.projection(), field.decisions());
+      case EnumRegistration constant -> retainEnum(constant, declaration);
+    }
   }
 
   private void retainField(SyntaxValue.VariableDeclaration value, SyntaxNode node, TreePath fieldPath,
@@ -128,16 +137,24 @@ final class JavaAstContributionTranslator {
           JavaSyntaxStructuralPath.executionRoot(bodyPath)));
     }
 
-    return Optional.of(new Initialization(children, Optional.of(node -> {
-      var decisions = decisionProducer.enumConstant(value.declarationKey(), node, creationPath, constructor);
-      enumUses.addAll(decisions.uses());
-      enumInvocations.addAll(decisions.invocations());
-      enumAttributions.add(new AttributedBodyOccurrence(value.declarationKey(), node.nodeId(), node.sourceFileKey(), node.sourceKind(),
-          JavaSyntaxStructuralPath.executionRoot(fieldPath)));
-      bodyCorrelation
-          .retainScope(new CopiedAstValues.Scope(new ExecutionScope.EnumConstant(value.declarationKey(), value.ownerKey(), constructor),
-              node, enumUses, enumInvocations, enumStaticAccesses, enumConcatenations, enumAttributions));
-    })));
+    return Optional.of(new Initialization(children, new EnumRegistration(value, fieldPath, creationPath, constructor,
+        new JavaBodyDecisions(enumUses, enumInvocations, enumStaticAccesses, enumConcatenations), enumAttributions)));
+  }
+
+  private void retainEnum(EnumRegistration constant, SyntaxNode node) {
+    var value = constant.value();
+    var decisions = new JavaBodyDecisionProducer(semantics).enumConstant(value.declarationKey(), node, constant.creationPath(),
+        constant.constructor());
+    var uses = new ArrayList<>(constant.decisions().uses());
+    uses.addAll(decisions.uses());
+    var invocations = new ArrayList<>(constant.decisions().invocations());
+    invocations.addAll(decisions.invocations());
+    var attributions = new ArrayList<>(constant.attributions());
+    attributions.add(new AttributedBodyOccurrence(value.declarationKey(), node.nodeId(), node.sourceFileKey(), node.sourceKind(),
+        JavaSyntaxStructuralPath.executionRoot(constant.fieldPath())));
+    bodyCorrelation.retainScope(
+        new CopiedAstValues.Scope(new ExecutionScope.EnumConstant(value.declarationKey(), value.ownerKey(), constant.constructor()), node,
+            uses, invocations, constant.decisions().staticAccesses(), constant.decisions().concatenations(), attributions));
   }
 
   private JavaExecutableSyntaxProjector.Projection executableProjection(CompilationUnitTree unit, SourceFile sourceFile, String scopeKey,
@@ -151,8 +168,14 @@ final class JavaAstContributionTranslator {
   }
 
   Optional<SyntaxNode> initializer(CompilationUnitTree unit, SourceFile sourceFile, TreePath treePath, BlockTree block,
-      SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics,
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, List<AnalysisDiagnostic> diagnostics,
       JavaExecutableSyntaxProjector.DeclarationProjection nestedDeclarations) {
+    if (!policy.supportsMemberInitialization()) {
+      return sourceEvidence.requiredRange(unit, sourceFile, block, occurrencePath, diagnostics)
+          .map(range -> sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.BLOCK,
+              block.isStatic() ? SyntaxKind.STATIC_INITIALIZER_BLOCK : SyntaxKind.INSTANCE_INITIALIZER_BLOCK,
+              SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range), treePath));
+    }
     var range = sourceEvidence.requiredRange(unit, sourceFile, block, path, diagnostics);
     if (range.isEmpty()) {
       return Optional.empty();
@@ -185,9 +208,9 @@ final class JavaAstContributionTranslator {
 
   static final class Initialization {
     private final List<SyntaxChild> childNodes;
-    private final Optional<Consumer<SyntaxNode>> registration;
+    private final Registration registration;
 
-    private Initialization(List<SyntaxChild> children, Optional<Consumer<SyntaxNode>> registration) {
+    private Initialization(List<SyntaxChild> children, Registration registration) {
       childNodes = List.copyOf(children);
       this.registration = registration;
     }
@@ -196,8 +219,24 @@ final class JavaAstContributionTranslator {
       return childNodes;
     }
 
-    void retain(SyntaxNode declaration) {
-      registration.ifPresent(operation -> operation.accept(declaration));
+  }
+
+  private sealed interface Registration {
+  }
+
+  private enum NoRegistration implements Registration {
+    INSTANCE
+  }
+
+  private record FieldRegistration(SyntaxValue.VariableDeclaration value, TreePath path,
+      Optional<JavaExecutableSyntaxProjector.Projection> projection, JavaBodyDecisions decisions) implements Registration {
+  }
+
+  private record EnumRegistration(SyntaxValue.VariableDeclaration value, TreePath fieldPath, TreePath creationPath,
+      Optional<SemanticReference> constructor, JavaBodyDecisions decisions,
+      List<AttributedBodyOccurrence> attributions) implements Registration {
+    private EnumRegistration {
+      attributions = List.copyOf(attributions);
     }
   }
 }
