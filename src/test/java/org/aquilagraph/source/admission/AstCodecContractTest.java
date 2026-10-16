@@ -1538,7 +1538,7 @@ class AstCodecContractTest {
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());
     var reconciled = JavaCoverageTestSupport.withFacts(input, input.program(), Optional.of(aggregate),
-        JavaCoverageTestSupport.diagnostics(input, "copied-reference-facts"));
+        JavaCoverageTestSupport.emissions(input));
     return AstResultAdmission.outcome(reconciled, original.profile(), original.identity().semanticProductionRevision()).result().orElseThrow();
   }
 

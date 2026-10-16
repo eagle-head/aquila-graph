@@ -6,8 +6,6 @@ import java.util.Objects;
 import java.util.Optional;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.SourceSpan;
-import org.aquilagraph.source.api.AnalysisDiagnostic;
-import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.LanguageFeatureCategory;
 import org.aquilagraph.source.api.LanguageFeatureObservation;
 import org.aquilagraph.source.api.JavaAstAggregate;
@@ -21,7 +19,7 @@ final class JavaTypeUseCompleteness {
   private JavaTypeUseCompleteness() {
   }
 
-  static List<AnalysisDiagnostic> diagnostics(InputSnapshot snapshot, List<LanguageFeatureObservation> observations,
+  static DiagnosticEmissions reconcile(InputSnapshot snapshot, List<LanguageFeatureObservation> observations,
       Optional<JavaAstAggregate> aggregate) {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(observations, "observations");
@@ -36,7 +34,7 @@ final class JavaTypeUseCompleteness {
       }
     });
 
-    var diagnostics = new TranslationDiagnosticEvidence("JavaTypeUseCompleteness", "input-type-use-reconciliation");
+    var diagnostics = new DiagnosticEmissionCollector("JavaTypeUseCompleteness", "input-type-use-reconciliation");
     var sourceKindOrdinals = new HashMap<String, Integer>();
     for (var observation : observations) {
       var feature = observation.classification().feature();
@@ -51,7 +49,7 @@ final class JavaTypeUseCompleteness {
         continue;
       }
       if (observation.origins().size() != EXACT_SOURCE_RANGE_COUNT) {
-        TranslationDiagnosticEvidence.emit(diagnostics, "JavaTypeUseCompleteness",
+        diagnostics.emit("JavaTypeUseCompleteness",
             FrontendDiagnosticFactory.otherError(context, "frontend.unavailable-source-type-range",
                 "A written type tree in " + sourcePath(snapshot, observation.sourceFileKey()) + " has no exact source range: " + kind,
                 Optional.empty()));
@@ -61,19 +59,14 @@ final class JavaTypeUseCompleteness {
       var occurrence = occurrence(observation.sourceFileKey(), kind, origin);
       var count = retained.getOrDefault(occurrence, 0);
       if (count == 0) {
-        TranslationDiagnosticEvidence.emit(diagnostics, "JavaTypeUseCompleteness",
+        diagnostics.emit("JavaTypeUseCompleteness",
             FrontendDiagnosticFactory.capabilityError(context, "frontend.unrepresented-source-type-use",
                 "A written type tree has no retained type-use occurrence: " + kind, Optional.of(origin)));
       } else {
         retained.put(occurrence, count - 1);
       }
     }
-    return TranslationDiagnosticEvidence.copyOf(diagnostics);
-  }
-
-  static List<DiagnosticEmission> diagnosticsWithEvents(InputSnapshot snapshot, List<LanguageFeatureObservation> observations,
-      Optional<JavaAstAggregate> aggregate) {
-    return TranslationDiagnosticEvidence.events(diagnostics(snapshot, observations, aggregate));
+    return diagnostics.snapshot();
   }
 
   private static boolean requiresOccurrence(JavaSourceKind kind) {

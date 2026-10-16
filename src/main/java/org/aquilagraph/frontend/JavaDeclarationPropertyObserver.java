@@ -6,7 +6,6 @@ import java.util.Objects;
 import java.util.Optional;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
-import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.LanguageFeature;
 import org.aquilagraph.source.api.LanguageFeatureCategory;
 import org.aquilagraph.source.api.LanguageFeatureClassification;
@@ -23,7 +22,7 @@ final class JavaDeclarationPropertyObserver {
     this.coverage = Objects.requireNonNull(coverage, "coverage");
   }
 
-  void observe(List<AnalysisDiagnostic> diagnostics, List<LanguageFeatureOccurrence> occurrences,
+  void observe(DiagnosticEmissionCollector diagnostics, List<LanguageFeatureOccurrence> occurrences,
       List<LanguageFeatureObservation> observations, SourceFile sourceFile, String context, String code, String message,
       Optional<SourceSpan> origin, String... featureIdentifiers) {
     Objects.requireNonNull(diagnostics, "diagnostics");
@@ -36,7 +35,7 @@ final class JavaDeclarationPropertyObserver {
     }
     var classifications = Arrays.stream(featureIdentifiers).map(identifier -> validatedClassification(identifier, code)).toList();
     var diagnostic = FrontendDiagnosticFactory.capabilityError(context, code, message, origin);
-    TranslationDiagnosticEvidence.emit(diagnostics, "JavaDeclarationPropertyObserver", diagnostic);
+    diagnostics.emit("JavaDeclarationPropertyObserver", diagnostic);
     occurrences.addAll(classifications.stream()
         .map(classification -> new LanguageFeatureOccurrence(sourceFile.sourceFileKey(), classification, diagnostic.origins())).toList());
     observations.addAll(classifications.stream().map(classification -> new LanguageFeatureObservation(sourceFile.sourceFileKey(),

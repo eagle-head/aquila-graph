@@ -17,7 +17,6 @@ import javax.lang.model.util.Elements;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.identity.api.StableId;
-import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.JavaParameter;
 import org.aquilagraph.source.api.JavaTypeCategory;
@@ -61,16 +60,16 @@ final class JavaMethodDeclarationTranslator {
             + origin.map(value -> value.startOffset() + ":" + value.endOffsetExclusive())
                 .orElseGet(() -> StableId.sha256("unresolved-executable", ownerTypeKey, name))
         : semantics.declarationKey(executable).orElseThrow();
-    var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, methodKey + ":declaration");
+    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, methodKey + ":declaration");
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
     if (executable == null) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey,
-          "frontend.unresolved-method", "A method declaration element is unavailable", origin));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey, "frontend.unresolved-method",
+          "A method declaration element is unavailable", origin));
     }
     diagnoseUnsupportedDeclarationProperties(unit, sourceFile, methodKey, methodTree, diagnostics);
     var parameterTranslation = parameters(unit, sourceFile, methodKey, methodPath, methodTree, executable);
-    diagnostics.addAll(parameterTranslation.diagnostics());
+    diagnostics.include(parameterTranslation.emissions());
     occurrences.addAll(parameterTranslation.featureOccurrences());
     observations.addAll(parameterTranslation.featureObservations());
     var semanticModifiers = executable == null ? methodTree.getModifiers().getFlags() : executable.getModifiers();
@@ -78,20 +77,19 @@ final class JavaMethodDeclarationTranslator {
     var returnType = constructor ? "void" : executable == null ? UNRESOLVED_TYPE_NAME : executable.getReturnType().toString();
     var method = new JavaMethod(methodKey, ownerTypeKey, name, signature, returnType, parameterTranslation.parameters(), modifiers,
         constructor, written && origin.isPresent(), methodTree.getBody() != null, origin.stream().toList());
-    return new TranslationResult<>(method, diagnostics, occurrences, observations);
+    return new TranslationResult<>(method, diagnostics.snapshot(), occurrences, observations);
   }
 
   private ParameterTranslation parameters(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, TreePath methodPath,
       MethodTree methodTree, @Nullable ExecutableElement executable) {
     var parameters = new ArrayList<JavaParameter>();
-    var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, methodKey + ":parameters");
+    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, methodKey + ":parameters");
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
     var parameterCount = executable == null ? methodTree.getParameters().size() : executable.getParameters().size();
     if (executable != null && methodTree.getParameters().size() != parameterCount) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-          FrontendDiagnosticFactory.otherError(methodKey, "frontend.parameter-inventory-mismatch",
-              "Compiler and source-tree formal parameter inventories disagree", sourceEvidence.origin(unit, sourceFile, methodTree)));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey, "frontend.parameter-inventory-mismatch",
+          "Compiler and source-tree formal parameter inventories disagree", sourceEvidence.origin(unit, sourceFile, methodTree)));
     }
     for (var index = 0; index < parameterCount; index++) {
       var parameterTree = index < methodTree.getParameters().size() ? methodTree.getParameters().get(index) : null;
@@ -101,13 +99,12 @@ final class JavaMethodDeclarationTranslator {
       var origin = written && parameterTree != null ? sourceEvidence.origin(unit, sourceFile, parameterTree) : Optional.<SourceSpan>empty();
       var parameterKey = methodKey + ":parameter:" + index;
       if (parameterElement == null || semantics.declarationKey(parameterElement).filter(parameterKey::equals).isEmpty()) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(parameterKey,
-            "frontend.unresolved-parameter", "A parameter declaration identity is unavailable or inconsistent", origin));
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(parameterKey, "frontend.unresolved-parameter",
+            "A parameter declaration identity is unavailable or inconsistent", origin));
       }
       if (written && origin.isEmpty()) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-            FrontendDiagnosticFactory.otherError(parameterKey, "frontend.unavailable-parameter-source",
-                "A written parameter has no source range", sourceEvidence.origin(unit, sourceFile, methodTree)));
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(parameterKey, "frontend.unavailable-parameter-source",
+            "A written parameter has no source range", sourceEvidence.origin(unit, sourceFile, methodTree)));
       }
       if (parameterTree != null && written) {
         diagnoseUnsupportedVariableProperties(unit, sourceFile, parameterKey, parameterTree, false, diagnostics);
@@ -124,19 +121,19 @@ final class JavaMethodDeclarationTranslator {
         continue;
       }
       if (type.category() == JavaTypeCategory.ERROR) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.erroneousCompilerState(parameterKey,
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.erroneousCompilerState(parameterKey,
             "frontend.error-parameter-type", "javac reported an error type for a parameter", origin));
       } else if (type.category() == JavaTypeCategory.OTHER) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(parameterKey,
-            "frontend.unresolved-parameter-type", "A parameter type is unavailable", origin));
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(parameterKey, "frontend.unresolved-parameter-type",
+            "A parameter type is unavailable", origin));
       }
       parameters.add(new JavaParameter(parameterKey, name, type, written && origin.isPresent(), origin.stream().toList()));
     }
-    return new ParameterTranslation(parameters, diagnostics, occurrences, observations);
+    return new ParameterTranslation(parameters, diagnostics.snapshot(), occurrences, observations);
   }
 
   private void diagnoseUnsupportedDeclarationProperties(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,
-      MethodTree methodTree, List<AnalysisDiagnostic> diagnostics) {
+      MethodTree methodTree, DiagnosticEmissionCollector diagnostics) {
     if (methodTree.getReceiverParameter() != null) {
       diagnoseUnsupportedVariableProperties(unit, sourceFile, methodKey + ":receiver", methodTree.getReceiverParameter(), true,
           diagnostics);
@@ -144,9 +141,9 @@ final class JavaMethodDeclarationTranslator {
   }
 
   private void diagnoseUnsupportedVariableProperties(CompilationUnitTree unit, SourceFile sourceFile, String context,
-      VariableTree variableTree, boolean receiver, List<AnalysisDiagnostic> diagnostics) {
+      VariableTree variableTree, boolean receiver, DiagnosticEmissionCollector diagnostics) {
     if (variableTree.getInitializer() != null) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(context,
               receiver ? "frontend.invalid-receiver-initializer" : "frontend.invalid-parameter-initializer",
               "A parameter cannot have an initializer", sourceEvidence.origin(unit, sourceFile, variableTree.getInitializer())));
@@ -171,11 +168,11 @@ final class JavaMethodDeclarationTranslator {
         .orElseGet(() -> new JavaTypeIdentity(JavaTypeCategory.OTHER, UNRESOLVED_TYPE_NAME, UNRESOLVED_TYPE_NAME));
   }
 
-  private record ParameterTranslation(List<JavaParameter> parameters, List<AnalysisDiagnostic> diagnostics,
+  private record ParameterTranslation(List<JavaParameter> parameters, DiagnosticEmissions emissions,
       List<LanguageFeatureOccurrence> featureOccurrences, List<LanguageFeatureObservation> featureObservations) {
     private ParameterTranslation {
       parameters = List.copyOf(Objects.requireNonNull(parameters, "parameters"));
-      diagnostics = TranslationDiagnosticEvidence.copyOf(Objects.requireNonNull(diagnostics, "diagnostics"));
+      Objects.requireNonNull(emissions, "emissions");
       featureOccurrences = List.copyOf(Objects.requireNonNull(featureOccurrences, "featureOccurrences"));
       featureObservations = List.copyOf(Objects.requireNonNull(featureObservations, "featureObservations"));
     }

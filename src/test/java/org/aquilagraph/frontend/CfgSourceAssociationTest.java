@@ -61,7 +61,7 @@ class CfgSourceAssociationTest {
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), captured.sources(), bodies, captured.memberOrders(),
         captured.associations(), captured.declarationTypes()));
     var supplied = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate),
-        JavaCoverageTestSupport.diagnostics(original, "javac-public/1"));
+        JavaCoverageTestSupport.emissions(original));
     var admitted = AstResultAdmission.admit(supplied, profile, "javac-public/1");
     var ast = AstCodec.decode(AstCodec.encode(admitted), admitted.identity());
     var written = ast.body(writtenKey).orElseThrow().root();

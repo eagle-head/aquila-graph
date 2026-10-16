@@ -47,6 +47,7 @@ import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -72,6 +73,85 @@ import org.neo4j.driver.Values;
 @ExtendWith(Neo4jIntegration.class)
 class Neo4jAstResultRepositoryNeo4jIT {
   @TempDir Path directory;
+
+  @Test
+  void givenAnnotatedMembersInEnumConstantBodies_whenSavedClosedAndIndependentlyQueried_thenWrittenOwnersAndQualificationSurvive()
+      throws IOException {
+    // Arrange
+    var settings = settings();
+    var outcome = frontend().produce(snapshot(
+        "enum Stored { FIRST { @Deprecated class First {} }, SECOND { @Deprecated class Second {} }; }"),
+        configuration(), AstProfile.JAVA_SOURCE_UNITS);
+    var original = outcome.result().orElseThrow();
+    assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
+    assertEquals(List.of(), original.diagnostics());
+    assertEquals(2, original.aggregate().nodes().stream().filter(node -> node.value() instanceof SyntaxValue.Annotation).count());
+    try {
+      // Act
+      var publication = retention(settings).retainAst(outcome);
+      var lookup = retention(settings).findAst(original.identity());
+      var retained = lookup.outcome().orElseThrow().result().orElseThrow();
+
+      // Assert
+      assertEquals(PublicationStatus.SAVED, publication.status());
+      assertEquals(CommitKnowledge.KNOWN_COMMIT, publication.knowledge());
+      assertEquals(AstLookupStatus.FOUND, lookup.status());
+      assertEquals(original.identity(), retained.identity());
+      assertEquals(original.aggregate(), retained.aggregate());
+      assertEquals(original.coverage(), retained.coverage());
+      assertEquals(List.of(), retained.diagnostics());
+      assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retained));
+    } finally {
+      deleteAst(settings, original.identity());
+    }
+  }
+
+  @Test
+  void givenRealCompilerWarningOnCompleteSource_whenSavedClosedAndIndependentlyQueried_thenNonemptyCreatingEventsAndFinalSlotsSurvive()
+      throws IOException {
+    // Arrange
+    var settings = settings();
+    var outcome = frontend().produce(snapshot("@Deprecated(forRemoval=true) class Legacy {} class Stored { Legacy value; }"),
+        configuration(), AstProfile.JAVA_SOURCE_UNITS);
+    var original = outcome.result().orElseThrow();
+    var events = original.coverage().validationEvidence().diagnosticEmissions();
+    var control = frontend().produce(snapshot("class Stored { Object value; }"), configuration(), AstProfile.JAVA_SOURCE_UNITS);
+
+    try {
+      // Act
+      var publication = retention(settings).retainAst(outcome);
+      var lookup = retention(settings).findAst(original.identity());
+      var retained = lookup.outcome().orElseThrow().result().orElseThrow();
+
+      // Assert
+      assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
+      assertEquals(AstCompletion.COMPLETE, control.completion(), control.diagnostics().toString());
+      assertEquals(List.of(), control.diagnostics());
+      assertEquals(1, events.size());
+      assertEquals("compiler.warn.has.been.deprecated.for.removal", original.diagnostics().getFirst().code());
+      assertEquals(0, events.getFirst().address().ordinal());
+      assertEquals(0, events.getFirst().slot());
+      assertTrue(events.stream().anyMatch(event -> event.diagnostic().severity() == DiagnosticSeverity.WARNING));
+      for (var event : events) {
+        assertEquals("CompilerDiagnosticTranslator", event.address().producer());
+        assertEquals("input-compiler-diagnostics", event.address().owner());
+        assertSame(original.diagnostics().get(event.slot()), event.diagnostic());
+      }
+      assertEquals(PublicationStatus.SAVED, publication.status());
+      assertEquals(CommitKnowledge.KNOWN_COMMIT, publication.knowledge());
+      assertEquals(AstLookupStatus.FOUND, lookup.status());
+      assertEquals(original.identity(), retained.identity());
+      assertEquals(events, retained.coverage().validationEvidence().diagnosticEmissions());
+      assertEquals(original.diagnostics(), retained.diagnostics());
+      assertEquals(original.aggregate(), retained.aggregate());
+      assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retained));
+      for (var event : retained.coverage().validationEvidence().diagnosticEmissions()) {
+        assertEquals(retained.diagnostics().get(event.slot()), event.diagnostic());
+      }
+    } finally {
+      deleteAst(settings, original.identity());
+    }
+  }
 
   @Test
   void givenDeclarationFidelityWithSharedAnnotationsAndNestedEmptyMembers_whenSavedClosedAndIndependentlyQueried_thenAllSourceValuesSurvive()

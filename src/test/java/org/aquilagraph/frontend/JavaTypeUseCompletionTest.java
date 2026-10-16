@@ -162,12 +162,12 @@ class JavaTypeUseCompletionTest {
         .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).findFirst().orElseThrow().requiredChild(SyntaxRole.DECLARED_TYPE);
     var afterType = after.aggregate().orElseThrow().nodes().stream()
         .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).findFirst().orElseThrow().requiredChild(SyntaxRole.DECLARED_TYPE);
-    var beforeMissing = JavaTypeUseCompleteness.diagnostics(before.snapshot(), before.languageFeatureCoverageResult().observations().stream()
+    var beforeMissing = JavaTypeUseCompleteness.reconcile(before.snapshot(), before.languageFeatureCoverageResult().observations().stream()
         .filter(item -> item.origins().equals(List.of(beforeType.origin().orElseThrow()))).toList(),
-        Optional.empty());
-    var afterMissing = JavaTypeUseCompleteness.diagnostics(after.snapshot(), after.languageFeatureCoverageResult().observations().stream()
+        Optional.empty()).diagnostics();
+    var afterMissing = JavaTypeUseCompleteness.reconcile(after.snapshot(), after.languageFeatureCoverageResult().observations().stream()
         .filter(item -> item.origins().equals(List.of(afterType.origin().orElseThrow()))).toList(),
-        Optional.empty());
+        Optional.empty()).diagnostics();
 
     // Assert
     assertEquals(List.of(), before.diagnostics());
@@ -192,7 +192,7 @@ class JavaTypeUseCompletionTest {
         Optional.empty());
 
     // Act
-    var diagnostics = JavaTypeUseCompleteness.diagnostics(snapshot, List.of(observation), Optional.empty());
+    var diagnostics = JavaTypeUseCompleteness.reconcile(snapshot, List.of(observation), Optional.empty()).diagnostics();
 
     // Assert
     assertEquals(1, diagnostics.size());
@@ -202,7 +202,7 @@ class JavaTypeUseCompletionTest {
     assertEquals(List.of(), diagnostic.origins());
     assertTrue(diagnostic.message().contains("Missing.java"));
     assertEquals(diagnostic.diagnosticKey(),
-        JavaTypeUseCompleteness.diagnostics(snapshot, List.of(observation), Optional.empty()).getFirst().diagnosticKey());
+        JavaTypeUseCompleteness.reconcile(snapshot, List.of(observation), Optional.empty()).diagnostics().getFirst().diagnosticKey());
   }
 
   private static PrimitiveFact primitive(SyntaxRole role, SyntaxKind parent, JavaTypeCategory kind, String fragment) {

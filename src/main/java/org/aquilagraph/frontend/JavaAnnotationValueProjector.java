@@ -36,7 +36,6 @@ import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
-import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.ResolutionStatus;
@@ -82,7 +81,7 @@ final class JavaAnnotationValueProjector {
   }
 
   List<SyntaxChild> arguments(CompilationUnitTree unit, SourceFile source, AnnotationTree annotation, TypeElement annotationType,
-      SyntaxStructuralPath parentPath, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath parentPath, DiagnosticEmissionCollector diagnostics) {
     if (inventory.annotationTypePath(annotation).map(semantics::element).filter(annotationType::equals).isEmpty()) {
       report(source, parentPath, "frontend.unavailable-annotation-attribution",
           "The written annotation does not resolve to the selected annotation type", evidence.origin(unit, source, annotation),
@@ -121,7 +120,7 @@ final class JavaAnnotationValueProjector {
   }
 
   private List<SyntaxChild> writtenArguments(CompilationUnitTree unit, SourceFile source, AnnotationTree annotation,
-      TypeElement annotationType, SyntaxStructuralPath parentPath, List<AnalysisDiagnostic> diagnostics) {
+      TypeElement annotationType, SyntaxStructuralPath parentPath, DiagnosticEmissionCollector diagnostics) {
     var written = inventory.annotationArguments(annotation).orElseThrow();
     var children = new ArrayList<SyntaxChild>();
     for (var ordinal = 0; ordinal < written.size(); ordinal++) {
@@ -136,7 +135,7 @@ final class JavaAnnotationValueProjector {
   }
 
   Optional<ProjectedValue> defaultValue(CompilationUnitTree unit, SourceFile source, MethodTree method, ExecutableElement element,
-      SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath path, DiagnosticEmissionCollector diagnostics) {
     var written = method.getDefaultValue();
     var attributed = element.getDefaultValue();
     if (!(written instanceof ExpressionTree expression) || attributed == null) {
@@ -296,7 +295,7 @@ final class JavaAnnotationValueProjector {
   }
 
   private Optional<SyntaxNode> argument(CompilationUnitTree unit, SourceFile source, TypeElement annotationType,
-      ParsedTreeInventory.WrittenAnnotationArgument written, SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
+      ParsedTreeInventory.WrittenAnnotationArgument written, SyntaxStructuralPath path, DiagnosticEmissionCollector diagnostics) {
     var range = evidence.requiredRange(unit, source, written.argument(), path, diagnostics);
     var name = written.name().map(identifier -> identifier.getName().toString());
     var selectedName = name.orElse(VALUE_ELEMENT_NAME);
@@ -359,7 +358,7 @@ final class JavaAnnotationValueProjector {
   }
 
   private Optional<ProjectedValue> value(CompilationUnitTree unit, SourceFile source, ExpressionTree tree, TreePath treePath,
-      TypeMirror expected, SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
+      TypeMirror expected, SyntaxStructuralPath path, DiagnosticEmissionCollector diagnostics) {
     var range = evidence.requiredRange(unit, source, tree, path, diagnostics);
     if (range.isEmpty()) {
       return Optional.empty();
@@ -411,12 +410,12 @@ final class JavaAnnotationValueProjector {
   }
 
   private Optional<ProjectedValue> arrayItem(CompilationUnitTree unit, SourceFile source, ExpressionTree tree, TreePath parentPath,
-      TypeMirror expected, SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
+      TypeMirror expected, SyntaxStructuralPath path, DiagnosticEmissionCollector diagnostics) {
     return value(unit, source, tree, new TreePath(parentPath, tree), expected, path, diagnostics);
   }
 
   private Optional<ProjectedValue> nested(CompilationUnitTree unit, SourceFile source, AnnotationTree tree, TypeElement annotationType,
-      SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath path, DiagnosticEmissionCollector diagnostics) {
     var parsed = inventory.annotation(tree);
     var typePath = inventory.annotationTypePath(tree);
     var range = evidence.requiredRange(unit, source, tree, path, diagnostics);
@@ -494,7 +493,7 @@ final class JavaAnnotationValueProjector {
   }
 
   private Optional<SyntaxNode> expression(CompilationUnitTree unit, SourceFile source, ExpressionTree tree, TreePath treePath,
-      SyntaxStructuralPath path, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath path, DiagnosticEmissionCollector diagnostics) {
     var range = evidence.requiredRange(unit, source, tree, path, diagnostics);
     var type = semantics.type(treePath);
     if (range.isEmpty()) {
@@ -606,7 +605,7 @@ final class JavaAnnotationValueProjector {
   }
 
   private boolean appendExpression(CompilationUnitTree unit, SourceFile source, ExpressionTree tree, TreePath parent,
-      SyntaxStructuralPath parentPath, SyntaxRole role, List<SyntaxChild> children, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath parentPath, SyntaxRole role, List<SyntaxChild> children, DiagnosticEmissionCollector diagnostics) {
     var path = parentPath.child(role, 0);
     var result = expression(unit, source, tree, new TreePath(parent, tree), path, diagnostics);
     result.ifPresent(node -> children.add(new SyntaxChild(role, 0, node)));
@@ -614,7 +613,7 @@ final class JavaAnnotationValueProjector {
   }
 
   private boolean appendType(CompilationUnitTree unit, SourceFile source, Tree tree, TreePath parent, SyntaxStructuralPath parentPath,
-      SyntaxRole role, List<SyntaxChild> children, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxRole role, List<SyntaxChild> children, DiagnosticEmissionCollector diagnostics) {
     var path = parentPath.child(role, 0);
     var treePath = new TreePath(parent, tree);
     var result = typeUses.translateAttributed(unit, source, tree, treePath, path, path, semantics.explicitType(treePath), diagnostics);
@@ -639,15 +638,15 @@ final class JavaAnnotationValueProjector {
   }
 
   private static Optional<SyntaxNode> unsupported(SourceFile source, SyntaxStructuralPath path, Optional<SourceSpan> range,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
     report(source, path, "frontend.nonconstant-annotation-expression",
         "The written annotation expression is outside the Java constant-expression profile", range, diagnostics);
     return Optional.empty();
   }
 
   private static void report(SourceFile source, SyntaxStructuralPath path, String code, String message, Optional<SourceSpan> range,
-      List<AnalysisDiagnostic> diagnostics) {
-    TranslationDiagnosticEvidence.emit(diagnostics, "JavaAnnotationValueProjector",
+      DiagnosticEmissionCollector diagnostics) {
+    diagnostics.emit("JavaAnnotationValueProjector",
         FrontendDiagnosticFactory.capabilityError(source.sourceFileKey() + ':' + path, code, message, range));
   }
 }

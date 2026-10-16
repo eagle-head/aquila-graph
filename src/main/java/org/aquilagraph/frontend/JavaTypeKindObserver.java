@@ -49,7 +49,7 @@ final class JavaTypeKindObserver {
     Objects.requireNonNull(units, "units");
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
-    var diagnostics = new TranslationDiagnosticEvidence("JavaTypeKindObserver", "input-type-scan");
+    var diagnostics = new DiagnosticEmissionCollector("JavaTypeKindObserver", "input-type-scan");
     var scanner = new HeaderScanner(occurrences, observations, diagnostics);
     for (var unit : units) {
       scanner.observeUnit(unit, sourceFor(unit));
@@ -73,7 +73,7 @@ final class JavaTypeKindObserver {
     for (var unit : units) {
       patterns.scan(unit, sourceFor(unit));
     }
-    return new ObservedTypeKinds(occurrences, observations, diagnostics);
+    return new ObservedTypeKinds(occurrences, observations, diagnostics.snapshot());
   }
 
   private SourceFile sourceFor(CompilationUnitTree unit) {
@@ -83,11 +83,11 @@ final class JavaTypeKindObserver {
   private final class HeaderScanner extends TreePathScanner<Void, SourceFile> {
     private final List<LanguageFeatureOccurrence> occurrences;
     private final List<LanguageFeatureObservation> observations;
-    private final List<AnalysisDiagnostic> diagnostics;
+    private final DiagnosticEmissionCollector diagnostics;
     private int typeOrdinal;
 
     private HeaderScanner(List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations,
-        List<AnalysisDiagnostic> diagnostics) {
+        DiagnosticEmissionCollector diagnostics) {
       this.occurrences = occurrences;
       this.observations = observations;
       this.diagnostics = diagnostics;
@@ -181,7 +181,7 @@ final class JavaTypeKindObserver {
         var message = tree instanceof AnyPatternTree
             ? "A required match-all component type has no compiler attribution"
             : "A written declaration-header type has no compiler attribution";
-        TranslationDiagnosticEvidence.emit(diagnostics, "JavaTypeKindObserver",
+        diagnostics.emit("JavaTypeKindObserver",
             FrontendDiagnosticFactory.otherError(diagnosticContext, "frontend.unresolved-attributed-type-kind", message, nearestOrigin));
         return;
       }
@@ -218,7 +218,7 @@ final class JavaTypeKindObserver {
             : AnalysisOutcomeKind.UNSUPPORTED_LANGUAGE_FEATURE;
         diagnostic = Optional.of(FrontendDiagnosticFactory.error(diagnosticContext, classification.diagnosticCode().orElseThrow(),
             "Java attributed type kind " + kind + " is not a supported declaration-header type", diagnosticOrigin, outcome));
-        TranslationDiagnosticEvidence.emit(diagnostics, "JavaTypeKindObserver", diagnostic.orElseThrow());
+        diagnostics.emit("JavaTypeKindObserver", diagnostic.orElseThrow());
       }
       occurrences.add(new LanguageFeatureOccurrence(source.sourceFileKey(), classification, origins));
       observations.add(new LanguageFeatureObservation(source.sourceFileKey(), classification, origins, diagnostic));
@@ -226,11 +226,14 @@ final class JavaTypeKindObserver {
   }
 
   record ObservedTypeKinds(List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissions emissions) {
     ObservedTypeKinds {
       occurrences = List.copyOf(occurrences);
       observations = List.copyOf(observations);
-      diagnostics = TranslationDiagnosticEvidence.copyOf(diagnostics);
+      Objects.requireNonNull(emissions, "emissions");
+    }
+    List<AnalysisDiagnostic> diagnostics() {
+      return emissions.diagnostics();
     }
   }
 }

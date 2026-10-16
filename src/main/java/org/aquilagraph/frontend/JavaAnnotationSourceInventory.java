@@ -146,7 +146,9 @@ record JavaAnnotationSourceInventory(List<Occurrence> annotations, List<Declarat
         var methodSelection = path.getLeaf() instanceof MemberSelectTree && parent != null
             && parent.getLeaf() instanceof MethodInvocationTree invocation
             && JavaProjectionIdentity.sameInstance(invocation.getMethodSelect(), path.getLeaf());
-        if (!(path.getLeaf() instanceof ModifiersTree) && !(path.getLeaf() instanceof CompilationUnitTree) && !methodSelection) {
+        var implicitEnvelope = JavaEnumConstantSyntax.isImplicitEnvelope(path, evidence);
+        if (!(path.getLeaf() instanceof ModifiersTree) && !(path.getLeaf() instanceof CompilationUnitTree) && !methodSelection
+            && !implicitEnvelope) {
           var kind = JavaSourceKind.valueOf(path.getLeaf().getKind().name());
           result.add(new Ancestor(kind == JavaSourceKind.TYPE_ANNOTATION ? JavaSourceKind.ANNOTATION : kind, range(path)));
         }

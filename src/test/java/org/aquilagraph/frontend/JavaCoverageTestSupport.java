@@ -58,15 +58,21 @@ public final class JavaCoverageTestSupport {
         outcomes, evidence.unmatchedFacts(), events);
   }
 
-  public static List<AnalysisDiagnostic> diagnostics(SyntaxAnalysisInput original, String producer) {
-    return TranslationDiagnosticEvidence.fromEvents(producer, original.languageFeatureCoverageResult().validationEvidence().diagnosticEmissions());
+  public static List<DiagnosticEmission> emissions(SyntaxAnalysisInput original) {
+    return original.languageFeatureCoverageResult().validationEvidence().diagnosticEmissions();
+  }
+
+  static DiagnosticEmissionCollector collector(SyntaxAnalysisInput original, String producer) {
+    var collector = new DiagnosticEmissionCollector(producer, "retained-events");
+    collector.include(new DiagnosticEmissions(emissions(original)));
+    return collector;
   }
 
   public static SyntaxAnalysisInput withFacts(SyntaxAnalysisInput original, JavaProgram program, Optional<JavaAstAggregate> aggregate,
-      List<AnalysisDiagnostic> diagnostics) {
+      List<DiagnosticEmission> emissions) {
     var evidence = original.languageFeatureCoverageResult().validationEvidence();
     var reconciled = new JavaSourceCoverageReconciler(evidence.writtenInventory(), evidence.attributedExpectations(), program, aggregate,
-        TranslationDiagnosticEvidence.events(diagnostics)).reconcileRetained(original.languageFeatureCoverage(), evidence.outcomes());
+        new DiagnosticEmissions(emissions)).reconcileRetained(original.languageFeatureCoverage(), evidence.outcomes());
     return new SyntaxAnalysisInput(original.snapshot(), original.environmentSnapshot(), program, aggregate, reconciled.diagnostics(), reconciled.coverageResult());
   }
 }

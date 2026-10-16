@@ -250,7 +250,7 @@ class SwitchAstTest {
       var originalInput = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()), original.diagnostics(), original.coverage());
       // Act
       var aggregate = withoutAttribution(original, slot);
-      var input = JavaCoverageTestSupport.withFacts(originalInput, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.diagnostics(originalInput, "copied-switch-facts"));
+      var input = JavaCoverageTestSupport.withFacts(originalInput, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(originalInput));
       var result = AstResultAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1").result().orElseThrow();
       var decoded = AstCodec.decode(AstCodec.encode(result), result.identity());
       // Assert

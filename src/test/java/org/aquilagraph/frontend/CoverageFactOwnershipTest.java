@@ -241,7 +241,7 @@ class CoverageFactOwnershipTest {
 
   private static SyntaxAnalysisInput reconcile(SyntaxAnalysisInput original, JavaAstAggregate changed) {
     return JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(changed),
-        JavaCoverageTestSupport.diagnostics(original, "OwnershipContrast"));
+        JavaCoverageTestSupport.emissions(original));
   }
 
   private static FeatureContextOutcome enclosedOutcome(SyntaxAnalysisInput input) {

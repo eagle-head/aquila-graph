@@ -1,7 +1,6 @@
 package org.aquilagraph.frontend;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.function.Supplier;
 import java.util.List;
 import java.util.Objects;
@@ -14,7 +13,6 @@ import org.aquilagraph.source.api.AnalysisInputException;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.source.api.AttributedCoverageExpectations;
-import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.JavaProgram;
 import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
 import org.aquilagraph.source.admission.AstValueAdmission;
@@ -88,12 +86,10 @@ final class JavaAnalysisPipeline {
       var translation = translator.translate(snapshot, compilation.units(),
           compilation.diagnostics().stream().anyMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
       var annotationCompleteness = new JavaAnnotationCompleteness(annotationInventory, compilation.semantics(), translation.diagnostics());
-      var typeUseEvents = JavaTypeUseCompleteness.diagnosticsWithEvents(snapshot, kindEvidence.observations(),
-          translation.value().aggregate());
-      var emissions = combineEmissions(new CompilerDiagnosticTranslator(sources).translateWithEvents(compilation.diagnostics()),
-          TranslationDiagnosticEvidence.events(kindEvidence.diagnostics()),
-          TranslationDiagnosticEvidence.events(typeEvidence.diagnostics()), translation.diagnosticEmissions(), typeUseEvents,
-          annotationCompleteness.reconcileWithEvents(translation.value().aggregate()));
+      var typeUseEvents = JavaTypeUseCompleteness.reconcile(snapshot, kindEvidence.observations(), translation.value().aggregate());
+      var emissions = DiagnosticEmissions.combine(new CompilerDiagnosticTranslator(sources).translate(compilation.diagnostics()),
+          kindEvidence.emissions(), typeEvidence.emissions(), translation.emissions(), typeUseEvents,
+          annotationCompleteness.reconcile(translation.value().aggregate()));
       var reconciled = new JavaSourceCoverageReconciler(coverageCapture.inventory(), attributedExpectations, translation.value().program(),
           translation.value().aggregate(), emissions)
           .reconcile(languageFeatureCoverage, kindEvidence, typeEvidence, translation, writtenProperties, attributedProperties);
@@ -128,19 +124,4 @@ final class JavaAnalysisPipeline {
     return compiler;
   }
 
-  @SafeVarargs
-  private static List<DiagnosticEmission> combineEmissions(List<DiagnosticEmission>... diagnosticGroups) {
-    var emissions = new ArrayList<DiagnosticEmission>();
-    for (var diagnosticGroup : diagnosticGroups) {
-      for (var emission : diagnosticGroup) {
-        var existing = emissions.stream().filter(value -> value.address().equals(emission.address())).findFirst();
-        if (existing.isEmpty()) {
-          emissions.add(emission);
-        } else if (!existing.orElseThrow().equals(emission)) {
-          throw new IllegalArgumentException("One creating address cannot identify different transported events");
-        }
-      }
-    }
-    return List.copyOf(emissions);
-  }
 }

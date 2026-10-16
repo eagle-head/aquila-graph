@@ -93,7 +93,7 @@ final class JavaDeclarationProjector {
   private Optional<JavaUnitTranslator.Declarations> stagedDeclarations = Optional.empty();
 
   private record ProjectionContext(CompilationUnitTree unit, SourceFile sourceFile, JavaBodySourceCorrelation.Publication publication,
-      JavaDeclarationScope declarations, Map<String, JavaType> typesByKey) {
+      JavaDeclarationScope declarations, Map<String, JavaType> typesByKey, DiagnosticEmissionCollector diagnosticBatches) {
   }
 
   JavaDeclarationProjector(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
@@ -125,7 +125,7 @@ final class JavaDeclarationProjector {
     var translatedTypes = new ArrayList<JavaType>();
     var orders = new ArrayList<DeclarationMemberOrder>();
     var declarationTypes = new ArrayList<DeclarationTypeEvidence>();
-    var diagnostics = new TranslationDiagnosticEvidence("JavaProgramTranslator", "input-program-translation");
+    var diagnostics = new DiagnosticEmissionCollector("JavaProgramTranslator", "input-program-translation");
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
     var complete = true;
@@ -142,14 +142,14 @@ final class JavaDeclarationProjector {
         } else {
           complete = false;
         }
-        diagnostics.addAll(translation.diagnostics());
+        diagnostics.include(translation.emissions());
         occurrences.addAll(translation.featureOccurrences());
         observations.addAll(translation.featureObservations());
       }
     }
     var value = new JavaUnitTranslator.Declarations(translatedTypes, orders, declarationTypes, complete);
     stagedDeclarations = Optional.of(value);
-    return new TranslationResult<>(value, diagnostics, occurrences, observations);
+    return new TranslationResult<>(value, diagnostics.snapshot(), occurrences, observations);
   }
 
   UnitTranslation translate(CompilationUnitTree unit, SourceFile source) {
@@ -162,17 +162,25 @@ final class JavaDeclarationProjector {
     Objects.requireNonNull(unit, "unit");
     Objects.requireNonNull(sourceFile, "sourceFile");
     Objects.requireNonNull(bodies, "bodies");
-    var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, sourceFile.sourceFileKey());
+    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, sourceFile.sourceFileKey());
+    try {
+      return projectUnit(unit, sourceFile, bodies, declaredTypes, diagnostics);
+    } catch (JavaSourceProjectionFailure failure) {
+      throw new JavaSourceProjectionFailure(diagnostics.snapshot(), failure);
+    }
+  }
+
+  private UnitTranslation projectUnit(CompilationUnitTree unit, SourceFile sourceFile, List<TranslatedMethodBody> bodies,
+      List<JavaType> declaredTypes, DiagnosticEmissionCollector diagnostics) {
     var typesByKey = new HashMap<String, JavaType>();
     for (var type : Objects.requireNonNull(declaredTypes, "declaredTypes")) {
       if (typesByKey.putIfAbsent(type.typeKey(), type) != null) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-            FrontendDiagnosticFactory.otherError(type.typeKey(), "frontend.duplicate-type-declaration",
-                "Translated type declarations share a canonical key", type.origins().stream().findFirst()));
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(type.typeKey(), "frontend.duplicate-type-declaration",
+            "Translated type declarations share a canonical key", type.origins().stream().findFirst()));
       }
     }
     if (!diagnostics.isEmpty()) {
-      return new UnitTranslation(Optional.empty(), List.of(), diagnostics);
+      return new UnitTranslation(Optional.empty(), List.of(), diagnostics.snapshot());
     }
     bodyCorrelation.correlate(unit, sourceFile, bodies, declaredTypes);
     var publication = bodyCorrelation.publication();
@@ -186,7 +194,7 @@ final class JavaDeclarationProjector {
             ? Optional.of(new SourceSpan(sourceFile.sourceFileKey(), 0, sourceFile.content().length()))
             : requiredRange(unit, sourceFile, unit, rootPath, diagnostics);
     if (rootRange.isEmpty()) {
-      return new UnitTranslation(Optional.empty(), List.of(), diagnostics);
+      return new UnitTranslation(Optional.empty(), List.of(), diagnostics.snapshot());
     }
 
     var children = new ArrayList<SyntaxChild>();
@@ -205,7 +213,7 @@ final class JavaDeclarationProjector {
     if (unit.getModule() != null) {
       var module = moduleTranslator.translate(unit, sourceFile, unit.getModule(), rootPath, diagnostics);
       if (module.isEmpty()) {
-        return new UnitTranslation(Optional.empty(), List.of(), diagnostics);
+        return new UnitTranslation(Optional.empty(), List.of(), diagnostics.snapshot());
       }
       children.add(new SyntaxChild(SyntaxRole.MODULE_DECLARATION, 0, module.orElseThrow()));
     }
@@ -235,10 +243,9 @@ final class JavaDeclarationProjector {
       }
       children.addAll(compactMembers);
       if (compactMembers.stream().noneMatch(child -> child.node().syntaxKind() == SyntaxKind.METHOD_DECLARATION)) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-            FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-compact-method",
-                "A compact compilation unit has no publishable written method", rootRange));
-        return new UnitTranslation(Optional.empty(), List.of(), diagnostics);
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+            "frontend.unavailable-compact-method", "A compact compilation unit has no publishable written method", rootRange));
+        return new UnitTranslation(Optional.empty(), List.of(), diagnostics.snapshot());
       }
     } else {
       var typeChildren = new ArrayList<SyntaxChild>();
@@ -276,7 +283,7 @@ final class JavaDeclarationProjector {
                 new TreePath(getCurrentPath(), method.getBody()), element.getKind() == ElementKind.CONSTRUCTOR,
                 semantics.isImplicitDeclaration(getCurrentPath()));
             bodyCorrelation.addBody(translated.value());
-            diagnostics.addAll(translated.diagnostics());
+            diagnostics.include(translated.emissions());
           }
           return super.visitMethod(method, null);
         }
@@ -309,7 +316,7 @@ final class JavaDeclarationProjector {
             SyntaxSemanticTarget.AnnotationApplication.forAttachment(parent, child.node(),
                 Optional.ofNullable(recordTypeOwners.get(parent.nodeId())), fieldGroups.getOrDefault(parent.nodeId(), List.of()))))));
     var contribution = new SyntaxSourceContribution(sourceFile.sourceFileKey(), root, nodes, structural, semantic);
-    return new UnitTranslation(Optional.of(contribution), bodyCorrelation.registrations(sourceFile), diagnostics,
+    return new UnitTranslation(Optional.of(contribution), bodyCorrelation.registrations(sourceFile), diagnostics.snapshot(),
         sourceAssociations.forNodes(nodes), bodyCorrelation.sealedScopes());
   }
 
@@ -320,19 +327,19 @@ final class JavaDeclarationProjector {
   }
 
   private Optional<SyntaxNode> packageDeclaration(CompilationUnitTree unit, SourceFile sourceFile, PackageTree declaration,
-      SyntaxStructuralPath rootPath, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath rootPath, DiagnosticEmissionCollector diagnostics) {
     var path = rootPath.child(SyntaxRole.PACKAGE_DECLARATION, 0);
     var range = requiredRange(unit, sourceFile, declaration, path, diagnostics);
     var name = qualifiedName(declaration.getPackageName());
     if (name.isEmpty()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.missing-package-name", "A written package declaration has no qualified name", range));
     }
     if (range.isEmpty() || name.isEmpty()) {
       return Optional.empty();
     }
     if (!hasTerminatingSemicolon(sourceFile, range.orElseThrow())) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.incomplete-package-declaration", "A written package declaration has no terminating semicolon", range));
       return Optional.empty();
     }
@@ -353,12 +360,12 @@ final class JavaDeclarationProjector {
   }
 
   private Optional<SyntaxNode> annotationAttachment(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
-      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DeclarationSite site, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DeclarationSite site, DiagnosticEmissionCollector diagnostics) {
     return annotationProjector.declaration(unit, sourceFile, annotation, path, occurrencePath, site, diagnostics);
   }
 
   private Optional<SyntaxNode> importDeclaration(CompilationUnitTree unit, SourceFile sourceFile, ImportTree declaration,
-      SyntaxStructuralPath rootPath, int publishedPosition, int sourceOrdinal, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath rootPath, int publishedPosition, int sourceOrdinal, DiagnosticEmissionCollector diagnostics) {
     var path = rootPath.child(SyntaxRole.IMPORT_DECLARATION, publishedPosition);
     var occurrencePath = rootPath.child(SyntaxRole.IMPORT_DECLARATION, sourceOrdinal);
     var range = requiredRange(unit, sourceFile, declaration, occurrencePath, diagnostics);
@@ -366,19 +373,19 @@ final class JavaDeclarationProjector {
     var onDemand = target instanceof MemberSelectTree selection && selection.getIdentifier().contentEquals("*");
     var name = qualifiedName(onDemand ? ((MemberSelectTree) target).getExpression() : target);
     if (name.isEmpty()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-          "frontend.missing-import-name", "A written import declaration has no qualified target", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.missing-import-name",
+          "A written import declaration has no qualified target", range));
     }
     if (declaration.isModule() && (declaration.isStatic() || onDemand)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-          "frontend.invalid-import-form", "A module import cannot be static or on demand", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.invalid-import-form",
+          "A module import cannot be static or on demand", range));
       return Optional.empty();
     }
     if (range.isEmpty() || name.isEmpty()) {
       return Optional.empty();
     }
     if (!hasTerminatingSemicolon(sourceFile, range.orElseThrow())) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.incomplete-import-declaration",
               "A written import declaration has no terminating semicolon at " + occurrencePath, range));
       return Optional.empty();
@@ -468,7 +475,7 @@ final class JavaDeclarationProjector {
 
   private void appendTopLevelType(CompilationUnitTree unit, SourceFile sourceFile, TreePath unitPath, ClassTree declaration,
       SyntaxStructuralPath rootPath, int sourceOrdinal, List<SyntaxChild> children, JavaBodySourceCorrelation.Publication publication,
-      JavaDeclarationScope semanticEdges, List<AnalysisDiagnostic> diagnostics, Map<String, JavaType> typesByKey) {
+      JavaDeclarationScope semanticEdges, DiagnosticEmissionCollector diagnostics, Map<String, JavaType> typesByKey) {
     var position = children.size();
     var path = rootPath.child(SyntaxRole.TYPE_DECLARATION, position);
     var occurrencePath = rootPath.child(SyntaxRole.TYPE_DECLARATION, sourceOrdinal);
@@ -480,7 +487,7 @@ final class JavaDeclarationProjector {
 
   private Optional<SyntaxNode> type(CompilationUnitTree unit, SourceFile sourceFile, TreePath classPath, ClassTree declaration,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, JavaBodySourceCorrelation.Publication publication,
-      JavaDeclarationScope semanticEdges, List<AnalysisDiagnostic> diagnostics, Map<String, JavaType> typesByKey) {
+      JavaDeclarationScope semanticEdges, DiagnosticEmissionCollector diagnostics, Map<String, JavaType> typesByKey) {
     if (!treeInventory.isWritten(declaration)) {
       return Optional.empty();
     }
@@ -491,7 +498,7 @@ final class JavaDeclarationProjector {
     var element = semantics.element(classPath);
     if (!(element instanceof TypeElement typeElement) || semantics.declarationKey(typeElement).isEmpty()
         || !typeElement.getKind().name().equals(declaration.getKind().name()) || semantics.isImplicitDeclaration(classPath)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-source-type-declaration",
               "A written type has no matching explicit declaration element and stable key", range));
       return Optional.empty();
@@ -500,8 +507,8 @@ final class JavaDeclarationProjector {
     var name = declaration.getSimpleName().toString();
     if (!SourceVersion.isIdentifier(name)
         && !(policy.supportsNestedDeclarations() && name.isEmpty() && classPath.getParentPath().getLeaf() instanceof NewClassTree)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-          "frontend.missing-type-name", "A written type declaration has no valid simple name", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.missing-type-name",
+          "A written type declaration has no valid simple name", range));
       return Optional.empty();
     }
     var children = new ArrayList<SyntaxChild>();
@@ -536,7 +543,7 @@ final class JavaDeclarationProjector {
     if ((!declaration.getImplementsClause().isEmpty() && declaration.getImplementsClause().size() != typeElement.getInterfaces().size())
         || (!declaration.getPermitsClause().isEmpty()
             && declaration.getPermitsClause().size() != typeElement.getPermittedSubclasses().size())) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.inconsistent-type-header", "Written hierarchy attachments do not match compiler-attributed declaration order", range));
       complete = false;
     }
@@ -556,7 +563,7 @@ final class JavaDeclarationProjector {
     if (modeledType == null && typesByKey.isEmpty() && declaration.getKind() != Tree.Kind.RECORD) {
       // Non-record source-evidence fixtures may omit the semantic program inventory.
     } else if (modeledType == null || modeledType.recordComponents().size() != typeElement.getRecordComponents().size()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.unavailable-record-header", "A written type has no complete correlated record-component inventory", range));
       complete = false;
     } else {
@@ -634,7 +641,7 @@ final class JavaDeclarationProjector {
 
   private boolean appendTypeHeaderAttachment(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath parentPath,
       SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal, TypeMirror declarationType, List<SyntaxChild> children,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
     var path = parentPath.child(role, ordinal);
     var attributed = semantics.declarationType(declarationType);
     var node = role == SyntaxRole.DECLARED_TYPE || role == SyntaxRole.RETURN_TYPE
@@ -647,7 +654,7 @@ final class JavaDeclarationProjector {
     var written = node.orElseThrow().type();
     if (written instanceof SyntaxType.Resolved writtenType
         && (!(attributed instanceof SyntaxType.Resolved declaredType) || !matchingDeclarationType(role, writtenType, declaredType))) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.inconsistent-declaration-type",
               "A written type attachment conflicts with its compiler-attributed declaration type", node.orElseThrow().origin()));
       return false;
@@ -666,7 +673,7 @@ final class JavaDeclarationProjector {
 
   private Optional<SyntaxNode> recordComponent(CompilationUnitTree unit, SourceFile sourceFile, ClassTree declaration,
       TypeElement typeElement, JavaRecordComponent component, TypeMirror attributedType, SyntaxStructuralPath typePath,
-      SyntaxStructuralPath typeOccurrencePath, JavaDeclarationScope semanticEdges, List<AnalysisDiagnostic> diagnostics) {
+      SyntaxStructuralPath typeOccurrencePath, JavaDeclarationScope semanticEdges, DiagnosticEmissionCollector diagnostics) {
     var candidates = declaration.getMembers().stream().filter(VariableTree.class::isInstance).map(VariableTree.class::cast)
         .filter(tree -> treeInventory.isWritten(tree) && tree.getName().contentEquals(component.name())
             && sourceEvidence.origin(unit, sourceFile, tree).filter(component.origin()::equals).isPresent())
@@ -674,7 +681,7 @@ final class JavaDeclarationProjector {
     var path = typePath.child(SyntaxRole.RECORD_COMPONENT, component.ordinal());
     var occurrencePath = typeOccurrencePath.child(SyntaxRole.RECORD_COMPONENT, component.ordinal());
     if (candidates.size() != REQUIRED_COMPONENT_SOURCE_COUNT) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(component.componentKey(), "frontend.unavailable-record-component-source",
               "A record component has no unique written source occurrence", Optional.of(component.origin())));
       return Optional.empty();
@@ -682,7 +689,7 @@ final class JavaDeclarationProjector {
     var tree = candidates.getFirst();
     var annotations = treeInventory.variableAnnotations(tree);
     if (annotations.isEmpty()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(component.componentKey(), "frontend.missing-record-component-annotations",
               "A written record component has no pre-attribution annotation inventory", Optional.of(component.origin())));
       return Optional.empty();
@@ -699,13 +706,13 @@ final class JavaDeclarationProjector {
         .collect(Collectors.toUnmodifiableSet());
     var counterparts = recordCounterparts(typeElement, component);
     if (counterparts.isEmpty()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(component.componentKey(), "frontend.unavailable-record-counterpart",
               "A record component has no uniquely correlated accessor or canonical parameter provenance", Optional.of(component.origin())));
       return Optional.empty();
     }
     if (!recordAnnotationMirrors(children, counterparts.orElseThrow())) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(component.componentKey(), "frontend.unavailable-record-annotation-propagation",
               "A record component annotation has no matching compiler-propagated counterpart mirror", Optional.of(component.origin())));
       return Optional.empty();
@@ -802,7 +809,7 @@ final class JavaDeclarationProjector {
 
   private Optional<SyntaxNode> typeParameter(CompilationUnitTree unit, SourceFile sourceFile, TreePath treePath,
       TypeParameterTree declaration, SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, String ownerKey, int ordinal,
-      JavaDeclarationScope semanticEdges, List<AnalysisDiagnostic> diagnostics) {
+      JavaDeclarationScope semanticEdges, DiagnosticEmissionCollector diagnostics) {
     var range = requiredRange(unit, sourceFile, declaration, occurrencePath, diagnostics);
     var expectedKey = ownerKey + "#type-parameter:" + ordinal;
     var element = treePath == null ? null : semantics.element(treePath);
@@ -810,7 +817,7 @@ final class JavaDeclarationProjector {
         || !(element instanceof TypeParameterElement parameterElement)
         || semantics.declarationKey(parameterElement).filter(expectedKey::equals).isEmpty()
         || !SourceVersion.isIdentifier(declaration.getName())) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(expectedKey, "frontend.unavailable-type-parameter-declaration",
               "A written type parameter has no matching attributed declaration and canonical key", range));
       return Optional.empty();
@@ -822,8 +829,8 @@ final class JavaDeclarationProjector {
     var complete = appendAnnotations(unit, sourceFile, declaration.getAnnotations(), path, occurrencePath, DeclarationSite.TYPE_PARAMETER,
         children, diagnostics);
     if (declaration.getBounds().size() != parameterElement.getBounds().size() && !declaration.getBounds().isEmpty()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(expectedKey,
-          "frontend.inconsistent-type-parameter-bounds", "Written and attributed type-parameter bounds have different cardinality", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(expectedKey, "frontend.inconsistent-type-parameter-bounds",
+          "Written and attributed type-parameter bounds have different cardinality", range));
       complete = false;
     }
     for (var index = 0; index < declaration.getBounds().size(); index++) {
@@ -837,8 +844,8 @@ final class JavaDeclarationProjector {
     }
     var upperBound = semantics.typeParameterUpperBound(parameterElement);
     if (upperBound.isEmpty()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(expectedKey,
-          "frontend.unavailable-type-parameter-bound", "The attributed type parameter has no complete upper-bound structure", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(expectedKey, "frontend.unavailable-type-parameter-bound",
+          "The attributed type parameter has no complete upper-bound structure", range));
       return Optional.empty();
     }
     var value = new SyntaxValue.TypeParameterDeclaration(declaration.getName().toString(), ownerKey, ordinal,
@@ -852,7 +859,7 @@ final class JavaDeclarationProjector {
 
   private boolean appendAnnotations(CompilationUnitTree unit, SourceFile sourceFile, List<? extends AnnotationTree> annotations,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DeclarationSite site, List<SyntaxChild> children,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
     var complete = true;
     for (var index = 0; index < annotations.size(); index++) {
       var annotation = annotationAttachment(unit, sourceFile, annotations.get(index), path.child(SyntaxRole.ANNOTATION, index),
@@ -871,14 +878,14 @@ final class JavaDeclarationProjector {
 
   private void appendMember(CompilationUnitTree unit, SourceFile sourceFile, TreePath classPath, Tree member, SyntaxStructuralPath typePath,
       SyntaxStructuralPath typeOccurrencePath, int sourceOrdinal, SyntaxRole role, List<SyntaxChild> members,
-      JavaBodySourceCorrelation.Publication publication, JavaDeclarationScope semanticEdges, List<AnalysisDiagnostic> diagnostics,
+      JavaBodySourceCorrelation.Publication publication, JavaDeclarationScope semanticEdges, DiagnosticEmissionCollector diagnostics,
       Map<String, JavaType> typesByKey) {
     var memberTreePath = new TreePath(classPath, member);
     if (!treeInventory.isWritten(member)) {
       return;
     }
     if (semantics.isImplicitDeclaration(memberTreePath)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.inconsistent-member-origin",
               "A written member has a compiler-generated declaration origin", sourceEvidence.origin(unit, sourceFile, member)));
       return;
@@ -890,15 +897,17 @@ final class JavaDeclarationProjector {
       case MethodTree method -> method(unit, sourceFile, memberTreePath, method, memberPath, memberOccurrencePath, publication,
           semanticEdges, diagnostics, typesByKey);
       case VariableTree field -> field(unit, sourceFile, memberTreePath, field, memberPath, memberOccurrencePath, semanticEdges,
-          diagnostics, new ProjectionContext(unit, sourceFile, publication, semanticEdges, typesByKey));
+          diagnostics, new ProjectionContext(unit, sourceFile, publication, semanticEdges, typesByKey, diagnostics));
       case ClassTree nested -> type(unit, sourceFile, memberTreePath, nested, memberPath, memberOccurrencePath, publication, semanticEdges,
           diagnostics, typesByKey);
-      case BlockTree initializer -> initializations.initializer(unit, sourceFile, memberTreePath, initializer, memberPath,
-          memberOccurrencePath, diagnostics, (nested, nestedPath, nestedSourcePath) -> projectNestedDeclaration(
-              new ProjectionContext(unit, sourceFile, publication, semanticEdges, typesByKey), nested, nestedPath, nestedSourcePath));
+      case BlockTree initializer ->
+        initializations.initializer(unit, sourceFile, memberTreePath, initializer, memberPath, memberOccurrencePath, diagnostics,
+            (nested, nestedPath, nestedSourcePath) -> projectNestedDeclaration(
+                new ProjectionContext(unit, sourceFile, publication, semanticEdges, typesByKey, diagnostics), nested, nestedPath,
+                nestedSourcePath));
       case EmptyStatementTree _ -> Optional.empty();
       default -> {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+        diagnostics.emit(DIAGNOSTIC_PRODUCER,
             FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unclassified-type-member",
                 "A written type member has no source AST declaration form", sourceEvidence.origin(unit, sourceFile, member)));
         yield Optional.empty();
@@ -909,7 +918,7 @@ final class JavaDeclarationProjector {
 
   private Optional<SyntaxNode> method(CompilationUnitTree unit, SourceFile sourceFile, TreePath methodPath, MethodTree declaration,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, JavaBodySourceCorrelation.Publication publication,
-      JavaDeclarationScope semanticEdges, List<AnalysisDiagnostic> diagnostics, Map<String, JavaType> typesByKey) {
+      JavaDeclarationScope semanticEdges, DiagnosticEmissionCollector diagnostics, Map<String, JavaType> typesByKey) {
     var range = requiredRange(unit, sourceFile, declaration, occurrencePath, diagnostics);
     var body = declaration.getBody() == null
         ? null
@@ -922,7 +931,7 @@ final class JavaDeclarationProjector {
     }
     var element = semantics.element(methodPath);
     if (!(element instanceof ExecutableElement executable) || semantics.declarationKey(executable).isEmpty()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.unavailable-executable-declaration", "A written executable has no attributed declaration and canonical key", range));
       if (body != null) {
         publication.unavailable(body.methodKey());
@@ -931,7 +940,7 @@ final class JavaDeclarationProjector {
     }
     var owner = methodPath.getParentPath().getLeaf();
     if (!(owner instanceof ClassTree ownerType)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.unavailable-executable-owner", "A written executable has no source type owner", range));
       if (body != null) {
         publication.unavailable(body.methodKey());
@@ -943,7 +952,7 @@ final class JavaDeclarationProjector {
     var attributedOwner = executable.getEnclosingElement();
     var attributedOwnerKey = attributedOwner instanceof TypeElement ? semantics.declarationKey(attributedOwner) : Optional.<String>empty();
     if (sourceOwnerKey.isEmpty() || !sourceOwnerKey.equals(attributedOwnerKey)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.unavailable-executable-owner", "A written executable has no matching source and attributed type owner", range));
       if (body != null) {
         publication.unavailable(body.methodKey());
@@ -961,7 +970,7 @@ final class JavaDeclarationProjector {
             : SyntaxValue.ExecutableDeclaration.ExecutableKind.METHOD;
     var name = constructor ? ownerType.getSimpleName().toString() : declaration.getName().toString();
     if (!SourceVersion.isIdentifier(name) || constructor != (declaration.getReturnType() == null)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.invalid-executable-header", "A written executable has an inconsistent source name or return-type form", range));
       if (body != null) {
         publication.unavailable(body.methodKey());
@@ -974,12 +983,13 @@ final class JavaDeclarationProjector {
     if (policy.supportsNestedDeclarations() && declaration.getBody() != null && body == null) {
       var translator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory);
       translator.useDeclarations((nested, nestedPath, nestedSourcePath) -> projectNestedDeclaration(
-          new ProjectionContext(unit, sourceFile, stagedPublication, stagedEdges, typesByKey), nested, nestedPath, nestedSourcePath));
+          new ProjectionContext(unit, sourceFile, stagedPublication, stagedEdges, typesByKey, diagnostics), nested, nestedPath,
+          nestedSourcePath));
       var translated = translator.translate(unit, sourceFile, methodKey, declaration.getBody(),
           new TreePath(methodPath, declaration.getBody()), constructor, false);
       body = translated.value();
       bodyCorrelation.addBody(body);
-      diagnostics.addAll(translated.diagnostics());
+      diagnostics.include(translated.emissions());
     }
     var children = new ArrayList<SyntaxChild>();
     var site = constructor
@@ -1007,26 +1017,26 @@ final class JavaDeclarationProjector {
         ? semantics.enclosingTypeKey(ownerTypeElement)
         : Optional.<String>empty();
     if (receiverType == SyntaxType.Erroneous.INSTANCE) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.erroneousCompilerState(methodKey,
-          "frontend.error-receiver-type", "javac reported an error type for the executable receiver", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.erroneousCompilerState(methodKey, "frontend.error-receiver-type",
+          "javac reported an error type for the executable receiver", range));
       complete = false;
     } else if (receiverType instanceof SyntaxType.NoType noType) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey,
-          "frontend.invalid-receiver-no-type", "The executable receiver resolved to compiler pseudo-type " + noType.kind(), range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey, "frontend.invalid-receiver-no-type",
+          "The executable receiver resolved to compiler pseudo-type " + noType.kind(), range));
       complete = false;
     } else if (receiverType == SyntaxType.Unsupported.INSTANCE) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey,
-          "frontend.unsupported-receiver-type", "The executable receiver has an implementation-reserved compiler type", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey, "frontend.unsupported-receiver-type",
+          "The executable receiver has an implementation-reserved compiler type", range));
       complete = false;
     } else if (receiverType == SyntaxType.Unresolved.INSTANCE || receiverType instanceof SyntaxType.StructureUnavailable
         || (receiverTree != null && receiverType == SyntaxType.NotApplicable.INSTANCE)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey,
-          "frontend.unavailable-receiver-type", "The attributed receiver type is unavailable for the executable", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey, "frontend.unavailable-receiver-type",
+          "The attributed receiver type is unavailable for the executable", range));
       complete = false;
     }
     if (receiverType instanceof SyntaxType.Resolved && (receiverOwnerKey.isEmpty() || receiverSimpleName.isEmpty())) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey,
-          "frontend.unavailable-receiver-owner", "The attributed receiver has no canonical type owner", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey, "frontend.unavailable-receiver-owner",
+          "The attributed receiver has no canonical type owner", range));
       complete = false;
     }
     if (receiverTree != null) {
@@ -1037,9 +1047,8 @@ final class JavaDeclarationProjector {
         case COMPACT_CONSTRUCTOR, ANNOTATION_ELEMENT -> false;
       };
       if (receiverNameExpression != null && !receiverFormValid) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-            FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.invalid-executable-header",
-                "An explicit receiver has a name form incompatible with its executable", range));
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+            "frontend.invalid-executable-header", "An explicit receiver has a name form incompatible with its executable", range));
         if (body != null) {
           publication.unavailable(body.methodKey());
         }
@@ -1054,9 +1063,8 @@ final class JavaDeclarationProjector {
     var writtenParameters = compactConstructor ? List.<VariableTree>of() : declaration.getParameters();
     if (executable.getParameters().size() != declaration.getParameters().size()
         || (executable.isVarArgs() && declaration.getParameters().isEmpty())) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-          FrontendDiagnosticFactory.otherError(methodKey, "frontend.inconsistent-formal-parameters",
-              "The attributed formal-parameter list does not match written source parameters", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey, "frontend.inconsistent-formal-parameters",
+          "The attributed formal-parameter list does not match written source parameters", range));
       complete = false;
     }
     for (var index = 0; index < writtenParameters.size(); index++) {
@@ -1078,8 +1086,8 @@ final class JavaDeclarationProjector {
     }
     var thrownTypes = semantics.thrownTypes(executable);
     if (thrownTypes.size() != declaration.getThrows().size()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey,
-          "frontend.inconsistent-thrown-types", "The attributed thrown-type list does not match written source attachments", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey, "frontend.inconsistent-thrown-types",
+          "The attributed thrown-type list does not match written source attachments", range));
       complete = false;
     }
     for (var index = 0; index < declaration.getThrows().size(); index++) {
@@ -1092,7 +1100,7 @@ final class JavaDeclarationProjector {
         var code = thrownType instanceof SyntaxType.NoType
             ? "frontend.invalid-thrown-no-type"
             : thrownType == SyntaxType.Unsupported.INSTANCE ? "frontend.unsupported-thrown-type" : "frontend.unavailable-thrown-type";
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+        diagnostics.emit(DIAGNOSTIC_PRODUCER,
             FrontendDiagnosticFactory.otherError(methodKey, code, "A written thrown type has no resolved attributed outcome",
                 sourceEvidence.origin(unit, sourceFile, declaration.getThrows().get(index))));
         complete = false;
@@ -1133,7 +1141,7 @@ final class JavaDeclarationProjector {
           shape, new SyntaxValue.ExecutableDeclaration.AttributedHeader(receiverType, receiverOwnerKey, receiverSimpleName,
               enclosingTypeKey, thrownTypes, defaultValue));
     } catch (IllegalArgumentException exception) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.invalid-executable-header",
               Objects.requireNonNullElse(exception.getMessage(), "The executable header is inconsistent"), range));
       if (body != null) {
@@ -1151,7 +1159,7 @@ final class JavaDeclarationProjector {
   }
 
   Optional<AnnotationElementValue> appendDefault(CompilationUnitTree unit, SourceFile sourceFile, MethodTree declaration,
-      ExecutableElement executable, SyntaxStructuralPath path, List<SyntaxChild> children, List<AnalysisDiagnostic> diagnostics) {
+      ExecutableElement executable, SyntaxStructuralPath path, List<SyntaxChild> children, DiagnosticEmissionCollector diagnostics) {
     var defaultPath = path.child(SyntaxRole.DEFAULT_VALUE, 0);
     var projected = annotationProjector.defaultValue(unit, sourceFile, declaration, executable, defaultPath, diagnostics);
     projected.ifPresent(result -> children.add(new SyntaxChild(SyntaxRole.DEFAULT_VALUE, 0, result.node())));
@@ -1160,37 +1168,36 @@ final class JavaDeclarationProjector {
 
   private Optional<SyntaxNode> parameter(CompilationUnitTree unit, SourceFile sourceFile, TreePath methodPath, VariableTree declaration,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, String identityKey, TypeMirror attributedType, boolean receiver,
-      boolean varArgs, JavaDeclarationScope semanticEdges, List<AnalysisDiagnostic> diagnostics) {
+      boolean varArgs, JavaDeclarationScope semanticEdges, DiagnosticEmissionCollector diagnostics) {
     var range = requiredRange(unit, sourceFile, declaration, occurrencePath, diagnostics);
     var parameterPath = TreePath.getPath(methodPath, declaration);
     var element = parameterPath == null ? null : semantics.element(parameterPath);
     if (!treeInventory.isWritten(declaration) || parameterPath == null || semantics.isImplicitDeclaration(parameterPath)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(identityKey,
-          "frontend.unavailable-written-parameter", "An attributed parameter is absent from the parsed source declaration", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(identityKey, "frontend.unavailable-written-parameter",
+          "An attributed parameter is absent from the parsed source declaration", range));
       return Optional.empty();
     }
     if (!receiver
         && (!(element instanceof VariableElement variable) || semantics.declarationKey(variable).filter(identityKey::equals).isEmpty())) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-          FrontendDiagnosticFactory.otherError(identityKey, "frontend.unavailable-formal-parameter",
-              "A written formal parameter has no matching attributed declaration and canonical key", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(identityKey, "frontend.unavailable-formal-parameter",
+          "A written formal parameter has no matching attributed declaration and canonical key", range));
       return Optional.empty();
     }
     var nameExpression = declaration.getNameExpression();
     if (range.isEmpty() || declaration.getType() == null || declaration.getInitializer() != null || (!receiver && nameExpression != null)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(identityKey,
-          "frontend.invalid-parameter-header", "A written parameter has an unavailable type or invalid source form", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(identityKey, "frontend.invalid-parameter-header",
+          "A written parameter has an unavailable type or invalid source form", range));
       return Optional.empty();
     }
     var name = receiver ? RECEIVER_NAME : declaration.getName().toString();
     if (!receiver && !SourceVersion.isIdentifier(name)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(identityKey,
-          "frontend.invalid-parameter-name", "A written formal parameter has no valid simple name", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(identityKey, "frontend.invalid-parameter-name",
+          "A written formal parameter has no valid simple name", range));
       return Optional.empty();
     }
     if (receiver && nameExpression == null) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(identityKey,
-          "frontend.unavailable-receiver-name", "An explicit receiver has no structural name expression", range));
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(identityKey, "frontend.unavailable-receiver-name",
+          "An explicit receiver has no structural name expression", range));
       return Optional.empty();
     }
     var children = new ArrayList<SyntaxChild>();
@@ -1209,8 +1216,8 @@ final class JavaDeclarationProjector {
         sourceAssociations.created(qualifier, new TreePath(parameterPath, nameExpression));
         children.add(new SyntaxChild(SyntaxRole.QUALIFIER, 0, qualifier));
       } else {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(identityKey,
-            "frontend.unavailable-receiver-name", "An explicit receiver has no structural name expression and source range", range));
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(identityKey, "frontend.unavailable-receiver-name",
+            "An explicit receiver has no structural name expression and source range", range));
         complete = false;
       }
     }
@@ -1236,7 +1243,7 @@ final class JavaDeclarationProjector {
 
   private Optional<SyntaxNode> field(CompilationUnitTree unit, SourceFile sourceFile, TreePath fieldPath, VariableTree declaration,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, JavaDeclarationScope semanticEdges,
-      List<AnalysisDiagnostic> diagnostics, ProjectionContext context) {
+      DiagnosticEmissionCollector diagnostics, ProjectionContext context) {
     var range = requiredRange(unit, sourceFile, declaration, occurrencePath, diagnostics);
     if (range.isEmpty()) {
       return Optional.empty();
@@ -1249,7 +1256,7 @@ final class JavaDeclarationProjector {
         || resolved.identity().category() == JavaTypeCategory.OTHER || semantics.declarationKey(variable).isEmpty()
         || semantics.declarationKey(ownerType).isEmpty() || !Objects.equals(variable.getEnclosingElement(), ownerType)
         || (variable.getKind() != ElementKind.FIELD && variable.getKind() != ElementKind.ENUM_CONSTANT)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-field-declaration",
               "A written field or enum constant has no matching attributed declaration, owner, key, or type", range));
       return Optional.empty();
@@ -1257,7 +1264,7 @@ final class JavaDeclarationProjector {
     var enumConstant = variable.getKind() == ElementKind.ENUM_CONSTANT;
     var initializer = declaration.getInitializer();
     if (enumConstant && !(initializer instanceof NewClassTree)) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
+      diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-enum-constant-shape",
               "An enum constant has no attributed constructor-argument and body source shape", range));
       return Optional.empty();
@@ -1276,9 +1283,8 @@ final class JavaDeclarationProjector {
     }
     if (!enumConstant) {
       if (declaration.getType() == null) {
-        TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER,
-            FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-field-type-attachment",
-                "A written field has no source type attachment", range));
+        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+            "frontend.unavailable-field-type-attachment", "A written field has no source type attachment", range));
         return Optional.empty();
       }
       var typePath = path.child(SyntaxRole.DECLARED_TYPE, 0);
@@ -1303,7 +1309,7 @@ final class JavaDeclarationProjector {
                 sourceEvidence.rawStart(unit, creation.getIdentifier()))
             : Optional.of(true);
     if (argumentList.isEmpty()) {
-      TranslationDiagnosticEvidence.emit(diagnostics, DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
           "frontend.unavailable-enum-argument-list", "A written enum constant has no verifiable argument-list form", range));
       return Optional.empty();
     }
@@ -1328,13 +1334,18 @@ final class JavaDeclarationProjector {
 
   private TranslationResult<SyntaxNode> projectNestedDeclaration(ProjectionContext context, ClassTree declaration, TreePath treePath,
       SyntaxStructuralPath path) {
-    var diagnostics = new TranslationDiagnosticEvidence(DIAGNOSTIC_PRODUCER, context.sourceFile().sourceFileKey());
-    var node = type(context.unit(), context.sourceFile(), treePath, declaration, path, path, context.publication(), context.declarations(),
-        diagnostics, context.typesByKey());
-    if (node.isEmpty()) {
-      throw new JavaSourceProjectionFailure(diagnostics);
+    var diagnostics = context.diagnosticBatches().newBatch();
+    final Optional<SyntaxNode> node;
+    try {
+      node = type(context.unit(), context.sourceFile(), treePath, declaration, path, path, context.publication(), context.declarations(),
+          diagnostics, context.typesByKey());
+    } catch (JavaSourceProjectionFailure failure) {
+      throw new JavaSourceProjectionFailure(diagnostics.snapshot(), failure);
     }
-    return new TranslationResult<>(node.orElseThrow(), diagnostics, List.of(), List.of());
+    if (node.isEmpty()) {
+      throw new JavaSourceProjectionFailure(diagnostics.snapshot());
+    }
+    return new TranslationResult<>(node.orElseThrow(), diagnostics.snapshot(), List.of(), List.of());
   }
 
   private List<String> sharedFieldKeys(CompilationUnitTree unit, TreePath fieldPath, VariableTree declaration) {
@@ -1351,7 +1362,7 @@ final class JavaDeclarationProjector {
   }
 
   private Optional<SourceSpan> requiredRange(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
-      List<AnalysisDiagnostic> diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
     return sourceEvidence.requiredRange(unit, sourceFile, tree, path, diagnostics);
   }
 
@@ -1387,19 +1398,21 @@ final class JavaDeclarationProjector {
     };
   }
 
-  record UnitTranslation(Optional<SyntaxSourceContribution> contribution, List<CopiedAstValues.Body> bodies,
-      List<AnalysisDiagnostic> diagnostics, List<WrittenSourceAssociation> sourceAssociations, List<CopiedAstValues.Scope> scopes) {
-    UnitTranslation(Optional<SyntaxSourceContribution> contribution, List<CopiedAstValues.Body> bodies,
-        List<AnalysisDiagnostic> diagnostics) {
-      this(contribution, bodies, diagnostics, List.of(), List.of());
+  record UnitTranslation(Optional<SyntaxSourceContribution> contribution, List<CopiedAstValues.Body> bodies, DiagnosticEmissions emissions,
+      List<WrittenSourceAssociation> sourceAssociations, List<CopiedAstValues.Scope> scopes) {
+    UnitTranslation(Optional<SyntaxSourceContribution> contribution, List<CopiedAstValues.Body> bodies, DiagnosticEmissions emissions) {
+      this(contribution, bodies, emissions, List.of(), List.of());
     }
 
     UnitTranslation {
       Objects.requireNonNull(contribution, "contribution");
       bodies = List.copyOf(bodies);
-      diagnostics = TranslationDiagnosticEvidence.copyOf(diagnostics);
+      Objects.requireNonNull(emissions, "emissions");
       sourceAssociations = List.copyOf(sourceAssociations);
       scopes = List.copyOf(scopes);
+    }
+    List<AnalysisDiagnostic> diagnostics() {
+      return emissions.diagnostics();
     }
   }
 

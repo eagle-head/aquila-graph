@@ -26,8 +26,8 @@ final class JavaMethodTranslator {
       MethodTree methodTree) {
     var declaration = declarations.translate(unit, classPath, sourceFile, ownerTypeKey, methodTree);
     var method = declaration.value();
-    var diagnostics = new TranslationDiagnosticEvidence("JavaMethodTranslator", method.methodKey() + ":declaration");
-    diagnostics.addAll(declaration.diagnostics());
+    var diagnostics = new DiagnosticEmissionCollector("JavaMethodTranslator", method.methodKey() + ":declaration");
+    diagnostics.include(declaration.emissions());
     var occurrences = new ArrayList<LanguageFeatureOccurrence>(declaration.featureOccurrences());
     var observations = new ArrayList<LanguageFeatureObservation>(declaration.featureObservations());
     var body = Optional.<TranslatedMethodBody>empty();
@@ -36,10 +36,10 @@ final class JavaMethodTranslator {
       var translation = bodies.translate(unit, sourceFile, method.methodKey(), methodTree.getBody(),
           new TreePath(path, methodTree.getBody()), method.constructor(), semantics.isImplicitDeclaration(path));
       body = Optional.of(translation.value());
-      diagnostics.addAll(translation.diagnostics());
+      diagnostics.include(translation.emissions());
       occurrences.addAll(translation.featureOccurrences());
       observations.addAll(translation.featureObservations());
     }
-    return new TranslationResult<>(new TranslatedMethod(method, body), diagnostics, occurrences, observations);
+    return new TranslationResult<>(new TranslatedMethod(method, body), diagnostics.snapshot(), occurrences, observations);
   }
 }

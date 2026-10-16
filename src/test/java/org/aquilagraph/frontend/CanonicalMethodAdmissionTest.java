@@ -51,7 +51,7 @@ class CanonicalMethodAdmissionTest {
     // Act
     assertThrows(IllegalArgumentException.class, () -> {
       var supplied = JavaCoverageTestSupport.withFacts(original, program, Optional.of(original.aggregate().orElseThrow()),
-          JavaCoverageTestSupport.diagnostics(original, "javac-public/1"));
+          JavaCoverageTestSupport.emissions(original));
       assertEquals(original.languageFeatureCoverageResult().validationEvidence().writtenInventory(),
           supplied.languageFeatureCoverageResult().validationEvidence().writtenInventory());
       assertEquals(original.languageFeatureCoverageResult().validationEvidence().attributedExpectations(),

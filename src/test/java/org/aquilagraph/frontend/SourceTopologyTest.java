@@ -323,7 +323,7 @@ class SourceTopologyTest {
         ? association(association, swaps.get(association.nodeKey())) : association);
     var evidence = input.languageFeatureCoverageResult().validationEvidence();
     var reconciler = new JavaSourceCoverageReconciler(evidence.writtenInventory(), evidence.attributedExpectations(), input.program(),
-        Optional.of(changed), evidence.diagnosticEmissions());
+        Optional.of(changed), new DiagnosticEmissions(evidence.diagnosticEmissions()));
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class, () -> {

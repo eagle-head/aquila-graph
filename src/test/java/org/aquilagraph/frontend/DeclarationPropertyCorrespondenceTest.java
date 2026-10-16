@@ -168,7 +168,7 @@ class DeclarationPropertyCorrespondenceTest {
 
     // Act
     var admitted = JavaCoverageTestSupport.withFacts(original, original.program(), original.aggregate(),
-        JavaCoverageTestSupport.diagnostics(original, "declaration-members"));
+        JavaCoverageTestSupport.emissions(original));
 
     // Assert
     assertEquals(List.of("first", "second"), type.fields().stream().map(JavaField::name).toList());
@@ -197,7 +197,7 @@ class DeclarationPropertyCorrespondenceTest {
 
     // Act
     var partial = JavaCoverageTestSupport.withFacts(original, changed, original.aggregate(),
-        JavaCoverageTestSupport.diagnostics(original, "canonical-field-name"));
+        JavaCoverageTestSupport.emissions(original));
 
     // Assert
     assertEquals(Mode.FAILED, members(partial).support().mode());
@@ -228,7 +228,7 @@ class DeclarationPropertyCorrespondenceTest {
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class, () -> JavaCoverageTestSupport.withFacts(original, changed,
-        original.aggregate(), JavaCoverageTestSupport.diagnostics(original, "canonical-member-provenance")));
+        original.aggregate(), JavaCoverageTestSupport.emissions(original)));
 
     // Assert
     assertTrue(failure.getMessage().contains("provenance") || failure.getMessage().contains("source") || failure.getMessage().contains("member"));
@@ -255,7 +255,7 @@ class DeclarationPropertyCorrespondenceTest {
 
     // Act
     var partial = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(changed),
-        JavaCoverageTestSupport.diagnostics(original, "cross-family-member-order"));
+        JavaCoverageTestSupport.emissions(original));
 
     // Assert
     assertFrozenStages(original, partial);
@@ -473,7 +473,7 @@ class DeclarationPropertyCorrespondenceTest {
       ObservedPropertyEncounters written, ObservedPropertyEncounters attributed) {
     ReconciledCoverage reconcile(ObservedPropertyEncounters writtenEvidence, ObservedPropertyEncounters attributedEvidence) {
       return new JavaSourceCoverageReconciler(capture.inventory(), expectations, translation.value().program(), translation.value().aggregate(),
-          translation.diagnosticEmissions()).reconcile(original.languageFeatureCoverage(), kinds, typeKinds, translation, writtenEvidence, attributedEvidence);
+          translation.emissions()).reconcile(original.languageFeatureCoverage(), kinds, typeKinds, translation, writtenEvidence, attributedEvidence);
     }
   }
 

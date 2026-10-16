@@ -41,12 +41,12 @@ final class JavaCompilerKindDiagnostics {
     Objects.requireNonNull(units, "units");
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
-    var diagnostics = new TranslationDiagnosticEvidence("JavaCompilerKindDiagnostics", "input-tree-scan");
+    var diagnostics = new DiagnosticEmissionCollector("JavaCompilerKindDiagnostics", "input-tree-scan");
     var scanner = new DiagnosticScanner(occurrences, observations, diagnostics);
     for (var unit : units) {
       scanUnit(scanner, unit);
     }
-    return new ObservedLanguageFeatures(occurrences, observations, diagnostics);
+    return new ObservedLanguageFeatures(occurrences, observations, diagnostics.snapshot());
   }
 
   private void scanUnit(DiagnosticScanner scanner, CompilationUnitTree unit) {
@@ -58,10 +58,10 @@ final class JavaCompilerKindDiagnostics {
     private final List<LanguageFeatureOccurrence> occurrences;
     private final List<LanguageFeatureObservation> observations;
     private final Set<SourceSpan> observedAnnotationRanges = new HashSet<>();
-    private final List<AnalysisDiagnostic> diagnostics;
+    private final DiagnosticEmissionCollector diagnostics;
 
     private DiagnosticScanner(List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations,
-        List<AnalysisDiagnostic> diagnostics) {
+        DiagnosticEmissionCollector diagnostics) {
       this.occurrences = occurrences;
       this.observations = observations;
       this.diagnostics = diagnostics;
@@ -98,7 +98,7 @@ final class JavaCompilerKindDiagnostics {
         diagnostic = Optional.of(FrontendDiagnosticFactory.error(context.sourceFile().sourceFileKey(), code,
             "Java compiler tree kind " + kind + " is outside the supported semantic graph profile", origins.stream().findFirst(),
             outcomeKind));
-        TranslationDiagnosticEvidence.emit(diagnostics, "JavaCompilerKindDiagnostics", diagnostic.orElseThrow());
+        diagnostics.emit("JavaCompilerKindDiagnostics", diagnostic.orElseThrow());
       }
       occurrences.add(new LanguageFeatureOccurrence(context.sourceFile().sourceFileKey(), classification, origins));
       observations.add(new LanguageFeatureObservation(context.sourceFile().sourceFileKey(), classification, origins, diagnostic));

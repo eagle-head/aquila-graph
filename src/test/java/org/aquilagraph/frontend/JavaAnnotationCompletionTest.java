@@ -165,14 +165,14 @@ class JavaAnnotationCompletionTest {
 
       // Act
       var diagnostics = reconcile(fixture, damaged);
-      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(damaged), diagnostics);
+      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(damaged), diagnostics.events());
 
       // Assert
       assertEquals("Coverage outcomes must exactly match the independent context inventory in order", removedBundle.getMessage());
       assertTrue(input.languageFeatureCoverageResult().observations().stream().anyMatch(item -> item.classification().feature().identifier().equals("ANNOTATION")));
       assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(input).completion());
-      assertEquals(List.of("frontend.unrepresented-source-annotation"), diagnostics.stream().map(AnalysisDiagnostic::code).toList());
-      assertEquals(List.of(annotation.origin().orElseThrow()), diagnostics.getFirst().origins());
+      assertEquals(List.of("frontend.unrepresented-source-annotation"), diagnostics.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+      assertEquals(List.of(annotation.origin().orElseThrow()), diagnostics.diagnostics().getFirst().origins());
       assertNotEquals(fixture.aggregate(), damaged);
     });
   }
@@ -197,8 +197,8 @@ class JavaAnnotationCompletionTest {
       var diagnostics = reconcile(fixture, damaged);
 
       // Assert
-      assertEquals(List.of("frontend.unrepresented-annotation-default"), diagnostics.stream().map(AnalysisDiagnostic::code).toList());
-      assertEquals(List.of(expression.origin().orElseThrow()), diagnostics.getFirst().origins());
+      assertEquals(List.of("frontend.unrepresented-annotation-default"), diagnostics.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+      assertEquals(List.of(expression.origin().orElseThrow()), diagnostics.diagnostics().getFirst().origins());
     });
   }
 
@@ -218,7 +218,7 @@ class JavaAnnotationCompletionTest {
       assertEquals(fixture.aggregate().nodes().size(), damaged.nodes().size());
       assertEquals(fixture.aggregate().rangeTuples(), damaged.rangeTuples());
       assertNotEquals(fixture.aggregate(), damaged);
-      assertTrue(diagnostics.stream().anyMatch(item -> item.code().equals("frontend.inconsistent-annotation-source-fact")
+      assertTrue(diagnostics.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.inconsistent-annotation-source-fact")
           && item.message().contains("selected annotation element, type or value")));
     });
   }
@@ -243,8 +243,8 @@ class JavaAnnotationCompletionTest {
       var diagnostics = reconcile(fixture, damaged);
 
       // Assert
-      assertTrue(diagnostics.stream().anyMatch(item -> item.code().equals("frontend.unrepresented-source-annotation")));
-      assertTrue(diagnostics.stream().anyMatch(item -> item.code().equals("frontend.unexpected-annotation-source-fact")
+      assertTrue(diagnostics.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unrepresented-source-annotation")));
+      assertTrue(diagnostics.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unexpected-annotation-source-fact")
           && item.origins().equals(List.of(fake.origin().orElseThrow()))));
     });
   }
@@ -314,12 +314,12 @@ class JavaAnnotationCompletionTest {
           captured.ownerRange(), captured.ancestors(), captured.ordinal())), fixture.inventory().declarations());
 
       // Act
-      var diagnostics = new JavaAnnotationCompleteness(inventory, fixture.compilation().semantics(), List.of()).diagnostics(Optional.empty());
+      var diagnostics = new JavaAnnotationCompleteness(inventory, fixture.compilation().semantics(), List.of()).reconcile(Optional.empty());
 
       // Assert
-      assertTrue(diagnostics.stream().anyMatch(item -> item.code().equals("frontend.invalid-source-range")
+      assertTrue(diagnostics.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.invalid-source-range")
           && item.message().contains("Sample.java") && item.origins().isEmpty()));
-      assertFalse(diagnostics.stream().anyMatch(item -> item.code().equals("frontend.unavailable-source-annotation-range")));
+      assertFalse(diagnostics.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unavailable-source-annotation-range")));
     });
   }
 
@@ -390,7 +390,7 @@ class JavaAnnotationCompletionTest {
       assertEquals(fixture.aggregate().nodes().size(), damaged.nodes().size());
       assertEquals(fixture.aggregate().semanticEdges().size(), damaged.semanticEdges().size());
       assertNotEquals(fixture.aggregate(), damaged);
-      assertTrue(diagnostics.stream().anyMatch(item -> item.code().equals("frontend.inconsistent-annotation-source-owner")));
+      assertTrue(diagnostics.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.inconsistent-annotation-source-owner")));
     });
   }
 
@@ -409,7 +409,7 @@ class JavaAnnotationCompletionTest {
       var diagnostics = reconcile(fixture, damaged);
 
       // Assert
-      assertTrue(diagnostics.stream().anyMatch(item -> item.code().equals("frontend.inconsistent-annotation-source-fact")
+      assertTrue(diagnostics.diagnostics().stream().anyMatch(item -> item.code().equals("frontend.inconsistent-annotation-source-fact")
           && item.message().contains("missing blocking annotation resolution outcome")));
       assertNotEquals(fixture.aggregate(), damaged);
     });
@@ -432,7 +432,7 @@ class JavaAnnotationCompletionTest {
       assertEquals(fixture.aggregate().snapshot(), damaged.snapshot());
       assertEquals(fixture.aggregate().rangeTuples(), damaged.rangeTuples());
       assertNotEquals(fixture.aggregate(), damaged);
-      assertTrue(diagnostics.stream().anyMatch(item -> item.message().contains("selected annotation element, type or value")));
+      assertTrue(diagnostics.diagnostics().stream().anyMatch(item -> item.message().contains("selected annotation element, type or value")));
     });
   }
 
@@ -452,12 +452,12 @@ class JavaAnnotationCompletionTest {
       var inventory = new JavaAnnotationSourceInventory(List.of(), declarations);
 
       // Act
-      var diagnostics = new JavaAnnotationCompleteness(inventory, fixture.compilation().semantics(), List.of()).diagnostics(Optional.empty());
+      var diagnostics = new JavaAnnotationCompleteness(inventory, fixture.compilation().semantics(), List.of()).reconcile(Optional.empty());
 
       // Assert
-      assertEquals(4, diagnostics.size());
-      assertEquals(4, diagnostics.stream().map(AnalysisDiagnostic::diagnosticKey).distinct().count());
-      assertTrue(diagnostics.stream().allMatch(item -> item.code().equals("frontend.unrepresented-annotation-declaration")
+      assertEquals(4, diagnostics.diagnostics().size());
+      assertEquals(4, diagnostics.diagnostics().stream().map(AnalysisDiagnostic::diagnosticKey).distinct().count());
+      assertTrue(diagnostics.diagnostics().stream().allMatch(item -> item.code().equals("frontend.unrepresented-annotation-declaration")
           && item.message().contains("Sample.java") && item.origins().isEmpty()));
     });
   }
@@ -488,16 +488,16 @@ class JavaAnnotationCompletionTest {
 
       // Act
       var diagnostics = reconcile(fixture, damaged);
-      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(damaged), diagnostics);
+      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(damaged), diagnostics.events());
 
       // Assert
       assertEquals(List.of(), fixture.inventory().annotations());
       assertTrue(fixture.inventory().declarations().stream().noneMatch(declaration -> declaration.source().sourceFileKey()
           .equals(application(damaged).sourceFileKey())));
       assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(original).completion());
-      assertEquals(List.of("frontend.unexpected-annotation-source-fact"), diagnostics.stream().map(AnalysisDiagnostic::code).toList());
-      assertTrue(diagnostics.getFirst().message().contains("package-info.java"));
-      assertEquals(application(damaged).origin().stream().toList(), diagnostics.getFirst().origins());
+      assertEquals(List.of("frontend.unexpected-annotation-source-fact"), diagnostics.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+      assertTrue(diagnostics.diagnostics().getFirst().message().contains("package-info.java"));
+      assertEquals(application(damaged).origin().stream().toList(), diagnostics.diagnostics().getFirst().origins());
       assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(input).completion());
     });
   }
@@ -512,16 +512,16 @@ class JavaAnnotationCompletionTest {
 
       // Act
       var diagnostics = reconcile(fixture, damaged);
-      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(damaged), diagnostics);
+      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(damaged), diagnostics.events());
 
       // Assert
       assertEquals(List.of(), fixture.inventory().annotations());
       assertTrue(fixture.inventory().declarations().stream().noneMatch(declaration -> declaration.source().sourceFileKey()
           .equals(application(damaged).sourceFileKey())));
       assertEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(original).completion());
-      assertEquals(List.of("frontend.unexpected-annotation-source-fact"), diagnostics.stream().map(AnalysisDiagnostic::code).toList());
-      assertTrue(diagnostics.getFirst().message().contains("module-info.java"));
-      assertEquals(application(damaged).origin().stream().toList(), diagnostics.getFirst().origins());
+      assertEquals(List.of("frontend.unexpected-annotation-source-fact"), diagnostics.diagnostics().stream().map(AnalysisDiagnostic::code).toList());
+      assertTrue(diagnostics.diagnostics().getFirst().message().contains("module-info.java"));
+      assertEquals(application(damaged).origin().stream().toList(), diagnostics.diagnostics().getFirst().origins());
       assertEquals(AnalysisCompletion.PARTIAL, new SourceAnalysisFixture().analyze(input).completion());
     });
   }
@@ -585,13 +585,13 @@ class JavaAnnotationCompletionTest {
           JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
       var fixture = new Fixture(snapshot, parsed, inventory, compilation, translation.value().aggregate().orElseThrow());
       assertEquals(List.of(), translation.diagnostics());
-      assertEquals(List.of(), reconcile(fixture, fixture.aggregate()));
+      assertEquals(DiagnosticEmissions.empty(), reconcile(fixture, fixture.aggregate()));
       assertion.accept(fixture);
     }
   }
 
-  private static List<AnalysisDiagnostic> reconcile(Fixture fixture, JavaAstAggregate aggregate) {
-    return new JavaAnnotationCompleteness(fixture.inventory(), fixture.compilation().semantics(), List.of()).diagnostics(Optional.of(aggregate));
+  private static DiagnosticEmissions reconcile(Fixture fixture, JavaAstAggregate aggregate) {
+    return new JavaAnnotationCompleteness(fixture.inventory(), fixture.compilation().semantics(), List.of()).reconcile(Optional.of(aggregate));
   }
 
   private static SyntaxNode application(JavaAstAggregate aggregate) {
