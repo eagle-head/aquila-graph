@@ -93,7 +93,7 @@ final class JavaProgramTranslator {
         incompleteRoot = true;
         continue;
       }
-      final JavaAstContributionTranslator.UnitTranslation ast;
+      final JavaDeclarationProjector.UnitTranslation ast;
       try {
         ast = unitTranslator.projectSource();
       } catch (JavaSourceProjectionFailure failure) {

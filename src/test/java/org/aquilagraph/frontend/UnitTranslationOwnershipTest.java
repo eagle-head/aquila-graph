@@ -132,6 +132,18 @@ class UnitTranslationOwnershipTest {
         assertEquals(Optional.of(methodKey), declaration.nesting().lexicalOwnerKey());
         assertEquals(Optional.of(key), declaration.enclosingType().orElseThrow().declarationKey());
         assertTrue(body.root().descendantsAndSelf().stream().anyMatch(node -> node == local));
+        assertEquals(source.indexOf("class " + nested + " {"), local.origin().orElseThrow().startOffset());
+        var nestedMembers = local.children(SyntaxRole.MEMBER);
+        assertEquals(List.of("value"), nestedMembers.stream()
+            .map(node -> node.value(SyntaxValue.ExecutableDeclaration.class).name()).toList());
+        var nestedMethod = nestedMembers.getFirst();
+        var nestedHeader = nestedMethod.value(SyntaxValue.ExecutableDeclaration.class);
+        assertEquals(declaration.typeKey(), nestedHeader.ownerKey());
+        assertEquals(declaration.typeKey() + "#value()", nestedHeader.declarationKey());
+        var nestedBody = result.body(nestedHeader.declarationKey()).orElseThrow();
+        assertSame(nestedMethod.requiredChild(SyntaxRole.BODY), nestedBody.root());
+        assertEquals(Optional.of(MethodBodyOrigin.SOURCE_AST), result.aggregate().methodBodyOrigin(nestedHeader.declarationKey()));
+        assertEquals(1, result.aggregate().nodes().stream().filter(node -> node.nodeId().equals(local.nodeId())).count());
       }
       if (name.equals("First")) {
         var anonymous = result.program().types().stream().filter(value -> value.nesting().kind() == JavaTypeNesting.Kind.ANONYMOUS)

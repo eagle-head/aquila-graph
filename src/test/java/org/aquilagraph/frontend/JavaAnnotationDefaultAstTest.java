@@ -223,7 +223,7 @@ class JavaAnnotationDefaultAstTest {
       var diagnostics = new ArrayList<AnalysisDiagnostic>();
       var callerDiagnostics = new ArrayList<AnalysisDiagnostic>();
       var callerChildren = new ArrayList<SyntaxChild>();
-      var translator = new JavaAstContributionTranslator(compilation.semantics(), parsed.sourceEvidence(),
+      var translator = new JavaDeclarationProjector(compilation.semantics(), parsed.sourceEvidence(),
           compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis());
 
       // Act

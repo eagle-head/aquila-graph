@@ -27,7 +27,7 @@ final class JavaUnitTranslationFactory {
     var methods = new JavaMethodTranslator(semantics, sourceEvidence, treeInventory, bodies);
     var types = new JavaTypeTranslator(semantics, sourceEvidence, treeInventory, new JavaDeclarationPropertyObserver(coverage), methods,
         policy);
-    var sourceProjection = new JavaAstContributionTranslator(semantics, sourceEvidence, treeInventory, policy);
+    var sourceProjection = new JavaDeclarationProjector(semantics, sourceEvidence, treeInventory, policy);
     return new JavaUnitTranslator(unit, source, types, sourceProjection);
   }
 }
