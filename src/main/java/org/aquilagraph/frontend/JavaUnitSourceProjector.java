@@ -177,7 +177,8 @@ final class JavaUnitSourceProjector {
           var element = semantics.element(getCurrentPath());
           var key = element instanceof ExecutableElement ? semantics.declarationKey(element) : Optional.<String>empty();
           if (method.getBody() != null && key.isPresent() && !bodyCorrelation.hasBody(key.orElseThrow())) {
-            var translator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory);
+            var translator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory,
+                JavaExecutableProjectionContext.remainingAttributedBody(policy));
             var translated = translator.translate(unit, sourceFile, key.orElseThrow(), method.getBody(),
                 new TreePath(getCurrentPath(), method.getBody()), element.getKind() == ElementKind.CONSTRUCTOR,
                 semantics.isImplicitDeclaration(getCurrentPath()));

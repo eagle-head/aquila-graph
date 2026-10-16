@@ -46,6 +46,7 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AggregateFixture;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.JavaType;
 
@@ -76,7 +77,7 @@ class JavaMethodBodyAdmissionTest {
       var path = new TreePath(fieldPath, initializer);
       var structuralPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
           .child(SyntaxRole.MEMBER, type.getMembers().indexOf(field)).child(SyntaxRole.INITIALIZER, 0);
-      var projector = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(),
+      var projector = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaExecutableProjectionContext.memberInitialization(JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_INITIALIZATION)),
           "JavaAstContributionTranslator", "field initializer");
 
       // Act
@@ -107,7 +108,7 @@ class JavaMethodBodyAdmissionTest {
       var path = new TreePath(typePath, block);
       var structuralPath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
           .child(SyntaxRole.MEMBER, type.getMembers().indexOf(block));
-      var projector = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(),
+      var projector = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaExecutableProjectionContext.memberInitialization(JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_INITIALIZATION)),
           "JavaAstContributionTranslator", "initializer block");
 
       // Act
@@ -131,7 +132,7 @@ class JavaMethodBodyAdmissionTest {
     withCompiledSource("projection-path", fixture -> {
       var original = fixture.body("action");
       var other = fixture.body("other");
-      var projector = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(),
+      var projector = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()),
           "JavaMethodBodyTranslator", "method body");
 
       // Act
@@ -201,7 +202,7 @@ class JavaMethodBodyAdmissionTest {
     withCompiledSource("swapped-path", fixture -> {
       var original = fixture.body("action");
       var other = fixture.body("other");
-      var translator = new JavaMethodBodyTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory());
+      var translator = new JavaMethodBodyTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
 
       // Act
       var error = assertThrows(IllegalArgumentException.class,
@@ -317,7 +318,7 @@ class JavaMethodBodyAdmissionTest {
     withCompiledSource("producer-key", fixture -> {
       var action = fixture.body("action");
       var other = fixture.body("other");
-      var translator = new JavaMethodBodyTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory());
+      var translator = new JavaMethodBodyTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
 
       // Act
       var error = assertThrows(IllegalArgumentException.class,
@@ -336,7 +337,7 @@ class JavaMethodBodyAdmissionTest {
       var type = (ClassTree) fixture.unit().getTypeDecls().getFirst();
       var methodTree = (MethodTree) type.getMembers().getFirst();
       var translator = new JavaMethodTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory(),
-          new JavaMethodBodyTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory()));
+          new JavaMethodBodyTranslator(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis())));
 
       // Act
       var method = translator.translate(fixture.unit(), new TreePath(new TreePath(fixture.unit()), type), fixture.source(),
@@ -415,7 +416,7 @@ class JavaMethodBodyAdmissionTest {
       assertTrue(diagnostics.getDiagnostics().stream().noneMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
       var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(), new DeclarationIdentityRegistry(trees, task.getTypes()));
       var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-      var methodTranslator = new JavaMethodTranslator(semantics, evidence, inventory, new JavaMethodBodyTranslator(semantics, evidence, inventory));
+      var methodTranslator = new JavaMethodTranslator(semantics, evidence, inventory, new JavaMethodBodyTranslator(semantics, evidence, inventory, JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis())));
       var typeTranslator = new JavaTypeTranslator(semantics, evidence, inventory, new JavaDeclarationPropertyObserver(coverage), methodTranslator, JavaTranslationPolicy.legacyAnalysis());
       var translated = typeTranslator.translate(unit, new TreePath(unit), source, (ClassTree) unit.getTypeDecls().getFirst())
           .value().orElseThrow();

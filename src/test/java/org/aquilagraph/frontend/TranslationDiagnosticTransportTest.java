@@ -238,7 +238,7 @@ class TranslationDiagnosticTransportTest {
           new DiagnosticEmission.Address(BODY_PRODUCER,
               "type:Sample#second():" + secondBodyPath.child(SyntaxRole.STATEMENT, 1).child(SyntaxRole.EXPRESSION, 0).child(SyntaxRole.VALUE, 0), 0));
       var bodies = new JavaMethodBodyTranslator(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
-          fixture.compilation().treeInventory());
+          fixture.compilation().treeInventory(), JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
       var methods = new JavaMethodTranslator(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
           fixture.compilation().treeInventory(), bodies);
       var types = typeTranslator(fixture, methods);
@@ -283,7 +283,7 @@ class TranslationDiagnosticTransportTest {
     withCompilation(source, fixture -> {
       var unit = fixture.parsed().units().getFirst();
       var bodies = new JavaMethodBodyTranslator(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
-          fixture.compilation().treeInventory());
+          fixture.compilation().treeInventory(), JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
       var methods = new JavaMethodTranslator(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
           fixture.compilation().treeInventory(), bodies);
       var types = typeTranslator(fixture, methods);
