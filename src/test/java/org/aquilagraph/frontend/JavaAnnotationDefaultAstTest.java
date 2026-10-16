@@ -223,12 +223,12 @@ class JavaAnnotationDefaultAstTest {
       var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics");
       var callerDiagnostics = new DiagnosticEmissionCollector("source-observation", "callerDiagnostics");
       var callerChildren = new ArrayList<SyntaxChild>();
-      var translator = new JavaDeclarationProjector(compilation.semantics(), parsed.sourceEvidence(),
+      var translator = new UnitSourceFixture(compilation.semantics(), parsed.sourceEvidence(),
           compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis());
 
       // Act
       var projected = projector.defaultValue(unit, source, method, missing, path, diagnostics);
-      var attached = translator.appendDefault(unit, source, method, missing,
+      var attached = translator.declarations().appendDefault(unit, source, method, missing,
           SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0),
           callerChildren, callerDiagnostics);
 

@@ -6,20 +6,16 @@ import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.EmptyStatementTree;
 import com.sun.source.tree.IdentifierTree;
-import com.sun.source.tree.ImportTree;
 import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewClassTree;
-import com.sun.source.tree.PackageTree;
 import com.sun.source.tree.PrimitiveTypeTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.TypeParameterTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
-import com.sun.source.util.TreePathScanner;
 import java.lang.annotation.ElementType;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -40,11 +36,6 @@ import javax.lang.model.util.Elements;
 import org.aquilagraph.frontend.JavaAnnotationProjector.DeclarationSite;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
-import org.aquilagraph.source.api.DeclarationMemberOrder;
-import org.aquilagraph.source.api.DeclarationTypeEvidence;
-import org.aquilagraph.source.api.LanguageFeatureOccurrence;
-import org.aquilagraph.source.api.LanguageFeatureObservation;
-import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.JavaRecordComponent;
 import org.aquilagraph.source.api.JavaType;
 import org.aquilagraph.source.api.JavaTypeCategory;
@@ -55,381 +46,69 @@ import org.aquilagraph.source.api.AnnotationElementValue;
 import org.aquilagraph.source.api.JavaDeclarationModifier;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.JavaTypeStructure;
-import org.aquilagraph.source.api.PackageQualifierEvidence;
-import org.aquilagraph.source.api.SharedVariableDeclarations;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
-import org.aquilagraph.source.api.SyntaxSemanticEdge;
-import org.aquilagraph.source.api.SyntaxSemanticRelation;
-import org.aquilagraph.source.api.SyntaxSemanticTarget;
-import org.aquilagraph.source.api.SyntaxSourceContribution;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
-import org.aquilagraph.source.api.WrittenSourceAssociation;
-import org.aquilagraph.source.admission.CopiedAstValues;
 
-/** Owns declaration metadata, lexical projection, and canonical unit assembly. */
+/** Renders source declarations through explicit lexical collaborators. */
 final class JavaDeclarationProjector {
   private final JavaTranslationPolicy policy;
   private static final String DIAGNOSTIC_PRODUCER = "JavaAstContributionTranslator";
-  private static final char DECLARATION_TERMINATOR = ';';
   private static final String RECEIVER_NAME = "this";
   private static final int REQUIRED_COMPONENT_SOURCE_COUNT = 1;
   private final SemanticResolver semantics;
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
-  private final JavaModuleTranslator moduleTranslator;
   private final JavaAnnotationProjector annotationProjector;
   private final JavaTypeUseTranslator typeUseTranslator;
   private final RecordAnnotationMirrorCorrelation recordMirrorCorrelation;
   private final JavaWrittenSourceAssociations sourceAssociations;
-  private final JavaDeclarationScope declarations = new JavaDeclarationScope();
+  private final JavaDeclarationScope declarations;
   private final JavaBodySourceCorrelation bodyCorrelation;
   private final JavaInitializationProjector initializations;
-  private final List<TranslatedMethodBody> unfinishedBodies = new ArrayList<>();
-  private Optional<JavaUnitTranslator.Declarations> stagedDeclarations = Optional.empty();
 
-  private record ProjectionContext(CompilationUnitTree unit, SourceFile sourceFile, JavaBodySourceCorrelation.Publication publication,
-      JavaDeclarationScope declarations, Map<String, JavaType> typesByKey, DiagnosticEmissionCollector diagnosticBatches) {
+  private record ProjectionContext(CompilationUnitTree unit, SourceFile sourceFile, Map<String, JavaType> typesByKey,
+      DiagnosticEmissionCollector diagnosticBatches) {
   }
 
   JavaDeclarationProjector(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
-      JavaTranslationPolicy policy) {
-    this(semantics, sourceEvidence, treeInventory, new JavaAnnotationMirrorCorrelation(semantics), policy);
-  }
-
-  JavaDeclarationProjector(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
-      RecordAnnotationMirrorCorrelation recordMirrorCorrelation, JavaTranslationPolicy policy) {
+      RecordAnnotationMirrorCorrelation recordMirrorCorrelation, JavaTranslationPolicy policy,
+      JavaWrittenSourceAssociations sourceAssociations, JavaDeclarationScope declarations, JavaBodySourceCorrelation bodyCorrelation) {
     this.policy = Objects.requireNonNull(policy, "policy");
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
     this.recordMirrorCorrelation = Objects.requireNonNull(recordMirrorCorrelation, "recordMirrorCorrelation");
-    sourceAssociations = new JavaWrittenSourceAssociations(treeInventory);
+    this.sourceAssociations = sourceAssociations;
+    this.declarations = declarations;
+    this.bodyCorrelation = bodyCorrelation;
     annotationProjector = new JavaAnnotationProjector(semantics, sourceEvidence, treeInventory, sourceAssociations);
-    bodyCorrelation = new JavaBodySourceCorrelation(semantics, sourceEvidence, treeInventory, sourceAssociations, declarations);
-    moduleTranslator = new JavaModuleTranslator(sourceEvidence, treeInventory, annotationProjector, sourceAssociations);
     typeUseTranslator = new JavaTypeUseTranslator(semantics, sourceEvidence, treeInventory, Optional.empty(), sourceAssociations);
     initializations = new JavaInitializationProjector(semantics, sourceEvidence, treeInventory, policy, sourceAssociations,
         bodyCorrelation);
   }
 
-  TranslationResult<JavaUnitTranslator.Declarations> translateDeclarations(CompilationUnitTree unit, SourceFile source,
-      JavaTypeTranslator types) {
-    if (stagedDeclarations.isPresent()) {
-      throw new IllegalStateException("Unit declarations have already been translated");
-    }
-    var translatedTypes = new ArrayList<JavaType>();
-    var orders = new ArrayList<DeclarationMemberOrder>();
-    var declarationTypes = new ArrayList<DeclarationTypeEvidence>();
-    var diagnostics = new DiagnosticEmissionCollector("JavaProgramTranslator", "input-program-translation");
-    var occurrences = new ArrayList<LanguageFeatureOccurrence>();
-    var observations = new ArrayList<LanguageFeatureObservation>();
-    var complete = true;
-    var unitPath = new TreePath(unit);
-    for (var declaration : unit.getTypeDecls()) {
-      if (declaration instanceof ClassTree classTree) {
-        var translation = types.translate(unit, unitPath, source, classTree);
-        if (translation.value().isPresent()) {
-          var value = translation.value().orElseThrow();
-          translatedTypes.addAll(value.types());
-          unfinishedBodies.addAll(value.methodBodies());
-          orders.addAll(value.memberOrders());
-          declarationTypes.addAll(value.declarationTypes());
-        } else {
-          complete = false;
-        }
-        diagnostics.include(translation.emissions());
-        occurrences.addAll(translation.featureOccurrences());
-        observations.addAll(translation.featureObservations());
-      }
-    }
-    var value = new JavaUnitTranslator.Declarations(translatedTypes, orders, declarationTypes, complete);
-    stagedDeclarations = Optional.of(value);
-    return new TranslationResult<>(value, diagnostics.snapshot(), occurrences, observations);
+  private JavaDeclarationProjector child() {
+    var associations = sourceAssociations.child();
+    var scope = declarations.child();
+    var correlation = bodyCorrelation.child(associations, scope);
+    return new JavaDeclarationProjector(semantics, sourceEvidence, treeInventory, recordMirrorCorrelation, policy, associations, scope,
+        correlation);
   }
 
-  UnitTranslation translate(CompilationUnitTree unit, SourceFile source) {
-    var values = stagedDeclarations.orElseThrow(() -> new IllegalStateException("Unit declarations have not been translated"));
-    return translate(unit, source, unfinishedBodies, values.types());
-  }
-
-  UnitTranslation translate(CompilationUnitTree unit, SourceFile sourceFile, List<TranslatedMethodBody> bodies,
-      List<JavaType> declaredTypes) {
-    Objects.requireNonNull(unit, "unit");
-    Objects.requireNonNull(sourceFile, "sourceFile");
-    Objects.requireNonNull(bodies, "bodies");
-    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, sourceFile.sourceFileKey());
-    try {
-      return projectUnit(unit, sourceFile, bodies, declaredTypes, diagnostics);
-    } catch (JavaSourceProjectionFailure failure) {
-      throw new JavaSourceProjectionFailure(diagnostics.snapshot(), failure);
-    }
-  }
-
-  private UnitTranslation projectUnit(CompilationUnitTree unit, SourceFile sourceFile, List<TranslatedMethodBody> bodies,
-      List<JavaType> declaredTypes, DiagnosticEmissionCollector diagnostics) {
-    var typesByKey = new HashMap<String, JavaType>();
-    for (var type : Objects.requireNonNull(declaredTypes, "declaredTypes")) {
-      if (typesByKey.putIfAbsent(type.typeKey(), type) != null) {
-        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(type.typeKey(), "frontend.duplicate-type-declaration",
-            "Translated type declarations share a canonical key", type.origins().stream().findFirst()));
-      }
-    }
-    if (!diagnostics.isEmpty()) {
-      return new UnitTranslation(Optional.empty(), List.of(), diagnostics.snapshot());
-    }
-    bodyCorrelation.correlate(unit, sourceFile, bodies, declaredTypes);
-    var publication = bodyCorrelation.publication();
-    var declarationEdges = declarations;
-    var rootPath = SyntaxStructuralPath.sourceFileRoot();
-    var unitPath = new TreePath(unit);
-    var compactClass = compactWrapper(unit, sourceFile, unitPath);
-    var rootRange = policy.supportsSourceEnvelope()
-        ? Optional.of(sourceEvidence.capturedUnitRange(sourceFile))
-        : compactClass.isPresent() && sourceEvidence.rawStart(unit, unit) == 0
-            ? Optional.of(new SourceSpan(sourceFile.sourceFileKey(), 0, sourceFile.content().length()))
-            : requiredRange(unit, sourceFile, unit, rootPath, diagnostics);
-    if (rootRange.isEmpty()) {
-      return new UnitTranslation(Optional.empty(), List.of(), diagnostics.snapshot());
-    }
-
-    var children = new ArrayList<SyntaxChild>();
-    if (unit.getPackage() != null) {
-      packageDeclaration(unit, sourceFile, unit.getPackage(), rootPath, diagnostics)
-          .ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.PACKAGE_DECLARATION, 0, node)));
-    }
-    var imports = new ArrayList<SyntaxChild>();
-    for (var sourceOrdinal = 0; sourceOrdinal < unit.getImports().size(); sourceOrdinal++) {
-      var declaration = unit.getImports().get(sourceOrdinal);
-      var position = imports.size();
-      importDeclaration(unit, sourceFile, declaration, rootPath, position, sourceOrdinal, diagnostics)
-          .ifPresent(node -> imports.add(new SyntaxChild(SyntaxRole.IMPORT_DECLARATION, position, node)));
-    }
-    children.addAll(imports);
-    if (unit.getModule() != null) {
-      var module = moduleTranslator.translate(unit, sourceFile, unit.getModule(), rootPath, diagnostics);
-      if (module.isEmpty()) {
-        return new UnitTranslation(Optional.empty(), List.of(), diagnostics.snapshot());
-      }
-      children.add(new SyntaxChild(SyntaxRole.MODULE_DECLARATION, 0, module.orElseThrow()));
-    }
-    if (compactClass.isPresent()) {
-      var declaration = compactClass.orElseThrow();
-      var classPath = new TreePath(unitPath, declaration);
-      var compactMembers = new ArrayList<SyntaxChild>();
-      var emptyDeclarations = policy.supportsSourceEnvelope() ? treeInventory.emptyBodyDeclarations(declaration) : List.<SourceSpan>of();
-      var emptyOrdinal = 0;
-      for (var sourceOrdinal = 0; sourceOrdinal < declaration.getMembers().size(); sourceOrdinal++) {
-        var member = declaration.getMembers().get(sourceOrdinal);
-        if (isWrittenMember(classPath, member)) {
-          while (emptyOrdinal < emptyDeclarations.size()
-              && emptyDeclarations.get(emptyOrdinal).startOffset() < sourceEvidence.rawStart(unit, member)) {
-            appendEmptyUnitDeclaration(unit, sourceFile, rootPath, SyntaxRole.COMPACT_MEMBER, emptyOrdinal,
-                emptyDeclarations.get(emptyOrdinal), compactMembers);
-            emptyOrdinal++;
-          }
-          appendMember(unit, sourceFile, classPath, member, rootPath, rootPath, sourceOrdinal, SyntaxRole.COMPACT_MEMBER, compactMembers,
-              publication, declarationEdges, diagnostics, typesByKey);
-        }
-      }
-      while (emptyOrdinal < emptyDeclarations.size()) {
-        appendEmptyUnitDeclaration(unit, sourceFile, rootPath, SyntaxRole.COMPACT_MEMBER, emptyOrdinal, emptyDeclarations.get(emptyOrdinal),
-            compactMembers);
-        emptyOrdinal++;
-      }
-      children.addAll(compactMembers);
-      if (compactMembers.stream().noneMatch(child -> child.node().syntaxKind() == SyntaxKind.METHOD_DECLARATION)) {
-        diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-            "frontend.unavailable-compact-method", "A compact compilation unit has no publishable written method", rootRange));
-        return new UnitTranslation(Optional.empty(), List.of(), diagnostics.snapshot());
-      }
-    } else {
-      var typeChildren = new ArrayList<SyntaxChild>();
-      var emptyDeclarations = policy.supportsSourceEnvelope() ? treeInventory.emptyUnitDeclarations(unit) : List.<SourceSpan>of();
-      var emptyOrdinal = 0;
-      for (var sourceOrdinal = 0; sourceOrdinal < unit.getTypeDecls().size(); sourceOrdinal++) {
-        var declaration = unit.getTypeDecls().get(sourceOrdinal);
-        if (declaration instanceof ClassTree type) {
-          while (emptyOrdinal < emptyDeclarations.size()
-              && emptyDeclarations.get(emptyOrdinal).startOffset() < sourceEvidence.rawStart(unit, type)) {
-            appendEmptyUnitDeclaration(unit, sourceFile, rootPath, SyntaxRole.TYPE_DECLARATION, emptyOrdinal,
-                emptyDeclarations.get(emptyOrdinal), typeChildren);
-            emptyOrdinal++;
-          }
-          appendTopLevelType(unit, sourceFile, unitPath, type, rootPath, sourceOrdinal, typeChildren, publication, declarationEdges,
-              diagnostics, typesByKey);
-        }
-      }
-      while (emptyOrdinal < emptyDeclarations.size()) {
-        appendEmptyUnitDeclaration(unit, sourceFile, rootPath, SyntaxRole.TYPE_DECLARATION, emptyOrdinal,
-            emptyDeclarations.get(emptyOrdinal), typeChildren);
-        emptyOrdinal++;
-      }
-      children.addAll(typeChildren);
-    }
-    if (policy.supportsNestedDeclarations()) {
-      new TreePathScanner<Void, Void>() {
-        @Override
-        public Void visitMethod(MethodTree method, Void unused) {
-          var element = semantics.element(getCurrentPath());
-          var key = element instanceof ExecutableElement ? semantics.declarationKey(element) : Optional.<String>empty();
-          if (method.getBody() != null && key.isPresent() && !bodyCorrelation.hasBody(key.orElseThrow())) {
-            var translator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory);
-            var translated = translator.translate(unit, sourceFile, key.orElseThrow(), method.getBody(),
-                new TreePath(getCurrentPath(), method.getBody()), element.getKind() == ElementKind.CONSTRUCTOR,
-                semantics.isImplicitDeclaration(getCurrentPath()));
-            bodyCorrelation.addBody(translated.value());
-            diagnostics.include(translated.emissions());
-          }
-          return super.visitMethod(method, null);
-        }
-      }.scan(unit, null);
-    }
-    var form = unit.getModule() != null
-        ? SyntaxValue.CompilationUnitForm.MODULAR
-        : compactClass.isPresent() ? SyntaxValue.CompilationUnitForm.COMPACT : SyntaxValue.CompilationUnitForm.ORDINARY;
-    var root = SyntaxNode.source(sourceFile.sourceFileKey(), rootPath, JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT,
-        SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.CompilationUnit(form,
-            policy.supportsSourceEnvelope()
-                ? SyntaxValue.CompilationUnitRange.CAPTURED_SOURCE
-                : SyntaxValue.CompilationUnitRange.LEGACY_PROFILE),
-        children, Optional.empty(), rootRange.orElseThrow());
-    sourceAssociations.created(root, unitPath);
-    var nodes = root.descendantsAndSelf();
-    var structural = nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList();
-    var semantic = new ArrayList<>(bodyCorrelation.declarationEdges(declarationEdges));
-    nodes.forEach(node -> semantic.addAll(node.semanticEdges()));
-    var recordTypeOwners = new HashMap<String, SyntaxNode>();
-    var fieldGroups = SharedVariableDeclarations.index(nodes);
-    nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.RECORD_COMPONENT_DECLARATION).forEach(component -> component
-        .children(SyntaxRole.DECLARED_TYPE).forEach(type -> collectRecordTypeOwners(type, component, recordTypeOwners)));
-    nodes.forEach(parent -> parent.children().stream()
-        .filter(child -> child.role() == SyntaxRole.ANNOTATION && child.node().value() instanceof SyntaxValue.Annotation annotation
-            && annotation.location() != SyntaxValue.AnnotationLocation.VALUE
-            && annotation.location() != SyntaxValue.AnnotationLocation.UNRESOLVED)
-        .forEach(child -> semantic.add(new SyntaxSemanticEdge(child.node().nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-            SyntaxSemanticTarget.AnnotationApplication.forAttachment(parent, child.node(),
-                Optional.ofNullable(recordTypeOwners.get(parent.nodeId())), fieldGroups.getOrDefault(parent.nodeId(), List.of()))))));
-    var contribution = new SyntaxSourceContribution(sourceFile.sourceFileKey(), root, nodes, structural, semantic);
-    return new UnitTranslation(Optional.of(contribution), bodyCorrelation.registrations(sourceFile), diagnostics.snapshot(),
-        sourceAssociations.forNodes(nodes), bodyCorrelation.sealedScopes());
-  }
-
-  private static void collectRecordTypeOwners(SyntaxNode type, SyntaxNode component, Map<String, SyntaxNode> owners) {
-    owners.put(type.nodeId(), component);
-    type.children().stream().map(SyntaxChild::node).filter(child -> child.syntaxKind() == SyntaxKind.TYPE_USE)
-        .forEach(child -> collectRecordTypeOwners(child, component, owners));
-  }
-
-  private Optional<SyntaxNode> packageDeclaration(CompilationUnitTree unit, SourceFile sourceFile, PackageTree declaration,
-      SyntaxStructuralPath rootPath, DiagnosticEmissionCollector diagnostics) {
-    var path = rootPath.child(SyntaxRole.PACKAGE_DECLARATION, 0);
-    var range = requiredRange(unit, sourceFile, declaration, path, diagnostics);
-    var name = qualifiedName(declaration.getPackageName());
-    if (name.isEmpty()) {
-      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-          "frontend.missing-package-name", "A written package declaration has no qualified name", range));
-    }
-    if (range.isEmpty() || name.isEmpty()) {
-      return Optional.empty();
-    }
-    if (!hasTerminatingSemicolon(sourceFile, range.orElseThrow())) {
-      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-          "frontend.incomplete-package-declaration", "A written package declaration has no terminating semicolon", range));
-      return Optional.empty();
-    }
-    var annotations = new ArrayList<SyntaxChild>();
-    for (var position = 0; position < declaration.getAnnotations().size(); position++) {
-      var annotation = declaration.getAnnotations().get(position);
-      var annotationPath = path.child(SyntaxRole.ANNOTATION, annotations.size());
-      var occurrencePath = path.child(SyntaxRole.ANNOTATION, position);
-      annotationAttachment(unit, sourceFile, annotation, annotationPath, occurrencePath, DeclarationSite.PACKAGE, diagnostics)
-          .ifPresent(node -> annotations.add(new SyntaxChild(SyntaxRole.ANNOTATION, annotations.size(), node)));
-    }
-    var qualifierTree = declaration.getPackageName();
-    var qualifier = sourceEvidence.origin(unit, sourceFile, qualifierTree)
-        .map(origin -> new PackageQualifierEvidence(JavaSourceKind.valueOf(qualifierTree.getKind().name()), origin));
-    return Optional.of(sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.PACKAGE,
-        SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.PackageDeclaration(name.orElseThrow(), qualifier),
-        annotations, Optional.empty(), range.orElseThrow()), declaration));
+  private void accept() {
+    sourceAssociations.accept();
+    declarations.accept();
+    bodyCorrelation.accept();
   }
 
   private Optional<SyntaxNode> annotationAttachment(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DeclarationSite site, DiagnosticEmissionCollector diagnostics) {
     return annotationProjector.declaration(unit, sourceFile, annotation, path, occurrencePath, site, diagnostics);
-  }
-
-  private Optional<SyntaxNode> importDeclaration(CompilationUnitTree unit, SourceFile sourceFile, ImportTree declaration,
-      SyntaxStructuralPath rootPath, int publishedPosition, int sourceOrdinal, DiagnosticEmissionCollector diagnostics) {
-    var path = rootPath.child(SyntaxRole.IMPORT_DECLARATION, publishedPosition);
-    var occurrencePath = rootPath.child(SyntaxRole.IMPORT_DECLARATION, sourceOrdinal);
-    var range = requiredRange(unit, sourceFile, declaration, occurrencePath, diagnostics);
-    var target = declaration.getQualifiedIdentifier();
-    var onDemand = target instanceof MemberSelectTree selection && selection.getIdentifier().contentEquals("*");
-    var name = qualifiedName(onDemand ? ((MemberSelectTree) target).getExpression() : target);
-    if (name.isEmpty()) {
-      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.missing-import-name",
-          "A written import declaration has no qualified target", range));
-    }
-    if (declaration.isModule() && (declaration.isStatic() || onDemand)) {
-      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.invalid-import-form",
-          "A module import cannot be static or on demand", range));
-      return Optional.empty();
-    }
-    if (range.isEmpty() || name.isEmpty()) {
-      return Optional.empty();
-    }
-    if (!hasTerminatingSemicolon(sourceFile, range.orElseThrow())) {
-      diagnostics.emit(DIAGNOSTIC_PRODUCER,
-          FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.incomplete-import-declaration",
-              "A written import declaration has no terminating semicolon at " + occurrencePath, range));
-      return Optional.empty();
-    }
-    var value = new SyntaxValue.ImportDeclaration(name.orElseThrow(), declaration.isStatic(), declaration.isModule(), onDemand);
-    return Optional.of(
-        sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.IMPORT, SyntaxKind.COMPILATION_UNIT,
-            SyntaxType.NotApplicable.INSTANCE, value, List.of(), Optional.empty(), range.orElseThrow()), declaration));
-  }
-
-  private static boolean hasTerminatingSemicolon(SourceFile sourceFile, SourceSpan range) {
-    if (range.endOffsetExclusive() <= range.startOffset()) {
-      return false;
-    }
-    var end = Math.toIntExact(range.endOffsetExclusive());
-    var content = sourceFile.content();
-    if (content.charAt(end - 1) == DECLARATION_TERMINATOR) {
-      return true;
-    }
-    var hexStart = end - 4;
-    if (hexStart < range.startOffset() || !content.regionMatches(true, hexStart, "003b", 0, 4)) {
-      return false;
-    }
-    var uStart = hexStart;
-    while (uStart > range.startOffset() && content.charAt(uStart - 1) == 'u') {
-      uStart--;
-    }
-    var slashStart = uStart;
-    while (slashStart > range.startOffset() && content.charAt(slashStart - 1) == '\\') {
-      slashStart--;
-    }
-    return ((uStart - slashStart) & 1) == 1;
-  }
-
-  private static Optional<String> qualifiedName(Tree tree) {
-    if (tree == null) {
-      return Optional.empty();
-    }
-    return switch (tree) {
-      case IdentifierTree identifier -> Optional.of(identifier.getName().toString()).filter(SourceVersion::isIdentifier);
-      case MemberSelectTree selection -> qualifiedName(selection.getExpression())
-          .filter(prefix -> SourceVersion.isIdentifier(selection.getIdentifier())).map(prefix -> prefix + '.' + selection.getIdentifier());
-      default -> Optional.empty();
-    };
   }
 
   private static Optional<String> receiverName(Tree tree) {
@@ -443,51 +122,35 @@ final class JavaDeclarationProjector {
     };
   }
 
-  private Optional<ClassTree> compactWrapper(CompilationUnitTree unit, SourceFile sourceFile, TreePath unitPath) {
-    if (unit.getModule() != null || unit.getPackage() != null || unit.getTypeDecls().size() != 1
-        || !(unit.getTypeDecls().getFirst() instanceof ClassTree declaration)) {
-      return Optional.empty();
-    }
-    var wrapperStart = sourceEvidence.rawStart(unit, declaration);
-    if (wrapperStart < 0 || !(sourceEvidence.position(unit, sourceFile, declaration) instanceof JavaSourceEvidence.Position.Missing)) {
-      return Optional.empty();
-    }
-    var classPath = new TreePath(unitPath, declaration);
-    Tree firstWritten = null;
-    var hasWrittenMethod = false;
-    for (var member : declaration.getMembers()) {
-      if (!isWrittenMember(classPath, member)) {
-        continue;
-      }
-      if (firstWritten == null) {
-        firstWritten = member;
-      }
-      hasWrittenMethod |= member instanceof MethodTree;
-    }
-    return hasWrittenMethod && firstWritten != null && sourceEvidence.rawStart(unit, firstWritten) == wrapperStart
-        ? Optional.of(declaration)
-        : Optional.empty();
-  }
-
-  private boolean isWrittenMember(TreePath classPath, Tree member) {
-    return treeInventory.isWritten(member) && !semantics.isImplicitDeclaration(new TreePath(classPath, member));
-  }
-
-  private void appendTopLevelType(CompilationUnitTree unit, SourceFile sourceFile, TreePath unitPath, ClassTree declaration,
-      SyntaxStructuralPath rootPath, int sourceOrdinal, List<SyntaxChild> children, JavaBodySourceCorrelation.Publication publication,
-      JavaDeclarationScope semanticEdges, DiagnosticEmissionCollector diagnostics, Map<String, JavaType> typesByKey) {
+  void appendTopLevelType(CompilationUnitTree unit, SourceFile sourceFile, TreePath unitPath, ClassTree declaration,
+      SyntaxStructuralPath rootPath, int sourceOrdinal, List<SyntaxChild> children, DiagnosticEmissionCollector diagnostics,
+      Map<String, JavaType> typesByKey) {
     var position = children.size();
     var path = rootPath.child(SyntaxRole.TYPE_DECLARATION, position);
     var occurrencePath = rootPath.child(SyntaxRole.TYPE_DECLARATION, sourceOrdinal);
     var declarationPath = new TreePath(unitPath, declaration);
-    var translated = type(unit, sourceFile, declarationPath, declaration, path, occurrencePath, publication, semanticEdges, diagnostics,
-        typesByKey);
+    var translated = type(unit, sourceFile, declarationPath, declaration, path, occurrencePath, diagnostics, typesByKey);
     translated.ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, position, node)));
   }
 
   private Optional<SyntaxNode> type(CompilationUnitTree unit, SourceFile sourceFile, TreePath classPath, ClassTree declaration,
-      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, JavaBodySourceCorrelation.Publication publication,
-      JavaDeclarationScope semanticEdges, DiagnosticEmissionCollector diagnostics, Map<String, JavaType> typesByKey) {
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DiagnosticEmissionCollector diagnostics,
+      Map<String, JavaType> typesByKey) {
+    var operation = child();
+    var result = operation.renderType(unit, sourceFile, classPath, declaration, path, occurrencePath, operation.declarations, diagnostics,
+        typesByKey);
+    if (result.isPresent()) {
+      operation.accept();
+    } else {
+      operation.declarations.refuse();
+      operation.bodyCorrelation.refuse();
+    }
+    return result;
+  }
+
+  private Optional<SyntaxNode> renderType(CompilationUnitTree unit, SourceFile sourceFile, TreePath classPath, ClassTree declaration,
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, JavaDeclarationScope semanticEdges,
+      DiagnosticEmissionCollector diagnostics, Map<String, JavaType> typesByKey) {
     if (!treeInventory.isWritten(declaration)) {
       return Optional.empty();
     }
@@ -512,8 +175,7 @@ final class JavaDeclarationProjector {
       return Optional.empty();
     }
     var children = new ArrayList<SyntaxChild>();
-    var stagedPublication = publication.child();
-    var stagedEdges = semanticEdges.child();
+    var stagedEdges = semanticEdges;
     var complete = true;
     var annotations = declaration.getModifiers().getAnnotations();
     for (var ordinal = 0; ordinal < annotations.size(); ordinal++) {
@@ -593,8 +255,8 @@ final class JavaDeclarationProjector {
         emptyOrdinal++;
       }
       var before = members.size();
-      appendMember(unit, sourceFile, classPath, member, path, occurrencePath, sourceOrdinal, SyntaxRole.MEMBER, members, stagedPublication,
-          stagedEdges, diagnostics, typesByKey);
+      appendMember(unit, sourceFile, classPath, member, path, occurrencePath, sourceOrdinal, SyntaxRole.MEMBER, members, diagnostics,
+          typesByKey);
       complete &= members.size() == before + 1;
     }
     while (emptyOrdinal < emptyDeclarations.size()) {
@@ -602,7 +264,6 @@ final class JavaDeclarationProjector {
       emptyOrdinal++;
     }
     if (!complete) {
-      stagedPublication.refuse();
       return Optional.empty();
     }
     children.addAll(members);
@@ -616,8 +277,6 @@ final class JavaDeclarationProjector {
         SyntaxKind.TYPE_DECLARATION, SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), range.orElseThrow());
     sourceAssociations.created(node, classPath);
     declarationEdge(classPath, node, stagedEdges);
-    stagedPublication.accept();
-    stagedEdges.accept();
     return Optional.of(node);
   }
 
@@ -628,15 +287,6 @@ final class JavaDeclarationProjector {
         SyntaxKind.EMPTY, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range);
     sourceAssociations.retain(node, treeInventory.emptyDeclarationAssociation(node, classPath, ordinal));
     members.add(new SyntaxChild(SyntaxRole.MEMBER, position, node));
-  }
-
-  private void appendEmptyUnitDeclaration(CompilationUnitTree unit, SourceFile source, SyntaxStructuralPath rootPath, SyntaxRole role,
-      int ordinal, SourceSpan range, List<SyntaxChild> children) {
-    var position = children.size();
-    var node = SyntaxNode.source(source.sourceFileKey(), rootPath.child(role, position), JavaSourceKind.EMPTY_STATEMENT, SyntaxKind.EMPTY,
-        SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range);
-    sourceAssociations.retain(node, treeInventory.emptyUnitDeclarationAssociation(node, unit, ordinal));
-    children.add(new SyntaxChild(role, position, node));
   }
 
   private boolean appendTypeHeaderAttachment(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath parentPath,
@@ -876,7 +526,22 @@ final class JavaDeclarationProjector {
     return modifiers.stream().map(modifier -> JavaDeclarationModifier.valueOf(modifier.name())).collect(Collectors.toUnmodifiableSet());
   }
 
-  private void appendMember(CompilationUnitTree unit, SourceFile sourceFile, TreePath classPath, Tree member, SyntaxStructuralPath typePath,
+  void appendMember(CompilationUnitTree unit, SourceFile sourceFile, TreePath classPath, Tree member, SyntaxStructuralPath typePath,
+      SyntaxStructuralPath typeOccurrencePath, int sourceOrdinal, SyntaxRole role, List<SyntaxChild> members,
+      DiagnosticEmissionCollector diagnostics, Map<String, JavaType> typesByKey) {
+    var operation = child();
+    var size = members.size();
+    operation.renderMember(unit, sourceFile, classPath, member, typePath, typeOccurrencePath, sourceOrdinal, role, members,
+        operation.bodyCorrelation.publication(), operation.declarations, diagnostics, typesByKey);
+    if (members.size() > size) {
+      operation.accept();
+    } else {
+      operation.declarations.refuse();
+      operation.bodyCorrelation.refuse();
+    }
+  }
+
+  private void renderMember(CompilationUnitTree unit, SourceFile sourceFile, TreePath classPath, Tree member, SyntaxStructuralPath typePath,
       SyntaxStructuralPath typeOccurrencePath, int sourceOrdinal, SyntaxRole role, List<SyntaxChild> members,
       JavaBodySourceCorrelation.Publication publication, JavaDeclarationScope semanticEdges, DiagnosticEmissionCollector diagnostics,
       Map<String, JavaType> typesByKey) {
@@ -897,14 +562,11 @@ final class JavaDeclarationProjector {
       case MethodTree method -> method(unit, sourceFile, memberTreePath, method, memberPath, memberOccurrencePath, publication,
           semanticEdges, diagnostics, typesByKey);
       case VariableTree field -> field(unit, sourceFile, memberTreePath, field, memberPath, memberOccurrencePath, semanticEdges,
-          diagnostics, new ProjectionContext(unit, sourceFile, publication, semanticEdges, typesByKey, diagnostics));
-      case ClassTree nested -> type(unit, sourceFile, memberTreePath, nested, memberPath, memberOccurrencePath, publication, semanticEdges,
-          diagnostics, typesByKey);
-      case BlockTree initializer ->
-        initializations.initializer(unit, sourceFile, memberTreePath, initializer, memberPath, memberOccurrencePath, diagnostics,
-            (nested, nestedPath, nestedSourcePath) -> projectNestedDeclaration(
-                new ProjectionContext(unit, sourceFile, publication, semanticEdges, typesByKey, diagnostics), nested, nestedPath,
-                nestedSourcePath));
+          diagnostics, new ProjectionContext(unit, sourceFile, typesByKey, diagnostics));
+      case ClassTree nested -> type(unit, sourceFile, memberTreePath, nested, memberPath, memberOccurrencePath, diagnostics, typesByKey);
+      case BlockTree initializer -> initializations.initializer(unit, sourceFile, memberTreePath, initializer, memberPath,
+          memberOccurrencePath, diagnostics, (nested, nestedPath, nestedSourcePath) -> projectNestedDeclaration(
+              new ProjectionContext(unit, sourceFile, typesByKey, diagnostics), nested, nestedPath, nestedSourcePath));
       case EmptyStatementTree _ -> Optional.empty();
       default -> {
         diagnostics.emit(DIAGNOSTIC_PRODUCER,
@@ -978,13 +640,12 @@ final class JavaDeclarationProjector {
       return Optional.empty();
     }
     var methodKey = semantics.declarationKey(executable).orElseThrow();
-    var stagedPublication = publication.child();
-    var stagedEdges = semanticEdges.child();
+    var stagedPublication = publication;
+    var stagedEdges = semanticEdges;
     if (policy.supportsNestedDeclarations() && declaration.getBody() != null && body == null) {
       var translator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory);
       translator.useDeclarations((nested, nestedPath, nestedSourcePath) -> projectNestedDeclaration(
-          new ProjectionContext(unit, sourceFile, stagedPublication, stagedEdges, typesByKey, diagnostics), nested, nestedPath,
-          nestedSourcePath));
+          new ProjectionContext(unit, sourceFile, typesByKey, diagnostics), nested, nestedPath, nestedSourcePath));
       var translated = translator.translate(unit, sourceFile, methodKey, declaration.getBody(),
           new TreePath(methodPath, declaration.getBody()), constructor, false);
       body = translated.value();
@@ -1152,9 +813,7 @@ final class JavaDeclarationProjector {
     var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.METHOD, SyntaxKind.METHOD_DECLARATION,
         SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), range.orElseThrow());
     sourceAssociations.created(node, methodPath);
-    stagedPublication.accept();
     declarationEdge(methodPath, node, stagedEdges);
-    stagedEdges.accept();
     return Optional.of(node);
   }
 
@@ -1273,7 +932,7 @@ final class JavaDeclarationProjector {
     var sharedKeys = enumConstant ? List.<String>of() : sharedFieldKeys(unit, fieldPath, declaration);
     var annotationOwners = sharedKeys.isEmpty()
         ? Optional.<JavaSharedAnnotations>empty()
-        : Optional.of(declarations.fieldAnnotations(sharedKeys.getFirst()));
+        : Optional.of(semanticEdges.fieldAnnotations(sharedKeys.getFirst()));
     var ownsModifiers = sharedKeys.isEmpty() || sharedKeys.getFirst().equals(semantics.declarationKey(variable).orElseThrow());
     var modifierAnnotations = ownsModifiers ? declaration.getModifiers().getAnnotations() : List.<AnnotationTree>of();
     var complete = appendAnnotations(unit, sourceFile, modifierAnnotations, path, occurrencePath,
@@ -1337,8 +996,7 @@ final class JavaDeclarationProjector {
     var diagnostics = context.diagnosticBatches().newBatch();
     final Optional<SyntaxNode> node;
     try {
-      node = type(context.unit(), context.sourceFile(), treePath, declaration, path, path, context.publication(), context.declarations(),
-          diagnostics, context.typesByKey());
+      node = type(context.unit(), context.sourceFile(), treePath, declaration, path, path, diagnostics, context.typesByKey());
     } catch (JavaSourceProjectionFailure failure) {
       throw new JavaSourceProjectionFailure(diagnostics.snapshot(), failure);
     }
@@ -1396,24 +1054,6 @@ final class JavaDeclarationProjector {
       case RECORD_COMPONENT -> Optional.of(ReferenceKind.RECORD_COMPONENT);
       default -> Optional.empty();
     };
-  }
-
-  record UnitTranslation(Optional<SyntaxSourceContribution> contribution, List<CopiedAstValues.Body> bodies, DiagnosticEmissions emissions,
-      List<WrittenSourceAssociation> sourceAssociations, List<CopiedAstValues.Scope> scopes) {
-    UnitTranslation(Optional<SyntaxSourceContribution> contribution, List<CopiedAstValues.Body> bodies, DiagnosticEmissions emissions) {
-      this(contribution, bodies, emissions, List.of(), List.of());
-    }
-
-    UnitTranslation {
-      Objects.requireNonNull(contribution, "contribution");
-      bodies = List.copyOf(bodies);
-      Objects.requireNonNull(emissions, "emissions");
-      sourceAssociations = List.copyOf(sourceAssociations);
-      scopes = List.copyOf(scopes);
-    }
-    List<AnalysisDiagnostic> diagnostics() {
-      return emissions.diagnostics();
-    }
   }
 
 }

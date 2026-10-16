@@ -19,10 +19,7 @@ import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.api.JavaAstAggregate;
-import org.aquilagraph.source.api.SyntaxNode;
-import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxSourceContribution;
-import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
 
 final class JavaProgramTranslator {
@@ -34,6 +31,11 @@ final class JavaProgramTranslator {
       ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage, JavaTranslationPolicy policy) {
     this.sources = Objects.requireNonNull(sources, "sources");
     unitTranslations = new JavaUnitTranslationFactory(semantics, sourceEvidence, treeInventory, coverage, policy);
+  }
+
+  JavaProgramTranslator(SnapshotSourceCatalog sources, JavaUnitTranslationFactory unitTranslations) {
+    this.sources = Objects.requireNonNull(sources, "sources");
+    this.unitTranslations = Objects.requireNonNull(unitTranslations, "unitTranslations");
   }
 
   TranslationResult<TranslatedProgram> translate(InputSnapshot snapshot, List<CompilationUnitTree> units) {
@@ -88,13 +90,18 @@ final class JavaProgramTranslator {
       }
       var duplicateMember = translated.diagnostics().stream()
           .anyMatch(diagnostic -> "frontend.duplicate-member-declaration".equals(diagnostic.code()));
-      if (!declarations.complete() || duplicateType || duplicateMember) {
+      var decision = !declarations.complete() || duplicateType || duplicateMember
+          ? JavaUnitTranslator.ProjectionDecision.WITHHOLD
+          : JavaUnitTranslator.ProjectionDecision.ALLOW;
+      unitTranslator.decideProjection(decision);
+      if (decision == JavaUnitTranslator.ProjectionDecision.WITHHOLD) {
         incompleteRoot = true;
         continue;
       }
-      final JavaDeclarationProjector.UnitTranslation ast;
+      final FinalizedUnit ast;
       try {
-        ast = unitTranslator.projectSource();
+        unitTranslator.projectSource();
+        ast = unitTranslator.finalizeSource();
       } catch (JavaSourceProjectionFailure failure) {
         diagnostics.include(failure.emissions());
         incompleteRoot = true;
@@ -105,12 +112,8 @@ final class JavaProgramTranslator {
         sourceContributions.add(ast.contribution().orElseThrow());
         retainedAssociations.addAll(ast.sourceAssociations());
         retainedScopes.addAll(ast.scopes());
-        var retainedSource = ast.contribution().orElseThrow();
-        declarations.declarationTypes().stream()
-            .filter(evidence -> retainsTypeOwner(retainedSource, evidence.sourceFileKey(), evidence.ownerTypeKey()))
-            .forEach(retainedTypes::add);
-        declarations.memberOrders().stream().filter(order -> retainsTypeOwner(retainedSource, order.sourceFileKey(), order.ownerTypeKey()))
-            .map(order -> attachWrittenOrder(order, retainedSource)).forEach(retainedOrders::add);
+        retainedTypes.addAll(ast.declarationTypes());
+        retainedOrders.addAll(ast.memberOrders());
         retainedBodies.addAll(ast.bodies());
       } else {
         incompleteRoot = true;
@@ -141,41 +144,6 @@ final class JavaProgramTranslator {
 
   private SourceFile sourceFor(CompilationUnitTree unit) {
     return sources.find(unit).orElseThrow(() -> new IllegalStateException("Compilation unit is not owned by the input snapshot"));
-  }
-
-  private static boolean retainsTypeOwner(SyntaxSourceContribution source, String sourceFileKey, String ownerTypeKey) {
-    return source.nodes().stream().filter(node -> node.sourceFileKey().equals(sourceFileKey)).anyMatch(
-        node -> (node.value() instanceof SyntaxValue.TypeDeclaration declaration && declaration.declarationKey().equals(ownerTypeKey))
-            || (node.value() instanceof SyntaxValue.CompilationUnit unit && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT
-                && node.children(SyntaxRole.COMPACT_MEMBER).stream()
-                    .anyMatch(member -> member.value() instanceof SyntaxValue.ExecutableDeclaration declaration
-                        && declaration.ownerKey().equals(ownerTypeKey))));
-  }
-
-  private static DeclarationMemberOrder attachWrittenOrder(DeclarationMemberOrder order, SyntaxSourceContribution source) {
-    var owner = source.nodes().stream().filter(node -> node.value() instanceof SyntaxValue.TypeDeclaration declaration
-        && declaration.declarationKey().equals(order.ownerTypeKey())).findFirst();
-    var members = owner.map(node -> node.children(SyntaxRole.MEMBER)).orElseGet(() -> source.root().children(SyntaxRole.COMPACT_MEMBER));
-    var positions = new HashMap<String, Integer>();
-    for (var index = 0; index < members.size(); index++) {
-      var key = sourceMemberKey(members.get(index));
-      if (key.isPresent()) {
-        positions.put(key.orElseThrow(), index);
-      }
-    }
-    return new DeclarationMemberOrder(order.sourceFileKey(), order.ownerTypeKey(),
-        order.members().stream().map(member -> new DeclarationMemberOrder.Member(member.declarationKey(), member.kind(),
-            member.displayValue(), member.provenance(), Optional.ofNullable(positions.get(member.declarationKey())))).toList(),
-        order.attributedTreeOrder());
-  }
-
-  private static Optional<String> sourceMemberKey(SyntaxNode member) {
-    return switch (member.value()) {
-      case SyntaxValue.TypeDeclaration type -> Optional.of(type.declarationKey());
-      case SyntaxValue.ExecutableDeclaration method -> Optional.of(method.declarationKey());
-      case SyntaxValue.VariableDeclaration field -> Optional.of(field.declarationKey());
-      default -> Optional.empty();
-    };
   }
 
 }
