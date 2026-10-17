@@ -2,6 +2,7 @@ package org.aquilagraph.frontend;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -18,6 +19,8 @@ import org.aquilagraph.source.admission.AstCodec;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue.Annotation;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -30,7 +33,7 @@ class LocalOutcomeCompatibilityTest {
   @TempDir Path directory;
 
   @Test
-  void givenValidDuplicateAndAnnotatedDeclarations_whenEveryProfileProducesClosedValues_thenQualificationEventsAndBytesRemainStable()
+  void givenValidDuplicateAndAnnotatedDeclarations_whenEveryProfileProducesClosedValues_thenContractAndUnaffectedBytesRemainStable()
       throws IOException {
     // Arrange
     var sources = List.of(
@@ -68,6 +71,9 @@ class LocalOutcomeCompatibilityTest {
               .filter(node -> node.value() instanceof Annotation && node.children().size() == 5).findFirst().orElseThrow();
           assertEquals(5, annotation.children().size());
         }
+        if (index == 5 && profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION)) {
+          assertUnsupportedInitializer(outcome);
+        }
         observeBaseline("declaration-" + index, profile, outcome);
       }
     }
@@ -87,9 +93,32 @@ class LocalOutcomeCompatibilityTest {
       Files.createDirectories(baseline);
       Files.write(baseline.resolve(key + ".ast"), encoded);
       Files.write(baseline.resolve(key + ".qualification"), qualification);
+    } else if (name.equals("declaration-5") && profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION)) {
+      assertArrayEquals(new byte[0], Files.readAllBytes(baseline.resolve(key + ".ast")), key);
+      var original = Files.readString(baseline.resolve(key + ".qualification"), StandardCharsets.UTF_8);
+      assertTrue(original.startsWith(profile + "\nUNAVAILABLE\n"), key);
+      assertTrue(original.contains("code=frontend.unavailable-source-structure"), key);
+      assertTrue(original.contains("A typed-use decision must select an eligible direct child"), key);
+      assertUnsupportedInitializer(outcome);
     } else {
       assertArrayEquals(Files.readAllBytes(baseline.resolve(key + ".ast")), encoded, key);
       assertArrayEquals(Files.readAllBytes(baseline.resolve(key + ".qualification")), qualification, key);
     }
+  }
+
+  private static void assertUnsupportedInitializer(AstOutcome outcome) {
+    assertEquals(AstCompletion.INCOMPLETE, outcome.completion());
+    var result = outcome.result().orElseThrow();
+    var field = result.aggregate().executionSyntax("type:Sample#field:value").orElseThrow();
+    assertEquals(SyntaxKind.UNSUPPORTED, field.root().requiredChild(SyntaxRole.INITIALIZER).syntaxKind());
+    assertTrue(field.evidence().uses().isEmpty());
+    assertTrue(outcome.diagnostics().stream().anyMatch(value -> value.code().equals("compiler.err.already.defined")));
+    assertTrue(outcome.diagnostics().stream().anyMatch(value -> value.code().equals("frontend.unsupported-syntax")));
+    assertFalse(outcome.diagnostics().stream().anyMatch(value -> value.code().equals("frontend.unavailable-source-structure")));
+    var encoded = AstCodec.encode(result);
+    var decoded = AstCodec.decode(encoded, result.identity());
+    assertEquals(result.aggregate(), decoded.aggregate());
+    assertEquals(result.diagnostics(), decoded.diagnostics());
+    assertArrayEquals(encoded, AstCodec.encode(decoded));
   }
 }

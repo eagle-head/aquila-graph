@@ -288,9 +288,11 @@ final class JavaBodyDecisionProducer {
         facts.erasedArrayType(), facts.elementType()));
     for (var index = 0; index < children.size(); index++) {
       var argument = facts.arguments().get(index);
-      uses.add(ChildUseEvidence.known(new ConversionEvidence(scopeKey, consumer.nodeId(), SyntaxRole.ARGUMENT, index, argument.sourceType(),
-          argument.selectedTarget(), Optional.empty(), argument.unboxedType(), argument.effectivePrimitiveType(),
-          argument.preBoxPrimitiveType(), argument.boxedType()), consumer.syntaxKind(), consumer.origin()));
+      if (children.get(index).syntaxKind().requiresType()) {
+        uses.add(ChildUseEvidence.known(new ConversionEvidence(scopeKey, consumer.nodeId(), SyntaxRole.ARGUMENT, index,
+            argument.sourceType(), argument.selectedTarget(), Optional.empty(), argument.unboxedType(), argument.effectivePrimitiveType(),
+            argument.preBoxPrimitiveType(), argument.boxedType()), consumer.syntaxKind(), consumer.origin()));
+      }
     }
   }
 
@@ -414,7 +416,7 @@ final class JavaBodyDecisionProducer {
 
   private Optional<ChildUseEvidence> conversion(String scopeKey, SyntaxNode consumer, SyntaxChild child, TreePath childPath,
       TypeMirror target, boolean cast, boolean assignment) {
-    if (child.node().resolvedType().isEmpty() || !valueType(target)) {
+    if (!child.node().syntaxKind().requiresType() || child.node().resolvedType().isEmpty() || !valueType(target)) {
       return Optional.empty();
     }
     var sourceType = child.node().resolvedType().orElseThrow();
