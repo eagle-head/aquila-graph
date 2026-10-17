@@ -31,6 +31,6 @@ final class UnitSourceFixture {
 
   FinalizedUnit translate(CompilationUnitTree unit, SourceFile source, List<TranslatedMethodBody> bodies, List<JavaType> types) {
     var projected = projection.project(unit, source, bodies, types);
-    return finalizer.finish(source, projected.value(), new UnitDeclarations(types, List.of(), List.of(), true), projected.emissions());
+    return finalizer.finish(source, projected.value(), new UnitDeclarations(types, List.of(), List.of(), true, ProjectionEligibility.ELIGIBLE), projected.emissions());
   }
 }

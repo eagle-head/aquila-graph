@@ -178,13 +178,13 @@ final class JavaInitializationProjector {
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DiagnosticEmissionCollector diagnostics,
       JavaExecutableProjectionContext.DeclarationProjection nestedDeclarations) {
     if (!policy.supportsMemberInitialization()) {
-      return sourceEvidence.requiredRange(unit, sourceFile, block, occurrencePath, diagnostics)
+      return sourceEvidence.requiredRange(unit, sourceFile, block, occurrencePath, diagnostics).value()
           .map(range -> sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.BLOCK,
               block.isStatic() ? SyntaxKind.STATIC_INITIALIZER_BLOCK : SyntaxKind.INSTANCE_INITIALIZER_BLOCK,
               SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty(), range), treePath));
     }
     var context = memberContext(nestedDeclarations);
-    var range = sourceEvidence.requiredRange(unit, sourceFile, block, path, diagnostics);
+    var range = sourceEvidence.requiredRange(unit, sourceFile, block, path, diagnostics).value();
     if (range.isEmpty()) {
       return Optional.empty();
     }

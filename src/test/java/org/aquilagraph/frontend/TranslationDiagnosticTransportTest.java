@@ -342,13 +342,13 @@ class TranslationDiagnosticTransportTest {
 
   private static TranslationResult<TranslatedProgram> programTranslation(Fixture fixture) {
     return new JavaProgramTranslator(fixture.sources(), fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
-        fixture.compilation().treeInventory(), JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION), JavaTranslationPolicy.legacyAnalysis())
+        fixture.compilation().treeInventory(), JavaTranslationPolicy.legacyAnalysis())
             .translate(fixture.snapshot(), fixture.compilation().units());
   }
 
   private static JavaTypeTranslator typeTranslator(Fixture fixture, JavaMethodTranslator methods) {
     return new JavaTypeTranslator(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(),
-        fixture.compilation().treeInventory(), new JavaDeclarationPropertyObserver(JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION)),
+        fixture.compilation().treeInventory(),
         methods, JavaTranslationPolicy.legacyAnalysis());
   }
 

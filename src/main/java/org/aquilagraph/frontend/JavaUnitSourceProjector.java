@@ -345,11 +345,11 @@ final class JavaUnitSourceProjector {
 
   private Optional<SyntaxNode> annotationAttachment(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DeclarationSite site, DiagnosticEmissionCollector diagnostics) {
-    return annotationProjector.declaration(unit, sourceFile, annotation, path, occurrencePath, site, diagnostics);
+    return annotationProjector.declaration(unit, sourceFile, annotation, path, occurrencePath, site, diagnostics).value();
   }
 
   private Optional<SourceSpan> requiredRange(CompilationUnitTree unit, SourceFile source, Tree tree, SyntaxStructuralPath path,
       DiagnosticEmissionCollector diagnostics) {
-    return sourceEvidence.requiredRange(unit, source, tree, path, diagnostics);
+    return sourceEvidence.requiredRange(unit, source, tree, path, diagnostics).value();
   }
 }

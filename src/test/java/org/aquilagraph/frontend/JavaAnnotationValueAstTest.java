@@ -486,15 +486,15 @@ class JavaAnnotationValueAstTest {
           path, invalidDiagnostics);
 
       // Assert
-      assertTrue(unavailable.isEmpty());
-      assertTrue(missing.isEmpty());
-      assertTrue(invalid.isEmpty());
-      assertEquals("frontend.unavailable-annotation-attribution", unavailableDiagnostics.snapshot().diagnostics().getFirst().code());
-      assertEquals(source.sourceFileKey(), unavailableDiagnostics.snapshot().diagnostics().getFirst().origins().getFirst().sourceFileKey());
-      assertEquals("frontend.missing-source-position", missingDiagnostics.snapshot().diagnostics().getFirst().code());
-      assertEquals("frontend.invalid-source-range", invalidDiagnostics.snapshot().diagnostics().getFirst().code());
-      assertTrue(missingDiagnostics.snapshot().diagnostics().getFirst().message().contains("A.java"));
-      assertTrue(invalidDiagnostics.snapshot().diagnostics().getFirst().message().contains("A.java"));
+      assertTrue(unavailable.value().failure().isPresent());
+      assertTrue(missing.value().failure().isPresent());
+      assertTrue(invalid.value().failure().isPresent());
+      assertEquals("frontend.unavailable-annotation-attribution", unavailable.diagnostics().getFirst().code());
+      assertEquals(source.sourceFileKey(), unavailable.diagnostics().getFirst().origins().getFirst().sourceFileKey());
+      assertEquals("frontend.missing-source-position", missing.diagnostics().getFirst().code());
+      assertEquals("frontend.invalid-source-range", invalid.diagnostics().getFirst().code());
+      assertTrue(missing.diagnostics().getFirst().message().contains("A.java"));
+      assertTrue(invalid.diagnostics().getFirst().message().contains("A.java"));
     }
   }
 

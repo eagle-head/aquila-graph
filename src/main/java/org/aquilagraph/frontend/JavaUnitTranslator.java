@@ -59,6 +59,7 @@ final class JavaUnitTranslator {
       var occurrences = new ArrayList<LanguageFeatureOccurrence>();
       var observations = new ArrayList<LanguageFeatureObservation>();
       var complete = true;
+      var eligibility = ProjectionEligibility.ELIGIBLE;
       var unitPath = new TreePath(unit);
       for (var declaration : unit.getTypeDecls()) {
         if (declaration instanceof ClassTree classTree) {
@@ -69,6 +70,7 @@ final class JavaUnitTranslator {
             unfinishedBodies.addAll(value.methodBodies());
             orders.addAll(value.memberOrders());
             declarationTypes.addAll(value.declarationTypes());
+            eligibility = eligibility.and(value.eligibility());
           } else {
             complete = false;
           }
@@ -77,7 +79,7 @@ final class JavaUnitTranslator {
           observations.addAll(translation.featureObservations());
         }
       }
-      var metadata = new UnitDeclarations(translatedTypes, orders, declarationTypes, complete);
+      var metadata = new UnitDeclarations(translatedTypes, orders, declarationTypes, complete, eligibility);
       declarations = Optional.of(metadata);
       var result = new TranslationResult<>(metadata, diagnostics.snapshot(), occurrences, observations);
       transition(Phase.DECLARING, Phase.DECLARATIONS_PRODUCED);
@@ -90,9 +92,12 @@ final class JavaUnitTranslator {
   void decideProjection(ProjectionDecision decision) {
     require(Phase.DECLARATIONS_PRODUCED);
     Objects.requireNonNull(decision, "decision");
-    if (decision == ProjectionDecision.ALLOW && !declarations.orElseThrow().complete()) {
+    if (decision == ProjectionDecision.ALLOW
+        && (!declarations.orElseThrow().complete() || declarations.orElseThrow().eligibility() == ProjectionEligibility.INELIGIBLE)) {
       phase = Phase.FAILED;
-      throw new IllegalStateException("Incomplete unit declarations cannot be projected");
+      throw new IllegalStateException(declarations.orElseThrow().complete()
+          ? "Ineligible unit declarations cannot be projected"
+          : "Incomplete unit declarations cannot be projected");
     }
     phase = decision == ProjectionDecision.ALLOW ? Phase.ALLOWED : Phase.WITHHELD;
   }

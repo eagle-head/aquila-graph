@@ -82,7 +82,7 @@ final class JavaAnalysisPipeline {
       var typeEvidence = new JavaTypeKindObserver(sources, compilation.semantics(), compilation.sourceEvidence(),
           compilation.treeInventory(), languageFeatureCoverage, policy).observe(compilation.units());
       var translator = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
-          compilation.treeInventory(), languageFeatureCoverage, policy);
+          compilation.treeInventory(), policy);
       var translation = translator.translate(snapshot, compilation.units(),
           compilation.diagnostics().stream().anyMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
       var annotationCompleteness = new JavaAnnotationCompleteness(annotationInventory, compilation.semantics(), translation.diagnostics());

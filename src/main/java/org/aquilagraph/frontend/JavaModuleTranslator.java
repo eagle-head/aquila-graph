@@ -97,7 +97,7 @@ final class JavaModuleTranslator {
 
   private Optional<SyntaxNode> annotation(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
       SyntaxStructuralPath path, DiagnosticEmissionCollector diagnostics) {
-    return annotationProjector.declaration(unit, sourceFile, annotation, path, path, DeclarationSite.MODULE, diagnostics);
+    return annotationProjector.declaration(unit, sourceFile, annotation, path, path, DeclarationSite.MODULE, diagnostics).value();
   }
 
   private Optional<SyntaxNode> directive(CompilationUnitTree unit, SourceFile sourceFile, DirectiveTree declaration,

@@ -335,8 +335,7 @@ class UnitTranslationLifecycleTest {
 
   private record Fixture(InputSnapshot snapshot, SnapshotSourceCatalog sources, JavaCompilation compilation) {
     JavaUnitTranslationFactory factory(JavaSourceEvidence evidence, UnaryOperator<JavaUnitTranslator.SourceProjection> projections) {
-      return new JavaUnitTranslationFactory(compilation.semantics(), evidence, compilation.treeInventory(),
-          JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION), POLICY, projections);
+      return new JavaUnitTranslationFactory(compilation.semantics(), evidence, compilation.treeInventory(), POLICY, projections);
     }
   }
 }

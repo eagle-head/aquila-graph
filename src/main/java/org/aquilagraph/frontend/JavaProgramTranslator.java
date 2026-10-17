@@ -13,7 +13,6 @@ import org.aquilagraph.source.api.DeclarationMemberOrder;
 import org.aquilagraph.source.api.DeclarationTypeEvidence;
 import org.aquilagraph.source.api.JavaProgram;
 import org.aquilagraph.source.api.JavaType;
-import org.aquilagraph.source.api.LanguageFeatureCoverage;
 import org.aquilagraph.source.api.LanguageFeatureObservation;
 import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 import org.aquilagraph.source.admission.AstValueAdmission;
@@ -28,9 +27,9 @@ final class JavaProgramTranslator {
   private final JavaUnitTranslationFactory unitTranslations;
 
   JavaProgramTranslator(SnapshotSourceCatalog sources, SemanticResolver semantics, JavaSourceEvidence sourceEvidence,
-      ParsedTreeInventory treeInventory, LanguageFeatureCoverage coverage, JavaTranslationPolicy policy) {
+      ParsedTreeInventory treeInventory, JavaTranslationPolicy policy) {
     this.sources = Objects.requireNonNull(sources, "sources");
-    unitTranslations = new JavaUnitTranslationFactory(semantics, sourceEvidence, treeInventory, coverage, policy);
+    unitTranslations = new JavaUnitTranslationFactory(semantics, sourceEvidence, treeInventory, policy);
   }
 
   JavaProgramTranslator(SnapshotSourceCatalog sources, JavaUnitTranslationFactory unitTranslations) {
@@ -88,9 +87,7 @@ final class JavaProgramTranslator {
           duplicateType = true;
         }
       }
-      var duplicateMember = translated.diagnostics().stream()
-          .anyMatch(diagnostic -> "frontend.duplicate-member-declaration".equals(diagnostic.code()));
-      var decision = !declarations.complete() || duplicateType || duplicateMember
+      var decision = !declarations.complete() || duplicateType || declarations.eligibility() == ProjectionEligibility.INELIGIBLE
           ? JavaUnitTranslator.ProjectionDecision.WITHHOLD
           : JavaUnitTranslator.ProjectionDecision.ALLOW;
       unitTranslator.decideProjection(decision);

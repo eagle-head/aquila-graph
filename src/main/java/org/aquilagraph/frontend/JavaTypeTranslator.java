@@ -68,12 +68,11 @@ final class JavaTypeTranslator {
   private final JavaMethodDeclarationTranslator methodDeclarations;
 
   JavaTypeTranslator(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
-      JavaDeclarationPropertyObserver propertyObserver, JavaMethodTranslator methodTranslator, JavaTranslationPolicy policy) {
+      JavaMethodTranslator methodTranslator, JavaTranslationPolicy policy) {
     this.policy = Objects.requireNonNull(policy, "policy");
     this.semantics = Objects.requireNonNull(semantics, "semantics");
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
-    Objects.requireNonNull(propertyObserver, "propertyObserver");
     this.methodTranslator = Objects.requireNonNull(methodTranslator, "methodTranslator");
     methodDeclarations = new JavaMethodDeclarationTranslator(semantics, sourceEvidence, treeInventory);
   }
@@ -131,14 +130,17 @@ final class JavaTypeTranslator {
     var typeParameters = translateTypeParameters(unit, sourceFile, typeKey, classTree.getTypeParameters(), typeElement, diagnostics);
 
     var completeMembers = true;
+    var eligibility = ProjectionEligibility.ELIGIBLE;
     for (var member : classTree.getMembers()) {
-      if (!classifyMember(unit, classPath, sourceFile, typeKey, member, fields, methods, methodBodies, nestedTypes, memberOrders,
-          declarationTypes, diagnostics, occurrences, observations)) {
-        completeMembers = false;
-      }
+      var classification = classifyMember(unit, classPath, sourceFile, typeKey, member, fields, methods, methodBodies, nestedTypes,
+          memberOrders, declarationTypes, diagnostics, occurrences, observations);
+      completeMembers &= classification.complete();
+      eligibility = eligibility.and(classification.eligibility());
     }
     if (policy.supportsNestedDeclarations()) {
-      new TreePathScanner<Void, Void>() {
+      var descendants = new TreePathScanner<Void, Void>() {
+        private ProjectionEligibility eligible = ProjectionEligibility.ELIGIBLE;
+
         @Override
         public Void visitClass(ClassTree nested, Void unused) {
           var translation = translate(unit, getCurrentPath().getParentPath(), sourceFile, nested);
@@ -148,24 +150,26 @@ final class JavaTypeTranslator {
             memberOrders.addAll(value.memberOrders());
             declarationTypes.addAll(value.declarationTypes());
           });
+          eligible = eligible.and(translation.value().map(TranslatedType::eligibility).orElse(ProjectionEligibility.INELIGIBLE));
           diagnostics.include(translation.emissions());
           occurrences.addAll(translation.featureOccurrences());
           observations.addAll(translation.featureObservations());
           return null;
         }
-        void capture() {
+        ProjectionEligibility capture() {
           classTree.getMembers().stream().filter(member -> !(member instanceof ClassTree) && treeInventory.isWritten(member))
               .map(member -> new TreePath(classPath, member)).forEach(path -> scan(path, null));
+          return eligible;
         }
       }.capture();
+      eligibility = eligibility.and(descendants);
     }
     if (!completeComponents || !completeMembers) {
       return new TranslationResult<>(Optional.empty(), diagnostics.snapshot(), occurrences, observations);
     }
-    var firstReconciliationDiagnostic = diagnostics.emissionCount();
-    var synthesizedDeclarations = reconcileEnclosedDeclarations(unit, classPath, classTree, typeElement, sourceFile, typeKey, origin,
-        fields, recordComponents, methods, nestedTypes, diagnostics);
-    if (diagnostics.emissionCount() > firstReconciliationDiagnostic) {
+    var reconciliation = reconcileEnclosedDeclarations(unit, classPath, classTree, typeElement, sourceFile, typeKey, origin, fields,
+        recordComponents, methods, nestedTypes, diagnostics);
+    if (!reconciliation.complete()) {
       return new TranslationResult<>(Optional.empty(), diagnostics.snapshot(), occurrences, observations);
     }
     if (typeElement != null) {
@@ -186,7 +190,7 @@ final class JavaTypeTranslator {
     }
     var type = new JavaType(typeKey, qualifiedName, javaTypeKind(classTree.getKind()), modifiers, enclosingType, directSuperclass,
         directInterfaces, permittedSubclasses, typeParameters, origin.isPresent(), fields, recordComponents, methods,
-        synthesizedDeclarations, origin.stream().toList(), typeNesting(typeElement),
+        reconciliation.synthesized(), origin.stream().toList(), typeNesting(typeElement),
         typeElement == null
             ? new JavaTypeIdentity(JavaTypeCategory.DECLARED, qualifiedName, qualifiedName)
             : semantics.typeIdentity(typeElement.asType()),
@@ -205,15 +209,21 @@ final class JavaTypeTranslator {
         }
       }
     }
-    return new TranslationResult<>(Optional.of(new TranslatedType(types, methodBodies, memberOrders, declarationTypes)),
+    return new TranslationResult<>(Optional.of(new TranslatedType(types, methodBodies, memberOrders, declarationTypes, eligibility)),
         diagnostics.snapshot(), occurrences, observations);
   }
 
-  List<JavaSynthesizedDeclaration> reconcileEnclosedDeclarations(CompilationUnitTree unit, TreePath classPath, ClassTree classTree,
+  record EnclosedDeclarations(List<JavaSynthesizedDeclaration> synthesized, boolean complete) {
+    EnclosedDeclarations {
+      synthesized = List.copyOf(synthesized);
+    }
+  }
+
+  EnclosedDeclarations reconcileEnclosedDeclarations(CompilationUnitTree unit, TreePath classPath, ClassTree classTree,
       @Nullable TypeElement typeElement, SourceFile sourceFile, String typeKey, Optional<SourceSpan> origin, List<JavaField> fields,
       List<JavaRecordComponent> components, List<JavaMethod> methods, List<JavaType> nestedTypes, DiagnosticEmissionCollector diagnostics) {
     if (typeElement == null) {
-      return List.of();
+      return new EnclosedDeclarations(List.of(), true);
     }
     var representedKeys = new TreeSet<String>();
     fields.stream().map(JavaField::fieldKey).forEach(representedKeys::add);
@@ -223,6 +233,7 @@ final class JavaTypeTranslator {
         .filter(type -> type.enclosingType().flatMap(JavaTypeReference::declarationKey).filter(typeKey::equals).isPresent())
         .map(JavaType::typeKey).forEach(representedKeys::add);
     var synthesized = new ArrayList<JavaSynthesizedDeclaration>();
+    var complete = true;
     var compilerKeys = new HashSet<String>();
     var writtenMethodKeys = new HashSet<String>();
     var completeWrittenMethodInventory = treeInventory.isWritten(classTree);
@@ -239,6 +250,7 @@ final class JavaTypeTranslator {
                   "A written method cannot be correlated with a direct compiler declaration",
                   sourceEvidence.origin(unit, sourceFile, method)));
           completeWrittenMethodInventory = false;
+          complete = false;
         } else {
           writtenMethodKeys.add(writtenKey.orElseThrow());
         }
@@ -249,11 +261,13 @@ final class JavaTypeTranslator {
       if (!isDirectDeclarationKind(enclosed.getKind()) || key.isEmpty()) {
         diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(typeKey, "frontend.unavailable-enclosed-declaration",
             "A compiler-exposed direct declaration has no supported kind or canonical key", origin));
+        complete = false;
         continue;
       }
       if (!compilerKeys.add(key.orElseThrow())) {
         diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(key.orElseThrow(),
             "frontend.duplicate-enclosed-declaration", "Compiler-exposed direct declarations share a canonical key", origin));
+        complete = false;
         continue;
       }
       if (!representedKeys.contains(key.orElseThrow())) {
@@ -267,6 +281,7 @@ final class JavaTypeTranslator {
               FrontendDiagnosticFactory.otherError(key.orElseThrow(), "frontend.unrepresented-written-declaration",
                   "A written direct declaration is absent from its type aggregate",
                   sourceTree == null ? origin : sourceEvidence.origin(unit, sourceFile, sourceTree)));
+          complete = false;
           continue;
         }
         synthesized.add(
@@ -278,10 +293,11 @@ final class JavaTypeTranslator {
       if (!compilerKeys.contains(representedKey)) {
         diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(representedKey,
             "frontend.unmatched-enclosed-declaration", "A modeled direct declaration has no compiler-enclosed counterpart", origin));
+        complete = false;
       }
     }
     synthesized.sort(Comparator.comparing(JavaSynthesizedDeclaration::declarationKey));
-    return List.copyOf(synthesized);
+    return new EnclosedDeclarations(synthesized, complete);
   }
 
   private static boolean isDirectDeclarationKind(ElementKind kind) {
@@ -351,10 +367,14 @@ final class JavaTypeTranslator {
         }).findFirst();
   }
 
-  private boolean classifyMember(CompilationUnitTree unit, TreePath classPath, SourceFile sourceFile, String typeKey, Tree member,
-      List<JavaField> fields, List<JavaMethod> methods, List<TranslatedMethodBody> methodBodies, List<JavaType> nestedTypes,
+  private record MemberClassification(boolean complete, ProjectionEligibility eligibility) {
+  }
+
+  private MemberClassification classifyMember(CompilationUnitTree unit, TreePath classPath, SourceFile sourceFile, String typeKey,
+      Tree member, List<JavaField> fields, List<JavaMethod> methods, List<TranslatedMethodBody> methodBodies, List<JavaType> nestedTypes,
       List<DeclarationMemberOrder> memberOrders, List<DeclarationTypeEvidence> declarationTypes, DiagnosticEmissionCollector diagnostics,
       List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
+    var eligibility = ProjectionEligibility.ELIGIBLE;
     switch (member) {
       case MethodTree methodTree -> {
         var translated = policy.supportsNestedDeclarations()
@@ -369,6 +389,7 @@ final class JavaTypeTranslator {
           diagnostics.emit(DIAGNOSTIC_PRODUCER,
               FrontendDiagnosticFactory.otherError(method.methodKey(), "frontend.duplicate-member-declaration",
                   "Written members share a canonical declaration key", sourceEvidence.origin(unit, sourceFile, methodTree)));
+          eligibility = ProjectionEligibility.INELIGIBLE;
         } else {
           methods.add(method);
           translated.flatMap(value -> value.value().body()).ifPresent(methodBodies::add);
@@ -384,6 +405,7 @@ final class JavaTypeTranslator {
           diagnostics.emit(DIAGNOSTIC_PRODUCER,
               FrontendDiagnosticFactory.otherError(field.fieldKey(), "frontend.duplicate-member-declaration",
                   "Written members share a canonical declaration key", sourceEvidence.origin(unit, sourceFile, variableTree)));
+          eligibility = ProjectionEligibility.INELIGIBLE;
         } else {
           fields.add(field);
         }
@@ -402,7 +424,8 @@ final class JavaTypeTranslator {
         diagnostics.include(translation.emissions());
         occurrences.addAll(translation.featureOccurrences());
         observations.addAll(translation.featureObservations());
-        return translation.value().isPresent();
+        return new MemberClassification(translation.value().isPresent(),
+            translation.value().map(TranslatedType::eligibility).orElse(ProjectionEligibility.INELIGIBLE));
       }
       case BlockTree initializer -> {
         if (!policy.supportsMemberInitialization()) {
@@ -414,7 +437,7 @@ final class JavaTypeTranslator {
       }
       default -> diagnostics.emit(DIAGNOSTIC_PRODUCER, unsupportedMemberDiagnostic(unit, sourceFile, typeKey, member));
     }
-    return true;
+    return new MemberClassification(true, eligibility);
   }
 
   private TranslationResult<JavaField> translateField(CompilationUnitTree unit, TreePath classPath, SourceFile sourceFile, String typeKey,

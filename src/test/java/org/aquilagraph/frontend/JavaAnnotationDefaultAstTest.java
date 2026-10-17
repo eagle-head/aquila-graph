@@ -233,7 +233,7 @@ class JavaAnnotationDefaultAstTest {
           callerChildren, callerDiagnostics);
 
       // Assert
-      assertTrue(projected.isEmpty());
+      assertTrue(projected.value().isEmpty());
       assertTrue(attached.isEmpty());
       assertTrue(callerChildren.isEmpty());
       assertEquals(1, diagnostics.emissionCount());

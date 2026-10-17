@@ -446,9 +446,9 @@ class JavaAstFrontendIntegrationTest {
       // Act
       var coverage = JavaLanguageFeatureCoverage.fromConfiguration(JAVA_25);
       var forward = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
-          compilation.treeInventory(), coverage, JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
+          compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
       var translated = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
-          compilation.treeInventory(), coverage, JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, reversed);
+          compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, reversed);
       var aggregate = translated.value().aggregate().orElseThrow();
       var normal = new JavaFrontend(new JavaSourceLoader()).analyze(snapshot, JAVA_25).aggregate().orElseThrow();
 
