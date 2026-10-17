@@ -93,7 +93,8 @@ class LocalOutcomeCompatibilityTest {
       Files.createDirectories(baseline);
       Files.write(baseline.resolve(key + ".ast"), encoded);
       Files.write(baseline.resolve(key + ".qualification"), qualification);
-    } else if (name.equals("declaration-5") && profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION)) {
+    } else if (name.equals("declaration-5") && profile.equals(AstProfile.JAVA_SOURCE_INITIALIZATION)
+        && Files.size(baseline.resolve(key + ".ast")) == 0) {
       assertArrayEquals(new byte[0], Files.readAllBytes(baseline.resolve(key + ".ast")), key);
       var original = Files.readString(baseline.resolve(key + ".qualification"), StandardCharsets.UTF_8);
       assertTrue(original.startsWith(profile + "\nUNAVAILABLE\n"), key);
