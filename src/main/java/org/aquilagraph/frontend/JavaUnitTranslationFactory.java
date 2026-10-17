@@ -34,8 +34,10 @@ final class JavaUnitTranslationFactory {
     var associations = new JavaWrittenSourceAssociations(treeInventory);
     var declarations = new JavaDeclarationScope();
     var correlation = new JavaBodySourceCorrelation(semantics, sourceEvidence, treeInventory, associations, declarations);
-    var renderer = new JavaDeclarationProjector(semantics, sourceEvidence, treeInventory, new JavaAnnotationMirrorCorrelation(semantics),
-        policy, associations, declarations, correlation);
+    var headers = new JavaDeclarationHeaderProjector(semantics, sourceEvidence, treeInventory,
+        new JavaAnnotationMirrorCorrelation(semantics), policy, associations, declarations::fieldAnnotations);
+    var renderer = new JavaDeclarationProjector(semantics, sourceEvidence, treeInventory, headers, policy, associations, declarations,
+        correlation);
     var sourceProjection = new JavaUnitSourceProjector(semantics, sourceEvidence, treeInventory, policy, associations, correlation,
         renderer);
     var finalizer = new JavaUnitFinalizer(correlation, associations, declarations);

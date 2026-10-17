@@ -9,7 +9,7 @@ import org.aquilagraph.source.api.JavaType;
 final class UnitSourceFixture {
   private final JavaUnitSourceProjector projection;
   private final JavaUnitFinalizer finalizer;
-  private final JavaDeclarationProjector declarations;
+  private final JavaDeclarationHeaderProjector headers;
 
   UnitSourceFixture(SemanticResolver semantics, JavaSourceEvidence evidence, ParsedTreeInventory inventory, JavaTranslationPolicy policy) {
     this(semantics, evidence, inventory, new JavaAnnotationMirrorCorrelation(semantics), policy);
@@ -20,13 +20,14 @@ final class UnitSourceFixture {
     var associations = new JavaWrittenSourceAssociations(inventory);
     var scope = new JavaDeclarationScope();
     var correlation = new JavaBodySourceCorrelation(semantics, evidence, inventory, associations, scope);
-    declarations = new JavaDeclarationProjector(semantics, evidence, inventory, mirrors, policy, associations, scope, correlation);
+    headers = new JavaDeclarationHeaderProjector(semantics, evidence, inventory, mirrors, policy, associations, scope::fieldAnnotations);
+    var declarations = new JavaDeclarationProjector(semantics, evidence, inventory, headers, policy, associations, scope, correlation);
     projection = new JavaUnitSourceProjector(semantics, evidence, inventory, policy, associations, correlation, declarations);
     finalizer = new JavaUnitFinalizer(correlation, associations, scope);
   }
 
-  JavaDeclarationProjector declarations() {
-    return declarations;
+  JavaDeclarationHeaderProjector headers() {
+    return headers;
   }
 
   FinalizedUnit translate(CompilationUnitTree unit, SourceFile source, List<TranslatedMethodBody> bodies, List<JavaType> types) {

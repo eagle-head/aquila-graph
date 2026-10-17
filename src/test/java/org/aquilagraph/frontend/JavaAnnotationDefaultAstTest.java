@@ -222,20 +222,19 @@ class JavaAnnotationDefaultAstTest {
           .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DEFAULT_VALUE, 0);
       var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics");
       var callerDiagnostics = new DiagnosticEmissionCollector("source-observation", "callerDiagnostics");
-      var callerChildren = new ArrayList<SyntaxChild>();
       var translator = new UnitSourceFixture(compilation.semantics(), parsed.sourceEvidence(),
           compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis());
 
       // Act
       var projected = projector.defaultValue(unit, source, method, missing, path, diagnostics);
-      var attached = translator.declarations().appendDefault(unit, source, method, missing,
+      var attached = translator.headers().completeDefault(unit, source, method, missing,
           SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0),
-          callerChildren, callerDiagnostics);
+          callerDiagnostics);
 
       // Assert
       assertTrue(projected.value().isEmpty());
-      assertTrue(attached.isEmpty());
-      assertTrue(callerChildren.isEmpty());
+      assertFalse(attached.complete());
+      assertTrue(attached.value().isEmpty());
       assertEquals(1, diagnostics.emissionCount());
       assertEquals(1, callerDiagnostics.emissionCount());
       assertEquals("frontend.unavailable-annotation-default", diagnostics.snapshot().diagnostics().getFirst().code());

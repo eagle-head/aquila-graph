@@ -9,12 +9,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.sun.source.tree.CompilationUnitTree;
+import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.SourcePositions;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Optional;
 import javax.tools.Diagnostic;
 import javax.tools.ToolProvider;
@@ -204,6 +209,116 @@ class ScopedSourcePublicationTest {
         assertSame(contribution.nodes().stream().filter(node -> node.nodeId().equals(scope.root().nodeId())).findFirst().orElseThrow(), scope.root());
       }
     });
+  }
+
+  @Test
+  void givenHeaderTypeAndDefaultRefusalsAfterRecursiveWork_whenSiblingsUnitsAndRequestsContinue_thenOnlyAcceptedContributionsSurvive()
+      throws IOException {
+    // Arrange
+    var text = """
+        import java.lang.annotation.*;
+        @Target({ElementType.FIELD, ElementType.LOCAL_VARIABLE, ElementType.TYPE_USE}) @interface Mark {}
+        class RefusedHeader {
+          int subject(String input) {
+            @Mark int first = 1, second = 2;
+            class Local { int value() { return first + second; } }
+            return new Local().value();
+          }
+        }
+        class RefusedType<T extends Number> {
+          int subject() { class Local { int value() { return 3; } } return new Local().value(); }
+        }
+        @interface RefusedDefault {
+          class Nested { int value() { return 4; } }
+          int value() default 7;
+        }
+        class Healthy {
+          @Mark int first = 8, second = 9;
+          int value() { @Mark int first = 10, second = 11; return first + second; }
+        }
+        """;
+    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Sample.java"), text),
+        SourceFile.fromContent(Path.of("Following.java"), "class Following { int value() { return 12; } }")));
+    var sources = new SnapshotSourceCatalog(snapshot);
+    var finalized = new ArrayList<List<FinalizedUnit>>();
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
+      var compilation = session.analyze(session.parse(), POLICY);
+      assertFalse(compilation.diagnostics().stream().anyMatch(value -> value.getKind() == Diagnostic.Kind.ERROR));
+      var unit = compilation.units().stream().filter(value -> value.getTypeDecls().stream()
+          .anyMatch(tree -> tree instanceof ClassTree type && type.getSimpleName().contentEquals("Healthy"))).findFirst().orElseThrow();
+      var types = unit.getTypeDecls().stream().filter(ClassTree.class::isInstance).map(ClassTree.class::cast).toList();
+      var header = types.stream().filter(type -> type.getSimpleName().contentEquals("RefusedHeader")).findFirst().orElseThrow();
+      var subject = header.getMembers().stream().filter(MethodTree.class::isInstance).map(MethodTree.class::cast)
+          .filter(method -> method.getName().contentEquals("subject")).findFirst().orElseThrow();
+      var typeHeader = types.stream().filter(type -> type.getSimpleName().contentEquals("RefusedType")).findFirst().orElseThrow();
+      var annotation = types.stream().filter(type -> type.getSimpleName().contentEquals("RefusedDefault")).findFirst().orElseThrow();
+      var defaultMethod = annotation.getMembers().stream().filter(MethodTree.class::isInstance).map(MethodTree.class::cast)
+          .findFirst().orElseThrow();
+      var missing = Collections.newSetFromMap(new IdentityHashMap<Tree, Boolean>());
+      missing.addAll(List.of(subject.getParameters().getFirst().getType(), typeHeader.getTypeParameters().getFirst().getBounds().getFirst(),
+          defaultMethod.getDefaultValue()));
+      var actual = compilation.sourceEvidence();
+      var evidence = new JavaSourceEvidence(new SourcePositions() {
+        @Override public long getStartPosition(CompilationUnitTree owner, Tree tree) {
+          return missing.contains(tree) ? Diagnostic.NOPOS : actual.rawStart(owner, tree);
+        }
+        @Override public long getEndPosition(CompilationUnitTree owner, Tree tree) { return actual.rawEnd(owner, tree); }
+      });
+
+      // Act
+      for (var request = 0; request < 2; request++) {
+        var factory = new JavaUnitTranslationFactory(compilation.semantics(), evidence, compilation.treeInventory(), POLICY);
+        var results = new ArrayList<FinalizedUnit>();
+        for (var current : List.of(unit, compilation.units().stream().filter(value -> value != unit).findFirst().orElseThrow())) {
+          var coordinator = factory.create(current, sources.find(current).orElseThrow());
+          assertTrue(coordinator.translateDeclarations().value().complete());
+          coordinator.decideProjection(JavaUnitTranslator.ProjectionDecision.ALLOW);
+          coordinator.projectSource();
+          results.add(coordinator.finalizeSource());
+        }
+        finalized.add(List.copyOf(results));
+      }
+    }
+
+    // Assert
+    for (var results : finalized) {
+      var refused = results.getFirst();
+      var accepted = refused.contribution().orElseThrow();
+      assertEquals(List.of("Mark", "Healthy"), accepted.root().children(SyntaxRole.TYPE_DECLARATION).stream()
+          .map(node -> node.value(SyntaxValue.TypeDeclaration.class).name()).toList());
+      assertEquals(3, refused.diagnostics().stream().filter(value -> value.code().equals("frontend.missing-source-position")).count());
+      assertTrue(refused.declarationTypes().stream().noneMatch(value -> value.ownerTypeKey().contains("Refused")));
+      assertTrue(refused.memberOrders().stream().noneMatch(value -> value.ownerTypeKey().contains("Refused")));
+      assertTrue(refused.scopes().stream().noneMatch(value -> value.scope().key().contains("Refused")));
+      assertTrue(refused.sourceAssociations().stream().allMatch(value -> accepted.nodes().stream()
+          .anyMatch(node -> node.nodeId().equals(value.nodeKey()))));
+      assertTrue(accepted.semanticEdges().stream().allMatch(edge -> accepted.nodes().stream()
+          .anyMatch(node -> node.nodeId().equals(edge.sourceKey()))));
+      var bodies = refused.bodies().stream().filter(value -> value.methodKey().contains("Refused")).toList();
+      assertFalse(bodies.isEmpty());
+      assertTrue(bodies.stream().allMatch(value -> value.origin() == MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY
+          || value.origin() == MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION));
+      var healthy = accepted.root().children(SyntaxRole.TYPE_DECLARATION).getLast();
+      var fields = healthy.children(SyntaxRole.MEMBER).stream().filter(node -> node.syntaxKind() == SyntaxKind.FIELD_DECLARATION).toList();
+      assertEquals(1, fields.getFirst().children(SyntaxRole.ANNOTATION).size());
+      assertTrue(fields.getLast().children(SyntaxRole.ANNOTATION).isEmpty());
+      var following = results.getLast();
+      assertTrue(following.diagnostics().isEmpty());
+      assertEquals(List.of("Following"), following.contribution().orElseThrow().root().children(SyntaxRole.TYPE_DECLARATION).stream()
+          .map(node -> node.value(SyntaxValue.TypeDeclaration.class).name()).toList());
+      var followingMethod = following.contribution().orElseThrow().nodes().stream()
+          .filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration value && value.name().equals("value"))
+          .findFirst().orElseThrow();
+      var followingKey = followingMethod.value(SyntaxValue.ExecutableDeclaration.class).declarationKey();
+      var followingBody = following.bodies().stream().filter(value -> value.methodKey().equals(followingKey)).findFirst().orElseThrow();
+      assertEquals(MethodBodyOrigin.SOURCE_AST, followingBody.origin());
+      assertSame(followingMethod.requiredChild(SyntaxRole.BODY), followingBody.root());
+      assertTrue(following.bodies().stream().filter(value -> !value.methodKey().equals(followingKey))
+          .allMatch(value -> value.origin() == MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY));
+    }
+    assertEquals(finalized.getFirst().getFirst().contribution(), finalized.getLast().getFirst().contribution());
+    assertEquals(finalized.getFirst().getFirst().emissions(), finalized.getLast().getFirst().emissions());
+    assertEquals(finalized.getFirst().getLast().contribution(), finalized.getLast().getLast().contribution());
   }
 
   private static SyntaxNode empty(SourceFile source, int position) {

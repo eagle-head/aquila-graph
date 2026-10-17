@@ -447,11 +447,16 @@ class JavaMethodBodyAdmissionTest {
   void givenCanonicalMethodMissingFromContribution_whenCorrelated_thenBodyIsRejected() throws IOException {
     // Arrange
     withCompiledSource("missing-method", fixture -> {
+      var original = fixture.translated().types().getFirst();
+      var missingMethod = new JavaType(original.typeKey(), original.qualifiedName(), original.kind(), original.modifiers(),
+          original.enclosingType(), original.directSuperclass(), original.directInterfaces(), original.permittedSubclasses(),
+          original.typeParameters(), original.sourceDeclared(), original.fields(), original.recordComponents(), List.of(),
+          original.synthesizedDeclarations(), original.origins());
       var contributor = new UnitSourceFixture(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaTranslationPolicy.legacyAnalysis());
 
       // Act
       var error = assertThrows(IllegalArgumentException.class,
-          () -> contributor.translate(fixture.unit(), fixture.source(), fixture.translated().methodBodies(), List.of()));
+          () -> contributor.translate(fixture.unit(), fixture.source(), fixture.translated().methodBodies(), List.of(missingMethod)));
 
       // Assert
       assertTrue(error.getMessage().contains("does not match its canonical executable"));
