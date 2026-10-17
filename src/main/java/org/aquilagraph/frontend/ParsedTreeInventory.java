@@ -59,6 +59,7 @@ final class ParsedTreeInventory {
   private final Map<VariableTree, LocalBindingEvidence.TypeForm> lambdaParameterTypes;
   private final Map<ClassTree, List<SourceSpan>> capturedEmptyDeclarations;
   private final Map<CompilationUnitTree, List<SourceSpan>> capturedUnitEmptyDeclarations;
+  private final Map<CompilationUnitTree, SourceFile> capturedSources;
 
   private ParsedTreeInventory(Set<Tree> writtenTrees, Map<AnnotationTree, SyntaxValue.Annotation> annotations,
       Map<AnnotationTree, TreePath> annotationTypePaths, Map<AnnotationTree, TreePath> annotationPaths,
@@ -66,7 +67,8 @@ final class ParsedTreeInventory {
       Map<VariableTree, List<AnnotationTree>> variableAnnotations, Map<ModifiersTree, Set<Modifier>> modifiers,
       Map<Tree, List<ParsedSourceOwner>> owners, Map<VariableTree, Boolean> inferredTypes,
       Map<LambdaExpressionTree, SyntaxValue.Lambda> lambdas, Map<VariableTree, LocalBindingEvidence.TypeForm> parameterTypes,
-      Map<ClassTree, List<SourceSpan>> emptyDeclarations, Map<CompilationUnitTree, List<SourceSpan>> unitEmptyDeclarations) {
+      Map<ClassTree, List<SourceSpan>> emptyDeclarations, Map<CompilationUnitTree, List<SourceSpan>> unitEmptyDeclarations,
+      Map<CompilationUnitTree, SourceFile> sources) {
     this.writtenTrees = writtenTrees;
     this.annotations = annotations;
     this.annotationTypePaths = annotationTypePaths;
@@ -81,6 +83,7 @@ final class ParsedTreeInventory {
     this.lambdaParameterTypes = parameterTypes;
     this.capturedEmptyDeclarations = emptyDeclarations;
     this.capturedUnitEmptyDeclarations = unitEmptyDeclarations;
+    this.capturedSources = sources;
   }
 
   static ParsedTreeInventory capture(List<CompilationUnitTree> units, Function<CompilationUnitTree, Optional<SourceFile>> sources,
@@ -102,6 +105,7 @@ final class ParsedTreeInventory {
     var parameterTypes = new IdentityHashMap<VariableTree, LocalBindingEvidence.TypeForm>();
     var emptyDeclarations = new IdentityHashMap<ClassTree, List<SourceSpan>>();
     var unitEmptyDeclarations = new IdentityHashMap<CompilationUnitTree, List<SourceSpan>>();
+    var capturedSources = new IdentityHashMap<CompilationUnitTree, SourceFile>();
     JavaCoverageTopology.owners(units, sources, evidence).forEach(owner -> {
       owners.computeIfAbsent(owner.tree(), ignored -> new ArrayList<>()).add(new ParsedSourceOwner(owner.treePath(),
           owner.source().sourceFileKey(), owner.path(), JavaSourceKind.valueOf(owner.tree().getKind().name()), owner.origin()));
@@ -111,6 +115,7 @@ final class ParsedTreeInventory {
     });
     owners.replaceAll((tree, values) -> List.copyOf(values));
     for (var unit : units) {
+      sources.apply(unit).ifPresent(source -> capturedSources.put(unit, source));
       sources.apply(unit).ifPresent(source -> unitEmptyDeclarations.put(unit, captureUnitEmptyDeclarations(unit, source, evidence)));
       scanUnit(unit, sources.apply(unit), evidence, writtenTrees, annotations, annotationTypePaths, annotationPaths, annotationArguments,
           annotationsByOwner, variableAnnotations, modifiers, inferredTypes, emptyDeclarations);
@@ -120,7 +125,13 @@ final class ParsedTreeInventory {
         Collections.unmodifiableMap(annotationsByOwner), Collections.unmodifiableMap(variableAnnotations),
         Collections.unmodifiableMap(modifiers), Collections.unmodifiableMap(owners), Collections.unmodifiableMap(inferredTypes),
         Collections.unmodifiableMap(lambdas), Collections.unmodifiableMap(parameterTypes), Collections.unmodifiableMap(emptyDeclarations),
-        Collections.unmodifiableMap(unitEmptyDeclarations));
+        Collections.unmodifiableMap(unitEmptyDeclarations), Collections.unmodifiableMap(capturedSources));
+  }
+
+  void requireSource(CompilationUnitTree unit, SourceFile source) {
+    if (!source.equals(capturedSources.get(unit))) {
+      throw new IllegalArgumentException("Executable projection requires the captured source of its exact compilation unit");
+    }
   }
 
   private static List<SourceSpan> captureUnitEmptyDeclarations(CompilationUnitTree unit, SourceFile source, JavaSourceEvidence evidence) {

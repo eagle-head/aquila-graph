@@ -66,9 +66,8 @@ final class JavaInitializationProjector {
     }
     var projection = executableProjection(unit, sourceFile, value.declarationKey(), initializer, new TreePath(fieldPath, initializer),
         JavaSyntaxStructuralPath.executionRoot(fieldPath).child(SyntaxRole.INITIALIZER, 0), memberContext(nestedDeclarations));
-    var decisions = new JavaBodyDecisionProducer(semantics).produce(value.declarationKey(), projection.translation().value(),
-        projection.nodes(), diagnostics.snapshot().diagnostics());
-    var copied = bodyCorrelation.projectExecutable(projection, path.child(SyntaxRole.INITIALIZER, 0), unit, sourceFile, diagnostics);
+    var decisions = new JavaBodyDecisionProducer(semantics).produce(projection);
+    var copied = bodyCorrelation.projectExecutable(projection, path.child(SyntaxRole.INITIALIZER, 0), diagnostics);
     return copied.map(node -> new Initialization(List.of(new SyntaxChild(SyntaxRole.INITIALIZER, 0, node)),
         new FieldRegistration(value, fieldPath, Optional.of(projection), decisions)));
   }
@@ -87,9 +86,8 @@ final class JavaInitializationProjector {
     var decisions = projection.map(valueProjection -> bodyCorrelation.rebind(initializerDecisions, valueProjection.translation().value(),
         node.requiredChild(SyntaxRole.INITIALIZER))).orElse(initializerDecisions);
     var uses = new ArrayList<>(decisions.uses());
-    new JavaBodyDecisionProducer(semantics).fieldInitializer(value.declarationKey(), node, fieldPath).ifPresent(uses::add);
-    var attributions = projection
-        .map(valueProjection -> new ArrayList<>(bodyCorrelation.executionAttributions(value.declarationKey(), valueProjection)))
+    projection.flatMap(evidence -> new JavaBodyDecisionProducer(semantics).fieldInitializer(evidence, node)).ifPresent(uses::add);
+    var attributions = projection.map(valueProjection -> new ArrayList<>(bodyCorrelation.executionAttributions(valueProjection)))
         .orElseGet(ArrayList::new);
     attributions.add(new AttributedBodyOccurrence(value.declarationKey(), node.nodeId(), node.sourceFileKey(), node.sourceKind(),
         JavaSyntaxStructuralPath.executionRoot(fieldPath)));
@@ -116,9 +114,8 @@ final class JavaInitializationProjector {
       var argumentPath = Objects.requireNonNull(TreePath.getPath(creationPath, argument), "enum argument path");
       var projection = executableProjection(unit, sourceFile, value.declarationKey(), argument, argumentPath,
           JavaSyntaxStructuralPath.executionRoot(argumentPath), context);
-      var decisions = decisionProducer.produce(value.declarationKey(), projection.translation().value(), projection.nodes(),
-          diagnostics.snapshot().diagnostics());
-      var copied = bodyCorrelation.projectExecutable(projection, path.child(SyntaxRole.ARGUMENT, index), unit, sourceFile, diagnostics);
+      var decisions = decisionProducer.produce(projection);
+      var copied = bodyCorrelation.projectExecutable(projection, path.child(SyntaxRole.ARGUMENT, index), diagnostics);
       if (copied.isEmpty()) {
         return Optional.empty();
       }
@@ -128,7 +125,7 @@ final class JavaInitializationProjector {
       enumInvocations.addAll(retained.invocations());
       enumStaticAccesses.addAll(retained.staticAccesses());
       enumConcatenations.addAll(retained.concatenations());
-      enumAttributions.addAll(bodyCorrelation.executionAttributions(value.declarationKey(), projection));
+      enumAttributions.addAll(bodyCorrelation.executionAttributions(projection));
     }
     if (creation.getClassBody() != null) {
       var bodyPath = new TreePath(creationPath, creation.getClassBody());
@@ -197,9 +194,8 @@ final class JavaInitializationProjector {
     var projection = executableProjection(unit, sourceFile, key, block, treePath, JavaSyntaxStructuralPath.executionRoot(treePath),
         context);
     var original = projection.translation().value();
-    var decisions = new JavaBodyDecisionProducer(semantics).produce(key, original, projection.nodes(),
-        diagnostics.snapshot().diagnostics());
-    var projected = bodyCorrelation.projectExecutable(projection, path, unit, sourceFile, diagnostics);
+    var decisions = new JavaBodyDecisionProducer(semantics).produce(projection);
+    var projected = bodyCorrelation.projectExecutable(projection, path, diagnostics);
     if (projected.isEmpty()) {
       return Optional.empty();
     }
@@ -211,7 +207,7 @@ final class JavaInitializationProjector {
     var retained = bodyCorrelation.rebind(decisions, original, node);
     bodyCorrelation.retainScope(new CopiedAstValues.Scope(new ExecutionScope.Initializer(key, ownerKey.orElseThrow(), origin, kind), node,
         retained.uses(), retained.invocations(), retained.staticAccesses(), retained.concatenations(),
-        bodyCorrelation.executionAttributions(key, projection)));
+        bodyCorrelation.executionAttributions(projection)));
     return Optional.of(node);
   }
 

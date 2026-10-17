@@ -753,7 +753,7 @@ class JavaAstSourcePositionTest {
       var typeKey = fixture.semantics().declarationKey(owner).orElseThrow();
       var evidence = new JavaSourceEvidence(fixture.positions());
       var emptyInventory = ParsedTreeInventory.capture(List.of(), ignored -> Optional.empty(), evidence);
-      var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, emptyInventory, JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
+      var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory(), JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, bodyTranslator);
       var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
       var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics");
