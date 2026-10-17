@@ -29,16 +29,17 @@ final class DiagnosticEmissionCollector {
     return new DiagnosticEmissionCollector(producer, producingOwner, nextOrdinals);
   }
 
-  void emit(AnalysisDiagnostic diagnostic) {
-    emit(producer, diagnostic);
+  DiagnosticEmission emit(AnalysisDiagnostic diagnostic) {
+    return emit(producer, diagnostic);
   }
 
-  void emit(String creatingSite, AnalysisDiagnostic diagnostic) {
+  DiagnosticEmission emit(String creatingSite, AnalysisDiagnostic diagnostic) {
     var ordinal = nextOrdinals.getOrDefault(creatingSite, 0L);
     var address = new DiagnosticEmission.Address(creatingSite, producingOwner, Math.toIntExact(ordinal));
     var event = new DiagnosticEmission(address, diagnostic, diagnostic.outcomeKind(), List.of(), -1);
     nextOrdinals.put(creatingSite, ordinal + 1);
     retained.put(address, event);
+    return event;
   }
 
   void include(DiagnosticEmissions emissions) {
@@ -72,7 +73,4 @@ final class DiagnosticEmissionCollector {
     return retained.isEmpty();
   }
 
-  AnalysisDiagnostic diagnosticAt(int index) {
-    return snapshot().events().get(index).diagnostic();
-  }
 }

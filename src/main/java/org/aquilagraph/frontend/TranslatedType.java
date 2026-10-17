@@ -7,11 +7,7 @@ import org.aquilagraph.source.api.DeclarationMemberOrder;
 import org.aquilagraph.source.api.DeclarationTypeEvidence;
 
 record TranslatedType(List<JavaType> types, List<TranslatedMethodBody> methodBodies, List<DeclarationMemberOrder> memberOrders,
-    List<DeclarationTypeEvidence> declarationTypes) {
-  TranslatedType(List<JavaType> types, List<TranslatedMethodBody> methodBodies, List<DeclarationMemberOrder> memberOrders) {
-    this(types, methodBodies, memberOrders, List.of());
-  }
-
+    List<DeclarationTypeEvidence> declarationTypes, ProjectionEligibility eligibility) {
   TranslatedType {
     types = List.copyOf(Objects.requireNonNull(types, "types"));
     if (types.isEmpty()) {
@@ -20,5 +16,6 @@ record TranslatedType(List<JavaType> types, List<TranslatedMethodBody> methodBod
     methodBodies = List.copyOf(Objects.requireNonNull(methodBodies, "methodBodies"));
     memberOrders = List.copyOf(Objects.requireNonNull(memberOrders, "memberOrders"));
     declarationTypes = List.copyOf(Objects.requireNonNull(declarationTypes, "declarationTypes"));
+    Objects.requireNonNull(eligibility, "eligibility");
   }
 }

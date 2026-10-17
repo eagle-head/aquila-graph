@@ -222,8 +222,7 @@ class CompilationUnitEnvelopeAstTest {
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration()), sources)) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed, JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_UNITS));
-      var translator = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(), compilation.treeInventory(),
-          JavaLanguageFeatureCoverage.fromConfiguration(configuration()), JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_UNITS));
+      var translator = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(), compilation.treeInventory(), JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_UNITS));
       // Act
       var result = translator.translate(snapshot, compilation.units().subList(0, 1));
       // Assert

@@ -162,8 +162,7 @@ class ScopedSourcePublicationTest {
         }
         @Override public long getEndPosition(CompilationUnitTree unit, Tree tree) { return actual.rawEnd(unit, tree); }
       });
-      var factory = new JavaUnitTranslationFactory(fixture.compilation().semantics(), evidence, fixture.compilation().treeInventory(),
-          JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION), POLICY);
+      var factory = new JavaUnitTranslationFactory(fixture.compilation().semantics(), evidence, fixture.compilation().treeInventory(), POLICY);
       var coordinator = factory.create(fixture.compilation().units().getFirst(), fixture.source());
 
       // Act

@@ -897,19 +897,24 @@ class JavaTypeUseAstTest {
       var typeTree = unit.getPackageName();
       var translator = new JavaTypeUseTranslator(compilation.semantics(), compilation.sourceEvidence(), parsed.treeInventory());
 
-      // Act and Assert
       for (var index = 0; index < states.size(); index++) {
+        // Arrange
         var diagnostics = JavaCoverageTestSupport.collector(baseline, "type-use-observation");
         var baselineCount = diagnostics.emissionCount();
+
+        // Act
         var translated = translator.translateAttributed(unit, sources.find(unit).orElseThrow(), typeTree,
-            TreePath.getPath(unit, typeTree), path, path, states.get(index), diagnostics).orElseThrow();
+            TreePath.getPath(unit, typeTree), path, path, states.get(index), diagnostics).value().orElseThrow();
+        var analysisInput = JavaCoverageTestSupport.withFacts(baseline, baseline.program(), baseline.aggregate(), diagnostics.snapshot().events());
+        var completion = new SourceAnalysisFixture().analyze(analysisInput).completion();
+
+        // Assert
         assertEquals(states.get(index), translated.type());
         assertEquals(baselineCount + 1, diagnostics.emissionCount());
         assertEquals(expectedCodes.get(index), diagnostics.snapshot().diagnostics().getLast().code());
         assertEquals(List.of(expectedSpan), diagnostics.snapshot().diagnostics().getLast().origins());
         assertEquals(DiagnosticSeverity.ERROR, diagnostics.snapshot().diagnostics().getLast().severity());
-        var analysisInput = JavaCoverageTestSupport.withFacts(baseline, baseline.program(), baseline.aggregate(), diagnostics.snapshot().events());
-        assertNotEquals(AnalysisCompletion.COMPLETE, new SourceAnalysisFixture().analyze(analysisInput).completion());
+        assertNotEquals(AnalysisCompletion.COMPLETE, completion);
       }
     }
   }
@@ -942,7 +947,7 @@ class JavaTypeUseAstTest {
 
       // Act
       var translated = translator.translateAttributed(unit, sources.find(unit).orElseThrow(), typeTree,
-          TreePath.getPath(unit, typeTree), path, path, type, diagnostics);
+          TreePath.getPath(unit, typeTree), path, path, type, diagnostics).value();
       var analysisInput = JavaCoverageTestSupport.withFacts(baseline, baseline.program(), baseline.aggregate(), diagnostics.snapshot().events());
       var completion = new SourceAnalysisFixture().analyze(analysisInput).completion();
 

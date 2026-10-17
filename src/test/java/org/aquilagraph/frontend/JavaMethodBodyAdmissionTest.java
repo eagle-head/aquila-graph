@@ -415,9 +415,8 @@ class JavaMethodBodyAdmissionTest {
       task.analyze();
       assertTrue(diagnostics.getDiagnostics().stream().noneMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
       var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(), new DeclarationIdentityRegistry(trees, task.getTypes()));
-      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
       var methodTranslator = new JavaMethodTranslator(semantics, evidence, inventory, new JavaMethodBodyTranslator(semantics, evidence, inventory, JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis())));
-      var typeTranslator = new JavaTypeTranslator(semantics, evidence, inventory, new JavaDeclarationPropertyObserver(coverage), methodTranslator, JavaTranslationPolicy.legacyAnalysis());
+      var typeTranslator = new JavaTypeTranslator(semantics, evidence, inventory, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
       var translated = typeTranslator.translate(unit, new TreePath(unit), source, (ClassTree) unit.getTypeDecls().getFirst())
           .value().orElseThrow();
       action.accept(new Fixture(snapshot, source, unit, task, trees, semantics, evidence, inventory, translated));

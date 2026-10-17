@@ -67,7 +67,7 @@ class UnitTranslationFailureTest {
         }
       };
       var translator = new JavaProgramTranslator(sources, compilation.semantics(), new JavaSourceEvidence(positions),
-          compilation.treeInventory(), JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION), policy);
+          compilation.treeInventory(), policy);
 
       // Act
       var failed = translator.translate(snapshot, compilation.units(), true);
@@ -156,7 +156,7 @@ class UnitTranslationFailureTest {
           new DiagnosticEmission.Address("JavaMethodBodyTranslator", "type:Sample#subject():" + initializerPath, 0),
           new DiagnosticEmission.Address("JavaSourceEvidence", source.sourceFileKey(), 1));
       var translator = new JavaProgramTranslator(sources, compilation.semantics(), new JavaSourceEvidence(positions),
-          compilation.treeInventory(), JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION), policy);
+          compilation.treeInventory(), policy);
 
       // Act
       failed = translator.translate(snapshot, compilation.units());
@@ -201,7 +201,7 @@ class UnitTranslationFailureTest {
       var compilation = session.analyze(session.parse(), policy);
       var units = compilation.units();
       var translator = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(),
-          compilation.treeInventory(), JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION), policy);
+          compilation.treeInventory(), policy);
 
       // Act
       var missing = translator.translate(snapshot, List.of(units.getFirst(), units.getLast()));
@@ -245,7 +245,7 @@ class UnitTranslationFailureTest {
         }
       };
       var translator = new JavaProgramTranslator(sources, compilation.semantics(), new JavaSourceEvidence(positions),
-          compilation.treeInventory(), JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION), policy);
+          compilation.treeInventory(), policy);
 
       // Act
       var failed = translator.translate(snapshot, compilation.units());

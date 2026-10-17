@@ -27,6 +27,7 @@ import javax.lang.model.type.TypeKind;
 import org.aquilagraph.frontend.JavaAnnotationValueProjector.ProjectedValue;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.ResolutionStatus;
 import org.aquilagraph.source.api.SemanticReference;
 import org.aquilagraph.source.api.JavaSourceKind;
@@ -78,27 +79,33 @@ final class JavaAnnotationProjector {
     values = new JavaAnnotationValueProjector(semantics, sourceEvidence, inventory, sourceAssociations);
   }
 
-  Optional<SyntaxNode> declaration(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation, SyntaxStructuralPath path,
-      SyntaxStructuralPath occurrencePath, DeclarationSite site, DiagnosticEmissionCollector diagnostics) {
+  SourceProjectionResult<SyntaxNode> declaration(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DeclarationSite site, DiagnosticEmissionCollector diagnostics) {
     return project(unit, sourceFile, annotation, path, occurrencePath, Optional.of(site), diagnostics);
   }
 
-  Optional<SyntaxNode> typeUse(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation, SyntaxStructuralPath path,
-      SyntaxStructuralPath occurrencePath, DiagnosticEmissionCollector diagnostics) {
+  SourceProjectionResult<SyntaxNode> typeUse(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DiagnosticEmissionCollector diagnostics) {
     return project(unit, sourceFile, annotation, path, occurrencePath, Optional.empty(), diagnostics);
   }
 
-  private Optional<SyntaxNode> project(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
+  private SourceProjectionResult<SyntaxNode> project(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, Optional<DeclarationSite> site,
       DiagnosticEmissionCollector diagnostics) {
-    var range = sourceEvidence.requiredRange(unit, sourceFile, annotation, occurrencePath, diagnostics);
+    var projectedRange = sourceEvidence.requiredRange(unit, sourceFile, annotation, occurrencePath, diagnostics);
+    var range = projectedRange.value();
+    var missingWritten = Optional.<DiagnosticEmission>empty();
     var written = inventory.annotation(annotation);
     if (!inventory.isWritten(annotation) || written.isEmpty()) {
-      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath,
-          "frontend.missing-annotation-source-evidence", "A written annotation has no complete pre-attribution form evidence", range));
+      missingWritten = Optional
+          .of(diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath,
+              "frontend.missing-annotation-source-evidence", "A written annotation has no complete pre-attribution form evidence", range)));
     }
-    if (range.isEmpty() || written.isEmpty() || !inventory.isWritten(annotation)) {
-      return Optional.empty();
+    if (range.isEmpty()) {
+      return projectedRange.refusal();
+    }
+    if (missingWritten.isPresent()) {
+      return SourceProjectionResult.failure(missingWritten.orElseThrow());
     }
     var typePath = inventory.annotationTypePath(annotation);
     var element = typePath.isEmpty() ? null : semantics.element(typePath.orElseThrow());
@@ -147,15 +154,11 @@ final class JavaAnnotationProjector {
     String argumentFailureCode = null;
     if (parsed.form() == SyntaxValue.AnnotationForm.SINGLE_ELEMENT || parsed.form() == SyntaxValue.AnnotationForm.NAMED_NORMAL) {
       if (validType && location != SyntaxValue.AnnotationLocation.UNRESOLVED) {
-        var diagnosticCount = diagnostics.emissionCount();
-        children = values.arguments(unit, sourceFile, annotation, (TypeElement) Objects.requireNonNull(element), path, diagnostics);
-        if (children.isEmpty()) {
-          if (diagnostics.emissionCount() == diagnosticCount) {
-            diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath,
-                "frontend.unavailable-annotation-attribution", "The written annotation arguments could not be projected", range));
-          }
-          argumentFailureCode = diagnostics.diagnosticAt(diagnosticCount).code();
-        }
+        var projected = values.arguments(unit, sourceFile, annotation, (TypeElement) Objects.requireNonNull(element), path, diagnostics);
+        diagnostics.include(projected.emissions());
+        var arguments = projected.value();
+        children = arguments.value().orElse(List.of());
+        argumentFailureCode = arguments.failure().map(event -> event.diagnostic().code()).orElse(null);
       } else {
         argumentFailureCode = validType ? "frontend.unresolved-annotation-location" : "frontend.unresolved-annotation-type";
       }
@@ -171,7 +174,7 @@ final class JavaAnnotationProjector {
     var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION,
         SyntaxType.NotApplicable.INSTANCE, value, children, reference, range.orElseThrow());
     inventory.annotationPath(annotation).ifPresent(annotationPath -> sourceAssociations.created(node, annotationPath));
-    return Optional.of(node);
+    return SourceProjectionResult.success(node);
   }
 
   private boolean closestTypeAdmissible(AnnotationTree annotation, DeclarationSite site) {
@@ -228,8 +231,8 @@ final class JavaAnnotationProjector {
     return true;
   }
 
-  Optional<ProjectedValue> defaultValue(CompilationUnitTree unit, SourceFile sourceFile, MethodTree method, ExecutableElement element,
-      SyntaxStructuralPath path, DiagnosticEmissionCollector diagnostics) {
+  SourceProjectionResult<ProjectedValue> defaultValue(CompilationUnitTree unit, SourceFile sourceFile, MethodTree method,
+      ExecutableElement element, SyntaxStructuralPath path, DiagnosticEmissionCollector diagnostics) {
     return values.defaultValue(unit, sourceFile, method, element, path, diagnostics);
   }
 

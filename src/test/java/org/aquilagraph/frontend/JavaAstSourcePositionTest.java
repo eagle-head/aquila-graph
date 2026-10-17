@@ -102,7 +102,7 @@ class JavaAstSourcePositionTest {
         }
       };
       var translated = new JavaProgramTranslator(sources, compilation.semantics(), new JavaSourceEvidence(positions),
-          compilation.treeInventory(), baseline.languageFeatureCoverage(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
+          compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
       var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(), translated.value().aggregate(), translated.emissions().events());
       var ast = AstResultAdmission.admit(input, AstProfile.JAVA_SOURCE_BOUNDED, "javac-public/1");
       var unavailable = ast.program().methods().stream().filter(method -> method.name().equals("unavailable")).findFirst().orElseThrow();
@@ -262,8 +262,7 @@ class JavaAstSourcePositionTest {
       var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       for (var position : cases) {
         var evidence = new JavaSourceEvidence(new FixedPositions(position.start(), position.end()));
-        var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
-            baseline.languageFeatureCoverage(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
+        var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
         var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
             translated.value().aggregate(), translated.emissions().events());
         var run = new SourceAnalysisFixture().analyze(input);
@@ -287,15 +286,13 @@ class JavaAstSourcePositionTest {
       var statement = constructor.getBody().getStatements().getFirst();
       assertTrue(fixture.inventory().isWritten(statement));
       var evidence = new JavaSourceEvidence(new MissingPositions(fixture.positions(), List.of(statement)));
-      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-      var propertyObserver = new JavaDeclarationPropertyObserver(coverage);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory(), JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), bodyTranslator);
       // Act
       var method = methodTranslator.translate(fixture.unit(), new TreePath(new TreePath(fixture.unit()), type), fixture.sourceFile(),
           "type:Example", constructor);
       var body = method.value().body().orElseThrow();
-      var typeTranslator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), propertyObserver,
+      var typeTranslator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(),
           methodTranslator, JavaTranslationPolicy.legacyAnalysis());
       var declaredTypes = typeTranslator.translate(fixture.unit(), new TreePath(fixture.unit()), fixture.sourceFile(), type)
           .value().orElseThrow().types();
@@ -512,8 +509,7 @@ class JavaAstSourcePositionTest {
       var evidence = new JavaSourceEvidence(new MissingPositions(positions, List.of(declaration.getImplementsClause().getFirst())));
 
       // Act
-      var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
-          baseline.languageFeatureCoverage(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
+      var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
       var aggregate = translated.value().aggregate().orElseThrow();
       var diagnostics = JavaCoverageTestSupport.collector(baseline, "source-position-observation");
       diagnostics.include(translated.emissions());
@@ -548,11 +544,9 @@ class JavaAstSourcePositionTest {
     withCompiledSource(source, fixture -> {
       var unitPath = new TreePath(fixture.unit());
       var evidence = new JavaSourceEvidence(fixture.positions());
-      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-      var propertyObserver = new JavaDeclarationPropertyObserver(coverage);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory(), JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), bodyTranslator);
-      var typeTranslator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), propertyObserver, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
+      var typeTranslator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), methodTranslator, JavaTranslationPolicy.legacyAnalysis());
       var modeledTypes = new ArrayList<JavaType>();
       for (var declaration : fixture.unit().getTypeDecls()) {
         if (declaration instanceof ClassTree type) {
@@ -661,8 +655,7 @@ class JavaAstSourcePositionTest {
       var evidence = new JavaSourceEvidence(new MissingPositions(actualPositions, List.of(firstComponentTree)));
 
       // Act
-      var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
-          baseline.languageFeatureCoverage(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
+      var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
 
       // Assert
       assertTrue(translated.value().aggregate().isEmpty());
@@ -697,11 +690,9 @@ class JavaAstSourcePositionTest {
         }
       };
       var evidence = new JavaSourceEvidence(positions);
-      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-      var observer = new JavaDeclarationPropertyObserver(coverage);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory(), JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), bodyTranslator);
-      var translator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), observer, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
+      var translator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), methodTranslator, JavaTranslationPolicy.legacyAnalysis());
 
       // Act
       var result = translator.translate(fixture.unit(), new TreePath(fixture.unit()), fixture.sourceFile(), declaration);
@@ -728,12 +719,10 @@ class JavaAstSourcePositionTest {
       var typeKey = fixture.semantics().declarationKey(owner).orElseThrow();
       var evidence = new JavaSourceEvidence(fixture.positions());
       var origin = evidence.origin(fixture.unit(), fixture.sourceFile(), declaration);
-      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-      var observer = new JavaDeclarationPropertyObserver(coverage);
       var emptyInventory = ParsedTreeInventory.capture(List.of(), ignored -> Optional.empty(), evidence);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, emptyInventory, JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, bodyTranslator);
-      var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, observer, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
+      var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
       var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics");
 
       // Act
@@ -741,7 +730,7 @@ class JavaAstSourcePositionTest {
           fixture.sourceFile(), typeKey, origin, List.of(), List.of(), List.of(), List.of(), diagnostics);
 
       // Assert
-      assertTrue(synthesized.stream().noneMatch(member -> member.declarationKey().equals(fieldKey)));
+      assertTrue(synthesized.synthesized().stream().noneMatch(member -> member.declarationKey().equals(fieldKey)));
       var diagnostic = diagnostics.snapshot().diagnostics().stream().filter(item -> item.code().equals("frontend.unrepresented-written-declaration"))
           .findFirst().orElseThrow();
       assertEquals("frontend.unrepresented-written-declaration", diagnostic.code());
@@ -763,12 +752,10 @@ class JavaAstSourcePositionTest {
       var methodKey = fixture.semantics().declarationKey(implicitMethod).orElseThrow();
       var typeKey = fixture.semantics().declarationKey(owner).orElseThrow();
       var evidence = new JavaSourceEvidence(fixture.positions());
-      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-      var observer = new JavaDeclarationPropertyObserver(coverage);
       var emptyInventory = ParsedTreeInventory.capture(List.of(), ignored -> Optional.empty(), evidence);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, emptyInventory, JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, bodyTranslator);
-      var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, observer, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
+      var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
       var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics");
 
       // Act
@@ -778,7 +765,7 @@ class JavaAstSourcePositionTest {
       var translated = translator.translate(fixture.unit(), new TreePath(fixture.unit()), fixture.sourceFile(), declaration);
 
       // Assert
-      assertTrue(synthesized.stream().noneMatch(member -> member.declarationKey().equals(methodKey)));
+      assertTrue(synthesized.synthesized().stream().noneMatch(member -> member.declarationKey().equals(methodKey)));
       assertTrue(translated.value().isEmpty());
       assertTrue(diagnostics.snapshot().diagnostics().stream().anyMatch(item -> item.code().equals("frontend.unrepresented-written-declaration")
           && item.origins().equals(evidence.origin(fixture.unit(), fixture.sourceFile(), declaration).stream().toList())));
@@ -800,11 +787,9 @@ class JavaAstSourcePositionTest {
       var implicitMethod = equalsMethods.stream().filter(member -> fixture.semantics().sourceTree(member) == null)
           .findFirst().orElseThrow();
       var evidence = new JavaSourceEvidence(fixture.positions());
-      var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-      var observer = new JavaDeclarationPropertyObserver(coverage);
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory(), JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, fixture.inventory(), bodyTranslator);
-      var translator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), observer, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
+      var translator = new JavaTypeTranslator(fixture.semantics(), evidence, fixture.inventory(), methodTranslator, JavaTranslationPolicy.legacyAnalysis());
 
       // Act
       var result = translator.translate(fixture.unit(), new TreePath(fixture.unit()), fixture.sourceFile(), declaration);
@@ -961,8 +946,7 @@ class JavaAstSourcePositionTest {
       // Act
       for (var position : cases) {
         var evidence = new JavaSourceEvidence(new MissingPositions(actualPositions, List.of(position.tree())));
-        var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(),
-            baseline.languageFeatureCoverage(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
+        var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
         var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
             translated.value().aggregate(), translated.emissions().events());
         var run = new SourceAnalysisFixture().analyze(input);

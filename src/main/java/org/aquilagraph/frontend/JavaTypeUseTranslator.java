@@ -23,6 +23,7 @@ import javax.lang.model.type.TypeKind;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeStructure;
@@ -63,7 +64,7 @@ final class JavaTypeUseTranslator {
     this.sourceAssociations = Objects.requireNonNull(sourceAssociations, "sourceAssociations");
   }
 
-  Optional<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
+  SourceProjectionResult<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
       SyntaxStructuralPath occurrencePath, DiagnosticEmissionCollector diagnostics) {
     Objects.requireNonNull(unit, "unit");
     Objects.requireNonNull(sourceFile, "sourceFile");
@@ -73,27 +74,25 @@ final class JavaTypeUseTranslator {
     Objects.requireNonNull(diagnostics, "diagnostics");
     var treePath = TreePath.getPath(unit, tree);
     if (treePath == null) {
-      diagnostics.emit(DIAGNOSTIC_PRODUCER,
+      return SourceProjectionResult.failure(diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-type-tree-path",
-              "A written type has no compiler tree path", sourceEvidence.origin(unit, sourceFile, tree)));
-      return Optional.empty();
+              "A written type has no compiler tree path", sourceEvidence.origin(unit, sourceFile, tree))));
     }
     return translate(unit, sourceFile, tree, treePath, path, occurrencePath, diagnostics);
   }
 
-  Optional<SyntaxNode> translateDeclaration(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
-      SyntaxStructuralPath occurrencePath, SyntaxType attributedType, DiagnosticEmissionCollector diagnostics) {
+  SourceProjectionResult<SyntaxNode> translateDeclaration(CompilationUnitTree unit, SourceFile sourceFile, Tree tree,
+      SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, SyntaxType attributedType, DiagnosticEmissionCollector diagnostics) {
     var treePath = TreePath.getPath(unit, tree);
     if (treePath == null) {
-      diagnostics.emit(DIAGNOSTIC_PRODUCER,
+      return SourceProjectionResult.failure(diagnostics.emit(DIAGNOSTIC_PRODUCER,
           FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-type-tree-path",
-              "A written type has no compiler tree path", sourceEvidence.origin(unit, sourceFile, tree)));
-      return Optional.empty();
+              "A written type has no compiler tree path", sourceEvidence.origin(unit, sourceFile, tree))));
     }
     return translateDeclaration(unit, sourceFile, tree, treePath, path, occurrencePath, attributedType, diagnostics);
   }
 
-  Optional<SyntaxNode> translateDeclaration(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
+  SourceProjectionResult<SyntaxNode> translateDeclaration(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, SyntaxType attributedType, DiagnosticEmissionCollector diagnostics) {
     if (!JavaProjectionIdentity.sameInstance(treePath.getLeaf(), tree)
         || !JavaProjectionIdentity.sameInstance(treePath.getCompilationUnit(), unit)) {
@@ -102,34 +101,35 @@ final class JavaTypeUseTranslator {
     return translateAttributed(unit, sourceFile, tree, treePath, path, occurrencePath, attributedType, diagnostics);
   }
 
-  private Optional<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
+  private SourceProjectionResult<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DiagnosticEmissionCollector diagnostics) {
     return translateAttributed(unit, sourceFile, tree, treePath, path, occurrencePath, semantics.explicitType(treePath), diagnostics);
   }
 
-  Optional<SyntaxNode> translateAttributed(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
+  SourceProjectionResult<SyntaxNode> translateAttributed(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, SyntaxType type, DiagnosticEmissionCollector diagnostics) {
     Objects.requireNonNull(type, "type");
-    var range = requiredRange(unit, sourceFile, tree, occurrencePath, diagnostics);
+    var projectedRange = sourceEvidence.requiredRange(unit, sourceFile, tree, occurrencePath, diagnostics);
+    var range = projectedRange.value();
     if (range.isEmpty()) {
-      return Optional.empty();
+      return projectedRange.refusal();
     }
     var sourceKind = JavaSourceKind.valueOf(tree.getKind().name());
     if (!sourceKind.identifiesTypeUseSyntax()) {
-      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-          "frontend.invalid-type-header-attachment", "A type header attachment does not contain type-use syntax", range));
-      return Optional.empty();
+      return SourceProjectionResult
+          .failure(diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+              "frontend.invalid-type-header-attachment", "A type header attachment does not contain type-use syntax", range)));
     }
     requiredTypeOutcomeDiagnostic(sourceFile.sourceFileKey(), type, range).ifPresent(diagnostics::emit);
     var children = new ArrayList<SyntaxChild>();
     SyntaxValue value = SyntaxValue.None.INSTANCE;
-    var complete = true;
+    var failure = Optional.<DiagnosticEmission>empty();
     switch (tree) {
       case PrimitiveTypeTree primitive -> value = new SyntaxValue.PrimitiveType(primitiveKind(primitive.getPrimitiveTypeKind()));
       case IdentifierTree identifier -> value = new SyntaxValue.SourceSymbol(identifier.getName().toString());
       case MemberSelectTree selection -> {
         value = new SyntaxValue.SourceSymbol(selection.getIdentifier().toString());
-        complete = appendQualifier(unit, sourceFile, selection.getExpression(), new TreePath(treePath, selection.getExpression()), path,
+        failure = appendQualifier(unit, sourceFile, selection.getExpression(), new TreePath(treePath, selection.getExpression()), path,
             occurrencePath, children, diagnostics);
       }
       case ParameterizedTypeTree parameterized -> {
@@ -137,20 +137,21 @@ final class JavaTypeUseTranslator {
           var parent = treePath.getParentPath();
           if (parent == null || !(parent.getLeaf() instanceof NewClassTree creation)
               || !JavaProjectionIdentity.sameInstance(creation.getIdentifier(), parameterized)) {
-            diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-                "frontend.invalid-diamond-owner", "Diamond syntax requires its exact creating class expression", range));
-            return Optional.empty();
+            return SourceProjectionResult
+                .failure(diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+                    "frontend.invalid-diamond-owner", "Diamond syntax requires its exact creating class expression", range)));
           }
           value = SyntaxValue.DiamondType.INSTANCE;
         }
-        complete = appendTypeChild(unit, sourceFile, parameterized.getType(), new TreePath(treePath, parameterized.getType()), path,
+        failure = appendTypeChild(unit, sourceFile, parameterized.getType(), new TreePath(treePath, parameterized.getType()), path,
             occurrencePath, SyntaxRole.TYPE_NAME, 0, children, diagnostics);
         for (var ordinal = 0; ordinal < parameterized.getTypeArguments().size(); ordinal++) {
           var argument = parameterized.getTypeArguments().get(ordinal);
-          complete &= appendTypeArgument(unit, sourceFile, argument, treePath, path, occurrencePath, ordinal, children, diagnostics);
+          failure = SourceProjectionResult.firstFailure(failure,
+              appendTypeArgument(unit, sourceFile, argument, treePath, path, occurrencePath, ordinal, children, diagnostics));
         }
       }
-      case ArrayTypeTree array -> complete = appendTypeChild(unit, sourceFile, array.getType(), new TreePath(treePath, array.getType()),
+      case ArrayTypeTree array -> failure = appendTypeChild(unit, sourceFile, array.getType(), new TreePath(treePath, array.getType()),
           path, occurrencePath, SyntaxRole.COMPONENT_TYPE, 0, children, diagnostics);
       case AnnotatedTypeTree annotated -> {
         var sharedKeys = new ArrayList<String>();
@@ -162,8 +163,9 @@ final class JavaTypeUseTranslator {
             sharedKeys.add(previousOwner.orElseThrow());
           } else {
             var position = (int) children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION).count();
-            complete &= appendAnnotation(unit, sourceFile, annotation, path, occurrencePath, position, children, diagnostics);
-            if (complete && sharedAnnotations.isPresent()) {
+            failure = SourceProjectionResult.firstFailure(failure,
+                appendAnnotation(unit, sourceFile, annotation, path, occurrencePath, position, children, diagnostics));
+            if (failure.isEmpty() && sharedAnnotations.isPresent()) {
               sharedAnnotations.orElseThrow().retain(origin.orElseThrow(), children.getLast().node().nodeId());
             }
           }
@@ -171,19 +173,20 @@ final class JavaTypeUseTranslator {
         if (!sharedKeys.isEmpty()) {
           value = new SyntaxValue.SharedTypeAnnotations(sharedKeys);
         }
-        complete &= appendTypeChild(unit, sourceFile, annotated.getUnderlyingType(), new TreePath(treePath, annotated.getUnderlyingType()),
-            path, occurrencePath, SyntaxRole.UNDERLYING_TYPE, 0, children, diagnostics);
+        failure = SourceProjectionResult.firstFailure(failure,
+            appendTypeChild(unit, sourceFile, annotated.getUnderlyingType(), new TreePath(treePath, annotated.getUnderlyingType()), path,
+                occurrencePath, SyntaxRole.UNDERLYING_TYPE, 0, children, diagnostics));
       }
       case WildcardTree wildcard -> {
         if (wildcard.getKind() != Tree.Kind.UNBOUNDED_WILDCARD && wildcard.getBound() == null) {
-          diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-              "frontend.missing-wildcard-bound", "A bounded wildcard has no written bound", range));
-          return Optional.empty();
+          return SourceProjectionResult
+              .failure(diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+                  "frontend.missing-wildcard-bound", "A bounded wildcard has no written bound", range)));
         }
         if (wildcard.getKind() == Tree.Kind.UNBOUNDED_WILDCARD && wildcard.getBound() != null) {
-          diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-              "frontend.unexpected-wildcard-bound", "An unbounded wildcard has a written bound", range));
-          return Optional.empty();
+          return SourceProjectionResult
+              .failure(diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+                  "frontend.unexpected-wildcard-bound", "An unbounded wildcard has a written bound", range)));
         }
         if (wildcard.getBound() != null) {
           var role = switch (wildcard.getKind()) {
@@ -191,38 +194,38 @@ final class JavaTypeUseTranslator {
             case SUPER_WILDCARD -> SyntaxRole.LOWER_BOUND;
             default -> throw new IllegalArgumentException("A bounded wildcard requires an extends or super source kind");
           };
-          complete = appendTypeChild(unit, sourceFile, wildcard.getBound(), new TreePath(treePath, wildcard.getBound()), path,
+          failure = appendTypeChild(unit, sourceFile, wildcard.getBound(), new TreePath(treePath, wildcard.getBound()), path,
               occurrencePath, role, 0, children, diagnostics);
         }
       }
       case IntersectionTypeTree intersection -> {
         for (var ordinal = 0; ordinal < intersection.getBounds().size(); ordinal++) {
           var bound = intersection.getBounds().get(ordinal);
-          complete &= appendTypeChildFromParent(unit, sourceFile, bound, treePath, path, occurrencePath, SyntaxRole.INTERSECTION_BOUND,
-              ordinal, children, diagnostics);
+          failure = SourceProjectionResult.firstFailure(failure, appendTypeChildFromParent(unit, sourceFile, bound, treePath, path,
+              occurrencePath, SyntaxRole.INTERSECTION_BOUND, ordinal, children, diagnostics));
         }
       }
       case UnionTypeTree union -> {
         for (var ordinal = 0; ordinal < union.getTypeAlternatives().size(); ordinal++) {
           var alternative = union.getTypeAlternatives().get(ordinal);
-          complete &= appendTypeChildFromParent(unit, sourceFile, alternative, treePath, path, occurrencePath, SyntaxRole.UNION_ALTERNATIVE,
-              ordinal, children, diagnostics);
+          failure = SourceProjectionResult.firstFailure(failure, appendTypeChildFromParent(unit, sourceFile, alternative, treePath, path,
+              occurrencePath, SyntaxRole.UNION_ALTERNATIVE, ordinal, children, diagnostics));
         }
       }
       default -> {
         // Erroneous forms retain their exact source occurrence and blocking compiler outcome.
       }
     }
-    if (!complete) {
-      return Optional.empty();
+    if (failure.isPresent()) {
+      return SourceProjectionResult.failure(failure.orElseThrow());
     }
     if (tree instanceof MemberSelectTree selection && type instanceof SyntaxType.Resolved resolved
         && resolved.identity().category() == JavaTypeCategory.DECLARED
         && !(children.getFirst().node().value() instanceof SyntaxValue.PackageQualifier)
         && !semantics.selectsTypeMember(treePath, new TreePath(treePath, selection.getExpression()))) {
-      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-          "frontend.inconsistent-type-member-selection", "The selected type declaration is not a member of the written qualifier", range));
-      return Optional.empty();
+      return SourceProjectionResult.failure(diagnostics.emit(DIAGNOSTIC_PRODUCER,
+          FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.inconsistent-type-member-selection",
+              "The selected type declaration is not a member of the written qualifier", range)));
     }
     if (value instanceof SyntaxValue.SourceSymbol symbol && inferredRecordType(treePath, type)) {
       value = new SyntaxValue.InferredRecordType(symbol.name());
@@ -231,18 +234,18 @@ final class JavaTypeUseTranslator {
     if (type instanceof SyntaxType.Resolved resolved
         && (resolved.identity().category() == JavaTypeCategory.DECLARED || resolved.identity().category() == JavaTypeCategory.TYPE_VARIABLE)
         && (reference.isEmpty() || reference.orElseThrow().status() != ResolutionStatus.RESOLVED)) {
-      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-          "frontend.unavailable-type-declaration-reference", "A written nominal or type-variable use has no selected declaration", range));
-      return Optional.empty();
+      return SourceProjectionResult.failure(diagnostics.emit(DIAGNOSTIC_PRODUCER,
+          FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(), "frontend.unavailable-type-declaration-reference",
+              "A written nominal or type-variable use has no selected declaration", range)));
     }
     if (sourceKind == JavaSourceKind.PRIMITIVE_TYPE && type.knownIdentity().isPresent()
         && type.knownIdentity().orElseThrow().category() != ((SyntaxValue.PrimitiveType) value).kind()) {
-      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-          "frontend.inconsistent-primitive-type", "Written and attributed primitive kinds disagree", range));
-      return Optional.empty();
+      return SourceProjectionResult
+          .failure(diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+              "frontend.inconsistent-primitive-type", "Written and attributed primitive kinds disagree", range)));
     }
-    return Optional.of(sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), path, sourceKind, SyntaxKind.TYPE_USE, type,
-        value, children, reference, range.orElseThrow()), treePath));
+    return SourceProjectionResult.success(sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), path, sourceKind,
+        SyntaxKind.TYPE_USE, type, value, children, reference, range.orElseThrow()), treePath));
   }
 
   private static boolean inferredRecordType(TreePath path, SyntaxType type) {
@@ -283,32 +286,32 @@ final class JavaTypeUseTranslator {
     return Optional.empty();
   }
 
-  private boolean appendTypeChild(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
+  private Optional<DiagnosticEmission> appendTypeChild(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
       SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal, List<SyntaxChild> children,
       DiagnosticEmissionCollector diagnostics) {
     var childPath = parentPath.child(role, ordinal);
     var childOccurrencePath = parentOccurrencePath.child(role, ordinal);
     var child = translate(unit, sourceFile, tree, treePath, childPath, childOccurrencePath, diagnostics);
-    child.ifPresent(node -> children.add(new SyntaxChild(role, ordinal, node)));
-    return child.isPresent();
+    child.value().ifPresent(node -> children.add(new SyntaxChild(role, ordinal, node)));
+    return child.failure();
   }
 
-  private boolean appendTypeArgument(CompilationUnitTree unit, SourceFile sourceFile, Tree argument, TreePath parentTreePath,
-      SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, int ordinal, List<SyntaxChild> children,
-      DiagnosticEmissionCollector diagnostics) {
+  private Optional<DiagnosticEmission> appendTypeArgument(CompilationUnitTree unit, SourceFile sourceFile, Tree argument,
+      TreePath parentTreePath, SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, int ordinal,
+      List<SyntaxChild> children, DiagnosticEmissionCollector diagnostics) {
     return appendTypeChildFromParent(unit, sourceFile, argument, parentTreePath, parentPath, parentOccurrencePath, SyntaxRole.TYPE_ARGUMENT,
         ordinal, children, diagnostics);
   }
 
-  private boolean appendTypeChildFromParent(CompilationUnitTree unit, SourceFile sourceFile, Tree childTree, TreePath parentTreePath,
-      SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal, List<SyntaxChild> children,
-      DiagnosticEmissionCollector diagnostics) {
+  private Optional<DiagnosticEmission> appendTypeChildFromParent(CompilationUnitTree unit, SourceFile sourceFile, Tree childTree,
+      TreePath parentTreePath, SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, SyntaxRole role, int ordinal,
+      List<SyntaxChild> children, DiagnosticEmissionCollector diagnostics) {
     return appendTypeChild(unit, sourceFile, childTree, new TreePath(parentTreePath, childTree), parentPath, parentOccurrencePath, role,
         ordinal, children, diagnostics);
   }
 
-  private boolean appendQualifier(CompilationUnitTree unit, SourceFile sourceFile, Tree qualifier, TreePath qualifierPath,
-      SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, List<SyntaxChild> children,
+  private Optional<DiagnosticEmission> appendQualifier(CompilationUnitTree unit, SourceFile sourceFile, Tree qualifier,
+      TreePath qualifierPath, SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, List<SyntaxChild> children,
       DiagnosticEmissionCollector diagnostics) {
     var path = parentPath.child(SyntaxRole.TYPE_QUALIFIER, 0);
     var occurrencePath = parentOccurrencePath.child(SyntaxRole.TYPE_QUALIFIER, 0);
@@ -316,15 +319,16 @@ final class JavaTypeUseTranslator {
     var child = state instanceof JavaTypeAttribution.NoType noType && noType.kind() == TypeKind.PACKAGE
         ? packageQualifier(unit, sourceFile, qualifier, qualifierPath, path, occurrencePath, diagnostics)
         : translate(unit, sourceFile, qualifier, qualifierPath, path, occurrencePath, diagnostics);
-    child.ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.TYPE_QUALIFIER, 0, node)));
-    return child.isPresent();
+    child.value().ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.TYPE_QUALIFIER, 0, node)));
+    return child.failure();
   }
 
-  private Optional<SyntaxNode> packageQualifier(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
+  private SourceProjectionResult<SyntaxNode> packageQualifier(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, TreePath treePath,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DiagnosticEmissionCollector diagnostics) {
-    var range = requiredRange(unit, sourceFile, tree, occurrencePath, diagnostics);
+    var projectedRange = sourceEvidence.requiredRange(unit, sourceFile, tree, occurrencePath, diagnostics);
+    var range = projectedRange.value();
     if (range.isEmpty()) {
-      return Optional.empty();
+      return projectedRange.refusal();
     }
     var children = new ArrayList<SyntaxChild>();
     String name;
@@ -332,35 +336,31 @@ final class JavaTypeUseTranslator {
       name = identifier.getName().toString();
     } else if (tree instanceof MemberSelectTree selection) {
       name = selection.getIdentifier().toString();
-      if (!appendQualifier(unit, sourceFile, selection.getExpression(), new TreePath(treePath, selection.getExpression()), path,
-          occurrencePath, children, diagnostics)) {
-        return Optional.empty();
+      var failure = appendQualifier(unit, sourceFile, selection.getExpression(), new TreePath(treePath, selection.getExpression()), path,
+          occurrencePath, children, diagnostics);
+      if (failure.isPresent()) {
+        return SourceProjectionResult.failure(failure.orElseThrow());
       }
     } else {
-      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
-          "frontend.invalid-type-name-qualifier", "A package qualifier has no supported written name", range));
-      return Optional.empty();
+      return SourceProjectionResult
+          .failure(diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+              "frontend.invalid-type-name-qualifier", "A package qualifier has no supported written name", range)));
     }
-    return Optional.of(sourceAssociations.created(
+    return SourceProjectionResult.success(sourceAssociations.created(
         SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.valueOf(tree.getKind().name()), SyntaxKind.TYPE_USE,
             SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.PackageQualifier(name), children, Optional.empty(), range.orElseThrow()),
         treePath));
   }
 
-  private boolean appendAnnotation(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
+  private Optional<DiagnosticEmission> appendAnnotation(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
       SyntaxStructuralPath parentPath, SyntaxStructuralPath parentOccurrencePath, int ordinal, List<SyntaxChild> children,
       DiagnosticEmissionCollector diagnostics) {
     var path = parentPath.child(SyntaxRole.ANNOTATION, ordinal);
     var occurrencePath = parentOccurrencePath.child(SyntaxRole.ANNOTATION, ordinal);
     var projected = new JavaAnnotationProjector(semantics, sourceEvidence, inventory, sourceAssociations).typeUse(unit, sourceFile,
         annotation, path, occurrencePath, diagnostics);
-    projected.ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.ANNOTATION, ordinal, node)));
-    return projected.isPresent();
-  }
-
-  private Optional<SourceSpan> requiredRange(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
-      DiagnosticEmissionCollector diagnostics) {
-    return sourceEvidence.requiredRange(unit, sourceFile, tree, path, diagnostics);
+    projected.value().ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.ANNOTATION, ordinal, node)));
+    return projected.failure();
   }
 
   private static JavaTypeCategory primitiveKind(TypeKind kind) {

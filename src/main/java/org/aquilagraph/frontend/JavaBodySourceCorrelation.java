@@ -438,7 +438,7 @@ final class JavaBodySourceCorrelation {
         for (var ordinal = 0; ordinal < annotations.size(); ordinal++) {
           var annotationPath = path.child(SyntaxRole.ANNOTATION, ordinal);
           var annotation = projector.typeUse(context.unit(), context.sourceFile(), annotations.get(ordinal), annotationPath, annotationPath,
-              context.diagnostics());
+              context.diagnostics()).value();
           if (annotation.isPresent()) {
             children.add(new SyntaxChild(SyntaxRole.ANNOTATION, ordinal, annotation.orElseThrow()));
           }
@@ -519,8 +519,9 @@ final class JavaBodySourceCorrelation {
     var complete = true;
     for (var index = 0; index < ownAnnotations.size(); index++) {
       var attachment = path.child(SyntaxRole.ANNOTATION, index);
-      var annotation = annotationProjector.declaration(context.unit(), context.sourceFile(), ownAnnotations.get(index), attachment,
-          attachment, site, context.diagnostics());
+      var annotation = annotationProjector
+          .declaration(context.unit(), context.sourceFile(), ownAnnotations.get(index), attachment, attachment, site, context.diagnostics())
+          .value();
       if (annotation.isPresent()) {
         children.add(new SyntaxChild(SyntaxRole.ANNOTATION, index, annotation.orElseThrow()));
       }
@@ -532,7 +533,8 @@ final class JavaBodySourceCorrelation {
       var typePath = path.child(SyntaxRole.DECLARED_TYPE, 0);
       var translated = new JavaTypeUseTranslator(semantics, sourceEvidence, treeInventory, Optional.of(owners), sourceAssociations)
           .translateDeclaration(context.unit(), context.sourceFile(), variable.getType(), new TreePath(creatingPath, variable.getType()),
-              typePath, typePath, semantics.type(creatingPath), context.diagnostics());
+              typePath, typePath, semantics.type(creatingPath), context.diagnostics())
+          .value();
       translated.ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.DECLARED_TYPE, 0, node)));
       complete &= translated.isPresent();
     }
@@ -547,7 +549,7 @@ final class JavaBodySourceCorrelation {
   private boolean appendBodyType(Tree tree, SyntaxRole role, int position, SyntaxStructuralPath parentPath, List<SyntaxChild> children,
       BodySourceContext context) {
     var path = parentPath.child(role, position);
-    var translated = typeUseTranslator.translate(context.unit(), context.sourceFile(), tree, path, path, context.diagnostics());
+    var translated = typeUseTranslator.translate(context.unit(), context.sourceFile(), tree, path, path, context.diagnostics()).value();
     translated.ifPresent(node -> children.add(new SyntaxChild(role, position, node)));
     return translated.isPresent();
   }

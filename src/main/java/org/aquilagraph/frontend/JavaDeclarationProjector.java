@@ -108,7 +108,7 @@ final class JavaDeclarationProjector {
 
   private Optional<SyntaxNode> annotationAttachment(CompilationUnitTree unit, SourceFile sourceFile, AnnotationTree annotation,
       SyntaxStructuralPath path, SyntaxStructuralPath occurrencePath, DeclarationSite site, DiagnosticEmissionCollector diagnostics) {
-    return annotationProjector.declaration(unit, sourceFile, annotation, path, occurrencePath, site, diagnostics);
+    return annotationProjector.declaration(unit, sourceFile, annotation, path, occurrencePath, site, diagnostics).value();
   }
 
   private static Optional<String> receiverName(Tree tree) {
@@ -295,9 +295,9 @@ final class JavaDeclarationProjector {
     var path = parentPath.child(role, ordinal);
     var attributed = semantics.declarationType(declarationType);
     var node = role == SyntaxRole.DECLARED_TYPE || role == SyntaxRole.RETURN_TYPE
-        ? typeUseTranslator.translateDeclaration(unit, sourceFile, tree, path, parentOccurrencePath.child(role, ordinal), attributed,
-            diagnostics)
-        : typeUseTranslator.translate(unit, sourceFile, tree, path, parentOccurrencePath.child(role, ordinal), diagnostics);
+        ? typeUseTranslator
+            .translateDeclaration(unit, sourceFile, tree, path, parentOccurrencePath.child(role, ordinal), attributed, diagnostics).value()
+        : typeUseTranslator.translate(unit, sourceFile, tree, path, parentOccurrencePath.child(role, ordinal), diagnostics).value();
     if (node.isEmpty()) {
       return false;
     }
@@ -821,7 +821,7 @@ final class JavaDeclarationProjector {
   Optional<AnnotationElementValue> appendDefault(CompilationUnitTree unit, SourceFile sourceFile, MethodTree declaration,
       ExecutableElement executable, SyntaxStructuralPath path, List<SyntaxChild> children, DiagnosticEmissionCollector diagnostics) {
     var defaultPath = path.child(SyntaxRole.DEFAULT_VALUE, 0);
-    var projected = annotationProjector.defaultValue(unit, sourceFile, declaration, executable, defaultPath, diagnostics);
+    var projected = annotationProjector.defaultValue(unit, sourceFile, declaration, executable, defaultPath, diagnostics).value();
     projected.ifPresent(result -> children.add(new SyntaxChild(SyntaxRole.DEFAULT_VALUE, 0, result.node())));
     return projected.map(result -> result.value());
   }
@@ -950,7 +950,8 @@ final class JavaDeclarationProjector {
       var typePath = path.child(SyntaxRole.DECLARED_TYPE, 0);
       var typeNode = new JavaTypeUseTranslator(semantics, sourceEvidence, treeInventory, annotationOwners, sourceAssociations)
           .translateDeclaration(unit, sourceFile, declaration.getType(), new TreePath(fieldPath, declaration.getType()), typePath,
-              occurrencePath.child(SyntaxRole.DECLARED_TYPE, 0), semantics.declarationType(variable.asType()), diagnostics);
+              occurrencePath.child(SyntaxRole.DECLARED_TYPE, 0), semantics.declarationType(variable.asType()), diagnostics)
+          .value();
       typeNode.ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.DECLARED_TYPE, 0, node)));
       complete &= typeNode.isPresent();
     }
@@ -1022,7 +1023,7 @@ final class JavaDeclarationProjector {
 
   private Optional<SourceSpan> requiredRange(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
       DiagnosticEmissionCollector diagnostics) {
-    return sourceEvidence.requiredRange(unit, sourceFile, tree, path, diagnostics);
+    return sourceEvidence.requiredRange(unit, sourceFile, tree, path, diagnostics).value();
   }
 
   private void declarationEdge(TreePath path, SyntaxNode node, JavaDeclarationScope edges) {

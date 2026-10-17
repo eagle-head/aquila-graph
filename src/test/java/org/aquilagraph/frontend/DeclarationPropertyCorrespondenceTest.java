@@ -383,7 +383,7 @@ class DeclarationPropertyCorrespondenceTest {
       var expectations = capture.captureAttributed(projectionSemantics);
       var attributed = producer.observeAttributed(projectionSemantics);
       var typeKinds = new JavaTypeKindObserver(sources, semantics, sourceEvidence, inventory, coverage, JavaTranslationPolicy.legacyAnalysis()).observe(units);
-      var translation = new JavaProgramTranslator(sources, semantics, sourceEvidence, inventory, coverage, JavaTranslationPolicy.legacyAnalysis()).translate(original.snapshot(), units);
+      var translation = new JavaProgramTranslator(sources, semantics, sourceEvidence, inventory, JavaTranslationPolicy.legacyAnalysis()).translate(original.snapshot(), units);
       assertEquals(List.of(), kinds.diagnostics());
       assertEquals(List.of(), typeKinds.diagnostics());
       assertEquals(List.of(), translation.diagnostics());

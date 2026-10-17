@@ -77,19 +77,19 @@ final class JavaSourceEvidence {
     return cursor < end - 4 && cursor > 0 && source.charAt(cursor - 1) == '\\' ? cursor - 1 : -1;
   }
 
-  Optional<SourceSpan> requiredRange(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
+  SourceProjectionResult<SourceSpan> requiredRange(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath path,
       DiagnosticEmissionCollector diagnostics) {
     return switch (position(unit, sourceFile, tree)) {
-      case Position.Available available -> Optional.of(available.span());
+      case Position.Available available -> SourceProjectionResult.success(available.span());
       case Position.Missing _ -> {
-        diagnostics.emit("JavaSourceEvidence", FrontendDiagnosticFactory.sourcePositionError(sourceFile, path,
-            "frontend.missing-source-position", "A required source occurrence has no compiler position"));
-        yield Optional.empty();
+        yield SourceProjectionResult
+            .failure(diagnostics.emit("JavaSourceEvidence", FrontendDiagnosticFactory.sourcePositionError(sourceFile, path,
+                "frontend.missing-source-position", "A required source occurrence has no compiler position")));
       }
       case Position.Invalid _ -> {
-        diagnostics.emit("JavaSourceEvidence", FrontendDiagnosticFactory.sourcePositionError(sourceFile, path,
-            "frontend.invalid-source-range", "A required source occurrence has an invalid compiler range"));
-        yield Optional.empty();
+        yield SourceProjectionResult
+            .failure(diagnostics.emit("JavaSourceEvidence", FrontendDiagnosticFactory.sourcePositionError(sourceFile, path,
+                "frontend.invalid-source-range", "A required source occurrence has an invalid compiler range")));
       }
     };
   }
