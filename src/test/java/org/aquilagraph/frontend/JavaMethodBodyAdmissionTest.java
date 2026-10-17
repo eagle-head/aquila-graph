@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.sun.source.tree.CatchTree;
+import com.sun.source.tree.LiteralTree;
+import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
@@ -29,6 +31,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.lang.reflect.Proxy;
+import java.lang.reflect.Modifier;
+import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
@@ -37,6 +43,7 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.ErrorType;
 import javax.lang.model.type.TypeMirror;
+import javax.lang.model.type.TypeKind;
 import javax.tools.Diagnostic;
 import javax.tools.DiagnosticCollector;
 import javax.tools.JavaFileObject;
@@ -56,6 +63,7 @@ import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.EvidenceState;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.Test;
 
@@ -64,6 +72,191 @@ class JavaMethodBodyAdmissionTest {
 
   @TempDir
   Path sourceRoot;
+
+  @Test
+  void givenForeignExecutableEntryValues_whenProjectionIsRequested_thenEveryMismatchRejectsBeforeRecursiveEffects() throws IOException {
+    // Arrange
+    withCompiledSource("entry-values", "class Example { void action() { class Local {} } void other() {} }", fixture -> {
+      var body = fixture.body("action");
+      var path = body.projection().bodyPath();
+      var effects = new AtomicInteger();
+      var context = JavaExecutableProjectionContext.canonicalMethod(JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_UNITS),
+          (_, _, _) -> { effects.incrementAndGet(); throw new AssertionError("Rejected input must not project descendants"); });
+      var projector = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(), context,
+          "JavaMethodBodyTranslator", "method body");
+      var foreignSource = SourceFile.fromContent(Path.of("Example.java"), "class Example {}");
+
+      // Act
+      var scopeError = assertThrows(IllegalArgumentException.class, () -> projector.project(fixture.unit(), fixture.source(),
+          fixture.body("other").methodKey(), path.getLeaf(), path, JavaSyntaxStructuralPath.executionRoot(path), false, false));
+      var sourceError = assertThrows(IllegalArgumentException.class, () -> projector.project(fixture.unit(), foreignSource,
+          body.methodKey(), path.getLeaf(), path, JavaSyntaxStructuralPath.executionRoot(path), false, false));
+      var rootError = assertThrows(IllegalArgumentException.class, () -> projector.project(fixture.unit(), fixture.source(),
+          body.methodKey(), path.getLeaf(), path, SyntaxStructuralPath.sourceFileRoot(), false, false));
+      var flagError = assertThrows(IllegalArgumentException.class, () -> projector.project(fixture.unit(), fixture.source(),
+          body.methodKey(), path.getLeaf(), path, JavaSyntaxStructuralPath.executionRoot(path), true, false));
+
+      // Assert
+      assertTrue(scopeError.getMessage().contains("method owner"));
+      assertTrue(sourceError.getMessage().contains("captured source"));
+      assertTrue(rootError.getMessage().contains("structural root"));
+      assertTrue(flagError.getMessage().contains("method owner"));
+      assertEquals(0, effects.get());
+      assertTrue(Arrays.stream(JavaExecutableSyntaxProjector.Projection.class.getDeclaredConstructors())
+          .allMatch(constructor -> Modifier.isPrivate(constructor.getModifiers())));
+      assertEquals(1, Arrays.stream(JavaBodyDecisionProducer.class.getDeclaredMethods()).filter(method -> method.getName().equals("produce")).count());
+    });
+  }
+
+  @Test
+  void givenControlledErroneousOrMissingOperands_whenEachExecutablePurposeProducesDecisions_thenExactLocalEvidenceRemainsAssociated()
+      throws IOException {
+    // Arrange
+    var sources = List.of(
+        "class Example { String action() { return \"m\" + 1; } String field = \"f\" + 2; static { String local = \"s\" + 3; } { String local = \"i\" + 4; } }",
+        "enum Example { FIRST(\"a\" + 1, \"b\" + 2); Example(String first, String second) {} }");
+    for (var index = 0; index < sources.size(); index++) {
+      withCompiledSource("operand-evidence-" + index, sources.get(index), fixture -> {
+        for (var state : List.of(EvidenceState.ERRONEOUS, EvidenceState.MISSING)) {
+          var errorType = (TypeMirror) Proxy.newProxyInstance(TypeMirror.class.getClassLoader(), new Class<?>[] {TypeMirror.class},
+              (_, method, _) -> { if (method.getName().equals("getKind")) { return TypeKind.ERROR; } throw new AssertionError(method); });
+          var controlledTrees = new ProjectionTrees(fixture.trees()) {
+            @Override public TypeMirror getTypeMirror(TreePath path) {
+              return path.getLeaf() instanceof LiteralTree literal && literal.getValue() instanceof Integer
+                  ? state == EvidenceState.ERRONEOUS ? errorType : null : super.getTypeMirror(path);
+            }
+          };
+          var semantics = new SemanticResolver(controlledTrees, fixture.task().getTypes(), fixture.task().getElements(),
+              new DeclarationIdentityRegistry(controlledTrees, fixture.task().getTypes()));
+          var inputs = executableInputs(fixture, semantics);
+          for (var input : inputs) {
+            var projector = new JavaExecutableSyntaxProjector(semantics, fixture.evidence(), fixture.inventory(), input.context(),
+                "JavaAstContributionTranslator", "declaration-initialization");
+
+            // Act
+            var projection = projector.project(fixture.unit(), fixture.source(), input.scope(), input.path().getLeaf(), input.path(),
+                JavaSyntaxStructuralPath.executionRoot(input.path()), false, false);
+            var decisions = new JavaBodyDecisionProducer(semantics).produce(projection);
+
+            // Assert
+            assertEquals(1, decisions.concatenations().size());
+            var concatenation = decisions.concatenations().getFirst();
+            assertEquals(input.scope(), concatenation.scopeKey());
+            assertEquals(Optional.of(true), concatenation.leftIsString().knownValue());
+            assertEquals(state, concatenation.rightIsString().state());
+            var operand = projection.translation().value().descendantsAndSelf().stream()
+                .filter(node -> node.sourceKind().name().equals("INT_LITERAL")).findFirst().orElseThrow();
+            if (state == EvidenceState.ERRONEOUS) {
+              var diagnostic = concatenation.rightIsString().diagnostic().orElseThrow();
+              assertSame(projection.erroneousType(operand).orElseThrow(), diagnostic);
+              assertEquals(operand.origin().stream().toList(), diagnostic.origins());
+              assertTrue(projection.translation().emissions().events().stream().anyMatch(event -> event.diagnostic() == diagnostic));
+              assertEquals("frontend.error-type", diagnostic.code());
+            } else {
+              assertTrue(concatenation.rightIsString().diagnostic().isEmpty());
+              assertTrue(projection.erroneousType(operand).isEmpty());
+            }
+            assertThrows(UnsupportedOperationException.class, () -> projection.nodes().clear());
+            assertThrows(UnsupportedOperationException.class, () -> projection.translation().emissions().events().clear());
+            assertThrows(IllegalArgumentException.class, () -> new JavaBodyDecisionProducer(fixture.semantics()).produce(projection));
+          }
+        }
+      });
+    }
+  }
+
+  private static List<ExecutableInput> executableInputs(Fixture fixture, SemanticResolver semantics) {
+    var result = new ArrayList<ExecutableInput>();
+    var type = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+    var policy = JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_UNITS);
+    JavaExecutableProjectionContext.DeclarationProjection nested = (_, _, _) -> { throw new AssertionError("No nested declaration"); };
+    for (var member : type.getMembers()) {
+      var path = TreePath.getPath(fixture.unit(), member);
+      if (member instanceof MethodTree method && method.getName().contentEquals("action")) {
+        result.add(new ExecutableInput(new TreePath(path, method.getBody()), semantics.declarationKey(semantics.element(path)).orElseThrow(),
+            JavaExecutableProjectionContext.canonicalMethod(policy, nested)));
+      } else if (member instanceof VariableTree field && field.getInitializer() != null) {
+        var key = semantics.declarationKey(semantics.element(path)).orElseThrow();
+        if (field.getInitializer() instanceof NewClassTree creation) {
+          var creationPath = new TreePath(path, creation);
+          for (var argument : creation.getArguments()) {
+            result.add(new ExecutableInput(new TreePath(creationPath, argument), key, JavaExecutableProjectionContext.enumInitialization(policy, nested)));
+          }
+        } else {
+          result.add(new ExecutableInput(new TreePath(path, field.getInitializer()), key, JavaExecutableProjectionContext.memberInitialization(policy, nested)));
+        }
+      } else if (member instanceof BlockTree block) {
+        var origin = fixture.evidence().origin(fixture.unit(), fixture.source(), block).orElseThrow();
+        var key = semantics.declarationKey(semantics.element(path.getParentPath())).orElseThrow() + ":initializer:"
+            + origin.startOffset() + ':' + origin.endOffsetExclusive();
+        result.add(new ExecutableInput(path, key, JavaExecutableProjectionContext.memberInitialization(policy, nested)));
+      }
+    }
+    assertEquals(type.getKind() == Tree.Kind.ENUM ? 2 : 4, result.size());
+    return List.copyOf(result);
+  }
+
+  private record ExecutableInput(TreePath path, String scope, JavaExecutableProjectionContext context) {}
+
+  @Test
+  void givenInitializationScopesWithRecursiveWork_whenWrongOwnerOrPurposeIsSupplied_thenRefusalPrecedesEveryCallback() throws IOException {
+    // Arrange
+    var sources = List.of(
+        "class Example { Object field = new Object() {}; static { Object local = new Object() {}; } { Object local = new Object() {}; } }",
+        "enum Example { FIRST(new Object() {}, new Object() {}); Example(Object first, Object second) {} }");
+    for (var index = 0; index < sources.size(); index++) {
+      withCompiledSource("initialization-entry-" + index, sources.get(index), fixture -> {
+        var type = (ClassTree) fixture.unit().getTypeDecls().getFirst();
+        var policy = JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_UNITS);
+        var effects = new AtomicInteger();
+        var failure = new IllegalStateException("Recursive projection reached");
+        JavaExecutableProjectionContext.DeclarationProjection nested = (_, _, _) -> { effects.incrementAndGet(); throw failure; };
+        var inputs = new ArrayList<ExecutableInput>();
+        for (var member : type.getMembers()) {
+          var path = TreePath.getPath(fixture.unit(), member);
+          if (member instanceof VariableTree field && field.getInitializer() != null) {
+            var key = fixture.semantics().declarationKey(fixture.semantics().element(path)).orElseThrow();
+            var initializerPath = new TreePath(path, field.getInitializer());
+            if (type.getKind() == Tree.Kind.ENUM && field.getInitializer() instanceof NewClassTree creation) {
+              for (var argument : creation.getArguments()) {
+                inputs.add(new ExecutableInput(new TreePath(initializerPath, argument), key,
+                    JavaExecutableProjectionContext.enumInitialization(policy, nested)));
+              }
+            } else {
+              inputs.add(new ExecutableInput(initializerPath, key, JavaExecutableProjectionContext.memberInitialization(policy, nested)));
+            }
+          } else if (member instanceof BlockTree block) {
+            var range = fixture.evidence().origin(fixture.unit(), fixture.source(), block).orElseThrow();
+            var key = fixture.semantics().declarationKey(fixture.semantics().element(path.getParentPath())).orElseThrow()
+                + ":initializer:" + range.startOffset() + ':' + range.endOffsetExclusive();
+            inputs.add(new ExecutableInput(path, key, JavaExecutableProjectionContext.memberInitialization(policy, nested)));
+          }
+        }
+        assertEquals(type.getKind() == Tree.Kind.ENUM ? 2 : 3, inputs.size());
+        for (var input : inputs) {
+          var projector = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(), input.context(),
+              "JavaAstContributionTranslator", "declaration-initialization");
+          var wrongPurpose = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(),
+              JavaExecutableProjectionContext.canonicalMethod(policy, nested), "JavaMethodBodyTranslator", "method body");
+          var before = effects.get();
+
+          // Act
+          assertThrows(IllegalArgumentException.class, () -> projector.project(fixture.unit(), fixture.source(), "type:Foreign",
+              input.path().getLeaf(), input.path(), JavaSyntaxStructuralPath.executionRoot(input.path()), false, false));
+          assertThrows(IllegalArgumentException.class, () -> wrongPurpose.project(fixture.unit(), fixture.source(), input.scope(),
+              input.path().getLeaf(), input.path(), JavaSyntaxStructuralPath.executionRoot(input.path()), false, false));
+          var afterRefusals = effects.get();
+          var recursiveFailure = assertThrows(IllegalStateException.class, () -> projector.project(fixture.unit(), fixture.source(), input.scope(),
+              input.path().getLeaf(), input.path(), JavaSyntaxStructuralPath.executionRoot(input.path()), false, false));
+
+          // Assert
+          assertEquals(before, afterRefusals);
+          assertSame(failure, recursiveFailure);
+          assertEquals(before + 1, effects.get());
+        }
+      });
+    }
+  }
 
   @Test
   void givenRealFieldArrayInitializer_whenProjectedWithoutMethodRegistration_thenOrderedValuesAndExactCompilerPathsAreRetained()
@@ -99,7 +292,7 @@ class JavaMethodBodyAdmissionTest {
   }
 
   @Test
-  void givenRealInitializerBlock_whenProjectedWithTypeOwner_thenLocalBindingAndUpdateRemainInsideTheWrittenBlock() throws IOException {
+  void givenRealInitializerBlock_whenProjectedWithInitializerScope_thenLocalBindingAndUpdateRemainInsideTheWrittenBlock() throws IOException {
     // Arrange
     withCompiledSource("initializer-statements", "class Example { { int value = 1; value += 2; } }", fixture -> {
       var type = (ClassTree) fixture.unit().getTypeDecls().getFirst();
@@ -110,9 +303,12 @@ class JavaMethodBodyAdmissionTest {
           .child(SyntaxRole.MEMBER, type.getMembers().indexOf(block));
       var projector = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaExecutableProjectionContext.memberInitialization(JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_INITIALIZATION)),
           "JavaAstContributionTranslator", "initializer block");
+      var origin = fixture.evidence().origin(fixture.unit(), fixture.source(), block).orElseThrow();
+      var key = fixture.semantics().declarationKey(fixture.semantics().element(typePath)).orElseThrow()
+          + ":initializer:" + origin.startOffset() + ':' + origin.endOffsetExclusive();
 
       // Act
-      var projection = projector.project(fixture.unit(), fixture.source(), fixture.semantics().declarationKey(fixture.semantics().element(typePath)).orElseThrow(),
+      var projection = projector.project(fixture.unit(), fixture.source(), key,
           block, path, structuralPath, false, false);
       var root = projection.translation().value();
 
@@ -158,7 +354,7 @@ class JavaMethodBodyAdmissionTest {
       var aggregate = builder.seal();
 
       // Assert
-      assertSame(action.root(), action.projection().producedRoot());
+      assertSame(action.root(), action.projection().evidence().translation().value());
       assertSame(action.projection().declaration().getBody(), action.projection().bodyPath().getLeaf());
       assertSame(action.root(), aggregate.methodSyntax(action.methodKey()).orElseThrow().root());
       assertSame(action.root(), aggregate.node(action.root().nodeId()).orElseThrow());
@@ -300,7 +496,7 @@ class JavaMethodBodyAdmissionTest {
   void givenUnavailableAttributedOwner_whenContributed_thenIndependentOwnerProofIsRejected() throws IOException {
     // Arrange
     withCompiledSource("missing-owner", fixture -> {
-      var unavailable = new MissingOwnerTrees(fixture.trees(), (ClassTree) fixture.unit().getTypeDecls().getFirst());
+      var unavailable = new ProjectionTrees(fixture.trees(), (ClassTree) fixture.unit().getTypeDecls().getFirst());
       var semantics = new SemanticResolver(unavailable, fixture.task().getTypes(), fixture.task().getElements(),
           new DeclarationIdentityRegistry(unavailable, fixture.task().getTypes()));
 
@@ -444,13 +640,18 @@ class JavaMethodBodyAdmissionTest {
     }
   }
 
-  private static final class MissingOwnerTrees extends Trees {
+  private static class ProjectionTrees extends Trees {
     private final Trees delegate;
-    private final ClassTree owner;
+    private final Optional<ClassTree> owner;
 
-    private MissingOwnerTrees(Trees delegate, ClassTree owner) {
+    private ProjectionTrees(Trees delegate, ClassTree owner) {
       this.delegate = delegate;
-      this.owner = owner;
+      this.owner = Optional.of(owner);
+    }
+
+    private ProjectionTrees(Trees delegate) {
+      this.delegate = delegate;
+      this.owner = Optional.empty();
     }
 
     @Override public SourcePositions getSourcePositions() { return delegate.getSourcePositions(); }
@@ -463,7 +664,7 @@ class JavaMethodBodyAdmissionTest {
     @Override public TreePath getPath(Element element) { return delegate.getPath(element); }
     @Override public TreePath getPath(Element element, AnnotationMirror mirror) { return delegate.getPath(element, mirror); }
     @Override public TreePath getPath(Element element, AnnotationMirror mirror, AnnotationValue value) { return delegate.getPath(element, mirror, value); }
-    @Override public Element getElement(TreePath path) { return path.getLeaf() == owner ? null : delegate.getElement(path); }
+    @Override public Element getElement(TreePath path) { return owner.filter(value -> path.getLeaf() == value).isPresent() ? null : delegate.getElement(path); }
     @Override public TypeMirror getTypeMirror(TreePath path) { return delegate.getTypeMirror(path); }
     @Override public Scope getScope(TreePath path) { return delegate.getScope(path); }
     @Override public String getDocComment(TreePath path) { return delegate.getDocComment(path); }

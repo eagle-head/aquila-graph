@@ -129,7 +129,7 @@ final class JavaBodySourceCorrelation {
       throw new IllegalArgumentException("Duplicate translated body path: " + body.root().structuralPath());
     }
     projectedBodies.add(body);
-    body.projection().nodeProjections()
+    body.projection().evidence().nodes()
         .forEach(projection -> projection.sourceAssociation().ifPresent(value -> sourceAssociations.retain(projection.node(), value)));
   }
 
@@ -264,12 +264,13 @@ final class JavaBodySourceCorrelation {
     }
     var independentBodyPath = new TreePath(methodPath, declaration.getBody());
     if (!sameTreePath(independentBodyPath, projection.bodyPath())
-        || !JavaProjectionIdentity.sameInstance(body.root(), projection.producedRoot())
+        || !JavaProjectionIdentity.sameInstance(body.root(), projection.evidence().translation().value())
         || !body.root().sourceFileKey().equals(sourceFile.sourceFileKey())
         || !body.root().structuralPath().equals(JavaSyntaxStructuralPath.executionRoot(independentBodyPath))) {
       throw new IllegalArgumentException("Translated body does not retain its executable body projection: " + body.methodKey());
     }
-    new JavaBodyDecisionProducer(semantics).corroborate(body.root(), projection.nodeProjections());
+    projection.evidence().requireSemantics(semantics);
+    new JavaBodyDecisionProducer(semantics).corroborate(body.root(), projection.evidence().nodes());
   }
 
   private static boolean sameTreePath(TreePath first, TreePath second) {
@@ -302,7 +303,8 @@ final class JavaBodySourceCorrelation {
   }
 
   Optional<SyntaxNode> projectExecutable(JavaExecutableSyntaxProjector.Projection projection, SyntaxStructuralPath path,
-      CompilationUnitTree unit, SourceFile sourceFile, DiagnosticEmissionCollector diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
+    projection.requireSemantics(semantics);
     diagnostics.include(projection.translation().emissions());
     var paths = new HashMap<String, TreePath>();
     projection.nodes().forEach(binding -> {
@@ -310,13 +312,14 @@ final class JavaBodySourceCorrelation {
       binding.sourceAssociation().ifPresent(value -> sourceAssociations.retain(binding.node(), value));
     });
     return project(projection.translation().value(), path, false, true,
-        new BodySourceContext(unit, sourceFile, paths, declarations, diagnostics));
+        new BodySourceContext(projection.unit(), projection.source(), paths, declarations, diagnostics));
   }
 
-  List<AttributedBodyOccurrence> executionAttributions(String scopeKey, JavaExecutableSyntaxProjector.Projection projection) {
+  List<AttributedBodyOccurrence> executionAttributions(JavaExecutableSyntaxProjector.Projection projection) {
+    projection.requireSemantics(semantics);
     return projection.nodes().stream().map(binding -> {
       var node = sourceCopies.finalCopy(binding.node());
-      return new AttributedBodyOccurrence(scopeKey, node.nodeId(), node.sourceFileKey(), node.sourceKind(),
+      return new AttributedBodyOccurrence(projection.scopeKey(), node.nodeId(), node.sourceFileKey(), node.sourceKind(),
           binding.node().structuralPath());
     }).toList();
   }
@@ -328,7 +331,7 @@ final class JavaBodySourceCorrelation {
     var omitInsertedCall = !statements.isEmpty()
         && treeInventory.isCompilerInsertedSuperCall(new TreePath(bodyPath, statements.getFirst()));
     var paths = new HashMap<String, TreePath>();
-    body.projection().nodeProjections().forEach(projection -> paths.put(projection.node().nodeId(), projection.path()));
+    body.projection().evidence().nodes().forEach(projection -> paths.put(projection.node().nodeId(), projection.path()));
     var context = new BodySourceContext(unit, sourceFile, paths, declarations, diagnostics);
     return project(body.root(), path, omitInsertedCall, true, context);
   }
@@ -555,7 +558,7 @@ final class JavaBodySourceCorrelation {
   }
 
   private List<AttributedBodyOccurrence> attributions(TranslatedMethodBody body, boolean copied) {
-    return body.projection().nodeProjections().stream().filter(projection -> !copied || sourceCopies.contains(projection.node()))
+    return body.projection().evidence().nodes().stream().filter(projection -> !copied || sourceCopies.contains(projection.node()))
         .map(projection -> {
           var original = projection.node();
           var retained = copied ? sourceCopies.finalCopy(original) : original;

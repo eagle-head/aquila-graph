@@ -4,13 +4,11 @@ import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.util.TreePath;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import javax.lang.model.element.ExecutableElement;
-import org.aquilagraph.frontend.JavaExecutableSyntaxProjector.NodeProjection;
+import org.aquilagraph.frontend.JavaExecutableSyntaxProjector.Projection;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.source.api.SyntaxNode;
 
 final class JavaMethodBodyTranslator {
   private static final String DIAGNOSTIC_PRODUCER = "JavaMethodBodyTranslator";
@@ -45,10 +43,8 @@ final class JavaMethodBodyTranslator {
     var projection = syntax.project(unit, sourceFile, methodKey, body, bodyPath, JavaSyntaxStructuralPath.executionRoot(bodyPath),
         constructor, implicitDeclaration);
     var translation = projection.translation();
-    var nodeProjections = projection.nodes();
-    var decisions = new JavaBodyDecisionProducer(semantics).produce(methodKey, translation.value(), nodeProjections,
-        translation.diagnostics());
-    var bodyProjection = new BodyProjection(declaration, bodyPath, translation.value(), nodeProjections, decisions);
+    var decisions = new JavaBodyDecisionProducer(semantics).produce(projection);
+    var bodyProjection = new BodyProjection(declaration, bodyPath, projection, decisions);
     return new TranslationResult<>(new TranslatedMethodBody(methodKey, translation.value(), bodyProjection), translation.emissions(),
         translation.featureOccurrences(), translation.featureObservations());
   }
@@ -56,16 +52,13 @@ final class JavaMethodBodyTranslator {
   static final class BodyProjection {
     private final MethodTree capturedDeclaration;
     private final TreePath capturedBodyPath;
-    private final SyntaxNode createdRoot;
-    private final List<NodeProjection> retainedNodeProjections;
+    private final Projection executableEvidence;
     private final JavaBodyDecisions selectedDecisions;
 
-    private BodyProjection(MethodTree declaration, TreePath bodyPath, SyntaxNode producedRoot, List<NodeProjection> nodeProjections,
-        JavaBodyDecisions decisions) {
+    private BodyProjection(MethodTree declaration, TreePath bodyPath, Projection evidence, JavaBodyDecisions decisions) {
       this.capturedDeclaration = declaration;
       this.capturedBodyPath = bodyPath;
-      this.createdRoot = producedRoot;
-      this.retainedNodeProjections = List.copyOf(nodeProjections);
+      executableEvidence = evidence;
       this.selectedDecisions = decisions;
     }
 
@@ -77,12 +70,8 @@ final class JavaMethodBodyTranslator {
       return capturedBodyPath;
     }
 
-    SyntaxNode producedRoot() {
-      return createdRoot;
-    }
-
-    List<NodeProjection> nodeProjections() {
-      return retainedNodeProjections;
+    Projection evidence() {
+      return executableEvidence;
     }
 
     JavaBodyDecisions decisions() {

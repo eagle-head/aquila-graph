@@ -30,8 +30,7 @@ import javax.lang.model.type.PrimitiveType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import org.aquilagraph.frontend.JavaExecutableSyntaxProjector.NodeProjection;
-import org.aquilagraph.identity.api.StableId;
-import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.frontend.JavaExecutableSyntaxProjector.Projection;
 import org.aquilagraph.source.api.JavaTypeIdentity;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.ResolutionStatus;
@@ -71,8 +70,11 @@ final class JavaBodyDecisionProducer {
     constructors = new JavaConstructorEvidenceProducer(semantics);
   }
 
-  JavaBodyDecisions produce(String scopeKey, SyntaxNode root, List<NodeProjection> projections, List<AnalysisDiagnostic> diagnostics) {
-    var bindings = corroborate(root, projections);
+  JavaBodyDecisions produce(Projection projection) {
+    projection.requireSemantics(semantics);
+    var scopeKey = projection.scopeKey();
+    var root = projection.translation().value();
+    var bindings = corroborate(root, projection.nodes());
     var uses = new ArrayList<ChildUseEvidence>();
     var invocations = new ArrayList<InvocationApplicability>();
     var staticAccesses = new ArrayList<StaticMemberEvidence>();
@@ -84,7 +86,7 @@ final class JavaBodyDecisionProducer {
         continue;
       }
       if (consumer.syntaxKind() == SyntaxKind.INVOCATION || consumer.syntaxKind() == SyntaxKind.OBJECT_CREATION) {
-        var context = constructors.produce(scopeKey, root, binding);
+        var context = constructors.produce(projection, consumer);
         context.ifPresent(constructorContexts::add);
         invocation(scopeKey, binding, bindings, uses, invocations);
       } else {
@@ -97,7 +99,7 @@ final class JavaBodyDecisionProducer {
         }
       }
       staticAccess(scopeKey, binding).ifPresent(staticAccesses::add);
-      concatenation(scopeKey, binding, diagnostics).ifPresent(concatenations::add);
+      concatenation(scopeKey, binding, projection).ifPresent(concatenations::add);
     }
     var selectedInvocations = new HashMap<String, InvocationApplicability>();
     invocations.forEach(value -> selectedInvocations.put(value.consumerNodeId(), value));
@@ -160,17 +162,35 @@ final class JavaBodyDecisionProducer {
     return bindings;
   }
 
-  Optional<ChildUseEvidence> fieldInitializer(String scopeKey, SyntaxNode field, TreePath fieldPath) {
+  Optional<ChildUseEvidence> fieldInitializer(Projection projection, SyntaxNode field) {
+    projection.requireSemantics(semantics);
+    var scopeKey = projection.scopeKey();
+    var initializerPath = projection.binding(projection.translation().value()).path();
+    var fieldPath = initializerPath.getParentPath();
+    if (fieldPath == null || !(fieldPath.getLeaf() instanceof VariableTree variable)
+        || !JavaProjectionIdentity.sameInstance(variable.getInitializer(), initializerPath.getLeaf())
+        || !(field.value() instanceof SyntaxValue.VariableDeclaration declaration)
+        || declaration.kind() == SyntaxValue.VariableDeclaration.Kind.ENUM_CONSTANT || !declaration.declarationKey().equals(scopeKey)
+        || !field.sourceFileKey().equals(projection.source().sourceFileKey())) {
+      throw new IllegalArgumentException("A field initializer decision requires its producing projection and declaration");
+    }
     var initializer = field.optionalChild(SyntaxRole.INITIALIZER);
-    if (initializer.isEmpty() || !(fieldPath.getLeaf() instanceof VariableTree variable) || variable.getInitializer() == null) {
+    if (initializer.isEmpty()) {
       return Optional.empty();
     }
-    return semantics.attributedMirror(fieldPath)
-        .flatMap(target -> conversion(scopeKey, field, new SyntaxChild(SyntaxRole.INITIALIZER, 0, initializer.orElseThrow()),
-            new TreePath(fieldPath, variable.getInitializer()), target, false, true));
+    return semantics.attributedMirror(fieldPath).flatMap(target -> conversion(scopeKey, field,
+        new SyntaxChild(SyntaxRole.INITIALIZER, 0, initializer.orElseThrow()), initializerPath, target, false, true));
   }
 
   JavaBodyDecisions enumConstant(String scopeKey, SyntaxNode constant, TreePath creationPath, Optional<SemanticReference> constructor) {
+    var fieldPath = creationPath.getParentPath();
+    if (fieldPath == null || !(fieldPath.getLeaf() instanceof VariableTree field)
+        || !JavaProjectionIdentity.sameInstance(field.getInitializer(), creationPath.getLeaf())
+        || !(constant.value() instanceof SyntaxValue.VariableDeclaration declaration)
+        || declaration.kind() != SyntaxValue.VariableDeclaration.Kind.ENUM_CONSTANT || !declaration.declarationKey().equals(scopeKey)
+        || !semantics.declarationKey(semantics.element(fieldPath)).equals(Optional.of(scopeKey))) {
+      throw new IllegalArgumentException("Enum constructor selection requires its exact constant declaration");
+    }
     var uses = new ArrayList<ChildUseEvidence>();
     var invocations = new ArrayList<InvocationApplicability>();
     var selectedPath = semantics.enumConstructorPath(creationPath);
@@ -181,7 +201,7 @@ final class JavaBodyDecisionProducer {
     }
     if (!executable.getTypeParameters().isEmpty()) {
       if (semantics.element(creationPath) instanceof ExecutableElement actual) {
-        constructorInvocation(scopeKey, new NodeProjection(constant, creationPath, List.of(), Optional.empty()), actual, uses, invocations);
+        constructorInvocation(scopeKey, constant, creationPath, actual, uses, invocations);
       }
     } else if (executable.asType() instanceof ExecutableType signature) {
       var arguments = creation.getArguments().stream().map(argument -> semantics.attributedMirror(new TreePath(creationPath, argument)))
@@ -214,7 +234,7 @@ final class JavaBodyDecisionProducer {
     }
     if (consumer.path().getLeaf() instanceof NewClassTree creation
         && (!executable.getTypeParameters().isEmpty() || (creation.getClassBody() != null && !creation.getArguments().isEmpty()))) {
-      constructorInvocation(scopeKey, consumer, executable, uses, invocations);
+      constructorInvocation(scopeKey, consumer.node(), consumer.path(), executable, uses, invocations);
       return;
     }
     var selectedType = selectedExecutable(consumer.path(), executable);
@@ -248,14 +268,14 @@ final class JavaBodyDecisionProducer {
     }
   }
 
-  private void constructorInvocation(String scopeKey, NodeProjection consumer, ExecutableElement executable, List<ChildUseEvidence> uses,
-      List<InvocationApplicability> invocations) {
-    var proof = semantics.selectedConstructor(consumer.path(), executable);
+  private void constructorInvocation(String scopeKey, SyntaxNode consumer, TreePath path, ExecutableElement executable,
+      List<ChildUseEvidence> uses, List<InvocationApplicability> invocations) {
+    var proof = semantics.selectedConstructor(path, executable);
     if (proof.isEmpty()) {
       return;
     }
     var facts = proof.orElseThrow();
-    var children = consumer.node().children(SyntaxRole.ARGUMENT);
+    var children = consumer.children(SyntaxRole.ARGUMENT);
     if (children.size() != facts.arguments().size()) {
       return;
     }
@@ -264,13 +284,13 @@ final class JavaBodyDecisionProducer {
         return;
       }
     }
-    invocations.add(new InvocationApplicability(scopeKey, consumer.node().nodeId(), facts.mode(), facts.formalCount(),
-        facts.varargArrayType(), facts.erasedArrayType(), facts.elementType()));
+    invocations.add(new InvocationApplicability(scopeKey, consumer.nodeId(), facts.mode(), facts.formalCount(), facts.varargArrayType(),
+        facts.erasedArrayType(), facts.elementType()));
     for (var index = 0; index < children.size(); index++) {
       var argument = facts.arguments().get(index);
-      uses.add(ChildUseEvidence.known(new ConversionEvidence(scopeKey, consumer.node().nodeId(), SyntaxRole.ARGUMENT, index,
-          argument.sourceType(), argument.selectedTarget(), Optional.empty(), argument.unboxedType(), argument.effectivePrimitiveType(),
-          argument.preBoxPrimitiveType(), argument.boxedType()), consumer.node().syntaxKind(), consumer.node().origin()));
+      uses.add(ChildUseEvidence.known(new ConversionEvidence(scopeKey, consumer.nodeId(), SyntaxRole.ARGUMENT, index, argument.sourceType(),
+          argument.selectedTarget(), Optional.empty(), argument.unboxedType(), argument.effectivePrimitiveType(),
+          argument.preBoxPrimitiveType(), argument.boxedType()), consumer.syntaxKind(), consumer.origin()));
     }
   }
 
@@ -540,8 +560,7 @@ final class JavaBodyDecisionProducer {
         && JavaProjectionIdentity.sameInstance(assignment.getVariable(), target);
   }
 
-  private Optional<StringExpressionEvidence> concatenation(String scopeKey, NodeProjection projection,
-      List<AnalysisDiagnostic> diagnostics) {
+  private Optional<StringExpressionEvidence> concatenation(String scopeKey, NodeProjection projection, Projection evidence) {
     var node = projection.node();
     if (!(projection.path().getLeaf() instanceof BinaryTree binary) || binary.getKind() != Tree.Kind.PLUS || !isString(node)) {
       return Optional.empty();
@@ -555,19 +574,18 @@ final class JavaBodyDecisionProducer {
     var constant = constants.constantStatus(projection.path()).map(value -> EvidenceValue.known(value, origin))
         .orElseGet(() -> EvidenceValue.missing(origin, "The compiler constant-expression classification is unavailable"));
     return Optional.of(new StringExpressionEvidence(scopeKey, node.nodeId(), node.resolvedType().orElseThrow(),
-        stringOperand(scopeKey, node, left, StringExpressionEvidence.LEFT_SLOT, diagnostics),
-        stringOperand(scopeKey, node, right, StringExpressionEvidence.RIGHT_SLOT, diagnostics), constant));
+        stringOperand(scopeKey, node, left, StringExpressionEvidence.LEFT_SLOT, evidence),
+        stringOperand(scopeKey, node, right, StringExpressionEvidence.RIGHT_SLOT, evidence), constant));
   }
 
   private static EvidenceValue<Boolean> stringOperand(String scopeKey, SyntaxNode consumer, SyntaxNode operand, String slot,
-      List<AnalysisDiagnostic> diagnostics) {
+      Projection evidence) {
     var origin = new EvidenceOrigin(scopeKey, consumer.nodeId(), slot, consumer.origin());
     if (operand.resolvedType().isPresent()) {
       return EvidenceValue.known(isString(operand), origin);
     }
     if (operand.type() == SyntaxType.Erroneous.INSTANCE) {
-      var key = StableId.sha256("diagnostic", scopeKey, operand.nodeId(), "frontend.error-type");
-      var diagnostic = diagnostics.stream().filter(value -> value.diagnosticKey().equals(key)).findFirst().orElseThrow();
+      var diagnostic = evidence.erroneousType(operand).orElseThrow();
       return EvidenceValue.erroneous(origin, "The attributed operand type is erroneous", diagnostic);
     }
     return EvidenceValue.missing(origin, "The compiler operand classification is unavailable");
