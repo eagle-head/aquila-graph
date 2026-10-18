@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend;
 
 import com.sun.source.tree.CompilationUnitTree;
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -16,19 +17,20 @@ import org.jspecify.annotations.Nullable;
 
 final class SnapshotSourceCatalog {
   private final List<JavaFileObject> compilerInputs;
-  private final Map<Path, SourceFile> sourceFilesByPath;
+  private final Map<URI, SourceFile> sourceFilesByUri;
 
   SnapshotSourceCatalog(InputSnapshot snapshot) {
     Objects.requireNonNull(snapshot, "snapshot");
     var units = new ArrayList<JavaFileObject>(snapshot.sourceFiles().size());
-    var sources = new LinkedHashMap<Path, SourceFile>();
+    var sources = new LinkedHashMap<URI, SourceFile>();
     for (var sourceFile : snapshot.sourceFiles()) {
       var sourcePath = absolutePath(snapshot, sourceFile);
-      sources.put(sourcePath, sourceFile);
-      units.add(SimpleJavaFileObject.forSource(sourcePath.toUri(), sourceFile.content()));
+      var input = SimpleJavaFileObject.forSource(sourcePath.toUri(), sourceFile.content());
+      sources.put(input.toUri().normalize(), sourceFile);
+      units.add(input);
     }
     compilerInputs = List.copyOf(units);
-    sourceFilesByPath = Map.copyOf(sources);
+    sourceFilesByUri = Map.copyOf(sources);
   }
 
   List<JavaFileObject> compilationUnits() {
@@ -44,8 +46,7 @@ final class SnapshotSourceCatalog {
     if (source == null) {
       return Optional.empty();
     }
-    var path = Path.of(source.toUri()).toAbsolutePath().normalize();
-    return Optional.ofNullable(sourceFilesByPath.get(path));
+    return Optional.ofNullable(sourceFilesByUri.get(source.toUri().normalize()));
   }
 
   private static Path absolutePath(InputSnapshot snapshot, SourceFile sourceFile) {
