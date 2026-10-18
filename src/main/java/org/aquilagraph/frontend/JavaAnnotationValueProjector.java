@@ -85,7 +85,7 @@ final class JavaAnnotationValueProjector {
       AnnotationTree annotation, TypeElement annotationType, SyntaxStructuralPath parentPath, DiagnosticEmissionCollector collector) {
     var diagnostics = collector.newBatch();
     var result = projectArguments(unit, source, annotation, annotationType, parentPath, diagnostics);
-    return new TranslationResult<>(result, diagnostics.snapshot(), List.of(), List.of());
+    return new TranslationResult<>(result, diagnostics.snapshot());
   }
 
   private SourceProjectionResult<List<SyntaxChild>> projectArguments(CompilationUnitTree unit, SourceFile source, AnnotationTree annotation,

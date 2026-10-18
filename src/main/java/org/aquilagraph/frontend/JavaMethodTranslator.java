@@ -3,12 +3,9 @@ package org.aquilagraph.frontend;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.util.TreePath;
-import java.util.ArrayList;
 import java.util.Objects;
 import java.util.Optional;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.source.api.LanguageFeatureObservation;
-import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 
 final class JavaMethodTranslator {
   private final SemanticResolver semantics;
@@ -28,8 +25,6 @@ final class JavaMethodTranslator {
     var method = declaration.value();
     var diagnostics = new DiagnosticEmissionCollector("JavaMethodTranslator", method.methodKey() + ":declaration");
     diagnostics.include(declaration.emissions());
-    var occurrences = new ArrayList<LanguageFeatureOccurrence>(declaration.featureOccurrences());
-    var observations = new ArrayList<LanguageFeatureObservation>(declaration.featureObservations());
     var body = Optional.<TranslatedMethodBody>empty();
     if (methodTree.getBody() != null) {
       var path = new TreePath(classPath, methodTree);
@@ -37,9 +32,7 @@ final class JavaMethodTranslator {
           new TreePath(path, methodTree.getBody()), method.constructor(), semantics.isImplicitDeclaration(path));
       body = Optional.of(translation.value());
       diagnostics.include(translation.emissions());
-      occurrences.addAll(translation.featureOccurrences());
-      observations.addAll(translation.featureObservations());
     }
-    return new TranslationResult<>(new TranslatedMethod(method, body), diagnostics.snapshot(), occurrences, observations);
+    return new TranslationResult<>(new TranslatedMethod(method, body), diagnostics.snapshot());
   }
 }

@@ -45,8 +45,7 @@ final class JavaMethodBodyTranslator {
     var translation = projection.translation();
     var decisions = new JavaBodyDecisionProducer(semantics).produce(projection);
     var bodyProjection = new BodyProjection(declaration, bodyPath, projection, decisions);
-    return new TranslationResult<>(new TranslatedMethodBody(methodKey, translation.value(), bodyProjection), translation.emissions(),
-        translation.featureOccurrences(), translation.featureObservations());
+    return new TranslationResult<>(new TranslatedMethodBody(methodKey, translation.value(), bodyProjection), translation.emissions());
   }
 
   static final class BodyProjection {

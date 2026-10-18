@@ -71,7 +71,7 @@ class DiagnosticEmissionCollectorTest {
     var batch = new DiagnosticEmissions(caller);
     var collector = new DiagnosticEmissionCollector("body", "unit");
     collector.include(batch);
-    var result = new TranslationResult<>("translated", collector.snapshot(), List.of(), List.of());
+    var result = new TranslationResult<>("translated", collector.snapshot());
     var failure = new JavaSourceProjectionFailure(collector.snapshot());
 
     // Act
@@ -163,7 +163,7 @@ class DiagnosticEmissionCollectorTest {
     var second = new DiagnosticEmissionCollector("body", "unit");
 
     // Act
-    var emptyResult = new TranslationResult<>("empty", first.snapshot(), List.of(), List.of());
+    var emptyResult = new TranslationResult<>("empty", first.snapshot());
     var emptyFailure = new JavaSourceProjectionFailure(DiagnosticEmissions.empty());
     first.emit(note("same-value"));
     second.emit(note("same-value"));

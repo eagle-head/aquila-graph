@@ -39,6 +39,7 @@ import javax.tools.DiagnosticCollector;
 import javax.tools.JavaFileObject;
 import javax.tools.ToolProvider;
 import org.aquilagraph.frontend.JavaSourceCoverageReconciler.ReconciledCoverage;
+import org.aquilagraph.frontend.JavaTypeKindObserver.ObservedTypeKinds;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
@@ -119,6 +120,57 @@ class DeclarationPropertyCorrespondenceTest {
         new EncounterChange("reordered-written-rows", Partition.WRITTEN_PROPERTY, DeclarationPropertyCorrespondenceTest::swapFirstRows),
         new EncounterChange("reordered-attributed-rows", Partition.ATTRIBUTED_PROPERTY, DeclarationPropertyCorrespondenceTest::swapFirstRows))
         .map(change -> DynamicTest.dynamicTest(change.name(), () -> assertCarrierRejected(change)));
+  }
+
+  @Test
+  void givenAttributedKindPairs_whenOneSideLosesOrDuplicatesAnEncounter_thenReconciliationRejectsIncompleteAccounting()
+      throws IOException {
+    // Arrange
+    var original = analyze();
+    withCompiler(original, false, fixture -> {
+      var types = fixture.typeKinds();
+      var extraOccurrences = new ArrayList<>(types.occurrences());
+      extraOccurrences.add(types.occurrences().getFirst());
+      var extraObservations = new ArrayList<>(types.observations());
+      extraObservations.add(types.observations().getFirst());
+      var changed = List.of(
+          new ObservedTypeKinds(types.occurrences().subList(0, types.occurrences().size() - 1), types.observations(), types.emissions()),
+          new ObservedTypeKinds(extraOccurrences, types.observations(), types.emissions()),
+          new ObservedTypeKinds(types.occurrences(), types.observations().subList(0, types.observations().size() - 1), types.emissions()),
+          new ObservedTypeKinds(types.occurrences(), extraObservations, types.emissions()));
+
+      // Act
+      var failures = changed.stream().map(evidence -> assertThrows(IllegalArgumentException.class,
+          () -> fixture.reconcile(evidence, fixture.written(), fixture.attributed()))).toList();
+
+      // Assert
+      failures.forEach(failure -> assertEquals(
+          "Actual attributed-kind encounters require one occurrence for every observation", failure.getMessage()));
+      assertEquals(original.languageFeatureCoverageResult().validationEvidence().attributedExpectations(), fixture.expectations());
+    });
+  }
+
+  @Test
+  void givenCompleteAttributedKindPairs_whenAnExtraPairHasNoCapturedContext_thenReconciliationRejectsTheExtraEncounter()
+      throws IOException {
+    // Arrange
+    var original = analyze();
+    withCompiler(original, false, fixture -> {
+      var types = fixture.typeKinds();
+      var occurrences = new ArrayList<>(types.occurrences());
+      occurrences.add(types.occurrences().getFirst());
+      var observations = new ArrayList<>(types.observations());
+      observations.add(types.observations().getFirst());
+      var changed = new ObservedTypeKinds(occurrences, observations, types.emissions());
+
+      // Act
+      var failure = assertThrows(IllegalArgumentException.class,
+          () -> fixture.reconcile(changed, fixture.written(), fixture.attributed()));
+
+      // Assert
+      assertEquals("Unexpected policy encounters have no captured source context", failure.getMessage());
+      assertEquals(original.languageFeatureCoverageResult().validationEvidence().writtenInventory(), fixture.capture().inventory());
+    });
   }
 
   @Test
@@ -469,11 +521,16 @@ class DeclarationPropertyCorrespondenceTest {
   }
 
   private record Fixture(SyntaxAnalysisInput original, JavaSourceCoverageCapture capture, AttributedCoverageExpectations expectations,
-      ObservedLanguageFeatures kinds, JavaTypeKindObserver.ObservedTypeKinds typeKinds, TranslationResult<TranslatedProgram> translation,
+      ObservedLanguageFeatures kinds, ObservedTypeKinds typeKinds, TranslationResult<TranslatedProgram> translation,
       ObservedPropertyEncounters written, ObservedPropertyEncounters attributed) {
     ReconciledCoverage reconcile(ObservedPropertyEncounters writtenEvidence, ObservedPropertyEncounters attributedEvidence) {
+      return reconcile(typeKinds, writtenEvidence, attributedEvidence);
+    }
+
+    ReconciledCoverage reconcile(ObservedTypeKinds typeEvidence, ObservedPropertyEncounters writtenEvidence,
+        ObservedPropertyEncounters attributedEvidence) {
       return new JavaSourceCoverageReconciler(capture.inventory(), expectations, translation.value().program(), translation.value().aggregate(),
-          translation.emissions()).reconcile(original.languageFeatureCoverage(), kinds, typeKinds, translation, writtenEvidence, attributedEvidence);
+          translation.emissions()).reconcile(original.languageFeatureCoverage(), kinds, typeEvidence, writtenEvidence, attributedEvidence);
     }
   }
 

@@ -92,7 +92,7 @@ final class JavaAnalysisPipeline {
           annotationCompleteness.reconcile(translation.value().aggregate()));
       var reconciled = new JavaSourceCoverageReconciler(coverageCapture.inventory(), attributedExpectations, translation.value().program(),
           translation.value().aggregate(), emissions)
-          .reconcile(languageFeatureCoverage, kindEvidence, typeEvidence, translation, writtenProperties, attributedProperties);
+          .reconcile(languageFeatureCoverage, kindEvidence, typeEvidence, writtenProperties, attributedProperties);
       result = new SyntaxAnalysisInput(snapshot, environment, translation.value().program(), translation.value().aggregate(),
           reconciled.diagnostics(), reconciled.coverageResult());
     }

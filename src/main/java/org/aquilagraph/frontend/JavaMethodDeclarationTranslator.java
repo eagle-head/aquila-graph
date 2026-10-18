@@ -21,8 +21,6 @@ import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.JavaParameter;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
-import org.aquilagraph.source.api.LanguageFeatureObservation;
-import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 import org.aquilagraph.source.api.SyntaxType;
 import org.jspecify.annotations.Nullable;
 
@@ -61,8 +59,6 @@ final class JavaMethodDeclarationTranslator {
                 .orElseGet(() -> StableId.sha256("unresolved-executable", ownerTypeKey, name))
         : semantics.declarationKey(executable).orElseThrow();
     var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, methodKey + ":declaration");
-    var occurrences = new ArrayList<LanguageFeatureOccurrence>();
-    var observations = new ArrayList<LanguageFeatureObservation>();
     if (executable == null) {
       diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey, "frontend.unresolved-method",
           "A method declaration element is unavailable", origin));
@@ -70,22 +66,18 @@ final class JavaMethodDeclarationTranslator {
     diagnoseUnsupportedDeclarationProperties(unit, sourceFile, methodKey, methodTree, diagnostics);
     var parameterTranslation = parameters(unit, sourceFile, methodKey, methodPath, methodTree, executable);
     diagnostics.include(parameterTranslation.emissions());
-    occurrences.addAll(parameterTranslation.featureOccurrences());
-    observations.addAll(parameterTranslation.featureObservations());
     var semanticModifiers = executable == null ? methodTree.getModifiers().getFlags() : executable.getModifiers();
     var modifiers = semanticModifiers.stream().map(modifier -> modifier.name().toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
     var returnType = constructor ? "void" : executable == null ? UNRESOLVED_TYPE_NAME : executable.getReturnType().toString();
     var method = new JavaMethod(methodKey, ownerTypeKey, name, signature, returnType, parameterTranslation.parameters(), modifiers,
         constructor, written && origin.isPresent(), methodTree.getBody() != null, origin.stream().toList());
-    return new TranslationResult<>(method, diagnostics.snapshot(), occurrences, observations);
+    return new TranslationResult<>(method, diagnostics.snapshot());
   }
 
   private ParameterTranslation parameters(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, TreePath methodPath,
       MethodTree methodTree, @Nullable ExecutableElement executable) {
     var parameters = new ArrayList<JavaParameter>();
     var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, methodKey + ":parameters");
-    var occurrences = new ArrayList<LanguageFeatureOccurrence>();
-    var observations = new ArrayList<LanguageFeatureObservation>();
     var parameterCount = executable == null ? methodTree.getParameters().size() : executable.getParameters().size();
     if (executable != null && methodTree.getParameters().size() != parameterCount) {
       diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey, "frontend.parameter-inventory-mismatch",
@@ -129,7 +121,7 @@ final class JavaMethodDeclarationTranslator {
       }
       parameters.add(new JavaParameter(parameterKey, name, type, written && origin.isPresent(), origin.stream().toList()));
     }
-    return new ParameterTranslation(parameters, diagnostics.snapshot(), occurrences, observations);
+    return new ParameterTranslation(parameters, diagnostics.snapshot());
   }
 
   private void diagnoseUnsupportedDeclarationProperties(CompilationUnitTree unit, SourceFile sourceFile, String methodKey,
@@ -168,13 +160,10 @@ final class JavaMethodDeclarationTranslator {
         .orElseGet(() -> new JavaTypeIdentity(JavaTypeCategory.OTHER, UNRESOLVED_TYPE_NAME, UNRESOLVED_TYPE_NAME));
   }
 
-  private record ParameterTranslation(List<JavaParameter> parameters, DiagnosticEmissions emissions,
-      List<LanguageFeatureOccurrence> featureOccurrences, List<LanguageFeatureObservation> featureObservations) {
+  private record ParameterTranslation(List<JavaParameter> parameters, DiagnosticEmissions emissions) {
     private ParameterTranslation {
       parameters = List.copyOf(Objects.requireNonNull(parameters, "parameters"));
       Objects.requireNonNull(emissions, "emissions");
-      featureOccurrences = List.copyOf(Objects.requireNonNull(featureOccurrences, "featureOccurrences"));
-      featureObservations = List.copyOf(Objects.requireNonNull(featureObservations, "featureObservations"));
     }
   }
 }
