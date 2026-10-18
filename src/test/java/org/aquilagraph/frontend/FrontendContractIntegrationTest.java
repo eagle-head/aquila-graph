@@ -32,6 +32,7 @@ import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue.ExecutableDeclaration;
 import org.aquilagraph.source.api.SyntaxValue.ImportDeclaration;
 import org.aquilagraph.source.api.SyntaxValue.Literal;
+import org.aquilagraph.source.api.SyntaxValue.LocalDeclaration;
 import org.aquilagraph.source.api.SyntaxValue.TypeDeclaration;
 import org.aquilagraph.source.api.SyntaxValue.VariableDeclaration;
 import org.junit.jupiter.api.Test;
@@ -135,6 +136,99 @@ class FrontendContractIntegrationTest {
     assertEquals(events, retained.coverage().validationEvidence().diagnosticEmissions());
     assertArrayEquals(encoded, AstCodec.encode(retained));
     assertArrayEquals(encoded, AstCodec.encode(repeated));
+  }
+
+  @Test
+  void givenGenericHeadersAndRecursiveAttachmentsAcrossUnits_whenClosedAstFeedsDetachedConsumers_thenCompositionAndIndependentGatesSurvive()
+      throws IOException {
+    // Arrange
+    var snapshot = InputSnapshot.fromSources(directory, List.of(
+        SourceFile.fromContent(Path.of("Matrix.java"), """
+            import java.lang.annotation.*;
+            @Target({ElementType.TYPE_USE, ElementType.LOCAL_VARIABLE}) @interface Use {}
+            @interface Options { int[] value() default {1, 2}; }
+            class Matrix<T extends Number & Comparable<T>> {
+              Object field = new @Use String("field");
+              static { int[] values = new int @Use [1]; }
+              { Object value = new @Use String("instance"); }
+              <U extends Number & Comparable<U>> @Use String subject(Matrix<T> this, U value, String @Use ... rest)
+                  throws java.io.@Use IOException {
+                @Use int first = 1, second = 2;
+                java.util.function.IntFunction<String[]> factory = @Use String[]::new;
+                class Local { int value() { return first + second; } }
+                return factory.apply(new Local().value())[0];
+              }
+              int plain() { return 7; }
+              enum Choice {
+                FIRST(new @Use String("argument")) { int value() { return 3; } };
+                Choice(String value) {}
+              }
+              record Pair(@Use String value) {
+                Pair { if (value == null) throw new IllegalArgumentException(); }
+              }
+            }
+            """),
+        SourceFile.fromContent(Path.of("Following.java"), "class Following { int plain() { return 11; } }")));
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+    var request = new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS);
+    var deriver = CfgDerivers.standard();
+    var consumer = new SourceAnalysisRunner(ignored -> { throw new AssertionError("Existing AST consumers must not reenter production"); }, deriver);
+
+    // Act
+    var outcome = frontend.produce(request);
+    var result = outcome.result().orElseThrow();
+    var method = result.program().methods().stream().filter(value -> value.name().equals("subject")).findFirst().orElseThrow();
+    var selection = new CfgRequest(result.identity(), List.of("type:Following#plain()", method.methodKey()), CfgProfile.JAVA_BOUNDED);
+    var direct = deriver.derive(result, selection);
+    var coordinated = consumer.deriveExisting(outcome, selection);
+    var encoded = AstCodec.encode(result);
+    var decoded = AstCodec.decode(encoded, result.identity());
+    var repeated = frontend.produce(request).result().orElseThrow();
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
+    assertTrue(outcome.diagnostics().isEmpty());
+    assertEquals("java-source/18", result.identity().sourceModelVersion());
+    assertEquals(List.of("field", "STATIC_INITIALIZER_BLOCK", "INSTANCE_INITIALIZER_BLOCK", "subject", "plain", "Choice", "Pair"),
+        type(result, "Matrix").children(SyntaxRole.MEMBER).stream().map(FrontendContractIntegrationTest::memberName).toList());
+    var declaration = result.aggregate().nodes().stream().filter(node -> node.value() instanceof ExecutableDeclaration value
+        && value.declarationKey().equals(method.methodKey())).findFirst().orElseThrow();
+    assertEquals(List.of(SyntaxRole.ANNOTATION, SyntaxRole.TYPE_PARAMETER, SyntaxRole.RECEIVER_PARAMETER, SyntaxRole.PARAMETER,
+        SyntaxRole.PARAMETER, SyntaxRole.RETURN_TYPE, SyntaxRole.THROWN_TYPE, SyntaxRole.BODY),
+        declaration.children().stream().map(SyntaxChild::role).toList());
+    assertEquals("type:Matrix", declaration.value(ExecutableDeclaration.class).ownerKey());
+    assertEquals(2, declaration.requiredChild(SyntaxRole.TYPE_PARAMETER).children(SyntaxRole.TYPE_BOUND).size());
+    assertSame(declaration.requiredChild(SyntaxRole.BODY), result.body(method.methodKey()).orElseThrow().root());
+    var first = local(result, "first");
+    var second = local(result, "second");
+    assertEquals(List.of(SyntaxRole.ANNOTATION, SyntaxRole.DECLARED_TYPE, SyntaxRole.INITIALIZER),
+        first.children().stream().map(SyntaxChild::role).toList());
+    assertEquals(List.of(SyntaxRole.DECLARED_TYPE, SyntaxRole.INITIALIZER), second.children().stream().map(SyntaxChild::role).toList());
+    assertEquals(List.of(first.requiredChild(SyntaxRole.ANNOTATION).nodeId()),
+        second.value(LocalDeclaration.class).bindingEvidence().orElseThrow().sharedAnnotationKeys());
+    var reference = local(result, "factory").requiredChild(SyntaxRole.INITIALIZER);
+    assertEquals(List.of(SyntaxRole.QUALIFIER), reference.children().stream().map(SyntaxChild::role).toList());
+    var qualifier = reference.requiredChild(SyntaxRole.QUALIFIER);
+    var annotation = qualifier.requiredChild(SyntaxRole.ANNOTATION);
+    assertTrue(qualifier.origin().orElseThrow().startOffset() <= annotation.origin().orElseThrow().startOffset());
+    var localType = type(result, "Local");
+    assertSame(localType, result.body(method.methodKey()).orElseThrow().root().descendantsAndSelf().stream()
+        .filter(node -> node.nodeId().equals(localType.nodeId())).findFirst().orElseThrow());
+    var options = type(result, "Options").children(SyntaxRole.MEMBER).getFirst();
+    assertEquals(List.of("1", "2"), options.requiredChild(SyntaxRole.DEFAULT_VALUE).children(SyntaxRole.VALUE).stream()
+        .map(node -> node.value(Literal.class).text()).toList());
+    assertEquals(List.of(MethodCfgState.AVAILABLE, MethodCfgState.UNSUPPORTED), direct.methods().stream().map(value -> value.state()).toList());
+    assertEquals(direct, coordinated.representation().cfg().orElseThrow());
+    assertSame(outcome, coordinated.representation().ast());
+    assertEquals(result.aggregate(), decoded.aggregate());
+    assertEquals(result.coverage(), decoded.coverage());
+    assertArrayEquals(encoded, AstCodec.encode(decoded));
+    assertArrayEquals(encoded, AstCodec.encode(repeated));
+  }
+
+  private static SyntaxNode local(AstResult result, String name) {
+    return result.aggregate().nodes().stream().filter(node -> node.value() instanceof LocalDeclaration value
+        && value.name().equals(name)).findFirst().orElseThrow();
   }
 
   private static SyntaxNode type(AstResult result, String name) {
