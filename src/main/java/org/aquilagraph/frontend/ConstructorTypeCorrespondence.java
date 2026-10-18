@@ -48,6 +48,7 @@ final class ConstructorTypeCorrespondence {
     if (originals.size() != witnesses.size()) {
       return false;
     }
+    var attempt = new MatchAttempt();
     for (var index = 0; index < originals.size(); index++) {
       var originalDeclaration = originals.get(index);
       var witnessDeclaration = witnesses.get(index);
@@ -55,10 +56,10 @@ final class ConstructorTypeCorrespondence {
           || !originalDeclaration.getSimpleName().contentEquals(witnessDeclaration.getSimpleName())) {
         return false;
       }
-      copiedDeclarations.remember(originalDeclaration, witnessDeclaration);
-      copiedOriginals.remember(witnessDeclaration, originalDeclaration);
+      attempt.copiedDeclarations.remember(originalDeclaration, witnessDeclaration);
+      attempt.copiedOriginals.remember(witnessDeclaration, originalDeclaration);
     }
-    return matches(originalTrees.getTypeMirror(original), witnessTrees.getTypeMirror(witness));
+    return attempt.acceptIfMatched(originalTrees.getTypeMirror(original), witnessTrees.getTypeMirror(witness));
   }
 
   private static String sourceText(TreePath path, Trees trees) throws IOException {
@@ -84,61 +85,108 @@ final class ConstructorTypeCorrespondence {
   }
 
   boolean matches(@Nullable TypeMirror original, @Nullable TypeMirror witness) {
-    if (original == null || witness == null) {
-      return original == null && witness == null;
+    return new MatchAttempt().acceptIfMatched(original, witness);
+  }
+
+  /** Keeps recursive assumptions private until the complete type or argument comparison succeeds. */
+  private final class MatchAttempt {
+    private final ConstructorIdentityLookup<TypeElement, TypeElement> copiedDeclarations;
+    private final ConstructorIdentityLookup<TypeElement, TypeElement> copiedOriginals;
+    private final ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> originals;
+    private final ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> witnesses;
+    private final ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> pairs;
+
+    private MatchAttempt() {
+      copiedDeclarations = ConstructorIdentityLookup.usingReferenceIdentity();
+      copiedOriginals = ConstructorIdentityLookup.usingReferenceIdentity();
+      originals = ConstructorIdentityLookup.usingReferenceIdentity();
+      witnesses = ConstructorIdentityLookup.usingReferenceIdentity();
+      pairs = ConstructorIdentityLookup.usingReferenceIdentity();
     }
-    if (original.getKind() != witness.getKind() || !original.getAnnotationMirrors().stream().map(Object::toString).toList()
-        .equals(witness.getAnnotationMirrors().stream().map(Object::toString).toList())) {
-      return false;
-    }
-    var existingPairs = row(pairs, original);
-    if (existingPairs.find(witness).isPresent()) {
+
+    private boolean acceptIfMatched(@Nullable TypeMirror original, @Nullable TypeMirror witness) {
+      if (!matches(original, witness)) {
+        return false;
+      }
+      retain(copiedDeclarations, ConstructorTypeCorrespondence.this.copiedDeclarations);
+      retain(copiedOriginals, ConstructorTypeCorrespondence.this.copiedOriginals);
+      retainPairs(originals, ConstructorTypeCorrespondence.this.originals);
+      retainPairs(witnesses, ConstructorTypeCorrespondence.this.witnesses);
+      retainPairs(pairs, ConstructorTypeCorrespondence.this.pairs);
       return true;
     }
-    existingPairs.remember(witness, Boolean.TRUE);
-    return switch (original.getKind()) {
-      case ARRAY -> matches(((ArrayType) original).getComponentType(), ((ArrayType) witness).getComponentType());
-      case DECLARED -> declared((DeclaredType) original, (DeclaredType) witness);
-      case TYPEVAR -> variable((TypeVariable) original, (TypeVariable) witness);
-      case WILDCARD -> matches(((WildcardType) original).getExtendsBound(), ((WildcardType) witness).getExtendsBound())
-          && matches(((WildcardType) original).getSuperBound(), ((WildcardType) witness).getSuperBound());
-      case INTERSECTION -> ordered(((IntersectionType) original).getBounds(), ((IntersectionType) witness).getBounds());
-      case BOOLEAN, BYTE, SHORT, INT, LONG, CHAR, FLOAT, DOUBLE, NULL, NONE, VOID -> true;
-      case ERROR, EXECUTABLE, PACKAGE, MODULE, UNION, OTHER -> false;
-    };
-  }
 
-  private boolean declared(DeclaredType original, DeclaredType witness) {
-    if (!(original.asElement() instanceof TypeElement originalOwner) || !(witness.asElement() instanceof TypeElement witnessOwner)) {
-      return false;
+    private boolean matches(@Nullable TypeMirror original, @Nullable TypeMirror witness) {
+      if (original == null || witness == null) {
+        return original == null && witness == null;
+      }
+      if (original.getKind() != witness.getKind() || !annotations(original).equals(annotations(witness))) {
+        return false;
+      }
+      if (paired(ConstructorTypeCorrespondence.this.pairs, original, witness) || paired(pairs, original, witness)) {
+        return true;
+      }
+      row(pairs, original).remember(witness, Boolean.TRUE);
+      return switch (original.getKind()) {
+        case ARRAY -> matches(((ArrayType) original).getComponentType(), ((ArrayType) witness).getComponentType());
+        case DECLARED -> declared((DeclaredType) original, (DeclaredType) witness);
+        case TYPEVAR -> variable((TypeVariable) original, (TypeVariable) witness);
+        case WILDCARD -> matches(((WildcardType) original).getExtendsBound(), ((WildcardType) witness).getExtendsBound())
+            && matches(((WildcardType) original).getSuperBound(), ((WildcardType) witness).getSuperBound());
+        case INTERSECTION -> ordered(((IntersectionType) original).getBounds(), ((IntersectionType) witness).getBounds());
+        case BOOLEAN, BYTE, SHORT, INT, LONG, CHAR, FLOAT, DOUBLE, NULL, NONE, VOID -> true;
+        case ERROR, EXECUTABLE, PACKAGE, MODULE, UNION, OTHER -> false;
+      };
     }
-    var copied = copiedDeclarations.find(originalOwner);
-    return (copied.isPresent()
-        ? copied.orElseThrow().equals(witnessOwner)
-        : originalElements.getBinaryName(originalOwner).contentEquals(witnessElements.getBinaryName(witnessOwner)))
-        && originalElements.getModuleOf(originalOwner).getQualifiedName()
-            .contentEquals(witnessElements.getModuleOf(witnessOwner).getQualifiedName())
-        && matches(original.getEnclosingType(), witness.getEnclosingType())
-        && ordered(original.getTypeArguments(), witness.getTypeArguments());
+
+    private boolean declared(DeclaredType original, DeclaredType witness) {
+      if (!(original.asElement() instanceof TypeElement originalOwner) || !(witness.asElement() instanceof TypeElement witnessOwner)) {
+        return false;
+      }
+      var copied = copiedDeclarations.find(originalOwner)
+          .or(() -> ConstructorTypeCorrespondence.this.copiedDeclarations.find(originalOwner));
+      return (copied.isPresent()
+          ? copied.orElseThrow().equals(witnessOwner)
+          : originalElements.getBinaryName(originalOwner).contentEquals(witnessElements.getBinaryName(witnessOwner)))
+          && originalElements.getModuleOf(originalOwner).getQualifiedName()
+              .contentEquals(witnessElements.getModuleOf(witnessOwner).getQualifiedName())
+          && matches(original.getEnclosingType(), witness.getEnclosingType())
+          && ordered(original.getTypeArguments(), witness.getTypeArguments());
+    }
+
+    private boolean variable(TypeVariable original, TypeVariable witness) {
+      var originalElement = original.asElement();
+      var witnessElement = witness.asElement();
+      return bind(ConstructorTypeCorrespondence.this.originals, originals, original, witness)
+          && bind(ConstructorTypeCorrespondence.this.witnesses, witnesses, witness, original)
+          && originalElement.getKind() == witnessElement.getKind()
+          && originalElement.getSimpleName().contentEquals(witnessElement.getSimpleName())
+          && matches(original.getUpperBound(), witness.getUpperBound()) && matches(original.getLowerBound(), witness.getLowerBound());
+    }
+
+    private boolean ordered(List<? extends TypeMirror> original, List<? extends TypeMirror> witness) {
+      if (original.size() != witness.size()) {
+        return false;
+      }
+      for (var index = 0; index < original.size(); index++) {
+        if (!matches(original.get(index), witness.get(index))) {
+          return false;
+        }
+      }
+      return true;
+    }
   }
 
-  private boolean variable(TypeVariable original, TypeVariable witness) {
-    var originalElement = original.asElement();
-    var witnessElement = witness.asElement();
-    return bind(originals, original, witness) && bind(witnesses, witness, original) && originalElement.getKind() == witnessElement.getKind()
-        && originalElement.getSimpleName().contentEquals(witnessElement.getSimpleName())
-        && matches(original.getUpperBound(), witness.getUpperBound()) && matches(original.getLowerBound(), witness.getLowerBound());
-  }
-
-  private static boolean bind(ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> bindings,
-      TypeMirror first, TypeMirror second) {
-    var bound = bindings.find(first);
+  private static boolean bind(ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> accepted,
+      ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> provisional, TypeMirror first,
+      TypeMirror second) {
+    var bound = provisional.find(first).or(() -> accepted.find(first));
     if (bound.isPresent()) {
       return bound.orElseThrow().find(second).isPresent();
     }
     var identity = ConstructorIdentityLookup.<TypeMirror, Boolean>usingReferenceIdentity();
     identity.remember(second, Boolean.TRUE);
-    bindings.remember(first, identity);
+    provisional.remember(first, identity);
     return true;
   }
 
@@ -153,16 +201,24 @@ final class ConstructorTypeCorrespondence {
     return value;
   }
 
-  private boolean ordered(List<? extends TypeMirror> original, List<? extends TypeMirror> witness) {
-    if (original.size() != witness.size()) {
-      return false;
+  private static boolean paired(ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> table,
+      TypeMirror original, TypeMirror witness) {
+    return table.find(original).flatMap(row -> row.find(witness)).isPresent();
+  }
+
+  private static <K, V> void retain(ConstructorIdentityLookup<K, V> provisional, ConstructorIdentityLookup<K, V> accepted) {
+    for (var entry : provisional.entries()) {
+      accepted.remember(entry.key(), entry.value());
     }
-    for (var index = 0; index < original.size(); index++) {
-      if (!matches(original.get(index), witness.get(index))) {
-        return false;
+  }
+
+  private static void retainPairs(ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> provisional,
+      ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> accepted) {
+    for (var pair : provisional.entries()) {
+      for (var witness : pair.value().entries()) {
+        row(accepted, pair.key()).remember(witness.key(), witness.value());
       }
     }
-    return true;
   }
 
   Optional<TypeMirror> originalType(TypeMirror witness, Types originalTypes, Types witnessTypes) {
