@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 import javax.tools.ToolProvider;
@@ -449,27 +450,43 @@ class JavaCoverageAdmissionTest {
 
   @TestFactory
   Stream<DynamicTest> givenActualWrittenModifierOwners_whenOneUnusedItemFieldIsForged_thenInputRejectsTheFalseProperty() {
-    return modifierFixtures().flatMap(fixture -> Arrays.stream(PropertyItemField.values()).filter(field -> field != PropertyItemField.MODIFIER_FLAGS)
-        .map(field -> DynamicTest.dynamicTest(fixture.name() + '/' + field, () -> assertPropertyItemRejected(fixture, field))));
+    // Arrange
+    var fixtures = modifierFixtures();
+    // Act
+    var tests = fixtures.flatMap(fixture -> Arrays.stream(PropertyItemField.values()).filter(field -> field != PropertyItemField.MODIFIER_FLAGS)
+        .map(field -> DynamicTest.dynamicTest("given" + fixture.name() + "WithForged" + field
+            + "_whenCopiedPropertyIsAdmitted_thenFalsePropertyIsRejected", () -> assertPropertyItemRejected(fixture, field))));
+    // Assert
+    return tests;
   }
 
   @TestFactory
   Stream<DynamicTest> givenActualWrittenModifierOwners_whenPropertySupportIsAdmitted_thenEmptyAndNonemptyFlagsKeepTheirExactOwner() {
-    return modifierFixtures().map(fixture -> DynamicTest.dynamicTest(fixture.name(), () -> assertModifierOwner(fixture)));
+    // Arrange
+    var fixtures = modifierFixtures();
+    // Act
+    var tests = fixtures.map(fixture -> DynamicTest.dynamicTest("given" + fixture.name()
+        + "_whenWrittenModifiersAreAdmitted_thenExactOwnerFlagsAreRetained", () -> assertModifierOwner(fixture)));
+    // Assert
+    return tests;
   }
 
   private static Stream<PropertyFixture> modifierFixtures() {
     return Stream.of(
-        new PropertyFixture("public-class", "public class Example {}", "ClassTree::ClassTree#getModifiers()", List.of("public"), List.of()),
-        new PropertyFixture("empty-class", "class Example {}", "ClassTree::ClassTree#getModifiers()", List.of(), List.of()),
-        new PropertyFixture("public-method", "class Example { public void value() {} }", "MethodTree::MethodTree#getModifiers()", List.of("public"), List.of()),
-        new PropertyFixture("empty-method", "class Example { void value() {} }", "MethodTree::MethodTree#getModifiers()", List.of(), List.of()),
-        new PropertyFixture("private-field", "class Example { private int field; }", "VariableTree::VariableTree#getModifiers()", List.of("private"), List.of()),
-        new PropertyFixture("empty-formal", "class Example { void value(int parameter) {} }", "VariableTree::VariableTree#getModifiers()", List.of(), List.of()),
-        new PropertyFixture("final-formal", "class Example { void value(final int parameter) {} }", "VariableTree::VariableTree#getModifiers()", List.of("final"), List.of()),
-        new PropertyFixture("final-local", "class Example { void value() { final int local = 1; } }", "VariableTree::VariableTree#getModifiers()", List.of("final"),
+        new PropertyFixture("NonSealedClass", "non-sealed class Example extends Base {} sealed class Base permits Example {}",
+            "ClassTree::ClassTree#getModifiers()", List.of("non-sealed"), List.of()),
+        new PropertyFixture("NonSealedInterface", "non-sealed interface Example extends Base {} sealed interface Base permits Example {}",
+            "ClassTree::ClassTree#getModifiers()", List.of("non-sealed"), List.of()),
+        new PropertyFixture("PublicClass", "public class Example {}", "ClassTree::ClassTree#getModifiers()", List.of("public"), List.of()),
+        new PropertyFixture("EmptyClass", "class Example {}", "ClassTree::ClassTree#getModifiers()", List.of(), List.of()),
+        new PropertyFixture("PublicMethod", "class Example { public void value() {} }", "MethodTree::MethodTree#getModifiers()", List.of("public"), List.of()),
+        new PropertyFixture("EmptyMethod", "class Example { void value() {} }", "MethodTree::MethodTree#getModifiers()", List.of(), List.of()),
+        new PropertyFixture("PrivateField", "class Example { private int field; }", "VariableTree::VariableTree#getModifiers()", List.of("private"), List.of()),
+        new PropertyFixture("EmptyFormal", "class Example { void value(int parameter) {} }", "VariableTree::VariableTree#getModifiers()", List.of(), List.of()),
+        new PropertyFixture("FinalFormal", "class Example { void value(final int parameter) {} }", "VariableTree::VariableTree#getModifiers()", List.of("final"), List.of()),
+        new PropertyFixture("FinalLocal", "class Example { void value() { final int local = 1; } }", "VariableTree::VariableTree#getModifiers()", List.of("final"),
             List.of()),
-        new PropertyFixture("final-catch", "class Example { void value() { try { throw new IllegalArgumentException(); } catch (final IllegalArgumentException problem) {} } }",
+        new PropertyFixture("FinalCatch", "class Example { void value() { try { throw new IllegalArgumentException(); } catch (final IllegalArgumentException problem) {} } }",
             "VariableTree::VariableTree#getModifiers()", List.of("final"), List.of()));
   }
 
@@ -501,6 +518,36 @@ class JavaCoverageAdmissionTest {
     assertEquals(Optional.of(fixture.flags()), item.modifierFlags());
     assertEquals(CoveragePropertyValue.canonicalFlags(fixture.flags()), item.value());
     assertWrittenLocalTypes(input, fixture.source());
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenNonSealedSemanticModifiers_whenExpectedAndEncounteredPropertiesAreForged_thenActualFactsRejectThem() {
+    // Arrange
+    var forged = List.of(Map.entry("EmptyModifierClaims", new CoveragePropertyValue(CoveragePropertyValue.State.EMPTY, List.of())),
+        Map.entry("AbsentModifierClaims", new CoveragePropertyValue(CoveragePropertyValue.State.ABSENT, List.of())),
+        Map.entry("OrdinalModifierIdentityClaims", new CoveragePropertyValue(CoveragePropertyValue.State.ITEMS,
+            List.of(new CoveragePropertyValue.Item("item:0", "non-sealed", CoveragePropertyValue.Provenance.COMPILER_DERIVED)))));
+    // Act
+    var tests = forged.stream().map(contrast -> DynamicTest.dynamicTest("givenNonSealedClassAnd" + contrast.getKey()
+        + "_whenCopiedPropertiesAreAdmitted_thenFalsePropertyIsRejected", () -> {
+      // Arrange
+      var input = analyze("non-sealed class Example extends Base {} sealed class Base permits Example {}");
+      var selected = input.languageFeatureCoverageResult().validationEvidence().outcomes().stream()
+          .filter(outcome -> outcome.address().role().equals("TypeElement::Element#getModifiers()")
+              && outcome.encounteredValue().orElseThrow().items().stream().anyMatch(item -> item.value().equals("non-sealed")))
+          .findFirst().orElseThrow();
+      assertTrue(input.diagnostics().isEmpty(), input.diagnostics().toString());
+      assertEquals(FeatureContextOutcome.Mode.FACTS, selected.support().mode());
+      // Act
+      var failure = assertThrows(IllegalArgumentException.class, () -> {
+        var changed = claimedValue(input, selected, contrast.getValue());
+        new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), input.aggregate(), input.diagnostics(), changed);
+      });
+      // Assert
+      assertTrue(failure.getMessage().contains("support") || failure.getMessage().contains("owner facts"), failure.toString());
+    }));
+    // Assert
+    return tests;
   }
 
   private static void assertPropertyItemRejected(PropertyFixture fixture, PropertyItemField field) throws IOException {

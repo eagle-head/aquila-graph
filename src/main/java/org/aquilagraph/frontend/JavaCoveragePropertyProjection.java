@@ -190,7 +190,7 @@ final class JavaCoveragePropertyProjection {
       return new Item(type.getKind().name() + ':' + ordinal, type.toString(), provenance, Optional.empty(),
           semantics.map(resolver -> resolver.typeIdentity(type)), Optional.empty());
     }
-    return new Item(value.getClass().isEnum() ? value.toString() : "item:" + ordinal, value.toString(), provenance);
+    return new Item(value instanceof Enum<?> ? value.toString() : "item:" + ordinal, value.toString(), provenance);
   }
 
   private static Item annotationItem(int ordinal, Provenance provenance, Optional<CoverageAnnotationValue> copied) {

@@ -72,6 +72,39 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   @TempDir Path directory;
 
   @Test
+  void givenCompleteNonSealedHierarchy_whenExplicitlyRetainedAndQueriedWithoutCompiler_thenCorrectedPropertiesAndIdentitySurvive()
+      throws Exception {
+    // Arrange
+    var settings = settings();
+    var ast = DeclarationAstRetentionFixture.produce(directory, "Hierarchy.java", """
+        sealed class Base permits Open {}
+        non-sealed abstract class Open extends Base { int subject() { return 7; } }
+        sealed interface Contract permits Extension {}
+        non-sealed interface Extension extends Contract {}
+        """);
+
+    // Act
+    var retained = independentQuery(settings, ast);
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, retained.completion());
+    assertEquals("javac-public/7", retained.identity().semanticProductionRevision());
+    assertEquals("java-source/18", retained.identity().sourceModelVersion());
+    var modifiers = retained.coverage().validationEvidence().outcomes().stream()
+        .filter(value -> value.address().role().equals("TypeElement::Element#getModifiers()"))
+        .flatMap(value -> value.encounteredValue().stream()).flatMap(value -> value.items().stream())
+        .filter(value -> value.value().equals("non-sealed")).toList();
+    assertEquals(2, modifiers.size());
+    for (var item : modifiers) {
+      assertEquals("non-sealed", item.identity());
+      assertEquals(CoveragePropertyValue.Provenance.COMPILER_DERIVED, item.provenance());
+    }
+    assertEquals(List.of("Open"), retained.program().types().stream().filter(type -> type.qualifiedName().equals("Open"))
+        .map(type -> type.qualifiedName()).toList());
+    assertTrue(retained.diagnostics().isEmpty(), retained.diagnostics().toString());
+  }
+
+  @Test
   void givenQualifiedAnonymousCreation_whenSavedClosedAndQueried_thenInstantiatedConstructorTargetsRemainExact() throws IOException {
     // Arrange
     var settings = settings();
@@ -331,7 +364,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     var settings = settings();
     var current = DeclarationAstRetentionFixture.mixed(directory);
     var historical = new ArrayList<AstResult>();
-    for (var format = 2; format <= 17; format++) { historical.add(HistoricalAstFixtures.read(format)); }
+    for (var format = 2; format <= 18; format++) { historical.add(HistoricalAstFixtures.read(format)); }
     var simple = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory,
         List.of(SourceFile.fromContent(Path.of("LegacyRun.java"), "class LegacyRun { int value() { return 4; } }"))),
         DeclarationAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_BOUNDED);

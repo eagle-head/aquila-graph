@@ -12,7 +12,7 @@ class HistoricalAstCompatibilityTest {
   @TestFactory
   Stream<DynamicTest> givenOriginalHistoricalResults_whenDecodedAndMaterialized_thenOriginalIdentityQualificationAndValuesRemain() {
     // Arrange
-    var formats = IntStream.rangeClosed(2, 17);
+    var formats = IntStream.rangeClosed(2, 18);
 
     // Act
     var observations = formats.mapToObj(format -> DynamicTest.dynamicTest("givenOriginalSourceFormat" + format
