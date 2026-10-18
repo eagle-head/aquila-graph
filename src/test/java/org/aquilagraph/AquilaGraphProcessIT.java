@@ -19,6 +19,38 @@ class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
 
   @TestFactory
+  Stream<DynamicTest> givenInvalidRepeatableMixtures_whenPackagedAnalyzerRuns_thenCompilerErrorsAndIncompleteExitRemainObservable() {
+    // Arrange
+    var annotations = List.of("@Tag(1) @Tag(2) @Tags({@Tag(3)})", "@Tags({@Tag(1)}) @Tags({@Tag(2)}) @Groups({@Tags({@Tag(3)})})");
+    // Act
+    var observations = annotations.stream().map(value -> DynamicTest.dynamicTest(
+        "given" + (value.startsWith("@Tag(") ? "RepeatedBaseWithContainer" : "RepeatedContainersWithGroup")
+            + "_whenPackagedAnalyzerRuns_thenCompilerErrorsAndIncompleteExitRemainObservable", () -> {
+          // Arrange
+          var sourceRoot = Files.createDirectories(temporaryDirectory.resolve(value.startsWith("@Tag(") ? "base" : "containers"));
+          Files.writeString(sourceRoot.resolve("Invalid.java"), """
+              import java.lang.annotation.Repeatable;
+              @Repeatable(Tags.class) @interface Tag { int value(); }
+              @Repeatable(Groups.class) @interface Tags { Tag[] value(); }
+              @interface Groups { Tags[] value(); }
+              """ + value + " class Invalid {}");
+
+          // Act
+          var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+
+          // Assert
+          assertTrue(result.completed(), result.error());
+          assertEquals(1, result.exitCode());
+          assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+          assertEquals(1, result.error().lines().filter(line -> line.startsWith(
+              "ERROR FRONTEND compiler.err.invalid.repeatable.annotation.repeated.and.container.present:")).count(), result.error());
+        }));
+
+    // Assert
+    return observations;
+  }
+
+  @TestFactory
   Stream<DynamicTest> givenPackagedUnsupportedDeclarationWithinExceptionClauses_whenBoundedProcessRuns_thenBothCausesRemainObservable() {
     return Stream.of("try { class Local {} } finally {}", "try (input) {} catch (Exception failure) { class Local {} }")
         .map(statement -> DynamicTest.dynamicTest(statement, () -> {

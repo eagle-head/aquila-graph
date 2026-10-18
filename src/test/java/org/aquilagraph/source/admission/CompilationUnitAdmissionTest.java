@@ -140,7 +140,7 @@ class CompilationUnitAdmissionTest {
     // Assert
     assertTrue(profileError.getMessage().contains("profile"), profileError.toString());
     assertTrue(formatError.getMessage().contains("java-source/18"), formatError.toString());
-    assertEquals("javac-public/7", ast.identity().semanticProductionRevision());
+    assertEquals("javac-public/8", ast.identity().semanticProductionRevision());
     assertEquals("java-source/18", ast.identity().sourceModelVersion());
     assertEquals("java-source-expanded/6", ast.profile().version());
   }

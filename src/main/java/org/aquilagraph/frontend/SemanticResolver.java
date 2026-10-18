@@ -152,11 +152,6 @@ final class SemanticResolver {
     return trees.getTree(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
   }
 
-  @Nullable
-  Tree annotationSourceTree(Element owner, AnnotationMirror mirror) {
-    return trees.getTree(Objects.requireNonNull(owner, ELEMENT_ARGUMENT), Objects.requireNonNull(mirror, "mirror"));
-  }
-
   Elements.Origin declarationOrigin(Element element) {
     return elements.getOrigin(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
   }

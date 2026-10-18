@@ -44,6 +44,8 @@ import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.admission.AstCodec;
+import org.aquilagraph.source.admission.AstResultAdmission;
+import org.aquilagraph.source.api.AnnotationScalar;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
@@ -55,6 +57,7 @@ import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.SyntaxAnalysisInput;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -70,6 +73,51 @@ import org.neo4j.driver.Values;
 @ExtendWith(Neo4jIntegration.class)
 class Neo4jDeclarationAstRetentionNeo4jIT {
   @TempDir Path directory;
+
+  @Test
+  void givenRepeatedAnnotationsAndExplicitNestedContainers_whenRetainedAndQueriedWithoutCompiler_thenOccurrencesAndValuesSurvive()
+      throws Exception {
+    // Arrange
+    var ast = DeclarationAstRetentionFixture.produce(directory, "Tags.java", """
+        import java.lang.annotation.Repeatable;
+        @Repeatable(Tags.class) @interface Tag { int value(); }
+        @Repeatable(Groups.class) @interface Tags { Tag[] value(); }
+        @interface Groups { Tags[] value(); }
+        @Tag(7) @Tag(7) @Tag(9) class Repeated { int subject() { return 1; } }
+        @Tags({@Tag(11), @Tag(13)}) @Tags({@Tag(17)}) class Containers {}
+        @Groups({@Tags({@Tag(19)})}) class Explicit {}
+        """);
+
+    var current = ast.result().orElseThrow();
+    var preceding = AstResultAdmission.admit(new SyntaxAnalysisInput(current.snapshot(), current.environment(), current.program(),
+        Optional.of(current.aggregate()), current.diagnostics(), current.coverage()), current.profile(), "javac-public/7");
+
+    // Act
+    var retained = independentQuery(settings(), ast);
+    var prior = independentQuery(settings(), AstOutcome.available(preceding));
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, retained.completion());
+    assertEquals("javac-public/8", retained.identity().semanticProductionRevision());
+    assertEquals(ast.result().orElseThrow().identity(), retained.identity());
+    assertEquals(ast.result().orElseThrow().aggregate(), retained.aggregate());
+    assertEquals(preceding.identity(), prior.identity());
+    assertEquals("javac-public/7", prior.identity().semanticProductionRevision());
+    assertArrayEquals(AstCodec.encode(preceding), AstCodec.encode(prior));
+    var repeated = retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_DECLARATION
+        && node.value(SyntaxValue.TypeDeclaration.class).name().equals("Repeated")).findFirst().orElseThrow();
+    var annotations = repeated.children(SyntaxRole.ANNOTATION);
+    assertEquals(3, annotations.size());
+    assertEquals(3, annotations.stream().map(node -> node.nodeId()).distinct().count());
+    assertEquals(List.of(new AnnotationScalar.IntValue(7), new AnnotationScalar.IntValue(7), new AnnotationScalar.IntValue(9)),
+        annotations.stream().map(node -> node.requiredChild(SyntaxRole.ANNOTATION_ARGUMENT)
+            .value(SyntaxValue.AnnotationArgument.class).value()).toList());
+    assertEquals(List.of(7, 7, 9, 11, 13, 17, 19), retained.aggregate().nodes().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION_ARGUMENT
+            && node.value(SyntaxValue.AnnotationArgument.class).value() instanceof AnnotationScalar.IntValue)
+        .map(node -> ((AnnotationScalar.IntValue) node.value(SyntaxValue.AnnotationArgument.class).value()).value()).toList());
+    assertTrue(retained.diagnostics().isEmpty(), retained.diagnostics().toString());
+  }
 
   @Test
   void givenCompleteNonSealedHierarchy_whenExplicitlyRetainedAndQueriedWithoutCompiler_thenCorrectedPropertiesAndIdentitySurvive()
@@ -88,7 +136,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, retained.completion());
-    assertEquals("javac-public/7", retained.identity().semanticProductionRevision());
+    assertEquals("javac-public/8", retained.identity().semanticProductionRevision());
     assertEquals("java-source/18", retained.identity().sourceModelVersion());
     var modifiers = retained.coverage().validationEvidence().outcomes().stream()
         .filter(value -> value.address().role().equals("TypeElement::Element#getModifiers()"))
