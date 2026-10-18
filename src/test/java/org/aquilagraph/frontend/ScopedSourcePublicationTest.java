@@ -14,6 +14,7 @@ import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.SourcePositions;
+import com.sun.source.util.TreeScanner;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -319,6 +320,103 @@ class ScopedSourcePublicationTest {
     assertEquals(finalized.getFirst().getFirst().contribution(), finalized.getLast().getFirst().contribution());
     assertEquals(finalized.getFirst().getFirst().emissions(), finalized.getLast().getFirst().emissions());
     assertEquals(finalized.getFirst().getLast().contribution(), finalized.getLast().getLast().contribution());
+  }
+
+  @Test
+  void givenAttachmentRefusalAfterSharedLocalsAndNestedCopying_whenSiblingsUnitsAndRequestsContinue_thenOnlyAcceptedCopiesPublish()
+      throws IOException {
+    // Arrange
+    var text = """
+        import java.lang.annotation.*;
+        @Target({ElementType.LOCAL_VARIABLE, ElementType.TYPE_USE}) @interface Mark {}
+        class Refused {
+          int subject() {
+            @Mark int first = 1, second = 2;
+            Object child = new Object() { int value() { return first; } };
+            @Mark int broken = 3;
+            return second + broken;
+          }
+        }
+        class Healthy {
+          int subject() { @Mark int first = 4, second = 5; return first + second; }
+        }
+        """;
+    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Sample.java"), text),
+        SourceFile.fromContent(Path.of("Following.java"), "class Following { int value() { return 6; } }")));
+    var sources = new SnapshotSourceCatalog(snapshot);
+    var requests = new ArrayList<List<FinalizedUnit>>();
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
+      var compilation = session.analyze(session.parse(), POLICY);
+      assertFalse(compilation.diagnostics().stream().anyMatch(value -> value.getKind() == Diagnostic.Kind.ERROR));
+      var missing = Collections.newSetFromMap(new IdentityHashMap<Tree, Boolean>());
+      var unit = compilation.units().stream().filter(value -> value.getTypeDecls().stream()
+          .anyMatch(tree -> tree instanceof ClassTree type && type.getSimpleName().contentEquals("Refused"))).findFirst().orElseThrow();
+      new TreeScanner<Void, Void>() {
+        @Override public Void visitVariable(VariableTree tree, Void unused) {
+          if (tree.getName().contentEquals("broken")) missing.addAll(tree.getModifiers().getAnnotations());
+          return super.visitVariable(tree, unused);
+        }
+      }.scan(unit, null);
+      assertEquals(1, missing.size());
+      var actual = compilation.sourceEvidence();
+      var evidence = new JavaSourceEvidence(new SourcePositions() {
+        @Override public long getStartPosition(CompilationUnitTree owner, Tree tree) {
+          return missing.contains(tree) ? Diagnostic.NOPOS : actual.rawStart(owner, tree);
+        }
+        @Override public long getEndPosition(CompilationUnitTree owner, Tree tree) { return actual.rawEnd(owner, tree); }
+      });
+
+      // Act
+      for (var request = 0; request < 2; request++) {
+        var factory = new JavaUnitTranslationFactory(compilation.semantics(), evidence, compilation.treeInventory(), POLICY);
+        var results = new ArrayList<FinalizedUnit>();
+        for (var current : List.of(unit, compilation.units().stream().filter(value -> value != unit).findFirst().orElseThrow())) {
+          var translator = factory.create(current, sources.find(current).orElseThrow());
+          assertTrue(translator.translateDeclarations().value().complete());
+          translator.decideProjection(JavaUnitTranslator.ProjectionDecision.ALLOW);
+          translator.projectSource();
+          results.add(translator.finalizeSource());
+        }
+        requests.add(List.copyOf(results));
+      }
+    }
+
+    // Assert
+    for (var results : requests) {
+      var result = results.getFirst();
+      var contribution = result.contribution().orElseThrow();
+      assertEquals(List.of("Mark", "Healthy"), contribution.root().children(SyntaxRole.TYPE_DECLARATION).stream()
+          .map(node -> node.value(SyntaxValue.TypeDeclaration.class).name()).toList());
+      assertEquals(List.of("frontend.missing-source-position"), result.diagnostics().stream().map(value -> value.code()).toList());
+      assertTrue(result.scopes().stream().noneMatch(value -> value.scope().key().contains("Refused")));
+      assertTrue(result.memberOrders().stream().noneMatch(value -> value.ownerTypeKey().contains("Refused")));
+      assertTrue(result.sourceAssociations().stream().allMatch(value -> contribution.nodes().stream()
+          .anyMatch(node -> node.nodeId().equals(value.nodeKey()))));
+      assertTrue(contribution.semanticEdges().stream().allMatch(edge -> contribution.nodes().stream()
+          .anyMatch(node -> node.nodeId().equals(edge.sourceKey()))));
+      var locals = contribution.nodes().stream().filter(node -> node.value() instanceof SyntaxValue.LocalDeclaration).toList();
+      assertEquals(List.of("first", "second"), locals.stream().map(node -> node.value(SyntaxValue.LocalDeclaration.class).name()).toList());
+      var annotation = locals.getFirst().requiredChild(SyntaxRole.ANNOTATION);
+      assertTrue(locals.getLast().children(SyntaxRole.ANNOTATION).isEmpty());
+      assertEquals(List.of(annotation.nodeId()), locals.getLast().value(SyntaxValue.LocalDeclaration.class)
+          .bindingEvidence().orElseThrow().sharedAnnotationKeys());
+      var method = contribution.nodes().stream().filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration value
+          && value.name().equals("subject")).findFirst().orElseThrow();
+      var body = result.bodies().stream().filter(value -> value.methodKey().equals(method.value(SyntaxValue.ExecutableDeclaration.class)
+          .declarationKey())).findFirst().orElseThrow();
+      assertSame(method.requiredChild(SyntaxRole.BODY), body.root());
+      assertEquals(MethodBodyOrigin.SOURCE_AST, body.origin());
+      var refused = result.bodies().stream().filter(value -> value.methodKey().contains("Refused")).toList();
+      assertFalse(refused.isEmpty());
+      assertTrue(refused.stream().allMatch(value -> value.origin() == MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY
+          || value.origin() == MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION));
+      assertTrue(results.getLast().diagnostics().isEmpty());
+      assertEquals(List.of("Following"), results.getLast().contribution().orElseThrow().root().children(SyntaxRole.TYPE_DECLARATION)
+          .stream().map(node -> node.value(SyntaxValue.TypeDeclaration.class).name()).toList());
+    }
+    assertEquals(requests.getFirst().getFirst().contribution(), requests.getLast().getFirst().contribution());
+    assertEquals(requests.getFirst().getFirst().emissions(), requests.getLast().getFirst().emissions());
+    assertEquals(requests.getFirst().getLast().contribution(), requests.getLast().getLast().contribution());
   }
 
   private static SyntaxNode empty(SourceFile source, int position) {

@@ -1,36 +1,20 @@
 package org.aquilagraph.frontend;
 
-import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
-import com.sun.source.tree.MemberSelectTree;
-import com.sun.source.tree.MethodInvocationTree;
-import com.sun.source.tree.MemberReferenceTree;
-import com.sun.source.tree.InstanceOfTree;
-import com.sun.source.tree.DeconstructionPatternTree;
 import com.sun.source.tree.MethodTree;
-import com.sun.source.tree.NewClassTree;
-import com.sun.source.tree.NewArrayTree;
-import com.sun.source.tree.Tree;
-import com.sun.source.tree.TypeCastTree;
-import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
-import javax.lang.model.element.VariableElement;
-import org.aquilagraph.frontend.JavaAnnotationProjector.DeclarationSite;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.JavaMethod;
-import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.JavaType;
 import org.aquilagraph.source.api.MethodBodyOrigin;
 import org.aquilagraph.source.api.AttributedBodyOccurrence;
@@ -52,9 +36,7 @@ final class JavaBodySourceCorrelation {
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
   private final JavaWrittenSourceAssociations sourceAssociations;
-  private final JavaDeclarationScope declarations;
-  private final JavaAnnotationProjector annotationProjector;
-  private final JavaTypeUseTranslator typeUseTranslator;
+  private final JavaWrittenAttachmentProjector attachments;
   private final JavaSourceCopyCorrespondence sourceCopies;
   private final Optional<JavaBodySourceCorrelation> parent;
   private final List<TranslatedMethodBody> projectedBodies;
@@ -73,9 +55,8 @@ final class JavaBodySourceCorrelation {
     this.sourceEvidence = sourceEvidence;
     this.treeInventory = treeInventory;
     this.sourceAssociations = sourceAssociations;
-    this.declarations = declarations;
-    annotationProjector = new JavaAnnotationProjector(semantics, sourceEvidence, treeInventory, sourceAssociations);
-    typeUseTranslator = new JavaTypeUseTranslator(semantics, sourceEvidence, treeInventory, Optional.empty(), sourceAssociations);
+    attachments = new JavaWrittenAttachmentProjector(semantics, sourceEvidence, treeInventory, sourceAssociations,
+        declarations::localAnnotations);
   }
 
   private JavaBodySourceCorrelation(JavaBodySourceCorrelation parent, JavaWrittenSourceAssociations sourceAssociations,
@@ -85,13 +66,12 @@ final class JavaBodySourceCorrelation {
     sourceEvidence = parent.sourceEvidence;
     treeInventory = parent.treeInventory;
     this.sourceAssociations = sourceAssociations;
-    this.declarations = declarations;
     projectedBodies = parent.projectedBodies;
     bodies = parent.bodies;
     sourceCopies = parent.sourceCopies.child();
     rootPublication = parent.rootPublication.child();
-    annotationProjector = new JavaAnnotationProjector(semantics, sourceEvidence, treeInventory, sourceAssociations);
-    typeUseTranslator = new JavaTypeUseTranslator(semantics, sourceEvidence, treeInventory, Optional.empty(), sourceAssociations);
+    attachments = new JavaWrittenAttachmentProjector(semantics, sourceEvidence, treeInventory, sourceAssociations,
+        declarations::localAnnotations);
   }
 
   JavaBodySourceCorrelation child(JavaWrittenSourceAssociations associations, JavaDeclarationScope scope) {
@@ -312,7 +292,7 @@ final class JavaBodySourceCorrelation {
       binding.sourceAssociation().ifPresent(value -> sourceAssociations.retain(binding.node(), value));
     });
     return project(projection.translation().value(), path, false, true,
-        new BodySourceContext(projection.unit(), projection.source(), paths, declarations, diagnostics));
+        new BodySourceContext(projection.unit(), projection.source(), paths, diagnostics));
   }
 
   List<AttributedBodyOccurrence> executionAttributions(JavaExecutableSyntaxProjector.Projection projection) {
@@ -332,7 +312,7 @@ final class JavaBodySourceCorrelation {
         && treeInventory.isCompilerInsertedSuperCall(new TreePath(bodyPath, statements.getFirst()));
     var paths = new HashMap<String, TreePath>();
     body.projection().evidence().nodes().forEach(projection -> paths.put(projection.node().nodeId(), projection.path()));
-    var context = new BodySourceContext(unit, sourceFile, paths, declarations, diagnostics);
+    var context = new BodySourceContext(unit, sourceFile, paths, diagnostics);
     return project(body.root(), path, omitInsertedCall, true, context);
   }
 
@@ -365,25 +345,25 @@ final class JavaBodySourceCorrelation {
     }
     var creatingPath = Objects.requireNonNull(context.paths().get(original.nodeId()), "body creating path");
     var previousSize = children.size();
-    if (!appendBodySourceAttachments(original, creatingPath, path, children, context)) {
+    var projectedAttachments = attachments.project(original, creatingPath, path, children, context.unit(), context.sourceFile(),
+        context.diagnostics());
+    if (projectedAttachments.isEmpty()) {
       return Optional.empty();
     }
+    var attached = projectedAttachments.orElseThrow();
+    children = new ArrayList<>(attached.children());
     unchanged &= children.size() == previousSize;
     if (unchanged) {
       sourceCopies.retain(original, original);
       return Optional.of(original);
     }
     var value = original.value();
-    if (value instanceof SyntaxValue.LocalDeclaration local && creatingPath.getLeaf() instanceof VariableTree variable) {
+    if (value instanceof SyntaxValue.LocalDeclaration local && attached.bindingAnnotations().isPresent()) {
       var binding = local.bindingEvidence().orElseThrow();
-      var annotations = children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION).count();
-      var shared = context.declarations().localAnnotations(localHeaderKey(context, variable));
-      var sharedKeys = variable.getModifiers().getAnnotations().stream()
-          .flatMap(annotation -> sourceEvidence.origin(context.unit(), context.sourceFile(), annotation).stream()).map(shared::find)
-          .filter(Objects::nonNull).filter(key -> children.stream().noneMatch(child -> child.node().nodeId().equals(key))).toList();
+      var annotations = attached.bindingAnnotations().orElseThrow();
       value = new SyntaxValue.LocalDeclaration(local.name(), local.writtenType(), local.writtenModifiers(),
           Optional.of(new LocalBindingEvidence(binding.declarationKey(), binding.typeForm(), binding.context(), binding.initialized(),
-              Math.toIntExact(annotations), sharedKeys)));
+              annotations.ownedCount(), annotations.sharedKeys())));
     }
     var copied = sourceAssociations.copied(original, SyntaxNode.source(original.sourceFileKey(), path, original.sourceKind(),
         original.syntaxKind(), original.type(), value, children, original.semanticReference(), range.orElseThrow()));
@@ -426,137 +406,6 @@ final class JavaBodySourceCorrelation {
             binding.annotations(), annotations)));
   }
 
-  private boolean appendBodySourceAttachments(SyntaxNode original, TreePath creatingPath, SyntaxStructuralPath path,
-      List<SyntaxChild> children, BodySourceContext context) {
-    var complete = true;
-    switch (creatingPath.getLeaf()) {
-      case NewArrayTree array -> {
-        if (array.getType() != null) {
-          complete = appendBodyType(array.getType(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
-        }
-        var annotations = new ArrayList<AnnotationTree>();
-        annotations.addAll(array.getAnnotations());
-        array.getDimAnnotations().forEach(annotations::addAll);
-        var projector = new JavaAnnotationProjector(semantics, sourceEvidence, treeInventory, sourceAssociations);
-        for (var ordinal = 0; ordinal < annotations.size(); ordinal++) {
-          var annotationPath = path.child(SyntaxRole.ANNOTATION, ordinal);
-          var annotation = projector.typeUse(context.unit(), context.sourceFile(), annotations.get(ordinal), annotationPath, annotationPath,
-              context.diagnostics()).value();
-          if (annotation.isPresent()) {
-            children.add(new SyntaxChild(SyntaxRole.ANNOTATION, ordinal, annotation.orElseThrow()));
-          }
-          complete &= annotation.isPresent();
-        }
-      }
-      case NewClassTree creation -> {
-        complete = appendBodyType(creation.getIdentifier(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
-        for (var index = 0; index < creation.getTypeArguments().size(); index++) {
-          complete &= appendBodyType(creation.getTypeArguments().get(index), SyntaxRole.TYPE_ARGUMENT, index, path, children, context);
-        }
-      }
-      case MemberReferenceTree reference -> {
-        var form = original.value(SyntaxValue.MemberReference.class).qualifier();
-        if (form == SyntaxValue.ReferenceQualifier.TYPE || form == SyntaxValue.ReferenceQualifier.ARRAY_TYPE) {
-          complete = appendBodyType(reference.getQualifierExpression(), SyntaxRole.QUALIFIER, 0, path, children, context);
-        }
-        var arguments = reference.getTypeArguments();
-        if (arguments != null) {
-          for (var index = 0; index < arguments.size(); index++) {
-            complete &= appendBodyType(arguments.get(index), SyntaxRole.TYPE_ARGUMENT, index, path, children, context);
-          }
-        }
-        children.sort(Comparator.comparingInt(child -> child.role() == SyntaxRole.QUALIFIER ? 0 : 1));
-      }
-      case MethodInvocationTree invocation -> {
-        for (var index = 0; index < invocation.getTypeArguments().size(); index++) {
-          complete &= appendBodyType(invocation.getTypeArguments().get(index), SyntaxRole.TYPE_ARGUMENT, index, path, children, context);
-        }
-        if (original.value(SyntaxValue.Invocation.class).form() == InvocationForm.STATIC_TYPE
-            && invocation.getMethodSelect() instanceof MemberSelectTree selection) {
-          complete &= appendBodyType(selection.getExpression(), SyntaxRole.QUALIFIER, 0, path, children, context);
-        }
-      }
-      case MemberSelectTree selection -> {
-        if (original.syntaxKind() == SyntaxKind.CLASS_LITERAL) {
-          complete = appendBodyType(selection.getExpression(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
-        } else if ((original.syntaxKind() == SyntaxKind.FIELD_ACCESS
-            && original.value(SyntaxValue.FieldAccess.class).receiver() == SyntaxValue.FieldReceiver.STATIC_TYPE)
-            || original.syntaxKind() == SyntaxKind.RECEIVER) {
-          complete = appendBodyType(selection.getExpression(), SyntaxRole.QUALIFIER, 0, path, children, context);
-        }
-      }
-      case TypeCastTree cast -> complete = appendBodyType(cast.getType(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
-      case InstanceOfTree test -> {
-        if (test.getPattern() == null) {
-          complete = appendBodyType(test.getType(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
-        }
-      }
-      case DeconstructionPatternTree pattern -> {
-        complete = appendBodyType(pattern.getDeconstructor(), SyntaxRole.TYPE_OPERAND, 0, path, children, context);
-        children.sort(Comparator.comparingInt(child -> child.role() == SyntaxRole.TYPE_OPERAND ? 0 : 1));
-      }
-      case VariableTree variable -> {
-        complete = appendLocalAttachments(variable, creatingPath, path, children, context);
-      }
-      default -> {
-      }
-    }
-    return complete;
-  }
-
-  private String localHeaderKey(BodySourceContext context, VariableTree variable) {
-    return context.sourceFile().sourceFileKey() + ':' + sourceEvidence.rawStart(context.unit(), variable);
-  }
-
-  private boolean appendLocalAttachments(VariableTree variable, TreePath creatingPath, SyntaxStructuralPath path,
-      List<SyntaxChild> children, BodySourceContext context) {
-    var owners = context.declarations().localAnnotations(localHeaderKey(context, variable));
-    var annotations = treeInventory.variableAnnotations(variable).orElse(List.of());
-    var ownAnnotations = annotations.stream()
-        .filter(annotation -> sourceEvidence.origin(context.unit(), context.sourceFile(), annotation).filter(owners::contains).isEmpty())
-        .toList();
-    var site = semantics.element(creatingPath) instanceof VariableElement element
-        && (element.getKind() == ElementKind.EXCEPTION_PARAMETER || element.getKind() == ElementKind.PARAMETER)
-            ? DeclarationSite.PARAMETER
-            : DeclarationSite.LOCAL_VARIABLE;
-    var complete = true;
-    for (var index = 0; index < ownAnnotations.size(); index++) {
-      var attachment = path.child(SyntaxRole.ANNOTATION, index);
-      var annotation = annotationProjector
-          .declaration(context.unit(), context.sourceFile(), ownAnnotations.get(index), attachment, attachment, site, context.diagnostics())
-          .value();
-      if (annotation.isPresent()) {
-        children.add(new SyntaxChild(SyntaxRole.ANNOTATION, index, annotation.orElseThrow()));
-      }
-      complete &= annotation.isPresent();
-    }
-    children.stream().filter(child -> child.role() == SyntaxRole.ANNOTATION)
-        .forEach(child -> owners.retain(child.node().origin().orElseThrow(), child.node().nodeId()));
-    if (variable.getType() != null && !treeInventory.hasInferredVariableType(variable)) {
-      var typePath = path.child(SyntaxRole.DECLARED_TYPE, 0);
-      var translated = new JavaTypeUseTranslator(semantics, sourceEvidence, treeInventory, Optional.of(owners), sourceAssociations)
-          .translateDeclaration(context.unit(), context.sourceFile(), variable.getType(), new TreePath(creatingPath, variable.getType()),
-              typePath, typePath, semantics.type(creatingPath), context.diagnostics())
-          .value();
-      translated.ifPresent(node -> children.add(new SyntaxChild(SyntaxRole.DECLARED_TYPE, 0, node)));
-      complete &= translated.isPresent();
-    }
-    children.sort(Comparator.comparingInt(child -> switch (child.role()) {
-      case ANNOTATION -> 0;
-      case DECLARED_TYPE -> 1;
-      default -> 2;
-    }));
-    return complete;
-  }
-
-  private boolean appendBodyType(Tree tree, SyntaxRole role, int position, SyntaxStructuralPath parentPath, List<SyntaxChild> children,
-      BodySourceContext context) {
-    var path = parentPath.child(role, position);
-    var translated = typeUseTranslator.translate(context.unit(), context.sourceFile(), tree, path, path, context.diagnostics()).value();
-    translated.ifPresent(node -> children.add(new SyntaxChild(role, position, node)));
-    return translated.isPresent();
-  }
-
   private List<AttributedBodyOccurrence> attributions(TranslatedMethodBody body, boolean copied) {
     return body.projection().evidence().nodes().stream().filter(projection -> !copied || sourceCopies.contains(projection.node()))
         .map(projection -> {
@@ -568,7 +417,7 @@ final class JavaBodySourceCorrelation {
   }
 
   private record BodySourceContext(CompilationUnitTree unit, SourceFile sourceFile, Map<String, TreePath> paths,
-      JavaDeclarationScope declarations, DiagnosticEmissionCollector diagnostics) {
+      DiagnosticEmissionCollector diagnostics) {
   }
 
 }
