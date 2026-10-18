@@ -76,8 +76,11 @@ final class JavaSourceCoverageReconciler {
   }
 
   ReconciledCoverage reconcile(LanguageFeatureCoverage coverage, ObservedLanguageFeatures trees,
-      JavaTypeKindObserver.ObservedTypeKinds types, TranslationResult<TranslatedProgram> translation,
-      ObservedPropertyEncounters writtenProperties, ObservedPropertyEncounters attributedProperties) {
+      JavaTypeKindObserver.ObservedTypeKinds types, ObservedPropertyEncounters writtenProperties,
+      ObservedPropertyEncounters attributedProperties) {
+    if (types.occurrences().size() != types.observations().size()) {
+      throw new IllegalArgumentException("Actual attributed-kind encounters require one occurrence for every observation");
+    }
     var treeContexts = inventory.contexts().stream().filter(context -> context.address().partition() == Partition.TREE).toList();
     if (treeContexts.size() != trees.observations().size() || trees.occurrences().size() != trees.observations().size()) {
       throw new IllegalArgumentException("Actual tree encounters must exactly cover the frozen written traversal");
@@ -117,8 +120,7 @@ final class JavaSourceCoverageReconciler {
         typeIndex++;
       }
     }
-    if (typeIndex != types.observations().size() || !translation.featureOccurrences().isEmpty()
-        || !translation.featureObservations().isEmpty()) {
+    if (typeIndex != types.observations().size()) {
       throw new IllegalArgumentException("Unexpected policy encounters have no captured source context");
     }
     writtenTypeUses();

@@ -52,8 +52,6 @@ import org.aquilagraph.source.api.JavaTypeKind;
 import org.aquilagraph.source.api.JavaTypeModifier;
 import org.aquilagraph.source.api.JavaTypeParameter;
 import org.aquilagraph.source.api.JavaTypeReference;
-import org.aquilagraph.source.api.LanguageFeatureObservation;
-import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 import org.aquilagraph.source.api.SyntaxType;
 import org.jspecify.annotations.Nullable;
 
@@ -108,8 +106,6 @@ final class JavaTypeTranslator {
                 "Empty Java body declarations are not represented by this source profile", Optional.of(declaration)));
       }
     }
-    var occurrences = new ArrayList<LanguageFeatureOccurrence>();
-    var observations = new ArrayList<LanguageFeatureObservation>();
     if (typeElement == null) {
       diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(typeKey, "frontend.unresolved-type-declaration",
           "A type declaration element is unavailable", origin));
@@ -133,7 +129,7 @@ final class JavaTypeTranslator {
     var eligibility = ProjectionEligibility.ELIGIBLE;
     for (var member : classTree.getMembers()) {
       var classification = classifyMember(unit, classPath, sourceFile, typeKey, member, fields, methods, methodBodies, nestedTypes,
-          memberOrders, declarationTypes, diagnostics, occurrences, observations);
+          memberOrders, declarationTypes, diagnostics);
       completeMembers &= classification.complete();
       eligibility = eligibility.and(classification.eligibility());
     }
@@ -152,8 +148,6 @@ final class JavaTypeTranslator {
           });
           eligible = eligible.and(translation.value().map(TranslatedType::eligibility).orElse(ProjectionEligibility.INELIGIBLE));
           diagnostics.include(translation.emissions());
-          occurrences.addAll(translation.featureOccurrences());
-          observations.addAll(translation.featureObservations());
           return null;
         }
         ProjectionEligibility capture() {
@@ -165,12 +159,12 @@ final class JavaTypeTranslator {
       eligibility = eligibility.and(descendants);
     }
     if (!completeComponents || !completeMembers) {
-      return new TranslationResult<>(Optional.empty(), diagnostics.snapshot(), occurrences, observations);
+      return new TranslationResult<>(Optional.empty(), diagnostics.snapshot());
     }
     var reconciliation = reconcileEnclosedDeclarations(unit, classPath, classTree, typeElement, sourceFile, typeKey, origin, fields,
         recordComponents, methods, nestedTypes, diagnostics);
     if (!reconciliation.complete()) {
-      return new TranslationResult<>(Optional.empty(), diagnostics.snapshot(), occurrences, observations);
+      return new TranslationResult<>(Optional.empty(), diagnostics.snapshot());
     }
     if (typeElement != null) {
       var members = new ArrayList<DeclarationMemberOrder.Member>();
@@ -210,7 +204,7 @@ final class JavaTypeTranslator {
       }
     }
     return new TranslationResult<>(Optional.of(new TranslatedType(types, methodBodies, memberOrders, declarationTypes, eligibility)),
-        diagnostics.snapshot(), occurrences, observations);
+        diagnostics.snapshot());
   }
 
   record EnclosedDeclarations(List<JavaSynthesizedDeclaration> synthesized, boolean complete) {
@@ -372,17 +366,14 @@ final class JavaTypeTranslator {
 
   private MemberClassification classifyMember(CompilationUnitTree unit, TreePath classPath, SourceFile sourceFile, String typeKey,
       Tree member, List<JavaField> fields, List<JavaMethod> methods, List<TranslatedMethodBody> methodBodies, List<JavaType> nestedTypes,
-      List<DeclarationMemberOrder> memberOrders, List<DeclarationTypeEvidence> declarationTypes, DiagnosticEmissionCollector diagnostics,
-      List<LanguageFeatureOccurrence> occurrences, List<LanguageFeatureObservation> observations) {
+      List<DeclarationMemberOrder> memberOrders, List<DeclarationTypeEvidence> declarationTypes, DiagnosticEmissionCollector diagnostics) {
     var eligibility = ProjectionEligibility.ELIGIBLE;
     switch (member) {
       case MethodTree methodTree -> {
         var translated = policy.supportsNestedDeclarations()
             ? Optional.<TranslationResult<TranslatedMethod>>empty()
             : Optional.of(methodTranslator.translate(unit, classPath, sourceFile, typeKey, methodTree));
-        var translation = translated
-            .map(value -> new TranslationResult<>(value.value().method(), value.emissions(), value.featureOccurrences(),
-                value.featureObservations()))
+        var translation = translated.map(value -> new TranslationResult<>(value.value().method(), value.emissions()))
             .orElseGet(() -> methodDeclarations.translate(unit, classPath, sourceFile, typeKey, methodTree));
         var method = translation.value();
         if (methods.stream().anyMatch(existing -> existing.methodKey().equals(method.methodKey()))) {
@@ -395,8 +386,6 @@ final class JavaTypeTranslator {
           translated.flatMap(value -> value.value().body()).ifPresent(methodBodies::add);
         }
         diagnostics.include(translation.emissions());
-        occurrences.addAll(translation.featureOccurrences());
-        observations.addAll(translation.featureObservations());
       }
       case VariableTree variableTree -> {
         var translation = translateField(unit, classPath, sourceFile, typeKey, variableTree);
@@ -410,8 +399,6 @@ final class JavaTypeTranslator {
           fields.add(field);
         }
         diagnostics.include(translation.emissions());
-        occurrences.addAll(translation.featureOccurrences());
-        observations.addAll(translation.featureObservations());
       }
       case ClassTree nestedClass -> {
         var translation = translate(unit, classPath, sourceFile, nestedClass);
@@ -422,8 +409,6 @@ final class JavaTypeTranslator {
           declarationTypes.addAll(value.declarationTypes());
         });
         diagnostics.include(translation.emissions());
-        occurrences.addAll(translation.featureOccurrences());
-        observations.addAll(translation.featureObservations());
         return new MemberClassification(translation.value().isPresent(),
             translation.value().map(TranslatedType::eligibility).orElse(ProjectionEligibility.INELIGIBLE));
       }
@@ -455,8 +440,6 @@ final class JavaTypeTranslator {
                 .orElseGet(() -> StableId.sha256("unresolved-field", typeKey, variableTree.getName().toString()))
         : semantics.declarationKey(variable).orElseThrow();
     var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, fieldKey + ":field");
-    var occurrences = new ArrayList<LanguageFeatureOccurrence>();
-    var observations = new ArrayList<LanguageFeatureObservation>();
     if (variable == null) {
       diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(fieldKey, "frontend.unresolved-field",
           "A field declaration element is unavailable", origin));
@@ -486,7 +469,7 @@ final class JavaTypeTranslator {
         && (!policy.supportsMemberInitialization() || (enumConstant && !policy.supportsEnumInitialization()))) {
       diagnostics.emit(DIAGNOSTIC_PRODUCER, fieldInitializerDiagnostic(unit, sourceFile, fieldKey, variableTree, enumConstant));
     }
-    return new TranslationResult<>(field, diagnostics.snapshot(), occurrences, observations);
+    return new TranslationResult<>(field, diagnostics.snapshot());
   }
 
   private AnalysisDiagnostic fieldInitializerDiagnostic(CompilationUnitTree unit, SourceFile sourceFile, String fieldKey,

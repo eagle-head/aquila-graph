@@ -16,7 +16,7 @@ Source capture produces immutable values with a canonical order and content-deri
 | `InputSnapshot` constructor | Normalized absolute root, copied list, unique source keys, and strictly increasing canonical paths. It rejects incorrect ordering rather than repairing it. It does not check root existence or rederive supplied identities. |
 | `InputSnapshot.fromSources` | Canonical ordering and snapshot derivation from the supplied source facts; it does not rederive each source content digest. |
 | `JavaSourceLoader.discover` | Directory admission, recursive discovery of regular `.java` files, UTF-8 reads, path-aware I/O causes, and traversal closure. Partial capture is not returned after failure. |
-| `JavaFrontend` path facade | Source-capture failures become `AnalysisInputException`; analysis-environment I/O becomes `AnalysisEnvironmentException`. The snapshot overload retains checked I/O. |
+| `JavaFrontend` path facade | Source-capture `IOException` and `IllegalArgumentException` become `AnalysisInputException`; analysis-environment `IOException` becomes `AnalysisEnvironmentException`. Lazy source-traversal `UncheckedIOException` retains its family and cause. The snapshot overload retains checked I/O. |
 
 These validation limits matter for callers that construct records directly. Production capture derives the content identities; accepting a supplied record does not certify its provenance.[1][2]
 

@@ -6,8 +6,6 @@ import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.Objects;
 import java.util.Optional;
-import org.aquilagraph.source.api.LanguageFeatureObservation;
-import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 import org.aquilagraph.source.api.SyntaxNode;
 import java.util.List;
 import org.aquilagraph.identity.api.SourceFile;
@@ -56,8 +54,6 @@ final class JavaUnitTranslator {
       var orders = new ArrayList<DeclarationMemberOrder>();
       var declarationTypes = new ArrayList<DeclarationTypeEvidence>();
       var diagnostics = new DiagnosticEmissionCollector("JavaProgramTranslator", "input-program-translation");
-      var occurrences = new ArrayList<LanguageFeatureOccurrence>();
-      var observations = new ArrayList<LanguageFeatureObservation>();
       var complete = true;
       var eligibility = ProjectionEligibility.ELIGIBLE;
       var unitPath = new TreePath(unit);
@@ -75,13 +71,11 @@ final class JavaUnitTranslator {
             complete = false;
           }
           diagnostics.include(translation.emissions());
-          occurrences.addAll(translation.featureOccurrences());
-          observations.addAll(translation.featureObservations());
         }
       }
       var metadata = new UnitDeclarations(translatedTypes, orders, declarationTypes, complete, eligibility);
       declarations = Optional.of(metadata);
-      var result = new TranslationResult<>(metadata, diagnostics.snapshot(), occurrences, observations);
+      var result = new TranslationResult<>(metadata, diagnostics.snapshot());
       transition(Phase.DECLARING, Phase.DECLARATIONS_PRODUCED);
       return result;
     } finally {

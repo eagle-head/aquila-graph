@@ -1262,7 +1262,7 @@ class JavaCoverageAdmissionTest {
     // Act
     joined.include(left.snapshot());
     joined.include(right.snapshot());
-    var result = new TranslationResult<>("value", joined.snapshot(), List.of(), List.of());
+    var result = new TranslationResult<>("value", joined.snapshot());
 
     // Assert
     assertEquals(2, result.diagnostics().size());
@@ -1819,7 +1819,7 @@ class JavaCoverageAdmissionTest {
     producer.emit("one-creating-site", note());
     joined.include(earlier);
     joined.include(producer.snapshot());
-    var result = new TranslationResult<>("value", joined.snapshot(), List.of(), List.of());
+    var result = new TranslationResult<>("value", joined.snapshot());
 
     // Assert
     assertEquals(2, result.emissions().events().size());

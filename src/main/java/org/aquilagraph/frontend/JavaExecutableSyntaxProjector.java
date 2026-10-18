@@ -21,8 +21,6 @@ import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
 import org.aquilagraph.source.api.JavaSourceKind;
-import org.aquilagraph.source.api.LanguageFeatureObservation;
-import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 import org.aquilagraph.source.api.ResolutionStatus;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -77,8 +75,8 @@ final class JavaExecutableSyntaxProjector {
     context.requireOwner(semantics, sourceEvidence, sourceFile, ownerKey, path, constructor, compilerGenerated);
     var nodes = new ArrayList<NodeProjection>();
     var result = translateTree(unit, sourceFile, ownerKey, tree, path, structuralPath, constructor, compilerGenerated, nodes);
-    return new Projection(semantics, context, unit, sourceFile, ownerKey,
-        new TranslationResult<>(result.node(), result.emissions(), result.featureOccurrences(), result.featureObservations()), nodes);
+    return new Projection(semantics, context, unit, sourceFile, ownerKey, new TranslationResult<>(result.node(), result.emissions()),
+        nodes);
   }
 
   static final class Projection {
@@ -166,8 +164,7 @@ final class JavaExecutableSyntaxProjector {
       var translated = collaborator.orElseThrow().project(declaration, path, structuralPath);
       nodeProjections.add(new NodeProjection(translated.value(), path, List.of(), treeInventory.sourceAssociation(translated.value(), path),
           Optional.empty()));
-      return new SyntaxTreeTranslation(translated.value(), translated.emissions(), translated.featureOccurrences(),
-          translated.featureObservations());
+      return new SyntaxTreeTranslation(translated.value(), translated.emissions());
     }
     var generated = compilerGenerated || (constructor && treeInventory.isCompilerInsertedSuperCall(path));
     var mapping = syntaxProfile.describe(tree, path, structuralPath);
@@ -212,12 +209,8 @@ final class JavaExecutableSyntaxProjector {
         }
       }
     }
-    var occurrences = new ArrayList<LanguageFeatureOccurrence>();
-    var observations = new ArrayList<LanguageFeatureObservation>();
-    children.forEach(child -> occurrences.addAll(child.featureOccurrences()));
-    children.forEach(child -> observations.addAll(child.featureObservations()));
     observeDeclarationProperties(unit, sourceFile, ownerKey, tree, diagnostics);
-    return new SyntaxTreeTranslation(node, diagnostics.snapshot(), occurrences, observations);
+    return new SyntaxTreeTranslation(node, diagnostics.snapshot());
   }
 
   private void observeDeclarationProperties(CompilationUnitTree unit, SourceFile sourceFile, String ownerKey, Tree tree,
@@ -296,13 +289,10 @@ final class JavaExecutableSyntaxProjector {
         DiagnosticSeverity.ERROR, message + ": " + node.syntaxKind(), node.origin().stream().toList(), outcomeKind);
   }
 
-  private record SyntaxTreeTranslation(SyntaxNode node, DiagnosticEmissions emissions, List<LanguageFeatureOccurrence> featureOccurrences,
-      List<LanguageFeatureObservation> featureObservations) {
+  private record SyntaxTreeTranslation(SyntaxNode node, DiagnosticEmissions emissions) {
     private SyntaxTreeTranslation {
       Objects.requireNonNull(node, "node");
       Objects.requireNonNull(emissions, "emissions");
-      featureOccurrences = List.copyOf(Objects.requireNonNull(featureOccurrences, "featureOccurrences"));
-      featureObservations = List.copyOf(Objects.requireNonNull(featureObservations, "featureObservations"));
     }
   }
 }

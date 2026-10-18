@@ -65,8 +65,7 @@ final class JavaUnitSourceProjector {
       List<JavaType> declaredTypes) {
     var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, sourceFile.sourceFileKey());
     try {
-      return new TranslationResult<>(projectUnit(unit, sourceFile, bodies, declaredTypes, diagnostics), diagnostics.snapshot(), List.of(),
-          List.of());
+      return new TranslationResult<>(projectUnit(unit, sourceFile, bodies, declaredTypes, diagnostics), diagnostics.snapshot());
     } catch (JavaSourceProjectionFailure failure) {
       throw new JavaSourceProjectionFailure(diagnostics.snapshot(), failure);
     }

@@ -13,8 +13,6 @@ import org.aquilagraph.source.api.DeclarationMemberOrder;
 import org.aquilagraph.source.api.DeclarationTypeEvidence;
 import org.aquilagraph.source.api.JavaProgram;
 import org.aquilagraph.source.api.JavaType;
-import org.aquilagraph.source.api.LanguageFeatureObservation;
-import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.api.JavaAstAggregate;
@@ -46,8 +44,6 @@ final class JavaProgramTranslator {
     Objects.requireNonNull(units, "units");
     var types = new ArrayList<JavaType>();
     var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, "input-program-translation");
-    var occurrences = new ArrayList<LanguageFeatureOccurrence>();
-    var observations = new ArrayList<LanguageFeatureObservation>();
     var unitsBySource = new HashMap<String, CompilationUnitTree>();
     var translatedTypeKeys = new HashSet<String>();
     for (var unit : units) {
@@ -77,8 +73,6 @@ final class JavaProgramTranslator {
       var unitTypes = declarations.types();
       types.addAll(unitTypes);
       diagnostics.include(translated.emissions());
-      occurrences.addAll(translated.featureOccurrences());
-      observations.addAll(translated.featureObservations());
       var duplicateType = false;
       for (var type : unitTypes) {
         if (!translatedTypeKeys.add(type.typeKey())) {
@@ -136,7 +130,7 @@ final class JavaProgramTranslator {
       aggregate = Optional.empty();
       program = new JavaProgram(List.of());
     }
-    return new TranslationResult<>(new TranslatedProgram(program, aggregate), diagnostics.snapshot(), occurrences, observations);
+    return new TranslationResult<>(new TranslatedProgram(program, aggregate), diagnostics.snapshot());
   }
 
   private SourceFile sourceFor(CompilationUnitTree unit) {

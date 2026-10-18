@@ -333,7 +333,7 @@ final class JavaDeclarationProjector {
     if (node.isEmpty()) {
       throw new JavaSourceProjectionFailure(diagnostics.snapshot());
     }
-    return new TranslationResult<>(node.orElseThrow(), diagnostics.snapshot(), List.of(), List.of());
+    return new TranslationResult<>(node.orElseThrow(), diagnostics.snapshot());
   }
 
   private static void retainReferences(JavaDeclarationHeaderProjector.Contributions contributions, JavaDeclarationScope scope) {
