@@ -1,6 +1,5 @@
 package org.aquilagraph.frontend;
 
-import com.sun.source.tree.AnnotatedTypeTree;
 import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.BinaryTree;
 import com.sun.source.tree.CompilationUnitTree;
@@ -10,30 +9,27 @@ import com.sun.source.tree.IdentifierTree;
 import com.sun.source.tree.LiteralTree;
 import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodTree;
-import com.sun.source.tree.ModifiersTree;
 import com.sun.source.tree.NewArrayTree;
 import com.sun.source.tree.ParenthesizedTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.TypeCastTree;
 import com.sun.source.tree.UnaryTree;
-import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import javax.lang.model.element.AnnotationMirror;
-import javax.lang.model.element.AnnotationValue;
-import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
-import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
+import org.aquilagraph.frontend.JavaAnnotationOccurrenceCorrelation.Correlated;
+import org.aquilagraph.frontend.JavaAnnotationOccurrenceCorrelation.LegitimateAbsence;
+import org.aquilagraph.frontend.JavaAnnotationOccurrenceCorrelation.Unavailable;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.JavaTypeCategory;
@@ -57,13 +53,13 @@ import org.aquilagraph.source.api.SyntaxValue;
 /** Projects written annotation values and checks available compiler attribution independently. */
 final class JavaAnnotationValueProjector {
   private static final String VALUE_ELEMENT_NAME = "value";
-  private static final int UNIQUE_CANDIDATE_COUNT = 1;
   private final SemanticResolver semantics;
   private final JavaSourceEvidence evidence;
   private final ParsedTreeInventory inventory;
   private final JavaTypeUseTranslator typeUses;
   private final JavaAnnotationValues values;
   private final JavaAnnotationMirrorCorrelation correlation;
+  private final JavaAnnotationOccurrenceCorrelation occurrences;
   private final JavaWrittenSourceAssociations sourceAssociations;
 
   JavaAnnotationValueProjector(SemanticResolver semantics, JavaSourceEvidence evidence, ParsedTreeInventory inventory) {
@@ -79,6 +75,7 @@ final class JavaAnnotationValueProjector {
     typeUses = new JavaTypeUseTranslator(semantics, evidence, inventory, Optional.empty(), sourceAssociations);
     values = new JavaAnnotationValues(semantics);
     correlation = new JavaAnnotationMirrorCorrelation(semantics);
+    occurrences = new JavaAnnotationOccurrenceCorrelation(semantics, evidence, inventory);
   }
 
   TranslationResult<SourceProjectionResult<List<SyntaxChild>>> arguments(CompilationUnitTree unit, SourceFile source,
@@ -117,13 +114,17 @@ final class JavaAnnotationValueProjector {
       return projected;
     }
     var children = projected.value().orElseThrow();
-    var mirror = mirror(annotation, annotationType);
-    if (mirror.isPresent() && !correlation.matchesArguments(mirror.orElseThrow(), children.stream().map(SyntaxChild::node).toList())) {
-      return SourceProjectionResult.failure(report(source, parentPath, "frontend.inconsistent-annotation-value",
-          "The evaluated written arguments disagree with the compiler annotation values", evidence.origin(unit, source, annotation),
-          diagnostics));
-    }
-    return projected;
+    return switch (occurrences.correlate(annotation, annotationType)) {
+      case Unavailable unavailable -> SourceProjectionResult.failure(diagnostics.emit("JavaAnnotationValueProjector",
+          FrontendDiagnosticFactory.erroneousCompilerState(source.sourceFileKey() + ':' + parentPath,
+              "frontend.unavailable-annotation-correlation", unavailable.reason(), evidence.origin(unit, source, annotation))));
+      case Correlated correlated -> correlation.matchesArguments(correlated.mirror(), children.stream().map(SyntaxChild::node).toList())
+          ? projected
+          : SourceProjectionResult.failure(report(source, parentPath, "frontend.inconsistent-annotation-value",
+              "The evaluated written arguments disagree with the compiler annotation values", evidence.origin(unit, source, annotation),
+              diagnostics));
+      case LegitimateAbsence _ -> projected;
+    };
   }
 
   private SourceProjectionResult<List<SyntaxChild>> writtenArguments(CompilationUnitTree unit, SourceFile source, AnnotationTree annotation,
@@ -181,131 +182,6 @@ final class JavaAnnotationValueProjector {
           "The evaluated written default disagrees with the compiler default value", range, diagnostics));
     }
     return SourceProjectionResult.success(result);
-  }
-
-  private Optional<AnnotationMirror> mirror(AnnotationTree annotation, TypeElement annotationType) {
-    var path = inventory.annotationPath(annotation);
-    if (path.isEmpty() || path.orElseThrow().getParentPath() == null) {
-      return Optional.empty();
-    }
-    var ownerPath = path.orElseThrow().getParentPath();
-    while (ownerPath != null && ownerPath.getLeaf() instanceof ModifiersTree) {
-      ownerPath = ownerPath.getParentPath();
-    }
-    if (ownerPath == null) {
-      return Optional.empty();
-    }
-    var owner = annotationOwner(ownerPath);
-    var attributed = new ArrayList<AnnotationMirror>();
-    if (owner != null && !(ownerPath.getLeaf() instanceof AnnotatedTypeTree)) {
-      attributed.addAll(owner.getAnnotationMirrors());
-      var annotatedType = owner instanceof ExecutableElement executable ? executable.getReturnType() : owner.asType();
-      for (var mirror : closestType(annotatedType).getAnnotationMirrors()) {
-        if (!attributed.contains(mirror)) {
-          attributed.add(mirror);
-        }
-      }
-      for (var mirror : attributed) {
-        if (annotation.equals(semantics.annotationSourceTree(owner, mirror)) && sameAnnotationType(mirror, annotationType)) {
-          return Optional.of(mirror);
-        }
-      }
-    }
-    for (var mirror : ownerPath.getLeaf() instanceof AnnotatedTypeTree
-        ? semantics.typeAnnotationMirrors(ownerPath)
-        : List.<AnnotationMirror>of()) {
-      if (!attributed.contains(mirror)) {
-        attributed.add(mirror);
-      }
-    }
-    var sourceOrdinal = 0;
-    for (var candidate : inventory.ownerAnnotations(ownerPath.getLeaf())) {
-      if (annotation.equals(candidate)) {
-        break;
-      }
-      if (inventory.annotationTypePath(candidate).map(semantics::element).filter(annotationType::equals).isPresent()) {
-        sourceOrdinal++;
-      }
-    }
-    var direct = attributed.stream().filter(candidate -> sameAnnotationType(candidate, annotationType)).toList();
-    if (sourceOrdinal < direct.size()) {
-      return Optional.of(direct.get(sourceOrdinal));
-    }
-    var containingType = repeatableContainingType(annotationType);
-    if (containingType.isEmpty()) {
-      return Optional.empty();
-    }
-    var nested = new ArrayList<AnnotationMirror>();
-    for (var container : attributed) {
-      if (!sameAnnotationType(container, containingType.orElseThrow())) {
-        continue;
-      }
-      for (var entry : container.getElementValues().entrySet()) {
-        if (!entry.getKey().getSimpleName().contentEquals(VALUE_ELEMENT_NAME) || !(entry.getValue().getValue() instanceof List<?> values)) {
-          continue;
-        }
-        for (var value : values) {
-          if (value instanceof AnnotationValue annotationValue && annotationValue.getValue() instanceof AnnotationMirror candidate
-              && sameAnnotationType(candidate, annotationType)) {
-            nested.add(candidate);
-          }
-        }
-      }
-    }
-    return sourceOrdinal < nested.size() ? Optional.of(nested.get(sourceOrdinal)) : Optional.empty();
-  }
-
-  private static TypeMirror closestType(TypeMirror type) {
-    var current = type;
-    while (current instanceof ArrayType array) {
-      current = array.getComponentType();
-    }
-    while (current instanceof DeclaredType declared && declared.getEnclosingType().getKind() != TypeKind.NONE) {
-      current = declared.getEnclosingType();
-    }
-    return current;
-  }
-
-  private Element annotationOwner(TreePath ownerPath) {
-    if (ownerPath.getLeaf() instanceof VariableTree variable) {
-      var parent = ownerPath.getParentPath();
-      while (parent != null) {
-        if (semantics.element(parent) instanceof TypeElement type && type.getKind() == ElementKind.RECORD) {
-          var components = type.getRecordComponents().stream()
-              .filter(component -> component.getSimpleName().contentEquals(variable.getName())).filter(component -> {
-                var componentTree = semantics.sourceTree(component);
-                return componentTree != null && evidence.rawStart(ownerPath.getCompilationUnit(), componentTree) >= 0 && evidence
-                    .rawStart(ownerPath.getCompilationUnit(), componentTree) == evidence.rawStart(ownerPath.getCompilationUnit(), variable);
-              }).toList();
-          if (components.size() == UNIQUE_CANDIDATE_COUNT) {
-            return components.getFirst();
-          }
-          break;
-        }
-        parent = parent.getParentPath();
-      }
-    }
-    return semantics.element(ownerPath);
-  }
-
-  private static Optional<TypeElement> repeatableContainingType(TypeElement annotationType) {
-    for (var mirror : annotationType.getAnnotationMirrors()) {
-      if (!(mirror.getAnnotationType().asElement() instanceof TypeElement metaType)
-          || !metaType.getQualifiedName().contentEquals("java.lang.annotation.Repeatable")) {
-        continue;
-      }
-      for (var entry : mirror.getElementValues().entrySet()) {
-        if (entry.getKey().getSimpleName().contentEquals(VALUE_ELEMENT_NAME) && entry.getValue().getValue() instanceof DeclaredType declared
-            && declared.asElement() instanceof TypeElement containingType) {
-          return Optional.of(containingType);
-        }
-      }
-    }
-    return Optional.empty();
-  }
-
-  private static boolean sameAnnotationType(AnnotationMirror mirror, TypeElement annotationType) {
-    return mirror.getAnnotationType().asElement().equals(annotationType);
   }
 
   private SourceProjectionResult<SyntaxNode> argument(CompilationUnitTree unit, SourceFile source, TypeElement annotationType,
