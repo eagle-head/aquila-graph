@@ -54,6 +54,7 @@ import org.aquilagraph.source.api.SourceContext;
 import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -129,6 +130,55 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     // Arrange
     var settings = settings();
     var ast = DeclarationAstRetentionFixture.mixed(directory);
+
+    // Act
+    var retained = independentQuery(settings, ast);
+
+    // Assert
+    DeclarationAstRetentionFixture.assertMixed(retained);
+  }
+
+  @Test
+  void givenSavedSharedLocalsAndAnnotatedArrayReferences_whenQueriedWithoutCompilerModules_thenExactCanonicalAttachmentsSurvive()
+      throws Exception {
+    // Arrange
+    var settings = settings();
+    var ast = DeclarationAstRetentionFixture.produce(directory, "Example.java", """
+        import java.lang.annotation.*;
+        @Target({ElementType.LOCAL_VARIABLE, ElementType.TYPE_USE}) @interface Mark {}
+        class Example {
+          Object field = new @Mark String("field");
+          static { int[] array = new int @Mark [1]; }
+          Object subject() {
+            @Mark int first = 1, second = 2;
+            java.util.function.IntFunction<String[]> factory = @Mark String[]::new;
+            return factory.apply(first + second);
+          }
+        }
+        """);
+
+    // Act
+    var retained = independentQuery(settings, ast);
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, retained.completion());
+    var nodes = retained.aggregate().nodes();
+    var locals = nodes.stream().filter(node -> node.value() instanceof SyntaxValue.LocalDeclaration value
+        && (value.name().equals("first") || value.name().equals("second"))).toList();
+    assertEquals(2, locals.size());
+    var annotation = locals.getFirst().requiredChild(SyntaxRole.ANNOTATION);
+    assertTrue(locals.getLast().children(SyntaxRole.ANNOTATION).isEmpty());
+    assertEquals(List.of(annotation.nodeId()), locals.getLast().value(SyntaxValue.LocalDeclaration.class)
+        .bindingEvidence().orElseThrow().sharedAnnotationKeys());
+    var reference = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.MEMBER_REFERENCE).findFirst().orElseThrow();
+    var qualifier = reference.requiredChild(SyntaxRole.QUALIFIER);
+    assertEquals(SyntaxKind.TYPE_USE, qualifier.syntaxKind());
+    assertEquals(1, qualifier.children(SyntaxRole.ANNOTATION).size());
+    assertEquals(qualifier.origin().orElseThrow().startOffset(), qualifier.requiredChild(SyntaxRole.ANNOTATION)
+        .origin().orElseThrow().startOffset());
+  }
+
+  private AstResult independentQuery(Neo4jConnectionSettings settings, AstOutcome ast) throws Exception {
     var original = ast.result().orElseThrow();
     var identity = original.identity();
     var output = directory.resolve("retained-query.ast");
@@ -157,8 +207,8 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
         assertTrue(completed, () -> "Independent query timed out: " + process.pid() + "\n" + diagnostics);
         assertEquals(0, process.exitValue(), diagnostics);
         assertArrayEquals(AstCodec.encode(original), Files.readAllBytes(output));
-        DeclarationAstRetentionFixture.assertMixed(AstCodec.decode(Files.readAllBytes(output), identity));
         System.out.println("Independent query process " + process.pid() + " completed with exit " + process.exitValue());
+        return AstCodec.decode(Files.readAllBytes(output), identity);
       } finally {
         if (process.isAlive()) {
           process.destroyForcibly();
