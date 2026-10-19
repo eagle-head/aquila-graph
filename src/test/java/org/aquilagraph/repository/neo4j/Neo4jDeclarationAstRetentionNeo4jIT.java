@@ -64,6 +64,8 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.aquilagraph.testsupport.Neo4jIntegration;
+import org.aquilagraph.testsupport.SourceFidelityFixture;
+import org.aquilagraph.testsupport.LiteralLabelFixture;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
@@ -75,6 +77,44 @@ import org.neo4j.driver.Values;
 @ExtendWith(Neo4jIntegration.class)
 class Neo4jDeclarationAstRetentionNeo4jIT {
   @TempDir Path directory;
+
+  @Test
+  void givenCurrentAndHistoricalLiteralLabels_whenSavedAndQueriedWithoutCompiler_thenOwnFactsAndGraphLabelsSurvive() throws Exception {
+    // Arrange
+    var current = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
+        new SourceInput.Snapshot(LiteralLabelFixture.snapshot(directory)), DeclarationAstRetentionFixture.configuration(),
+        AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
+    var historical = LiteralLabelFixture.historical(AstProfile.JAVA_SOURCE_FIDELITY);
+
+    for (var original : List.of(current, historical)) {
+      // Act
+      var retained = independentQuery(settings(), AstOutcome.available(original));
+      var methods = List.of("negative", "text").stream().map(name -> retained.program().methods().stream()
+          .filter(method -> method.name().equals(name)).findFirst().orElseThrow().methodKey()).toList();
+      var derived = CfgDerivers.standard().derive(retained, new CfgRequest(retained.identity(), methods, CfgProfile.JAVA_BOUNDED));
+
+      // Assert
+      assertEquals(AstCompletion.COMPLETE, retained.completion());
+      DeclarationAstRetentionFixture.assertPreserved(original, retained);
+      assertEquals(List.of(MethodCfgState.AVAILABLE, MethodCfgState.AVAILABLE), derived.methods().stream().map(method -> method.state()).toList());
+      LiteralLabelFixture.assertLabels(derived, retained);
+    }
+  }
+
+  @Test
+  void givenCombinedSourceCorrections_whenSavedAndQueriedWithoutCompiler_thenExactIntegratedFactsSurvive() throws Exception {
+    // Arrange
+    var ast = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
+        new SourceInput.Snapshot(SourceFidelityFixture.snapshot(directory)), DeclarationAstRetentionFixture.configuration(),
+        AstProfile.JAVA_SOURCE_FIDELITY));
+
+    // Act
+    var retained = independentQuery(settings(), ast);
+
+    // Assert
+    SourceFidelityFixture.assertFaithful(retained);
+    DeclarationAstRetentionFixture.assertPreserved(ast.result().orElseThrow(), retained);
+  }
 
   @Test
   void givenNestedSameStartRegions_whenRepeatedProductionIsRetainedAndQueriedWithoutCompiler_thenOneCanonicalIdentitySurvives() throws Exception {
@@ -123,7 +163,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     DeclarationAstRetentionFixture.assertPreserved(original, retained);
     assertEquals(AstProfile.JAVA_SOURCE_FIDELITY, retained.profile());
     assertEquals("java-source/19", retained.identity().sourceModelVersion());
-    assertEquals("javac-public/9", retained.identity().semanticProductionRevision());
+    assertEquals("javac-public/10", retained.identity().semanticProductionRevision());
     assertEquals(6, retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.BINARY).count());
     assertEquals(3, retained.aggregate().nodes().stream().filter(node -> node.sourceKind() == JavaSourceKind.UNARY_MINUS).count());
     assertEquals(2, retained.aggregate().nodes().stream().filter(node -> node.value() instanceof SyntaxValue.Literal literal
@@ -156,7 +196,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, retained.completion());
-    assertEquals("javac-public/9", retained.identity().semanticProductionRevision());
+    assertEquals("javac-public/10", retained.identity().semanticProductionRevision());
     assertEquals(ast.result().orElseThrow().identity(), retained.identity());
     assertEquals(ast.result().orElseThrow().aggregate(), retained.aggregate());
     assertEquals(preceding.identity(), prior.identity());
@@ -194,7 +234,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, retained.completion());
-    assertEquals("javac-public/9", retained.identity().semanticProductionRevision());
+    assertEquals("javac-public/10", retained.identity().semanticProductionRevision());
     assertEquals("java-source/19", retained.identity().sourceModelVersion());
     var modifiers = retained.coverage().validationEvidence().outcomes().stream()
         .filter(value -> value.address().role().equals("TypeElement::Element#getModifiers()"))

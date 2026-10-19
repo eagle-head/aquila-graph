@@ -47,6 +47,10 @@ public record SyntaxStructuralPath(List<Step> steps) {
     return new SyntaxStructuralPath(extended);
   }
 
+  boolean isAnnotationValue() {
+    return steps.stream().anyMatch(step -> step.role() == SyntaxRole.ANNOTATION_ARGUMENT || step.role() == SyntaxRole.DEFAULT_VALUE);
+  }
+
   /**
    * Returns the stable identity components in path order.
    *
