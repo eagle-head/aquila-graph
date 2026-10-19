@@ -18,6 +18,7 @@ import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.NormalizedExpressionCorrespondence;
 
 /** Source-only qualification over intrinsically admitted copied facts. */
 final class SourceRequirements {
@@ -41,7 +42,9 @@ final class SourceRequirements {
     if (!profile.supportsSourceEnvelope() && input.program().types().isEmpty()) {
       return AstCompletion.UNAVAILABLE;
     }
-    if (input.program().types().stream().anyMatch(type -> type.staticType().category() != JavaTypeCategory.DECLARED)
+    if ((profile.supportsWrittenExpressions()
+        && input.languageFeatureCoverageResult().validationEvidence().writtenInventory().writtenExpressions().isEmpty())
+        || input.program().types().stream().anyMatch(type -> type.staticType().category() != JavaTypeCategory.DECLARED)
         || (profile.supportsNestedDeclarations() && input.program().types().stream()
             .anyMatch(type -> (type.nesting().lexicalOwnerKey().isPresent() && type.nesting().ownerDetails().isEmpty())
                 || (type.sourceDeclared() && input.aggregate().orElseThrow().declarationMemberOrder(type.typeKey())
@@ -53,6 +56,9 @@ final class SourceRequirements {
         || input.aggregate().orElseThrow().nodes().stream()
             .anyMatch(node -> hasRequiredSourceGap(node, profile) || hasProfileGap(node, profile)
                 || hasDeclarationScopeGap(input.aggregate().orElseThrow(), node, profile))
+        || input.aggregate().orElseThrow().nodes().stream()
+            .flatMap(node -> input.aggregate().orElseThrow().writtenSourceAssociation(node.nodeId()).stream())
+            .flatMap(association -> association.normalizedExpression().stream()).anyMatch(SourceRequirements::hasWrittenExpressionGap)
         || input.aggregate().orElseThrow().executionScopes().stream()
             .flatMap(scope -> input.aggregate().orElseThrow().executionSyntax(scope.key()).stream())
             .anyMatch(execution -> hasRequiredExecutionFactGap(execution, profile))
@@ -62,6 +68,13 @@ final class SourceRequirements {
       return AstCompletion.INCOMPLETE;
     }
     return AstCompletion.COMPLETE;
+  }
+
+  private static boolean hasWrittenExpressionGap(NormalizedExpressionCorrespondence value) {
+    var occurrence = value.region().occurrences().stream().filter(item -> item.path().equals(value.occurrencePath())).findFirst()
+        .orElseThrow();
+    return occurrence.restrictedDecimal().isEmpty() && (value.derivedConstantExpression().isEmpty()
+        || (value.derivedConstantExpression().orElse(false) && value.derivedConstant().isEmpty()));
   }
 
   private static boolean hasProfileGap(SyntaxNode node, AstProfile profile) {

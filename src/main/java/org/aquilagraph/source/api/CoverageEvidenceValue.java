@@ -250,6 +250,8 @@ public sealed interface CoverageEvidenceValue {
     RECEIVER,
     /** Literal text. */
     LITERAL,
+    /** Context-restricted decimal magnitude without a positive runtime value. */
+    DECIMAL_MINIMUM_OPERAND,
     /** Operator. */
     OPERATOR,
     /** Type display name. */

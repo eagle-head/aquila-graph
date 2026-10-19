@@ -6,7 +6,8 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Immutable input-local parsed parent roles and their role-local ordinals.
+ * Immutable input-local source parent roles and their role-local ordinals. WRITTEN_EXPRESSION distinguishes explicitly grammar-derived
+ * addresses from parsed compiler owners.
  *
  * @param steps
  *          original parsed relationships in root-to-owner order
@@ -121,6 +122,8 @@ public record SourceOwnerPath(List<Step> steps) {
 
   /** Closed structural roles of parsed Java child slots; no durable syntax identity is assigned. */
   public enum Role {
+    /** Grammar-derived expression occurrence with explicit normalized-region correspondence. */
+    WRITTEN_EXPRESSION,
     /** Compilation unit's package declaration. */
     PACKAGE_DECLARATION,
     /** Compilation unit's ordered import. */

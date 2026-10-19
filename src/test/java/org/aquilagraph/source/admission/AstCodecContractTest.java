@@ -2157,7 +2157,9 @@ class AstCodecContractTest {
     assertNotEquals(current.identity(), legacy.identity());
     assertEquals(legacy.identity(), decoded.identity());
     assertEquals(current.aggregate(), decoded.aggregate());
-    assertEquals(current.coverage(), decoded.coverage());
+    assertEquals(legacy.coverage(), decoded.coverage());
+    assertTrue(current.coverage().validationEvidence().writtenInventory().writtenExpressions().isPresent());
+    assertTrue(decoded.coverage().validationEvidence().writtenInventory().writtenExpressions().isEmpty());
     assertEquals(AstCompletion.COMPLETE, decoded.completion());
     assertEquals(MethodCfgState.AVAILABLE, cfg.methods().getFirst().state());
     assertArrayEquals(bytes, AstCodec.encode(decoded));

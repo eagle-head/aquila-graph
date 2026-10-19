@@ -40,6 +40,18 @@ public record CoverageSyntaxFactValue(SyntaxStructuralPath structuralPath, JavaS
   }
 
   /**
+   * Returns the category actually observed by a compiler accessor at this attachment.
+   *
+   * @return original exact or normalization-root category; absent for a derived descendant
+   */
+  public Optional<JavaSourceKind> observedCompilerKind() {
+    var normalized = sourceAssociation.flatMap(WrittenSourceAssociation::normalizedExpression);
+    return normalized.isEmpty()
+        ? Optional.of(sourceAssociation.map(WrittenSourceAssociation::sourceKind).orElse(sourceKind))
+        : normalized.filter(value -> value.occurrencePath().isEmpty()).map(NormalizedExpressionCorrespondence::compilerKind);
+  }
+
+  /**
    * Exact child attachment identity in retained order.
    *
    * @param role

@@ -22,6 +22,7 @@ import com.sun.source.util.TreePath;
 import com.sun.source.util.TreePathScanner;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.function.Function;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -32,6 +33,7 @@ import java.util.Set;
 import java.util.stream.Stream;
 import javax.lang.model.element.Modifier;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.NormalizedExpressionCorrespondence;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.SourceOwnerPath;
 import org.aquilagraph.source.api.DeclarationMemberOrder;
@@ -39,12 +41,16 @@ import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
+import org.aquilagraph.source.api.WrittenExpressionRegion;
 import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.SyntaxType;
 
 /** Identifies written syntax before compiler attribution can insert tree nodes. */
 final class ParsedTreeInventory {
   private static final int SINGLE_ORIGINAL_OWNER_COUNT = 1;
+  private final Map<CompilationUnitTree, JavaSourceTokens> sourceTokens;
+  private final Map<Tree, List<Expression>> writtenExpressions;
+  private final JavaSourceEvidence expressionEvidence;
   private final Set<Tree> writtenTrees;
   private final Map<AnnotationTree, SyntaxValue.Annotation> annotations;
   private final Map<AnnotationTree, TreePath> annotationTypePaths;
@@ -68,7 +74,9 @@ final class ParsedTreeInventory {
       Map<Tree, List<ParsedSourceOwner>> owners, Map<VariableTree, Boolean> inferredTypes,
       Map<LambdaExpressionTree, SyntaxValue.Lambda> lambdas, Map<VariableTree, LocalBindingEvidence.TypeForm> parameterTypes,
       Map<ClassTree, List<SourceSpan>> emptyDeclarations, Map<CompilationUnitTree, List<SourceSpan>> unitEmptyDeclarations,
-      Map<CompilationUnitTree, SourceFile> sources) {
+      Map<CompilationUnitTree, SourceFile> sources, Map<CompilationUnitTree, JavaSourceTokens> tokens, JavaSourceEvidence evidence) {
+    this.sourceTokens = tokens;
+    expressionEvidence = evidence;
     this.writtenTrees = writtenTrees;
     this.annotations = annotations;
     this.annotationTypePaths = annotationTypePaths;
@@ -84,6 +92,7 @@ final class ParsedTreeInventory {
     this.capturedEmptyDeclarations = emptyDeclarations;
     this.capturedUnitEmptyDeclarations = unitEmptyDeclarations;
     this.capturedSources = sources;
+    writtenExpressions = captureExpressions(evidence);
   }
 
   static ParsedTreeInventory capture(List<CompilationUnitTree> units, Function<CompilationUnitTree, Optional<SourceFile>> sources,
@@ -106,26 +115,34 @@ final class ParsedTreeInventory {
     var emptyDeclarations = new IdentityHashMap<ClassTree, List<SourceSpan>>();
     var unitEmptyDeclarations = new IdentityHashMap<CompilationUnitTree, List<SourceSpan>>();
     var capturedSources = new IdentityHashMap<CompilationUnitTree, SourceFile>();
+    var tokenViews = new IdentityHashMap<CompilationUnitTree, JavaSourceTokens>();
+    for (var unit : units) {
+      tokenViews.put(unit, JavaSourceTokens.capture(sources.apply(unit).map(SourceFile::content).orElse("")));
+    }
     JavaCoverageTopology.owners(units, sources, evidence).forEach(owner -> {
       owners.computeIfAbsent(owner.tree(), ignored -> new ArrayList<>()).add(new ParsedSourceOwner(owner.treePath(),
           owner.source().sourceFileKey(), owner.path(), JavaSourceKind.valueOf(owner.tree().getKind().name()), owner.origin()));
       if (owner.tree() instanceof LambdaExpressionTree lambda) {
-        captureLambda(owner, lambda, evidence, lambdas, parameterTypes);
+        captureLambda(owner, lambda, evidence, Objects.requireNonNull(tokenViews.get(owner.unit()), "captured unit tokens"), lambdas,
+            parameterTypes);
       }
     });
     owners.replaceAll((tree, values) -> List.copyOf(values));
     for (var unit : units) {
       sources.apply(unit).ifPresent(source -> capturedSources.put(unit, source));
-      sources.apply(unit).ifPresent(source -> unitEmptyDeclarations.put(unit, captureUnitEmptyDeclarations(unit, source, evidence)));
+      sources.apply(unit).ifPresent(source -> unitEmptyDeclarations.put(unit,
+          captureUnitEmptyDeclarations(unit, source, evidence, Objects.requireNonNull(tokenViews.get(unit), "captured unit tokens"))));
       scanUnit(unit, sources.apply(unit), evidence, writtenTrees, annotations, annotationTypePaths, annotationPaths, annotationArguments,
-          annotationsByOwner, variableAnnotations, modifiers, inferredTypes, emptyDeclarations);
+          annotationsByOwner, variableAnnotations, modifiers, inferredTypes, emptyDeclarations,
+          Objects.requireNonNull(tokenViews.get(unit), "captured unit tokens"));
     }
     return new ParsedTreeInventory(writtenTrees, Collections.unmodifiableMap(annotations), Collections.unmodifiableMap(annotationTypePaths),
         Collections.unmodifiableMap(annotationPaths), Collections.unmodifiableMap(annotationArguments),
         Collections.unmodifiableMap(annotationsByOwner), Collections.unmodifiableMap(variableAnnotations),
         Collections.unmodifiableMap(modifiers), Collections.unmodifiableMap(owners), Collections.unmodifiableMap(inferredTypes),
         Collections.unmodifiableMap(lambdas), Collections.unmodifiableMap(parameterTypes), Collections.unmodifiableMap(emptyDeclarations),
-        Collections.unmodifiableMap(unitEmptyDeclarations), Collections.unmodifiableMap(capturedSources));
+        Collections.unmodifiableMap(unitEmptyDeclarations), Collections.unmodifiableMap(capturedSources),
+        Collections.unmodifiableMap(tokenViews), evidence);
   }
 
   void requireSource(CompilationUnitTree unit, SourceFile source) {
@@ -134,7 +151,8 @@ final class ParsedTreeInventory {
     }
   }
 
-  private static List<SourceSpan> captureUnitEmptyDeclarations(CompilationUnitTree unit, SourceFile source, JavaSourceEvidence evidence) {
+  private static List<SourceSpan> captureUnitEmptyDeclarations(CompilationUnitTree unit, SourceFile source, JavaSourceEvidence evidence,
+      JavaSourceTokens tokens) {
     if (unit.getTypeDecls().stream().anyMatch(tree -> tree instanceof ClassTree && evidence.origin(unit, source, tree).isEmpty())) {
       return List.of();
     }
@@ -142,7 +160,7 @@ final class ParsedTreeInventory {
         .filter(tree -> !(tree instanceof EmptyStatementTree)).flatMap(tree -> evidence.origin(unit, source, tree).stream()).toList();
     var header = Stream.of(unit.getPackage(), unit.getModule()).filter(Objects::nonNull)
         .flatMap(tree -> evidence.origin(unit, source, tree).stream()).toList();
-    return sourceTokens(source.content()).stream().filter(token -> ";".equals(token.value()))
+    return tokens.all().stream().filter(token -> ";".equals(token.value()))
         .filter(token -> Stream.concat(occupied.stream(), header.stream())
             .noneMatch(range -> token.start() >= range.startOffset() && token.end() <= range.endOffsetExclusive()))
         .map(token -> new SourceSpan(source.sourceFileKey(), token.start(), token.end())).toList();
@@ -166,13 +184,12 @@ final class ParsedTreeInventory {
   }
 
   private static void captureLambda(JavaCoverageTopology.Owner owner, LambdaExpressionTree lambda, JavaSourceEvidence evidence,
-      Map<LambdaExpressionTree, SyntaxValue.Lambda> forms, Map<VariableTree, LocalBindingEvidence.TypeForm> parameterTypes) {
+      JavaSourceTokens tokenView, Map<LambdaExpressionTree, SyntaxValue.Lambda> forms,
+      Map<VariableTree, LocalBindingEvidence.TypeForm> parameterTypes) {
     var parameters = new ArrayList<SyntaxValue.LambdaParameter>();
     for (var parameter : lambda.getParameters()) {
       var tokens = evidence.origin(owner.unit(), owner.source(), parameter)
-          .map(span -> sourceTokens(
-              owner.source().content().substring(Math.toIntExact(span.startOffset()), Math.toIntExact(span.endOffsetExclusive()))).stream()
-              .map(SourceToken::value).toList())
+          .map(span -> tokenView.within(span.startOffset(), span.endOffsetExclusive()).stream().map(JavaSourceTokens.Token::value).toList())
           .orElse(List.of());
       var typeForm = parameter.getType() != null
           ? LocalBindingEvidence.TypeForm.DECLARED
@@ -180,11 +197,8 @@ final class ParsedTreeInventory {
       parameterTypes.put(parameter, typeForm);
       parameters.add(new SyntaxValue.LambdaParameter(typeForm, tokens.contains("...")));
     }
-    var parenthesized = owner.origin()
-        .map(span -> firstSignificant(decodeUnicode(
-            owner.source().content().substring(Math.toIntExact(span.startOffset()), Math.toIntExact(span.endOffsetExclusive()))).text())
-            .filter(value -> value == '(').isPresent())
-        .orElse(true);
+    var parenthesized = owner.origin().map(span -> tokenView.within(span.startOffset(), span.endOffsetExclusive()).stream().findFirst()
+        .filter(token -> "(".equals(token.value())).isPresent()).orElse(true);
     var bodyKind = lambda.getBodyKind() == LambdaExpressionTree.BodyKind.EXPRESSION
         ? SyntaxValue.LambdaBodyKind.EXPRESSION
         : SyntaxValue.LambdaBodyKind.BLOCK;
@@ -200,63 +214,13 @@ final class ParsedTreeInventory {
         hasInferredVariableType(variable) ? LocalBindingEvidence.TypeForm.INFERRED : LocalBindingEvidence.TypeForm.DECLARED);
   }
 
-  private static List<SourceToken> sourceTokens(String source) {
-    var decoded = decodeUnicode(source);
-    var text = decoded.text();
-    var result = new ArrayList<SourceToken>();
-    var index = 0;
-    while (index < text.length()) {
-      var tokenStart = index;
-      var character = text.charAt(index);
-      if (Character.isWhitespace(character)) {
-        index++;
-      } else if (text.startsWith("/*", index)) {
-        var end = text.indexOf("*/", index + 2);
-        index = end < 0 ? text.length() : end + 2;
-      } else if (text.startsWith("//", index)) {
-        while (index < text.length() && text.charAt(index) != '\n' && text.charAt(index) != '\r') {
-          index++;
-        }
-      } else if (character == '"' || character == '\'') {
-        var delimiter = text.startsWith("\"\"\"", index) ? "\"\"\"" : Character.toString(character);
-        index += delimiter.length();
-        while (index < text.length()) {
-          if (text.startsWith(delimiter, index)) {
-            index += delimiter.length();
-            break;
-          }
-          var next = text.charAt(index);
-          index++;
-          if (next == '\\' && index < text.length()) {
-            index++;
-          }
-        }
-        result.add(new SourceToken("literal", decoded.starts().get(tokenStart), decoded.ends().get(index - 1)));
-      } else if (Character.isJavaIdentifierStart(text.codePointAt(index))) {
-        var start = index;
-        index += Character.charCount(text.codePointAt(index));
-        while (index < text.length() && Character.isJavaIdentifierPart(text.codePointAt(index))) {
-          index += Character.charCount(text.codePointAt(index));
-        }
-        result.add(new SourceToken(text.substring(start, index), decoded.starts().get(start), decoded.ends().get(index - 1)));
-      } else if (text.startsWith("...", index)) {
-        index += 3;
-        result.add(new SourceToken("...", decoded.starts().get(tokenStart), decoded.ends().get(index - 1)));
-      } else {
-        index++;
-        result.add(new SourceToken(Character.toString(character), decoded.starts().get(tokenStart), decoded.ends().get(index - 1)));
-      }
-    }
-    return List.copyOf(result);
-  }
-
   private static void scanUnit(CompilationUnitTree unit, Optional<SourceFile> source, JavaSourceEvidence evidence, Set<Tree> writtenTrees,
       Map<AnnotationTree, SyntaxValue.Annotation> annotations, Map<AnnotationTree, TreePath> annotationTypePaths,
       Map<AnnotationTree, TreePath> annotationPaths, Map<AnnotationTree, List<WrittenAnnotationArgument>> annotationArguments,
       Map<Tree, List<AnnotationTree>> annotationsByOwner, Map<VariableTree, List<AnnotationTree>> variableAnnotations,
       Map<ModifiersTree, Set<Modifier>> modifiers, Map<VariableTree, Boolean> inferredTypes,
-      Map<ClassTree, List<SourceSpan>> emptyDeclarations) {
-    var tokens = source.map(file -> sourceTokens(file.content())).orElse(List.of());
+      Map<ClassTree, List<SourceSpan>> emptyDeclarations, JavaSourceTokens tokenView) {
+    var tokens = tokenView.all();
     var scanner = new TreePathScanner<Void, Void>() {
       @Override
       public Void visitClass(ClassTree tree, Void unused) {
@@ -315,7 +279,8 @@ final class ParsedTreeInventory {
         annotationTypePaths.putIfAbsent(annotation, new TreePath(getCurrentPath(), annotation.getAnnotationType()));
         annotationArguments.putIfAbsent(annotation,
             annotation.getArguments().stream().map(argument -> writtenArgument(getCurrentPath(), argument)).toList());
-        source.flatMap(file -> annotationValue(unit, file, annotation, evidence)).ifPresent(value -> annotations.put(annotation, value));
+        source.flatMap(file -> annotationValue(unit, file, annotation, evidence, tokens))
+            .ifPresent(value -> annotations.put(annotation, value));
         return super.visitAnnotation(annotation, null);
       }
 
@@ -383,7 +348,7 @@ final class ParsedTreeInventory {
     return new DeclarationMemberOrder.TreeOrder(owner, members);
   }
 
-  private Optional<SourceOwnerPath> parsedOwnerPath(TreePath path) {
+  Optional<SourceOwnerPath> parsedOwnerPath(TreePath path) {
     return capturedOwners.getOrDefault(path.getLeaf(), List.of()).stream().filter(owner -> samePath(owner.treePath(), path))
         .map(ParsedSourceOwner::path).findFirst();
   }
@@ -436,7 +401,7 @@ final class ParsedTreeInventory {
   }
 
   private static Optional<SyntaxValue.Annotation> annotationValue(CompilationUnitTree unit, SourceFile source, AnnotationTree annotation,
-      JavaSourceEvidence evidence) {
+      JavaSourceEvidence evidence, List<JavaSourceTokens.Token> tokens) {
     var position = evidence.position(unit, source, annotation);
     var typePosition = evidence.position(unit, source, annotation.getAnnotationType());
     if (!(position instanceof JavaSourceEvidence.Position.Available annotationRange)
@@ -446,16 +411,17 @@ final class ParsedTreeInventory {
     }
     var start = Math.toIntExact(typeRange.span().endOffsetExclusive());
     var end = Math.toIntExact(annotationRange.span().endOffsetExclusive());
-    var delimiter = firstSignificant(decodeUnicode(source.content().substring(start, end)).text());
+    var delimiter = tokens.stream().filter(token -> token.start() >= start && token.end() <= end).findFirst()
+        .map(JavaSourceTokens.Token::value);
     var arguments = annotation.getArguments();
     if (arguments.isEmpty()) {
-      if (delimiter.isPresent() && delimiter.orElseThrow() != '(') {
+      if (delimiter.isPresent() && !"(".equals(delimiter.orElseThrow())) {
         return Optional.empty();
       }
       var form = delimiter.isPresent() ? SyntaxValue.AnnotationForm.EMPTY_NORMAL : SyntaxValue.AnnotationForm.MARKER;
       return Optional.of(new SyntaxValue.Annotation(form, List.of(), SyntaxValue.AnnotationLocation.UNRESOLVED));
     }
-    if (delimiter.isEmpty() || delimiter.orElseThrow() != '(') {
+    if (delimiter.isEmpty() || !"(".equals(delimiter.orElseThrow())) {
       return Optional.empty();
     }
     var headers = new ArrayList<SyntaxValue.AnnotationArgumentHeader>();
@@ -477,46 +443,6 @@ final class ParsedTreeInventory {
     return Optional.of(new SyntaxValue.Annotation(form, headers, SyntaxValue.AnnotationLocation.UNRESOLVED));
   }
 
-  private static DecodedSource decodeUnicode(String source) {
-    var decoded = new StringBuilder(source.length());
-    var starts = new ArrayList<Integer>();
-    var ends = new ArrayList<Integer>();
-    var index = 0;
-    var previousWasEscape = false;
-    var trailingBackslashes = 0;
-    while (index < source.length()) {
-      var eligible = previousWasEscape || trailingBackslashes % 2 == 0;
-      if (source.charAt(index) == '\\' && eligible && index + 1 < source.length() && source.charAt(index + 1) == 'u') {
-        var hex = index + 2;
-        while (hex < source.length() && source.charAt(hex) == 'u') {
-          hex++;
-        }
-        if (hex + 4 <= source.length()) {
-          try {
-            var character = (char) Integer.parseInt(source.substring(hex, hex + 4), 16);
-            decoded.append(character);
-            starts.add(index);
-            ends.add(hex + 4);
-            trailingBackslashes = character == '\\' ? trailingBackslashes + 1 : 0;
-            index = hex + 4;
-            previousWasEscape = true;
-            continue;
-          } catch (NumberFormatException ignored) {
-            // Invalid escapes remain visible for source-correlation failure.
-          }
-        }
-      }
-      var character = source.charAt(index);
-      decoded.append(character);
-      starts.add(index);
-      ends.add(index + 1);
-      trailingBackslashes = character == '\\' ? trailingBackslashes + 1 : 0;
-      previousWasEscape = false;
-      index++;
-    }
-    return new DecodedSource(decoded.toString(), List.copyOf(starts), List.copyOf(ends));
-  }
-
   List<SourceSpan> emptyBodyDeclarations(ClassTree tree) {
     return capturedEmptyDeclarations.getOrDefault(tree, List.of());
   }
@@ -534,34 +460,86 @@ final class ParsedTreeInventory {
     return parsedOwnerPath(owner).orElseThrow().child(SourceOwnerPath.Role.EMPTY_DECLARATION, ordinal);
   }
 
-  private record SourceToken(String value, int start, int end) {
+  private Map<Tree, List<Expression>> captureExpressions(JavaSourceEvidence evidence) {
+    var expressions = new IdentityHashMap<Tree, List<Expression>>();
+    capturedOwners.values().stream().flatMap(List::stream).forEach(owner -> {
+      var source = Objects.requireNonNull(capturedSources.get(owner.treePath().getCompilationUnit()), "expression source");
+      var capture = JavaWrittenExpression.capture(owner.treePath(), source, evidence, tokens(owner.treePath().getCompilationUnit()));
+      if (!(capture instanceof JavaWrittenExpression.Unchanged)) {
+        var region = capture instanceof JavaWrittenExpression.Recovered recovered
+            ? Optional.of(new WrittenExpressionRegion(owner.path(), recovered.root().origin(),
+                JavaWrittenExpression.occurrences(recovered.root(), path -> parsedOwnerPath(path).orElseThrow())))
+            : Optional.<WrittenExpressionRegion>empty();
+        expressions.computeIfAbsent(owner.treePath().getLeaf(), ignored -> new ArrayList<>())
+            .add(new Expression(owner.treePath(), capture, region));
+      }
+    });
+    expressions.replaceAll((tree, values) -> List.copyOf(values));
+    return Collections.unmodifiableMap(expressions);
   }
 
-  private record DecodedSource(String text, List<Integer> starts, List<Integer> ends) {
+  Optional<Expression> writtenExpression(TreePath path) {
+    return writtenExpressions.getOrDefault(path.getLeaf(), List.of()).stream().filter(value -> samePath(value.compilerAnchor(), path))
+        .findFirst();
   }
 
-  private static Optional<Character> firstSignificant(String source) {
-    var index = 0;
-    while (index < source.length()) {
-      var current = source.charAt(index);
-      if (Character.isWhitespace(current)) {
-        index++;
-      } else if (current == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') {
-        index += 2;
-        while (index < source.length() && source.charAt(index) != '\n' && source.charAt(index) != '\r') {
-          index++;
-        }
-      } else if (current == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') {
-        var close = source.indexOf("*/", index + 2);
-        if (close < 0) {
-          return Optional.empty();
-        }
-        index = close + 2;
-      } else {
-        return Optional.of(current);
+  List<WrittenExpressionRegion> expressionRegions() {
+    var regions = writtenExpressions.values().stream().flatMap(List::stream).flatMap(value -> value.region().stream()).toList();
+    return regions.stream()
+        .filter(region -> regions.stream().noneMatch(parent -> !parent.compilerOwner().equals(region.compilerOwner())
+            && parent.origin().sourceFileKey().equals(region.origin().sourceFileKey())
+            && parent.compilerOwner().isAncestorOf(region.compilerOwner())
+            && parent.occurrences().stream().noneMatch(
+                occurrence -> occurrence.compilerOperand().filter(operand -> operand.isAncestorOf(region.compilerOwner())).isPresent())))
+        .sorted(Comparator.comparing((WrittenExpressionRegion region) -> region.origin().sourceFileKey())
+            .thenComparingLong(region -> region.origin().startOffset()).thenComparingLong(region -> region.origin().endOffsetExclusive())
+            .thenComparing(WrittenExpressionRegion::compilerOwner, ParsedTreeInventory::compareOwnerPaths))
+        .toList();
+  }
+
+  private static int compareOwnerPaths(SourceOwnerPath first, SourceOwnerPath second) {
+    for (var index = 0; index < Math.min(first.size(), second.size()); index++) {
+      var left = first.steps().get(index);
+      var right = second.steps().get(index);
+      var role = left.role().compareTo(right.role());
+      if (role != 0) {
+        return role;
+      }
+      var ordinal = Integer.compare(left.ordinal(), right.ordinal());
+      if (ordinal != 0) {
+        return ordinal;
       }
     }
-    return Optional.empty();
+    return Integer.compare(first.size(), second.size());
+  }
+
+  List<NormalizedExpressionCorrespondence.Observation> expressionObservations(Expression expression, SemanticResolver semantics) {
+    var region = expression.region().orElseThrow();
+    var source = Objects.requireNonNull(capturedSources.get(expression.compilerAnchor().getCompilationUnit()), "expression source");
+    var observations = new ArrayList<NormalizedExpressionCorrespondence.Observation>();
+    var constants = new JavaConstantExpression(semantics);
+    for (var owners : capturedOwners.values()) {
+      for (var owner : owners) {
+        if (owner.sourceFileKey().equals(region.origin().sourceFileKey()) && region.compilerOwner().isAncestorOf(owner.path())
+            && region.occurrences().stream().noneMatch(occurrence -> occurrence.compilerOperand()
+                .filter(operand -> !operand.equals(owner.path()) && operand.isAncestorOf(owner.path())).isPresent())) {
+          observations.add(new NormalizedExpressionCorrespondence.Observation(owner.path(),
+              JavaSourceKind.valueOf(owner.treePath().getLeaf().getKind().name()),
+              expressionEvidence.origin(owner.treePath().getCompilationUnit(), source, owner.treePath().getLeaf()),
+              semantics.type(owner.treePath()), constants.value(owner.treePath()).flatMap(JavaConstantExpression::copyScalar),
+              constants.constantStatus(owner.treePath())));
+        }
+      }
+    }
+    observations.sort(Comparator.comparing((NormalizedExpressionCorrespondence.Observation value) -> value.ownerPath().toString()));
+    return List.copyOf(observations);
+  }
+
+  record Expression(TreePath compilerAnchor, JavaWrittenExpression.Capture capture, Optional<WrittenExpressionRegion> region) {
+  }
+
+  JavaSourceTokens tokens(CompilationUnitTree unit) {
+    return Objects.requireNonNull(sourceTokens.get(unit), "captured source tokens");
   }
 
   boolean isWritten(Tree tree) {

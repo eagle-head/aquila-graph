@@ -56,12 +56,12 @@ class ExceptionCodecTest {
               ? value.sourceKind() == JavaSourceKind.UNION_TYPE : value.syntaxKind() == SyntaxKind.TRY).findFirst().orElseThrow();
           var format = "java-source/" + version;
           var codec = new RetainedValueCodec(false, format);
-          var current = new CanonicalValueWriter(AstResult.SOURCE_MODEL_VERSION);
-          new RetainedValueCodec(false).write(current, node);
+          var sourceEnvelope = new CanonicalValueWriter(AstResult.SOURCE_ENVELOPE_MODEL_VERSION);
+          new RetainedValueCodec(false, AstResult.SOURCE_ENVELOPE_MODEL_VERSION).write(sourceEnvelope, node);
           // Act
           var write = assertThrows(IllegalArgumentException.class, () -> codec.write(new CanonicalValueWriter(format), node));
           var read = assertThrows(IllegalArgumentException.class,
-              () -> codec.read(new CanonicalValueReader(current.toByteArray(), AstResult.SOURCE_MODEL_VERSION)));
+              () -> codec.read(new CanonicalValueReader(sourceEnvelope.toByteArray(), AstResult.SOURCE_ENVELOPE_MODEL_VERSION)));
           // Assert
           assertEquals("Expanded exception syntax requires retained AST format java-source/12", write.getMessage());
           assertEquals(version == 2 && method.contains("try (")

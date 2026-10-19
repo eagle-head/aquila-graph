@@ -308,8 +308,8 @@ class JavaAnnotationCompletionTest {
     withCompilation(SIMPLE, fixture -> {
       var captured = fixture.inventory().annotations().getFirst();
       var tree = captured.tree();
-      var invalid = new JavaAnnotationSourceInventory.WrittenTree(tree.path(), tree.sourceKind(), tree.syntaxKind(), Optional.empty(),
-          new JavaSourceEvidence.Position.Invalid(10, 5), tree.value(), tree.children());
+      var invalid = new JavaAnnotationSourceInventory.WrittenTree(tree.compilerAnchor(), tree.sourceKind(), tree.syntaxKind(), Optional.empty(),
+          new JavaSourceEvidence.Position.Invalid(10, 5), tree.value(), tree.children(), tree.derivationPath());
       var inventory = new JavaAnnotationSourceInventory(List.of(new JavaAnnotationSourceInventory.Occurrence(captured.source(), invalid,
           captured.ownerRange(), captured.ancestors(), captured.ordinal())), fixture.inventory().declarations());
 

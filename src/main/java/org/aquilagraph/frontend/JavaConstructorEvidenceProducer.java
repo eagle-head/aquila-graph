@@ -41,7 +41,7 @@ final class JavaConstructorEvidenceProducer {
     var methodKey = evidence.scopeKey();
     var root = evidence.translation().value();
     if (node.syntaxKind() != SyntaxKind.INVOCATION || !(node.value() instanceof SyntaxValue.Invocation invocation)
-        || !(projection.path().getLeaf() instanceof MethodInvocationTree call)
+        || !(projection.compilerAnchor().getLeaf() instanceof MethodInvocationTree call)
         || !(call.getMethodSelect() instanceof IdentifierTree selection)
         || (invocation.form() != InvocationForm.SUPER_CONSTRUCTOR && invocation.form() != InvocationForm.THIS_CONSTRUCTOR)) {
       return Optional.empty();
@@ -50,7 +50,8 @@ final class JavaConstructorEvidenceProducer {
     if (methodPath.isEmpty() || !(semantics.element(methodPath.orElseThrow()) instanceof ExecutableElement containing)
         || containing.getKind() != ElementKind.CONSTRUCTOR || !semantics.declarationKey(containing).equals(Optional.of(methodKey))
         || !(containing.getEnclosingElement() instanceof TypeElement enumOwner) || !isSourceType(methodPath.orElseThrow(), enumOwner)
-        || !(semantics.element(projection.path()) instanceof ExecutableElement selected) || selected.getKind() != ElementKind.CONSTRUCTOR) {
+        || !(semantics.element(projection.compilerAnchor()) instanceof ExecutableElement selected)
+        || selected.getKind() != ElementKind.CONSTRUCTOR) {
       return Optional.empty();
     }
     var ownerKey = semantics.declarationKey(enumOwner);
@@ -74,7 +75,7 @@ final class JavaConstructorEvidenceProducer {
           || !(selected.getEnclosingElement() instanceof TypeElement superclass)
           || (enumConstructor && (!superclass.getQualifiedName().contentEquals("java.lang.Enum") || selected.isVarArgs()
               || !selected.getTypeParameters().isEmpty()))
-          || !selectedParametersMatch(projection.path(), call, selected, inputs.orElseThrow())) {
+          || !selectedParametersMatch(projection.compilerAnchor(), call, selected, inputs.orElseThrow())) {
         return Optional.empty();
       }
     } else {
@@ -87,7 +88,7 @@ final class JavaConstructorEvidenceProducer {
   }
 
   private Optional<TreePath> containingConstructor(SyntaxNode root, NodeProjection projection) {
-    var callPath = projection.path();
+    var callPath = projection.compilerAnchor();
     var statementPath = callPath.getParentPath();
     var bodyPath = statementPath == null ? null : statementPath.getParentPath();
     var methodPath = bodyPath == null ? null : bodyPath.getParentPath();

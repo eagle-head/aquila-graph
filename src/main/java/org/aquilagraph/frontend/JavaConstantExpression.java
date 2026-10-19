@@ -20,6 +20,7 @@ import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import org.jspecify.annotations.Nullable;
+import org.aquilagraph.source.api.AnnotationScalar;
 
 /** Evaluates only attributed primitive and String constant-expression forms. */
 final class JavaConstantExpression {
@@ -27,6 +28,36 @@ final class JavaConstantExpression {
 
   JavaConstantExpression(SemanticResolver semantics) {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
+  }
+
+  static Optional<AnnotationScalar> copyScalar(Object value) {
+    return switch (value) {
+      case Boolean scalar -> Optional.of(new AnnotationScalar.BooleanValue(scalar));
+      case Byte scalar -> Optional.of(new AnnotationScalar.ByteValue(scalar));
+      case Short scalar -> Optional.of(new AnnotationScalar.ShortValue(scalar));
+      case Character scalar -> Optional.of(new AnnotationScalar.CharValue(scalar));
+      case Integer scalar -> Optional.of(new AnnotationScalar.IntValue(scalar));
+      case Long scalar -> Optional.of(new AnnotationScalar.LongValue(scalar));
+      case Float scalar -> Optional.of(new AnnotationScalar.FloatValue(scalar));
+      case Double scalar -> Optional.of(new AnnotationScalar.DoubleValue(scalar));
+      case String scalar -> Optional.of(new AnnotationScalar.StringValue(scalar));
+      default -> Optional.empty();
+    };
+  }
+
+  static Optional<Object> runtimeScalar(AnnotationScalar value) {
+    return switch (value) {
+      case AnnotationScalar.BooleanValue scalar -> Optional.of(scalar.value());
+      case AnnotationScalar.ByteValue scalar -> Optional.of(scalar.value());
+      case AnnotationScalar.ShortValue scalar -> Optional.of(scalar.value());
+      case AnnotationScalar.CharValue scalar -> Optional.of(scalar.value());
+      case AnnotationScalar.IntValue scalar -> Optional.of(scalar.value());
+      case AnnotationScalar.LongValue scalar -> Optional.of(scalar.value());
+      case AnnotationScalar.FloatValue scalar -> Optional.of(scalar.value());
+      case AnnotationScalar.DoubleValue scalar -> Optional.of(scalar.value());
+      case AnnotationScalar.StringValue scalar -> Optional.of(scalar.value());
+      default -> Optional.empty();
+    };
   }
 
   Optional<Object> value(TreePath path) {

@@ -228,6 +228,7 @@ public final class LanguageFeatureCoverageResult {
     });
     if (outcome.occurrence().isEmpty() && outcome.support().mode() != FeatureContextOutcome.Mode.FAILED
         && context.address().partition() != SourceContext.Partition.WRITTEN_TYPE_USE
+        && context.address().partition() != SourceContext.Partition.WRITTEN_EXPRESSION
         && !context.address().partition().isEmptyDeclaration()) {
       throw new IllegalArgumentException("Unavailable feature identity requires blocking failed support without a guessed pair");
     }
@@ -355,7 +356,7 @@ public final class LanguageFeatureCoverageResult {
     var correctCategory = switch (context.address().partition()) {
       case TREE -> feature.filter(value -> value.category() == LanguageFeatureCategory.COMPILER_TREE_KIND).isPresent();
       case TYPE -> feature.isEmpty() || feature.orElseThrow().category() == LanguageFeatureCategory.COMPILER_TYPE_KIND;
-      case WRITTEN_TYPE_USE, EMPTY_BODY_DECLARATION, EMPTY_UNIT_DECLARATION -> feature.isEmpty();
+      case WRITTEN_TYPE_USE, EMPTY_BODY_DECLARATION, EMPTY_UNIT_DECLARATION, WRITTEN_EXPRESSION -> feature.isEmpty();
       case WRITTEN_PROPERTY, ATTRIBUTED_PROPERTY ->
         feature.filter(value -> value.category() == LanguageFeatureCategory.DECLARATION_PROPERTY).isPresent();
       case TRANSLATION -> true;

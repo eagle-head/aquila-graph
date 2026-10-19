@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import org.aquilagraph.cfg.api.FlowValue;
 import org.aquilagraph.source.api.InvocationForm;
+import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.InvocationMode;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
@@ -51,7 +52,7 @@ final class ExpressionGraphLowerer {
       case ARRAY_ACCESS -> buildArrayRead(node);
       case INVOCATION -> buildInvocation(node);
       case OBJECT_CREATION -> buildObjectCreation(node);
-      case UNARY -> buildUnaryLike(node, SyntaxRole.OPERAND, OperationKind.UNARY, List.of());
+      case UNARY -> buildUnary(node);
       case BINARY -> buildBinary(node);
       case CONDITIONAL_AND -> buildShortCircuit(node, true);
       case CONDITIONAL_OR -> buildShortCircuit(node, false);
@@ -65,7 +66,25 @@ final class ExpressionGraphLowerer {
   }
 
   private GraphFragment buildLiteral(SyntaxNode node) {
-    var literal = node.value(SyntaxValue.Literal.class).text();
+    var value = node.value(SyntaxValue.Literal.class);
+    if (value.restrictedDecimal().isPresent()) {
+      throw new IllegalArgumentException("A restricted decimal magnitude has no independently lowerable positive runtime value");
+    }
+    return buildConstant(node, value.text());
+  }
+
+  private GraphFragment buildUnary(SyntaxNode node) {
+    var operand = node.requiredChild(SyntaxRole.OPERAND);
+    if (operand.value() instanceof SyntaxValue.Literal literal && literal.restrictedDecimal().isPresent()) {
+      if (node.sourceKind() == JavaSourceKind.UNARY_MINUS) {
+        return buildConstant(node, '-' + literal.restrictedDecimal().orElseThrow().magnitude());
+      }
+      throw new IllegalArgumentException("A restricted decimal operand requires unary minus");
+    }
+    return buildUnaryLike(node, SyntaxRole.OPERAND, OperationKind.UNARY, List.of());
+  }
+
+  private GraphFragment buildConstant(SyntaxNode node, String literal) {
     var operationNodeId = graph.operationNodeId(node, "constant");
     var value = graph.constantValue(operationNodeId, literal, node.resolvedType());
     var operation = graph.addOperationWithId(operationNodeId, node, OperationKind.CONSTANT, literal, List.of(), Optional.of(value),

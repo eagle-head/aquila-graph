@@ -295,8 +295,11 @@ public final class CoverageActualFacts {
    */
   public static List<CoverageFactReference> ownedBy(SourceContext context, CoverageActualFactView facts) {
     var sourceFacts = facts.stream()
-        .filter(fact -> fact.sourceFileKey().equals(context.address().sourceFileKey()) && facts.isSource(fact, syntax -> syntax
-            .sourceAssociation().filter(association -> association.ownerPath().equals(context.address().ownerPath())).isPresent()))
+        .filter(fact -> fact.sourceFileKey().equals(context.address().sourceFileKey()) && facts.isSource(fact,
+            syntax -> syntax.sourceAssociation()
+                .filter(association -> association.ownerPath().equals(context.address().ownerPath())
+                    || association.normalizedExpression().filter(value -> normalizedOwner(context, value)).isPresent())
+                .isPresent()))
         .toList();
     var keys = sourceFacts.stream().map(facts::requiredSyntax).flatMap(syntax -> canonicalOwnerKeys(syntax.value()).stream()).toList();
     return facts.stream()
@@ -305,6 +308,36 @@ public final class CoverageActualFacts {
                 || (fact.value() instanceof CoverageFactValue.MemberOrder order && keys.contains(order.value().ownerTypeKey()))
                 || (fact.value() instanceof CoverageFactValue.DeclarationType type && keys.contains(type.value().ownerTypeKey())))))
         .toList();
+  }
+
+  private static boolean normalizedOwner(SourceContext context, NormalizedExpressionCorrespondence value) {
+    if (context.address().partition() == SourceContext.Partition.WRITTEN_EXPRESSION) {
+      return value.region().compilerOwner().equals(context.address().ownerPath());
+    }
+    return value.occurrencePath().isEmpty()
+        && value.region().occurrences().stream()
+            .noneMatch(occurrence -> occurrence.compilerOperand().filter(context.address().ownerPath()::equals).isPresent())
+        && value.observations().stream().anyMatch(property -> property.ownerPath().equals(context.address().ownerPath())
+            && property.origin().stream().toList().equals(context.origins()));
+  }
+
+  /**
+   * Checks an original compiler kind against its explicitly copied normalized-region observation.
+   *
+   * @param context
+   *          original captured compiler occurrence
+   * @param syntax
+   *          actual written-region root fact
+   * @return whether a real normalization observation corroborates that occurrence
+   */
+  public static boolean supportsNormalizedCompilerOccurrence(SourceContext context, CoverageSyntaxFactValue syntax) {
+    return syntax.sourceAssociation().flatMap(association -> association.normalizedExpression())
+        .filter(value -> value.occurrencePath().isEmpty() && value.region().occurrences().stream()
+            .noneMatch(occurrence -> occurrence.compilerOperand().filter(context.address().ownerPath()::equals).isPresent()))
+        .stream().flatMap(value -> value.observations().stream())
+        .anyMatch(property -> property.ownerPath().equals(context.address().ownerPath())
+            && property.origin().stream().toList().equals(context.origins())
+            && context.feature().map(feature -> property.sourceKind().name().equals(feature.identifier())).orElse(false));
   }
 
   /**
@@ -963,15 +996,16 @@ public final class CoverageActualFacts {
           .orElseThrow();
       var origin = child.origin().orElseThrow();
       var text = source.content().substring(Math.toIntExact(origin.startOffset()), Math.toIntExact(origin.endOffsetExclusive()));
-      if (!item.equals(writtenItem(syntax, index, text))) {
+      if (!writtenItem(syntax, index, text).filter(item::equals).isPresent()) {
         return false;
       }
     }
     return true;
   }
 
-  private static CoveragePropertyValue.Item writtenItem(CoverageSyntaxFactValue syntax, int ordinal, String text) {
-    return new CoveragePropertyValue.Item(syntax.sourceKind().name() + ':' + ordinal, text, CoveragePropertyValue.Provenance.WRITTEN);
+  private static Optional<CoveragePropertyValue.Item> writtenItem(CoverageSyntaxFactValue syntax, int ordinal, String text) {
+    return syntax.observedCompilerKind()
+        .map(kind -> new CoveragePropertyValue.Item(kind.name() + ':' + ordinal, text, CoveragePropertyValue.Provenance.WRITTEN));
   }
 
   private static Optional<String> name(SyntaxValue value) {

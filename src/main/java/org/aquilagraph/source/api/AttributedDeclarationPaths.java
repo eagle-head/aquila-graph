@@ -5,7 +5,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -18,15 +17,21 @@ final class AttributedDeclarationPaths {
   AttributedDeclarationPaths(List<DeclarationMemberOrder> declarations, Map<String, SyntaxNode> nodes,
       Map<String, WrittenSourceAssociation> associations) {
     sourceKinds = associations.values().stream()
-        .collect(Collectors.groupingBy(WrittenSourceAssociation::sourceFileKey,
-            Collectors.toMap(WrittenSourceAssociation::ownerPath,
-                association -> Objects.requireNonNull(nodes.get(association.nodeKey()), "parsed source occurrence").sourceKind(),
-                (first, second) -> {
-                  if (first != second) {
-                    throw new IllegalArgumentException("Parsed source owners require one exact source kind");
-                  }
-                  return first;
-                })));
+        .filter(
+            association -> association.normalizedExpression().map(value -> value.occurrencePath().isEmpty()).orElse(true))
+        .collect(
+            Collectors
+                .groupingBy(WrittenSourceAssociation::sourceFileKey,
+                    Collectors
+                        .toMap(
+                            WrittenSourceAssociation::ownerPath, association -> association.normalizedExpression()
+                                .map(NormalizedExpressionCorrespondence::compilerKind).orElse(association.sourceKind()),
+                            (first, second) -> {
+                              if (first != second) {
+                                throw new IllegalArgumentException("Parsed source owners require one exact source kind");
+                              }
+                              return first;
+                            })));
     for (var declaration : declarations) {
       declaration.attributedTreeOrder().ifPresent(order -> {
         validateOwner(declaration, order, nodes, associations);

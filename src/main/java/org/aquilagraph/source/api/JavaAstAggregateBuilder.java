@@ -193,6 +193,7 @@ final class JavaAstAggregateBuilder {
     var outgoing = validateStructuralEdges(structural, nodes, roots);
     var orderedNodes = orderNodes(roots, nodes, outgoing);
     validateEmbeddedChildren(nodes, outgoing);
+    validateRestrictedOperands(nodes);
     validateEmptyDeclarationOwners(nodes);
     validateAnnotationRanges(orderedNodes);
     validateSemanticEdges(semantic, nodes);
@@ -228,14 +229,39 @@ final class JavaAstAggregateBuilder {
         }
       }
     }
+    var validatedRegions = new HashSet<String>();
     executionScopes.values().stream()
         .sorted(Comparator.comparingInt(facts -> Optional.ofNullable(writtenSourceAssociations.get(facts.root().nodeId()))
             .map(association -> association.ownerPath().size()).orElse(0)))
-        .forEach(facts -> validateExecutionAttributionPaths(facts, nodes, declarations));
+        .forEach(facts -> validateExecutionAttributionPaths(facts, nodes, declarations, validatedRegions));
+    var regions = new HashSet<SyntaxNodeKey>();
+    var sourceRegions = new HashSet<String>();
+    for (var association : writtenSourceAssociations.values()) {
+      var normalized = association.normalizedExpression().filter(value -> value.occurrencePath().isEmpty());
+      if (normalized.isEmpty()) {
+        continue;
+      }
+      var relation = normalized.orElseThrow();
+      if (!sourceRegions.add(association.sourceFileKey() + ':' + relation.region().compilerOwner())) {
+        throw new IllegalArgumentException("A written normalized region requires one unique captured source owner");
+      }
+      if (relation.compilerAnchor() instanceof CompilerExpressionAnchor.Execution execution) {
+        if (!validatedRegions.contains(association.nodeKey())
+            || !regions.add(SyntaxNodeKey.from(association.sourceFileKey(), execution.path(), relation.compilerKind()))) {
+          throw new IllegalArgumentException("A normalized region requires its unique independently correlated compiler anchor");
+        }
+      } else {
+        var root = Objects.requireNonNull(nodes.get(association.nodeKey()), "annotation expression root");
+        if (root.structuralPath().steps().stream()
+            .noneMatch(step -> step.role() == SyntaxRole.ANNOTATION_ARGUMENT || step.role() == SyntaxRole.DEFAULT_VALUE)) {
+          throw new IllegalArgumentException("An annotation source anchor requires its actual annotation-value or default context");
+        }
+      }
+    }
   }
 
   private void validateExecutionAttributionPaths(SourceExecutionFacts facts, Map<String, SyntaxNode> nodes,
-      AttributedDeclarationPaths declarations) {
+      AttributedDeclarationPaths declarations, Set<String> validatedRegions) {
     var occurrences = facts.attributedOccurrences();
     if (occurrences.isEmpty()) {
       return;
@@ -261,6 +287,9 @@ final class JavaAstAggregateBuilder {
       }
     }
     var statementOffset = method ? methodStatementOffset(root, compilerRoot, addresses) : 0;
+    var normalized = SourceExecutionTraversal.nodes(root).stream().map(SyntaxNode::nodeId).map(writtenSourceAssociations::get)
+        .filter(Objects::nonNull).flatMap(association -> association.normalizedExpression().stream())
+        .anyMatch(value -> value.compilerAnchor() instanceof CompilerExpressionAnchor.Execution);
     var writtenDelegation = root.children(SyntaxRole.STATEMENT).stream()
         .filter(statement -> statement.syntaxKind() == SyntaxKind.EXPRESSION_STATEMENT)
         .map(statement -> statement.requiredChild(SyntaxRole.EXPRESSION))
@@ -278,24 +307,29 @@ final class JavaAstAggregateBuilder {
         || !compilerRoot.steps().getLast().equals(new SyntaxStructuralPath.Step(SyntaxRole.BODY, 0))) {
       throw new IllegalArgumentException("Source method attribution paths require their body and constructor correspondence");
     }
-    for (var node : root.descendantsAndSelf()) {
-      var occurrence = addresses.get(node.nodeId());
-      if (occurrence == null) {
-        continue;
-      }
-      var relative = node.structuralPath().steps().subList(root.structuralPath().steps().size(), node.structuralPath().steps().size());
-      var expected = compilerRoot;
-      if (facts.scope() instanceof ExecutionScope.EnumConstant && !relative.isEmpty()
-          && (relative.getFirst().role() == SyntaxRole.ARGUMENT || relative.getFirst().role() == SyntaxRole.CLASS_BODY)) {
-        // Javac places constant arguments and bodies under an implicit creation wrapper.
-        expected = expected.child(SyntaxRole.INITIALIZER, 0);
-      }
-      for (var index = 0; index < relative.size(); index++) {
-        var step = relative.get(index);
-        expected = expected.child(step.role(), step.position() + (index == 0 && step.role() == SyntaxRole.STATEMENT ? statementOffset : 0));
-      }
-      if (!expected.equals(occurrence.compilerPath())) {
-        throw new IllegalArgumentException("Execution attribution paths must preserve exact scope-relative occurrences");
+    if (normalized) {
+      NormalizedExecutionPaths.validate(facts, addresses, writtenSourceAssociations, statementOffset, validatedRegions);
+    } else {
+      for (var node : root.descendantsAndSelf()) {
+        var occurrence = addresses.get(node.nodeId());
+        if (occurrence == null) {
+          continue;
+        }
+        var relative = node.structuralPath().steps().subList(root.structuralPath().steps().size(), node.structuralPath().steps().size());
+        var expected = compilerRoot;
+        if (facts.scope() instanceof ExecutionScope.EnumConstant && !relative.isEmpty()
+            && (relative.getFirst().role() == SyntaxRole.ARGUMENT || relative.getFirst().role() == SyntaxRole.CLASS_BODY)) {
+          // Javac places constant arguments and bodies under an implicit creation wrapper.
+          expected = expected.child(SyntaxRole.INITIALIZER, 0);
+        }
+        for (var index = 0; index < relative.size(); index++) {
+          var step = relative.get(index);
+          expected = expected.child(step.role(),
+              step.position() + (index == 0 && step.role() == SyntaxRole.STATEMENT ? statementOffset : 0));
+        }
+        if (!expected.equals(occurrence.compilerPath())) {
+          throw new IllegalArgumentException("Execution attribution paths must preserve exact scope-relative occurrences");
+        }
       }
     }
     if (method && facts.methodOrigin().orElseThrow() == MethodBodyOrigin.SOURCE_AST) {
@@ -347,8 +381,66 @@ final class JavaAstAggregateBuilder {
       var node = nodes.get(association.nodeKey());
       if (node == null || !node.sourceFileKey().equals(association.sourceFileKey()) || !associationRangeMatches(node, association)
           || (node.sourceKind() != association.sourceKind()
-              && !(node.value() instanceof SyntaxValue.Annotation && association.sourceKind() == JavaSourceKind.TYPE_ANNOTATION))) {
+              && !(node.value() instanceof SyntaxValue.Annotation && association.sourceKind() == JavaSourceKind.TYPE_ANNOTATION)
+              && !normalizedAnnotationArgument(node, association))) {
         throw new IllegalArgumentException("Written source associations must bind exact actual source nodes, kinds, and ranges");
+      }
+      if (association.normalizedExpression().isPresent()) {
+        WrittenExpressionSemantics.validate(node);
+        WrittenExpressionSemantics.validateCorrespondence(node, association.normalizedExpression().orElseThrow(),
+            writtenSourceAssociations);
+        validateDerivedLiteral(node, association.normalizedExpression().orElseThrow());
+      }
+      if (association.normalizedExpression().filter(value -> value.occurrencePath().isEmpty()).isPresent()) {
+        var normalized = association.normalizedExpression().orElseThrow();
+        if (!normalized.region().matches(node) || !node.type().equals(normalized.compilerType())) {
+          throw new IllegalArgumentException("A normalized region requires complete written topology and corroborated result type");
+        }
+      }
+    }
+  }
+
+  private void validateDerivedLiteral(SyntaxNode node, NormalizedExpressionCorrespondence correspondence) {
+    if (!(node.value() instanceof SyntaxValue.Literal literal)) {
+      return;
+    }
+    var annotation = node.structuralPath().steps().stream()
+        .anyMatch(step -> step.role() == SyntaxRole.ANNOTATION_ARGUMENT || step.role() == SyntaxRole.DEFAULT_VALUE);
+    var origin = node.origin().orElseThrow();
+    var source = Objects.requireNonNull(sources.get(node.sourceFileKey()), "derived literal source");
+    var expected = annotation
+        ? source.content().substring(Math.toIntExact(origin.startOffset()), Math.toIntExact(origin.endOffsetExclusive()))
+        : literal.restrictedDecimal().map(DecimalMinimumOperand::magnitude)
+            .orElseGet(() -> correspondence.derivedConstant().flatMap(WrittenExpressionConstants::text).orElse("null"));
+    if (!literal.text().equals(expected)) {
+      throw new IllegalArgumentException("A derived literal must retain its exact annotation spelling or executable scalar value");
+    }
+  }
+
+  private boolean normalizedAnnotationArgument(SyntaxNode node, WrittenSourceAssociation association) {
+    if (!(node.value() instanceof SyntaxValue.AnnotationArgument argument) || argument.explicitName().isPresent()) {
+      return false;
+    }
+    var value = node.requiredChild(SyntaxRole.VALUE);
+    return Optional.ofNullable(writtenSourceAssociations.get(value.nodeId())).flatMap(WrittenSourceAssociation::normalizedExpression)
+        .filter(correspondence -> correspondence.occurrencePath().isEmpty()
+            && correspondence.compilerAnchor() instanceof CompilerExpressionAnchor.AnnotationSource
+            && correspondence.compilerKind() == association.sourceKind()
+            && correspondence.region().compilerOwner().equals(association.ownerPath()) && value.sourceKind() == node.sourceKind()
+            && value.origin().equals(association.origin()))
+        .isPresent();
+  }
+
+  private void validateRestrictedOperands(Map<String, SyntaxNode> nodes) {
+    var parents = new HashMap<String, SyntaxNode>();
+    nodes.values().forEach(parent -> parent.children().forEach(child -> parents.put(child.node().nodeId(), parent)));
+    for (var node : nodes.values()) {
+      if (node.value() instanceof SyntaxValue.Literal literal && literal.restrictedDecimal().isPresent()) {
+        var association = writtenSourceAssociations.get(node.nodeId());
+        if (association == null || association.normalizedExpression().isEmpty()) {
+          throw new IllegalArgumentException("A restricted decimal operand requires its explicit grammar-derived correspondence");
+        }
+        WrittenExpressionSemantics.validateRestrictedParent(node, Optional.ofNullable(parents.get(node.nodeId())));
       }
     }
   }

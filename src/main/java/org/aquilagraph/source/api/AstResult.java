@@ -16,7 +16,9 @@ import org.aquilagraph.identity.api.SourceOccurrence;
 /** Intrinsically admitted, content-qualified source result with one canonical aggregate. */
 public final class AstResult {
   /** Version of the retained source value schema. */
-  public static final String SOURCE_MODEL_VERSION = "java-source/18";
+  public static final String SOURCE_MODEL_VERSION = "java-source/19";
+  /** Compatible format introducing complete captured compilation-unit envelopes. */
+  public static final String SOURCE_ENVELOPE_MODEL_VERSION = "java-source/18";
   /** Compatible format introducing exact empty body declarations. */
   public static final String DECLARATION_SOURCE_MODEL_VERSION = "java-source/17";
   /** Compatible format introducing enum constant initialization. */
@@ -79,15 +81,15 @@ public final class AstResult {
    * @return whether the current reader supports the schema
    */
   public static boolean supportsSourceModelVersion(String version) {
-    return SOURCE_MODEL_VERSION.equals(version) || DECLARATION_SOURCE_MODEL_VERSION.equals(version)
-        || ENUM_SOURCE_MODEL_VERSION.equals(version) || NESTED_SOURCE_MODEL_VERSION.equals(version)
-        || INITIALIZATION_SOURCE_MODEL_VERSION.equals(version) || CLASS_LITERAL_SOURCE_MODEL_VERSION.equals(version)
-        || EXCEPTION_SOURCE_MODEL_VERSION.equals(version) || SWITCH_SOURCE_MODEL_VERSION.equals(version)
-        || PATTERN_SOURCE_MODEL_VERSION.equals(version) || REFERENCE_SOURCE_MODEL_VERSION.equals(version)
-        || LAMBDA_SOURCE_MODEL_VERSION.equals(version) || ASSERTION_SOURCE_MODEL_VERSION.equals(version)
-        || ITERATION_SOURCE_MODEL_VERSION.equals(version) || ARRAY_SOURCE_MODEL_VERSION.equals(version)
-        || UPDATE_SOURCE_MODEL_VERSION.equals(version) || PREVIOUS_SOURCE_MODEL_VERSION.equals(version)
-        || LEGACY_SOURCE_MODEL_VERSION.equals(version);
+    return SOURCE_MODEL_VERSION.equals(version) || SOURCE_ENVELOPE_MODEL_VERSION.equals(version)
+        || DECLARATION_SOURCE_MODEL_VERSION.equals(version) || ENUM_SOURCE_MODEL_VERSION.equals(version)
+        || NESTED_SOURCE_MODEL_VERSION.equals(version) || INITIALIZATION_SOURCE_MODEL_VERSION.equals(version)
+        || CLASS_LITERAL_SOURCE_MODEL_VERSION.equals(version) || EXCEPTION_SOURCE_MODEL_VERSION.equals(version)
+        || SWITCH_SOURCE_MODEL_VERSION.equals(version) || PATTERN_SOURCE_MODEL_VERSION.equals(version)
+        || REFERENCE_SOURCE_MODEL_VERSION.equals(version) || LAMBDA_SOURCE_MODEL_VERSION.equals(version)
+        || ASSERTION_SOURCE_MODEL_VERSION.equals(version) || ITERATION_SOURCE_MODEL_VERSION.equals(version)
+        || ARRAY_SOURCE_MODEL_VERSION.equals(version) || UPDATE_SOURCE_MODEL_VERSION.equals(version)
+        || PREVIOUS_SOURCE_MODEL_VERSION.equals(version) || LEGACY_SOURCE_MODEL_VERSION.equals(version);
   }
 
   /**

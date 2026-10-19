@@ -196,8 +196,8 @@ final class JavaAnnotationCompleteness {
       if (written.form() != retained.form() || !written.arguments().equals(retained.arguments())) {
         mismatch(source, expected, actual, "written annotation form or ordered headers");
       }
-      var tree = (AnnotationTree) expected.path().getLeaf();
-      var typePath = new TreePath(expected.path(), tree.getAnnotationType());
+      var tree = (AnnotationTree) expected.compilerAnchor().getLeaf();
+      var typePath = new TreePath(expected.compilerAnchor(), tree.getAnnotationType());
       if (!semantics.reference(typePath, ReferenceKind.TYPE).equals(actual.semanticReference())) {
         mismatch(source, expected, actual, "annotation type reference");
       }
@@ -245,26 +245,33 @@ final class JavaAnnotationCompleteness {
   }
 
   private void checkExpression(SourceFile source, JavaAnnotationSourceInventory.WrittenTree expected, SyntaxNode actual) {
-    var packageQualifier = semantics.attributedType(expected.path()) instanceof JavaTypeAttribution.NoType noType
+    if (expected.derivationPath().isPresent()) {
+      if (!expected.value().equals(actual.value()) || actual.semanticReference().isPresent()
+          || (expected.derivationPath().orElseThrow().isEmpty() && !semantics.type(expected.compilerAnchor()).equals(actual.type()))) {
+        mismatch(source, expected, actual, "written expression value, provenance or corroborated region type");
+      }
+      return;
+    }
+    var packageQualifier = semantics.attributedType(expected.compilerAnchor()) instanceof JavaTypeAttribution.NoType noType
         && noType.kind() == TypeKind.PACKAGE;
     var expectedValue = packageQualifier && expected.value() instanceof SyntaxValue.SourceSymbol symbol
         ? new SyntaxValue.PackageQualifier(symbol.name())
         : expected.value();
     var expectedType = switch (actual.syntaxKind()) {
       case ANNOTATION_ELEMENT_NAME, ANNOTATION_ARRAY -> SyntaxType.NotApplicable.INSTANCE;
-      case TYPE_USE -> packageQualifier ? SyntaxType.NotApplicable.INSTANCE : semantics.explicitType(expected.path());
-      default -> semantics.type(expected.path());
+      case TYPE_USE -> packageQualifier ? SyntaxType.NotApplicable.INSTANCE : semantics.explicitType(expected.compilerAnchor());
+      default -> semantics.type(expected.compilerAnchor());
     };
     if (!actual.value().equals(expectedValue) || !actual.type().equals(expectedType)) {
       mismatch(source, expected, actual, "written value or attributed expression type");
     }
     var reference = Optional.empty();
     if (actual.syntaxKind() == SyntaxKind.TYPE_USE && !packageQualifier) {
-      if (!semantics.typeUseReference(expected.path()).equals(actual.semanticReference())) {
+      if (!semantics.typeUseReference(expected.compilerAnchor()).equals(actual.semanticReference())) {
         mismatch(source, expected, actual, "type operand reference");
       }
     } else if (actual.syntaxKind() == SyntaxKind.ANNOTATION_NAME_REFERENCE) {
-      var element = semantics.element(expected.path());
+      var element = semantics.element(expected.compilerAnchor());
       if (!(element instanceof VariableElement variable)
           || !semantics.declarationKey(variable).equals(actual.semanticReference().flatMap(item -> item.symbolKey()))) {
         mismatch(source, expected, actual, "constant or enum declaration reference");
@@ -275,8 +282,8 @@ final class JavaAnnotationCompleteness {
   }
 
   private void checkArguments(SourceFile source, JavaAnnotationSourceInventory.WrittenTree expected, SyntaxNode actual) {
-    var annotation = (AnnotationTree) expected.path().getLeaf();
-    var selectedType = semantics.element(new TreePath(expected.path(), annotation.getAnnotationType()));
+    var annotation = (AnnotationTree) expected.compilerAnchor().getLeaf();
+    var selectedType = semantics.element(new TreePath(expected.compilerAnchor(), annotation.getAnnotationType()));
     for (var branch : expected.children()) {
       var candidates = actual.children(SyntaxRole.ANNOTATION_ARGUMENT);
       if (branch.ordinal() >= candidates.size() || !(selectedType instanceof TypeElement type)) {
@@ -322,7 +329,7 @@ final class JavaAnnotationCompleteness {
       return value instanceof AnnotationElementValue.Nested nested
           && semantics.declarationKey(declared.asElement()).filter(nested.annotationTypeKey()::equals).isPresent();
     }
-    return values.scalar(tree.path(), expectedType).filter(value::equals).isPresent();
+    return values.scalar(tree.compilerAnchor(), expectedType).filter(value::equals).isPresent();
   }
 
   private static boolean annotationFact(SyntaxNode node) {

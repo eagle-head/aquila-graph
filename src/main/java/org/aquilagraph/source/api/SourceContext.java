@@ -49,7 +49,9 @@ public record SourceContext(Address address, Optional<LanguageFeature> feature, 
     /** Written standalone body declarations absent from the public compiler tree list. */
     EMPTY_BODY_DECLARATION,
     /** A written empty declaration directly owned by an ordinary or compact unit. */
-    EMPTY_UNIT_DECLARATION;
+    EMPTY_UNIT_DECLARATION,
+    /** Independently captured written expression topology beneath a normalization anchor. */
+    WRITTEN_EXPRESSION;
 
     /**
      * Identifies independent expectations for written empty declarations.

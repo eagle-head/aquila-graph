@@ -288,7 +288,9 @@ final class JavaBodySourceCorrelation {
     diagnostics.include(projection.translation().emissions());
     var paths = new HashMap<String, TreePath>();
     projection.nodes().forEach(binding -> {
-      paths.put(binding.node().nodeId(), binding.path());
+      if (binding.derivation().isEmpty()) {
+        paths.put(binding.node().nodeId(), binding.compilerAnchor());
+      }
       binding.sourceAssociation().ifPresent(value -> sourceAssociations.retain(binding.node(), value));
     });
     return project(projection.translation().value(), path, false, true,
@@ -297,10 +299,10 @@ final class JavaBodySourceCorrelation {
 
   List<AttributedBodyOccurrence> executionAttributions(JavaExecutableSyntaxProjector.Projection projection) {
     projection.requireSemantics(semantics);
-    return projection.nodes().stream().map(binding -> {
+    return projection.nodes().stream().filter(binding -> binding.derivation().isEmpty()).map(binding -> {
       var node = sourceCopies.finalCopy(binding.node());
       return new AttributedBodyOccurrence(projection.scopeKey(), node.nodeId(), node.sourceFileKey(), node.sourceKind(),
-          binding.node().structuralPath());
+          binding.compilerPath());
     }).toList();
   }
 
@@ -311,7 +313,8 @@ final class JavaBodySourceCorrelation {
     var omitInsertedCall = !statements.isEmpty()
         && treeInventory.isCompilerInsertedSuperCall(new TreePath(bodyPath, statements.getFirst()));
     var paths = new HashMap<String, TreePath>();
-    body.projection().evidence().nodes().forEach(projection -> paths.put(projection.node().nodeId(), projection.path()));
+    body.projection().evidence().nodes().stream().filter(projection -> projection.derivation().isEmpty())
+        .forEach(projection -> paths.put(projection.node().nodeId(), projection.compilerAnchor()));
     var context = new BodySourceContext(unit, sourceFile, paths, diagnostics);
     return project(body.root(), path, omitInsertedCall, true, context);
   }
@@ -343,10 +346,11 @@ final class JavaBodySourceCorrelation {
       positions.put(child.role(), position + 1);
       unchanged &= child.position() == position && JavaProjectionIdentity.sameInstance(node, child.node());
     }
-    var creatingPath = Objects.requireNonNull(context.paths().get(original.nodeId()), "body creating path");
+    var creatingPath = context.paths().get(original.nodeId());
     var previousSize = children.size();
-    var projectedAttachments = attachments.project(original, creatingPath, path, children, context.unit(), context.sourceFile(),
-        context.diagnostics());
+    var projectedAttachments = creatingPath == null
+        ? Optional.of(new JavaWrittenAttachmentProjector.Attachments(children, Optional.empty()))
+        : attachments.project(original, creatingPath, path, children, context.unit(), context.sourceFile(), context.diagnostics());
     if (projectedAttachments.isEmpty()) {
       return Optional.empty();
     }
@@ -407,12 +411,12 @@ final class JavaBodySourceCorrelation {
   }
 
   private List<AttributedBodyOccurrence> attributions(TranslatedMethodBody body, boolean copied) {
-    return body.projection().evidence().nodes().stream().filter(projection -> !copied || sourceCopies.contains(projection.node()))
-        .map(projection -> {
+    return body.projection().evidence().nodes().stream().filter(projection -> projection.derivation().isEmpty())
+        .filter(projection -> !copied || sourceCopies.contains(projection.node())).map(projection -> {
           var original = projection.node();
           var retained = copied ? sourceCopies.finalCopy(original) : original;
           return new AttributedBodyOccurrence(body.methodKey(), retained.nodeId(), retained.sourceFileKey(), retained.sourceKind(),
-              original.structuralPath());
+              projection.compilerPath());
         }).toList();
   }
 

@@ -68,7 +68,14 @@ final class JavaProgramTranslator {
         continue;
       }
       var unitTranslator = unitTranslations.create(unit, source);
-      var translated = unitTranslator.translateDeclarations();
+      final TranslationResult<UnitDeclarations> translated;
+      try {
+        translated = unitTranslator.translateDeclarations();
+      } catch (JavaSourceProjectionFailure failure) {
+        diagnostics.include(failure.emissions());
+        incompleteRoot = true;
+        continue;
+      }
       var declarations = translated.value();
       var unitTypes = declarations.types();
       types.addAll(unitTypes);

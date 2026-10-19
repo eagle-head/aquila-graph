@@ -114,6 +114,10 @@ import org.aquilagraph.source.api.ConversionEvidence;
 import org.aquilagraph.source.api.ChildUseEvidence;
 import org.aquilagraph.source.api.UnmatchedSourceFact;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
+import org.aquilagraph.source.api.WrittenExpressionRegion;
+import org.aquilagraph.source.api.NormalizedExpressionCorrespondence;
+import org.aquilagraph.source.api.DecimalMinimumOperand;
+import org.aquilagraph.source.api.CompilerExpressionAnchor;
 import org.aquilagraph.source.api.WrittenTypeEvidence;
 
 /** Closed retained-value tags and ordered public components. */
@@ -241,7 +245,7 @@ final class AstValueSchema {
     record(types, CoverageSourceFact.Step.class, "coverage-source-fact/step", ROLE_FIELD, ORDINAL_FIELD);
     record(types, CoverageSourceFact.Child.class, "coverage-source-fact/child", ROLE_FIELD, ORDINAL_FIELD, NODE_KEY_FIELD);
     record(types, CoverageSourceFact.Association.class, "coverage-source-fact/association", NODE_KEY_FIELD, SOURCE_FILE_KEY_FIELD,
-        OWNER_PATH_FIELD, SOURCE_KIND_FIELD, ORIGIN_FIELD);
+        OWNER_PATH_FIELD, SOURCE_KIND_FIELD, ORIGIN_FIELD, "normalizedExpression");
     record(types, CoverageSyntaxFactValue.class, "coverage-syntax-fact-value", "structuralPath", SOURCE_KIND_FIELD, "syntaxKind",
         TYPE_FIELD, VALUE_FIELD, "children", "semanticReference", "sourceAssociation");
     record(types, CoverageSyntaxFactValue.Child.class, "coverage-syntax-fact-value/child", ROLE_FIELD, ORDINAL_FIELD, NODE_KEY_FIELD);
@@ -350,7 +354,8 @@ final class AstValueSchema {
     enumeration(types, SourceContext.Partition.class, "source-context/partition");
     record(types, SourceContext.Address.class, "source-context/address", SOURCE_FILE_KEY_FIELD, "partition", OWNER_PATH_FIELD, ROLE_FIELD,
         ORDINAL_FIELD);
-    record(types, SourceCoverageInventory.class, "source-coverage-inventory", "snapshot", "release", "contractIdentity", "contexts");
+    record(types, SourceCoverageInventory.class, "source-coverage-inventory", "snapshot", "release", "contractIdentity", "contexts",
+        "writtenExpressions");
     record(types, SourceOwnerPath.class, "source-owner-path", "steps");
     record(types, SourceOwnerPath.Step.class, "source-owner-path/step", ROLE_FIELD, ORDINAL_FIELD);
     enumeration(types, SourceOwnerPath.Role.class, "source-owner-path/role");
@@ -432,7 +437,10 @@ final class AstValueSchema {
     record(types, SyntaxValue.FieldAccess.class, "syntax-value/field-access", NAME_FIELD, "receiver");
     record(types, SyntaxValue.Invocation.class, "syntax-value/invocation", NAME_FIELD, FORM_FIELD, "semantics");
     record(types, SyntaxValue.Receiver.class, "syntax-value/receiver", KIND_FIELD);
-    record(types, SyntaxValue.Literal.class, "syntax-value/literal", "text");
+    record(types, SyntaxValue.Literal.class, "syntax-value/literal", "text", "restrictedDecimal");
+    record(types, CompilerExpressionAnchor.Execution.class, "compiler-expression-anchor/execution", "path");
+    record(types, CompilerExpressionAnchor.AnnotationSource.class, "compiler-expression-anchor/annotation-source", OWNER_PATH_FIELD);
+    record(types, DecimalMinimumOperand.class, "decimal-minimum-operand", CATEGORY_FIELD, "magnitude");
     record(types, SyntaxValue.Operator.class, "syntax-value/operator", "operator");
     record(types, SyntaxValue.TypeName.class, "syntax-value/type-name", NAME_FIELD);
     record(types, SyntaxValue.ArrayCreation.class, "syntax-value/array-creation", "writtenType", "initializer",
@@ -455,7 +463,14 @@ final class AstValueSchema {
     record(types, UnmatchedSourceFact.class, "unmatched-source-fact", "owner", "fact", ORDINAL_FIELD, "reason", "emission");
     enumeration(types, UnmatchedSourceFact.Reason.class, "unmatched-source-fact/reason");
     record(types, WrittenSourceAssociation.class, "written-source-association", NODE_KEY_FIELD, SOURCE_FILE_KEY_FIELD, OWNER_PATH_FIELD,
-        SOURCE_KIND_FIELD, ORIGIN_FIELD);
+        SOURCE_KIND_FIELD, ORIGIN_FIELD, "normalizedExpression");
+    record(types, WrittenExpressionRegion.class, "written-expression-region", "compilerOwner", ORIGIN_FIELD, "occurrences");
+    record(types, WrittenExpressionRegion.Occurrence.class, "written-expression-region/occurrence", "path", SOURCE_KIND_FIELD, ORIGIN_FIELD,
+        "compilerOperand", "restrictedDecimal", "literalValue");
+    record(types, NormalizedExpressionCorrespondence.class, "normalized-expression-correspondence", "region", "occurrencePath",
+        "compilerAnchor", "compilerKind", "compilerType", "derivedConstant", "derivedConstantExpression", "observations");
+    record(types, NormalizedExpressionCorrespondence.Observation.class, "normalized-expression-correspondence/observation",
+        OWNER_PATH_FIELD, SOURCE_KIND_FIELD, ORIGIN_FIELD, TYPE_FIELD, "constant", "constantExpression");
     record(types, WrittenTypeEvidence.class, "written-type-evidence", SOURCE_KIND_FIELD, ORIGIN_FIELD, TYPE_FIELD);
     record(types, CopiedAstValues.class, "copied-ast-values", "snapshot", "sources", "bodies", "memberOrders", "associations",
         "declarationTypes", "scopes");
@@ -570,6 +585,10 @@ final class AstValueSchema {
     }
 
     List<String> retainedFields(int version) {
+      if (version < 19 && (type == WrittenSourceAssociation.class || type == SourceCoverageInventory.class
+          || type == SyntaxValue.Literal.class || type == CoverageSourceFact.Association.class)) {
+        return fields.subList(0, fields.size() - 1);
+      }
       if (version < 18 && type == SyntaxValue.CompilationUnit.class) {
         return fields.subList(0, 1);
       }
@@ -584,6 +603,30 @@ final class AstValueSchema {
 
     List<Object> retainedComponents(Object value, int version) {
       var values = components(value);
+      if (version < 19 && value instanceof CoverageSourceFact.Association association) {
+        if (association.normalizedExpression().isPresent()) {
+          throw new IllegalArgumentException("Normalized coverage facts require retained AST format java-source/19");
+        }
+        return values.subList(0, values.size() - 1);
+      }
+      if (version < 19 && value instanceof SyntaxValue.Literal literal) {
+        if (literal.restrictedDecimal().isPresent()) {
+          throw new IllegalArgumentException("Context-restricted decimal operands require retained AST format java-source/19");
+        }
+        return values.subList(0, values.size() - 1);
+      }
+      if (version < 19 && value instanceof SourceCoverageInventory inventory) {
+        if (inventory.writtenExpressions().filter(valuesInRegion -> !valuesInRegion.isEmpty()).isPresent()) {
+          throw new IllegalArgumentException("Written expression obligations require retained AST format java-source/19");
+        }
+        return values.subList(0, values.size() - 1);
+      }
+      if (version < 19 && value instanceof WrittenSourceAssociation association) {
+        if (association.normalizedExpression().isPresent()) {
+          throw new IllegalArgumentException("Written expression correspondence requires retained AST format java-source/19");
+        }
+        return values.subList(0, values.size() - 1);
+      }
       if (version < 18 && value instanceof SyntaxValue.CompilationUnit unit) {
         if (unit.range() != SyntaxValue.CompilationUnitRange.LEGACY_PROFILE) {
           throw new IllegalArgumentException("Captured source envelopes require retained AST format java-source/18");

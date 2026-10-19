@@ -51,6 +51,7 @@ final class JavaSourceCoverageReconciler {
   private final SourceCoverageInventory inventory;
   private final AttributedCoverageExpectations attributed;
   private final CoverageActualFactView actualFacts;
+  private final Optional<JavaAstAggregate> sourceAggregate;
   private final List<DiagnosticEmission> events;
   private final Map<DiagnosticIdentity, DiagnosticEmission.Address> policyEvents = new HashMap<>();
   private final Map<DiagnosticEmission.Address, List<SourceContext.Address>> associations = new HashMap<>();
@@ -61,6 +62,7 @@ final class JavaSourceCoverageReconciler {
       Optional<JavaAstAggregate> aggregate, DiagnosticEmissions emissions) {
     this.inventory = inventory;
     this.attributed = attributed;
+    sourceAggregate = aggregate;
     actualFacts = CoverageActualFacts.capture(program, aggregate);
     events = new ArrayList<>(emissions.events());
     for (var event : events) {
@@ -127,7 +129,35 @@ final class JavaSourceCoverageReconciler {
     properties(Partition.WRITTEN_PROPERTY, writtenProperties);
     properties(Partition.ATTRIBUTED_PROPERTY, attributedProperties);
     emptyBodyDeclarations();
+    writtenExpressions();
     return finish(coverage);
+  }
+
+  private void writtenExpressions() {
+    inventory.contexts().stream().filter(value -> value.address().partition() == Partition.WRITTEN_EXPRESSION)
+        .forEach(this::writtenExpression);
+  }
+
+  private void writtenExpression(SourceContext context) {
+    var region = inventory.writtenExpressions().stream().flatMap(List::stream)
+        .filter(value -> value.compilerOwner().equals(context.address().ownerPath())
+            && value.origin().sourceFileKey().equals(context.address().sourceFileKey()))
+        .findFirst().orElseThrow();
+    var roots = sourceAggregate.stream().flatMap(value -> value.nodes().stream())
+        .filter(node -> sourceAggregate.orElseThrow().writtenSourceAssociation(node.nodeId()).flatMap(value -> value.normalizedExpression())
+            .filter(value -> value.occurrencePath().isEmpty() && value.region().equals(region)).isPresent())
+        .toList();
+    var facts = CoverageActualFacts.ownedBy(context, actualFacts);
+    var supported = roots.size() == 1 && region.matches(roots.getFirst()) && !facts.isEmpty();
+    var emissions = supported
+        ? List.<DiagnosticEmission.Address>of()
+        : failure(context, MISSING_SOURCE_EVIDENCE,
+            "A normalized compiler region lacks its independently captured complete written topology");
+    var disposition = supported
+        ? new Support(Mode.FACTS, facts, Optional.empty(), Optional.empty(), Optional.empty())
+        : support(Mode.FAILED);
+    outcomes
+        .add(new FeatureContextOutcome(context.address(), Optional.empty(), Optional.empty(), Optional.empty(), disposition, emissions));
   }
 
   private void emptyBodyDeclarations() {
@@ -159,13 +189,14 @@ final class JavaSourceCoverageReconciler {
         addKnown(context, encounter.occurrence().orElseThrow(), encounter.observation().orElseThrow(), encounter.encounteredValue());
       } else if (context.address().partition() == Partition.WRITTEN_TYPE_USE) {
         writtenTypeUse(context);
-      } else if (!context.address().partition().isEmptyDeclaration()) {
+      } else if (!context.address().partition().isEmptyDeclaration() && context.address().partition() != Partition.WRITTEN_EXPRESSION) {
         var addresses = failure(context, "frontend.unresolved-attributed-type-kind", unavailableTypeMessage(context));
         outcomes.add(new FeatureContextOutcome(context.address(), Optional.empty(), Optional.empty(), encounter.encounteredValue(),
             support(Mode.FAILED), addresses));
       }
     }
     emptyBodyDeclarations();
+    writtenExpressions();
     return finish(coverage);
   }
 
@@ -332,7 +363,8 @@ final class JavaSourceCoverageReconciler {
       var kind = context.feature().orElseThrow().identifier();
       var matching = owned.stream()
           .filter(fact -> actualFacts.sourceValue(fact)
-              .map(syntax -> syntax.sourceKind().name().equals(kind)
+              .map(syntax -> syntax.observedCompilerKind().map(value -> value.name().equals(kind)).orElse(false)
+                  || CoverageActualFacts.supportsNormalizedCompilerOccurrence(context, syntax)
                   || (List.of("ANNOTATION", "TYPE_ANNOTATION").contains(kind) && syntax.value() instanceof SyntaxValue.Annotation))
               .orElseGet(() -> canonicalTreeKind(kind, fact)))
           .toList();

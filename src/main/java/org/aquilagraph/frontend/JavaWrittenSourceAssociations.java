@@ -61,8 +61,8 @@ final class JavaWrittenSourceAssociations {
   SyntaxNode copied(SyntaxNode original, SyntaxNode copy) {
     var value = associationFor(original);
     if (value != null) {
-      retain(copy,
-          new WrittenSourceAssociation(copy.nodeId(), value.sourceFileKey(), value.ownerPath(), value.sourceKind(), value.origin()));
+      retain(copy, new WrittenSourceAssociation(copy.nodeId(), value.sourceFileKey(), value.ownerPath(), value.sourceKind(), value.origin(),
+          value.normalizedExpression()));
     }
     return copy;
   }
