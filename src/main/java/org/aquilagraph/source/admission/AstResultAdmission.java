@@ -45,7 +45,7 @@ public final class AstResultAdmission {
       throw new AstContractException("Semantic production revision cannot be blank", new IllegalArgumentException("semanticRevision"));
     }
     try {
-      var completion = SourceRequirements.assess(input, profile);
+      var completion = SourceRequirements.assess(input, profile, semanticRevision);
       if (completion == AstCompletion.UNAVAILABLE) {
         return AstAggregateAdmission.unavailable(profile, Optional.of(input.snapshot()), Optional.of(input.environmentSnapshot()),
             Optional.of(input.compilerConfiguration()), Optional.of(input.languageFeatureCoverageResult()), input.diagnostics(),
@@ -127,7 +127,7 @@ public final class AstResultAdmission {
         throw new IllegalArgumentException("The written-expression source profile requires retained AST format java-source/19");
       }
       var retained = retainedInput(input, format);
-      var completion = SourceRequirements.assess(retained, profile);
+      var completion = SourceRequirements.assess(retained, profile, semanticRevision);
       if (completion == AstCompletion.UNAVAILABLE) {
         throw new IllegalArgumentException("Copied source values cannot establish an available AST result");
       }

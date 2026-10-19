@@ -236,6 +236,29 @@ public final class JavaAstAggregate {
   }
 
   /**
+   * Returns executable literal runtime text without replacing written source topology. Annotation arguments, defaults and their descendants
+   * are outside this operation; their literal payloads retain written spelling. A restored executable expression qualifies only at an
+   * actual compiler literal anchor with its copied scalar value. Other constant-expression anchors and restricted decimal operands do not
+   * independently denote compiler literals.
+   *
+   * @param nodeKey
+   *          exact owned source occurrence
+   * @return runtime text, absent outside executable literal interpretation
+   */
+  public Optional<String> executableLiteralText(String nodeKey) {
+    return node(nodeKey).filter(node -> !node.structuralPath().isAnnotationValue()).flatMap(node -> {
+      if (node.value() instanceof SyntaxValue.Literal literal) {
+        return literal.restrictedDecimal().isEmpty() ? Optional.of(literal.text()) : Optional.empty();
+      }
+      return writtenSourceAssociation(nodeKey).flatMap(WrittenSourceAssociation::normalizedExpression)
+          .filter(value -> value.occurrencePath().isEmpty() && switch (value.compilerKind()) {
+            case INT_LITERAL, LONG_LITERAL, STRING_LITERAL -> true;
+            default -> false;
+          }).flatMap(NormalizedExpressionCorrespondence::derivedConstant).flatMap(WrittenExpressionConstants::text);
+    });
+  }
+
+  /**
    * Returns original parsed associations in actual structural node order.
    *
    * @return immutable ordered associations

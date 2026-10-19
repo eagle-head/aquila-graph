@@ -47,7 +47,7 @@ final class SyntaxGraphLowerer {
       values.bind(parameter.parameterKey(), graph.parameterValue(parameter));
     }
     statements = new StatementGraphLowerer(this, graph, values);
-    expressions = new ExpressionGraphLowerer(this, graph, values);
+    expressions = new ExpressionGraphLowerer(this, graph, values, methodSyntax.source());
   }
 
   ControlFlowGraphResult lower() {

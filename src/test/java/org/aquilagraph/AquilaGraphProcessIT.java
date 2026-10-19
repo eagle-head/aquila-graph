@@ -14,9 +14,26 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
+import org.aquilagraph.testsupport.LiteralLabelFixture;
 
 class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
+
+  @Test
+  void givenCompilerNormalizedLiteralLabels_whenPackagedAnalyzerRuns_thenBoundedGraphsComplete() throws Exception {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("literal-labels"));
+    Files.writeString(sourceRoot.resolve("Example.java"), LiteralLabelFixture.SOURCE);
+
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(0, result.exitCode(), result.error());
+    assertTrue(result.output().contains("Completion: COMPLETED"), result.output());
+    assertEquals("", result.error());
+  }
 
   @Test
   void givenWrittenUnaryAndMixedStringStages_whenPackagedAnalyzerRuns_thenSupportedGraphsComplete() throws Exception {

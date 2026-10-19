@@ -24,6 +24,7 @@ import org.aquilagraph.source.api.JavaTypeIdentity;
 import org.aquilagraph.source.api.ResolutionStatus;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.MethodSyntax;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -108,7 +109,7 @@ public final class CfgAdmission {
           "Required source facts for this form are unavailable"));
       return;
     }
-    if (!supports(node)
+    if (!supports(node, syntax.source())
         || (CfgProfile.JAVA_WITHOUT_SWITCH_EXPRESSIONS.equals(profile) && node.syntaxKind() == SyntaxKind.SWITCH_EXPRESSION)) {
       blockers.add(blocker(ast, methodKey, Optional.of(node), MethodCfgState.UNSUPPORTED, "construct",
           "Represented source construct is outside the selected CFG profile"));
@@ -251,7 +252,7 @@ public final class CfgAdmission {
   public static CfgReadiness classify(MethodSyntax syntax) {
     Objects.requireNonNull(syntax, "syntax");
     var nodes = ExecutableSyntaxTraversal.nodes(syntax.root());
-    if (nodes.stream().anyMatch(node -> !supports(node)) || enumContexts(syntax).size() > MAX_ENUM_CONTEXT_CONSUMERS
+    if (nodes.stream().anyMatch(node -> !supports(node, syntax.source())) || enumContexts(syntax).size() > MAX_ENUM_CONTEXT_CONSUMERS
         || enumContexts(syntax).stream().filter(value -> value.corroboration().state() == EvidenceState.KNOWN)
             .anyMatch(value -> !EnumBindingPlan.supports(value))) {
       return CfgReadiness.UNSUPPORTED;
@@ -282,13 +283,13 @@ public final class CfgAdmission {
     return CfgReadiness.LOWERABLE;
   }
 
-  private static boolean supports(SyntaxNode node) {
+  private static boolean supports(SyntaxNode node, JavaAstAggregate source) {
     return switch (node.syntaxKind()) {
       case LOCAL_DECLARATION -> !"_".equals(node.value(SyntaxValue.LocalDeclaration.class).name());
       case TRY -> node.children(SyntaxRole.RESOURCE).isEmpty() && node.children(SyntaxRole.FINALLY_BLOCK).isEmpty();
       case CASE -> node.value(SwitchCase.class).form() == SwitchCaseForm.RULE && node.children(SyntaxRole.GUARD).isEmpty()
           && node.value(SwitchCase.class).labels().stream().noneMatch(SyntaxValue.SwitchLabel.Pattern.class::isInstance)
-          && node.children(SyntaxRole.LABEL).stream().allMatch(CfgAdmission::supportsSwitchLabel);
+          && node.children(SyntaxRole.LABEL).stream().allMatch(label -> supportsSwitchLabel(label, source));
       case ASSIGNMENT -> switch (node.requiredChild(SyntaxRole.LOCATION).syntaxKind()) {
         case VARIABLE_ACCESS, FIELD_ACCESS, ARRAY_ACCESS -> true;
         default -> false;
@@ -307,8 +308,8 @@ public final class CfgAdmission {
         || node.semanticReference().map(reference -> reference.status() == ResolutionStatus.ERROR).orElse(false);
   }
 
-  private static boolean supportsSwitchLabel(SyntaxNode label) {
-    return label.syntaxKind() == SyntaxKind.LITERAL
+  private static boolean supportsSwitchLabel(SyntaxNode label, JavaAstAggregate source) {
+    return source.executableLiteralText(label.nodeId()).isPresent()
         ? label.sourceKind() != JavaSourceKind.NULL_LITERAL
         : (label.syntaxKind() == SyntaxKind.VARIABLE_ACCESS || label.syntaxKind() == SyntaxKind.FIELD_ACCESS)
             && label.semanticReference().filter(reference -> reference.referenceKind() == ReferenceKind.ENUM_CONSTANT)

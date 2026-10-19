@@ -13,6 +13,7 @@ import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.InvocationMode;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.cfg.api.OperationKind;
 import org.aquilagraph.cfg.api.TransferKind;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -28,14 +29,16 @@ final class ExpressionGraphLowerer {
   private final SyntaxGraphLowerer syntax;
   private final ControlFlowGraphConstruction graph;
   private final FlowValueScope values;
+  private final JavaAstAggregate source;
   private final FieldReceiverLowerer fieldReceivers;
   private final AssignmentLocationLowerer locations;
   private final CallArgumentLowerer arguments;
 
-  ExpressionGraphLowerer(SyntaxGraphLowerer syntax, ControlFlowGraphConstruction graph, FlowValueScope values) {
+  ExpressionGraphLowerer(SyntaxGraphLowerer syntax, ControlFlowGraphConstruction graph, FlowValueScope values, JavaAstAggregate source) {
     this.syntax = Objects.requireNonNull(syntax, "syntax");
     this.graph = Objects.requireNonNull(graph, "graph");
     this.values = Objects.requireNonNull(values, "values");
+    this.source = Objects.requireNonNull(source, "source");
     fieldReceivers = new FieldReceiverLowerer(syntax, graph);
     locations = new AssignmentLocationLowerer(syntax, graph, values, fieldReceivers);
     arguments = new CallArgumentLowerer(syntax, graph);
@@ -463,7 +466,7 @@ final class ExpressionGraphLowerer {
     };
   }
 
-  private static String caseLabels(SyntaxNode caseNode) {
+  private String caseLabels(SyntaxNode caseNode) {
     var expressionLabels = caseNode.children(SyntaxRole.LABEL);
     return caseNode.value(SyntaxValue.SwitchCase.class).labels().stream().map(label -> switch (label) {
       case SyntaxValue.SwitchLabel.Default _ -> "default";
@@ -472,10 +475,11 @@ final class ExpressionGraphLowerer {
     }).collect(Collectors.joining(","));
   }
 
-  private static String switchLabel(SyntaxNode label) {
-    if (label.syntaxKind() == SyntaxKind.LITERAL) {
+  private String switchLabel(SyntaxNode label) {
+    var literal = source.executableLiteralText(label.nodeId());
+    if (literal.isPresent()) {
       var typeKey = label.resolvedType().map(JavaTypeIdentity::typeKey).orElse("unresolved");
-      return "literal:" + typeKey + ':' + label.value(SyntaxValue.Literal.class).text();
+      return "literal:" + typeKey + ':' + literal.orElseThrow();
     }
     return label.semanticReference().flatMap(reference -> reference.symbolKey()).map(symbolKey -> "symbol:" + symbolKey)
         .orElse("syntax:" + label.nodeId());

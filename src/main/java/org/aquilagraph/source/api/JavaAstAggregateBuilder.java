@@ -404,8 +404,7 @@ final class JavaAstAggregateBuilder {
     if (!(node.value() instanceof SyntaxValue.Literal literal)) {
       return;
     }
-    var annotation = node.structuralPath().steps().stream()
-        .anyMatch(step -> step.role() == SyntaxRole.ANNOTATION_ARGUMENT || step.role() == SyntaxRole.DEFAULT_VALUE);
+    var annotation = node.structuralPath().isAnnotationValue();
     var origin = node.origin().orElseThrow();
     var source = Objects.requireNonNull(sources.get(node.sourceFileKey()), "derived literal source");
     var expected = annotation

@@ -1,5 +1,7 @@
 package org.aquilagraph.source.admission;
 
+import java.util.function.Predicate;
+import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -14,12 +16,20 @@ final class SourceSwitchRequirements {
   }
 
   static boolean isBoundedCase(SyntaxNode node) {
+    return isBoundedCase(node, label -> label.syntaxKind() == SyntaxKind.LITERAL);
+  }
+
+  static boolean isBoundedCase(SyntaxNode node, JavaAstAggregate source) {
+    return isBoundedCase(node, label -> source.executableLiteralText(label.nodeId()).isPresent());
+  }
+
+  private static boolean isBoundedCase(SyntaxNode node, Predicate<SyntaxNode> literal) {
     var value = node.value(SyntaxValue.SwitchCase.class);
     return value.form() == SyntaxValue.SwitchCaseForm.RULE && node.children(SyntaxRole.GUARD).isEmpty()
         && value.labels().stream().noneMatch(SyntaxValue.SwitchLabel.Pattern.class::isInstance)
         && (value.labels().size() == 1 || value.labels().stream().noneMatch(SyntaxValue.SwitchLabel.Default.class::isInstance))
         && node.children(SyntaxRole.LABEL).stream()
-            .allMatch(label -> label.syntaxKind() == SyntaxKind.LITERAL
+            .allMatch(label -> literal.test(label)
                 ? label.sourceKind() != JavaSourceKind.NULL_LITERAL
                 : label.semanticReference().filter(reference -> reference.referenceKind() == ReferenceKind.ENUM_CONSTANT)
                     .flatMap(reference -> reference.symbolKey()).isPresent());
