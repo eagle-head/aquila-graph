@@ -59,11 +59,12 @@ final class JavaConstructorSelection {
   private final Types originalTypes;
   private final Elements originalElements;
   private final SemanticResolver originalSemantics;
+  private final JavaTranslationPolicy policy;
   private final ConstructorIdentityLookup<Tree, Optional<SelectedConstructorFacts>> selections = ConstructorIdentityLookup
       .usingReferenceIdentity();
 
   JavaConstructorSelection(JavaCompiler compiler, JavaCompilerInvocation invocation, SnapshotSourceCatalog sources,
-      StandardJavaFileManager manager, Trees trees, Types types, Elements elements) {
+      StandardJavaFileManager manager, Trees trees, Types types, Elements elements, JavaTranslationPolicy policy) {
     this.compiler = Objects.requireNonNull(compiler, "compiler");
     this.invocation = Objects.requireNonNull(invocation, "invocation");
     this.sources = Objects.requireNonNull(sources, "sources");
@@ -71,7 +72,8 @@ final class JavaConstructorSelection {
     originalTrees = Objects.requireNonNull(trees, "trees");
     originalTypes = Objects.requireNonNull(types, "types");
     originalElements = Objects.requireNonNull(elements, "elements");
-    originalSemantics = new SemanticResolver(trees, types, elements, new DeclarationIdentityRegistry(trees, types));
+    this.policy = Objects.requireNonNull(policy, "policy");
+    originalSemantics = new SemanticResolver(trees, types, elements, new DeclarationIdentityRegistry(trees, types, elements, policy));
   }
 
   Optional<SelectedConstructorFacts> select(TreePath path, ExecutableElement selected) {
@@ -83,7 +85,7 @@ final class JavaConstructorSelection {
     return selections.find(path.getLeaf()).orElseGet(Optional::empty);
   }
 
-  void prepare(List<CompilationUnitTree> units, JavaTranslationPolicy policy) throws IOException {
+  void prepare(List<CompilationUnitTree> units) throws IOException {
     var paths = new ArrayList<TreePath>();
     var scanner = new TreePathScanner<Void, Void>() {
       @Override
@@ -302,7 +304,7 @@ final class JavaConstructorSelection {
     }
     var trees = Trees.instance(task);
     var resolver = new SemanticResolver(trees, task.getTypes(), task.getElements(),
-        new DeclarationIdentityRegistry(trees, task.getTypes()));
+        new DeclarationIdentityRegistry(trees, task.getTypes(), task.getElements(), policy));
     var calls = witnessCalls(units, trees, task.getElements(), originalElements.getBinaryName(owner).toString(), name);
     if (calls.size() != SELECTED_CALL_COUNT) {
       return WitnessAttribution.unavailable();

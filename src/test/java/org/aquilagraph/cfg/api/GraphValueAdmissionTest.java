@@ -33,6 +33,10 @@ import org.aquilagraph.identity.api.StableId;
 import org.aquilagraph.source.admission.AstCodec;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
+import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.SemanticReference;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
@@ -44,6 +48,54 @@ import org.junit.jupiter.api.io.TempDir;
 
 class GraphValueAdmissionTest {
   @TempDir Path directory;
+
+  @Test
+  void givenTypedAndUntypedReferenceValues_whenSupportedGraphsAreAdmitted_thenTheirCompletePublicContentQualifiesIdentity() throws IOException {
+    // Arrange
+    var fixture = fixture("class Stored { int value() { return 1; } }", false, AstProfile.JAVA_SOURCE_MODULE_SERVICES);
+    var identity = new JavaTypeDeclarationIdentity(Optional.empty(), "Stored");
+    var plain = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(identity.declarationKey()), Optional.of("Stored"), List.of("Stored"), List.of("Stored"));
+    var typed = new SemanticReference(plain.referenceKind(), plain.status(), plain.symbolKey(), plain.typeName(), plain.typeAlternativeNames(), plain.assignableToTypeNames(), Optional.of(identity));
+    // Act
+    var first = GraphValueAdmission.admit(fixture.ast(), fixture.plan(), withReferences(fixture.draft(), List.of(plain)), fixture.creating(), Map.of());
+    var second = GraphValueAdmission.admit(fixture.ast(), fixture.plan(), withReferences(fixture.draft(), List.of(typed)), fixture.creating(), Map.of());
+    var repeated = GraphValueAdmission.admit(fixture.ast(), fixture.plan(), withReferences(fixture.draft(), List.of(typed)), fixture.creating(), Map.of());
+    var ordered = GraphValueAdmission.admit(fixture.ast(), fixture.plan(), withReferences(fixture.draft(), List.of(plain, typed)), fixture.creating(), Map.of());
+    var reversed = GraphValueAdmission.admit(fixture.ast(), fixture.plan(), withReferences(fixture.draft(), List.of(typed, plain)), fixture.creating(), Map.of());
+    // Assert
+    assertEquals(List.of(plain), first.operationNodes().getFirst().semanticReferences());
+    assertEquals(List.of(typed), second.operationNodes().getFirst().semanticReferences());
+    assertNotEquals(first.identity().orElseThrow().canonicalContentDigest(), second.identity().orElseThrow().canonicalContentDigest());
+    assertNotEquals(first.identity(), second.identity());
+    assertEquals(second.identity(), repeated.identity());
+    assertEquals(List.of(plain, typed), ordered.operationNodes().getFirst().semanticReferences());
+    assertEquals(List.of(typed, plain), reversed.operationNodes().getFirst().semanticReferences());
+    assertNotEquals(ordered.identity(), reversed.identity());
+    assertThrows(IllegalArgumentException.class, () -> first.node(new GraphNodeKey(second.identity().orElseThrow(), first.operationNodes().getFirst().nodeId())));
+  }
+
+  @Test
+  void givenHistoricalReferenceShapes_whenCurrentGraphsAreAdmitted_thenOriginalContentAndDerivationIdentitiesRemainExact() throws IOException {
+    // Arrange
+    var fixture = fixture("class Stored { int value() { return 1; } }", false, AstProfile.JAVA_SOURCE_BOUNDED);
+    var target = new JavaTypeDeclarationIdentity(Optional.empty(), "Stored");
+    var reference = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(target.declarationKey()), Optional.of("Stored"), List.of("Stored"), List.of("Stored"));
+    // Act
+    var supplied = GraphValueAdmission.admit(fixture.ast(), fixture.plan(), withReferences(fixture.draft(), List.of(reference)), fixture.creating(), Map.of());
+    // Assert
+    assertEquals("ast-result:278fc3c35fbe7636b8314238585763f7bb89bc3053eb40bf4d1862f7279d5c06", fixture.ast().identity().astResultKey());
+    assertEquals("cfg-content:97a2aea3f6915e7e7c123fda6e0c2e8d91628394c1fc648a5b7a8b7850b52756", fixture.graph().identity().orElseThrow().canonicalContentDigest());
+    assertEquals("cfg-derivation:e7726cce96195fd339a4b580435e96e321ca34b45be0fe77fba9d12db05e0848", fixture.graph().identity().orElseThrow().derivationKey());
+    assertEquals("cfg-content:3365797f513ac3467dd43f130eb0cfbad6a1f08ff5752ecbabdfa63053c812e5", supplied.identity().orElseThrow().canonicalContentDigest());
+    assertEquals("cfg-derivation:be9cc6f4208b9e25908316fbc4331e3a24d4ca71122c3983627227658920fe12", supplied.identity().orElseThrow().derivationKey());
+    assertTrue(supplied.operationNodes().getFirst().semanticReferences().getFirst().declarationIdentity().isEmpty());
+  }
+
+  private static ControlFlowGraph withReferences(ControlFlowGraph draft, List<SemanticReference> references) {
+    var first = draft.operationNodes().getFirst();
+    var changed = new OperationNode(first.nodeId(), first.graphId(), first.kind(), first.detail(), first.operands(), first.definedValue(), first.invocationSemantics(), references, first.possibleExceptions(), first.origins());
+    return new ControlFlowGraph(draft.graphId(), draft.methodKey(), draft.entry(), draft.operationNodes().stream().map(node -> node.equals(first) ? changed : node).toList(), draft.values(), draft.exit(), draft.edges());
+  }
 
   @Test
   void givenBlankEntryIdentity_whenGraphIsQualified_thenTheUnqueryableMemberIsRejected() throws IOException {

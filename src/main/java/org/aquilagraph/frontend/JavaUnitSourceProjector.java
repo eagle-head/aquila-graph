@@ -58,7 +58,7 @@ final class JavaUnitSourceProjector {
     this.bodyCorrelation = bodyCorrelation;
     this.declarations = declarations;
     annotationProjector = new JavaAnnotationProjector(semantics, sourceEvidence, treeInventory, sourceAssociations);
-    moduleTranslator = new JavaModuleTranslator(sourceEvidence, treeInventory, annotationProjector, sourceAssociations);
+    moduleTranslator = new JavaModuleTranslator(sourceEvidence, treeInventory, annotationProjector, sourceAssociations, semantics, policy);
   }
 
   TranslationResult<Optional<SyntaxNode>> project(CompilationUnitTree unit, SourceFile sourceFile, List<TranslatedMethodBody> bodies,

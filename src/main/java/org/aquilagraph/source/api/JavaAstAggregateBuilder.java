@@ -1001,7 +1001,8 @@ final class JavaAstAggregateBuilder {
     if (node.value() instanceof SyntaxValue.Annotation && !declarationEdges.equals(node.semanticEdges())) {
       throw new IllegalArgumentException("AST annotation type reference must match its selected target: " + node.nodeId());
     }
-    if (node.syntaxKind() == SyntaxKind.TYPE_USE && !declarationEdges.equals(node.semanticEdges())) {
+    if ((node.syntaxKind() == SyntaxKind.TYPE_USE || node.syntaxKind() == SyntaxKind.MODULE_TYPE_REFERENCE)
+        && !declarationEdges.equals(node.semanticEdges())) {
       throw new IllegalArgumentException("AST type-use declaration reference must match its selected target: " + node.nodeId());
     }
     if (switch (node.syntaxKind()) {
@@ -1162,7 +1163,19 @@ final class JavaAstAggregateBuilder {
     if (result == 0) {
       result = compareStrings(left.typeAlternativeNames(), right.typeAlternativeNames());
     }
-    return result == 0 ? compareStrings(left.assignableToTypeNames(), right.assignableToTypeNames()) : result;
+    if (result == 0) {
+      result = compareStrings(left.assignableToTypeNames(), right.assignableToTypeNames());
+    }
+    if (result != 0 || (left.declarationIdentity().isEmpty() && right.declarationIdentity().isEmpty())) {
+      return result;
+    }
+    if (left.declarationIdentity().isEmpty() || right.declarationIdentity().isEmpty()) {
+      return left.declarationIdentity().isEmpty() ? -1 : 1;
+    }
+    var leftIdentity = left.declarationIdentity().orElseThrow();
+    var rightIdentity = right.declarationIdentity().orElseThrow();
+    result = compareOptional(leftIdentity.moduleName(), rightIdentity.moduleName());
+    return result == 0 ? leftIdentity.binaryName().compareTo(rightIdentity.binaryName()) : result;
   }
 
   private static int compareOptional(Optional<String> left, Optional<String> right) {

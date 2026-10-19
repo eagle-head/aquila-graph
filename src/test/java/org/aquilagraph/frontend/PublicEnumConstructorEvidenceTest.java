@@ -74,7 +74,7 @@ class PublicEnumConstructorEvidenceTest {
       task.analyze();
       var trees = Trees.instance(task);
       var types = task.getTypes();
-      var semantics = new SemanticResolver(trees, types, task.getElements(), new DeclarationIdentityRegistry(trees, types));
+      var semantics = new SemanticResolver(trees, types, task.getElements(), new DeclarationIdentityRegistry(trees, types, task.getElements(), JavaTranslationPolicy.legacyAnalysis()));
       var applicability = new JavaInvocationApplicability(semantics);
       for (var unit : units) {
         new TreePathScanner<Void, Void>() {
@@ -185,7 +185,7 @@ class PublicEnumConstructorEvidenceTest {
       task.analyze();
       var trees = Trees.instance(task);
       var types = task.getTypes();
-      var semantics = new SemanticResolver(trees, types, task.getElements(), new DeclarationIdentityRegistry(trees, types));
+      var semantics = new SemanticResolver(trees, types, task.getElements(), new DeclarationIdentityRegistry(trees, types, task.getElements(), JavaTranslationPolicy.legacyAnalysis()));
       var applicability = new JavaInvocationApplicability(semantics);
       for (var unit : units) {
         new TreePathScanner<Void, Void>() {

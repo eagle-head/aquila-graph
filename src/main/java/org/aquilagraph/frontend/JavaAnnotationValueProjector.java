@@ -1,5 +1,6 @@
 package org.aquilagraph.frontend;
 
+import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
 import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.BinaryTree;
 import com.sun.source.tree.CompilationUnitTree;
@@ -370,12 +371,12 @@ final class JavaAnnotationValueProjector {
         type instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == JavaTypeCategory.FLOAT;
       case AnnotationScalar.DoubleValue _ ->
         type instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == JavaTypeCategory.DOUBLE;
-      case AnnotationScalar.StringValue _ ->
-        type instanceof JavaTypeStructure.Declared declared && "type:java.lang.String".equals(declared.declarationKey());
+      case AnnotationScalar.StringValue _ -> type instanceof JavaTypeStructure.Declared declared
+          && JavaTypeDeclarationIdentity.isPlatformType(declared.declarationKey(), "java.lang.String");
       case AnnotationScalar.EnumConstant constant ->
         type instanceof JavaTypeStructure.Declared declared && declared.declarationKey().equals(constant.enumTypeKey());
-      case AnnotationScalar.ClassLiteral _ ->
-        type instanceof JavaTypeStructure.Declared declared && "type:java.lang.Class".equals(declared.declarationKey());
+      case AnnotationScalar.ClassLiteral _ -> type instanceof JavaTypeStructure.Declared declared
+          && JavaTypeDeclarationIdentity.isPlatformType(declared.declarationKey(), "java.lang.Class");
       case AnnotationElementValue.Nested nested ->
         type instanceof JavaTypeStructure.Declared declared && declared.declarationKey().equals(nested.annotationTypeKey());
       case AnnotationElementValue.Array array ->

@@ -30,6 +30,16 @@ public record SourceContext(Address address, Optional<LanguageFeature> feature, 
     if (origins.stream().anyMatch(origin -> !origin.sourceFileKey().equals(address.sourceFileKey()))) {
       throw new IllegalArgumentException("Context origins must belong to the captured source");
     }
+    if (address.partition() == Partition.MODULE_ENDPOINT) {
+      var steps = address.ownerPath().steps();
+      if (!requiresAttribution || feature.isPresent() || writtenValue.isPresent() || origins.size() > 1 || steps.size() < 2
+          || steps.get(steps.size() - 2).role() != SourceOwnerPath.Role.DIRECTIVE
+          || (steps.getLast().role() != SourceOwnerPath.Role.SERVICE_NAME
+              && steps.getLast().role() != SourceOwnerPath.Role.IMPLEMENTATION_NAME)
+          || !steps.getLast().role().name().equals(address.role()) || steps.getLast().ordinal() != address.ordinal()) {
+        throw new IllegalArgumentException("A module endpoint context requires its exact parsed operand role, position and origin");
+      }
+    }
   }
 
   /** Independent evidence partitions in retained producer order. */
@@ -51,7 +61,9 @@ public record SourceContext(Address address, Optional<LanguageFeature> feature, 
     /** A written empty declaration directly owned by an ordinary or compact unit. */
     EMPTY_UNIT_DECLARATION,
     /** Independently captured written expression topology beneath a normalization anchor. */
-    WRITTEN_EXPRESSION;
+    WRITTEN_EXPRESSION,
+    /** Independently captured module service/provider operand target. */
+    MODULE_ENDPOINT;
 
     /**
      * Identifies independent expectations for written empty declarations.

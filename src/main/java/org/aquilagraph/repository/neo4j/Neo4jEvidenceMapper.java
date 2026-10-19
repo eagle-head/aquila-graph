@@ -36,6 +36,11 @@ final class Neo4jEvidenceMapper {
       reference.typeName().ifPresent(value -> properties.put("typeName", value));
       properties.put("typeAlternativeNames", reference.typeAlternativeNames());
       properties.put("assignableToTypeNames", reference.assignableToTypeNames());
+      reference.declarationIdentity().ifPresent(identity -> {
+        properties.put("declarationModuleKind", identity.moduleName().isPresent() ? "NAMED" : "UNNAMED");
+        identity.moduleName().ifPresent(value -> properties.put("declarationModuleName", value));
+        properties.put("declarationBinaryName", identity.binaryName());
+      });
       projection.node("SemanticReference", key, properties);
       projection.relate("HAS_REFERENCE", ownerKey, key, Integer.toString(position), Neo4jSchema.POSITION_PROPERTY, position);
     }

@@ -19,10 +19,31 @@ import org.aquilagraph.cfg.internal.CfgReadiness;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.SyntaxSemanticTarget.Declaration;
 import org.junit.jupiter.api.Test;
 
 class JavaAstAggregateTest {
   private static final String CONTENT = "0123456789";
+
+  @Test
+  void givenReferencesDifferingOnlyInTypedTargetPresence_whenUnorderedEdgesAreAdmitted_thenOneCompleteCanonicalOrderSurvives() {
+    // Arrange
+    var snapshot = snapshot("a");
+    var root = root("a", List.of());
+    var base = contribution(root);
+    var identity = new JavaTypeDeclarationIdentity(Optional.of("service.sample"), "api.Service");
+    var plain = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(identity.declarationKey()), Optional.of("api.Service"), List.of("api.Service"), List.of("api.Service"));
+    var typed = new SemanticReference(plain.referenceKind(), plain.status(), plain.symbolKey(), plain.typeName(), plain.typeAlternativeNames(), plain.assignableToTypeNames(), Optional.of(identity));
+    var first = new SyntaxSemanticEdge(root.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE, new Declaration(plain));
+    var second = new SyntaxSemanticEdge(root.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE, new Declaration(typed));
+    // Act
+    var forward = AggregateFixture.builder(snapshot).add(new SyntaxSourceContribution("a", root, base.nodes(), base.structuralEdges(), List.of(first, second))).seal();
+    var reversed = AggregateFixture.builder(snapshot).add(new SyntaxSourceContribution("a", root, base.nodes(), base.structuralEdges(), List.of(second, first))).seal();
+    // Assert
+    assertEquals(List.of(first, second), forward.semanticEdges());
+    assertEquals(forward, reversed);
+    assertNotEquals(first.target(), second.target());
+  }
 
   @Test
   void givenUnresolvedOrIncompleteNestedValue_whenDefaultIsConstructed_thenTypedPublicationIsRejected() {

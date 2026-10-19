@@ -188,7 +188,7 @@ class PublicInvocationApplicabilityTest {
       assertTrue(diagnostics.getDiagnostics().stream().noneMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
       var trees = Trees.instance(task);
       var types = task.getTypes();
-      var semantics = new SemanticResolver(trees, types, task.getElements(), new DeclarationIdentityRegistry(trees, types));
+      var semantics = new SemanticResolver(trees, types, task.getElements(), new DeclarationIdentityRegistry(trees, types, task.getElements(), JavaTranslationPolicy.legacyAnalysis()));
       var applicability = new JavaInvocationApplicability(semantics);
       var result = new LinkedHashMap<String, Evidence>();
       for (var unit : units) {

@@ -79,6 +79,7 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
       throw new IllegalArgumentException("Actual frontend diagnostic slots must exactly match ordered creating-site events");
     }
     var facts = CoverageActualFacts.capture(program, aggregate);
+    ModuleServiceFacts.validateKnownOperands(evidence, facts);
     aggregate.ifPresent(value -> CoverageActualFacts.validateDeclarationMemberOrders(program, value));
     for (var fact : facts.references()) {
       var selectedTypeUse = facts.isSource(fact,

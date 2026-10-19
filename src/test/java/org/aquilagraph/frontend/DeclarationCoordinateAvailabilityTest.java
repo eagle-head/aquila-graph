@@ -84,7 +84,7 @@ class DeclarationCoordinateAvailabilityTest {
       // Act
       for (var coordinate : cases) {
         var registry = new DeclarationIdentityRegistry(new CoordinateTrees(coordinate.pathAvailable() ? paths : Map.of(),
-            coordinate.start(), coordinate.end()), task.getTypes());
+            coordinate.start(), coordinate.end()), task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis());
         var local = registry.keyOf(declarations.get("local"));
         var localType = registry.keyOf(declarations.get("Local"));
 

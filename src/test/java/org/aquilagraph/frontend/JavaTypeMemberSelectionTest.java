@@ -42,7 +42,7 @@ class JavaTypeMemberSelectionTest {
       task.analyze();
       var trees = Trees.instance(task);
       var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(),
-          new DeclarationIdentityRegistry(trees, task.getTypes()));
+          new DeclarationIdentityRegistry(trees, task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis()));
       var uses = (ClassTree) unit.getTypeDecls().get(3);
       var fields = uses.getMembers().stream().filter(VariableTree.class::isInstance).map(VariableTree.class::cast).toList();
       var inherited = (MemberSelectTree) fields.getFirst().getType();

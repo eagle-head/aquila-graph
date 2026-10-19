@@ -10,6 +10,19 @@ import org.aquilagraph.identity.api.SourceSpan;
 /** Copied written syntax and attributed facts queried after compiler closure. */
 public sealed interface SyntaxValue {
   /**
+   * One written module service or provider operand, independent of its semantic target.
+   *
+   * @param name
+   *          exact written qualified name
+   */
+  record ModuleTypeReference(QualifiedName name) implements SyntaxValue {
+    /** Requires the immutable written name. */
+    public ModuleTypeReference {
+      Objects.requireNonNull(name, "name");
+    }
+  }
+
+  /**
    * Copied compiler resolution of references within a pattern binding's flow scope.
    *
    * @param resolvedAccesses

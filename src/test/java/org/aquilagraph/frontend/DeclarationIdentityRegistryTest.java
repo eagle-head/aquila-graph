@@ -59,7 +59,7 @@ class DeclarationIdentityRegistryTest {
           sources.compilationUnits());
       task.parse();
       task.analyze();
-      var registry = new DeclarationIdentityRegistry(Trees.instance(task), task.getTypes());
+      var registry = new DeclarationIdentityRegistry(Trees.instance(task), task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis());
       var box = task.getElements().getTypeElement("example.Box");
       var methods = box.getEnclosedElements().stream().filter(element -> element.getKind() == ElementKind.METHOD)
           .map(ExecutableElement.class::cast).toList();
@@ -99,7 +99,7 @@ class DeclarationIdentityRegistryTest {
           JavaCompilerInvocation.from(CompilerConfiguration.forRelease(JavaRelease.JAVA_25)).compilerOptions(), null, sources.compilationUnits());
       task.parse();
       task.analyze();
-      var registry = new DeclarationIdentityRegistry(Trees.instance(task), task.getTypes());
+      var registry = new DeclarationIdentityRegistry(Trees.instance(task), task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis());
       var kindRequests = new AtomicInteger();
       var element = (Element) Proxy.newProxyInstance(Element.class.getClassLoader(), new Class<?>[] {Element.class}, (_, method, _) -> {
         if (method.getName().equals("getKind")) {
@@ -243,7 +243,7 @@ class DeclarationIdentityRegistryTest {
       task.parse().forEach(units::add);
       task.analyze();
       var trees = Trees.instance(task);
-      assertion.accept(new RegistryObservation(task, trees, new DeclarationIdentityRegistry(trees, task.getTypes()), units));
+      assertion.accept(new RegistryObservation(task, trees, new DeclarationIdentityRegistry(trees, task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis()), units));
     }
   }
 

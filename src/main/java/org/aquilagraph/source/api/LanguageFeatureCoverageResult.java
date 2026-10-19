@@ -229,11 +229,23 @@ public final class LanguageFeatureCoverageResult {
     if (outcome.occurrence().isEmpty() && outcome.support().mode() != FeatureContextOutcome.Mode.FAILED
         && context.address().partition() != SourceContext.Partition.WRITTEN_TYPE_USE
         && context.address().partition() != SourceContext.Partition.WRITTEN_EXPRESSION
+        && context.address().partition() != SourceContext.Partition.MODULE_ENDPOINT
         && !context.address().partition().isEmptyDeclaration()) {
       throw new IllegalArgumentException("Unavailable feature identity requires blocking failed support without a guessed pair");
     }
     outcome.occurrence().ifPresent(occurrence -> validateOccurrence(coverage, occurrence));
     validateContextBoundary(context, outcome);
+    if (context.address().partition() == SourceContext.Partition.MODULE_ENDPOINT) {
+      var owners = evidence.writtenInventory().contexts().stream()
+          .filter(candidate -> candidate.address().partition() == SourceContext.Partition.TREE
+              && candidate.address().sourceFileKey().equals(context.address().sourceFileKey())
+              && candidate.address().ownerPath().equals(context.address().ownerPath()) && candidate.origins().equals(context.origins()))
+          .toList();
+      if (owners.size() != 1 || (outcome.support().mode() != FeatureContextOutcome.Mode.FACTS
+          && outcome.support().mode() != FeatureContextOutcome.Mode.FAILED)) {
+        throw new IllegalArgumentException("A required module endpoint needs its exact parsed owner and positive or failed evidence");
+      }
+    }
     if (context.address().partition() == SourceContext.Partition.WRITTEN_TYPE_USE) {
       validateWrittenTypeUse(context, outcome, evidence);
     }
@@ -356,7 +368,7 @@ public final class LanguageFeatureCoverageResult {
     var correctCategory = switch (context.address().partition()) {
       case TREE -> feature.filter(value -> value.category() == LanguageFeatureCategory.COMPILER_TREE_KIND).isPresent();
       case TYPE -> feature.isEmpty() || feature.orElseThrow().category() == LanguageFeatureCategory.COMPILER_TYPE_KIND;
-      case WRITTEN_TYPE_USE, EMPTY_BODY_DECLARATION, EMPTY_UNIT_DECLARATION, WRITTEN_EXPRESSION -> feature.isEmpty();
+      case WRITTEN_TYPE_USE, EMPTY_BODY_DECLARATION, EMPTY_UNIT_DECLARATION, WRITTEN_EXPRESSION, MODULE_ENDPOINT -> feature.isEmpty();
       case WRITTEN_PROPERTY, ATTRIBUTED_PROPERTY ->
         feature.filter(value -> value.category() == LanguageFeatureCategory.DECLARATION_PROPERTY).isPresent();
       case TRANSLATION -> true;
@@ -377,7 +389,8 @@ public final class LanguageFeatureCoverageResult {
       }
     }
     var semantic = context.address().partition() == SourceContext.Partition.TYPE
-        || context.address().partition() == SourceContext.Partition.ATTRIBUTED_PROPERTY;
+        || context.address().partition() == SourceContext.Partition.ATTRIBUTED_PROPERTY
+        || context.address().partition() == SourceContext.Partition.MODULE_ENDPOINT;
     if (context.address().partition() != SourceContext.Partition.TRANSLATION && (context.requiresAttribution() != semantic
         || (context.address().partition() == SourceContext.Partition.WRITTEN_PROPERTY) != context.writtenValue().isPresent())) {
       throw new IllegalArgumentException("Context evidence must use its exact written or attributed expectation stage");

@@ -22,6 +22,8 @@ import org.aquilagraph.source.api.AttributedCoverageExpectations;
 
 /** Atomic source qualification and complete content identity admission. */
 public final class AstResultAdmission {
+  private static final int WRITTEN_EXPRESSION_FORMAT = 19;
+  private static final int MODULE_SERVICE_FORMAT = 20;
   private AstResultAdmission() {
   }
 
@@ -87,7 +89,7 @@ public final class AstResultAdmission {
       var writer = new CanonicalValueWriter("unavailable-java-source/1");
       writer.text(profile.version());
       writer.bytes(CapturedValueEncoding.encode(Optional.of(snapshot), Optional.empty()));
-      var codec = new RetainedValueCodec(true);
+      var codec = new RetainedValueCodec(true, formatFor(profile));
       codec.write(writer, configuration);
       codec.write(writer, coverage);
       codec.write(writer, List.of());
@@ -112,7 +114,11 @@ public final class AstResultAdmission {
    *           if copied values cannot establish an available result
    */
   public static AstResult admit(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision) {
-    return admit(input, profile, semanticRevision, AstResult.SOURCE_MODEL_VERSION);
+    return admit(input, profile, semanticRevision, formatFor(profile));
+  }
+
+  static String formatFor(AstProfile profile) {
+    return profile.supportsModuleServices() ? AstResult.MODULE_SERVICE_MODEL_VERSION : AstResult.WRITTEN_EXPRESSION_MODEL_VERSION;
   }
 
   static AstResult admit(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision, String format) {
@@ -123,7 +129,10 @@ public final class AstResultAdmission {
       if (!AstResult.supportsSourceModelVersion(format)) {
         throw new IllegalArgumentException("Unsupported retained AST format: " + format);
       }
-      if (profile.supportsWrittenExpressions() && !AstResult.SOURCE_MODEL_VERSION.equals(format)) {
+      if (profile.supportsModuleServices() && formatVersion(format) < MODULE_SERVICE_FORMAT) {
+        throw new IllegalArgumentException("Module service targets require retained AST format java-source/20");
+      }
+      if (profile.supportsWrittenExpressions() && formatVersion(format) < WRITTEN_EXPRESSION_FORMAT) {
         throw new IllegalArgumentException("The written-expression source profile requires retained AST format java-source/19");
       }
       var retained = retainedInput(input, format);
@@ -144,7 +153,7 @@ public final class AstResultAdmission {
     var coverage = input.languageFeatureCoverageResult();
     var evidence = coverage.validationEvidence();
     var written = evidence.writtenInventory();
-    if (AstResult.SOURCE_MODEL_VERSION.equals(format) || written.writtenExpressions().isEmpty()) {
+    if (formatVersion(format) >= WRITTEN_EXPRESSION_FORMAT || written.writtenExpressions().isEmpty()) {
       return input;
     }
     if (!written.writtenExpressions().orElseThrow().isEmpty()) {
@@ -163,5 +172,9 @@ public final class AstResultAdmission {
     return exception instanceof AstContractException contract
         ? contract
         : new AstContractException("Copied AST result admission failed: " + exception.getMessage(), exception);
+  }
+
+  private static int formatVersion(String format) {
+    return Integer.parseInt(format.substring(format.indexOf('/') + 1));
   }
 }

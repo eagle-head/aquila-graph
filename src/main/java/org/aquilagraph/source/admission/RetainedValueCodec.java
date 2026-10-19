@@ -289,6 +289,9 @@ final class RetainedValueCodec {
       }
       components.add(read(reader));
     }
+    if (formatVersion < 20 && "semantic-reference".equals(tag)) {
+      components.add(Optional.empty());
+    }
     if (formatVersion < 19 && ("written-source-association".equals(tag) || "source-coverage-inventory".equals(tag)
         || "syntax-value/literal".equals(tag) || "coverage-source-fact/association".equals(tag))) {
       components.add(Optional.empty());
@@ -338,6 +341,9 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatTag(String tag) {
+    if (formatVersion < 20 && ("java-type-declaration-identity".equals(tag) || "syntax-value/module-type-reference".equals(tag))) {
+      throw new IllegalArgumentException("Module service targets require retained AST format java-source/20");
+    }
     if (formatVersion < 19 && (tag.startsWith("written-expression-region") || tag.startsWith("normalized-expression-correspondence")
         || tag.startsWith("compiler-expression-anchor/") || "decimal-minimum-operand".equals(tag))) {
       throw new IllegalArgumentException("Written expression evidence requires retained AST format java-source/19");
@@ -381,6 +387,12 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatEnum(Class<?> type, String name) {
+    if (formatVersion < 20 && ((type == SyntaxKind.class && "MODULE_TYPE_REFERENCE".equals(name))
+        || (type == SyntaxRole.class && Set.of("SERVICE_TYPE", "PROVIDER_TYPE").contains(name))
+        || (type == SourceContext.Partition.class && "MODULE_ENDPOINT".equals(name))
+        || (type == CoverageEvidenceValue.Tag.class && "MODULE_TYPE_REFERENCE".equals(name)))) {
+      throw new IllegalArgumentException("Module service evidence requires retained AST format java-source/20");
+    }
     if (formatVersion < 19 && ((type == CoverageEvidenceValue.Tag.class && "DECIMAL_MINIMUM_OPERAND".equals(name))
         || (type == SourceContext.Partition.class && "WRITTEN_EXPRESSION".equals(name))
         || (type == SourceOwnerPath.Role.class && "WRITTEN_EXPRESSION".equals(name)))) {

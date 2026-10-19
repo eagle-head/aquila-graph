@@ -234,6 +234,8 @@ public sealed interface CoverageEvidenceValue {
     RECEIVER_PARAMETER,
     /** Written source symbol. */
     SOURCE_SYMBOL,
+    /** Exact written module service/provider operand. */
+    MODULE_TYPE_REFERENCE,
     /** Compilation unit. */
     COMPILATION_UNIT,
     /** Package declaration. */

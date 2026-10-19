@@ -27,7 +27,7 @@ final class JavaTranslationPolicy {
   }
 
   String semanticRevision() {
-    return "javac-public/10";
+    return selectedProfile.supportsModuleServices() ? "javac-public/11" : "javac-public/10";
   }
 
   boolean supportsMemberInitialization() {
