@@ -156,11 +156,11 @@ class NonPreviewAdmissionTest {
   }
 
   private static byte[] payload(AstResult original, String changedOwner) {
-    var writer = new CanonicalValueWriter(AstCodec.FORMAT_VERSION);
+    var writer = new CanonicalValueWriter(original.identity().sourceModelVersion());
     writer.text(original.profile().version());
     writer.text(original.identity().semanticProductionRevision());
     writer.text(original.completion().name());
-    var codec = new RetainedValueCodec(false);
+    var codec = new RetainedValueCodec(false, original.identity().sourceModelVersion());
     codec.write(writer, original.identity());
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());

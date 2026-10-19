@@ -2,6 +2,7 @@ package org.aquilagraph.repository.neo4j;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -77,6 +78,67 @@ import org.neo4j.driver.Values;
 @ExtendWith(Neo4jIntegration.class)
 class Neo4jDeclarationAstRetentionNeo4jIT {
   @TempDir Path directory;
+
+  @Test
+  void givenModuleEndpointsAndAuthenticHistory_whenSavedReplacedAndQueriedWithoutCompiler_thenExactSubjectsAndOrderedTargetsCoexist() throws Exception {
+    // Arrange
+    var historical = HistoricalAstFixtures.read(19);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+    var first = frontend.produce(new AstProductionRequest(new SourceInput.Snapshot(historical.snapshot()),
+        historical.environment().compilerConfiguration(), AstProfile.JAVA_SOURCE_MODULE_SERVICES));
+    var changed = InputSnapshot.fromSources(directory, historical.snapshot().sourceFiles().stream().map(source ->
+        SourceFile.fromContent(source.relativePath(), source.content().replace("module service.sample", "module service.alternate"))).toList());
+    var second = frontend.produce(new AstProductionRequest(new SourceInput.Snapshot(changed), historical.environment().compilerConfiguration(), AstProfile.JAVA_SOURCE_MODULE_SERVICES));
+    var reorderedInput = InputSnapshot.fromSources(directory, historical.snapshot().sourceFiles().stream().map(source ->
+        SourceFile.fromContent(source.relativePath(), source.content().replace("impl.ZuluProvider, impl.AlphaProvider", "impl.AlphaProvider, impl.ZuluProvider"))).toList());
+    var reordered = frontend.produce(new AstProductionRequest(new SourceInput.Snapshot(reorderedInput), historical.environment().compilerConfiguration(), AstProfile.JAVA_SOURCE_MODULE_SERVICES));
+    var subjects = List.of(AstOutcome.available(historical), first, second, reordered);
+    assertNotEquals(first.result().orElseThrow().identity().canonicalContentDigest(), reordered.result().orElseThrow().identity().canonicalContentDigest());
+    var settings = settings();
+    try {
+      for (var subject : subjects) {
+        assertEquals(AstCompletion.COMPLETE, subject.completion(), subject.diagnostics().toString());
+        assertEquals(PublicationStatus.SAVED, retention(settings).retainAst(subject).status());
+      }
+      // Act
+      var replaced = retention(settings).retainAst(first);
+      var lookups = subjects.stream().map(subject -> retention(settings).findAst(subject.result().orElseThrow().identity())).toList();
+      // Assert
+      assertEquals(PublicationStatus.SAVED, replaced.status());
+      for (var index = 0; index < subjects.size(); index++) {
+        var original = subjects.get(index).result().orElseThrow();
+        assertEquals(AstLookupStatus.FOUND, lookups.get(index).status());
+        DeclarationAstRetentionFixture.assertPreserved(original, lookups.get(index).outcome().orElseThrow().result().orElseThrow());
+        assertMaterialization(settings, subjects.get(index));
+        var module = index == 2 ? "service.alternate" : "service.sample";
+        var providerOrder = index == 3 ? List.of("impl.AlphaProvider", "impl.ZuluProvider") : List.of("impl.ZuluProvider", "impl.AlphaProvider");
+        var expected = index == 0 ? List.<String>of() : expectedModuleOperands(original.snapshot(), module, providerOrder);
+        var retained = independentQuery(settings, subjects.get(index), Optional.of(expected));
+        assertEquals(original.identity(), retained.identity());
+      }
+    } finally {
+      for (var subject : subjects) { delete(settings, subject.result().orElseThrow().identity()); }
+    }
+  }
+
+  private static List<String> expectedModuleOperands(InputSnapshot snapshot, String module, List<String> providers) {
+    var descriptor = snapshot.sourceFiles().stream().filter(source -> source.canonicalRelativePath().equals("module-info.java")).findFirst().orElseThrow().content();
+    var spellings = new ArrayList<>(List.of("Service", "api.Service"));
+    spellings.addAll(providers);
+    var binaries = new ArrayList<>(List.of("api.Service", "api.Service"));
+    binaries.addAll(providers);
+    var result = new ArrayList<String>();
+    var cursor = descriptor.indexOf("uses ") + "uses ".length();
+    for (var index = 0; index < spellings.size(); index++) {
+      var start = descriptor.indexOf(spellings.get(index), cursor);
+      assertTrue(start >= cursor);
+      var role = index < 2 ? "SERVICE_TYPE" : "PROVIDER_TYPE";
+      result.add(role + "\t" + (index < 2 ? 0 : index - 2) + "\t" + spellings.get(index) + "\t" + module + "\t" + binaries.get(index)
+          + "\tRESOLVED\t" + start + "\t" + (start + spellings.get(index).length()));
+      cursor = start + spellings.get(index).length();
+    }
+    return List.copyOf(result);
+  }
 
   @Test
   void givenCurrentAndHistoricalLiteralLabels_whenSavedAndQueriedWithoutCompiler_thenOwnFactsAndGraphLabelsSurvive() throws Exception {
@@ -358,6 +420,10 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   }
 
   private AstResult independentQuery(Neo4jConnectionSettings settings, AstOutcome ast) throws Exception {
+    return independentQuery(settings, ast, Optional.empty());
+  }
+
+  private AstResult independentQuery(Neo4jConnectionSettings settings, AstOutcome ast, Optional<List<String>> expectedEndpoints) throws Exception {
     var original = ast.result().orElseThrow();
     var identity = original.identity();
     var output = directory.resolve("retained-query.ast");
@@ -370,12 +436,18 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
 
       // Act
       var executable = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
-      var builder = new ProcessBuilder(executable.toString(),
+      var arguments = new ArrayList<>(List.of(executable.toString(),
           "-Xms64m", "-Xmx1g",
           "--limit-modules", "java.base,java.logging,java.naming,java.management,jdk.unsupported",
           "-Djava.io.tmpdir=" + directory, "-cp", classpath, RetainedAstQueryProcess.class.getName(), identity.softwareSignature(),
           identity.sourceModelVersion(), identity.astProfileVersion(), identity.semanticProductionRevision(), identity.canonicalContentDigest(),
-          output.toString()).redirectErrorStream(true).redirectOutput(log.toFile());
+          output.toString()));
+      if (expectedEndpoints.isPresent()) {
+        var expectations = directory.resolve("module-endpoints.tsv");
+        Files.write(expectations, expectedEndpoints.orElseThrow());
+        arguments.add(expectations.toString());
+      }
+      var builder = new ProcessBuilder(arguments).redirectErrorStream(true).redirectOutput(log.toFile());
       builder.environment().putAll(Neo4jIntegration.environment());
       var process = builder.start();
       try {

@@ -92,7 +92,7 @@ public final class AstCodec {
   }
 
   static String canonicalDigest(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision) {
-    return canonicalDigest(input, profile, semanticRevision, FORMAT_VERSION);
+    return canonicalDigest(input, profile, semanticRevision, AstResultAdmission.formatFor(profile));
   }
 
   static String canonicalDigest(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision, String format) {

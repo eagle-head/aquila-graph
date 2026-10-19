@@ -429,9 +429,9 @@ class DeclarationPropertyCorrespondenceTest {
       task.analyze();
       assertTrue(diagnostics.getDiagnostics().stream().noneMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
       var types = task.getTypes();
-      var semantics = new SemanticResolver(trees, types, task.getElements(), new DeclarationIdentityRegistry(trees, types));
+      var semantics = new SemanticResolver(trees, types, task.getElements(), new DeclarationIdentityRegistry(trees, types, task.getElements(), JavaTranslationPolicy.legacyAnalysis()));
       var projectionTrees = unavailableOwners ? new UnavailableOwnerTrees(trees) : trees;
-      var projectionSemantics = new SemanticResolver(projectionTrees, types, task.getElements(), new DeclarationIdentityRegistry(projectionTrees, types));
+      var projectionSemantics = new SemanticResolver(projectionTrees, types, task.getElements(), new DeclarationIdentityRegistry(projectionTrees, types, task.getElements(), JavaTranslationPolicy.legacyAnalysis()));
       var expectations = capture.captureAttributed(projectionSemantics);
       var attributed = producer.observeAttributed(projectionSemantics);
       var typeKinds = new JavaTypeKindObserver(sources, semantics, sourceEvidence, inventory, coverage, JavaTranslationPolicy.legacyAnalysis()).observe(units);

@@ -127,7 +127,7 @@ class JavaMethodBodyAdmissionTest {
             }
           };
           var semantics = new SemanticResolver(controlledTrees, fixture.task().getTypes(), fixture.task().getElements(),
-              new DeclarationIdentityRegistry(controlledTrees, fixture.task().getTypes()));
+              new DeclarationIdentityRegistry(controlledTrees, fixture.task().getTypes(), fixture.task().getElements(), JavaTranslationPolicy.legacyAnalysis()));
           var inputs = executableInputs(fixture, semantics);
           for (var input : inputs) {
             var projector = new JavaExecutableSyntaxProjector(semantics, fixture.evidence(), fixture.inventory(), input.context(),
@@ -503,7 +503,7 @@ class JavaMethodBodyAdmissionTest {
     withCompiledSource("missing-owner", fixture -> {
       var unavailable = new ProjectionTrees(fixture.trees(), (ClassTree) fixture.unit().getTypeDecls().getFirst());
       var semantics = new SemanticResolver(unavailable, fixture.task().getTypes(), fixture.task().getElements(),
-          new DeclarationIdentityRegistry(unavailable, fixture.task().getTypes()));
+          new DeclarationIdentityRegistry(unavailable, fixture.task().getTypes(), fixture.task().getElements(), JavaTranslationPolicy.legacyAnalysis()));
 
       // Act
       var error = assertThrows(IllegalArgumentException.class, () -> fixture.contribute(fixture.translated().methodBodies(), semantics));
@@ -615,7 +615,7 @@ class JavaMethodBodyAdmissionTest {
       var inventory = ParsedTreeInventory.capture(units, ignored -> Optional.of(source), evidence);
       task.analyze();
       assertTrue(diagnostics.getDiagnostics().stream().noneMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
-      var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(), new DeclarationIdentityRegistry(trees, task.getTypes()));
+      var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(), new DeclarationIdentityRegistry(trees, task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis()));
       var methodTranslator = new JavaMethodTranslator(semantics, evidence, inventory, new JavaMethodBodyTranslator(semantics, evidence, inventory, JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis())));
       var typeTranslator = new JavaTypeTranslator(semantics, evidence, inventory, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
       var translated = typeTranslator.translate(unit, new TreePath(unit), source, (ClassTree) unit.getTypeDecls().getFirst())

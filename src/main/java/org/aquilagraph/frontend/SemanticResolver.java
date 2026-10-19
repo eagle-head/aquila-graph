@@ -209,6 +209,15 @@ final class SemanticResolver {
     return identities.keyOf(Objects.requireNonNull(element, ELEMENT_ARGUMENT));
   }
 
+  SemanticReference moduleOperand(TreePath path) {
+    return new JavaModuleOperandCorrelation(trees, identities).resolve(path);
+  }
+
+  Optional<String> expectedModuleTarget(TreePath path) {
+    return new JavaModuleOperandCorrelation(trees, identities).expectedTarget(path).flatMap(identities::typeIdentity)
+        .map(identity -> identity.declarationKey());
+  }
+
   Optional<JavaTypeStructure> typeParameterUpperBound(TypeParameterElement parameter) {
     var mirror = Objects.requireNonNull(parameter, "parameter").asType();
     return mirror instanceof TypeVariable variable ? structuredType(variable.getUpperBound()) : Optional.empty();
@@ -234,8 +243,8 @@ final class SemanticResolver {
     var status = type != null && type.getKind() == TypeKind.ERROR
         ? ResolutionStatus.ERROR
         : symbolKey.isPresent() ? ResolutionStatus.RESOLVED : ResolutionStatus.UNRESOLVED;
-    return Optional
-        .of(new SemanticReference(expectedKind, status, symbolKey, typeName(type), typeAlternativeNames(type), assignableTypeNames(type)));
+    return Optional.of(new SemanticReference(expectedKind, status, symbolKey, typeName(type), typeAlternativeNames(type),
+        assignableTypeNames(type), expectedKind == ReferenceKind.TYPE ? identities.typeIdentity(element) : Optional.empty()));
   }
 
   SyntaxType type(TreePath path) {
@@ -362,8 +371,8 @@ final class SemanticResolver {
       return Optional.empty();
     }
     var kind = element.getKind() == ElementKind.TYPE_PARAMETER ? ReferenceKind.TYPE_PARAMETER : ReferenceKind.TYPE;
-    return identities.keyOf(element)
-        .map(key -> new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of()));
+    return identities.keyOf(element).map(key -> new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(),
+        List.of(), List.of(), kind == ReferenceKind.TYPE ? identities.typeIdentity(element) : Optional.empty()));
   }
 
   boolean selectsTypeMember(TreePath memberPath, TreePath qualifierPath) {

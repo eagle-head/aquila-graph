@@ -45,6 +45,8 @@ final class CoverageSourceProjection {
 
   private static Structure value(SyntaxValue source) {
     return switch (source) {
+      case SyntaxValue.ModuleTypeReference reference ->
+        structure(Tag.MODULE_TYPE_REFERENCE, field(NAME_FIELD, text(reference.name().dottedName())));
       case SyntaxValue.None _ -> structure(Tag.NONE);
       case SyntaxValue.DiamondType _ -> structure(Tag.DIAMOND_TYPE);
       case SyntaxValue.SharedTypeAnnotations shared -> structure(Tag.SHARED_TYPE_ANNOTATIONS,

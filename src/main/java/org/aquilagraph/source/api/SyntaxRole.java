@@ -12,6 +12,10 @@ public enum SyntaxRole {
   MODULE_DECLARATION("module-declaration"),
   /** Directive written in a module declaration. */
   MODULE_DIRECTIVE("module-directive"),
+  /** The written service operand of uses or provides. */
+  SERVICE_TYPE("service-type"),
+  /** One written provider operand in source order. */
+  PROVIDER_TYPE("provider-type"),
   /** Written class member in a compact compilation unit. */
   COMPACT_MEMBER("compact-member"),
   /** Written annotation attached to a package declaration. */

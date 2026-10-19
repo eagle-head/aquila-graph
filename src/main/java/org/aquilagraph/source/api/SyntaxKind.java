@@ -4,6 +4,8 @@ package org.aquilagraph.source.api;
 public enum SyntaxKind {
   /** Source-only compilation-unit and module structure outside method-body lowering. */
   COMPILATION_UNIT,
+  /** Written service or provider type operand in a module directive. */
+  MODULE_TYPE_REFERENCE,
   /** One written annotation occurrence, including a nested annotation value. */
   ANNOTATION,
   /** A written, braced annotation array initializer. */
@@ -178,6 +180,7 @@ public enum SyntaxKind {
       case ANNOTATION_ARGUMENT -> sourceKind == JavaSourceKind.ASSIGNMENT || sourceKind == JavaSourceKind.NEW_ARRAY
           || sourceKind == JavaSourceKind.ANNOTATION || annotationScalarSyntax(sourceKind);
       case ANNOTATION_ELEMENT_NAME -> sourceKind == JavaSourceKind.IDENTIFIER;
+      case MODULE_TYPE_REFERENCE -> sourceKind == JavaSourceKind.IDENTIFIER || sourceKind == JavaSourceKind.MEMBER_SELECT;
       case ANNOTATION_NAME_REFERENCE -> sourceKind == JavaSourceKind.IDENTIFIER || sourceKind == JavaSourceKind.MEMBER_SELECT;
       case ANNOTATION_CLASS_LITERAL, CLASS_LITERAL -> sourceKind == JavaSourceKind.MEMBER_SELECT;
       case ANNOTATION_CAST -> sourceKind == JavaSourceKind.TYPE_CAST;

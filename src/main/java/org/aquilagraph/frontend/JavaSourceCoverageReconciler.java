@@ -130,7 +130,25 @@ final class JavaSourceCoverageReconciler {
     properties(Partition.ATTRIBUTED_PROPERTY, attributedProperties);
     emptyBodyDeclarations();
     writtenExpressions();
+    moduleEndpoints();
     return finish(coverage);
+  }
+
+  private void moduleEndpoints() {
+    inventory.contexts().stream().filter(context -> context.address().partition() == Partition.MODULE_ENDPOINT).forEach(context -> {
+      var expected = attributed.projections().stream().filter(projection -> projection.address().equals(context.address()))
+          .map(AttributedCoverageExpectations.Projection::value).findFirst().orElseThrow();
+      var facts = CoverageActualFacts.ownedBy(context, actualFacts);
+      var supported = CoverageActualFacts.supportsProperty(context, expected, facts, actualFacts, inventory.snapshot());
+      var emissions = supported
+          ? List.<DiagnosticEmission.Address>of()
+          : failure(context, MISSING_SOURCE_EVIDENCE, "A required module operand lacks its independently attributed exact declaration");
+      var disposition = supported
+          ? new Support(Mode.FACTS, facts, Optional.empty(), Optional.empty(), Optional.empty())
+          : support(Mode.FAILED);
+      outcomes.add(
+          new FeatureContextOutcome(context.address(), Optional.empty(), Optional.empty(), Optional.of(expected), disposition, emissions));
+    });
   }
 
   private void writtenExpressions() {
@@ -189,7 +207,8 @@ final class JavaSourceCoverageReconciler {
         addKnown(context, encounter.occurrence().orElseThrow(), encounter.observation().orElseThrow(), encounter.encounteredValue());
       } else if (context.address().partition() == Partition.WRITTEN_TYPE_USE) {
         writtenTypeUse(context);
-      } else if (!context.address().partition().isEmptyDeclaration() && context.address().partition() != Partition.WRITTEN_EXPRESSION) {
+      } else if (!context.address().partition().isEmptyDeclaration() && context.address().partition() != Partition.WRITTEN_EXPRESSION
+          && context.address().partition() != Partition.MODULE_ENDPOINT) {
         var addresses = failure(context, "frontend.unresolved-attributed-type-kind", unavailableTypeMessage(context));
         outcomes.add(new FeatureContextOutcome(context.address(), Optional.empty(), Optional.empty(), encounter.encounteredValue(),
             support(Mode.FAILED), addresses));
@@ -197,6 +216,7 @@ final class JavaSourceCoverageReconciler {
     }
     emptyBodyDeclarations();
     writtenExpressions();
+    moduleEndpoints();
     return finish(coverage);
   }
 

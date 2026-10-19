@@ -33,6 +33,9 @@ public record AstProfile(String version) {
   /** Full Java source with independent written-expression region proof. */
   public static final AstProfile JAVA_SOURCE_FIDELITY = new AstProfile("java-source-expanded/7");
 
+  /** Full Java source with required module service and provider declaration targets. */
+  public static final AstProfile JAVA_SOURCE_MODULE_SERVICES = new AstProfile("java-source-expanded/8");
+
   /** Requires an explicit version without interpreting unknown versions. */
   public AstProfile {
     if (Objects.requireNonNull(version, "version").isBlank()) {
@@ -100,6 +103,15 @@ public record AstProfile(String version) {
    * @return whether written-expression evidence is mandatory
    */
   public boolean supportsWrittenExpressions() {
-    return JAVA_SOURCE_FIDELITY.equals(this);
+    return JAVA_SOURCE_FIDELITY.equals(this) || supportsModuleServices();
+  }
+
+  /**
+   * Identifies source contracts requiring module-qualified service/provider targets.
+   *
+   * @return whether every written module endpoint requires attribution
+   */
+  public boolean supportsModuleServices() {
+    return JAVA_SOURCE_MODULE_SERVICES.equals(this);
   }
 }

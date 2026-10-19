@@ -1,5 +1,6 @@
 package org.aquilagraph.source.admission;
 
+import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -70,7 +71,9 @@ final class SourceFormRequirements {
           .isPresent();
       case CLASS_LITERAL -> node.type() instanceof SyntaxType.Resolved result
           && result.structure().filter(JavaTypeStructure.Declared.class::isInstance).map(JavaTypeStructure.Declared.class::cast)
-              .filter(declared -> "type:java.lang.Class".equals(declared.declarationKey()) && declared.arguments().size() == 1).isPresent()
+              .filter(declared -> JavaTypeDeclarationIdentity.isPlatformType(declared.declarationKey(), "java.lang.Class")
+                  && declared.arguments().size() == 1)
+              .isPresent()
           && node.optionalChild(SyntaxRole.TYPE_OPERAND).map(SyntaxNode::type).filter(SyntaxType.Resolved.class::isInstance)
               .map(SyntaxType.Resolved.class::cast).flatMap(SyntaxType.Resolved::structure).isPresent();
       case TYPE_CAST, OBJECT_CREATION, DECONSTRUCTION_PATTERN -> node.optionalChild(SyntaxRole.TYPE_OPERAND).isPresent();
@@ -98,12 +101,12 @@ final class SourceFormRequirements {
       case FIELD_DECLARATION -> node.children(SyntaxRole.INITIALIZER).isEmpty();
       case ENUM_CONSTANT_DECLARATION -> node.children(SyntaxRole.ARGUMENT).isEmpty() && node.children(SyntaxRole.BODY).isEmpty()
           && node.children(SyntaxRole.CLASS_BODY).isEmpty() && node.semanticReference().isEmpty();
-      case COMPILATION_UNIT, ANNOTATION, ANNOTATION_ARRAY, ANNOTATION_ARGUMENT, ANNOTATION_ELEMENT_NAME, ANNOTATION_NAME_REFERENCE,
-          ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST, TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION, PARAMETER_DECLARATION,
-          RECEIVER_PARAMETER, RECEIVER_NAME, TYPE_USE, METHOD_DECLARATION, RECORD_COMPONENT_DECLARATION, BLOCK, EXPRESSION_STATEMENT,
-          RETURN, THROW, IF, ASSERT, SYNCHRONIZED, WHILE_LOOP, DO_WHILE_LOOP, FOR_LOOP, LABELED_STATEMENT, BREAK, CONTINUE, CATCH,
-          SWITCH_EXPRESSION, SWITCH_STATEMENT, YIELD, VARIABLE_ACCESS, LITERAL, UNARY, BINARY, CONDITIONAL_AND, CONDITIONAL_OR, ASSIGNMENT,
-          ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, CONDITIONAL_EXPRESSION, EMPTY, ANY_PATTERN ->
+      case COMPILATION_UNIT, MODULE_TYPE_REFERENCE, ANNOTATION, ANNOTATION_ARRAY, ANNOTATION_ARGUMENT, ANNOTATION_ELEMENT_NAME,
+          ANNOTATION_NAME_REFERENCE, ANNOTATION_CLASS_LITERAL, ANNOTATION_CAST, TYPE_DECLARATION, TYPE_PARAMETER_DECLARATION,
+          PARAMETER_DECLARATION, RECEIVER_PARAMETER, RECEIVER_NAME, TYPE_USE, METHOD_DECLARATION, RECORD_COMPONENT_DECLARATION, BLOCK,
+          EXPRESSION_STATEMENT, RETURN, THROW, IF, ASSERT, SYNCHRONIZED, WHILE_LOOP, DO_WHILE_LOOP, FOR_LOOP, LABELED_STATEMENT, BREAK,
+          CONTINUE, CATCH, SWITCH_EXPRESSION, SWITCH_STATEMENT, YIELD, VARIABLE_ACCESS, LITERAL, UNARY, BINARY, CONDITIONAL_AND,
+          CONDITIONAL_OR, ASSIGNMENT, ARRAY_ACCESS, ARRAY_LENGTH, PARENTHESIZED, CONDITIONAL_EXPRESSION, EMPTY, ANY_PATTERN ->
         true;
     };
   }

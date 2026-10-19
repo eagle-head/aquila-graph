@@ -88,6 +88,7 @@ import org.aquilagraph.source.api.PackageQualifierEvidence;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.ResolutionStatus;
 import org.aquilagraph.source.api.SemanticReference;
+import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
 import org.aquilagraph.source.api.SourceContext;
 import org.aquilagraph.source.api.SourceCoverageInventory;
 import org.aquilagraph.source.api.SourceOwnerPath;
@@ -349,7 +350,9 @@ final class AstValueSchema {
     enumeration(types, ReferenceKind.class, "reference-kind");
     enumeration(types, ResolutionStatus.class, "resolution-status");
     record(types, SemanticReference.class, "semantic-reference", "referenceKind", "status", "symbolKey", "typeName", "typeAlternativeNames",
-        "assignableToTypeNames");
+        "assignableToTypeNames", "declarationIdentity");
+    record(types, JavaTypeDeclarationIdentity.class, "java-type-declaration-identity", "moduleName", "binaryName");
+    record(types, SyntaxValue.ModuleTypeReference.class, "syntax-value/module-type-reference", NAME_FIELD);
     record(types, SourceContext.class, "source-context", ADDRESS_FIELD, "feature", ORIGINS_FIELD, "writtenValue", "requiresAttribution");
     enumeration(types, SourceContext.Partition.class, "source-context/partition");
     record(types, SourceContext.Address.class, "source-context/address", SOURCE_FILE_KEY_FIELD, "partition", OWNER_PATH_FIELD, ROLE_FIELD,
@@ -585,6 +588,9 @@ final class AstValueSchema {
     }
 
     List<String> retainedFields(int version) {
+      if (version < 20 && type == SemanticReference.class) {
+        return fields.subList(0, fields.size() - 1);
+      }
       if (version < 19 && (type == WrittenSourceAssociation.class || type == SourceCoverageInventory.class
           || type == SyntaxValue.Literal.class || type == CoverageSourceFact.Association.class)) {
         return fields.subList(0, fields.size() - 1);
@@ -603,6 +609,12 @@ final class AstValueSchema {
 
     List<Object> retainedComponents(Object value, int version) {
       var values = components(value);
+      if (version < 20 && value instanceof SemanticReference reference) {
+        if (reference.declarationIdentity().isPresent()) {
+          throw new IllegalArgumentException("Module-qualified targets require retained AST format java-source/20");
+        }
+        return values.subList(0, values.size() - 1);
+      }
       if (version < 19 && value instanceof CoverageSourceFact.Association association) {
         if (association.normalizedExpression().isPresent()) {
           throw new IllegalArgumentException("Normalized coverage facts require retained AST format java-source/19");

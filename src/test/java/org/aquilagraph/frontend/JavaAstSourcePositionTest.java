@@ -159,7 +159,7 @@ class JavaAstSourcePositionTest {
       task.analyze();
       var trees = Trees.instance(task);
       var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(),
-          new DeclarationIdentityRegistry(trees, task.getTypes()));
+          new DeclarationIdentityRegistry(trees, task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis()));
       var validMetadata = new JavaUnitTranslationFactory(semantics, new JavaSourceEvidence(trees.getSourcePositions()), inventory,
           JavaTranslationPolicy.legacyAnalysis()).create(unit, sourceFile).translateDeclarations().value().types();
       assertEquals(1, validMetadata.size());
@@ -1003,7 +1003,7 @@ class JavaAstSourcePositionTest {
       task.analyze();
       var trees = Trees.instance(task);
       var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(),
-          new DeclarationIdentityRegistry(trees, task.getTypes()));
+          new DeclarationIdentityRegistry(trees, task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis()));
       var evidence = new JavaSourceEvidence(trees.getSourcePositions());
       var policy = JavaTranslationPolicy.legacyAnalysis();
       var bodies = new JavaMethodBodyTranslator(semantics, evidence, inventory, JavaExecutableProjectionContext.metadata(policy));

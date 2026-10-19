@@ -279,7 +279,7 @@ class PublicConstantExpressionTest {
       assertEquals(erroneous, diagnostics.getDiagnostics().stream().anyMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
       var trees = Trees.instance(task);
       var types = task.getTypes();
-      var semantics = new SemanticResolver(trees, types, task.getElements(), new DeclarationIdentityRegistry(trees, types));
+      var semantics = new SemanticResolver(trees, types, task.getElements(), new DeclarationIdentityRegistry(trees, types, task.getElements(), JavaTranslationPolicy.legacyAnalysis()));
       var constants = new JavaConstantExpression(semantics);
       var observations = new LinkedHashMap<String, Observation>();
       for (var unit : units) {

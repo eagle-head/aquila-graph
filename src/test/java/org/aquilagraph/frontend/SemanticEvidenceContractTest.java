@@ -262,7 +262,7 @@ class SemanticEvidenceContractTest {
       if (attribute) {
         task.analyze();
       }
-      resolver = new SemanticResolver(trees, task.getTypes(), task.getElements(), new DeclarationIdentityRegistry(trees, task.getTypes()));
+      resolver = new SemanticResolver(trees, task.getTypes(), task.getElements(), new DeclarationIdentityRegistry(trees, task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis()));
       var scanner = new TreePathScanner<Void, Void>() {
         @Override public Void visitIdentifier(IdentifierTree tree, Void unused) {
           identifiers.put(tree.getName().toString(), getCurrentPath());

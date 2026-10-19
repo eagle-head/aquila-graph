@@ -664,8 +664,8 @@ class JavaConstructorSelectionTest {
       var argument = assertInstanceOf(DeclaredType.class, trees.getTypeMirror(new TreePath(path, creation.getArguments().getFirst())));
       var collection = task.getTypes().getDeclaredType(task.getElements().getTypeElement("java.util.Collection"),
           argument.getTypeArguments().getFirst());
-      var selection = new JavaConstructorSelection(compiler, invocation, catalog, manager, trees, task.getTypes(), task.getElements());
-      selection.prepare(units, JavaTranslationPolicy.legacyAnalysis());
+      var selection = new JavaConstructorSelection(compiler, invocation, catalog, manager, trees, task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis());
+      selection.prepare(units);
       var facts = selection.select(path, selected).orElseThrow();
 
       // Assert
@@ -880,10 +880,10 @@ class JavaConstructorSelectionTest {
       var created = assertInstanceOf(DeclaredType.class, trees.getTypeMirror(path));
       var enclosing = assertInstanceOf(DeclaredType.class, created.getEnclosingType());
       var originalCapture = assertInstanceOf(TypeVariable.class, enclosing.getTypeArguments().getFirst());
-      var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(), new DeclarationIdentityRegistry(trees, task.getTypes()));
+      var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(), new DeclarationIdentityRegistry(trees, task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis()));
       var selection = new JavaConstructorSelection(compiler, invocation, catalog, owned.standardFileManager(), trees, task.getTypes(),
-          task.getElements());
-      selection.prepare(units, JavaTranslationPolicy.legacyAnalysis());
+          task.getElements(), JavaTranslationPolicy.legacyAnalysis());
+      selection.prepare(units);
       assertEquals(semantics.typeIdentity(originalCapture), selection.select(path, selected).orElseThrow().arguments().getFirst().selectedTarget());
       assertEquals(List.of(), diagnostics.getDiagnostics());
     }

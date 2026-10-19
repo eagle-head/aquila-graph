@@ -12,6 +12,7 @@ import com.sun.source.tree.ProvidesTree;
 import com.sun.source.tree.RequiresTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.tree.UsesTree;
+import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -37,17 +38,17 @@ final class JavaModuleTranslator {
   private final ParsedTreeInventory treeInventory;
   private final JavaAnnotationProjector annotationProjector;
   private final JavaWrittenSourceAssociations sourceAssociations;
-
-  JavaModuleTranslator(JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory, JavaAnnotationProjector annotationProjector) {
-    this(sourceEvidence, treeInventory, annotationProjector, new JavaWrittenSourceAssociations(treeInventory));
-  }
+  private final SemanticResolver semantics;
+  private final JavaTranslationPolicy policy;
 
   JavaModuleTranslator(JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory, JavaAnnotationProjector annotationProjector,
-      JavaWrittenSourceAssociations sourceAssociations) {
+      JavaWrittenSourceAssociations sourceAssociations, SemanticResolver semantics, JavaTranslationPolicy policy) {
     this.sourceEvidence = Objects.requireNonNull(sourceEvidence, "sourceEvidence");
     this.treeInventory = Objects.requireNonNull(treeInventory, "treeInventory");
     this.annotationProjector = Objects.requireNonNull(annotationProjector, "annotationProjector");
     this.sourceAssociations = Objects.requireNonNull(sourceAssociations, "sourceAssociations");
+    this.semantics = Objects.requireNonNull(semantics, "semantics");
+    this.policy = Objects.requireNonNull(policy, "policy");
   }
 
   Optional<SyntaxNode> translate(CompilationUnitTree unit, SourceFile sourceFile, ModuleTree declaration, SyntaxStructuralPath rootPath,
@@ -121,9 +122,43 @@ final class JavaModuleTranslator {
     if (range.isEmpty() || value.isEmpty()) {
       return Optional.empty();
     }
+    var children = new ArrayList<SyntaxChild>();
+    if (policy.profile().supportsModuleServices()) {
+      if (declaration instanceof UsesTree uses) {
+        operand(unit, sourceFile, uses.getServiceName(), path, SyntaxRole.SERVICE_TYPE, 0, children, diagnostics);
+      } else if (declaration instanceof ProvidesTree provides) {
+        operand(unit, sourceFile, provides.getServiceName(), path, SyntaxRole.SERVICE_TYPE, 0, children, diagnostics);
+        for (var ordinal = 0; ordinal < provides.getImplementationNames().size(); ordinal++) {
+          operand(unit, sourceFile, provides.getImplementationNames().get(ordinal), path, SyntaxRole.PROVIDER_TYPE, ordinal, children,
+              diagnostics);
+        }
+      }
+      var expectedOperands = declaration instanceof UsesTree
+          ? 1
+          : declaration instanceof ProvidesTree provides ? 1 + provides.getImplementationNames().size() : 0;
+      if (children.size() != expectedOperands) {
+        return Optional.empty();
+      }
+    }
     return Optional.of(sourceAssociations.created(SyntaxNode.source(sourceFile.sourceFileKey(), path,
         JavaSourceKind.valueOf(declaration.getKind().name()), SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
-        value.orElseThrow(), List.of(), Optional.empty(), range.orElseThrow()), declaration));
+        value.orElseThrow(), children, Optional.empty(), range.orElseThrow()), declaration));
+  }
+
+  private void operand(CompilationUnitTree unit, SourceFile sourceFile, Tree tree, SyntaxStructuralPath parent, SyntaxRole role,
+      int ordinal, List<SyntaxChild> children, DiagnosticEmissionCollector diagnostics) {
+    var path = parent.child(role, ordinal);
+    var range = requiredRange(unit, sourceFile, tree, path, diagnostics);
+    var name = qualifiedName(tree);
+    if (range.isEmpty() || name.isEmpty()) {
+      return;
+    }
+    var compilerPath = TreePath.getPath(unit, tree);
+    var reference = semantics.moduleOperand(compilerPath);
+    var node = SyntaxNode.source(sourceFile.sourceFileKey(), path, JavaSourceKind.valueOf(tree.getKind().name()),
+        SyntaxKind.MODULE_TYPE_REFERENCE, SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.ModuleTypeReference(name.orElseThrow()),
+        List.of(), Optional.of(reference), range.orElseThrow());
+    children.add(new SyntaxChild(role, ordinal, sourceAssociations.created(node, tree)));
   }
 
   private Optional<SyntaxValue.ModuleDirective> packageTargets(Tree packageTree, List<? extends Tree> targetTrees, SourceFile sourceFile,

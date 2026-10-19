@@ -13,9 +13,9 @@ import org.aquilagraph.identity.api.SourceSpan;
 /** Immutable, compiler-neutral facts for one durable Java source occurrence. */
 public final class SyntaxNode {
   private static final int SINGLE_CHILD_COUNT = 1;
+  private static final String CLASS_TYPE_NAME = "java.lang.Class";
+  private static final String OBJECT_TYPE_NAME = "java.lang.Object";
   private static final int NAMED_ANNOTATION_CHILD_COUNT = 2;
-  private static final JavaTypeStructure IMPLICIT_OBJECT_BOUND = new JavaTypeStructure.Declared("type:java.lang.Object", Optional.empty(),
-      List.of());
 
   private final SyntaxNodeKey key;
   private final String sourceOwner;
@@ -48,6 +48,22 @@ public final class SyntaxNode {
     validateChildPositions(childNodes);
     validateAnnotationChildLocations(childNodes);
     validateShape(syntaxKind, sourceKind, value, childNodes, semanticReference);
+    if (syntaxKind == SyntaxKind.MODULE_TYPE_REFERENCE && (sourceOrigin.isEmpty() || path.steps().size() < 2
+        || !Set.of(SyntaxRole.SERVICE_TYPE, SyntaxRole.PROVIDER_TYPE).contains(path.steps().getLast().role())
+        || path.steps().get(path.steps().size() - 2).role() != SyntaxRole.MODULE_DIRECTIVE)) {
+      throw new IllegalArgumentException("A module operand requires its exact written directive role and origin");
+    }
+    if (value instanceof SyntaxValue.ModuleDirective && !childNodes.isEmpty()) {
+      for (var child : childNodes) {
+        var range = child.node().origin().orElseThrow();
+        if (sourceOrigin.isEmpty() || !sourceOwner.equals(child.node().sourceFileKey())
+            || range.startOffset() < sourceOrigin.orElseThrow().startOffset()
+            || range.endOffsetExclusive() > sourceOrigin.orElseThrow().endOffsetExclusive()
+            || !child.node().structuralPath().equals(path.child(child.role(), child.position()))) {
+          throw new IllegalArgumentException("A module operand must belong to its exact enclosing written directive");
+        }
+      }
+    }
     if (value instanceof SyntaxValue.TypeDeclaration declaration) {
       validateTypePlacement(structuralPath, sourceKind, declaration);
     }
@@ -583,7 +599,7 @@ public final class SyntaxNode {
   private static void validateType(SyntaxKind kind, SyntaxType type, SyntaxValue value) {
     if (kind == SyntaxKind.CLASS_LITERAL && type.knownIdentity()
         .filter(identity -> identity.category() != JavaTypeCategory.ERROR && identity.category() != JavaTypeCategory.OTHER
-            && (identity.category() != JavaTypeCategory.DECLARED || !"java.lang.Class".equals(identity.erasedName())))
+            && (identity.category() != JavaTypeCategory.DECLARED || !CLASS_TYPE_NAME.equals(identity.erasedName())))
         .isPresent()) {
       throw new IllegalArgumentException("A class literal value requires a java.lang.Class type");
     }
@@ -669,6 +685,12 @@ public final class SyntaxNode {
       }
       return;
     }
+    if (kind == SyntaxKind.MODULE_TYPE_REFERENCE) {
+      if (reference.filter(value -> value.referenceKind() != ReferenceKind.TYPE).isPresent()) {
+        throw new IllegalArgumentException("A module operand permits only a type reference");
+      }
+      return;
+    }
     if (kind == SyntaxKind.TYPE_USE) {
       if (reference.isPresent()
           && !Set.of(ReferenceKind.TYPE, ReferenceKind.TYPE_PARAMETER).contains(reference.orElseThrow().referenceKind())) {
@@ -706,6 +728,7 @@ public final class SyntaxNode {
   private static void validateShape(SyntaxKind kind, JavaSourceKind sourceKind, SyntaxValue value, List<SyntaxChild> children,
       Optional<SemanticReference> semanticReference) {
     var expectedValue = switch (kind) {
+      case MODULE_TYPE_REFERENCE -> SyntaxValue.ModuleTypeReference.class;
       case COMPILATION_UNIT -> switch (sourceKind) {
         case COMPILATION_UNIT -> SyntaxValue.CompilationUnit.class;
         case PACKAGE -> SyntaxValue.PackageDeclaration.class;
@@ -806,7 +829,8 @@ public final class SyntaxNode {
               throw new IllegalArgumentException("A package annotation child requires an annotation attachment");
             }
           }
-          case IMPORT, REQUIRES, EXPORTS, OPENS, USES, PROVIDES -> requireShape(children, Set.of());
+          case IMPORT, REQUIRES, EXPORTS, OPENS -> requireShape(children, Set.of());
+          case USES, PROVIDES -> validateModuleOperands(value, children);
           case MODULE -> {
             requireShape(children, Set.of(SyntaxRole.ANNOTATION, SyntaxRole.MODULE_DIRECTIVE));
             for (var child : children) {
@@ -1082,6 +1106,12 @@ public final class SyntaxNode {
         requireCount(children, SyntaxRole.FALSE_EXPRESSION, 1, 1);
       }
       case TYPE_USE -> validateTypeUse(sourceKind, value, children);
+      case MODULE_TYPE_REFERENCE -> {
+        requireShape(children, Set.of());
+        if (semanticReference.filter(reference -> reference.referenceKind() != ReferenceKind.TYPE).isPresent()) {
+          throw new IllegalArgumentException("A module operand may reference only a type declaration");
+        }
+      }
       case RECEIVER -> {
         requireShape(children, Set.of(SyntaxRole.QUALIFIER));
         var receiver = SyntaxValue.Receiver.class.cast(value).kind();
@@ -1362,12 +1392,12 @@ public final class SyntaxNode {
         selected instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == JavaTypeCategory.FLOAT;
       case AnnotationScalar.DoubleValue _ ->
         selected instanceof JavaTypeStructure.Primitive primitive && primitive.kind() == JavaTypeCategory.DOUBLE;
-      case AnnotationScalar.StringValue _ ->
-        selected instanceof JavaTypeStructure.Declared declared && "type:java.lang.String".equals(declared.declarationKey());
+      case AnnotationScalar.StringValue _ -> selected instanceof JavaTypeStructure.Declared declared
+          && JavaTypeDeclarationIdentity.isPlatformType(declared.declarationKey(), "java.lang.String");
       case AnnotationScalar.EnumConstant constant ->
         selected instanceof JavaTypeStructure.Declared declared && declared.declarationKey().equals(constant.enumTypeKey());
-      case AnnotationScalar.ClassLiteral _ ->
-        selected instanceof JavaTypeStructure.Declared declared && "type:java.lang.Class".equals(declared.declarationKey());
+      case AnnotationScalar.ClassLiteral _ -> selected instanceof JavaTypeStructure.Declared declared
+          && JavaTypeDeclarationIdentity.isPlatformType(declared.declarationKey(), CLASS_TYPE_NAME);
     };
     if (!matches) {
       throw new IllegalArgumentException("Annotation scalar category conflicts with the selected element type");
@@ -1402,7 +1432,7 @@ public final class SyntaxNode {
       case AnnotationScalar.EnumConstant constant -> sourceType.structure().orElseThrow() instanceof JavaTypeStructure.Declared declared
           && declared.declarationKey().equals(constant.enumTypeKey());
       case AnnotationScalar.ClassLiteral _ -> sourceType.structure().orElseThrow() instanceof JavaTypeStructure.Declared declared
-          && "type:java.lang.Class".equals(declared.declarationKey());
+          && JavaTypeDeclarationIdentity.isPlatformType(declared.declarationKey(), CLASS_TYPE_NAME);
     };
     if (!compatible) {
       throw new IllegalArgumentException("Annotation scalar conflicts with source expression type");
@@ -1481,12 +1511,12 @@ public final class SyntaxNode {
         && (!executable.variables().isEmpty() || !executable.parameters().isEmpty() || !executable.thrownTypes().isEmpty()
             || executable.receiver().isPresent()
             || executable.erasure().returnType().knownIdentity().orElseThrow().category() != JavaTypeCategory.DECLARED
-            || !"java.lang.Object".equals(executable.erasure().returnType().knownIdentity().orElseThrow().erasedName())
+            || !OBJECT_TYPE_NAME.equals(executable.erasure().returnType().knownIdentity().orElseThrow().erasedName())
             || executable.returnType().knownIdentity()
-                .filter(identity -> identity.category() != JavaTypeCategory.DECLARED || !"java.lang.Object".equals(identity.erasedName()))
+                .filter(identity -> identity.category() != JavaTypeCategory.DECLARED || !OBJECT_TYPE_NAME.equals(identity.erasedName()))
                 .isPresent()
-            || (executable.returnType() instanceof SyntaxType.Resolved result && result.structure().isPresent() && !result.structure()
-                .orElseThrow().equals(new JavaTypeStructure.Declared("type:java.lang.Object", Optional.empty(), List.of()))))) {
+            || (executable.returnType() instanceof SyntaxType.Resolved result && result.structure().isPresent()
+                && !JavaTypeDeclarationIdentity.isPlatformType(result.structure().orElseThrow(), OBJECT_TYPE_NAME)))) {
       throw new IllegalArgumentException("An intrinsic array clone requires its compiler declaration signature");
     }
   }
@@ -2075,7 +2105,7 @@ public final class SyntaxNode {
     requireCount(children, SyntaxRole.TYPE_BOUND, declaration.bounds(), declaration.bounds());
     var writtenBounds = children.stream().filter(child -> child.role() == SyntaxRole.TYPE_BOUND)
         .map(child -> requiredTypeUseStructure(children, SyntaxRole.TYPE_BOUND, child.position())).toList();
-    if (writtenBounds.isEmpty() && !declaration.upperBound().equals(IMPLICIT_OBJECT_BOUND)) {
+    if (writtenBounds.isEmpty() && !JavaTypeDeclarationIdentity.isPlatformType(declaration.upperBound(), OBJECT_TYPE_NAME)) {
       throw new IllegalArgumentException("An unwritten type-parameter bound must be implicit Object");
     }
     if (writtenBounds.size() == 1 && !declaration.upperBound().equals(writtenBounds.getFirst())) {
@@ -2288,7 +2318,7 @@ public final class SyntaxNode {
         || !(resolved.structure().orElse(null) instanceof JavaTypeStructure.Declared declared)) {
       return;
     }
-    if (!"type:java.lang.Class".equals(declared.declarationKey()) || declared.arguments().size() != 1) {
+    if (!JavaTypeDeclarationIdentity.isPlatformType(declared.declarationKey(), CLASS_TYPE_NAME) || declared.arguments().size() != 1) {
       throw new IllegalArgumentException("A class literal value requires one java.lang.Class type argument");
     }
     var written = children.stream().filter(child -> child.role() == SyntaxRole.TYPE_OPERAND).findFirst().map(SyntaxChild::node);
@@ -2309,7 +2339,11 @@ public final class SyntaxNode {
         case VOID -> "Void";
         default -> throw new IllegalArgumentException("A class literal has an invalid primitive operand");
       };
-      structure = new JavaTypeStructure.Declared("type:java.lang." + boxedName, Optional.empty(), List.of());
+      structure = new JavaTypeStructure.Declared(
+          "type:java.lang.Class".equals(declared.declarationKey())
+              ? "type:java.lang." + boxedName
+              : new JavaTypeDeclarationIdentity(Optional.of("java.base"), "java.lang." + boxedName).declarationKey(),
+          Optional.empty(), List.of());
     }
     if (!declared.arguments().getFirst().equals(structure)) {
       throw new IllegalArgumentException("A known class literal type argument must match its written operand");
@@ -2387,6 +2421,23 @@ public final class SyntaxNode {
     if (children.stream().filter(child -> child.role() == SyntaxRole.QUALIFIER)
         .anyMatch(child -> !(child.node().value() instanceof SyntaxValue.Receiver receiver) || receiver.kind() != expected)) {
       throw new IllegalArgumentException("A written receiver qualifier contradicts its selected source form");
+    }
+  }
+
+  private static void validateModuleOperands(SyntaxValue value, List<SyntaxChild> children) {
+    if (children.isEmpty()) {
+      return;
+    }
+    requireShape(children, Set.of(SyntaxRole.SERVICE_TYPE, SyntaxRole.PROVIDER_TYPE));
+    requireCount(children, SyntaxRole.SERVICE_TYPE, 1, 1);
+    var service = value instanceof SyntaxValue.Uses uses ? uses.service() : ((SyntaxValue.Provides) value).service();
+    var providers = value instanceof SyntaxValue.Provides provides ? provides.providers() : List.<SyntaxValue.QualifiedName>of();
+    requireCount(children, SyntaxRole.PROVIDER_TYPE, providers.size(), providers.size());
+    for (var child : children) {
+      if (child.node().syntaxKind() != SyntaxKind.MODULE_TYPE_REFERENCE || !child.node().value(SyntaxValue.ModuleTypeReference.class).name()
+          .equals(child.role() == SyntaxRole.SERVICE_TYPE ? service : providers.get(child.position()))) {
+        throw new IllegalArgumentException("Module operand children must retain their exact header names, roles and order");
+      }
     }
   }
 

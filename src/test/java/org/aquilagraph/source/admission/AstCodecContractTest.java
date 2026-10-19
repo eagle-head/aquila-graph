@@ -12,6 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Arrays;
 import java.util.ArrayList;
@@ -505,7 +507,7 @@ class AstCodecContractTest {
       var wrongIdentity = new JavaTypeIdentity(JavaTypeCategory.EXECUTABLE, descriptor, descriptor);
       var encodedValue = new CanonicalValueWriter("");
       new RetainedValueCodec(false).write(encodedValue, partialValue);
-      var malformedValue = replaceValueFrame(encodedValue.toByteArray(), selected.identity(), wrongIdentity);
+      var malformedValue = replaceValueFrame(encodedValue.toByteArray(), selected.identity(), wrongIdentity, AstCodec.FORMAT_VERSION);
       var malformedPayload = replaceNodeValueFrame(AstCodec.encode(positive), referenceNode(positive), Arrays.copyOfRange(malformedValue, Integer.BYTES, malformedValue.length));
       // Act
       var copying = assertThrows(IllegalArgumentException.class, () -> new SyntaxType.Resolved(wrongIdentity, partial));
@@ -578,7 +580,7 @@ class AstCodecContractTest {
       var wrongErasure = new JavaExecutableErasure(wrongParameters, part.equals("return") ? wrong : signature.erasure().returnType());
       var encodedValue = new CanonicalValueWriter("");
       new RetainedValueCodec(false).write(encodedValue, partialValue);
-      var malformedValue = replaceValueFrame(encodedValue.toByteArray(), signature.erasure(), wrongErasure);
+      var malformedValue = replaceValueFrame(encodedValue.toByteArray(), signature.erasure(), wrongErasure, AstCodec.FORMAT_VERSION);
       var malformedPayload = replaceNodeValueFrame(AstCodec.encode(positive), referenceNode(positive), Arrays.copyOfRange(malformedValue, Integer.BYTES, malformedValue.length));
       // Act
       var copying = assertThrows(IllegalArgumentException.class, () -> new JavaTypeStructure.Executable(signature.variables(), parameters, resultType,
@@ -1716,11 +1718,24 @@ class AstCodecContractTest {
         }));
   }
 
+  private static String formatForFrame(byte[] bytes) {
+    var length = ByteBuffer.wrap(bytes).getInt();
+    if (length < 0 || length > (bytes.length - Integer.BYTES) / Character.BYTES) {
+      throw new IllegalArgumentException("Invalid retained frame version length");
+    }
+    var format = new String(bytes, Integer.BYTES, length * Character.BYTES, StandardCharsets.UTF_16BE);
+    return format;
+  }
+
   private static byte[] replaceValueFrame(byte[] bytes, Object original, Object replacement) {
+    return replaceValueFrame(bytes, original, replacement, formatForFrame(bytes));
+  }
+
+  private static byte[] replaceValueFrame(byte[] bytes, Object original, Object replacement, String format) {
     var originalWriter = new CanonicalValueWriter("");
-    new RetainedValueCodec(false).write(originalWriter, original);
+    new RetainedValueCodec(false, format).write(originalWriter, original);
     var replacementWriter = new CanonicalValueWriter("");
-    new RetainedValueCodec(false).write(replacementWriter, replacement);
+    new RetainedValueCodec(false, format).write(replacementWriter, replacement);
     var originalFrame = Arrays.copyOfRange(originalWriter.toByteArray(), Integer.BYTES, originalWriter.toByteArray().length);
     var replacementFrame = Arrays.copyOfRange(replacementWriter.toByteArray(), Integer.BYTES, replacementWriter.toByteArray().length);
     return replaceExactFrame(bytes, originalFrame, replacementFrame);
@@ -1734,14 +1749,14 @@ class AstCodecContractTest {
 
   private static byte[] replaceNodeValueFrame(byte[] bytes, SyntaxNode node, SyntaxValue replacementValue) {
     var writer = new CanonicalValueWriter("");
-    new RetainedValueCodec(false).write(writer, replacementValue);
+    new RetainedValueCodec(false, formatForFrame(bytes)).write(writer, replacementValue);
     return replaceNodeValueFrame(bytes, node, Arrays.copyOfRange(writer.toByteArray(), Integer.BYTES, writer.toByteArray().length));
   }
 
   private static byte[] replaceNodeValueFrame(byte[] bytes, SyntaxNode node, byte[] replacementValue) {
     var original = new CanonicalValueWriter("");
     var replacement = new CanonicalValueWriter("");
-    var codec = new RetainedValueCodec(false);
+    var codec = new RetainedValueCodec(false, formatForFrame(bytes));
     for (var field : List.of(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind(), node.type())) {
       codec.write(original, field);
       codec.write(replacement, field);
@@ -1757,7 +1772,7 @@ class AstCodecContractTest {
   private static byte[] replaceNodeTypeFrame(byte[] bytes, SyntaxNode node, SyntaxType replacementType) {
     var original = new CanonicalValueWriter("");
     var replacement = new CanonicalValueWriter("");
-    var codec = new RetainedValueCodec(false);
+    var codec = new RetainedValueCodec(false, formatForFrame(bytes));
     for (var field : List.of(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind())) {
       codec.write(original, field);
       codec.write(replacement, field);
@@ -1771,7 +1786,7 @@ class AstCodecContractTest {
   private static byte[] withSelectedReference(byte[] bytes, SyntaxNode node, Optional<SemanticReference> selectedReference) {
     var original = new CanonicalValueWriter("");
     var replacement = new CanonicalValueWriter("");
-    var codec = new RetainedValueCodec(false);
+    var codec = new RetainedValueCodec(false, formatForFrame(bytes));
     codec.write(original, node.semanticReference());
     codec.write(original, node.origin());
     codec.write(replacement, selectedReference);
@@ -1888,8 +1903,8 @@ class AstCodecContractTest {
   }
 
   private static byte[] payloadWithAggregate(AstResult result, CopiedAstValues aggregate, LanguageFeatureCoverageResult coverage) {
-    var writer = new CanonicalValueWriter(AstCodec.FORMAT_VERSION);
-    var codec = new RetainedValueCodec(false);
+    var writer = new CanonicalValueWriter(result.identity().sourceModelVersion());
+    var codec = new RetainedValueCodec(false, result.identity().sourceModelVersion());
     writer.text(result.profile().version());
     writer.text(result.identity().semanticProductionRevision());
     writer.text(result.completion().name());
@@ -2152,7 +2167,7 @@ class AstCodecContractTest {
         new CfgRequest(decoded.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
 
     // Assert
-    assertEquals(AstResult.SOURCE_MODEL_VERSION, current.identity().sourceModelVersion());
+    assertEquals(AstResult.WRITTEN_EXPRESSION_MODEL_VERSION, current.identity().sourceModelVersion());
     assertEquals("java-source/2", legacy.identity().sourceModelVersion());
     assertNotEquals(current.identity(), legacy.identity());
     assertEquals(legacy.identity(), decoded.identity());
@@ -2221,7 +2236,7 @@ class AstCodecContractTest {
 
     // Assert
     assertTrue(failure.getMessage().contains("Unsupported retained AST format: java-source/future"));
-    assertEquals(AstResult.SOURCE_MODEL_VERSION, identity.sourceModelVersion());
+    assertEquals(AstResult.WRITTEN_EXPRESSION_MODEL_VERSION, identity.sourceModelVersion());
   }
 
   @Test
@@ -2332,7 +2347,7 @@ class AstCodecContractTest {
     var failure = assertThrows(IllegalArgumentException.class, () -> new CanonicalValueReader(bytes, "java-source/2"));
 
     // Assert
-    assertEquals("Unsupported canonical value format: " + AstResult.SOURCE_MODEL_VERSION, failure.getMessage());
+    assertEquals("Unsupported canonical value format: " + AstResult.WRITTEN_EXPRESSION_MODEL_VERSION, failure.getMessage());
   }
 
   @Test
@@ -2609,11 +2624,11 @@ class AstCodecContractTest {
   }
 
   private static byte[] payload(AstResult original, String owner, String changedField) {
-    var writer = new CanonicalValueWriter(AstCodec.FORMAT_VERSION);
+    var writer = new CanonicalValueWriter(original.identity().sourceModelVersion());
     writer.text(original.profile().version());
     writer.text(original.identity().semanticProductionRevision());
     writer.text(original.completion().name());
-    var codec = new RetainedValueCodec(false);
+    var codec = new RetainedValueCodec(false, original.identity().sourceModelVersion());
     codec.write(writer, original.identity());
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());

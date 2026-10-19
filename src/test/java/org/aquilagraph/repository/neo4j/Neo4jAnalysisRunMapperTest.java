@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -30,11 +31,44 @@ import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
+import org.aquilagraph.source.api.ReferenceKind;
+import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.SemanticReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class Neo4jAnalysisRunMapperTest {
   @TempDir Path temporaryDirectory;
+
+  @Test
+  void givenNamedUnnamedAndAbsentTypedTargets_whenReferencesAreMapped_thenCompleteValuesAndHistoricalAbsenceArePreserved() {
+    // Arrange
+    var named = new JavaTypeDeclarationIdentity(Optional.of("service.sample"), "api.Service");
+    var unnamed = new JavaTypeDeclarationIdentity(Optional.empty(), "api.Service");
+    var plain = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(named.declarationKey()), Optional.of("api.Service"), List.of("api.Service"), List.of("api.Service"));
+    var namedReference = new SemanticReference(plain.referenceKind(), plain.status(), plain.symbolKey(), plain.typeName(), plain.typeAlternativeNames(), plain.assignableToTypeNames(), Optional.of(named));
+    var unnamedReference = new SemanticReference(plain.referenceKind(), plain.status(), Optional.of(unnamed.declarationKey()), plain.typeName(), plain.typeAlternativeNames(), plain.assignableToTypeNames(), Optional.of(unnamed));
+    var builder = new Neo4jProjectionBuilder("analysis");
+    builder.node("OperationNode", "operation", "kind", "CONSTANT");
+    // Act
+    new Neo4jEvidenceMapper().mapSemanticReferences("operation", List.of(plain, namedReference, unnamedReference), builder);
+    var projection = builder.build();
+    // Assert
+    var references = projection.nodes().stream().filter(node -> node.label().equals("SemanticReference")).toList();
+    assertEquals(3, references.size());
+    var absent = references.getFirst().properties();
+    assertEquals(Set.of("runId", "key", "kind", "status", "position", "symbolKey", "typeName", "typeAlternativeNames", "assignableToTypeNames"), absent.keySet());
+    var namedProperties = references.get(1).properties();
+    assertEquals("NAMED", namedProperties.get("declarationModuleKind"));
+    assertEquals("service.sample", namedProperties.get("declarationModuleName"));
+    assertEquals("api.Service", namedProperties.get("declarationBinaryName"));
+    var unnamedProperties = references.getLast().properties();
+    assertEquals("UNNAMED", unnamedProperties.get("declarationModuleKind"));
+    assertFalse(unnamedProperties.containsKey("declarationModuleName"));
+    assertEquals("api.Service", unnamedProperties.get("declarationBinaryName"));
+    assertEquals(List.of(0, 1, 2), projection.relationships().stream().map(relation -> relation.properties().get("position")).toList());
+  }
 
   @Test
   void givenEqualDiagnosticValuesInTwoSlots_whenRunIsMapped_thenOneValueAndBothOrderedSlotsArePreserved() throws IOException {

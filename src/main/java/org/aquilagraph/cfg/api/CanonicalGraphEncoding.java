@@ -19,7 +19,9 @@ final class CanonicalGraphEncoding {
     if (sources.size() != graph.operationNodes().size()) {
       throw new IllegalArgumentException("Every operation requires one exact source association");
     }
-    var writer = new CanonicalValueWriter("canonical-java-cfg/3");
+    var declarationIdentities = graph.operationNodes().stream().flatMap(operation -> operation.semanticReferences().stream())
+        .anyMatch(reference -> reference.declarationIdentity().isPresent());
+    var writer = new CanonicalValueWriter(declarationIdentities ? "canonical-java-cfg/4" : "canonical-java-cfg/3");
     writer.text(plan.profile().version());
     writer.text(plan.profile().graphModelVersion());
     writer.text(plan.body().astIdentity().astResultKey());
@@ -65,7 +67,7 @@ final class CanonicalGraphEncoding {
         writer.text(value.form().name());
       });
       writer.count(operation.semanticReferences().size());
-      operation.semanticReferences().forEach(reference -> reference(writer, reference));
+      operation.semanticReferences().forEach(reference -> reference(writer, reference, declarationIdentities));
       strings(writer, operation.possibleExceptions());
       writer.count(operation.origins().size());
       operation.origins().forEach(origin -> {
@@ -139,12 +141,19 @@ final class CanonicalGraphEncoding {
     writer.text(type.erasedName());
   }
 
-  private static void reference(CanonicalValueWriter writer, SemanticReference reference) {
+  private static void reference(CanonicalValueWriter writer, SemanticReference reference, boolean declarationIdentities) {
     writer.text(reference.referenceKind().name());
     writer.text(reference.status().name());
     text(writer, reference.symbolKey());
     text(writer, reference.typeName());
     strings(writer, reference.typeAlternativeNames());
     strings(writer, reference.assignableToTypeNames());
+    if (declarationIdentities) {
+      writer.flag(reference.declarationIdentity().isPresent());
+      reference.declarationIdentity().ifPresent(identity -> {
+        text(writer, identity.moduleName());
+        writer.text(identity.binaryName());
+      });
+    }
   }
 }

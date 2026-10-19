@@ -228,7 +228,7 @@ class JavaVariableDeclarationAstTest {
           new JavaSourceEvidence(Trees.instance(task).getSourcePositions()));
       task.analyze();
       var trees = Trees.instance(task);
-      var identities = new DeclarationIdentityRegistry(trees, task.getTypes());
+      var identities = new DeclarationIdentityRegistry(trees, task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis());
       for (var name : List.of("Pair", "State")) {
         TypeElement element = task.getElements().getTypeElement(name);
         var modeled = type(result.program().types(), name);

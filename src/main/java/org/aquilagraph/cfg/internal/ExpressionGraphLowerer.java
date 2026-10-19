@@ -21,7 +21,12 @@ import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxOperator;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.SyntaxValue.ArrayCreation;
+import org.aquilagraph.source.api.SyntaxValue.Lambda;
+import org.aquilagraph.source.api.SyntaxValue.MemberReference;
+import org.aquilagraph.source.api.SyntaxValue.ModuleTypeReference;
 import org.aquilagraph.source.api.SyntaxValue.PatternBinding;
+import org.aquilagraph.source.api.SyntaxValue.StatementLabel;
 
 final class ExpressionGraphLowerer {
   private static final String NULL_POINTER_EXCEPTION = "java.lang.NullPointerException";
@@ -490,7 +495,7 @@ final class ExpressionGraphLowerer {
       case SyntaxValue.None _ -> node.syntaxKind().name().toLowerCase(Locale.ROOT);
       case SyntaxValue.DiamondType _ -> "<>";
       case SyntaxValue.LocalDeclaration declaration -> declaration.name();
-      case PatternBinding _,SyntaxValue.MemberReference _,SyntaxValue.Lambda _,SyntaxValue.StatementLabel _,SyntaxValue.ArrayCreation _ ->
+      case PatternBinding _,MemberReference _,Lambda _,StatementLabel _,ArrayCreation _,ModuleTypeReference _ ->
         throw new IllegalArgumentException("Source syntax is outside the bounded CFG profile: " + node.syntaxKind());
       case SyntaxValue.Symbol symbol -> symbol.name();
       case SyntaxValue.FieldAccess field -> field.name();

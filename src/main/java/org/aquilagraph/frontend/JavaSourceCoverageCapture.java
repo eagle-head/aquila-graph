@@ -10,6 +10,7 @@ import com.sun.source.tree.TypeParameterTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.tree.AnyPatternTree;
 import org.aquilagraph.source.api.CoverageActualFacts;
+import org.aquilagraph.source.api.ModuleServiceFacts;
 import org.aquilagraph.source.api.SyntaxType;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.TreePathScanner;
@@ -70,6 +71,16 @@ final class JavaSourceCoverageCapture {
           owner.origin().stream().toList(), Optional.empty(), false));
     }
     var descriptors = new LinkedHashMap<SourceContext.Address, SemanticDescriptor>();
+    if (policy.profile().supportsModuleServices()) {
+      for (var owner : owners) {
+        var steps = owner.path().steps();
+        if (!steps.isEmpty() && (steps.getLast().role() == Role.SERVICE_NAME || steps.getLast().role() == Role.IMPLEMENTATION_NAME)) {
+          var address = address(owner, Partition.MODULE_ENDPOINT, steps.getLast().role().name(), steps.getLast().ordinal());
+          contexts.add(new SourceContext(address, Optional.empty(), owner.origin().stream().toList(), Optional.empty(), true));
+          descriptors.put(address, descriptor(owner, Optional.empty(), owner.treePath()));
+        }
+      }
+    }
     var typeUses = new ArrayList<SourceContext>();
     captureHeaderTypes(parsed, sources, owners, contexts, descriptors, typeUses);
     for (var owner : owners) {
@@ -172,7 +183,10 @@ final class JavaSourceCoverageCapture {
     var descriptor = Objects.requireNonNull(descriptors.get(context.address()), "captured semantic descriptor");
     CoveragePropertyValue value;
     Optional<String> ownerIdentity = Optional.empty();
-    if (descriptor.accessor().isEmpty()) {
+    if (context.address().partition() == Partition.MODULE_ENDPOINT) {
+      value = semantics.expectedModuleTarget(descriptor.path()).map(ModuleServiceFacts::targetValue)
+          .orElseGet(() -> new CoveragePropertyValue(State.UNAVAILABLE, List.of()));
+    } else if (descriptor.accessor().isEmpty()) {
       if (CoverageActualFacts.MATCH_ALL_TYPE_ROLE.equals(context.address().role())) {
         var type = semantics.type(descriptor.path());
         value = type instanceof SyntaxType.Resolved

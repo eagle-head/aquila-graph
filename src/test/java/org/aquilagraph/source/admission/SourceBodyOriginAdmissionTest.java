@@ -270,18 +270,18 @@ class SourceBodyOriginAdmissionTest {
 
   private static StoredSourceValue stored(AstResult original, CopiedAstValues values, AstCompletion completion) {
     var canonical = new CanonicalValueWriter("canonical-java-source/1");
-    canonical.text(AstResult.SOURCE_MODEL_VERSION);
+    canonical.text(original.identity().sourceModelVersion());
     canonical.text(original.profile().version());
     canonical.text(original.identity().semanticProductionRevision());
     canonical.bytes(CapturedValueEncoding.encode(Optional.of(original.snapshot()), Optional.of(original.environment())));
-    writeInput(canonical, new RetainedValueCodec(true), original, values);
+    writeInput(canonical, new RetainedValueCodec(true, original.identity().sourceModelVersion()), original, values);
     var identity = AstIdentity.fromContent(SoftwareVersion.from(original.snapshot(), original.environment()).signature(),
-        AstResult.SOURCE_MODEL_VERSION, original.profile().version(), original.identity().semanticProductionRevision(), canonical.digest("ast-content"));
-    var full = new CanonicalValueWriter(AstCodec.FORMAT_VERSION);
+        original.identity().sourceModelVersion(), original.profile().version(), original.identity().semanticProductionRevision(), canonical.digest("ast-content"));
+    var full = new CanonicalValueWriter(original.identity().sourceModelVersion());
     full.text(original.profile().version());
     full.text(original.identity().semanticProductionRevision());
     full.text(completion.name());
-    var codec = new RetainedValueCodec(false);
+    var codec = new RetainedValueCodec(false, original.identity().sourceModelVersion());
     codec.write(full, identity);
     writeInput(full, codec, original, values);
     return new StoredSourceValue(identity, full.toByteArray());

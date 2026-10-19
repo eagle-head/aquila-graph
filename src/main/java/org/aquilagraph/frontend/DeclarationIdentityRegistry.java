@@ -25,17 +25,36 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.util.Types;
+import javax.lang.model.util.Elements;
+import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
 import javax.tools.Diagnostic;
 
 /** Derives and memoizes canonical declaration identities while compiler elements remain inside the frontend. */
 final class DeclarationIdentityRegistry {
   private final Trees trees;
   private final Types types;
+  private final Elements elements;
+  private final JavaTranslationPolicy policy;
   private final DeclarationIdentityState identityState = DeclarationIdentityState.usingReferenceIdentity();
 
-  DeclarationIdentityRegistry(Trees trees, Types types) {
+  DeclarationIdentityRegistry(Trees trees, Types types, Elements elements, JavaTranslationPolicy policy) {
     this.trees = Objects.requireNonNull(trees, "trees");
     this.types = Objects.requireNonNull(types, "types");
+    this.elements = Objects.requireNonNull(elements, "elements");
+    this.policy = Objects.requireNonNull(policy, "policy");
+  }
+
+  Optional<JavaTypeDeclarationIdentity> typeIdentity(Element element) {
+    if (!policy.profile().supportsModuleServices() || !(element instanceof TypeElement type) || !hasCanonicalTypeName(type)) {
+      return Optional.empty();
+    }
+    var module = elements.getModuleOf(type);
+    var binaryName = elements.getBinaryName(type).toString();
+    if (module == null || binaryName.isBlank()) {
+      return Optional.empty();
+    }
+    return Optional.of(new JavaTypeDeclarationIdentity(
+        module.isUnnamed() ? Optional.empty() : Optional.of(module.getQualifiedName().toString()), binaryName));
   }
 
   Optional<String> keyOf(Element element) {
@@ -130,6 +149,9 @@ final class DeclarationIdentityRegistry {
 
   private Optional<String> keyOfType(TypeElement element) {
     if (hasCanonicalTypeName(element)) {
+      if (policy.profile().supportsModuleServices()) {
+        return typeIdentity(element).map(JavaTypeDeclarationIdentity::declarationKey);
+      }
       var qualifiedName = element.getQualifiedName().toString();
       if (!qualifiedName.isBlank()) {
         return Optional.of("type:" + qualifiedName);

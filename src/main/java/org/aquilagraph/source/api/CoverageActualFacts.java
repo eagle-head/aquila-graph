@@ -63,8 +63,6 @@ public final class CoverageActualFacts {
   private static final String TYPE_ELEMENT_SURFACE = "TypeElement";
   private static final String VOID_TYPE_NAME = "void";
   private static final String OBJECT_TYPE_NAME = "java.lang.Object";
-  private static final JavaTypeStructure IMPLICIT_OBJECT_BOUND = new JavaTypeStructure.Declared("type:java.lang.Object", Optional.empty(),
-      Optional.empty(), List.of());
   private CoverageActualFacts() {
   }
 
@@ -468,6 +466,9 @@ public final class CoverageActualFacts {
    */
   public static boolean supportsProperty(SourceContext context, CoveragePropertyValue expected, List<CoverageFactReference> owned,
       CoverageActualFactView actualFacts, InputSnapshot snapshot) {
+    if (context.address().partition() == SourceContext.Partition.MODULE_ENDPOINT) {
+      return ModuleServiceFacts.supports(context, expected, owned, actualFacts);
+    }
     if (context.address().partition() == SourceContext.Partition.TYPE && MATCH_ALL_TYPE_ROLE.equals(context.address().role())) {
       return supportsPatternType(context, expected, owned);
     }
@@ -735,7 +736,9 @@ public final class CoverageActualFacts {
       return Optional.empty();
     }
     if (bounds.isEmpty()) {
-      return variable.upperBound().equals(IMPLICIT_OBJECT_BOUND) ? Optional.of(OBJECT_TYPE_NAME) : Optional.empty();
+      return JavaTypeDeclarationIdentity.isPlatformType(variable.upperBound(), "java.lang.Object")
+          ? Optional.of(OBJECT_TYPE_NAME)
+          : Optional.empty();
     }
     var first = actualFacts.requiredSyntax(bounds.getFirst()).type();
     if (!(first instanceof SyntaxType.Resolved resolved)

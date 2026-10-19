@@ -19,6 +19,7 @@ import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.NormalizedExpressionCorrespondence;
+import org.aquilagraph.source.api.ModuleServiceFacts;
 
 /** Source-only qualification over intrinsically admitted copied facts. */
 final class SourceRequirements {
@@ -42,8 +43,9 @@ final class SourceRequirements {
     if (!profile.supportsSourceEnvelope() && input.program().types().isEmpty()) {
       return AstCompletion.UNAVAILABLE;
     }
-    if ((profile.supportsWrittenExpressions()
-        && input.languageFeatureCoverageResult().validationEvidence().writtenInventory().writtenExpressions().isEmpty())
+    if ((profile.supportsModuleServices() && ModuleServiceFacts.hasGap(input))
+        || (profile.supportsWrittenExpressions()
+            && input.languageFeatureCoverageResult().validationEvidence().writtenInventory().writtenExpressions().isEmpty())
         || input.program().types().stream().anyMatch(type -> type.staticType().category() != JavaTypeCategory.DECLARED)
         || (profile.supportsNestedDeclarations() && input.program().types().stream()
             .anyMatch(type -> (type.nesting().lexicalOwnerKey().isPresent() && type.nesting().ownerDetails().isEmpty())
