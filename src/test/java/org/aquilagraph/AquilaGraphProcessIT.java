@@ -18,6 +18,23 @@ import org.junit.jupiter.api.TestFactory;
 class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
 
+  @Test
+  void givenWrittenUnaryAndMixedStringStages_whenPackagedAnalyzerRuns_thenSupportedGraphsComplete() throws Exception {
+    // Arrange
+    var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("written-source"));
+    Files.writeString(sourceRoot.resolve("Example.java"), "class Example { int minimum() { return -2147483648; } "
+        + "String first() { return 1 + 2 + \"a\" + \"b\"; } String second(String x) { return x + \"c\" + \"d\"; } }");
+
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(sourceRoot);
+
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(0, result.exitCode(), result.error());
+    assertTrue(result.output().contains("Completion: COMPLETED"), result.output());
+    assertEquals("", result.error());
+  }
+
   @TestFactory
   Stream<DynamicTest> givenInvalidRepeatableMixtures_whenPackagedAnalyzerRuns_thenCompilerErrorsAndIncompleteExitRemainObservable() {
     // Arrange

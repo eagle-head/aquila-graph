@@ -17,6 +17,8 @@ import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.SourceCoverageInventory;
+import org.aquilagraph.source.api.AttributedCoverageExpectations;
 
 /** Atomic source qualification and complete content identity admission. */
 public final class AstResultAdmission {
@@ -121,17 +123,40 @@ public final class AstResultAdmission {
       if (!AstResult.supportsSourceModelVersion(format)) {
         throw new IllegalArgumentException("Unsupported retained AST format: " + format);
       }
-      var completion = SourceRequirements.assess(input, profile);
+      if (profile.supportsWrittenExpressions() && !AstResult.SOURCE_MODEL_VERSION.equals(format)) {
+        throw new IllegalArgumentException("The written-expression source profile requires retained AST format java-source/19");
+      }
+      var retained = retainedInput(input, format);
+      var completion = SourceRequirements.assess(retained, profile);
       if (completion == AstCompletion.UNAVAILABLE) {
         throw new IllegalArgumentException("Copied source values cannot establish an available AST result");
       }
-      var software = SoftwareVersion.from(input.snapshot(), input.environmentSnapshot());
+      var software = SoftwareVersion.from(retained.snapshot(), retained.environmentSnapshot());
       var identity = AstIdentity.fromContent(software.signature(), format, profile.version(), semanticRevision,
-          AstCodec.canonicalDigest(input, profile, semanticRevision, format));
-      return AstAggregateAdmission.result(identity, profile, completion, input);
+          AstCodec.canonicalDigest(retained, profile, semanticRevision, format));
+      return AstAggregateAdmission.result(identity, profile, completion, retained);
     } catch (IllegalArgumentException exception) {
       throw rejection(exception);
     }
+  }
+
+  private static SyntaxAnalysisInput retainedInput(SyntaxAnalysisInput input, String format) {
+    var coverage = input.languageFeatureCoverageResult();
+    var evidence = coverage.validationEvidence();
+    var written = evidence.writtenInventory();
+    if (AstResult.SOURCE_MODEL_VERSION.equals(format) || written.writtenExpressions().isEmpty()) {
+      return input;
+    }
+    if (!written.writtenExpressions().orElseThrow().isEmpty()) {
+      throw new IllegalArgumentException("Written expression obligations require retained AST format java-source/19");
+    }
+    // Earlier formats have no proof-presence field, even when no normalized regions were encountered.
+    var historical = new SourceCoverageInventory(written.snapshot(), written.release(), written.contractIdentity(), written.contexts());
+    var attributed = new AttributedCoverageExpectations(historical, evidence.attributedExpectations().projections());
+    var retainedCoverage = LanguageFeatureCoverageResult.fromEvidence(coverage.coverage(), historical, attributed, evidence.outcomes(),
+        evidence.unmatchedFacts(), evidence.diagnosticEmissions());
+    return new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), input.aggregate(), input.diagnostics(),
+        retainedCoverage);
   }
 
   private static AstContractException rejection(IllegalArgumentException exception) {

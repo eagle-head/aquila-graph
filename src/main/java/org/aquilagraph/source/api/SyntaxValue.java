@@ -2332,11 +2332,23 @@ public sealed interface SyntaxValue {
    *
    * @param text
    *          literal representation
+   * @param restrictedDecimal
+   *          context-restricted magnitude without an independent positive runtime value
    */
-  record Literal(String text) implements SyntaxValue {
+  record Literal(String text, Optional<DecimalMinimumOperand> restrictedDecimal) implements SyntaxValue {
+    /**
+     * Creates an ordinary literal value.
+     *
+     * @param text
+     *          stable literal representation
+     */
+    public Literal(String text) {
+      this(text, Optional.empty());
+    }
     /** Validates the literal representation. */
     public Literal {
       Objects.requireNonNull(text, "text");
+      Objects.requireNonNull(restrictedDecimal, "restrictedDecimal");
     }
   }
 

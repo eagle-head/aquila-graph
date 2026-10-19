@@ -80,24 +80,44 @@ public record CoverageSourceFact(List<Step> structuralPath, String sourceKind, S
   }
 
   /**
-   * Parsed source owner retained independently at actual creation.
+   * Exact parsed or explicitly grammar-derived provenance copied at source creation.
    *
    * @param nodeKey
    *          actual retained source identity
    * @param sourceFileKey
    *          captured source identity
    * @param ownerPath
-   *          original typed parsed owner path
+   *          parsed owner or distinct grammar-derived occurrence address
    * @param sourceKind
-   *          original source category
+   *          exact parsed or explicitly derived written category
    * @param origin
-   *          original available span
+   *          captured source span
+   * @param normalizedExpression
+   *          explicit normalized-region provenance when the occurrence is grammar-derived
    */
-  public record Association(String nodeKey, String sourceFileKey, SourceOwnerPath ownerPath, String sourceKind,
-      Optional<SourceSpan> origin) {
-    /** Copies the original owner path and checks local source consistency. */
+  public record Association(String nodeKey, String sourceFileKey, SourceOwnerPath ownerPath, String sourceKind, Optional<SourceSpan> origin,
+      Optional<NormalizedExpressionCorrespondence> normalizedExpression) {
+    /**
+     * Copies an exact original association.
+     *
+     * @param nodeKey
+     *          retained node
+     * @param sourceFileKey
+     *          captured source
+     * @param ownerPath
+     *          original owner
+     * @param sourceKind
+     *          original category
+     * @param origin
+     *          original range
+     */
+    public Association(String nodeKey, String sourceFileKey, SourceOwnerPath ownerPath, String sourceKind, Optional<SourceSpan> origin) {
+      this(nodeKey, sourceFileKey, ownerPath, sourceKind, origin, Optional.empty());
+    }
+    /** Validates copied source provenance and local source consistency. */
     public Association {
       Objects.requireNonNull(ownerPath, "ownerPath");
+      Objects.requireNonNull(normalizedExpression, "normalizedExpression");
       Objects.requireNonNull(origin, "origin");
       if (Objects.requireNonNull(nodeKey, "nodeKey").isBlank() || Objects.requireNonNull(sourceFileKey, "sourceFileKey").isBlank()
           || Objects.requireNonNull(sourceKind, "sourceKind").isBlank()

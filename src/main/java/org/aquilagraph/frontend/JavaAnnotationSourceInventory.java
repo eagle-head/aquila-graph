@@ -38,6 +38,7 @@ import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxOperator;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
 
 /** Immutable written obligations captured before attribution, independent of translation and coverage output. */
 record JavaAnnotationSourceInventory(List<Occurrence> annotations, List<Declaration> declarations) {
@@ -131,10 +132,12 @@ record JavaAnnotationSourceInventory(List<Occurrence> annotations, List<Declarat
   record Branch(SyntaxRole role, int ordinal, WrittenTree tree) {
   }
 
-  record WrittenTree(TreePath path, JavaSourceKind sourceKind, SyntaxKind syntaxKind, Optional<SourceSpan> range,
-      JavaSourceEvidence.Position position, SyntaxValue value, List<Branch> children) {
+  record WrittenTree(TreePath compilerAnchor, JavaSourceKind sourceKind, SyntaxKind syntaxKind, Optional<SourceSpan> range,
+      JavaSourceEvidence.Position position, SyntaxValue value, List<Branch> children,
+      Optional<List<SyntaxStructuralPath.Step>> derivationPath) {
     WrittenTree {
       children = List.copyOf(children);
+      derivationPath = derivationPath.map(List::copyOf);
     }
   }
 
@@ -161,7 +164,7 @@ record JavaAnnotationSourceInventory(List<Occurrence> annotations, List<Declarat
 
     WrittenTree tree(TreePath path, SyntaxKind kind, SyntaxValue value, List<Branch> children) {
       return new WrittenTree(path, JavaSourceKind.valueOf(path.getLeaf().getKind().name()), kind, range(path),
-          evidence.position(path.getCompilationUnit(), source, path.getLeaf()), value, children);
+          evidence.position(path.getCompilationUnit(), source, path.getLeaf()), value, children, Optional.empty());
     }
 
     WrittenTree annotation(TreePath path, AnnotationTree annotation) {
@@ -180,11 +183,20 @@ record JavaAnnotationSourceInventory(List<Occurrence> annotations, List<Declarat
       var children = new ArrayList<Branch>();
       written.name().ifPresent(name -> children.add(new Branch(SyntaxRole.ANNOTATION_ELEMENT_NAME, 0, tree(new TreePath(argumentPath, name),
           SyntaxKind.ANNOTATION_ELEMENT_NAME, new SyntaxValue.SourceSymbol(name.getName().toString()), List.of()))));
-      children.add(new Branch(SyntaxRole.VALUE, 0, value(written.valuePath())));
-      return tree(argumentPath, SyntaxKind.ANNOTATION_ARGUMENT, SyntaxValue.None.INSTANCE, children);
+      var expression = value(written.valuePath());
+      children.add(new Branch(SyntaxRole.VALUE, 0, expression));
+      var argument = tree(argumentPath, SyntaxKind.ANNOTATION_ARGUMENT, SyntaxValue.None.INSTANCE, children);
+      return written.name().isPresent()
+          ? argument
+          : new WrittenTree(argument.compilerAnchor(), expression.sourceKind(), argument.syntaxKind(), argument.range(),
+              argument.position(), argument.value(), argument.children(), argument.derivationPath());
     }
 
     WrittenTree value(TreePath path) {
+      var expression = inventory.writtenExpression(path);
+      if (expression.isPresent() && expression.orElseThrow().capture() instanceof JavaWrittenExpression.Recovered recovered) {
+        return written(recovered.root(), path, List.of(), false);
+      }
       var children = new ArrayList<Branch>();
       if (path.getLeaf() instanceof AnnotationTree annotation) {
         return annotation(path, annotation);
@@ -238,6 +250,45 @@ record JavaAnnotationSourceInventory(List<Occurrence> annotations, List<Declarat
         default -> SyntaxKind.UNSUPPORTED;
       };
       return tree(path, kind, sourceValue(path), children);
+    }
+
+    private WrittenTree written(JavaWrittenExpression.Node node, TreePath compilerAnchor, List<SyntaxStructuralPath.Step> relative,
+        boolean immediateMinus) {
+      if (node instanceof JavaWrittenExpression.Anchor anchor) {
+        return value(anchor.path());
+      }
+      var children = new ArrayList<Branch>();
+      var kind = node instanceof JavaWrittenExpression.Literal
+          ? SyntaxKind.LITERAL
+          : node instanceof JavaWrittenExpression.Unary ? SyntaxKind.UNARY : SyntaxKind.BINARY;
+      JavaSourceKind sourceKind;
+      SyntaxValue syntaxValue;
+      switch (node) {
+        case JavaWrittenExpression.Literal literal -> {
+          sourceKind = literal.sourceKind();
+          syntaxValue = new SyntaxValue.Literal(
+              source.content().substring(Math.toIntExact(node.origin().startOffset()), Math.toIntExact(node.origin().endOffsetExclusive())),
+              JavaSourceLiteral.parse(literal, immediateMinus).flatMap(JavaSourceLiteral.Value::restrictedDecimal));
+        }
+        case JavaWrittenExpression.Unary unary -> {
+          sourceKind = JavaSourceKind.valueOf(unary.operator().name());
+          syntaxValue = new SyntaxValue.Operator(unary.operator());
+          children.add(new Branch(SyntaxRole.OPERAND, 0, written(unary.operand(), compilerAnchor,
+              JavaWrittenExpression.child(relative, SyntaxRole.OPERAND), unary.operator() == SyntaxOperator.UNARY_MINUS)));
+        }
+        case JavaWrittenExpression.Binary binary -> {
+          sourceKind = JavaSourceKind.valueOf(binary.operator().name());
+          syntaxValue = new SyntaxValue.Operator(binary.operator());
+          children.add(new Branch(SyntaxRole.LEFT_OPERAND, 0,
+              written(binary.left(), compilerAnchor, JavaWrittenExpression.child(relative, SyntaxRole.LEFT_OPERAND), false)));
+          children.add(new Branch(SyntaxRole.RIGHT_OPERAND, 0,
+              written(binary.right(), compilerAnchor, JavaWrittenExpression.child(relative, SyntaxRole.RIGHT_OPERAND), false)));
+        }
+        case JavaWrittenExpression.Anchor _ -> throw new IllegalStateException("An anchor retains its original annotation inventory");
+      }
+      return new WrittenTree(compilerAnchor, sourceKind, kind, Optional.of(node.origin()),
+          evidence.position(compilerAnchor.getCompilationUnit(), source, compilerAnchor.getLeaf()), syntaxValue, children,
+          Optional.of(relative));
     }
 
     private SyntaxValue sourceValue(TreePath path) {

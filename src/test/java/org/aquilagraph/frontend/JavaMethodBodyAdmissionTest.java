@@ -284,7 +284,7 @@ class JavaMethodBodyAdmissionTest {
       assertEquals(structuralPath, root.structuralPath());
       assertEquals(List.of("1", "2"), root.children(SyntaxRole.ARRAY_ELEMENT).stream().map(node -> node.value(SyntaxValue.Literal.class).text()).toList());
       assertSame(root, projection.nodes().getLast().node());
-      assertSame(initializer, projection.nodes().getLast().path().getLeaf());
+      assertSame(initializer, projection.nodes().getLast().compilerAnchor().getLeaf());
       assertEquals(root.descendantsAndSelf().size(), projection.nodes().size());
       assertThrows(UnsupportedOperationException.class, () -> projection.nodes().clear());
       assertThrows(UnsupportedOperationException.class, () -> root.children().clear());
@@ -317,7 +317,7 @@ class JavaMethodBodyAdmissionTest {
       assertEquals(List.of(SyntaxKind.LOCAL_DECLARATION, SyntaxKind.EXPRESSION_STATEMENT), root.children(SyntaxRole.STATEMENT).stream().map(SyntaxNode::syntaxKind).toList());
       assertEquals("value", root.children(SyntaxRole.STATEMENT).getFirst().value(SyntaxValue.LocalDeclaration.class).name());
       assertEquals(SyntaxKind.COMPOUND_ASSIGNMENT, root.children(SyntaxRole.STATEMENT).getLast().requiredChild(SyntaxRole.EXPRESSION).syntaxKind());
-      assertSame(block, projection.nodes().getLast().path().getLeaf());
+      assertSame(block, projection.nodes().getLast().compilerAnchor().getLeaf());
       assertEquals(root.descendantsAndSelf().size(), root.descendantsAndSelf().stream().map(SyntaxNode::nodeId).distinct().count());
     });
   }

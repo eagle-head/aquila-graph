@@ -53,7 +53,7 @@ class MemberInitializationCodecTest {
   @Test
   void givenDeclarationScopes_whenOriginalMethodOnlyFormatIsRequested_thenTheNewValuesCannotBeEncodedAsHistoricalResults() throws IOException {
     // Arrange
-    var original = produce("class Example { int field = Math.abs(-1); { field++; } }", AstProfile.JAVA_SOURCE_INITIALIZATION);
+    var original = produce("class Example { int field = Math.abs(1); { field++; } }", AstProfile.JAVA_SOURCE_INITIALIZATION);
 
     // Act
     var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(copiedInput(original), original.profile(),
@@ -61,6 +61,21 @@ class MemberInitializationCodecTest {
 
     // Assert
     assertTrue(failure.getMessage().contains("Declaration execution scopes require retained AST format java-source/14"));
+    assertEquals(AstCompletion.COMPLETE, original.completion());
+  }
+
+  @Test
+  void givenNormalizedInitializer_whenPreviousFormatIsRequested_thenWrittenProofCannotBeDowngraded() throws IOException {
+    // Arrange
+    var original = produce("class Example { int field = Math.abs(-1); { field++; } }", AstProfile.JAVA_SOURCE_INITIALIZATION);
+
+    // Act
+    var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(copiedInput(original), original.profile(),
+        original.identity().semanticProductionRevision(), AstResult.SOURCE_ENVELOPE_MODEL_VERSION));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("Written expression obligations require retained AST format java-source/19"), failure.toString());
+    assertFalse(original.coverage().validationEvidence().writtenInventory().writtenExpressions().orElseThrow().isEmpty());
     assertEquals(AstCompletion.COMPLETE, original.completion());
   }
 

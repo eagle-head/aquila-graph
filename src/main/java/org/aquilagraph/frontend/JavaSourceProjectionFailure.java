@@ -6,11 +6,11 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.Objects;
 
-/** Stops publication of a source root whose required nested declaration is unavailable. */
+/** Stops publication of a source root whose required declaration or expression projection is unavailable. */
 final class JavaSourceProjectionFailure extends RuntimeException {
   @Serial
   private static final long serialVersionUID = 1L;
-  private static final String MESSAGE = "Required nested source declaration is unavailable";
+  private static final String MESSAGE = "Required source projection is unavailable";
   private final transient DiagnosticEmissions capturedEmissions;
 
   JavaSourceProjectionFailure(DiagnosticEmissions emissions) {

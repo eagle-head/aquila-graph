@@ -33,6 +33,7 @@ import org.aquilagraph.frontend.JavaAnnotationOccurrenceCorrelation.Unavailable;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.CompilerExpressionAnchor;
 import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.ResolutionStatus;
@@ -244,7 +245,7 @@ final class JavaAnnotationValueProjector {
     }
     var reference = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED, key, Optional.empty(), List.of(), List.of());
     return SourceProjectionResult.success(sourceAssociations.created(SyntaxNode.source(source.sourceFileKey(), path,
-        JavaSourceKind.valueOf(written.argument().getKind().name()), SyntaxKind.ANNOTATION_ARGUMENT, selectedType,
+        name.isPresent() ? JavaSourceKind.ASSIGNMENT : result.node().sourceKind(), SyntaxKind.ANNOTATION_ARGUMENT, selectedType,
         new SyntaxValue.AnnotationArgument(name, key.orElseThrow(), result.value()), children, Optional.of(reference), range.orElseThrow()),
         argumentPath));
   }
@@ -388,6 +389,13 @@ final class JavaAnnotationValueProjector {
 
   private SourceProjectionResult<SyntaxNode> expression(CompilationUnitTree unit, SourceFile source, ExpressionTree tree, TreePath treePath,
       SyntaxStructuralPath path, DiagnosticEmissionCollector diagnostics) {
+    var writtenExpression = inventory.writtenExpression(treePath);
+    if (writtenExpression.isPresent()) {
+      return new JavaWrittenExpressionProjector(semantics, inventory).project(writtenExpression.orElseThrow(), source, path, true,
+          new CompilerExpressionAnchor.AnnotationSource(inventory.parsedOwnerPath(treePath).orElseThrow()),
+          (anchor, destination) -> expression(unit, source, (ExpressionTree) anchor.getLeaf(), anchor, destination, diagnostics),
+          (node, facts, association) -> sourceAssociations.retain(node, association), diagnostics);
+    }
     var projectedRange = evidence.requiredRange(unit, source, tree, path, diagnostics);
     var range = projectedRange.value();
     var type = semantics.type(treePath);

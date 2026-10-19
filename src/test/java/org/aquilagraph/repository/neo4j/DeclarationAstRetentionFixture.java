@@ -105,7 +105,7 @@ final class DeclarationAstRetentionFixture {
 
   static void assertMixed(AstResult retained) {
     assertEquals(AstCompletion.COMPLETE, retained.completion(), retained.diagnostics().toString());
-    assertEquals("java-source/18", retained.identity().sourceModelVersion());
+    assertEquals("java-source/19", retained.identity().sourceModelVersion());
     assertEquals(AstProfile.JAVA_SOURCE_UNITS, retained.profile());
     var first = field(retained, "first");
     var scope = retained.aggregate().executionSyntax(first.value(SyntaxValue.VariableDeclaration.class).declarationKey()).orElseThrow();

@@ -30,6 +30,9 @@ public record AstProfile(String version) {
   /** Expanded Java 25 compilation units, including captured legal units without types. */
   public static final AstProfile JAVA_SOURCE_UNITS = new AstProfile("java-source-expanded/6");
 
+  /** Full Java source with independent written-expression region proof. */
+  public static final AstProfile JAVA_SOURCE_FIDELITY = new AstProfile("java-source-expanded/7");
+
   /** Requires an explicit version without interpreting unknown versions. */
   public AstProfile {
     if (Objects.requireNonNull(version, "version").isBlank()) {
@@ -89,6 +92,14 @@ public record AstProfile(String version) {
    * @return whether complete unit envelopes are represented
    */
   public boolean supportsSourceEnvelope() {
-    return JAVA_SOURCE_UNITS.equals(this);
+    return JAVA_SOURCE_UNITS.equals(this) || supportsWrittenExpressions();
+  }
+  /**
+   * Identifies contracts requiring independent proof of normalized written regions.
+   *
+   * @return whether written-expression evidence is mandatory
+   */
+  public boolean supportsWrittenExpressions() {
+    return JAVA_SOURCE_FIDELITY.equals(this);
   }
 }

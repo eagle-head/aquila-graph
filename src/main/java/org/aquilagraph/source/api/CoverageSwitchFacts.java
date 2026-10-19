@@ -63,8 +63,12 @@ final class CoverageSwitchFacts {
           .findFirst().orElseThrow();
       var origin = fact.orElseThrow().origin().orElseThrow();
       var text = source.content().substring(Math.toIntExact(origin.startOffset()), Math.toIntExact(origin.endOffsetExclusive()));
+      var observed = facts.requiredSyntax(fact.orElseThrow()).observedCompilerKind();
+      if (expressions && observed.isEmpty()) {
+        return false;
+      }
       var kind = expressions
-          ? facts.requiredSyntax(fact.orElseThrow()).sourceKind().name()
+          ? observed.orElseThrow().name()
           : label instanceof SyntaxValue.SwitchLabel.Pattern ? "PATTERN_CASE_LABEL" : "CONSTANT_CASE_LABEL";
       items.add(new Item(kind + ':' + items.size(), text, Provenance.WRITTEN));
     }

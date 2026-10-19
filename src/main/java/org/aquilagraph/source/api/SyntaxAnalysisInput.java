@@ -101,6 +101,21 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
         accounted.add(actualReference(reference, facts));
       }
       if (outcome.support().mode() == FeatureContextOutcome.Mode.FACTS) {
+        if (context.address().partition() == SourceContext.Partition.WRITTEN_EXPRESSION) {
+          var region = evidence.writtenInventory().writtenExpressions().stream().flatMap(List::stream)
+              .filter(value -> value.compilerOwner().equals(context.address().ownerPath())
+                  && value.origin().sourceFileKey().equals(context.address().sourceFileKey())
+                  && List.of(value.origin()).equals(context.origins()))
+              .findFirst().orElseThrow();
+          var roots = aggregate.stream().flatMap(value -> value.nodes().stream())
+              .filter(node -> aggregate.orElseThrow().writtenSourceAssociation(node.nodeId()).flatMap(value -> value.normalizedExpression())
+                  .filter(value -> value.occurrencePath().isEmpty() && value.region().equals(region)).isPresent())
+              .toList();
+          if (roots.size() != 1 || !region.matches(roots.getFirst()) || !outcome.support().facts().equals(owned)) {
+            throw new IllegalArgumentException(
+                "Written expression support requires its independent exact complete topology and correspondence");
+          }
+        }
         if (context.address().partition().isEmptyDeclaration() && (outcome.support().facts().size() != 1
             || !CoverageActualFacts.matchesEmptyDeclaration(context, outcome.support().facts().getFirst(), facts))) {
           throw new IllegalArgumentException("Empty declaration support requires its exact actual member occurrence and order");
@@ -175,13 +190,17 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
   private static boolean treeSupport(SourceContext context, List<CoverageFactReference> claimed, CoverageValidationEvidence evidence,
       CoverageActualFactView facts) {
     var kind = context.feature().orElseThrow().identifier();
+    if (claimed.stream()
+        .anyMatch(fact -> facts.isSource(fact, syntax -> CoverageActualFacts.supportsNormalizedCompilerOccurrence(context, syntax)))) {
+      return true;
+    }
     var candidates = facts.stream()
         .filter(fact -> fact.sourceFileKey().equals(context.address().sourceFileKey()) && facts.isSource(fact,
             syntax -> syntax.sourceAssociation()
                 .filter(association -> association.ownerPath().equals(context.address().ownerPath())
                     && association.origin().stream().toList().equals(context.origins()))
                 .isPresent()
-                && (syntax.sourceKind().name().equals(kind)
+                && (syntax.observedCompilerKind().map(value -> value.name().equals(kind)).orElse(false)
                     || (List.of("ANNOTATION", "TYPE_ANNOTATION").contains(kind) && syntax.value() instanceof SyntaxValue.Annotation))))
         .toList();
     if (!candidates.isEmpty()) {

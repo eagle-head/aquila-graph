@@ -38,8 +38,9 @@ final class CoverageSourceProjection {
         source.sourceKind().name(), source.syntaxKind().name(), type(source.type()), value(source.value()),
         source.children().stream().map(child -> new CoverageSourceFact.Child(child.role().name(), child.ordinal(), child.nodeKey()))
             .toList(),
-        source.semanticReference(), source.sourceAssociation().map(association -> new CoverageSourceFact.Association(association.nodeKey(),
-            association.sourceFileKey(), association.ownerPath(), association.sourceKind().name(), association.origin())));
+        source.semanticReference(),
+        source.sourceAssociation().map(association -> new CoverageSourceFact.Association(association.nodeKey(), association.sourceFileKey(),
+            association.ownerPath(), association.sourceKind().name(), association.origin(), association.normalizedExpression())));
   }
 
   private static Structure value(SyntaxValue source) {
@@ -124,7 +125,12 @@ final class CoverageSourceProjection {
         structure(Tag.INVOCATION, field(NAME_FIELD, text(invocation.name())), field(FORM_FIELD, named(invocation.form())),
             field("semantics", optional(invocation.semantics(), CoverageEvidenceValue.Invocation::new)));
       case SyntaxValue.Receiver receiver -> structure(Tag.RECEIVER, field(KIND_FIELD, named(receiver.kind())));
-      case SyntaxValue.Literal literal -> structure(Tag.LITERAL, field("text", text(literal.text())));
+      case SyntaxValue.Literal literal -> literal.restrictedDecimal().isEmpty()
+          ? structure(Tag.LITERAL, field("text", text(literal.text())))
+          : structure(Tag.LITERAL, field("text", text(literal.text())),
+              field("restrictedDecimal",
+                  structure(Tag.DECIMAL_MINIMUM_OPERAND, field("category", named(literal.restrictedDecimal().orElseThrow().category())),
+                      field("magnitude", text(literal.restrictedDecimal().orElseThrow().magnitude())))));
       case SyntaxValue.Operator operator -> structure(Tag.OPERATOR, field("operator", named(operator.operator())));
       case SyntaxValue.TypeName name -> structure(Tag.TYPE_NAME, field(NAME_FIELD, text(name.name())));
       case SyntaxValue.ArrayCreation array ->

@@ -176,6 +176,14 @@ final class SemanticResolver {
     return types.getPrimitiveType(Objects.requireNonNull(kind, "kind"));
   }
 
+  TypeMirror nullType() {
+    return types.getNullType();
+  }
+
+  Optional<TypeMirror> namedType(String name) {
+    return Optional.ofNullable(elements.getTypeElement(name)).map(TypeElement::asType);
+  }
+
   TypeMirror boxedType(PrimitiveType type) {
     return types.boxedClass(Objects.requireNonNull(type, TYPE_ARGUMENT)).asType();
   }

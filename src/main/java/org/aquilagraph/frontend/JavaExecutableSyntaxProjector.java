@@ -29,6 +29,7 @@ import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
+import org.aquilagraph.source.api.CompilerExpressionAnchor;
 
 /** Copies executable syntax independently of its declaration's registration policy. */
 final class JavaExecutableSyntaxProjector {
@@ -74,7 +75,8 @@ final class JavaExecutableSyntaxProjector {
     }
     context.requireOwner(semantics, sourceEvidence, sourceFile, ownerKey, path, constructor, compilerGenerated);
     var nodes = new ArrayList<NodeProjection>();
-    var result = translateTree(unit, sourceFile, ownerKey, tree, path, structuralPath, constructor, compilerGenerated, nodes);
+    var result = translateTree(unit, sourceFile, ownerKey, tree, path, structuralPath, structuralPath, constructor, compilerGenerated,
+        nodes);
     return new Projection(semantics, context, unit, sourceFile, ownerKey, new TranslationResult<>(result.node(), result.emissions()),
         nodes);
   }
@@ -146,11 +148,18 @@ final class JavaExecutableSyntaxProjector {
     }
   }
 
-  record NodeProjection(SyntaxNode node, TreePath path, List<SyntaxChildMapping> children,
-      Optional<WrittenSourceAssociation> sourceAssociation, Optional<AnalysisDiagnostic> erroneousType) {
+  record NodeProjection(SyntaxNode node, TreePath compilerAnchor, SyntaxStructuralPath compilerPath, List<SyntaxChildMapping> children,
+      Optional<WrittenSourceAssociation> sourceAssociation, Optional<AnalysisDiagnostic> erroneousType,
+      Optional<JavaWrittenExpressionProjector.Facts> derivation) {
+    NodeProjection(SyntaxNode node, TreePath compilerAnchor, SyntaxStructuralPath compilerPath, List<SyntaxChildMapping> children,
+        Optional<WrittenSourceAssociation> sourceAssociation, Optional<AnalysisDiagnostic> erroneousType) {
+      this(node, compilerAnchor, compilerPath, children, sourceAssociation, erroneousType, Optional.empty());
+    }
     NodeProjection {
       Objects.requireNonNull(node, "node");
-      Objects.requireNonNull(path, "path");
+      Objects.requireNonNull(compilerAnchor, "compilerAnchor");
+      Objects.requireNonNull(compilerPath, "compilerPath");
+      Objects.requireNonNull(derivation, "derivation");
       children = List.copyOf(children);
       Objects.requireNonNull(sourceAssociation, "sourceAssociation");
       Objects.requireNonNull(erroneousType, "erroneousType");
@@ -158,17 +167,41 @@ final class JavaExecutableSyntaxProjector {
   }
 
   private SyntaxTreeTranslation translateTree(CompilationUnitTree unit, SourceFile sourceFile, String ownerKey, Tree tree, TreePath path,
-      SyntaxStructuralPath structuralPath, boolean constructor, boolean compilerGenerated, List<NodeProjection> nodeProjections) {
+      SyntaxStructuralPath structuralPath, SyntaxStructuralPath compilerPath, boolean constructor, boolean compilerGenerated,
+      List<NodeProjection> nodeProjections) {
     var collaborator = context.declarations();
     if (tree instanceof ClassTree declaration && collaborator.isPresent()) {
       var translated = collaborator.orElseThrow().project(declaration, path, structuralPath);
-      nodeProjections.add(new NodeProjection(translated.value(), path, List.of(), treeInventory.sourceAssociation(translated.value(), path),
-          Optional.empty()));
+      nodeProjections.add(new NodeProjection(translated.value(), path, compilerPath, List.of(),
+          treeInventory.sourceAssociation(translated.value(), path), Optional.empty()));
       return new SyntaxTreeTranslation(translated.value(), translated.emissions());
     }
+    var writtenExpression = treeInventory.writtenExpression(path);
+    if (writtenExpression.isPresent()) {
+      var expression = writtenExpression.orElseThrow();
+      var originalOperands = new IdentityHashMap<Tree, CompilerOperand>();
+      compilerOperands(tree, path, compilerPath, originalOperands);
+      var diagnostics = new DiagnosticEmissionCollector("JavaWrittenExpressionProjector", ownerKey + ':' + structuralPath);
+      var projected = new JavaWrittenExpressionProjector(semantics, treeInventory).project(expression, sourceFile, structuralPath, false,
+          new CompilerExpressionAnchor.Execution(compilerPath), (anchor, destination) -> {
+            var original = Objects.requireNonNull(originalOperands.get(anchor.getLeaf()), "original compiler operand");
+            var translated = translateTree(unit, sourceFile, ownerKey, anchor.getLeaf(), original.path(), destination, original.address(),
+                constructor, compilerGenerated, nodeProjections);
+            diagnostics.include(translated.emissions());
+            return SourceProjectionResult.success(translated.node());
+          },
+          (node, facts, association) -> nodeProjections
+              .add(new NodeProjection(node, path, compilerPath, List.of(), Optional.of(association), Optional.empty(), Optional.of(facts))),
+          diagnostics);
+      if (projected.failure().isPresent()) {
+        throw new JavaSourceProjectionFailure(diagnostics.snapshot());
+      }
+      return new SyntaxTreeTranslation(projected.value().orElseThrow(), diagnostics.snapshot());
+    }
     var generated = compilerGenerated || (constructor && treeInventory.isCompilerInsertedSuperCall(path));
-    var mapping = syntaxProfile.describe(tree, path, structuralPath);
-    var children = translateChildren(unit, sourceFile, ownerKey, mapping.children(), constructor, generated, nodeProjections);
+    var mapping = syntaxProfile.describe(tree, path, compilerPath);
+    var children = translateChildren(unit, sourceFile, ownerKey, mapping.children(), structuralPath, constructor, generated,
+        nodeProjections);
     var origin = sourceEvidence.origin(unit, sourceFile, tree);
     var value = mapping.value();
     if (value instanceof SyntaxValue.LocalDeclaration && tree instanceof VariableTree variable) {
@@ -195,7 +228,8 @@ final class JavaExecutableSyntaxProjector {
         ? Optional.of(semanticDiagnostic(ownerKey, node, "frontend.error-type", "javac reported an error type for retained syntax",
             AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE))
         : Optional.<AnalysisDiagnostic>empty();
-    nodeProjections.add(new NodeProjection(node, path, mapping.children(), treeInventory.sourceAssociation(node, path), erroneousType));
+    nodeProjections
+        .add(new NodeProjection(node, path, compilerPath, mapping.children(), treeInventory.sourceAssociation(node, path), erroneousType));
     var diagnostics = diagnostics(ownerKey, node, children, erroneousType);
     if (!generated) {
       switch (sourceEvidence.position(unit, sourceFile, tree)) {
@@ -213,6 +247,18 @@ final class JavaExecutableSyntaxProjector {
     return new SyntaxTreeTranslation(node, diagnostics.snapshot());
   }
 
+  private void compilerOperands(Tree tree, TreePath path, SyntaxStructuralPath address, Map<Tree, CompilerOperand> operands) {
+    operands.put(tree, new CompilerOperand(path, address));
+    if (tree.getKind() == Tree.Kind.PLUS || tree.getKind() == Tree.Kind.MINUS) {
+      for (var child : syntaxProfile.describe(tree, path, address).children()) {
+        compilerOperands(child.tree(), child.treePath(), child.structuralPath(), operands);
+      }
+    }
+  }
+
+  private record CompilerOperand(TreePath path, SyntaxStructuralPath address) {
+  }
+
   private void observeDeclarationProperties(CompilationUnitTree unit, SourceFile sourceFile, String ownerKey, Tree tree,
       DiagnosticEmissionCollector diagnostics) {
     if (!(tree instanceof VariableTree variableTree)) {
@@ -227,12 +273,13 @@ final class JavaExecutableSyntaxProjector {
   }
 
   private List<SyntaxTreeTranslation> translateChildren(CompilationUnitTree unit, SourceFile sourceFile, String ownerKey,
-      List<SyntaxChildMapping> children, boolean constructor, boolean compilerGenerated, List<NodeProjection> nodeProjections) {
+      List<SyntaxChildMapping> children, SyntaxStructuralPath parentPath, boolean constructor, boolean compilerGenerated,
+      List<NodeProjection> nodeProjections) {
     var translations = new ArrayList<SyntaxTreeTranslation>(children.size());
     try {
       for (var child : children) {
-        translations.add(translateTree(unit, sourceFile, ownerKey, child.tree(), child.treePath(), child.structuralPath(), constructor,
-            compilerGenerated, nodeProjections));
+        translations.add(translateTree(unit, sourceFile, ownerKey, child.tree(), child.treePath(),
+            parentPath.child(child.role(), child.position()), child.structuralPath(), constructor, compilerGenerated, nodeProjections));
       }
     } catch (JavaSourceProjectionFailure failure) {
       throw new JavaSourceProjectionFailure(

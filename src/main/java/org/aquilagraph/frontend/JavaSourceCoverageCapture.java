@@ -137,8 +137,15 @@ final class JavaSourceCoverageCapture {
         }
       }
     }
+    var expressionRegions = parsed.treeInventory().expressionRegions();
+    for (var index = 0; index < expressionRegions.size(); index++) {
+      var region = expressionRegions.get(index);
+      contexts.add(new SourceContext(new SourceContext.Address(region.origin().sourceFileKey(), Partition.WRITTEN_EXPRESSION,
+          region.compilerOwner(), "written-expression", index), Optional.empty(), List.of(region.origin()), Optional.empty(), false));
+    }
     contexts.sort(Comparator.comparing(context -> context.address().partition()));
-    return new JavaSourceCoverageCapture(new SourceCoverageInventory(snapshot, coverage.release(), coverage.contractIdentity(), contexts),
+    return new JavaSourceCoverageCapture(
+        new SourceCoverageInventory(snapshot, coverage.release(), coverage.contractIdentity(), contexts, Optional.of(expressionRegions)),
         descriptors, parsed.sourceEvidence(), policy);
   }
 

@@ -289,6 +289,10 @@ final class RetainedValueCodec {
       }
       components.add(read(reader));
     }
+    if (formatVersion < 19 && ("written-source-association".equals(tag) || "source-coverage-inventory".equals(tag)
+        || "syntax-value/literal".equals(tag) || "coverage-source-fact/association".equals(tag))) {
+      components.add(Optional.empty());
+    }
     if (historicalScopes) {
       components.add(List.of());
     }
@@ -334,6 +338,10 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatTag(String tag) {
+    if (formatVersion < 19 && (tag.startsWith("written-expression-region") || tag.startsWith("normalized-expression-correspondence")
+        || tag.startsWith("compiler-expression-anchor/") || "decimal-minimum-operand".equals(tag))) {
+      throw new IllegalArgumentException("Written expression evidence requires retained AST format java-source/19");
+    }
     if (formatVersion < 18 && "syntax-value/compilation-unit-range".equals(tag)) {
       throw new IllegalArgumentException("Compilation unit range provenance requires retained AST format java-source/18");
     }
@@ -373,6 +381,12 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatEnum(Class<?> type, String name) {
+    if (formatVersion < 19 && ((type == CoverageEvidenceValue.Tag.class && "DECIMAL_MINIMUM_OPERAND".equals(name))
+        || (type == SourceContext.Partition.class && "WRITTEN_EXPRESSION".equals(name))
+        || (type == SourceOwnerPath.Role.class && "WRITTEN_EXPRESSION".equals(name)))) {
+      throw new IllegalArgumentException("Written expression provenance requires retained AST format java-source/19");
+    }
+
     if (formatVersion < 18 && type == SourceContext.Partition.class && "EMPTY_UNIT_DECLARATION".equals(name)) {
       throw new IllegalArgumentException("Empty unit declarations require retained AST format java-source/18");
     }

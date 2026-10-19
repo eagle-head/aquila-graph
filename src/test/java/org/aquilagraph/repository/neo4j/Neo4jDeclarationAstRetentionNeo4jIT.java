@@ -49,12 +49,14 @@ import org.aquilagraph.source.api.AnnotationScalar;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.CoveragePropertyValue;
 import org.aquilagraph.source.api.FeatureContextOutcome;
 import org.aquilagraph.source.api.SourceContext;
 import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.SyntaxAnalysisInput;
@@ -73,6 +75,62 @@ import org.neo4j.driver.Values;
 @ExtendWith(Neo4jIntegration.class)
 class Neo4jDeclarationAstRetentionNeo4jIT {
   @TempDir Path directory;
+
+  @Test
+  void givenNestedSameStartRegions_whenRepeatedProductionIsRetainedAndQueriedWithoutCompiler_thenOneCanonicalIdentitySurvives() throws Exception {
+    // Arrange
+    var source = "class Example { String value() { return -1 * 2 + \"a\" + \"b\"; } }";
+    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var request = new AstProductionRequest(new SourceInput.Snapshot(snapshot), DeclarationAstRetentionFixture.configuration(),
+        AstProfile.JAVA_SOURCE_FIDELITY);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var first = frontend.produce(request);
+    var repeated = frontend.produce(request).result().orElseThrow();
+    var retained = independentQuery(settings(), first);
+
+    // Assert
+    DeclarationAstRetentionFixture.assertPreserved(first.result().orElseThrow(), retained);
+    DeclarationAstRetentionFixture.assertPreserved(repeated, retained);
+    assertEquals(AstCompletion.COMPLETE, retained.completion());
+    assertEquals(List.of("-1", "-1 * 2 + \"a\" + \"b\""), retained.coverage().validationEvidence().writtenInventory()
+        .writtenExpressions().orElseThrow().stream()
+        .map(region -> source.substring((int) region.origin().startOffset(), (int) region.origin().endOffsetExclusive())).toList());
+    assertEquals(repeated.identity(), retained.identity());
+    assertArrayEquals(AstCodec.encode(repeated), AstCodec.encode(retained));
+  }
+
+  @Test
+  void givenWrittenRegionsAndRestrictedMinima_whenRetainedAndQueriedWithoutCompiler_thenTopologyAndEvidenceSurvive() throws Exception {
+    // Arrange
+    var source = """
+        @interface Mark { String text() default "a" + "b"; int number() default -2147483648; }
+        @Mark(text="c" + "d", number=-1) class Example {
+          long field = -9223372036854775808L;
+          String subject(String input) { return 1 + 2 + "e" + "f" + input; }
+        }
+        """;
+    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var ast = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(new SourceInput.Snapshot(snapshot),
+        DeclarationAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_FIDELITY));
+    var original = ast.result().orElseThrow();
+
+    // Act
+    var retained = independentQuery(settings(), ast);
+
+    // Assert
+    DeclarationAstRetentionFixture.assertPreserved(original, retained);
+    assertEquals(AstProfile.JAVA_SOURCE_FIDELITY, retained.profile());
+    assertEquals("java-source/19", retained.identity().sourceModelVersion());
+    assertEquals("javac-public/9", retained.identity().semanticProductionRevision());
+    assertEquals(6, retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.BINARY).count());
+    assertEquals(3, retained.aggregate().nodes().stream().filter(node -> node.sourceKind() == JavaSourceKind.UNARY_MINUS).count());
+    assertEquals(2, retained.aggregate().nodes().stream().filter(node -> node.value() instanceof SyntaxValue.Literal literal
+        && literal.restrictedDecimal().isPresent()).count());
+    assertTrue(retained.coverage().validationEvidence().writtenInventory().writtenExpressions().orElseThrow().size() >= 5);
+    assertTrue(retained.aggregate().writtenSourceAssociations().stream().anyMatch(value -> value.normalizedExpression().isPresent()));
+  }
 
   @Test
   void givenRepeatedAnnotationsAndExplicitNestedContainers_whenRetainedAndQueriedWithoutCompiler_thenOccurrencesAndValuesSurvive()
@@ -98,7 +156,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, retained.completion());
-    assertEquals("javac-public/8", retained.identity().semanticProductionRevision());
+    assertEquals("javac-public/9", retained.identity().semanticProductionRevision());
     assertEquals(ast.result().orElseThrow().identity(), retained.identity());
     assertEquals(ast.result().orElseThrow().aggregate(), retained.aggregate());
     assertEquals(preceding.identity(), prior.identity());
@@ -136,8 +194,8 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, retained.completion());
-    assertEquals("javac-public/8", retained.identity().semanticProductionRevision());
-    assertEquals("java-source/18", retained.identity().sourceModelVersion());
+    assertEquals("javac-public/9", retained.identity().semanticProductionRevision());
+    assertEquals("java-source/19", retained.identity().sourceModelVersion());
     var modifiers = retained.coverage().validationEvidence().outcomes().stream()
         .filter(value -> value.address().role().equals("TypeElement::Element#getModifiers()"))
         .flatMap(value -> value.encounteredValue().stream()).flatMap(value -> value.items().stream())
@@ -268,6 +326,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
         + Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath();
     try {
       assertEquals(PublicationStatus.SAVED, retention(settings).retainAst(ast).status());
+      assertMaterialization(settings, ast);
 
       // Act
       var executable = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
