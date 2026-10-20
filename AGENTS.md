@@ -27,6 +27,10 @@ These instructions apply to the entire directory tree rooted at this file. More 
 - When showing repository build commands, use `make <target>` for Linux and macOS and `.\Invoke-Build.ps1 <target>` for Windows.
 - Use the [build quality guide](docs/build-quality.md#commands) for the available targets and their validation responsibilities.
 
+## Validation After Removals
+
+- After any removal, run every configured test group against the final implementation before declaring the work complete. Follow the [complete test validation procedure](docs/build-quality.md#validation-after-removals).
+
 ## Diagram Paths and Filenames
 
 - Treat every diagram path as one semantic identifier composed of its directories and filename.

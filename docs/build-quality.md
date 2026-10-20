@@ -60,6 +60,21 @@ Keep `target/classes`, `target/test-classes`, `target/partitions`, and
 `target/maven-status` local to one toolchain. The Maven artifact cache under
 `target/maven-repository` can be reused.
 
+## Validation After Removals
+
+After any removal, validate the final implementation with every configured test
+group, regardless of the apparent scope of the change. Run `make coverage` and
+`make integration-test-neo4j` on Linux and macOS, or
+`.\Invoke-Build.ps1 coverage` and `.\Invoke-Build.ps1 integration-test-neo4j` on
+Windows. The coverage target runs the complete `*Test` group. The full integration
+target runs every `*IT` class, including `*ProcessIT`, database behavior, packaged
+consumers, and resource lifecycle tests; a separate process-only run is redundant.
+Use JaCoCo reports as the coverage reference and run the static quality gates
+separately. A missing test prerequisite or a failed test leaves validation
+incomplete; report it without weakening gates, skipping cases, or claiming success.
+If the implementation changes after validation, rerun all test groups against
+the final implementation.
+
 ## Product Compilation Partitions
 
 The single Maven project compiles eight product partitions before assembling the ordinary
