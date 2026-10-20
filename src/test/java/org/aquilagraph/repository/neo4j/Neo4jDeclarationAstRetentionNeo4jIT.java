@@ -23,6 +23,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.application.AnalysisApplicationService;
 import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AstLookupStatus;
 import org.aquilagraph.application.AstRetentionService;
@@ -80,6 +81,59 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   @TempDir Path directory;
 
   @Test
+  void givenMixedModuleSource_whenApplicationRetainsAndCompilerFreeConsumerQueries_thenTargetsAndExistingSourceRemainIntact() throws Exception {
+    // Arrange
+    var descriptor = "import api.Service; import impl.AlphaProvider; module service.integrated { uses api.Service; provides Service with impl.ZuluFactory, AlphaProvider; }";
+    var snapshot = InputSnapshot.fromSources(directory, List.of(
+        SourceFile.fromContent(Path.of("module-info.java"), descriptor),
+        SourceFile.fromContent(Path.of("api/Service.java"), "package api; public interface Service { int value(); }"),
+        SourceFile.fromContent(Path.of("api/Mark.java"), "package api; public @interface Mark { Class<?> type() default String.class; int count() default 3; }"),
+        SourceFile.fromContent(Path.of("impl/Product.java"), "package impl; public class Product implements api.Service { public int value() { return 11; } }"),
+        SourceFile.fromContent(Path.of("impl/ZuluFactory.java"), "package impl; public final class ZuluFactory { private ZuluFactory() {} public static Product provider() { return new Product(); } }"),
+        SourceFile.fromContent(Path.of("impl/AlphaProvider.java"), "package impl; @api.Mark public class AlphaProvider implements api.Service { public int value() { return 7; } }"),
+        SourceFile.fromContent(Path.of("model/Payload.java"), "package model; @api.Mark public class Payload<T extends Comparable<T>> { public T echo(T value) { return value; } public int supported() { return 9; } public Runnable lambda() { return () -> {}; } public Object boxed() { return 4; } public Class<?> literal() { return String.class; } }")));
+    var settings = settings();
+    var application = new AnalysisApplicationService(
+        new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()), retention(settings),
+        run -> { throw new AssertionError("Combined publication is not requested"); });
+    var request = new AnalysisRequest(new SourceInput.Snapshot(snapshot), DeclarationAstRetentionFixture.configuration(),
+        AstProfile.JAVA_SOURCE_MODULE_SERVICES, Optional.empty(), PublicationIntent.SAVE_COMPLETE_AST);
+
+    // Act
+    var execution = application.execute(request);
+    var outcome = execution.run().representation().ast();
+    var original = outcome.result().orElseThrow();
+    try {
+      var retained = queryRetainedInIndependentProcess(settings, outcome, Optional.of(expectedModuleOperands(snapshot, "service.integrated",
+          List.of("api.Service", "Service"),
+          List.of("impl.ZuluFactory", "AlphaProvider"), List.of("impl.ZuluFactory", "impl.AlphaProvider"))));
+      var supported = retained.program().methods().stream().filter(method -> method.name().equals("supported")).findFirst().orElseThrow().methodKey();
+      var lambda = retained.program().methods().stream().filter(method -> method.name().equals("lambda")).findFirst().orElseThrow().methodKey();
+      var graphs = CfgDerivers.standard().derive(retained,
+          new CfgRequest(retained.identity(), List.of(supported, lambda), CfgProfile.JAVA_BOUNDED));
+
+      // Assert
+      assertEquals(PublicationStatus.SAVED, execution.publication().status());
+      assertTrue(execution.run().representation().cfg().isEmpty());
+      assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
+      assertEquals("java-source-expanded/8", retained.profile().version());
+      assertEquals("javac-public/11", retained.identity().semanticProductionRevision());
+      assertEquals("java-source/20", retained.identity().sourceModelVersion());
+      DeclarationAstRetentionFixture.assertPreserved(original, retained);
+      assertEquals(List.of(MethodCfgState.AVAILABLE, MethodCfgState.UNSUPPORTED), graphs.methods().stream().map(method -> method.state()).toList());
+      assertEquals(2, retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION).count());
+      var parameter = retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_PARAMETER_DECLARATION).findFirst().orElseThrow();
+      assertEquals("T", parameter.value(SyntaxValue.TypeParameterDeclaration.class).name());
+      var factory = retained.program().types().stream().filter(type -> type.qualifiedName().equals("impl.ZuluFactory")).findFirst().orElseThrow();
+      assertTrue(factory.directInterfaces().isEmpty());
+      assertTrue(retained.program().methods().stream().anyMatch(method -> method.name().equals("boxed")));
+      assertTrue(retained.program().methods().stream().anyMatch(method -> method.name().equals("literal")));
+    } finally {
+      delete(settings, original.identity());
+    }
+  }
+
+  @Test
   void givenModuleEndpointsAndAuthenticHistory_whenSavedReplacedAndQueriedWithoutCompiler_thenExactSubjectsAndOrderedTargetsCoexist() throws Exception {
     // Arrange
     var historical = HistoricalAstFixtures.read(19);
@@ -122,11 +176,15 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   }
 
   private static List<String> expectedModuleOperands(InputSnapshot snapshot, String module, List<String> providers) {
+    return expectedModuleOperands(snapshot, module, List.of("Service", "api.Service"), providers, providers);
+  }
+
+  private static List<String> expectedModuleOperands(InputSnapshot snapshot, String module, List<String> services, List<String> providers, List<String> providerBinaries) {
     var descriptor = snapshot.sourceFiles().stream().filter(source -> source.canonicalRelativePath().equals("module-info.java")).findFirst().orElseThrow().content();
-    var spellings = new ArrayList<>(List.of("Service", "api.Service"));
+    var spellings = new ArrayList<>(services);
     spellings.addAll(providers);
     var binaries = new ArrayList<>(List.of("api.Service", "api.Service"));
-    binaries.addAll(providers);
+    binaries.addAll(providerBinaries);
     var result = new ArrayList<String>();
     var cursor = descriptor.indexOf("uses ") + "uses ".length();
     for (var index = 0; index < spellings.size(); index++) {
@@ -424,51 +482,55 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   }
 
   private AstResult independentQuery(Neo4jConnectionSettings settings, AstOutcome ast, Optional<List<String>> expectedEndpoints) throws Exception {
+    try {
+      assertEquals(PublicationStatus.SAVED, retention(settings).retainAst(ast).status());
+      return queryRetainedInIndependentProcess(settings, ast, expectedEndpoints);
+    } finally {
+      delete(settings, ast.result().orElseThrow().identity());
+    }
+  }
+
+  private AstResult queryRetainedInIndependentProcess(Neo4jConnectionSettings settings, AstOutcome ast, Optional<List<String>> expectedEndpoints) throws Exception {
     var original = ast.result().orElseThrow();
     var identity = original.identity();
     var output = directory.resolve("retained-query.ast");
     var log = directory.resolve("retained-query.log");
     var classpath = Path.of("target/test-classes").toAbsolutePath() + File.pathSeparator
         + Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath();
+    assertMaterialization(settings, ast);
+
+    // Act
+    var executable = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
+    var arguments = new ArrayList<>(List.of(executable.toString(),
+        "-Xms64m", "-Xmx1g",
+        "--limit-modules", "java.base,java.logging,java.naming,java.management,jdk.unsupported",
+        "-Djava.io.tmpdir=" + directory, "-cp", classpath, RetainedAstQueryProcess.class.getName(), identity.softwareSignature(),
+        identity.sourceModelVersion(), identity.astProfileVersion(), identity.semanticProductionRevision(), identity.canonicalContentDigest(),
+        output.toString()));
+    if (expectedEndpoints.isPresent()) {
+      var expectations = directory.resolve("module-endpoints.tsv");
+      Files.write(expectations, expectedEndpoints.orElseThrow());
+      arguments.add(expectations.toString());
+    }
+    var builder = new ProcessBuilder(arguments).redirectErrorStream(true).redirectOutput(log.toFile());
+    builder.environment().putAll(Neo4jIntegration.environment());
+    var process = builder.start();
     try {
-      assertEquals(PublicationStatus.SAVED, retention(settings).retainAst(ast).status());
-      assertMaterialization(settings, ast);
+      var completed = process.waitFor(60, TimeUnit.SECONDS);
 
-      // Act
-      var executable = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
-      var arguments = new ArrayList<>(List.of(executable.toString(),
-          "-Xms64m", "-Xmx1g",
-          "--limit-modules", "java.base,java.logging,java.naming,java.management,jdk.unsupported",
-          "-Djava.io.tmpdir=" + directory, "-cp", classpath, RetainedAstQueryProcess.class.getName(), identity.softwareSignature(),
-          identity.sourceModelVersion(), identity.astProfileVersion(), identity.semanticProductionRevision(), identity.canonicalContentDigest(),
-          output.toString()));
-      if (expectedEndpoints.isPresent()) {
-        var expectations = directory.resolve("module-endpoints.tsv");
-        Files.write(expectations, expectedEndpoints.orElseThrow());
-        arguments.add(expectations.toString());
-      }
-      var builder = new ProcessBuilder(arguments).redirectErrorStream(true).redirectOutput(log.toFile());
-      builder.environment().putAll(Neo4jIntegration.environment());
-      var process = builder.start();
-      try {
-        var completed = process.waitFor(60, TimeUnit.SECONDS);
-
-        // Assert
-        var diagnostics = Files.readString(log);
-        System.out.print(diagnostics);
-        assertTrue(completed, () -> "Independent query timed out: " + process.pid() + "\n" + diagnostics);
-        assertEquals(0, process.exitValue(), diagnostics);
-        assertArrayEquals(AstCodec.encode(original), Files.readAllBytes(output));
-        System.out.println("Independent query process " + process.pid() + " completed with exit " + process.exitValue());
-        return AstCodec.decode(Files.readAllBytes(output), identity);
-      } finally {
-        if (process.isAlive()) {
-          process.destroyForcibly();
-          assertTrue(process.waitFor(30, TimeUnit.SECONDS), "Independent query process did not close");
-        }
-      }
+      // Assert
+      var diagnostics = Files.readString(log);
+      System.out.print(diagnostics);
+      assertTrue(completed, () -> "Independent query timed out: " + process.pid() + "\n" + diagnostics);
+      assertEquals(0, process.exitValue(), diagnostics);
+      assertArrayEquals(AstCodec.encode(original), Files.readAllBytes(output));
+      System.out.println("Independent query process " + process.pid() + " completed with exit " + process.exitValue());
+      return AstCodec.decode(Files.readAllBytes(output), identity);
     } finally {
-      delete(settings, identity);
+      if (process.isAlive()) {
+        process.destroyForcibly();
+        assertTrue(process.waitFor(30, TimeUnit.SECONDS), "Independent query process did not close");
+      }
     }
   }
 
