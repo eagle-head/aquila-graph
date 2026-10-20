@@ -1,6 +1,7 @@
 package org.aquilagraph.source.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
 import java.util.Set;
@@ -10,6 +11,34 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.junit.jupiter.api.Test;
 
 class AnalysisEnvironmentSnapshotTest {
+  @Test
+  void givenPreviewOptionsInFlagAndAssignmentForms_whenEnvironmentIsCreated_thenEachOptionIsRejected() {
+    // Arrange
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+    var previewOptions = List.of("--enable-preview", "--enable-preview=", "--enable-preview=true", "--enable-preview=false");
+
+    // Act
+    var failures = previewOptions.stream().map(option -> assertThrows(IllegalArgumentException.class,
+        () -> environment(configuration, "compiler.Implementation", "Vendor", "25.0.4+1", List.of("-Xlint:all", option)))).toList();
+
+    // Assert
+    assertEquals(4, failures.size());
+    failures.forEach(failure -> assertEquals("Preview compiler option is not supported: --enable-preview", failure.getMessage()));
+  }
+
+  @Test
+  void givenOptionsWithNamesNearThePreviewFlag_whenEnvironmentIsCreated_thenTheirExactValuesAndOrderAreRetained() {
+    // Arrange
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+    var analysisOptions = List.of("--enable-preview-extra", "--enable-previewing", "-Xlint:preview");
+
+    // Act
+    var snapshot = environment(configuration, "compiler.Implementation", "Vendor", "25.0.4+1", analysisOptions);
+
+    // Assert
+    assertEquals(analysisOptions, snapshot.analysisOptions());
+  }
+
   @Test
   void givenCompilerIdentityChanges_whenEnvironmentDigestIsDerived_thenEachIdentityIsDistinct() {
     // Arrange
