@@ -116,6 +116,17 @@ leading parent-directory components. The
 [`source-file tests`](../src/test/java/org/aquilagraph/source/api/SourceFileTest.java)
 cover path rejection, normalization, and fixed content-derived identity values.
 
+The identity digest APIs require a registered SHA-256 provider. The Java
+[`MessageDigest.getInstance` contract](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/security/MessageDigest.html#getInstance(java.lang.String))
+reports a missing algorithm when no registered provider supplies it, and
+[`Security.removeProvider`](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/security/Security.html#removeProvider(java.lang.String))
+can change that runtime prerequisite.
+[`Sha256AvailabilityTest`](../src/test/java/org/aquilagraph/identity/api/Sha256AvailabilityTest.java)
+exercises this failure through the public identity APIs in a child JVM. The child
+inherits active Java agents so JaCoCo can record its execution, removes providers
+only within that process, and restores their original registration order before
+exiting. The parent test JVM retains its provider configuration.
+
 ## Text Line Endings
 
 The versioned [.gitattributes](../.gitattributes) normalizes tracked text to LF
