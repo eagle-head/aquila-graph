@@ -37,7 +37,7 @@ public record SourceFile(String sourceFileKey, Path relativePath, String content
    *          decoded source content
    * @return immutable source with a UTF-8 SHA-256 content digest
    * @throws IllegalArgumentException
-   *           if the normalized path is absolute or escapes the source root
+   *           if the normalized path is absolute, contains a root, or escapes the source root
    */
   public static SourceFile fromContent(Path relativePath, String content) {
     var normalizedPath = normalizeRelativePath(relativePath);
@@ -57,7 +57,7 @@ public record SourceFile(String sourceFileKey, Path relativePath, String content
 
   private static Path normalizeRelativePath(Path path) {
     var normalized = Objects.requireNonNull(path, "relativePath").normalize();
-    if (normalized.getRoot() != null || normalized.isAbsolute() || normalized.startsWith("..")) {
+    if (normalized.isAbsolute() || normalized.getRoot() != null || normalized.startsWith("..")) {
       throw new IllegalArgumentException("Source-file paths must be relative to the source root");
     }
     return normalized;

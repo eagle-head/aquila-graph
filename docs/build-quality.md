@@ -109,6 +109,13 @@ These gates establish their dependency and access properties; independent domain
 completion, canonical identities, retention, and query behavior require their own behavioral
 verification.
 
+[`SourceFile`](../src/main/java/org/aquilagraph/identity/api/SourceFile.java)
+admits normalized rootless relative paths that remain below the source root.
+Its validation independently rejects absolute paths, root-relative paths, and
+leading parent-directory components. The
+[`source-file tests`](../src/test/java/org/aquilagraph/source/api/SourceFileTest.java)
+cover path rejection, normalization, and fixed content-derived identity values.
+
 ## Text Line Endings
 
 The versioned [.gitattributes](../.gitattributes) normalizes tracked text to LF
