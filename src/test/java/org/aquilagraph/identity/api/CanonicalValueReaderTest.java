@@ -10,6 +10,19 @@ import org.junit.jupiter.api.Test;
 
 class CanonicalValueReaderTest {
   @Test
+  void givenNegativeByteFrameCount_whenBytesAreRead_thenTheCountIsRejectedBeforeReadingThePayload() {
+    // Arrange
+    var reader = new CanonicalValueReader(HexFormat.of().parseHex("000000010076ffffffff"), "v");
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, reader::bytes);
+
+    // Assert
+    assertEquals("Canonical sequence count cannot be negative at byte 10", failure.getMessage());
+    assertEquals(0, reader.remaining());
+  }
+
+  @Test
   void givenLiteralUtf16AndRawScalarFrames_whenValuesAreRead_thenEveryRetainedBitAndCodeUnitSurvives() {
     // Arrange
     var bytes = HexFormat.of().parseHex("000000010076000000030041d8000042ffffffff800000000000000001800000007fc12345"
