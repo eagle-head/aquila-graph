@@ -60,6 +60,21 @@ Keep `target/classes`, `target/test-classes`, `target/partitions`, and
 `target/maven-status` local to one toolchain. The Maven artifact cache under
 `target/maven-repository` can be reused.
 
+## Validation After Removals
+
+After any removal, validate the final implementation with every configured test
+group, regardless of the apparent scope of the change. Run `make coverage` and
+`make integration-test-neo4j` on Linux and macOS, or
+`.\Invoke-Build.ps1 coverage` and `.\Invoke-Build.ps1 integration-test-neo4j` on
+Windows. The coverage target runs the complete `*Test` group. The full integration
+target runs every `*IT` class, including `*ProcessIT`, database behavior, packaged
+consumers, and resource lifecycle tests; a separate process-only run is redundant.
+Use JaCoCo reports as the coverage reference and run the static quality gates
+separately. A missing test prerequisite or a failed test leaves validation
+incomplete; report it without weakening gates, skipping cases, or claiming success.
+If the implementation changes after validation, rerun all test groups against
+the final implementation.
+
 ## Product Compilation Partitions
 
 The single Maven project compiles eight product partitions before assembling the ordinary
@@ -108,6 +123,24 @@ also runs identity operations in a Java-base-only process without JSpecify defin
 These gates establish their dependency and access properties; independent domain operations,
 completion, canonical identities, retention, and query behavior require their own behavioral
 verification.
+
+[`SourceFile`](../src/main/java/org/aquilagraph/identity/api/SourceFile.java)
+admits normalized rootless relative paths that remain below the source root.
+Its validation independently rejects absolute paths, root-relative paths, and
+leading parent-directory components. The
+[`source-file tests`](../src/test/java/org/aquilagraph/source/api/SourceFileTest.java)
+cover path rejection, normalization, and fixed content-derived identity values.
+
+The identity digest APIs require a registered SHA-256 provider. The Java
+[`MessageDigest.getInstance` contract](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/security/MessageDigest.html#getInstance(java.lang.String))
+reports a missing algorithm when no registered provider supplies it, and
+[`Security.removeProvider`](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/security/Security.html#removeProvider(java.lang.String))
+can change that runtime prerequisite.
+[`Sha256AvailabilityTest`](../src/test/java/org/aquilagraph/identity/api/Sha256AvailabilityTest.java)
+exercises this failure through the public identity APIs in a child JVM. The child
+inherits active Java agents so JaCoCo can record its execution, removes providers
+only within that process, and restores their original registration order before
+exiting. The parent test JVM retains its provider configuration.
 
 ## Text Line Endings
 

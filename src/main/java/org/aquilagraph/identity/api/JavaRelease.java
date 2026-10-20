@@ -1,6 +1,6 @@
 package org.aquilagraph.identity.api;
 
-import java.util.Objects;
+import java.util.Arrays;
 
 /** Java language releases whose source semantics are supported by Aquila Graph. */
 public enum JavaRelease {
@@ -68,13 +68,6 @@ public enum JavaRelease {
   }
 
   private static String formatSupportedFeatures() {
-    var supportedFeatures = new StringBuilder();
-    for (var release : values()) {
-      if (!supportedFeatures.isEmpty()) {
-        supportedFeatures.append(", ");
-      }
-      supportedFeatures.append(release.featureNumber);
-    }
-    return Objects.requireNonNull(supportedFeatures.toString(), "supported features");
+    return String.join(", ", Arrays.stream(values()).map(release -> Integer.toString(release.featureNumber)).toList());
   }
 }

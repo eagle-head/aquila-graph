@@ -153,7 +153,8 @@ public final class CanonicalValueReader {
   }
 
   private void requireRemaining(int length) {
-    if (length < 0 || length > remaining()) {
+    // Counts are validated before this check; the other callers use fixed positive widths.
+    if (length > remaining()) {
       throw malformed("Canonical frame exceeds remaining payload");
     }
   }
