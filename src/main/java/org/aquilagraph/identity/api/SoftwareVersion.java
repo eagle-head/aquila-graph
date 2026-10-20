@@ -28,12 +28,13 @@ public record SoftwareVersion(String sourceSignature, String environmentSignatur
    * @param environmentSnapshot
    *          compiler and dependency snapshot
    * @return content-addressed software version
+   * @throws IllegalArgumentException
+   *           if the source snapshot does not use SHA-256
    */
   public static SoftwareVersion from(InputSnapshot sourceSnapshot, AnalysisEnvironmentSnapshot environmentSnapshot) {
     Objects.requireNonNull(sourceSnapshot, "sourceSnapshot");
     Objects.requireNonNull(environmentSnapshot, "environmentSnapshot");
-    if (!SIGNATURE_ALGORITHM.equals(sourceSnapshot.digestAlgorithm())
-        || !SIGNATURE_ALGORITHM.equals(environmentSnapshot.digestAlgorithm())) {
+    if (!SIGNATURE_ALGORITHM.equals(sourceSnapshot.digestAlgorithm())) {
       throw new IllegalArgumentException("Software-version components must use " + SIGNATURE_ALGORITHM);
     }
     return new SoftwareVersion(sourceSnapshot.snapshotDigest(), environmentSnapshot.environmentDigest());
