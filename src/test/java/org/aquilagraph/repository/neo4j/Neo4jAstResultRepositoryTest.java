@@ -48,6 +48,7 @@ import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.TransactionCallback;
 import org.neo4j.driver.TransactionContext;
 import org.neo4j.driver.Values;
+import org.neo4j.driver.Value;
 import org.neo4j.driver.exceptions.Neo4jException;
 
 class Neo4jAstResultRepositoryTest {
@@ -586,13 +587,21 @@ class Neo4jAstResultRepositoryTest {
         if (query.contains("RETURN properties(result)") && readFailure != null) { throw readFailure; }
         var rows = query.contains("RETURN properties(result)") && !version.equals("absent")
             ? List.of(record(Map.of("properties", Map.of("formatVersion", version)))) : List.<Record>of();
+        if (query.contains("RETURN entity.key AS key, elementId(entity) AS address")) {
+          rows = ((Value) arguments[1]).get("nodes").asList(value -> value.asMap()).stream()
+              .map(node -> record(Map.of("key", node.get("key"), "address", "node/" + node.get("key")))).toList();
+        }
         if (stored != null) {
           if (query.contains("RETURN properties(result)")) {
             rows = List.of(record(Map.of("properties", stored.root().properties())));
           } else if (query.contains("labels(entity)")) {
             rows = stored.nodes().stream().map(node -> record(Map.of("key", node.key(), "labels",
                 malformedNodeRecords ? List.of("AstEntity", node.label(), "Unexpected") : List.of("AstEntity", node.label()),
-                "properties", node.properties()))).toList();
+                "properties", node.properties(), "address", "node/" + node.key()))).toList();
+          } else if (query.contains("elementId(relation) AS address")) {
+            rows = stored.relationships().stream().map(relation -> record(Map.of("address", "relation/" + relation.key(),
+                "key", relation.key(), "type", relation.type(), "properties", relation.properties(),
+                "source", "node/" + relation.sourceKey(), "target", "node/" + relation.targetKey()))).toList();
           } else if (query.contains("type(relation)")) {
             var labelsByKey = new HashMap<String, List<String>>();
             stored.nodes().forEach(node -> labelsByKey.put(node.key(), List.of("AstEntity", node.label())));

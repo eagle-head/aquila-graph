@@ -8,6 +8,8 @@ Every integer is big-endian. A string is a nonnegative 32-bit Java character cou
 
 `CanonicalValueWriter` starts with the framed encoding-version string. Each returned byte array is independent of its buffer. Its digest is SHA-256 over the complete bytes written, with the requested namespace prefixed to the lowercase hexadecimal digest. Existing `StableId.sha256` still derives the specified qualified result key from its ordered qualification tuple using its unchanged algorithm.
 
+Text emission fills a bounded byte buffer with raw big-endian UTF-16 code units and appends each chunk to the output in one write. Chunk boundaries are not encoded and do not alter the character count, surrogate preservation, payload bytes, or digests. The [writer compatibility test](../../src/test/java/org/aquilagraph/identity/api/CanonicalValueWriterTest.java) uses `DataOutputStream.writeChars` as an independent byte oracle across chunk boundaries.
+
 `CanonicalValueReader` copies the supplied payload, verifies the exact framed format tag,
 and reads those primitive representations without normalization. String and byte lengths
 must fit the remaining payload before allocation; negative counts, truncated scalars,

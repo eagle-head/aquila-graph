@@ -3,14 +3,36 @@ package org.aquilagraph.source.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
 import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.DependencyKind;
+import org.aquilagraph.identity.api.DependencySnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.junit.jupiter.api.Test;
 
 class AnalysisEnvironmentSnapshotTest {
+  @Test
+  void givenModuleSnapshotsWithDifferentCountsOrOrder_whenAnEnvironmentIsCreated_thenEachConfigurationMismatchIsRejected() {
+    // Arrange
+    var firstPath = Path.of("first-module.jar").toAbsolutePath().normalize();
+    var secondPath = Path.of("second-module.jar").toAbsolutePath().normalize();
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(firstPath, secondPath), List.of());
+    var first = new DependencySnapshot(firstPath, DependencyKind.MISSING, 0, 0, "first-fingerprint");
+    var second = new DependencySnapshot(secondPath, DependencyKind.MISSING, 0, 0, "second-fingerprint");
+    var mismatches = List.of(List.of(first), List.of(second, first));
+
+    // Act
+    var failures = mismatches.stream().map(captured -> assertThrows(IllegalArgumentException.class,
+        () -> new AnalysisEnvironmentSnapshot(configuration, "compiler", "vendor", "25", List.of(), List.of(), captured))).toList();
+
+    // Assert
+    assertEquals(List.of("modulePath snapshot count must match the configuration", "modulePath snapshot order must match the configuration"),
+        failures.stream().map(Throwable::getMessage).toList());
+  }
+
   @Test
   void givenPreviewOptionsInFlagAndAssignmentForms_whenEnvironmentIsCreated_thenEachOptionIsRejected() {
     // Arrange

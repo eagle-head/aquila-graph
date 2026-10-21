@@ -87,9 +87,7 @@ public record AnalysisEnvironmentSnapshot(CompilerConfiguration compilerConfigur
   }
 
   private static List<String> copyStrings(List<String> values, String name) {
-    var copy = List.copyOf(Objects.requireNonNull(values, name));
-    copy.forEach(value -> Objects.requireNonNull(value, name + " entry"));
-    return copy;
+    return List.copyOf(Objects.requireNonNull(values, name));
   }
 
   private static void requireMatchingLocations(List<Path> configured, List<DependencySnapshot> captured, String name) {

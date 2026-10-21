@@ -3,6 +3,7 @@ package org.aquilagraph.testsupport;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.dockerjava.api.exception.NotFoundException;
@@ -56,6 +57,13 @@ class Neo4jResourceLifecycleNeo4jIT {
   @Test
   void givenResourceLimitedDatabase_whenOwnerJvmIsForciblyTerminated_thenLimitsAreAppliedAndReaperRemovesResources() throws Exception {
     // Arrange
+    var budget = new Properties();
+    try (var input = getClass().getResourceAsStream("/neo4j-integration.properties")) {
+      assertNotNull(input, "The declared integration resource budget must be available");
+      budget.load(input);
+    }
+    var expectedMemory = Long.parseLong(budget.getProperty("container.memory.bytes"));
+    var expectedNanoCpus = Long.parseLong(budget.getProperty("container.cpu.count")) * 1_000_000_000L;
     var output = directory.resolve("terminated-owner");
     var process = launch(output, "wait");
     try {
@@ -68,9 +76,9 @@ class Neo4jResourceLifecycleNeo4jIT {
       assertTrue(process.waitFor(30, TimeUnit.SECONDS));
 
       // Assert
-      assertEquals(8L * 1024 * 1024 * 1024, limits.getMemory().longValue());
-      assertEquals(limits.getMemory(), limits.getMemorySwap());
-      assertEquals(2_000_000_000L, limits.getNanoCPUs().longValue());
+      assertEquals(expectedMemory, limits.getMemory().longValue());
+      assertEquals(expectedMemory, limits.getMemorySwap().longValue());
+      assertEquals(expectedNanoCpus, limits.getNanoCPUs().longValue());
       assertTrue(limits.getAutoRemove());
       await(() -> removed(resources), Duration.ofSeconds(60), () -> "Resources remain after owner termination: " + resources);
       assertRemoved(resources);

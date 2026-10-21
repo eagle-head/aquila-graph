@@ -19,6 +19,7 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.StableId;
 import org.aquilagraph.source.admission.AstCodec;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
@@ -62,6 +63,33 @@ class Neo4jAstResultCodecTest {
     assertEquals(AstCodec.materialize(original).nodes().size() + 1, projection.nodes().size());
     assertEquals(AstCodec.materialize(original).links().size() + 1, projection.relationships().size());
     assertTrue(projection.nodes().stream().noneMatch(node -> node.properties().containsKey("runId")));
+  }
+
+  @Test
+  void givenCanonicalValueOrdinals_whenMapping_thenStoredNodeAndEndpointKeysPreserveTheirIdentityFormat() throws IOException {
+    // Arrange
+    var outcome = produce("class Stored { int value(int x) { return x + x; } }");
+    var original = outcome.result().orElseThrow();
+    var materialization = AstCodec.materialize(original);
+    var scope = original.identity().astResultKey();
+    var expectedKeys = materialization.nodes().stream()
+        .collect(Collectors.toMap(node -> (long) node.ordinal(), node -> StableId.sha256("ast-value", scope, Integer.toString(node.ordinal()))));
+
+    // Act
+    var projection = new Neo4jAstResultCodec().map(outcome);
+
+    // Assert
+    assertEquals(expectedKeys, projection.nodes().stream().filter(node -> node.properties().containsKey("ordinal"))
+        .collect(Collectors.toMap(node -> (Long) node.properties().get("ordinal"), Neo4jNode::key)));
+    var expectedLinks = materialization.links().stream().map(link -> {
+      var source = expectedKeys.get((long) link.sourceOrdinal());
+      var target = expectedKeys.get((long) link.targetOrdinal());
+      var type = Neo4jAstSchema.relationship(link.field());
+      return StableId.sha256("ast-field", scope, source, target, type, link.field(), Integer.toString(link.position()));
+    }).collect(Collectors.toSet());
+    var valueRootKey = StableId.sha256("ast-field", scope, scope, expectedKeys.get(0L), "HAS_AST_VALUES", "values", "0");
+    expectedLinks.add(valueRootKey);
+    assertEquals(expectedLinks, projection.relationships().stream().map(Neo4jRelationship::key).collect(Collectors.toSet()));
   }
 
   @Test

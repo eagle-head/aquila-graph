@@ -36,12 +36,19 @@
     <neo4j.driver.version>6.1.0</neo4j.driver.version>
     <nullaway.version>0.14.1</nullaway.version>
     <pmd.version>7.27.0</pmd.version>
+    <pitest.version>1.30.1</pitest.version>
+    <pitest-junit5-plugin.version>1.2.3</pitest-junit5-plugin.version>
+    <pitest.threads>2</pitest.threads>
     <spotbugs-maven-plugin.version>4.10.4.1</spotbugs-maven-plugin.version>
     <spotless-maven-plugin.version>3.10.2</spotless-maven-plugin.version>
     <testcontainers.version>2.0.5</testcontainers.version>
     <docker-java.version>3.7.1</docker-java.version>
     <slf4j.version>1.7.36</slf4j.version>
     <test.jvm.arguments>-Xms128m -Xmx2g</test.jvm.arguments>
+    <test.unit.forks>1</test.unit.forks>
+    <test.integration.forks>1</test.integration.forks>
+    <test.integration.reuse.forks>true</test.integration.reuse.forks>
+    <test.neo4j.cpu.count>2</test.neo4j.cpu.count>
   </properties>
   <dependencies>
     <dependency>
@@ -88,6 +95,22 @@
     </dependency>
   </dependencies>
   <build>
+    <testResources>
+      <testResource>
+        <directory>src/test/resources</directory>
+        <filtering>false</filtering>
+        <excludes>
+          <exclude>neo4j-integration.properties</exclude>
+        </excludes>
+      </testResource>
+      <testResource>
+        <directory>src/test/resources</directory>
+        <filtering>true</filtering>
+        <includes>
+          <include>neo4j-integration.properties</include>
+        </includes>
+      </testResource>
+    </testResources>
     <pluginManagement>
       <plugins>
         <plugin>
@@ -1010,11 +1033,49 @@
         </executions>
       </plugin>
       <plugin>
+        <groupId>org.pitest</groupId>
+        <artifactId>pitest-maven</artifactId>
+        <version>${pitest.version}</version>
+        <dependencies>
+          <dependency>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-junit5-plugin</artifactId>
+            <version>${pitest-junit5-plugin.version}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <targetClasses>
+            <param>org.aquilagraph.identity.api.*</param>
+          </targetClasses>
+          <targetTests>
+            <param>org.aquilagraph.*Test</param>
+          </targetTests>
+          <mutators>
+            <mutator>DEFAULTS</mutator>
+          </mutators>
+          <threads>${pitest.threads}</threads>
+          <jvmArgs>
+            <jvmArg>-Xms128m</jvmArg>
+            <jvmArg>-Xmx2g</jvmArg>
+            <jvmArg>-Djava.io.tmpdir=${project.build.directory}</jvmArg>
+          </jvmArgs>
+          <coverageThreshold>100</coverageThreshold>
+          <mutationThreshold>100</mutationThreshold>
+          <thresholdPrecision>4</thresholdPrecision>
+          <exportLineCoverage>true</exportLineCoverage>
+          <outputFormats>
+            <param>HTML</param>
+            <param>XML</param>
+          </outputFormats>
+        </configuration>
+      </plugin>
+      <plugin>
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>
         <version>${jacoco-maven-plugin.version}</version>
         <configuration>
           <propertyName>coverageAgentArguments</propertyName>
+          <append>true</append>
           <excludes>
             <exclude>**/package-info*</exclude>
           </excludes>
@@ -1025,6 +1086,8 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>${maven-surefire-plugin.version}</version>
         <configuration>
+          <forkCount>${test.unit.forks}</forkCount>
+          <reuseForks>true</reuseForks>
           <argLine>@{coverageAgentArguments} ${test.jvm.arguments} -Djava.io.tmpdir="${project.build.directory}"</argLine>
           <useManifestOnlyJar>false</useManifestOnlyJar>
           <includes>
@@ -1045,6 +1108,8 @@
           </execution>
         </executions>
         <configuration>
+          <forkCount>${test.integration.forks}</forkCount>
+          <reuseForks>${test.integration.reuse.forks}</reuseForks>
           <argLine>@{coverageAgentArguments} ${test.jvm.arguments} -Djava.io.tmpdir="${project.build.directory}"</argLine>
           <includes>
             <include>**/*ProcessIT.java</include>
@@ -1089,6 +1154,16 @@
     </plugins>
   </build>
   <profiles>
+    <profile>
+      <id>high-capacity-tests</id>
+      <properties>
+        <pitest.threads>16</pitest.threads>
+        <test.unit.forks>16</test.unit.forks>
+        <test.integration.forks>3</test.integration.forks>
+        <test.integration.reuse.forks>false</test.integration.reuse.forks>
+        <test.neo4j.cpu.count>8</test.neo4j.cpu.count>
+      </properties>
+    </profile>
     <profile>
       <id>editor-source-model</id>
       <activation>

@@ -333,6 +333,67 @@ class Neo4jExecutableAstRetentionNeo4jIT {
   }
 
   @Test
+  void givenMisplacedAndMalformedRelationships_whenExactlyReplacing_thenBothNamespacesRetainOnlyTheirCanonicalLinks() throws IOException {
+    // Arrange
+    var settings = settings();
+    var frontend = ExecutableAstRetentionFixture.frontend();
+    var configuration = ExecutableAstRetentionFixture.configuration();
+    var ast = frontend.produce(InputSnapshot.fromSources(directory,
+        List.of(SourceFile.fromContent(Path.of("Owned.java"), "class Owned { int value() { return 7; } }"))),
+        configuration, AstProfile.JAVA_SOURCE_EXPANDED);
+    var neighbor = frontend.produce(InputSnapshot.fromSources(directory,
+        List.of(SourceFile.fromContent(Path.of("Adjacent.java"), "class Adjacent { int value() { return 9; } }"))),
+        configuration, AstProfile.JAVA_SOURCE_EXPANDED);
+    var projection = new Neo4jAstResultCodec().map(ast);
+    var adjacent = new Neo4jAstResultCodec().map(neighbor);
+    var link = projection.relationships().getFirst();
+    var adjacentLink = adjacent.relationships().getFirst();
+    try {
+      assertEquals(PublicationStatus.SAVED, retention(settings).retainAst(ast).status());
+      assertEquals(PublicationStatus.SAVED, retention(settings).retainAst(neighbor).status());
+      withSession(settings, session -> {
+        var parameters = Values.parameters("scope", projection.identity().astResultKey(), "neighbor", adjacent.identity().astResultKey(),
+            "source", link.sourceKey(), "target", link.targetKey(), "adjacentSource", adjacentLink.sourceKey(),
+            "adjacentTarget", adjacentLink.targetKey(), "properties", link.properties());
+        var changed = session.run("MATCH (source:AstEntity {astResultKey: $scope, key: $source}), "
+            + "(target:AstEntity {astResultKey: $scope, key: $target}), "
+            + "(adjacentSource:AstEntity {astResultKey: $neighbor, key: $adjacentSource}), "
+            + "(adjacentTarget:AstEntity {astResultKey: $neighbor, key: $adjacentTarget}) "
+            + "CREATE (adjacentSource)-[wrongSource:HAS_AST_VALUES]->(target), "
+            + "(source)-[wrongTarget:HAS_AST_VALUES]->(adjacentTarget), "
+            + "(adjacentSource)-[foreignEndpoints:HAS_AST_VALUES]->(adjacentTarget), "
+            + "(source)-[wrongType:UNEXPECTED_AST_LINK]->(target), "
+            + "(source)-[missingKey:HAS_AST_VALUES]->(target), "
+            + "(source)-[numericKey:HAS_AST_VALUES]->(target) "
+            + "SET wrongSource = $properties, wrongTarget = $properties, foreignEndpoints = $properties, "
+            + "wrongType = $properties, numericKey = $properties, numericKey.key = 7 "
+            + "RETURN count(*) AS changed", parameters).single().get("changed").asInt();
+        assertEquals(1, changed);
+        assertEquals(1, session.run("MATCH ()-[relation:HAS_AST_VALUES {astResultKey: $scope, key: $key}]->() "
+            + "WHERE startNode(relation).astResultKey = $scope AND endNode(relation).astResultKey = $scope "
+            + "REMOVE relation.astResultKey RETURN count(relation) AS changed",
+            Values.parameters("scope", projection.identity().astResultKey(), "key", link.key())).single().get("changed").asInt());
+      });
+      assertThrows(RepositoryOperationException.class, () -> retention(settings).findAst(projection.identity()));
+
+      // Act
+      var publication = retention(settings).retainAst(ast);
+
+      // Assert
+      assertEquals(PublicationStatus.SAVED, publication.status());
+      assertMaterialization(settings, ast);
+      assertMaterialization(settings, neighbor);
+      var restored = retention(settings).findAst(projection.identity()).outcome().orElseThrow().result().orElseThrow();
+      var neighboring = retention(settings).findAst(adjacent.identity()).outcome().orElseThrow().result().orElseThrow();
+      assertArrayEquals(AstCodec.encode(ast.result().orElseThrow()), AstCodec.encode(restored));
+      assertArrayEquals(AstCodec.encode(neighbor.result().orElseThrow()), AstCodec.encode(neighboring));
+    } finally {
+      deleteAst(settings, projection.identity());
+      deleteAst(settings, adjacent.identity());
+    }
+  }
+
+  @Test
   void givenExtraneousMaterialization_whenExactlyReplaced_thenClosedLabelsNodesAndLinksAreRestored() throws IOException {
     // Arrange
     var settings = settings();

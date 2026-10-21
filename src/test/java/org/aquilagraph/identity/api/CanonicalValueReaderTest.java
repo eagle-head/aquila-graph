@@ -1,14 +1,44 @@
 package org.aquilagraph.identity.api;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
 import java.util.HexFormat;
 import java.util.List;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 class CanonicalValueReaderTest {
+  @Test
+  void givenTruncatedLongFrames_whenLongValuesAreRead_thenRejectionPreservesEveryUnreadByte() {
+    // Arrange
+    var readers = IntStream.range(0, Long.BYTES)
+        .mapToObj(length -> new CanonicalValueReader(HexFormat.of().parseHex("000000010076" + "00".repeat(length)), "v")).toList();
+
+    // Act
+    var failures = readers.stream().map(reader -> assertThrows(IllegalArgumentException.class, reader::longInteger)).toList();
+
+    // Assert
+    assertEquals(Long.BYTES, failures.size());
+    for (var index = 0; index < readers.size(); index++) {
+      assertEquals(index, readers.get(index).remaining());
+    }
+  }
+
+  @Test
+  void givenAnAbsentBooleanFrame_whenAFlagIsRead_thenTheMissingValueIsRejectedWithoutConsumingInput() {
+    // Arrange
+    var reader = new CanonicalValueReader(HexFormat.of().parseHex("000000010076"), "v");
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, reader::flag);
+
+    // Assert
+    assertEquals(IllegalArgumentException.class, failure.getClass());
+    assertEquals(0, reader.remaining());
+  }
+
   @Test
   void givenNegativeByteFrameCount_whenBytesAreRead_thenTheCountIsRejectedBeforeReadingThePayload() {
     // Arrange

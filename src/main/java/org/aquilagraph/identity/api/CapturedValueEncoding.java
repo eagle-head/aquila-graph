@@ -6,12 +6,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** Full canonical captured values, excluding only root and separate dependency-location provenance. */
-public final class CapturedValueEncoding {
+public enum CapturedValueEncoding {
+  ;
+
   /** Version of the canonical captured-value field encoding. */
   public static final String FORMAT_VERSION = "captured-values/1";
-
-  private CapturedValueEncoding() {
-  }
 
   /**
    * Encodes captured components with explicit absence and meaningful sequence positions.

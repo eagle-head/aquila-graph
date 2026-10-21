@@ -31,6 +31,10 @@ These instructions apply to the entire directory tree rooted at this file. More 
 
 - After any removal, run every configured test group against the final implementation before declaring the work complete. Follow the [complete test validation procedure](docs/build-quality.md#validation-after-removals).
 
+## Coverage and Mutation Order
+
+- After code or test changes, regenerate JaCoCo coverage before running PIT. Use the `mutation-test` build target, which runs the unit suite and JaCoCo report before mutation analysis. Follow the [coverage freshness procedure](docs/build-quality.md#coverage-freshness).
+
 ## Diagram Paths and Filenames
 
 - Treat every diagram path as one semantic identifier composed of its directories and filename.

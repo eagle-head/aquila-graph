@@ -1,13 +1,11 @@
 package org.aquilagraph.repository.neo4j;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
-import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.aquilagraph.application.AstLookup;
 import org.aquilagraph.application.AstLookupStatus;
@@ -36,10 +34,8 @@ import org.neo4j.driver.exceptions.value.ValueException;
 /** One owned AST save or lookup with exact phase-bearing failures and conservative commit knowledge. */
 public final class Neo4jAstResultRepository implements AstResultRepository {
   private static final int REQUIRED_ROOT_COUNT = 1;
-  private static final int WRITE_BATCH_SIZE = 512;
   private static final String PROPERTIES_FIELD = "properties";
   private static final String SCOPE_PARAMETER = "scope";
-  private static final String EXPECTED_PARAMETER = "expected";
   private final Driver driver;
   private final SessionConfig sessionConfiguration;
   private final RepositoryOperationContext context;
@@ -98,7 +94,7 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
     try (var owned = session(RepositoryPhase.REPLACEMENT, RepositoryPhase.PUBLICATION_SESSION_CLOSE)) {
       knowledge = CommitKnowledge.UNKNOWN;
       observed(RepositoryPhase.REPLACEMENT, true, () -> owned.session.executeWrite(transaction -> {
-        replace(transaction, projection);
+        Neo4jAstMaterialization.replace(transaction, projection);
         return null;
       }));
       knowledge = CommitKnowledge.KNOWN_COMMIT;
@@ -164,87 +160,6 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
             + "WHERE name IN $names RETURN name, type, entityType, labelsOrTypes, properties",
         Values.parameters("names", List.of("ast_entity_identity", "ast_result_identity"))).list();
     Neo4jAstSchema.requireConstraints(definitions);
-  }
-
-  private static void replace(TransactionContext transaction, Neo4jAstProjection projection) {
-    var scope = projection.identity().astResultKey();
-    // Hold the subject's write lock before reading and repairing its materialization.
-    transaction.run("MERGE (subject:AstEntity {astResultKey: $scope, key: $scope}) SET subject.key = subject.key",
-        Values.parameters(SCOPE_PARAMETER, scope)).consume();
-    removeStaleMaterialization(transaction, projection);
-    var nodeGroups = new LinkedHashMap<String, List<Map<String, Object>>>();
-    projection.nodes().stream().map(Neo4jNode::label).distinct().forEach(label -> nodeGroups.put(label,
-        projection.nodes().stream().filter(node -> node.label().equals(label)).map(Neo4jNode::properties).toList()));
-    nodeGroups.forEach((label, nodes) -> forEachBatch(nodes,
-        batch -> transaction
-            .run("UNWIND $nodes AS expected MERGE (entity:AstEntity {astResultKey: $scope, key: expected.key}) " + "ON CREATE SET entity:`"
-                + label + "` FOREACH (missing IN CASE WHEN $label IN labels(entity) THEN [] ELSE [1] END | SET entity:`" + label
-                + "`) WITH entity, expected FOREACH (changed IN CASE WHEN " + exactProperties("entity", "expected")
-                + " THEN [] ELSE [1] END | SET entity = expected)", Map.of(SCOPE_PARAMETER, scope, "nodes", batch, "label", label))
-            .consume()));
-    var relationshipGroups = new LinkedHashMap<String, List<Neo4jRelationship>>();
-    projection.relationships().stream().map(Neo4jRelationship::type).distinct().forEach(type -> relationshipGroups.put(type,
-        projection.relationships().stream().filter(relationship -> relationship.type().equals(type)).toList()));
-    relationshipGroups.forEach((type, relationships) -> forEachBatch(relationships, batch -> transaction
-        .run(
-            "UNWIND $relationships AS item MATCH (source:AstEntity {astResultKey: $scope, key: item.sourceKey}), "
-                + "(target:AstEntity {astResultKey: $scope, key: item.targetKey}) MERGE (source)-[relation:`" + type
-                + "` {key: item.properties.key}]->(target) ON CREATE SET relation = item.properties",
-            Map.of(SCOPE_PARAMETER, scope, "relationships", batch.stream().map(Neo4jAstResultRepository::relationshipProperties).toList()))
-        .consume()));
-  }
-
-  private static <T> void forEachBatch(List<T> values, Consumer<List<T>> action) {
-    for (var first = 0; first < values.size(); first += Math.min(WRITE_BATCH_SIZE, values.size() - first)) {
-      var end = first + Math.min(WRITE_BATCH_SIZE, values.size() - first);
-      action.accept(values.subList(first, end));
-    }
-  }
-
-  private static void removeStaleMaterialization(TransactionContext transaction, Neo4jAstProjection projection) {
-    var scope = projection.identity().astResultKey();
-    var expectedNodes = new LinkedHashMap<String, String>();
-    projection.nodes().forEach(node -> expectedNodes.put(node.key(), node.label()));
-    transaction.run("MATCH (entity:AstEntity {astResultKey: $scope}) "
-        + "WITH entity, CASE WHEN entity.key IS :: STRING NOT NULL THEN $expected[entity.key] ELSE null END AS expected "
-        + "WHERE expected IS NULL DETACH DELETE entity", Map.of(SCOPE_PARAMETER, scope, EXPECTED_PARAMETER, expectedNodes)).consume();
-    transaction.run(
-        "MATCH (entity:AstEntity {astResultKey: $scope}) WITH entity, $expected[entity.key] AS expected "
-            + "REMOVE entity:$([existing IN labels(entity) WHERE existing <> 'AstEntity' AND existing <> expected])",
-        Map.of(SCOPE_PARAMETER, scope, EXPECTED_PARAMETER, expectedNodes)).consume();
-    var expectedSources = new LinkedHashMap<String, String>();
-    projection.relationships().forEach(relationship -> expectedSources.put(relationship.key(), relationship.sourceKey()));
-    transaction.run(
-        "MATCH (source)-[relation]->(target) "
-            + "WHERE (source:AstEntity AND source.astResultKey = $scope) OR relation.astResultKey = $scope "
-            + "OR (target:AstEntity AND target.astResultKey = $scope) " + "WITH source, relation, target, "
-            + "CASE WHEN relation.key IS :: STRING NOT NULL THEN $expected[relation.key] ELSE null END AS expectedSource "
-            + "WHERE expectedSource IS NULL "
-            + "OR NOT coalesce(source:AstEntity AND source.astResultKey = $scope AND source.key = expectedSource, false) DELETE relation",
-        Map.of(SCOPE_PARAMETER, scope, EXPECTED_PARAMETER, expectedSources)).consume();
-    forEachBatch(projection.relationships(), batch -> {
-      var expected = new LinkedHashMap<String, Object>();
-      batch.forEach(relationship -> expected.put(relationship.key(), relationshipProperties(relationship)));
-      transaction.run("UNWIND keys($expected) AS key WITH key, $expected[key] AS expected "
-          + "MATCH (source:AstEntity {astResultKey: $scope, key: expected.sourceKey})-[relation]->(target) "
-          + "WHERE relation.key = key AND (type(relation) <> expected.type OR NOT (" + exactProperties("relation", "expected.properties")
-          + ") " + "OR NOT coalesce(target:AstEntity AND target.astResultKey = $scope "
-          + "AND target.key = expected.targetKey, false)) DELETE relation", Map.of(SCOPE_PARAMETER, scope, EXPECTED_PARAMETER, expected))
-          .consume();
-    });
-    transaction.run("MATCH ()-[relation {astResultKey: $scope}]->() "
-        + "WITH relation.key AS key, collect(relation) AS duplicates WHERE size(duplicates) > 1 "
-        + "FOREACH (relation IN duplicates | DELETE relation)", Values.parameters(SCOPE_PARAMETER, scope)).consume();
-  }
-
-  private static String exactProperties(String entity, String expected) {
-    return "properties(" + entity + ") = " + expected + " AND all(field IN keys(" + expected + ") WHERE valueType(" + entity
-        + "[field]) = valueType(" + expected + "[field]))";
-  }
-
-  private static Map<String, Object> relationshipProperties(Neo4jRelationship relationship) {
-    return Map.of("sourceKey", relationship.sourceKey(), "targetKey", relationship.targetKey(), "type", relationship.type(),
-        PROPERTIES_FIELD, relationship.properties());
   }
 
   private static StoredAst read(TransactionContext transaction, AstIdentity identity) {
