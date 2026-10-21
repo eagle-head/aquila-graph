@@ -4,12 +4,12 @@ MAVEN_FLAGS ?= -B --no-transfer-progress
 SKIP_TESTS ?= -Dmaven.test.skip=true
 BUILD_REPOSITORY = "-Dmaven.repo.local=$(CURDIR)/target/maven-repository"
 
-.PHONY: build-plugins compile test integration-test integration-test-neo4j coverage format format-check line-endings-check quality supply-chain-check
+.PHONY: build-plugins compile test integration-test integration-test-neo4j coverage mutation-test format format-check line-endings-check quality supply-chain-check
 
 build-plugins:
 	$(MAVEN) -B --no-transfer-progress $(BUILD_REPOSITORY) -f tools/maven-pmd-plugin/pom.xml install
 
-compile test integration-test integration-test-neo4j coverage format format-check quality supply-chain-check: build-plugins
+compile test integration-test integration-test-neo4j coverage mutation-test format format-check quality supply-chain-check: build-plugins
 
 compile:
 	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) $(SKIP_TESTS) compile
@@ -24,7 +24,12 @@ integration-test-neo4j:
 	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) -DskipTests=true -Pneo4j-integration verify
 
 coverage:
+	rm -f target/jacoco.exec
 	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) jacoco:prepare-agent test jacoco:report
+
+mutation-test:
+	rm -f target/jacoco.exec
+	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) jacoco:prepare-agent test jacoco:report pitest:mutationCoverage
 
 format:
 	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) spotless:apply

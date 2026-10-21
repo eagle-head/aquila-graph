@@ -49,6 +49,56 @@ AST fixture cleanup uses transactions of 1,000 rows to avoid constructing one
 large delete transaction for a completed scenario. Publication and replacement
 retain their single atomic transaction.
 
+## High-capacity local execution
+
+The opt-in `high-capacity-tests` Maven profile uses 16 reusable Surefire forks and
+16 PIT mutation workers in separate phases, with sequential JUnit execution inside
+each process. Each test JVM retains its 2 GiB maximum heap; either phase therefore
+has a combined maximum Java heap of 32 GiB, before Maven and native memory.
+Each managed Neo4j receives
+an eight-CPU quota and retains the portable 8 GiB memory limit. Maven filters only
+`neo4j-integration.properties`, so independent child processes load the same
+database budget from their test classpath. Other test resources remain unfiltered.
+The default profile retains one fork per group and a two-CPU database quota.
+
+Run unit tests with fresh JaCoCo coverage, then PIT, sequentially on Windows:
+
+```powershell
+.\Invoke-Build.ps1 mutation-test -MavenFlags @('-B', '--no-transfer-progress', '-Phigh-capacity-tests')
+```
+
+On Linux and macOS, use
+`make mutation-test MAVEN_FLAGS='-B --no-transfer-progress -Phigh-capacity-tests'`.
+This target runs the complete unit suite and generates a new JaCoCo report before
+starting PIT, following the [coverage freshness contract](../../docs/build-quality.md#coverage-freshness).
+
+Run the complete integration group only during final validation. The profile uses
+three Failsafe forks and does not reuse a JVM across test classes. Each class's
+JUnit root store closes its managed database before its fork completes. The
+resource-lifecycle class runs its child database journeys sequentially in its own
+JVM. Database classes can therefore run with up to three isolated databases at
+once. Their combined container memory limit is 24 GiB; the three test JVMs add up
+to 6 GiB of maximum heap, before Maven, native memory, and child consumers. Use
+`.\Invoke-Build.ps1 integration-test-neo4j -MavenFlags @('-B', '--no-transfer-progress', '-Phigh-capacity-tests')`
+on Windows or `make integration-test-neo4j MAVEN_FLAGS='-B --no-transfer-progress -Phigh-capacity-tests'`
+on Linux and macOS for that final group.
+
+For the local 64 GiB Windows host, the initial experimental WSL budget is 20
+logical processors and 28 GiB. These are global WSL settings, applied at VM
+restart; they are not repository defaults or exclusive CPU reservations. Account
+for up to three active databases and the test JVMs. Sample Windows available physical memory throughout
+execution and retain at least 8 GiB. If that margin cannot be maintained, stop the
+owned run, verify resource cleanup, and reduce concurrency before repeating it.
+Do not overlap unit, integration, or mutation campaigns in the same checkout.
+
+For every complete integration campaign, retain CPU and memory samples and compare
+the Docker container and volume inventories before and after execution. Inspect
+the exact container and mounted-volume identities recorded for the campaign,
+including the resource-lifecycle child processes. Verify removal after success,
+test failure, or an interrupted owner. Remove any remaining campaign-owned
+containers and volumes explicitly; never prune unrelated Docker resources. A
+failed test must remain reported as failed even when resource cleanup succeeds.
+
 ## Disposable storage and completion
 
 [`Neo4jIntegration`](../../src/test/java/org/aquilagraph/testsupport/Neo4jIntegration.java)
@@ -125,6 +175,8 @@ query suites; they do not replace those behavioral gates.
 
 ## References
 
+- [WSL resource settings](https://learn.microsoft.com/en-us/windows/wsl/wsl-config#main-wsl-settings).
+- [Failsafe fork configuration](https://maven.apache.org/surefire/maven-failsafe-plugin/integration-test-mojo.html#forkCount).
 - [Docker automatic removal](https://docs.docker.com/reference/cli/docker/container/run/#clean-up---rm).
 - [Docker memory constraints](https://docs.docker.com/engine/containers/resource_constraints/).
 - [Testcontainers resource reaper configuration](https://java.testcontainers.org/features/configuration/#customizing-ryuk-resource-reaper).
