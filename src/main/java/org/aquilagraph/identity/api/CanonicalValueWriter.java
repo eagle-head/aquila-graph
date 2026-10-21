@@ -8,6 +8,7 @@ import java.util.Objects;
 
 /** Writes framed canonical values without changing Java string or floating-point content. */
 public final class CanonicalValueWriter {
+  private static final int TEXT_CHUNK_CHARACTERS = 512;
   private final ByteArrayOutputStream output = new ByteArrayOutputStream();
 
   /**
@@ -29,10 +30,17 @@ public final class CanonicalValueWriter {
   public void text(String value) {
     Objects.requireNonNull(value, "value");
     count(value.length());
-    for (var index = 0; index < value.length(); index++) {
-      var character = value.charAt(index);
-      output.write(character >>> 8);
-      output.write(character & 0xff);
+    var encoded = new byte[Math.min(value.length(), TEXT_CHUNK_CHARACTERS) * Character.BYTES];
+    var first = 0;
+    while (first < value.length()) {
+      var length = Math.min(encoded.length / Character.BYTES, value.length() - first);
+      for (var index = 0; index < length; index++) {
+        var character = value.charAt(first + index);
+        encoded[index * Character.BYTES] = (byte) (character >>> Byte.SIZE);
+        encoded[index * Character.BYTES + 1] = (byte) character;
+      }
+      output.write(encoded, 0, length * Character.BYTES);
+      first += length;
     }
   }
 
