@@ -15,9 +15,38 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 import org.aquilagraph.testsupport.LiteralLabelFixture;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.StableId;
+import javax.tools.ToolProvider;
 
 class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
+
+  @Test
+  void givenCapturedCompilerEnvironment_whenPackagedAnalyzerSummarizes_thenSoftwareSignatureMatchesTheExplicitEnvironmentScheme() throws Exception {
+    // Arrange
+    var root = Files.createDirectories(temporaryDirectory.resolve("environment-source"));
+    var source = "class Example { int value() { return 7; } }";
+    Files.writeString(root.resolve("Example.java"), source);
+    var snapshot = InputSnapshot.fromSources(root, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var environment = StableId.sha256("analysis-environment/2", "language-release", "25", "compiler-implementation",
+        ToolProvider.getSystemJavaCompiler().getClass().getName(), "compiler-vendor", System.getProperty("java.vendor"),
+        "compiler-version", System.getProperty("java.runtime.version"), "analysis-options", "5", "--release", "25", "-encoding", "UTF-8",
+        "-proc:none", "class-path", "0", "module-path", "0", "analysis-environment/2", "0", "0");
+    var software = StableId.sha256("software-version", snapshot.snapshotDigest(), environment);
+
+    // Act
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(root);
+
+    // Assert
+    assertTrue(result.completed(), result.error());
+    assertEquals(0, result.exitCode(), result.error());
+    assertTrue(result.output().contains("Software version: " + software), result.output());
+    assertTrue(result.output().contains("Completion: COMPLETED"), result.output());
+    assertTrue(result.output().contains("Repository: NOT_REQUESTED"), result.output());
+    assertEquals("", result.error());
+  }
 
   @Test
   void givenCompilerNormalizedLiteralLabels_whenPackagedAnalyzerRuns_thenBoundedGraphsComplete() throws Exception {

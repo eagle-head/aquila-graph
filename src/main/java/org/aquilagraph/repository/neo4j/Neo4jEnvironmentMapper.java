@@ -3,15 +3,21 @@ package org.aquilagraph.repository.neo4j;
 import java.util.List;
 import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
 import org.aquilagraph.identity.api.DependencySnapshot;
+import org.aquilagraph.identity.api.DependencySemantics;
 import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
 
 /** Maps compiler and dependency identity into a Neo4j projection. */
 final class Neo4jEnvironmentMapper {
   void map(String runId, AnalysisEnvironmentSnapshot environment, Neo4jProjectionBuilder projection) {
     var environmentKey = environment.environmentDigest();
-    projection.node("AnalysisEnvironmentSnapshot", environmentKey, "digestAlgorithm", environment.digestAlgorithm(), "environmentDigest",
+    var properties = Neo4jProjectionBuilder.properties("digestAlgorithm", environment.digestAlgorithm(), "environmentDigest",
         environment.environmentDigest(), "compilerImplementation", environment.compilerImplementation(), "compilerVendor",
         environment.compilerVendor(), "compilerVersion", environment.compilerVersion(), "analysisOptions", environment.analysisOptions());
+    if (environment.identityScheme() == EnvironmentIdentityScheme.MODULE_SEMANTICS) {
+      properties.put("identityScheme", environment.identityScheme().version());
+    }
+    projection.node("AnalysisEnvironmentSnapshot", environmentKey, properties);
     projection.relate("HAS_ENVIRONMENT", runId, environmentKey, "environment");
 
     var configuration = environment.compilerConfiguration();
@@ -30,9 +36,18 @@ final class Neo4jEnvironmentMapper {
       var dependency = dependencies.get(position);
       var dependencyKey = StableId.sha256("dependency-snapshot", environmentKey, role, Integer.toString(position),
           dependency.fingerprint());
-      projection.node("DependencySnapshot", dependencyKey, "location", dependency.location().toString(), Neo4jSchema.KIND_PROPERTY,
+      var properties = Neo4jProjectionBuilder.properties("location", dependency.location().toString(), Neo4jSchema.KIND_PROPERTY,
           dependency.kind().name(), "byteCount", dependency.byteCount(), "entryCount", dependency.entryCount(), "fingerprint",
           dependency.fingerprint(), Neo4jSchema.POSITION_PROPERTY, position);
+      if (dependency.semantics().state() != DependencySemantics.State.UNOBSERVED) {
+        properties.put("interpretation", dependency.semantics().state().name());
+        properties.put("moduleMembers", dependency.semantics().modules().stream().map(module -> module.member()).toList());
+        properties.put("moduleLookupNames", dependency.semantics().modules().stream().map(module -> module.lookupName()).toList());
+        properties.put("moduleDescriptorNames",
+            dependency.semantics().modules().stream().map(module -> module.descriptorName().orElse("")).toList());
+        properties.put("moduleNameOrigins", dependency.semantics().modules().stream().map(module -> module.nameOrigin().name()).toList());
+      }
+      projection.node("DependencySnapshot", dependencyKey, properties);
       projection.relate(relationshipType, environmentKey, dependencyKey, Integer.toString(position), Neo4jSchema.POSITION_PROPERTY,
           position);
     }

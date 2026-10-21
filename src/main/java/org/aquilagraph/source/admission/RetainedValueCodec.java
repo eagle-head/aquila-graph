@@ -19,6 +19,8 @@ import java.util.function.ToIntFunction;
 import org.aquilagraph.identity.api.CanonicalValueReader;
 import org.aquilagraph.identity.api.CanonicalValueWriter;
 import org.aquilagraph.identity.api.DependencySnapshot;
+import org.aquilagraph.identity.api.DependencySemantics;
+import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceSpan;
@@ -289,6 +291,12 @@ final class RetainedValueCodec {
       }
       components.add(read(reader));
     }
+    if (formatVersion < 21 && "analysis-environment-snapshot".equals(tag)) {
+      components.add(EnvironmentIdentityScheme.HISTORICAL);
+    }
+    if (formatVersion < 21 && "dependency-snapshot".equals(tag)) {
+      components.add(new DependencySemantics(DependencySemantics.State.UNOBSERVED, List.of()));
+    }
     if (formatVersion < 20 && "semantic-reference".equals(tag)) {
       components.add(Optional.empty());
     }
@@ -341,6 +349,10 @@ final class RetainedValueCodec {
   }
 
   private void validateFormatTag(String tag) {
+    if (formatVersion < 21 && ("environment-identity-scheme".equals(tag) || tag.startsWith("dependency-semantics")
+        || "module-candidate".equals(tag) || "module-name-origin".equals(tag))) {
+      throw new IllegalArgumentException("Observed environment semantics require retained AST format java-source/21");
+    }
     if (formatVersion < 20 && ("java-type-declaration-identity".equals(tag) || "syntax-value/module-type-reference".equals(tag))) {
       throw new IllegalArgumentException("Module service targets require retained AST format java-source/20");
     }

@@ -80,7 +80,7 @@ class JavaSourceProfileIntegrationTest {
           // Assert
           assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
           assertEquals(AstProfile.JAVA_SOURCE_UNITS, retained.profile());
-          assertEquals("java-source/19", retained.identity().sourceModelVersion());
+          assertEquals("java-source/21", retained.identity().sourceModelVersion());
           assertEquals("javac-public/10", retained.identity().semanticProductionRevision());
           assertEquals(original.aggregate(), retained.aggregate());
           assertEquals(original.program(), retained.program());

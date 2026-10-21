@@ -1,6 +1,8 @@
 package org.aquilagraph.source.admission;
 
 import java.util.Optional;
+import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
+import org.aquilagraph.identity.api.DependencySnapshot;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -44,6 +46,36 @@ public final class SourceAnalysisFixture {
   public SourceAnalysisFixture() {}
 
   /**
+   * Builds explicitly supplied historical constructor values for format-specific controls.
+   * @param input copied source values
+   * @return values with historical physical-only environment semantics
+   */
+  public static SyntaxAnalysisInput historicalInput(SyntaxAnalysisInput input) {
+    var original = input.environmentSnapshot();
+    var environment = new AnalysisEnvironmentSnapshot(original.compilerConfiguration(), original.compilerImplementation(),
+        original.compilerVendor(), original.compilerVersion(), original.analysisOptions(),
+        original.classPath().stream().map(SourceAnalysisFixture::historicalDependency).toList(),
+        original.modulePath().stream().map(SourceAnalysisFixture::historicalDependency).toList());
+    return new SyntaxAnalysisInput(input.snapshot(), environment, input.program(), input.aggregate(), input.diagnostics(),
+        input.languageFeatureCoverageResult());
+  }
+
+  /**
+   * Admits supplied historical values without claiming authentic historical producer output.
+   * @param original source facts
+   * @return historical format and identity derived from the supplied values
+   */
+  public static AstResult historicalResult(AstResult original) {
+    var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
+        original.diagnostics(), original.coverage());
+    return AstResultAdmission.admit(historicalInput(input), original.profile(), original.identity().semanticProductionRevision());
+  }
+
+  private static DependencySnapshot historicalDependency(DependencySnapshot dependency) {
+    return new DependencySnapshot(dependency.location(), dependency.kind(), dependency.byteCount(), dependency.entryCount(), dependency.fingerprint());
+  }
+
+  /**
    * Admits a supplied compatible source value in the preceding binding-aware format.
    * @param original values without update expressions
    * @return preceding-format result with exact format-qualified identity
@@ -51,7 +83,7 @@ public final class SourceAnalysisFixture {
   public static AstResult previousResult(AstResult original) {
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());
-    return AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision(), AstResult.PREVIOUS_SOURCE_MODEL_VERSION);
+    return AstResultAdmission.admit(historicalInput(input), original.profile(), original.identity().semanticProductionRevision(), AstResult.PREVIOUS_SOURCE_MODEL_VERSION);
   }
 
   /**
@@ -72,7 +104,7 @@ public final class SourceAnalysisFixture {
     var compatible = withCoverage(original, 4);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
-    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.UPDATE_SOURCE_MODEL_VERSION);
+    return AstResultAdmission.admit(historicalInput(input), compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.UPDATE_SOURCE_MODEL_VERSION);
   }
 
   /**
@@ -84,7 +116,7 @@ public final class SourceAnalysisFixture {
     var compatible = withCoverage(original, 5);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
-    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.ARRAY_SOURCE_MODEL_VERSION);
+    return AstResultAdmission.admit(historicalInput(input), compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.ARRAY_SOURCE_MODEL_VERSION);
   }
 
   /**
@@ -96,7 +128,7 @@ public final class SourceAnalysisFixture {
     var compatible = withCoverage(original, 6);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
-    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.ITERATION_SOURCE_MODEL_VERSION);
+    return AstResultAdmission.admit(historicalInput(input), compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.ITERATION_SOURCE_MODEL_VERSION);
   }
 
   /**
@@ -108,7 +140,7 @@ public final class SourceAnalysisFixture {
     var compatible = withCoverage(original, 7);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
-    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.ASSERTION_SOURCE_MODEL_VERSION);
+    return AstResultAdmission.admit(historicalInput(input), compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.ASSERTION_SOURCE_MODEL_VERSION);
   }
 
   /**
@@ -120,7 +152,7 @@ public final class SourceAnalysisFixture {
     var compatible = withCoverage(original, 8);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
-    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.LAMBDA_SOURCE_MODEL_VERSION);
+    return AstResultAdmission.admit(historicalInput(input), compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.LAMBDA_SOURCE_MODEL_VERSION);
   }
 
   /**
@@ -132,7 +164,7 @@ public final class SourceAnalysisFixture {
     var compatible = withCoverage(original, 9);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
-    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.REFERENCE_SOURCE_MODEL_VERSION);
+    return AstResultAdmission.admit(historicalInput(input), compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.REFERENCE_SOURCE_MODEL_VERSION);
   }
 
   /**
@@ -144,7 +176,7 @@ public final class SourceAnalysisFixture {
     var compatible = withCoverage(original, 10);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
-    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.PATTERN_SOURCE_MODEL_VERSION);
+    return AstResultAdmission.admit(historicalInput(input), compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.PATTERN_SOURCE_MODEL_VERSION);
   }
 
   /**
@@ -156,7 +188,7 @@ public final class SourceAnalysisFixture {
     var compatible = withCoverage(original, 11);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
-    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.SWITCH_SOURCE_MODEL_VERSION);
+    return AstResultAdmission.admit(historicalInput(input), compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.SWITCH_SOURCE_MODEL_VERSION);
   }
 
   /**
@@ -168,7 +200,7 @@ public final class SourceAnalysisFixture {
     var compatible = withCoverage(original, 12);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
-    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.EXCEPTION_SOURCE_MODEL_VERSION);
+    return AstResultAdmission.admit(historicalInput(input), compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.EXCEPTION_SOURCE_MODEL_VERSION);
   }
 
   /**
@@ -180,7 +212,7 @@ public final class SourceAnalysisFixture {
     var compatible = withCoverage(original, 13);
     var input = new SyntaxAnalysisInput(compatible.snapshot(), compatible.environment(), compatible.program(), Optional.of(compatible.aggregate()),
         compatible.diagnostics(), compatible.coverage());
-    return AstResultAdmission.admit(input, compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.CLASS_LITERAL_SOURCE_MODEL_VERSION);
+    return AstResultAdmission.admit(historicalInput(input), compatible.profile(), compatible.identity().semanticProductionRevision(), AstResult.CLASS_LITERAL_SOURCE_MODEL_VERSION);
   }
 
   private static AstResult withCoverage(AstResult original, int formatVersion) {
@@ -249,7 +281,7 @@ public final class SourceAnalysisFixture {
         evidence.diagnosticEmissions());
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), coverage);
-    return AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision(), original.identity().sourceModelVersion());
+    return AstResultAdmission.admit(historicalInput(input), original.profile(), original.identity().semanticProductionRevision(), AstResultAdmission.formatFor(original.profile()));
   }
 
   /**
@@ -281,7 +313,7 @@ public final class SourceAnalysisFixture {
         evidence.attributedExpectations(), outcomes, unmatched, evidence.diagnosticEmissions());
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(aggregate),
         original.diagnostics(), coverage);
-    return AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision(), AstResult.LEGACY_SOURCE_MODEL_VERSION);
+    return AstResultAdmission.admit(historicalInput(input), original.profile(), original.identity().semanticProductionRevision(), AstResult.LEGACY_SOURCE_MODEL_VERSION);
   }
 
   private static SyntaxNode legacyNode(SyntaxNode node, Map<SyntaxNode, SyntaxNode> replacements) {

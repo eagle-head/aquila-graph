@@ -31,6 +31,7 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.identity.api.StableId;
 import org.aquilagraph.source.admission.AstCodec;
+import org.aquilagraph.source.admission.SourceAnalysisFixture;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
@@ -77,7 +78,7 @@ class GraphValueAdmissionTest {
   @Test
   void givenHistoricalReferenceShapes_whenCurrentGraphsAreAdmitted_thenOriginalContentAndDerivationIdentitiesRemainExact() throws IOException {
     // Arrange
-    var fixture = fixture("class Stored { int value() { return 1; } }", false, AstProfile.JAVA_SOURCE_BOUNDED);
+    var fixture = fixture("class Stored { int value() { return 1; } }", false, AstProfile.JAVA_SOURCE_BOUNDED, true);
     var target = new JavaTypeDeclarationIdentity(Optional.empty(), "Stored");
     var reference = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(target.declarationKey()), Optional.of("Stored"), List.of("Stored"), List.of("Stored"));
     // Act
@@ -512,11 +513,16 @@ class GraphValueAdmissionTest {
   }
 
   private Fixture fixture(String source, boolean constructor, AstProfile profile) throws IOException {
+    return fixture(source, constructor, profile, false);
+  }
+
+  private Fixture fixture(String source, boolean constructor, AstProfile profile, boolean historical) throws IOException {
     var snapshot = InputSnapshot.fromSources(directory,
         List.of(SourceFile.fromContent(Path.of("Stored.java"), source)));
     var produced = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         profile).result().orElseThrow();
-    var ast = AstCodec.decode(AstCodec.encode(produced), produced.identity());
+    var selected = historical ? SourceAnalysisFixture.historicalResult(produced) : produced;
+    var ast = AstCodec.decode(AstCodec.encode(selected), selected.identity());
     var method = ast.program().types().stream().filter(type -> type.qualifiedName().equals("Stored"))
         .flatMap(type -> type.methods().stream()).filter(value -> constructor ? value.constructor() : value.name().equals("value"))
         .findFirst().orElseThrow();

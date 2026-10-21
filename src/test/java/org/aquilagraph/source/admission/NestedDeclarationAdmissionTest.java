@@ -131,7 +131,7 @@ class NestedDeclarationAdmissionTest {
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()), original.diagnostics(), original.coverage());
 
     // Act
-    var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision(), AstResult.INITIALIZATION_SOURCE_MODEL_VERSION));
+    var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input), original.profile(), original.identity().semanticProductionRevision(), AstResult.INITIALIZATION_SOURCE_MODEL_VERSION));
 
     // Assert
     assertTrue(failure.getMessage().contains("java-source/15"), failure.toString());

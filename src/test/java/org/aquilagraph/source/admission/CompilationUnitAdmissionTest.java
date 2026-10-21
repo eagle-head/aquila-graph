@@ -136,12 +136,12 @@ class CompilationUnitAdmissionTest {
     var input = input(ast);
     // Act
     var profileError = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(input, AstProfile.JAVA_SOURCE_DECLARATIONS, "javac-public/6"));
-    var formatError = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(input, ast.profile(), "javac-public/6", AstResult.DECLARATION_SOURCE_MODEL_VERSION));
+    var formatError = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input), ast.profile(), "javac-public/6", AstResult.DECLARATION_SOURCE_MODEL_VERSION));
     // Assert
     assertTrue(profileError.getMessage().contains("profile"), profileError.toString());
     assertTrue(formatError.getMessage().contains("java-source/18"), formatError.toString());
     assertEquals("javac-public/10", ast.identity().semanticProductionRevision());
-    assertEquals("java-source/19", ast.identity().sourceModelVersion());
+    assertEquals("java-source/21", ast.identity().sourceModelVersion());
     assertEquals("java-source-expanded/6", ast.profile().version());
   }
 
@@ -219,7 +219,7 @@ class CompilationUnitAdmissionTest {
   void givenSuppliedDeclarationValuesInThePrecedingFormat_whenClosed_thenIdentityBytesAndMaterializationRemainCompatible() throws IOException {
     // Arrange
     var ast = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { ; int value() { return 1; } }")), AstProfile.JAVA_SOURCE_DECLARATIONS);
-    var historical = AstResultAdmission.admit(input(ast), ast.profile(), "javac-public/5", AstResult.DECLARATION_SOURCE_MODEL_VERSION);
+    var historical = AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input(ast)), ast.profile(), "javac-public/5", AstResult.DECLARATION_SOURCE_MODEL_VERSION);
     var bytes = AstCodec.encode(historical);
     // Act
     var decoded = AstCodec.decode(bytes, historical.identity());
@@ -266,7 +266,7 @@ class CompilationUnitAdmissionTest {
     // Arrange
     var source = SourceFile.fromContent(Path.of("Compact.java"), "void main() {}");
     var original = produce(List.of(source), AstProfile.JAVA_SOURCE_DECLARATIONS);
-    var historical = AstResultAdmission.admit(input(original), original.profile(), "javac-public/5", AstResult.DECLARATION_SOURCE_MODEL_VERSION);
+    var historical = AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input(original)), original.profile(), "javac-public/5", AstResult.DECLARATION_SOURCE_MODEL_VERSION);
     var bytes = AstCodec.encode(historical);
     // Act
     var decoded = AstCodec.decode(bytes, historical.identity());

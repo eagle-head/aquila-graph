@@ -11,6 +11,8 @@ public enum CapturedValueEncoding {
 
   /** Version of the canonical captured-value field encoding. */
   public static final String FORMAT_VERSION = "captured-values/1";
+  /** Canonical captured values with explicit environment and module semantics. */
+  public static final String MODULE_SEMANTICS_FORMAT_VERSION = "captured-values/2";
 
   /**
    * Encodes captured components with explicit absence and meaningful sequence positions.
@@ -24,7 +26,8 @@ public enum CapturedValueEncoding {
   public static byte[] encode(Optional<InputSnapshot> input, Optional<AnalysisEnvironmentSnapshot> environment) {
     Objects.requireNonNull(input, "input");
     Objects.requireNonNull(environment, "environment");
-    var writer = new CanonicalValueWriter(FORMAT_VERSION);
+    var successor = environment.filter(value -> value.identityScheme() == EnvironmentIdentityScheme.MODULE_SEMANTICS).isPresent();
+    var writer = new CanonicalValueWriter(successor ? MODULE_SEMANTICS_FORMAT_VERSION : FORMAT_VERSION);
     writer.text("input");
     writer.flag(input.isPresent());
     input.ifPresent(snapshot -> writeInput(writer, snapshot));
@@ -59,6 +62,9 @@ public enum CapturedValueEncoding {
     var configuration = environment.compilerConfiguration();
     writer.text(environment.digestAlgorithm());
     writer.text(environment.environmentDigest());
+    if (environment.identityScheme() == EnvironmentIdentityScheme.MODULE_SEMANTICS) {
+      writer.text(environment.identityScheme().version());
+    }
     writer.integer(configuration.release().feature());
     writePaths(writer, configuration.classPath());
     writePaths(writer, configuration.modulePath());
@@ -69,12 +75,13 @@ public enum CapturedValueEncoding {
     writer.text(environment.compilerVersion());
     writeStrings(writer, environment.analysisOptions());
     writer.text("class-path");
-    writeDependencies(writer, environment.classPath());
+    writeDependencies(writer, environment.classPath(), environment.identityScheme());
     writer.text("module-path");
-    writeDependencies(writer, environment.modulePath());
+    writeDependencies(writer, environment.modulePath(), environment.identityScheme());
   }
 
-  private static void writeDependencies(CanonicalValueWriter writer, List<DependencySnapshot> dependencies) {
+  private static void writeDependencies(CanonicalValueWriter writer, List<DependencySnapshot> dependencies,
+      EnvironmentIdentityScheme scheme) {
     writer.count(dependencies.size());
     for (var dependency : dependencies) {
       writer.text(switch (dependency.kind()) {
@@ -85,6 +92,17 @@ public enum CapturedValueEncoding {
       writer.longInteger(dependency.byteCount());
       writer.integer(dependency.entryCount());
       writer.text(dependency.fingerprint());
+      if (scheme == EnvironmentIdentityScheme.MODULE_SEMANTICS) {
+        writer.text(dependency.semantics().state().name());
+        writer.count(dependency.semantics().modules().size());
+        for (var module : dependency.semantics().modules()) {
+          writer.text(module.member());
+          writer.text(module.lookupName());
+          writer.flag(module.descriptorName().isPresent());
+          module.descriptorName().ifPresent(writer::text);
+          writer.text(module.nameOrigin().name());
+        }
+      }
     }
   }
 

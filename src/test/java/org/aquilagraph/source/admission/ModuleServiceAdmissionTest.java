@@ -123,7 +123,7 @@ class ModuleServiceAdmissionTest {
     var values = List.of(operand.semanticReference().orElseThrow(), operand.value(SyntaxValue.ModuleTypeReference.class),
         SyntaxKind.MODULE_TYPE_REFERENCE, SyntaxRole.SERVICE_TYPE, SourceContext.Partition.MODULE_ENDPOINT);
     // Act
-    var profileFailure = assertThrows(IllegalArgumentException.class, () -> AstResultAdmission.admit(input(original, original.coverage()),
+    var profileFailure = assertThrows(IllegalArgumentException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input(original, original.coverage())),
         original.profile(), original.identity().semanticProductionRevision(), "java-source/19"));
     // Assert
     assertTrue(profileFailure.getMessage().contains("java-source/20"), profileFailure.toString());

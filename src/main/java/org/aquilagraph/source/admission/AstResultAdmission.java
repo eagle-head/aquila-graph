@@ -1,6 +1,8 @@
 package org.aquilagraph.source.admission;
 
 import java.util.Objects;
+import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
+import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
 import java.util.Optional;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.SoftwareVersion;
@@ -114,11 +116,17 @@ public final class AstResultAdmission {
    *           if copied values cannot establish an available result
    */
   public static AstResult admit(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision) {
-    return admit(input, profile, semanticRevision, formatFor(profile));
+    return admit(input, profile, semanticRevision, formatFor(profile, input.environmentSnapshot()));
   }
 
   static String formatFor(AstProfile profile) {
     return profile.supportsModuleServices() ? AstResult.MODULE_SERVICE_MODEL_VERSION : AstResult.WRITTEN_EXPRESSION_MODEL_VERSION;
+  }
+
+  static String formatFor(AstProfile profile, AnalysisEnvironmentSnapshot environment) {
+    return environment.identityScheme() == EnvironmentIdentityScheme.MODULE_SEMANTICS
+        ? AstResult.ENVIRONMENT_IDENTITY_MODEL_VERSION
+        : formatFor(profile);
   }
 
   static AstResult admit(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision, String format) {
@@ -128,6 +136,9 @@ public final class AstResultAdmission {
     try {
       if (!AstResult.supportsSourceModelVersion(format)) {
         throw new IllegalArgumentException("Unsupported retained AST format: " + format);
+      }
+      if ((input.environmentSnapshot().identityScheme() == EnvironmentIdentityScheme.MODULE_SEMANTICS) != (formatVersion(format) >= 21)) {
+        throw new IllegalArgumentException("Retained AST format must agree with its environment identity scheme");
       }
       if (profile.supportsModuleServices() && formatVersion(format) < MODULE_SERVICE_FORMAT) {
         throw new IllegalArgumentException("Module service targets require retained AST format java-source/20");

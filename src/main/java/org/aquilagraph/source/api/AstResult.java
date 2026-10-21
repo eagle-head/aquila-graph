@@ -18,7 +18,9 @@ public final class AstResult {
   /** Compatible format introducing module service and provider declaration targets. */
   public static final String MODULE_SERVICE_MODEL_VERSION = "java-source/20";
   /** Version of the retained source value schema. */
-  public static final String SOURCE_MODEL_VERSION = MODULE_SERVICE_MODEL_VERSION;
+  public static final String SOURCE_MODEL_VERSION = "java-source/21";
+  /** Retained format with explicit compiler-effective environment identity. */
+  public static final String ENVIRONMENT_IDENTITY_MODEL_VERSION = "java-source/21";
   /** Compatible format retaining independently proven written expressions. */
   public static final String WRITTEN_EXPRESSION_MODEL_VERSION = "java-source/19";
   /** Compatible format introducing complete captured compilation-unit envelopes. */
@@ -85,6 +87,9 @@ public final class AstResult {
    * @return whether the current reader supports the schema
    */
   public static boolean supportsSourceModelVersion(String version) {
+    if (ENVIRONMENT_IDENTITY_MODEL_VERSION.equals(version)) {
+      return true;
+    }
     return MODULE_SERVICE_MODEL_VERSION.equals(version) || WRITTEN_EXPRESSION_MODEL_VERSION.equals(version)
         || SOURCE_ENVELOPE_MODEL_VERSION.equals(version) || DECLARATION_SOURCE_MODEL_VERSION.equals(version)
         || ENUM_SOURCE_MODEL_VERSION.equals(version) || NESTED_SOURCE_MODEL_VERSION.equals(version)
