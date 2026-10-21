@@ -1,7 +1,7 @@
 package org.aquilagraph.repository.neo4j;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -17,22 +17,26 @@ import org.junit.jupiter.api.TestFactory;
 
 class HistoricalAstCompatibilityTest {
   @Test
-  void givenAuthenticModuleResult_whenReproducedWithOriginalProfile_thenOriginalIdentityAndBytesRemain() throws Exception {
+  void givenAuthenticModuleResult_whenReproducedWithOriginalProfile_thenSuccessorQualificationPreservesSourceBehavior() throws Exception {
     // Arrange
     var original = HistoricalAstFixtures.read(19);
     var request = new AstProductionRequest(new SourceInput.Snapshot(original.snapshot()), original.environment().compilerConfiguration(), original.profile());
     // Act
     var reproduced = new JavaFrontend(new JavaSourceLoader()).produce(request).result().orElseThrow();
     // Assert
-    assertEquals(original.identity(), reproduced.identity());
+    assertEquals("java-source/21", reproduced.identity().sourceModelVersion());
+    assertNotEquals(original.identity(), reproduced.identity());
     assertEquals(original.completion(), reproduced.completion());
-    assertArrayEquals(AstCodec.encode(original), AstCodec.encode(reproduced));
+    assertEquals(original.snapshot(), reproduced.snapshot());
+    assertEquals(original.profile(), reproduced.profile());
+    assertEquals(original.program(), reproduced.program());
+    assertEquals(original.diagnostics(), reproduced.diagnostics());
   }
 
   @TestFactory
   Stream<DynamicTest> givenOriginalHistoricalResults_whenDecodedAndMaterialized_thenOriginalIdentityQualificationAndValuesRemain() {
     // Arrange
-    var formats = IntStream.rangeClosed(2, 19);
+    var formats = IntStream.rangeClosed(2, 20);
 
     // Act
     var observations = formats.mapToObj(format -> DynamicTest.dynamicTest("givenOriginalSourceFormat" + format

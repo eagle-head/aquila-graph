@@ -251,7 +251,7 @@ class WrittenExpressionFidelityTest {
 
           // Assert
           assertEquals(AstCompletion.COMPLETE, result.completion(), result.diagnostics().toString());
-          assertEquals("java-source/19", result.identity().sourceModelVersion());
+          assertEquals("java-source/21", result.identity().sourceModelVersion());
           assertEquals("javac-public/10", result.identity().semanticProductionRevision());
           assertEquals(value.shape(), shape(occurrence(result, source, value.expression()), source));
           assertEquals(result.aggregate(), decoded.aggregate());

@@ -10,6 +10,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.io.File;
+import java.util.jar.JarOutputStream;
+import java.util.jar.JarEntry;
+import java.util.jar.Manifest;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -25,6 +28,8 @@ import java.util.stream.Stream;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.AnalysisApplicationService;
 import org.aquilagraph.application.AnalysisRequest;
+import org.aquilagraph.application.CfgSelection;
+import org.aquilagraph.application.CompletedRunPublicationService;
 import org.aquilagraph.application.AstLookupStatus;
 import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.CommitKnowledge;
@@ -43,6 +48,12 @@ import org.aquilagraph.cfg.internal.RecoverableCfgFailures;
 import org.aquilagraph.frontend.JavaFrontend;
 import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.identity.api.AstIdentity;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.DependencySemantics;
+import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
+import org.aquilagraph.identity.api.ModuleCandidate;
+import org.aquilagraph.identity.api.ModuleNameOrigin;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.admission.AstCodec;
@@ -79,6 +90,86 @@ import org.neo4j.driver.Values;
 @ExtendWith(Neo4jIntegration.class)
 class Neo4jDeclarationAstRetentionNeo4jIT {
   @TempDir Path directory;
+
+  @Test
+  void givenHistoricalAndModuleAwareResults_whenPublishedReplacedAndDependenciesRemoved_thenIndependentQueriesPreserveBothSubjects() throws Exception {
+    // Arrange
+    var dependency = directory.resolve("alpha.jar");
+    var manifest = new Manifest();
+    manifest.getMainAttributes().putValue("Manifest-Version", "1.0");
+    try (var output = new JarOutputStream(Files.newOutputStream(dependency), manifest)) {
+      output.putNextEntry(new JarEntry("content.txt"));
+      output.write(new byte[] {1, 2, 3});
+      output.closeEntry();
+    }
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(dependency), List.of());
+    var snapshot = InputSnapshot.fromSources(directory, List.of(
+        SourceFile.fromContent(Path.of("module-info.java"), "module consumer.sample { requires alpha; }"),
+        SourceFile.fromContent(Path.of("sample/Example.java"), "package sample; public class Example { public int value() { return 7; } }")));
+    var settings = settings();
+    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var completed = new CompletedRunPublicationService(() -> new Neo4jAnalysisRunRepository(settings));
+    var application = new AnalysisApplicationService(runner, retention(settings), completed);
+    var request = new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration, AstProfile.JAVA_SOURCE_MODULE_SERVICES,
+        Optional.empty(), PublicationIntent.SAVE_COMPLETE_AST);
+    var historical = AstOutcome.available(HistoricalAstFixtures.read(20));
+    var execution = application.execute(request);
+    var outcome = execution.run().representation().ast();
+    var original = outcome.result().orElseThrow();
+    var run = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration, AstProfile.JAVA_SOURCE_MODULE_SERVICES,
+        Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE));
+    try {
+      // Act
+      var firstRead = retention(settings).findAst(original.identity());
+      var oldSave = retention(settings).retainAst(historical);
+      var replacement = retention(settings).retainAst(outcome);
+      var runSave = completed.publish(run);
+      var runReplacement = completed.publish(run);
+      Files.delete(dependency);
+      var retained = queryRetainedInIndependentProcess(settings, outcome, Optional.empty(), List.of(run.identity().key()));
+      var retainedHistorical = queryRetainedInIndependentProcess(settings, historical, Optional.empty());
+
+      // Assert
+      assertEquals(PublicationStatus.SAVED, execution.publication().status());
+      assertEquals(AstLookupStatus.FOUND, firstRead.status());
+      assertEquals(original.environment(), firstRead.outcome().orElseThrow().result().orElseThrow().environment());
+      assertEquals(PublicationStatus.SAVED, oldSave.status());
+      assertEquals(PublicationStatus.SAVED, replacement.status());
+      assertEquals(PublicationStatus.SAVED, runSave.status(), run.diagnostics().toString());
+      assertEquals(PublicationStatus.SAVED, runReplacement.status());
+      assertEquals(EnvironmentIdentityScheme.MODULE_SEMANTICS, retained.environment().identityScheme());
+      assertEquals(List.of(new ModuleCandidate(".", "alpha", Optional.empty(), ModuleNameOrigin.FILENAME)),
+          retained.environment().modulePath().getFirst().semantics().modules());
+      assertEquals(DependencySemantics.State.MODULES, retained.environment().modulePath().getFirst().semantics().state());
+      assertEquals(EnvironmentIdentityScheme.HISTORICAL, retainedHistorical.environment().identityScheme());
+      assertEquals("java-source/20", retainedHistorical.identity().sourceModelVersion());
+      assertNotEquals(original.identity(), retainedHistorical.identity());
+      assertNotEquals(run.identity().key(), original.identity().softwareSignature());
+      withSession(settings, session -> {
+        var environment = session.run("MATCH (environment:AnalysisEnvironmentSnapshot {runId: $runId}) RETURN environment",
+            Values.parameters("runId", run.identity().key())).single().get("environment").asNode();
+        assertEquals("analysis-environment/2", environment.get("identityScheme").asString());
+        assertEquals(original.environment().environmentDigest(), environment.get("environmentDigest").asString());
+        var stored = session.run("MATCH (entry:DependencySnapshot {runId: $runId}) RETURN entry", Values.parameters("runId", run.identity().key()))
+            .single().get("entry").asNode();
+        assertEquals("MODULES", stored.get("interpretation").asString());
+        assertEquals(List.of("alpha"), stored.get("moduleLookupNames").asList(value -> value.asString()));
+        assertEquals(List.of("."), stored.get("moduleMembers").asList(value -> value.asString()));
+        assertEquals(List.of(""), stored.get("moduleDescriptorNames").asList(value -> value.asString()));
+        assertEquals(List.of("FILENAME"), stored.get("moduleNameOrigins").asList(value -> value.asString()));
+        assertEquals(dependency.toString(), stored.get("location").asString());
+        assertEquals(0, stored.get("position").asInt());
+        assertEquals(original.environment().modulePath().getFirst().fingerprint(), stored.get("fingerprint").asString());
+        assertEquals(original.environment().modulePath().getFirst().byteCount(), stored.get("byteCount").asLong());
+        assertEquals(1, stored.get("entryCount").asInt());
+      });
+    } finally {
+      delete(settings, original.identity());
+      delete(settings, historical.result().orElseThrow().identity());
+      withSession(settings, session -> session.run("MATCH (entity:AnalysisEntity {runId: $runId}) DETACH DELETE entity",
+          Values.parameters("runId", run.identity().key())).consume());
+    }
+  }
 
   @Test
   void givenMixedModuleSource_whenApplicationRetainsAndCompilerFreeConsumerQueries_thenTargetsAndExistingSourceRemainIntact() throws Exception {
@@ -118,7 +209,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
       assertEquals("java-source-expanded/8", retained.profile().version());
       assertEquals("javac-public/11", retained.identity().semanticProductionRevision());
-      assertEquals("java-source/20", retained.identity().sourceModelVersion());
+      assertEquals("java-source/21", retained.identity().sourceModelVersion());
       DeclarationAstRetentionFixture.assertPreserved(original, retained);
       assertEquals(List.of(MethodCfgState.AVAILABLE, MethodCfgState.UNSUPPORTED), graphs.methods().stream().map(method -> method.state()).toList());
       assertEquals(2, retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION).count());
@@ -282,7 +373,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     // Assert
     DeclarationAstRetentionFixture.assertPreserved(original, retained);
     assertEquals(AstProfile.JAVA_SOURCE_FIDELITY, retained.profile());
-    assertEquals("java-source/19", retained.identity().sourceModelVersion());
+    assertEquals("java-source/21", retained.identity().sourceModelVersion());
     assertEquals("javac-public/10", retained.identity().semanticProductionRevision());
     assertEquals(6, retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.BINARY).count());
     assertEquals(3, retained.aggregate().nodes().stream().filter(node -> node.sourceKind() == JavaSourceKind.UNARY_MINUS).count());
@@ -355,7 +446,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     // Assert
     assertEquals(AstCompletion.COMPLETE, retained.completion());
     assertEquals("javac-public/10", retained.identity().semanticProductionRevision());
-    assertEquals("java-source/19", retained.identity().sourceModelVersion());
+    assertEquals("java-source/21", retained.identity().sourceModelVersion());
     var modifiers = retained.coverage().validationEvidence().outcomes().stream()
         .filter(value -> value.address().role().equals("TypeElement::Element#getModifiers()"))
         .flatMap(value -> value.encounteredValue().stream()).flatMap(value -> value.items().stream())
@@ -491,13 +582,18 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   }
 
   private AstResult queryRetainedInIndependentProcess(Neo4jConnectionSettings settings, AstOutcome ast, Optional<List<String>> expectedEndpoints) throws Exception {
+    return queryRetainedInIndependentProcess(settings, ast, expectedEndpoints, List.of());
+  }
+
+  private AstResult queryRetainedInIndependentProcess(Neo4jConnectionSettings settings, AstOutcome ast,
+      Optional<List<String>> expectedEndpoints, List<String> expectedRunIds) throws Exception {
     var original = ast.result().orElseThrow();
     var identity = original.identity();
     var output = directory.resolve("retained-query.ast");
     var log = directory.resolve("retained-query.log");
     var classpath = Path.of("target/test-classes").toAbsolutePath() + File.pathSeparator
         + Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath();
-    assertMaterialization(settings, ast);
+    assertMaterialization(settings, ast, expectedRunIds);
 
     // Act
     var executable = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
@@ -511,7 +607,12 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       var expectations = directory.resolve("module-endpoints.tsv");
       Files.write(expectations, expectedEndpoints.orElseThrow());
       arguments.add(expectations.toString());
+    } else {
+      arguments.add("-");
     }
+    var expectedSource = directory.resolve("expected-query.ast");
+    Files.write(expectedSource, AstCodec.encode(original));
+    arguments.add(expectedSource.toString());
     var builder = new ProcessBuilder(arguments).redirectErrorStream(true).redirectOutput(log.toFile());
     builder.environment().putAll(Neo4jIntegration.environment());
     var process = builder.start();
@@ -789,6 +890,10 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   }
 
   private static void assertMaterialization(Neo4jConnectionSettings settings, AstOutcome ast) {
+    assertMaterialization(settings, ast, List.of());
+  }
+
+  private static void assertMaterialization(Neo4jConnectionSettings settings, AstOutcome ast, List<String> expectedRunIds) {
     var projection = new Neo4jAstResultCodec().map(ast);
     withSession(settings, session -> {
       var parameters = Values.parameters("scope", projection.identity().astResultKey());
@@ -801,7 +906,8 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
           links.stream().map(record -> new Neo4jRelationship(record.get("key").asString(), record.get("type").asString(),
               record.get("source").asString(), record.get("target").asString(), record.get("properties").asMap()))
               .collect(Collectors.toMap(Neo4jRelationship::key, value -> value)));
-      assertEquals(0, session.run("MATCH (entity:AnalysisEntity {astResultKey: $scope}) RETURN count(entity) AS count", parameters).single().get("count").asInt());
+      assertEquals(expectedRunIds, session.run("MATCH (entity:AnalysisEntity {astResultKey: $scope}) RETURN DISTINCT entity.runId AS runId ORDER BY runId",
+          parameters).list(record -> record.get("runId").asString()));
     });
   }
 

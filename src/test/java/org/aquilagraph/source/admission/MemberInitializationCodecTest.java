@@ -56,7 +56,7 @@ class MemberInitializationCodecTest {
     var original = produce("class Example { int field = Math.abs(1); { field++; } }", AstProfile.JAVA_SOURCE_INITIALIZATION);
 
     // Act
-    var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(copiedInput(original), original.profile(),
+    var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(copiedInput(original)), original.profile(),
         original.identity().semanticProductionRevision(), "java-source/13"));
 
     // Assert
@@ -70,7 +70,7 @@ class MemberInitializationCodecTest {
     var original = produce("class Example { int field = Math.abs(-1); { field++; } }", AstProfile.JAVA_SOURCE_INITIALIZATION);
 
     // Act
-    var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(copiedInput(original), original.profile(),
+    var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(copiedInput(original)), original.profile(),
         original.identity().semanticProductionRevision(), AstResult.SOURCE_ENVELOPE_MODEL_VERSION));
 
     // Assert

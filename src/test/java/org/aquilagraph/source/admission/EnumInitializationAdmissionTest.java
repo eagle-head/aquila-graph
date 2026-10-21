@@ -147,13 +147,13 @@ class EnumInitializationAdmissionTest {
     // Arrange
     var historical = produce("enum Example { FIRST; Example() {} }", AstProfile.JAVA_SOURCE_NESTED);
     var input = new SyntaxAnalysisInput(historical.snapshot(), historical.environment(), historical.program(), Optional.of(historical.aggregate()), historical.diagnostics(), historical.coverage());
-    var previous = AstResultAdmission.admit(input, historical.profile(), historical.identity().semanticProductionRevision(), AstResult.NESTED_SOURCE_MODEL_VERSION);
+    var previous = AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input), historical.profile(), historical.identity().semanticProductionRevision(), AstResult.NESTED_SOURCE_MODEL_VERSION);
     var current = produce("enum Example { FIRST(1) {}; Example(int n) {} }", AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION);
     var currentInput = new SyntaxAnalysisInput(current.snapshot(), current.environment(), current.program(), Optional.of(current.aggregate()), current.diagnostics(), current.coverage());
     // Act
     var bytes = AstCodec.encode(previous);
     var retained = AstCodec.decode(bytes, previous.identity());
-    var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(currentInput, current.profile(), current.identity().semanticProductionRevision(), AstResult.NESTED_SOURCE_MODEL_VERSION));
+    var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(currentInput), current.profile(), current.identity().semanticProductionRevision(), AstResult.NESTED_SOURCE_MODEL_VERSION));
     // Assert
     assertEquals(previous.identity(), retained.identity());
     assertEquals(previous.completion(), retained.completion());

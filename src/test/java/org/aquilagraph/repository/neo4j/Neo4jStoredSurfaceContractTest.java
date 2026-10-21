@@ -29,6 +29,8 @@ import org.aquilagraph.frontend.JavaSourceLoader;
 import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.DependencySnapshot;
+import org.aquilagraph.identity.api.DependencySemantics;
+import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SoftwareVersion;
@@ -108,7 +110,9 @@ class Neo4jStoredSurfaceContractTest {
     var environment = run.representation().ast().capturedEnvironment().orElseThrow();
     assertEquals(List.of(5L, 4L, 5L), environment.classPath().stream().map(value -> value.byteCount()).toList());
     assertEquals(List.of(1, 1, 1), environment.classPath().stream().map(value -> value.entryCount()).toList());
-    assertEquals(environment.classPath().getFirst(), environment.modulePath().getFirst());
+    assertEquals(environment.classPath().getFirst().fingerprint(), environment.modulePath().getFirst().fingerprint());
+    assertEquals(DependencySemantics.State.CLASS_PATH, environment.classPath().getFirst().semantics().state());
+    assertEquals(DependencySemantics.State.MODULES, environment.modulePath().getFirst().semantics().state());
     assertEquals(4, nodesWithLabel(projection, "DependencySnapshot").size());
     assertEquals(3, projection.relationships().stream().filter(value -> value.type().equals("HAS_CLASS_PATH_ENTRY")).count());
     assertEquals(1, projection.relationships().stream().filter(value -> value.type().equals("HAS_MODULE_PATH_ENTRY")).count());
@@ -282,9 +286,13 @@ class Neo4jStoredSurfaceContractTest {
       expected.edge("HAS_SOURCE", inputKey, file.sourceFileKey(), file.relativePath().toString());
     }
     var environmentKey = environment.environmentDigest();
-    expected.node("AnalysisEnvironmentSnapshot", environmentKey, properties("digestAlgorithm", environment.digestAlgorithm(),
+    var environmentProperties = properties("digestAlgorithm", environment.digestAlgorithm(),
         "environmentDigest", environmentKey, "compilerImplementation", environment.compilerImplementation(), "compilerVendor",
-        environment.compilerVendor(), "compilerVersion", environment.compilerVersion(), "analysisOptions", environment.analysisOptions()));
+        environment.compilerVendor(), "compilerVersion", environment.compilerVersion(), "analysisOptions", environment.analysisOptions());
+    if (environment.identityScheme() == EnvironmentIdentityScheme.MODULE_SEMANTICS) {
+      environmentProperties.put("identityScheme", "analysis-environment/2");
+    }
+    expected.node("AnalysisEnvironmentSnapshot", environmentKey, environmentProperties);
     expected.edge("HAS_ENVIRONMENT", version.signature(), environmentKey, "environment");
     var config = environment.compilerConfiguration();
     var configKey = StableId.sha256("compiler-configuration", config.canonicalForm());
@@ -442,8 +450,16 @@ class Neo4jStoredSurfaceContractTest {
     for (var position = 0; position < dependencies.size(); position++) {
       var dependency = dependencies.get(position);
       var key = StableId.sha256("dependency-snapshot", environment, role, Integer.toString(position), dependency.fingerprint());
-      expected.node("DependencySnapshot", key, properties("location", dependency.location().toString(), "kind", dependency.kind().name(),
-          "byteCount", dependency.byteCount(), "entryCount", dependency.entryCount(), "fingerprint", dependency.fingerprint(), "position", position));
+      var values = properties("location", dependency.location().toString(), "kind", dependency.kind().name(),
+          "byteCount", dependency.byteCount(), "entryCount", dependency.entryCount(), "fingerprint", dependency.fingerprint(), "position", position);
+      if (dependency.semantics().state() != DependencySemantics.State.UNOBSERVED) {
+        values.put("interpretation", role.equals("class-path") ? "CLASS_PATH" : "MODULES");
+        values.put("moduleMembers", List.of());
+        values.put("moduleLookupNames", List.of());
+        values.put("moduleDescriptorNames", List.of());
+        values.put("moduleNameOrigins", List.of());
+      }
+      expected.node("DependencySnapshot", key, values);
       expected.edge(relation, environment, key, Integer.toString(position), "position", position);
     }
   }

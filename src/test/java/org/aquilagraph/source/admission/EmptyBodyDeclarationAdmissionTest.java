@@ -111,7 +111,7 @@ class EmptyBodyDeclarationAdmissionTest {
         AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION).result().orElseThrow();
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());
-    var historical = AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision(),
+    var historical = AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input), original.profile(), original.identity().semanticProductionRevision(),
         AstResult.ENUM_SOURCE_MODEL_VERSION);
     // Act
     var bytes = AstCodec.encode(historical);
@@ -158,7 +158,7 @@ class EmptyBodyDeclarationAdmissionTest {
     var input = new SyntaxAnalysisInput(ast.snapshot(), ast.environment(), ast.program(), Optional.of(ast.aggregate()), ast.diagnostics(),
         ast.coverage());
     // Act
-    var error = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(input, ast.profile(),
+    var error = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input), ast.profile(),
         ast.identity().semanticProductionRevision(), AstResult.ENUM_SOURCE_MODEL_VERSION));
     // Assert
     assertTrue(error.getMessage().contains("java-source/17"), error.toString());

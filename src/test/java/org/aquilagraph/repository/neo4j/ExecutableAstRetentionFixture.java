@@ -86,7 +86,7 @@ final class ExecutableAstRetentionFixture {
   static void assertPreserved(AstResult original, AstResult retained) {
     assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
     assertEquals(AstCompletion.COMPLETE, retained.completion(), retained.diagnostics().toString());
-    assertEquals(AstResult.WRITTEN_EXPRESSION_MODEL_VERSION, retained.identity().sourceModelVersion());
+    assertEquals(AstResult.ENVIRONMENT_IDENTITY_MODEL_VERSION, retained.identity().sourceModelVersion());
     assertEquals(original.identity(), retained.identity());
     assertEquals(original.profile(), retained.profile());
     assertEquals(original.snapshot(), retained.snapshot());

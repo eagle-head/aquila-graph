@@ -3,6 +3,7 @@ package org.aquilagraph.repository.neo4j;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.Arrays;
 import org.aquilagraph.application.AstLookupStatus;
 import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.identity.api.AstIdentity;
@@ -24,7 +25,7 @@ public final class RetainedAstQueryProcess {
     var lookup = service.findAst(identity);
     if (lookup.status() != AstLookupStatus.FOUND) { throw new IllegalStateException("Expected retained source: " + lookup.status()); }
     var retained = lookup.outcome().orElseThrow().result().orElseThrow();
-    if (arguments.length > 6) {
+    if (arguments.length > 6 && !"-".equals(arguments[6])) {
       var expected = Files.readAllLines(Path.of(arguments[6]));
       var actual = retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.MODULE_TYPE_REFERENCE)
           .sorted(Comparator.comparingLong(node -> node.origin().orElseThrow().startOffset())).map(node -> {
@@ -44,6 +45,14 @@ public final class RetainedAstQueryProcess {
           }).toList();
       if (!expected.equals(actual)) {
         throw new IllegalStateException("Retained module endpoints differ: expected " + expected + " but observed " + actual);
+      }
+    }
+    if (arguments.length > 7) {
+      var expectedBytes = Files.readAllBytes(Path.of(arguments[7]));
+      var expected = AstCodec.decode(expectedBytes, identity);
+      if (!expected.environment().equals(retained.environment()) || !expected.snapshot().equals(retained.snapshot())
+          || !expected.diagnostics().equals(retained.diagnostics()) || !Arrays.equals(expectedBytes, AstCodec.encode(retained))) {
+        throw new IllegalStateException("Independent retained source lost exact environment facts, provenance, diagnostics, or bytes");
       }
     }
     Files.write(Path.of(arguments[5]), AstCodec.encode(retained));

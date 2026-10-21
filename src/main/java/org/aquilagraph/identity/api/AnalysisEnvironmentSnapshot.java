@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Comparator;
 
 /**
  * Reproducibility snapshot of the compiler runtime and dependency inputs.
@@ -22,11 +23,38 @@ import java.util.Objects;
  *          captured class-path entries
  * @param modulePath
  *          captured module-path entries
+ * @param identityScheme
+ *          explicit derivation and observation contract
  */
 public record AnalysisEnvironmentSnapshot(CompilerConfiguration compilerConfiguration, String compilerImplementation, String compilerVendor,
-    String compilerVersion, List<String> analysisOptions, List<DependencySnapshot> classPath, List<DependencySnapshot> modulePath) {
+    String compilerVersion, List<String> analysisOptions, List<DependencySnapshot> classPath, List<DependencySnapshot> modulePath,
+    EnvironmentIdentityScheme identityScheme) {
   /** Digest algorithm used for environment identity. */
   public static final String DIGEST_ALGORITHM = "SHA-256";
+
+  /**
+   * Constructs a historical environment with its original assurance and identity.
+   *
+   * @param compilerConfiguration
+   *          normalized configuration
+   * @param compilerImplementation
+   *          compiler class
+   * @param compilerVendor
+   *          runtime vendor
+   * @param compilerVersion
+   *          runtime version
+   * @param analysisOptions
+   *          effective options
+   * @param classPath
+   *          historical class-path captures
+   * @param modulePath
+   *          historical module-path captures
+   */
+  public AnalysisEnvironmentSnapshot(CompilerConfiguration compilerConfiguration, String compilerImplementation, String compilerVendor,
+      String compilerVersion, List<String> analysisOptions, List<DependencySnapshot> classPath, List<DependencySnapshot> modulePath) {
+    this(compilerConfiguration, compilerImplementation, compilerVendor, compilerVersion, analysisOptions, classPath, modulePath,
+        EnvironmentIdentityScheme.HISTORICAL);
+  }
 
   /** Validates and defensively copies environment data. */
   public AnalysisEnvironmentSnapshot {
@@ -42,6 +70,9 @@ public record AnalysisEnvironmentSnapshot(CompilerConfiguration compilerConfigur
     modulePath = List.copyOf(Objects.requireNonNull(modulePath, "modulePath"));
     requireMatchingLocations(compilerConfiguration.classPath(), classPath, "classPath");
     requireMatchingLocations(compilerConfiguration.modulePath(), modulePath, "modulePath");
+    Objects.requireNonNull(identityScheme, "identityScheme");
+    requireSemantics(classPath, false, identityScheme);
+    requireSemantics(modulePath, true, identityScheme);
   }
 
   /**
@@ -83,7 +114,44 @@ public record AnalysisEnvironmentSnapshot(CompilerConfiguration compilerConfigur
     components.addAll(analysisOptions);
     addDependencyIdentity(components, "class-path", classPath);
     addDependencyIdentity(components, "module-path", modulePath);
-    return StableId.sha256("analysis-environment", components.toArray(String[]::new));
+    if (identityScheme == EnvironmentIdentityScheme.MODULE_SEMANTICS) {
+      components.add(identityScheme.version());
+      addSemantics(components, classPath);
+      addSemantics(components, modulePath);
+    }
+    return StableId.sha256(identityScheme == EnvironmentIdentityScheme.HISTORICAL ? "analysis-environment" : identityScheme.version(),
+        components.toArray(String[]::new));
+  }
+
+  private static void requireSemantics(List<DependencySnapshot> dependencies, boolean modular, EnvironmentIdentityScheme scheme) {
+    for (var dependency : dependencies) {
+      var state = dependency.semantics().state();
+      var valid = scheme == EnvironmentIdentityScheme.HISTORICAL
+          ? state == DependencySemantics.State.UNOBSERVED
+          : modular
+              ? state == DependencySemantics.State.MISSING || state == DependencySemantics.State.MODULES
+                  || state == DependencySemantics.State.INVALID
+              : state == DependencySemantics.State.CLASS_PATH;
+      if (!valid) {
+        throw new IllegalArgumentException("Dependency interpretation must agree with its environment scheme and configured role");
+      }
+    }
+  }
+
+  private static void addSemantics(List<String> components, List<DependencySnapshot> dependencies) {
+    components.add(Integer.toString(dependencies.size()));
+    for (var dependency : dependencies) {
+      components.add(dependency.semantics().state().name());
+      var modules = dependency.semantics().modules().stream().sorted(Comparator.comparing(ModuleCandidate::lookupName)
+          .thenComparing(module -> module.descriptorName().orElse("")).thenComparing(ModuleCandidate::nameOrigin)).toList();
+      components.add(Integer.toString(modules.size()));
+      for (var module : modules) {
+        components.add(module.lookupName());
+        components.add(Boolean.toString(module.descriptorName().isPresent()));
+        components.add(module.descriptorName().orElse(""));
+        components.add(module.nameOrigin().name());
+      }
+    }
   }
 
   private static List<String> copyStrings(List<String> values, String name) {

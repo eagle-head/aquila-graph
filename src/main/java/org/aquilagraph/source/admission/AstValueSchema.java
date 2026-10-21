@@ -10,6 +10,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
+import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
+import org.aquilagraph.identity.api.DependencySemantics;
+import org.aquilagraph.identity.api.ModuleCandidate;
+import org.aquilagraph.identity.api.ModuleNameOrigin;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.BodyRef;
 import org.aquilagraph.identity.api.CompilerConfiguration;
@@ -167,13 +171,19 @@ final class AstValueSchema {
   static {
     var types = new LinkedHashMap<Class<?>, Shape>();
     record(types, AnalysisEnvironmentSnapshot.class, "analysis-environment-snapshot", "compilerConfiguration", "compilerImplementation",
-        "compilerVendor", "compilerVersion", "analysisOptions", "classPath", "modulePath");
+        "compilerVendor", "compilerVersion", "analysisOptions", "classPath", "modulePath", "identityScheme");
+    enumeration(types, EnvironmentIdentityScheme.class, "environment-identity-scheme");
+    record(types, DependencySemantics.class, "dependency-semantics", "state", "modules");
+    enumeration(types, DependencySemantics.State.class, "dependency-semantics/state");
+    record(types, ModuleCandidate.class, "module-candidate", "member", "lookupName", "descriptorName", "nameOrigin");
+    enumeration(types, ModuleNameOrigin.class, "module-name-origin");
     record(types, AstIdentity.class, "ast-identity", "astResultKey", "softwareSignature", "sourceModelVersion", "astProfileVersion",
         "semanticProductionRevision", "canonicalContentDigest");
     record(types, BodyRef.class, "body-ref", "astIdentity", METHOD_KEY_FIELD, "sourceOccurrenceKey", "nonwrittenProvenance");
     record(types, CompilerConfiguration.class, "compiler-configuration", "release", "classPath", "modulePath", "options");
     enumeration(types, DependencyKind.class, "dependency-kind");
-    record(types, DependencySnapshot.class, "dependency-snapshot", "location", KIND_FIELD, "byteCount", "entryCount", "fingerprint");
+    record(types, DependencySnapshot.class, "dependency-snapshot", "location", KIND_FIELD, "byteCount", "entryCount", "fingerprint",
+        "semantics");
     record(types, InputSnapshot.class, "input-snapshot", "sourceRoot", "digestAlgorithm", "snapshotDigest", "sourceFiles");
     enumeration(types, JavaRelease.class, "java-release");
     record(types, NonwrittenBodyProvenance.class, "nonwritten-body-provenance", ORIGIN_FIELD, SOURCE_FILE_KEY_FIELD, "ownerDeclarationKey");
@@ -588,6 +598,9 @@ final class AstValueSchema {
     }
 
     List<String> retainedFields(int version) {
+      if (version < 21 && (type == AnalysisEnvironmentSnapshot.class || type == DependencySnapshot.class)) {
+        return fields.subList(0, fields.size() - 1);
+      }
       if (version < 20 && type == SemanticReference.class) {
         return fields.subList(0, fields.size() - 1);
       }
@@ -609,6 +622,18 @@ final class AstValueSchema {
 
     List<Object> retainedComponents(Object value, int version) {
       var values = components(value);
+      if (version < 21 && value instanceof AnalysisEnvironmentSnapshot environment) {
+        if (environment.identityScheme() != EnvironmentIdentityScheme.HISTORICAL) {
+          throw new IllegalArgumentException("Module-aware environment identity requires retained AST format java-source/21");
+        }
+        return values.subList(0, values.size() - 1);
+      }
+      if (version < 21 && value instanceof DependencySnapshot dependency) {
+        if (dependency.semantics().state() != DependencySemantics.State.UNOBSERVED) {
+          throw new IllegalArgumentException("Observed dependency semantics require retained AST format java-source/21");
+        }
+        return values.subList(0, values.size() - 1);
+      }
       if (version < 20 && value instanceof SemanticReference reference) {
         if (reference.declarationIdentity().isPresent()) {
           throw new IllegalArgumentException("Module-qualified targets require retained AST format java-source/20");
