@@ -10,9 +10,47 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class QualifiedIdentityTest {
+  @Test
+  void givenBlankOrUnrelatedSuppliedKeys_whenQualifiedIdentitiesAreConstructed_thenTheDerivedKeysRemainMandatory() {
+    // Arrange
+    var ast = AstIdentity.fromContent("software", "source/1", "profile/1", "production/1", "content");
+    var graph = GraphIdentity.fromContent(ast, "cfg/1", "graph/1", "method", "graph-content");
+    var invalidKeys = List.of("", " \t\n", "unrelated-key");
+
+    // Act
+    var astFailures = invalidKeys.stream().map(key -> assertThrows(IllegalArgumentException.class,
+        () -> new AstIdentity(key, ast.softwareSignature(), ast.sourceModelVersion(), ast.astProfileVersion(),
+            ast.semanticProductionRevision(), ast.canonicalContentDigest()))).toList();
+    var graphFailures = invalidKeys.stream().map(key -> assertThrows(IllegalArgumentException.class,
+        () -> new GraphIdentity(key, ast, graph.cfgProfileVersion(), graph.graphModelVersion(), graph.methodKey(),
+            graph.canonicalContentDigest()))).toList();
+
+    // Assert
+    assertEquals(3, astFailures.size());
+    assertEquals(3, graphFailures.size());
+  }
+
+  @Test
+  void givenNonwrittenOriginsWithEqualAndDifferentOwners_whenUsedAsSetMembers_thenAllProvenanceComponentsDefineValueEquality() {
+    // Arrange
+    var original = new NonwrittenBodyProvenance("implicit-constructor", "file", "owner");
+    var candidates = List.of(new NonwrittenBodyProvenance("implicit-constructor", "file", "owner"),
+        new NonwrittenBodyProvenance("enum-constructor", "file", "owner"),
+        new NonwrittenBodyProvenance("implicit-constructor", "other-file", "owner"),
+        new NonwrittenBodyProvenance("implicit-constructor", "file", "other-owner"));
+    var origins = Set.of(original);
+
+    // Act
+    var membership = candidates.stream().map(origins::contains).toList();
+
+    // Assert
+    assertEquals(List.of(true, false, false, false), membership);
+  }
+
   @Test
   void givenAnEmptyAstQualificationComponent_whenItsMatchingKeyIsDerived_thenTheIncompleteIdentityIsRejected() {
     // Arrange

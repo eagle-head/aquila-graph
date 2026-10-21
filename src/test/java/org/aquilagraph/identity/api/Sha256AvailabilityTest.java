@@ -1,51 +1,69 @@
 package org.aquilagraph.identity.api;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import java.io.File;
-import java.io.IOException;
-import java.lang.management.ManagementFactory;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.concurrent.TimeUnit;
+import java.security.NoSuchAlgorithmException;
+import java.security.Security;
+import java.util.List;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 
+@Isolated("Temporarily changes the JVM security provider registry")
 class Sha256AvailabilityTest {
   @Test
-  void givenNoDigestProviders_whenIdentityDigestsAreRequestedInAnIsolatedProcess_thenEveryEntryPointPreservesTheUnavailableAlgorithmCause(
-      @TempDir Path directory) throws IOException, InterruptedException {
+  void givenNoDigestProviders_whenIdentityDigestsAreRequested_thenEveryEntryPointPreservesTheUnavailableAlgorithmCause() {
     // Arrange
-    var executable = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
-    var classPath = Path.of("target", "partitions", "identity", "classes") + File.pathSeparator + Path.of("target", "test-classes");
-    var command = new ArrayList<String>();
-    command.add(executable.toString());
-    command.add("-Xms32m");
-    command.add("-Xmx128m");
-    ManagementFactory.getRuntimeMXBean().getInputArguments().stream().filter(argument -> argument.startsWith("-javaagent:"))
-        .forEach(command::add);
-    command.add("-cp");
-    command.add(classPath);
-    command.add("org.aquilagraph.identity.api.Sha256AvailabilityProbe");
-    var output = directory.resolve("sha256-availability.log");
+    var operations = List.<Supplier<?>>of(() -> StableId.sha256("source", "Sample.java"),
+        () -> SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}"),
+        () -> new CanonicalValueWriter("values/1").digest("content"));
 
     // Act
-    var process = new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(output.toFile()).start();
-    try {
-      var completed = process.waitFor(30, TimeUnit.SECONDS);
+    var failures = withoutDigestProviders(() -> operations.stream()
+        .map(operation -> assertThrows(IllegalStateException.class, operation::get)).toList());
 
-      // Assert
-      assertTrue(completed, "Digest availability process did not finish: " + output);
-      var text = Files.readString(output).strip();
-      assertEquals(0, process.exitValue(), text);
-      assertEquals("sha256-unavailable-ok", text);
-    } finally {
-      if (process.isAlive()) {
-        process.destroyForcibly();
-        assertTrue(process.waitFor(5, TimeUnit.SECONDS), "Digest availability process did not terminate");
+    // Assert
+    failures.forEach(failure -> {
+      assertInstanceOf(NoSuchAlgorithmException.class, failure.getCause());
+      assertEquals("SHA-256 is required by the Java platform", failure.getMessage());
+    });
+  }
+
+  @Test
+  void givenNoDigestProvidersAndBlankQualifiedKeys_whenIdentitiesAreConstructed_thenInvalidArgumentsRemainArgumentErrors() {
+    // Arrange
+    var ast = AstIdentity.fromContent("software", "source/1", "profile/1", "production/1", "content");
+    var operations = List.<Supplier<?>>of(
+        () -> new AstIdentity("", "software", "source/1", "profile/1", "production/1", "content"),
+        () -> new AstIdentity(" \t\n", "software", "source/1", "profile/1", "production/1", "content"),
+        () -> new GraphIdentity("", ast, "cfg/1", "graph/1", "method", "graph-content"),
+        () -> new GraphIdentity(" \t\n", ast, "cfg/1", "graph/1", "method", "graph-content"));
+
+    // Act
+    var failures = withoutDigestProviders(() -> operations.stream()
+        .map(operation -> assertThrows(IllegalArgumentException.class, operation::get)).toList());
+
+    // Assert
+    assertEquals(4, failures.size());
+  }
+
+  private static <T> T withoutDigestProviders(Supplier<T> operation) {
+    var providers = Security.getProviders();
+    try {
+      for (var provider : providers) {
+        Security.removeProvider(provider.getName());
       }
+
+      return operation.get();
+    } finally {
+      for (var index = 0; index < providers.length; index++) {
+        Security.insertProviderAt(providers[index], index + 1);
+      }
+      assertArrayEquals(providers, Security.getProviders(), "The original digest providers and their registration order must be restored");
     }
   }
 }
