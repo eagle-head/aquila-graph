@@ -12,9 +12,11 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.RepositoryOperationException;
@@ -38,6 +40,7 @@ import org.neo4j.driver.Session;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.TransactionCallback;
 import org.neo4j.driver.TransactionContext;
+import org.neo4j.driver.Value;
 import org.neo4j.driver.Values;
 
 @ExtendWith(Neo4jIntegration.class)
@@ -56,11 +59,13 @@ class Neo4jAstBatchingNeo4jIT {
     var projection = new Neo4jAstResultCodec().map(ast);
     assertTrue(projection.nodes().stream().filter(node -> node.label().equals("AstValue")).count() > 512,
         "The fixture must exercise more than one bounded scalar-value batch");
+    var scalarKeys = projection.nodes().stream().filter(node -> node.label().equals("AstValue")).map(Neo4jNode::key)
+        .collect(Collectors.toSet());
     var injected = new IllegalStateException("Injected failure after a completed AST write batch");
     var batches = new AtomicInteger();
     var uncommitted = new AtomicLong();
     var driver = failingDriver(GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password())),
-        identity.astResultKey(), injected, batches, uncommitted);
+        identity.astResultKey(), scalarKeys, injected, batches, uncommitted);
     var context = new RepositoryOperationContext(RepositoryOperationKind.SAVE_AST, identity);
 
     // Act
@@ -82,7 +87,8 @@ class Neo4jAstBatchingNeo4jIT {
     }
   }
 
-  private static Driver failingDriver(Driver driver, String scope, RuntimeException injected, AtomicInteger batches, AtomicLong uncommitted) {
+  private static Driver failingDriver(Driver driver, String scope, Set<String> scalarKeys, RuntimeException injected, AtomicInteger batches,
+      AtomicLong uncommitted) {
     return proxy(Driver.class, (ignored, method, arguments) -> {
       var result = invoke(method, driver, arguments);
       if (method.getName().equals("session")) {
@@ -91,8 +97,7 @@ class Neo4jAstBatchingNeo4jIT {
           if (sessionMethod.getName().equals("executeWrite")) {
             var callback = (TransactionCallback<?>) sessionArguments[0];
             return session.executeWrite(transaction -> callback.execute(proxy(TransactionContext.class, (ignoredTransaction, queryMethod, queryArguments) -> {
-              if (queryMethod.getName().equals("run") && queryArguments[0] instanceof String query
-                  && query.startsWith("UNWIND $nodes") && query.contains("entity:`AstValue`") && batches.incrementAndGet() == 2) {
+              if (queryMethod.getName().equals("run") && containsScalarNodes(queryArguments, scalarKeys) && batches.incrementAndGet() == 2) {
                 uncommitted.set(transaction.run("MATCH (entity:AstEntity {astResultKey: $scope}) RETURN count(entity) AS count",
                     Values.parameters("scope", scope)).single().get("count").asLong());
                 throw injected;
@@ -105,6 +110,11 @@ class Neo4jAstBatchingNeo4jIT {
       }
       return result;
     });
+  }
+
+  private static boolean containsScalarNodes(Object[] arguments, Set<String> scalarKeys) {
+    return arguments.length == 2 && arguments[1] instanceof Value parameters && parameters.containsKey("nodes")
+        && parameters.get("nodes").asList(node -> node.get("key").asString(null)).stream().anyMatch(scalarKeys::contains);
   }
 
   private static <T> T proxy(Class<T> contract, InvocationHandler handler) {

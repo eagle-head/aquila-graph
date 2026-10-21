@@ -37,19 +37,19 @@ final class Neo4jAstResultCodec {
     var identity = result.identity();
     var bytes = AstCodec.encode(result);
     var values = AstCodec.materialize(result);
+    var valueKeys = values.nodes().stream().map(value -> valueKey(identity, value.ordinal())).toList();
     nodes.accept(root(identity, Base64.getEncoder().encodeToString(bytes)));
     for (var value : values.nodes()) {
-      nodes.accept(node(identity, value));
+      nodes.accept(node(identity, value, valueKeys.get(value.ordinal())));
     }
-    relationships.accept(link(identity, identity.astResultKey(), valueKey(identity, 0), "HAS_AST_VALUES", "values", 0));
+    relationships.accept(link(identity, identity.astResultKey(), valueKeys.getFirst(), "HAS_AST_VALUES", "values", 0));
     for (var component : values.links()) {
-      relationships.accept(link(identity, valueKey(identity, component.sourceOrdinal()), valueKey(identity, component.targetOrdinal()),
+      relationships.accept(link(identity, valueKeys.get(component.sourceOrdinal()), valueKeys.get(component.targetOrdinal()),
           Neo4jAstSchema.relationship(component.field()), component.field(), component.position()));
     }
   }
 
-  private static Neo4jNode node(AstIdentity identity, Node value) {
-    var key = valueKey(identity, value.ordinal());
+  private static Neo4jNode node(AstIdentity identity, Node value, String key) {
     var properties = scoped(identity, key);
     properties.put("ordinal", (long) value.ordinal());
     properties.put("tag", value.tag());
