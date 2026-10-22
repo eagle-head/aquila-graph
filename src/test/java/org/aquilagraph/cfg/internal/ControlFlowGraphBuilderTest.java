@@ -18,6 +18,7 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.DiagnosticStage;
 import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.JavaTypeCategory;
@@ -108,6 +109,7 @@ class ControlFlowGraphBuilderTest {
     assertTrue(result.graph().isEmpty());
     assertEquals(List.of("control-flow.unresolved-semantics"),
         result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
+    assertEquals(AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE, result.diagnostics().getFirst().outcomeKind());
   }
 
   @Test
@@ -122,6 +124,7 @@ class ControlFlowGraphBuilderTest {
     assertTrue(result.graph().isEmpty());
     assertEquals(List.of("control-flow.erroneous-semantics"),
         result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
+    assertEquals(AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE, result.diagnostics().getFirst().outcomeKind());
   }
 
   @Test
@@ -183,6 +186,7 @@ class ControlFlowGraphBuilderTest {
     assertEquals(DiagnosticStage.CONTROL_FLOW, diagnostic.stage());
     assertEquals(DiagnosticSeverity.ERROR, diagnostic.severity());
     assertEquals(method.origins(), diagnostic.origins());
+    assertEquals(AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE, diagnostic.outcomeKind());
   }
 
   @Test
@@ -209,6 +213,7 @@ class ControlFlowGraphBuilderTest {
     assertEquals(DiagnosticStage.CONTROL_FLOW, diagnostic.stage());
     assertEquals(DiagnosticSeverity.ERROR, diagnostic.severity());
     assertEquals(method.declaration().origins(), diagnostic.origins());
+    assertEquals(AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE, diagnostic.outcomeKind());
   }
 
   @Test

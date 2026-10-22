@@ -31,12 +31,50 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class SourceAnalysisRunnerTest {
   @TempDir Path directory;
+
+  @Test
+  void givenRealSourceAndInvalidSelection_whenAnalyzing_thenExplicitRequestCausesPreserveAstAndPreventRepositoryAcquisition() {
+    // Arrange
+    var snapshot = InputSnapshot.fromSources(directory,
+        List.of(SourceFile.fromContent(Path.of("Stored.java"), "class Stored { int value() { return 1; } }")));
+    var selection = new CfgSelection(List.of("unknown", "unknown", ""), CfgProfile.JAVA_BOUNDED);
+    var request = new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration(), AstProfile.JAVA_SOURCE_BOUNDED,
+        Optional.of(selection), PublicationIntent.SAVE_COMPLETED);
+    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var publication = new CompletedRunPublicationService(() -> {
+      throw new AssertionError("Rejected control flow must not acquire a repository");
+    });
+
+    // Act
+    var run = runner.analyze(request);
+    var stored = publication.publish(run);
+
+    // Assert
+    var ast = run.representation().ast().result().orElseThrow();
+    var cfg = run.representation().cfg().orElseThrow();
+    assertEquals(AstCompletion.COMPLETE, ast.completion());
+    assertEquals(2, ast.program().methods().size());
+    assertEquals(List.of(), ast.diagnostics());
+    assertEquals(AnalysisCompletion.REJECTED, run.completion());
+    assertEquals(new CfgRequest(ast.identity(), selection.methodKeys(), selection.profile()), cfg.request());
+    assertEquals(CfgState.REJECTED, cfg.state());
+    assertEquals(List.of("control-flow.unknown-method", "control-flow.duplicate-selection", "control-flow.unknown-method",
+        "control-flow.unknown-method"), run.diagnostics().stream().map(value -> value.code()).toList());
+    assertEquals(List.of(AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE, AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE,
+        AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE, AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE),
+        run.diagnostics().stream().map(value -> value.outcomeKind()).toList());
+    assertEquals(cfg.diagnostics(), run.diagnostics());
+    assertFalse(run.isPublishable());
+    assertEquals(PublicationStatus.NOT_ELIGIBLE, stored.status());
+    assertEquals(CommitKnowledge.NOT_STARTED, stored.knowledge());
+  }
 
   @Test
   void givenCfgPortReturningAnotherSelection_whenAnalyzing_thenContractViolationRemainsAbrupt() throws IOException {

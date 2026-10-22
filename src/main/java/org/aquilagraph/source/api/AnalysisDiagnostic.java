@@ -7,8 +7,7 @@ import org.aquilagraph.identity.api.SourceSpan;
 /**
  * Immutable diagnostic emitted during one analysis stage.
  *
- * The producer assigns the root-cause outcome while it still owns the semantic context that created the diagnostic. The existing
- * six-argument constructor is retained only for the fixed diagnostics emitted by the unchanged core boundary.
+ * The producer assigns the root-cause outcome while it still owns the semantic context that created the diagnostic.
  */
 public final class AnalysisDiagnostic {
   private final String diagnosticIdentity;
@@ -18,27 +17,6 @@ public final class AnalysisDiagnostic {
   private final String diagnosticMessage;
   private final List<SourceSpan> sourceOrigins;
   private final AnalysisOutcomeKind rootCause;
-
-  /**
-   * Creates one of the fixed diagnostics emitted by the unchanged core boundary.
-   *
-   * @param diagnosticKey
-   *          stable diagnostic identifier
-   * @param code
-   *          machine-readable diagnostic code
-   * @param stage
-   *          stage that produced the diagnostic
-   * @param severity
-   *          diagnostic severity
-   * @param message
-   *          human-readable diagnostic message
-   * @param origins
-   *          source locations associated with the diagnostic
-   */
-  public AnalysisDiagnostic(String diagnosticKey, String code, DiagnosticStage stage, DiagnosticSeverity severity, String message,
-      List<SourceSpan> origins) {
-    this(diagnosticKey, code, stage, severity, message, origins, fixedCoreOutcome(code, stage));
-  }
 
   /**
    * Creates a diagnostic with the root cause assigned by its producer.
@@ -159,24 +137,6 @@ public final class AnalysisDiagnostic {
   public String toString() {
     return "AnalysisDiagnostic[diagnosticKey=" + diagnosticIdentity + ", code=" + machineCode + ", stage=" + producingStage + ", severity="
         + diagnosticSeverity + ", message=" + diagnosticMessage + ", origins=" + sourceOrigins + ", outcomeKind=" + rootCause + ']';
-  }
-
-  private static AnalysisOutcomeKind fixedCoreOutcome(String code, DiagnosticStage stage) {
-    Objects.requireNonNull(code, "code");
-    Objects.requireNonNull(stage, "stage");
-    return switch (stage) {
-      case INPUT -> AnalysisOutcomeKind.INPUT_REJECTION;
-      case CONTROL_FLOW -> "control-flow.erroneous-semantics".equals(code)
-          ? AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE
-          : AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE;
-      case PERSISTENCE -> AnalysisOutcomeKind.PERSISTENCE_FAILURE;
-      case FRONTEND -> {
-        if (!"frontend.no-types".equals(code)) {
-          throw new IllegalArgumentException("Frontend diagnostic producers must assign an explicit outcome kind");
-        }
-        yield AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR;
-      }
-    };
   }
 
   private void validateOutcome() {

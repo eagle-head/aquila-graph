@@ -32,9 +32,14 @@ import org.aquilagraph.identity.api.GraphNodeKey;
 import org.aquilagraph.identity.api.GraphValueKey;
 import org.aquilagraph.identity.api.GraphEdgeKey;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -69,6 +74,9 @@ class JavaCfgDeriverTest {
     assertSame(aggregate, ast.aggregate());
     assertEquals(diagnostics, ast.diagnostics());
     assertEquals(ast.identity(), result.request().astIdentity());
+    assertEquals(List.of(requestDiagnostic(request, "control-flow.construction-failed", key(ast, "value"),
+        "Admitted control-flow construction failed")), result.diagnostics());
+    assertEquals(result.diagnostics(), result.methods().getFirst().diagnostics());
   }
 
   @Test
@@ -130,6 +138,13 @@ class JavaCfgDeriverTest {
     assertEquals(List.of("control-flow.duplicate-selection", "control-flow.unknown-method", "control-flow.unknown-method"),
         result.diagnostics().stream().map(value -> value.code()).toList());
     assertEquals(4, result.request().methodKeys().size());
+    assertEquals(List.of(
+        requestDiagnostic(request, "control-flow.duplicate-selection", "selection/1",
+            "The requested selection repeats a canonical method key"),
+        requestDiagnostic(request, "control-flow.unknown-method", "selection/2",
+            "The requested selection contains an unknown canonical method key"),
+        requestDiagnostic(request, "control-flow.unknown-method", "selection/3",
+            "The requested selection contains an unknown canonical method key")), result.diagnostics());
   }
 
   @Test
@@ -150,6 +165,11 @@ class JavaCfgDeriverTest {
     assertEquals(List.of("control-flow.foreign-ast", "control-flow.incompatible-profile"),
         result.diagnostics().stream().map(value -> value.code()).toList());
     assertTrue(result.methods().isEmpty());
+    assertEquals(List.of(
+        requestDiagnostic(request, "control-flow.foreign-ast", "identity",
+            "Requested source identity differs from the supplied AST result"),
+        requestDiagnostic(request, "control-flow.incompatible-profile", "profile",
+            "Requested source and graph interpretation versions are incompatible")), result.diagnostics());
   }
 
   @Test
@@ -355,6 +375,12 @@ class JavaCfgDeriverTest {
     assertNotEquals(standard.methods().getFirst().graph().orElseThrow().identity(), restrictive.methods().getFirst().graph().orElseThrow().identity());
     assertThrows(IllegalArgumentException.class,
         () -> new CfgOutcome(restrictiveRequest, CfgState.COMPLETE, standard.methods(), standard.diagnostics()));
+  }
+
+  private static AnalysisDiagnostic requestDiagnostic(CfgRequest request, String code, String slot, String message) {
+    return new AnalysisDiagnostic(StableId.sha256("cfg-request-diagnostic", request.astIdentity().astResultKey(),
+        request.profile().version(), request.profile().graphModelVersion(), code, slot), code, DiagnosticStage.CONTROL_FLOW,
+        DiagnosticSeverity.ERROR, message, List.of(), AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE);
   }
 
   private AstResult produce(String source) throws IOException {

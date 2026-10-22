@@ -331,12 +331,24 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
           var session = driver.session(SessionConfig.forDatabase(settings.database()))) {
         assertEquals(1, session.run("MATCH (d:Diagnostic {runId: $runId}) RETURN count(d) AS count",
             Values.parameters("runId", run.identity().key())).single().get("count").asLong());
+        assertEquals(Map.of("runId", run.identity().key(), "key", warning.diagnosticKey(), "code", "publication.warning",
+            "stage", "FRONTEND", "severity", "WARNING", "message", "Publication warning"),
+            session.run("MATCH (d:Diagnostic {runId: $runId}) RETURN properties(d) AS properties",
+                Values.parameters("runId", run.identity().key())).single().get("properties").asMap());
         assertEquals(List.of(0L, 1L), session.run("MATCH (:AnalysisRun {runId: $runId})-[slot:HAS_DIAGNOSTIC]->"
             + "(d:Diagnostic {runId: $runId}) RETURN slot.position AS position ORDER BY position",
             Values.parameters("runId", run.identity().key())).list(record -> record.get("position").asLong()));
         assertEquals(1, session.run("MATCH (:Diagnostic {runId: $runId})-[origin:HAS_ORIGIN]->"
             + "(:SourceOrigin {runId: $runId}) RETURN count(origin) AS count",
             Values.parameters("runId", run.identity().key())).single().get("count").asLong());
+        var storedOrigin = session.run("MATCH (:Diagnostic {runId: $runId})-[:HAS_ORIGIN]->"
+            + "(origin:SourceOrigin {runId: $runId})-[:IN_SOURCE]->(source:SourceFile) "
+            + "RETURN origin.startOffset AS start, origin.endOffsetExclusive AS end, origin.position AS position, source.key AS source",
+            Values.parameters("runId", run.identity().key())).single();
+        assertEquals(origin.startOffset(), storedOrigin.get("start").asLong());
+        assertEquals(origin.endOffsetExclusive(), storedOrigin.get("end").asLong());
+        assertEquals(0L, storedOrigin.get("position").asLong());
+        assertEquals(origin.sourceFileKey(), storedOrigin.get("source").asString());
       }
     } finally {
       cleanup(settings, List.of(run.identity().key()));

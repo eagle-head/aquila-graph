@@ -15,6 +15,7 @@ import org.aquilagraph.cfg.api.MethodCfgOutcome;
 import org.aquilagraph.cfg.api.MethodCfgState;
 import org.aquilagraph.identity.api.StableId;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
@@ -106,6 +107,6 @@ public final class JavaCfgDeriver implements CfgDeriver {
     return new AnalysisDiagnostic(
         StableId.sha256("cfg-request-diagnostic", request.astIdentity().astResultKey(), request.profile().version(),
             request.profile().graphModelVersion(), code, slot),
-        code, DiagnosticStage.CONTROL_FLOW, DiagnosticSeverity.ERROR, message, List.of());
+        code, DiagnosticStage.CONTROL_FLOW, DiagnosticSeverity.ERROR, message, List.of(), AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE);
   }
 }

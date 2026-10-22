@@ -8,6 +8,7 @@ import org.aquilagraph.cfg.api.MethodCfgOutcome;
 import org.aquilagraph.cfg.api.MethodCfgState;
 import org.aquilagraph.identity.api.StableId;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
@@ -76,8 +77,11 @@ public final class ControlFlowGraphBuilder {
         case ERRONEOUS_SEMANTICS -> "Method body contains erroneous compiler semantics";
         case LOWERABLE -> throw new IllegalStateException("Lowerable syntax must proceed to graph construction");
       };
+      var outcomeKind = readiness == CfgReadiness.ERRONEOUS_SEMANTICS
+          ? AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE
+          : AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE;
       var diagnostic = new AnalysisDiagnostic(StableId.sha256("diagnostic", method.methodKey(), code), code, DiagnosticStage.CONTROL_FLOW,
-          DiagnosticSeverity.ERROR, message, method.origins());
+          DiagnosticSeverity.ERROR, message, method.origins(), outcomeKind);
       return new ControlFlowGraphResult(Optional.empty(), List.of(diagnostic));
     }
     return new SyntaxGraphLowerer(method, syntax).lower();
