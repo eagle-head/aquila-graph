@@ -56,6 +56,7 @@ import org.aquilagraph.identity.api.ModuleCandidate;
 import org.aquilagraph.identity.api.ModuleNameOrigin;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SoftwareVersion;
 import org.aquilagraph.source.admission.AstCodec;
 import org.aquilagraph.source.admission.AstResultAdmission;
 import org.aquilagraph.source.api.AnnotationScalar;
@@ -172,9 +173,23 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   }
 
   @Test
-  void givenMixedModuleSource_whenApplicationRetainsAndCompilerFreeConsumerQueries_thenTargetsAndExistingSourceRemainIntact() throws Exception {
+  void givenModuleServicesAndAutomaticDependency_whenApplicationRetainsAndCompilerFreeConsumerQueries_thenNamesTargetsAndSourceRemainExact() throws Exception {
     // Arrange
-    var descriptor = "import api.Service; import impl.AlphaProvider; module service.integrated { uses api.Service; provides Service with impl.ZuluFactory, AlphaProvider; }";
+    var alpha = directory.resolve("alpha.jar");
+    var beta = directory.resolve("beta.jar");
+    var manifest = new Manifest();
+    manifest.getMainAttributes().putValue("Manifest-Version", "1.0");
+    try (var output = new JarOutputStream(Files.newOutputStream(alpha), manifest)) {
+      output.putNextEntry(new JarEntry("content.txt"));
+      output.write(new byte[] {1, 2, 3});
+      output.closeEntry();
+    }
+    Files.copy(alpha, beta);
+    var alphaBytes = Files.readAllBytes(alpha);
+    var betaBytes = Files.readAllBytes(beta);
+    var matchingConfiguration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(alpha), List.of());
+    var nonmatchingConfiguration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(beta), List.of());
+    var descriptor = "import api.Service; import impl.AlphaProvider; module service.integrated { requires alpha; uses api.Service; provides Service with impl.ZuluFactory, AlphaProvider; }";
     var snapshot = InputSnapshot.fromSources(directory, List.of(
         SourceFile.fromContent(Path.of("module-info.java"), descriptor),
         SourceFile.fromContent(Path.of("api/Service.java"), "package api; public interface Service { int value(); }"),
@@ -184,17 +199,26 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
         SourceFile.fromContent(Path.of("impl/AlphaProvider.java"), "package impl; @api.Mark public class AlphaProvider implements api.Service { public int value() { return 7; } }"),
         SourceFile.fromContent(Path.of("model/Payload.java"), "package model; @api.Mark public class Payload<T extends Comparable<T>> { public T echo(T value) { return value; } public int supported() { return 9; } public Runnable lambda() { return () -> {}; } public Object boxed() { return 4; } public Class<?> literal() { return String.class; } }")));
     var settings = settings();
+    var frontend = new JavaFrontend(new JavaSourceLoader());
     var application = new AnalysisApplicationService(
-        new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()), retention(settings),
+        new SourceAnalysisRunner(frontend, CfgDerivers.standard()), retention(settings),
         run -> { throw new AssertionError("Combined publication is not requested"); });
-    var request = new AnalysisRequest(new SourceInput.Snapshot(snapshot), DeclarationAstRetentionFixture.configuration(),
+    var request = new AnalysisRequest(new SourceInput.Snapshot(snapshot), matchingConfiguration,
         AstProfile.JAVA_SOURCE_MODULE_SERVICES, Optional.empty(), PublicationIntent.SAVE_COMPLETE_AST);
 
     // Act
+    var direct = frontend.produce(new AstProductionRequest(new SourceInput.Snapshot(snapshot), matchingConfiguration,
+        AstProfile.JAVA_SOURCE_MODULE_SERVICES));
     var execution = application.execute(request);
     var outcome = execution.run().representation().ast();
     var original = outcome.result().orElseThrow();
     try {
+      var nonmatching = application.execute(new AnalysisRequest(new SourceInput.Snapshot(snapshot), nonmatchingConfiguration,
+          AstProfile.JAVA_SOURCE_MODULE_SERVICES, Optional.empty(), PublicationIntent.SAVE_COMPLETE_AST));
+      var nonmatchingAst = nonmatching.run().representation().ast();
+      var nonmatchingEnvironment = nonmatchingAst.capturedEnvironment().orElseThrow();
+      Files.delete(alpha);
+      Files.delete(beta);
       var retained = queryRetainedInIndependentProcess(settings, outcome, Optional.of(expectedModuleOperands(snapshot, "service.integrated",
           List.of("api.Service", "Service"),
           List.of("impl.ZuluFactory", "AlphaProvider"), List.of("impl.ZuluFactory", "impl.AlphaProvider"))));
@@ -204,6 +228,24 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
           new CfgRequest(retained.identity(), List.of(supported, lambda), CfgProfile.JAVA_BOUNDED));
 
       // Assert
+      assertArrayEquals(alphaBytes, betaBytes);
+      assertEquals(direct.result().orElseThrow().identity(), original.identity());
+      assertEquals(snapshot, retained.snapshot());
+      assertEquals(snapshot, nonmatchingAst.capturedInput().orElseThrow());
+      assertEquals(List.of(), retained.diagnostics());
+      assertEquals(original.environment(), retained.environment());
+      assertEquals(EnvironmentIdentityScheme.MODULE_SEMANTICS, retained.environment().identityScheme());
+      assertEquals(List.of(new ModuleCandidate(".", "alpha", Optional.empty(), ModuleNameOrigin.FILENAME)),
+          retained.environment().modulePath().getFirst().semantics().modules());
+      assertEquals(List.of(new ModuleCandidate(".", "beta", Optional.empty(), ModuleNameOrigin.FILENAME)),
+          nonmatchingEnvironment.modulePath().getFirst().semantics().modules());
+      assertEquals(retained.environment().modulePath().getFirst().fingerprint(), nonmatchingEnvironment.modulePath().getFirst().fingerprint());
+      assertNotEquals(retained.environment().environmentDigest(), nonmatchingEnvironment.environmentDigest());
+      assertNotEquals(retained.identity().softwareSignature(), SoftwareVersion.from(snapshot, nonmatchingEnvironment).signature());
+      assertNotEquals(AstCompletion.COMPLETE, nonmatchingAst.completion());
+      assertTrue(nonmatchingAst.diagnostics().stream().anyMatch(diagnostic -> diagnostic.message().contains("alpha")));
+      assertEquals(PublicationStatus.NOT_ELIGIBLE, nonmatching.publication().status());
+      assertNotEquals(execution.run().identity().key(), retained.identity().softwareSignature());
       assertEquals(PublicationStatus.SAVED, execution.publication().status());
       assertTrue(execution.run().representation().cfg().isEmpty());
       assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
