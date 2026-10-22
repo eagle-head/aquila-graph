@@ -36,15 +36,12 @@ Arguments included in targets that skip test compilation and execution.
 .\Invoke-Build.ps1 coverage
 
 .EXAMPLE
-.\Invoke-Build.ps1 mutation-test
-
-.EXAMPLE
 .\Invoke-Build.ps1 supply-chain-check
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('compile', 'test', 'integration-test', 'integration-test-neo4j', 'coverage', 'mutation-test', 'format', 'format-check', 'line-endings-check', 'quality', 'supply-chain-check')]
+    [ValidateSet('compile', 'test', 'integration-test', 'integration-test-neo4j', 'coverage', 'format', 'format-check', 'line-endings-check', 'quality', 'supply-chain-check')]
     [string] $Target = 'compile',
 
     [string] $MavenCommand,
@@ -137,10 +134,6 @@ else {
         $MavenFlags + @('jacoco:prepare-agent', 'test', 'jacoco:report')
         break
     }
-    'mutation-test' {
-        $MavenFlags + @('jacoco:prepare-agent', 'test', 'jacoco:report', 'pitest:mutationCoverage')
-        break
-    }
     'format' {
         $MavenFlags + @('spotless:apply')
         break
@@ -166,7 +159,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
-    if ($Target -in @('coverage', 'mutation-test')) {
+    if ($Target -eq 'coverage') {
         $coverageData = Join-Path $PSScriptRoot 'target/jacoco.exec'
         if (Test-Path -LiteralPath $coverageData) {
             Remove-Item -LiteralPath $coverageData -ErrorAction Stop

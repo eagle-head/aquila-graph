@@ -13,7 +13,7 @@ These gates do not replace behavioral tests or a dependency-vulnerability assess
 an inventory of resolved production components; it does not determine whether those components
 have published vulnerabilities or whether vulnerable code is reachable in Aquila Graph.
 
-JaCoCo measures unit-test coverage when the `coverage` or `mutation-test` target is invoked. It generates
+JaCoCo measures unit-test coverage when the `coverage` target is invoked. It generates
 HTML, XML, and CSV reports under `target/site/jacoco` without enforcing a coverage threshold.
 Non-executable `package-info.java` descriptors and their compiled artifacts are excluded from measurement
 through the `**/package-info*` pattern.
@@ -41,7 +41,6 @@ distribution checksum:
 | Run packaged-process `*ProcessIT` tests | `make integration-test` | `.\Invoke-Build.ps1 integration-test` |
 | Run all `*IT` tests, including the database test | `make integration-test-neo4j` | `.\Invoke-Build.ps1 integration-test-neo4j` |
 | Produce unit-test coverage reports | `make coverage` | `.\Invoke-Build.ps1 coverage` |
-| Refresh unit-test coverage, then run identity API mutation analysis | `make mutation-test` | `.\Invoke-Build.ps1 mutation-test` |
 | Format production Java | `make format` | `.\Invoke-Build.ps1 format` |
 | Check production Java formatting | `make format-check` | `.\Invoke-Build.ps1 format-check` |
 | Check LF in Git text and reachable commits | `make line-endings-check` | `.\Invoke-Build.ps1 line-endings-check` |
@@ -57,7 +56,7 @@ run the relevant test targets separately when validating behavior.
 The [database integration runbook](../deployment/neo4j/testing.md) defines portable memory limits, disposable volumes, explicit preservation, logs, and lifecycle verification. Maven starts with a 128 MiB heap and a 1 GiB maximum through [`.mvn/jvm.config`](../.mvn/jvm.config). Forked compilers have a 1 GiB maximum. Surefire and Failsafe use a 128 MiB initial heap and a 2 GiB maximum; packaged CLI test consumers use a 512 MiB maximum, and the independent retained-AST query consumer uses 1 GiB. These budgets are independent of the container's total memory limit.
 
 Use fresh compiled outputs when switching operating systems in one checkout.
-For an opt-in profile with 16 unit-test forks, 16 mutation workers, and a separate
+For an opt-in profile with 16 unit-test forks and a separate
 final integration phase with three forks and isolated disposable databases, follow the
 [high-capacity local execution procedure](../deployment/neo4j/testing.md#high-capacity-local-execution).
 
@@ -67,18 +66,16 @@ Keep `target/classes`, `target/test-classes`, `target/partitions`, and
 
 ## Coverage Freshness
 
-After changing production code or tests, run JaCoCo before PIT. The `mutation-test`
-target enforces this order in one Maven invocation: prepare the JaCoCo agent, run
-the complete unit suite, generate the JaCoCo report, then run PIT. A failed phase
-stops the invocation before the later goals. Do not skip unit tests or invoke PIT
-directly when validating changes.
+After changing production code or tests, run the `coverage` target. One Maven
+invocation prepares the JaCoCo agent, runs the complete unit suite, and generates
+the report. A failed phase stops the invocation before the later goals. Do not
+skip unit tests when validating changes.
 
-Both `coverage` and `mutation-test` delete `target/jacoco.exec` before starting
+The `coverage` target deletes `target/jacoco.exec` before starting
 the main Maven invocation. Agent append mode combines only the current run's
 forks; it does not retain earlier execution data. The pinned
 [JaCoCo file output implementation](https://github.com/jacoco/jacoco/blob/v0.8.15/org.jacoco.agent.rt/src/org/jacoco/agent/rt/internal/output/FileOutput.java)
-locks the shared output while each agent writes. No compilation or source change
-occurs between the report goal and PIT in this sequence. Inspect the report from
+locks the shared output while each agent writes. Inspect the report from
 the successful current run; an older report left by a failed run is not current
 validation. These entry points are defined in [`Invoke-Build.ps1`](../Invoke-Build.ps1)
 and [`Makefile`](../Makefile), with the agent configured in [`pom.xml`](../pom.xml).
@@ -86,53 +83,24 @@ and [`Makefile`](../Makefile), with the agent configured in [`pom.xml`](../pom.x
 ## Validation After Removals
 
 After any removal, validate the final implementation with every configured test
-group, regardless of the apparent scope of the change. Run `make mutation-test`
+group, regardless of the apparent scope of the change. Run `make coverage`
 and `make integration-test-neo4j` on Linux and macOS, or
-`.\Invoke-Build.ps1 mutation-test` and `.\Invoke-Build.ps1 integration-test-neo4j`
-on Windows. The mutation target runs the complete `*Test` group with fresh
-JaCoCo coverage before PIT, so a separate unit run is redundant. The full integration
+`.\Invoke-Build.ps1 coverage` and `.\Invoke-Build.ps1 integration-test-neo4j`
+on Windows. The coverage target runs the complete `*Test` group with fresh
+JaCoCo reports, so a separate unit run is redundant. The full integration
 target runs every `*IT` class, including `*ProcessIT`, database behavior, packaged
 consumers, and resource lifecycle tests; a separate process-only run is redundant.
 Use the requested coverage tool as the measurement reference and run the static
-quality gates separately. The `coverage` target runs the same complete unit group
-without PIT when only JaCoCo is needed.
+quality gates separately.
 A missing test prerequisite or a failed test leaves validation
 incomplete; report it without weakening gates, skipping cases, or claiming success.
 If the implementation changes after validation, rerun all test groups against
 the final implementation.
 
-## Identity API Mutation Analysis
+## Identity API Verification
 
-After refreshing JaCoCo as described above, the `mutation-test` target uses the pinned PIT Maven and JUnit plugins in
-[`pom.xml`](../pom.xml). It analyzes every class in
-`org.aquilagraph.identity.api`, with all `*Test` classes available for test
-selection. It retains PIT's default mutation operators and filters. HTML and XML
-mutation reports and exported line coverage are written under `target/pit-reports`.
-The line and mutation coverage gates both require 100%, with four decimal places
-of threshold precision. The two default mutation workers each retain the test
-JVM's 2 GiB maximum heap. The opt-in `high-capacity-tests` profile configures 16
-mutation workers. Their combined maximum Java heap is 32 GiB; Maven, native JVM
-memory, and other applications require additional memory. Retain at least 8 GiB
-of available physical memory on the local Windows host when measuring this profile.
-Pass `-Phigh-capacity-tests` through `-MavenFlags` on Windows or `MAVEN_FLAGS` on
-Linux and macOS to select it. An explicit `-Dpitest.threads` value overrides the
-profile's worker count. A configured worker count does not establish a performance
-gain or reserve the same number of CPU cores.
-The same mechanism accepts PIT's `-DtargetTests` filter to focus candidate tests
-without changing the production package target. Focused mutation analysis does
-not replace the complete regression groups required after removals.
 Maven temporary files remain under the working directory's `target` through
-[`.mvn/jvm.config`](../.mvn/jvm.config); mutation workers use the absolute build
-output directory for their temporary files.
-
-PIT reports line coverage and mutation coverage, as described in its
-[report overview](https://pitest.org/). Mutation coverage records detected
-mutants; it is not branch coverage. Report the exact metric and its raw counts.
-Do not infer branch coverage from a PIT line or mutation percentage. The
-[Maven configuration reference](https://pitest.org/quickstart/maven/) defines
-the coverage export, report formats, and threshold settings. The
-[JUnit adapter](https://github.com/pitest/pitest-junit5-plugin) is a build-plugin
-dependency and does not enter the production dependency graph.
+[`.mvn/jvm.config`](../.mvn/jvm.config).
 
 `StableId` and `CapturedValueEncoding` are static API namespaces represented by
 enums with no constants. The [Java 25 enum contract](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.9)

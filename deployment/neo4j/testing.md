@@ -51,9 +51,9 @@ retain their single atomic transaction.
 
 ## High-capacity local execution
 
-The opt-in `high-capacity-tests` Maven profile uses 16 reusable Surefire forks and
-16 PIT mutation workers in separate phases, with sequential JUnit execution inside
-each process. Each test JVM retains its 2 GiB maximum heap; either phase therefore
+The opt-in `high-capacity-tests` Maven profile uses 16 reusable Surefire forks,
+with sequential JUnit execution inside each process. Each test JVM retains its
+2 GiB maximum heap; the unit phase therefore
 has a combined maximum Java heap of 32 GiB, before Maven and native memory.
 Each managed Neo4j receives
 an eight-CPU quota and retains the portable 8 GiB memory limit. Maven filters only
@@ -61,16 +61,16 @@ an eight-CPU quota and retains the portable 8 GiB memory limit. Maven filters on
 database budget from their test classpath. Other test resources remain unfiltered.
 The default profile retains one fork per group and a two-CPU database quota.
 
-Run unit tests with fresh JaCoCo coverage, then PIT, sequentially on Windows:
+Run unit tests with fresh JaCoCo coverage on Windows:
 
 ```powershell
-.\Invoke-Build.ps1 mutation-test -MavenFlags @('-B', '--no-transfer-progress', '-Phigh-capacity-tests')
+.\Invoke-Build.ps1 coverage -MavenFlags @('-B', '--no-transfer-progress', '-Phigh-capacity-tests')
 ```
 
 On Linux and macOS, use
-`make mutation-test MAVEN_FLAGS='-B --no-transfer-progress -Phigh-capacity-tests'`.
-This target runs the complete unit suite and generates a new JaCoCo report before
-starting PIT, following the [coverage freshness contract](../../docs/build-quality.md#coverage-freshness).
+`make coverage MAVEN_FLAGS='-B --no-transfer-progress -Phigh-capacity-tests'`.
+This target runs the complete unit suite and generates a new JaCoCo report,
+following the [coverage freshness contract](../../docs/build-quality.md#coverage-freshness).
 
 Run the complete integration group only during final validation. The profile uses
 three Failsafe forks and does not reuse a JVM across test classes. Each class's
@@ -89,7 +89,7 @@ restart; they are not repository defaults or exclusive CPU reservations. Account
 for up to three active databases and the test JVMs. Sample Windows available physical memory throughout
 execution and retain at least 8 GiB. If that margin cannot be maintained, stop the
 owned run, verify resource cleanup, and reduce concurrency before repeating it.
-Do not overlap unit, integration, or mutation campaigns in the same checkout.
+Do not overlap unit and integration campaigns in the same checkout.
 
 For every complete integration campaign, retain CPU and memory samples and compare
 the Docker container and volume inventories before and after execution. Inspect

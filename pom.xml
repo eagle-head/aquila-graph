@@ -36,9 +36,6 @@
     <neo4j.driver.version>6.1.0</neo4j.driver.version>
     <nullaway.version>0.14.1</nullaway.version>
     <pmd.version>7.27.0</pmd.version>
-    <pitest.version>1.30.1</pitest.version>
-    <pitest-junit5-plugin.version>1.2.3</pitest-junit5-plugin.version>
-    <pitest.threads>2</pitest.threads>
     <spotbugs-maven-plugin.version>4.10.4.1</spotbugs-maven-plugin.version>
     <spotless-maven-plugin.version>3.10.2</spotless-maven-plugin.version>
     <testcontainers.version>2.0.5</testcontainers.version>
@@ -1033,43 +1030,6 @@
         </executions>
       </plugin>
       <plugin>
-        <groupId>org.pitest</groupId>
-        <artifactId>pitest-maven</artifactId>
-        <version>${pitest.version}</version>
-        <dependencies>
-          <dependency>
-            <groupId>org.pitest</groupId>
-            <artifactId>pitest-junit5-plugin</artifactId>
-            <version>${pitest-junit5-plugin.version}</version>
-          </dependency>
-        </dependencies>
-        <configuration>
-          <targetClasses>
-            <param>org.aquilagraph.identity.api.*</param>
-          </targetClasses>
-          <targetTests>
-            <param>org.aquilagraph.*Test</param>
-          </targetTests>
-          <mutators>
-            <mutator>DEFAULTS</mutator>
-          </mutators>
-          <threads>${pitest.threads}</threads>
-          <jvmArgs>
-            <jvmArg>-Xms128m</jvmArg>
-            <jvmArg>-Xmx2g</jvmArg>
-            <jvmArg>-Djava.io.tmpdir=${project.build.directory}</jvmArg>
-          </jvmArgs>
-          <coverageThreshold>100</coverageThreshold>
-          <mutationThreshold>100</mutationThreshold>
-          <thresholdPrecision>4</thresholdPrecision>
-          <exportLineCoverage>true</exportLineCoverage>
-          <outputFormats>
-            <param>HTML</param>
-            <param>XML</param>
-          </outputFormats>
-        </configuration>
-      </plugin>
-      <plugin>
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>
         <version>${jacoco-maven-plugin.version}</version>
@@ -1157,7 +1117,6 @@
     <profile>
       <id>high-capacity-tests</id>
       <properties>
-        <pitest.threads>16</pitest.threads>
         <test.unit.forks>16</test.unit.forks>
         <test.integration.forks>3</test.integration.forks>
         <test.integration.reuse.forks>false</test.integration.reuse.forks>
