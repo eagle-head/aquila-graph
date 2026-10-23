@@ -1,5 +1,7 @@
 package org.aquilagraph.cli;
 
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstProductionRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -10,14 +12,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import org.aquilagraph.application.AnalysisCompletion;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SoftwareVersion;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.source.internal.SourceAnalysisFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -29,7 +31,7 @@ class SelectedGraphSummaryTest {
     // Arrange
     var source = "class Example { Number box(int input) { return input; } long unbox(Integer input) { return input; } }";
     var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
-    var input = new JavaFrontend(new JavaSourceLoader()).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
     var run = new SourceAnalysisFixture().analyze(input);
     var output = new ByteArrayOutputStream();
     var error = new ByteArrayOutputStream();

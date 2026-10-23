@@ -10,8 +10,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import org.aquilagraph.cfg.CfgDerivers;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
@@ -113,8 +113,8 @@ class CfgDerivationExceptionTest {
         assertSame(cause, failure.getCause());
         assertEquals(List.of(graph), failure.completedMethods());
         assertSame(graph, failure.completedMethods().getFirst());
-        assertEquals(profile.version(), graph.graph().orElseThrow().identity().orElseThrow().cfgProfileVersion());
-        assertEquals(profile.graphModelVersion(), graph.graph().orElseThrow().identity().orElseThrow().graphModelVersion());
+        assertEquals(profile.version(), graph.graph().orElseThrow().identity().cfgProfileVersion());
+        assertEquals(profile.graphModelVersion(), graph.graph().orElseThrow().identity().graphModelVersion());
       }
     }));
   }

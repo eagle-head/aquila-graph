@@ -1,5 +1,7 @@
 package org.aquilagraph.source.api;
 
+import org.aquilagraph.source.internal.WrittenExpressionSemantics;
+
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 

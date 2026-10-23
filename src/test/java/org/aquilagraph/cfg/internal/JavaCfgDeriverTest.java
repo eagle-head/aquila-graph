@@ -21,8 +21,8 @@ import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.CfgState;
 import org.aquilagraph.cfg.api.MethodCfgState;
 import org.aquilagraph.cfg.api.MethodCfgOutcome;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
@@ -284,17 +284,17 @@ class JavaCfgDeriverTest {
     assertEquals(graph, repeated);
     assertNotEquals(graph.identity(), changed.identity());
     assertNotEquals(graph.graphId(), changed.graphId());
-    var identity = graph.identity().orElseThrow();
+    var identity = graph.identity();
     assertEquals(identity.derivationKey(), graph.graphId());
     assertEquals(first.identity(), identity.astIdentity());
-    assertEquals(first.bodyRef(key(first, "value")), graph.body());
+    assertEquals(first.bodyRef(key(first, "value")).orElseThrow(), graph.body());
     assertTrue(graph.nodes().stream().allMatch(node -> node.graphId().equals(graph.graphId())));
     assertTrue(graph.values().stream().allMatch(value -> value.graphId().equals(graph.graphId())));
     assertTrue(graph.edges().stream().allMatch(edge -> edge.graphId().equals(graph.graphId())));
     assertTrue(graph.operationNodes().stream().allMatch(node ->
-        node.sourceRef().orElseThrow().body().equals(graph.body().orElseThrow())));
+        node.sourceRef().body().equals(graph.body())));
     assertTrue(graph.operationNodes().stream().allMatch(node ->
-        node.sourceRef().orElseThrow().occurrence().isPresent()));
+        node.sourceRef().occurrence().isPresent()));
   }
 
   @Test
@@ -303,7 +303,7 @@ class JavaCfgDeriverTest {
     var ast = produce("class Stored { int value() { return 1; } }");
     var request = new CfgRequest(ast.identity(), List.of(key(ast, "value")), CfgProfile.JAVA_BOUNDED);
     var graph = CfgDerivers.standard().derive(ast, request).methods().getFirst().graph().orElseThrow();
-    var identity = graph.identity().orElseThrow();
+    var identity = graph.identity();
     var foreign = GraphIdentity.fromContent(identity.astIdentity(), identity.cfgProfileVersion(),
         identity.graphModelVersion(), identity.methodKey(), "different-graph-content");
 
@@ -355,8 +355,8 @@ class JavaCfgDeriverTest {
     assertTrue(refusal.blockers().stream().anyMatch(blocker -> blocker.occurrence().isPresent()
         && ast.node(blocker.occurrence().orElseThrow()).orElseThrow().syntaxKind() == SyntaxKind.SWITCH_EXPRESSION));
     var graph = outcome.methods().getLast().graph().orElseThrow();
-    assertEquals(request.profile().version(), graph.identity().orElseThrow().cfgProfileVersion());
-    assertEquals(ast.identity(), graph.identity().orElseThrow().astIdentity());
+    assertEquals(request.profile().version(), graph.identity().cfgProfileVersion());
+    assertEquals(ast.identity(), graph.identity().astIdentity());
   }
 
   @Test

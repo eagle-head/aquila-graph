@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
 import java.lang.module.ModuleFinder;
 import java.nio.charset.StandardCharsets;
@@ -19,7 +18,7 @@ class IdentityBoundaryTest {
   @Test
   void givenCompiledIdentityPartition_whenEveryClassfileIsInspected_thenOnlyIdentityAndJavaBaseDependenciesRemain() throws IOException {
     // Arrange
-    var identityRoot = Path.of("target", "partitions", "identity", "classes");
+    var identityRoot = Path.of("target", "classes", "org.aquilagraph.identity");
     var baseModule = ModuleFinder.ofSystem().find("java.base").orElseThrow();
     Set<String> baseClasses;
     try (var reader = baseModule.open(); var resources = reader.list()) {
@@ -30,7 +29,7 @@ class IdentityBoundaryTest {
 
     // Act
     try (var files = Files.walk(identityRoot)) {
-      var classFiles = files.filter(path -> path.toString().endsWith(".class")).toList();
+      var classFiles = files.filter(path -> path.toString().endsWith(".class") && !path.getFileName().toString().equals("module-info.class")).toList();
 
       // Assert
       assertFalse(classFiles.isEmpty());
@@ -51,9 +50,10 @@ class IdentityBoundaryTest {
       throws IOException, InterruptedException {
     // Arrange
     var executable = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
-    var classPath = Path.of("target", "partitions", "identity", "classes") + File.pathSeparator + Path.of("target", "test-classes");
-    var process = new ProcessBuilder(executable.toString(), "--limit-modules", "java.base", "-cp", classPath,
-        "org.aquilagraph.identity.api.IdentityRuntimeProbe").redirectErrorStream(true).start();
+    var classPath = Path.of("target", "test-classes").toString();
+    var process = new ProcessBuilder(executable.toString(), "--limit-modules", "java.base", "--module-path",
+        Path.of("target", "classes", "org.aquilagraph.identity").toString(), "--add-modules", "org.aquilagraph.identity", "-cp", classPath,
+        "org.aquilagraph.identity.consumer.IdentityRuntimeProbe").redirectErrorStream(true).start();
 
     try {
       // Act

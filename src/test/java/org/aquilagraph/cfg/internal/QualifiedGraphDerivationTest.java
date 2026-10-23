@@ -12,13 +12,13 @@ import java.util.List;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.MethodCfgState;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.source.admission.AstCodec;
+import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.api.AstProfile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -50,7 +50,7 @@ class QualifiedGraphDerivationTest {
       if (!method.hasBody()) {
         continue;
       }
-      var unqualified = new ControlFlowGraphBuilder().build(method, ast.body(method.methodKey()).orElseThrow()).graph().orElseThrow();
+      var draft = new SyntaxGraphLowerer(method, ast.body(method.methodKey()).orElseThrow()).lower().content();
       // Act
       var outcome = CfgDerivers.standard().derive(ast,
           new CfgRequest(ast.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
@@ -59,18 +59,18 @@ class QualifiedGraphDerivationTest {
 
       // Assert
       assertEquals(MethodCfgState.AVAILABLE, outcome.state());
-      assertEquals(ast.identity(), qualified.identity().orElseThrow().astIdentity());
-      assertEquals(ast.bodyRef(method.methodKey()).orElseThrow(), qualified.body().orElseThrow());
-      assertEquals(unqualified.operationNodes().stream().map(value -> List.of(value.kind(), value.detail(), value.origins(),
+      assertEquals(ast.identity(), qualified.identity().astIdentity());
+      assertEquals(ast.bodyRef(method.methodKey()).orElseThrow(), qualified.body());
+      assertEquals(draft.operationNodes().stream().map(value -> List.of(value.kind(), value.detail(), value.origins(),
           value.possibleExceptions(), value.invocationSemantics(), value.semanticReferences())).toList(),
           qualified.operationNodes().stream().map(value -> List.of(value.kind(), value.detail(), value.origins(),
               value.possibleExceptions(), value.invocationSemantics(), value.semanticReferences())).toList());
-      assertEquals(unqualified.values().stream().map(value -> List.of(value.kind(), value.displayName(), value.literal(), value.staticType())).toList(),
+      assertEquals(draft.values().stream().map(value -> List.of(value.kind(), value.displayName(), value.literal(), value.staticType())).toList(),
           qualified.values().stream().map(value -> List.of(value.kind(), value.displayName(), value.literal(), value.staticType())).toList());
-      assertEquals(unqualified.edges().stream().map(value -> List.of(value.transferKind(), value.discriminator())).toList(),
+      assertEquals(draft.edges().stream().map(value -> List.of(value.transferKind(), value.discriminator())).toList(),
           qualified.edges().stream().map(value -> List.of(value.transferKind(), value.discriminator())).toList());
       assertTrue(qualified.nodes().stream().allMatch(value -> value.graphId().equals(qualified.graphId())));
-      assertTrue(qualified.operationNodes().stream().allMatch(value -> value.sourceRef().isPresent()));
+      assertTrue(qualified.operationNodes().stream().allMatch(value -> value.sourceRef() != null));
       assertEquals(qualified, CfgDerivers.standard().derive(ast,
           new CfgRequest(ast.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst().graph().orElseThrow());
     }

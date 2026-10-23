@@ -1,5 +1,11 @@
 package org.aquilagraph.source.api;
 
+import java.util.Optional;
+import java.util.List;
+import org.aquilagraph.identity.api.SourceOccurrence;
+
+
+import org.aquilagraph.source.admission.AnnotationAttachmentAdmission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -11,8 +17,6 @@ import java.lang.reflect.Modifier;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import org.aquilagraph.cfg.internal.CfgAdmission;
 import org.aquilagraph.cfg.internal.CfgReadiness;
@@ -1398,7 +1402,7 @@ class JavaAstAggregateTest {
     var annotation = packageNode.requiredChild(SyntaxRole.ANNOTATION);
     var base = contribution(root);
     var correct = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-        SyntaxSemanticTarget.AnnotationApplication.forAttachment(packageNode, annotation));
+        AnnotationAttachmentAdmission.forAttachment(packageNode, annotation, Optional.empty(), List.of()));
     var wrong = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
         new SyntaxSemanticTarget.AnnotationApplication(root.nodeId(), Optional.of(root.nodeId()), Optional.empty(), List.of(), List.of()));
     var extraType = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
@@ -1482,7 +1486,7 @@ class JavaAstAggregateTest {
     var annotation = packageNode.requiredChild(SyntaxRole.ANNOTATION);
     var base = contribution(root);
     var target = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-        SyntaxSemanticTarget.AnnotationApplication.forAttachment(packageNode, annotation));
+        AnnotationAttachmentAdmission.forAttachment(packageNode, annotation, Optional.empty(), List.of()));
 
     // Act
     var error = failure(snapshot("a"), contribution(root, base.structuralEdges(), append(base.semanticEdges(), target)));
@@ -1515,7 +1519,7 @@ class JavaAstAggregateTest {
     var root = root("a", List.of(new SyntaxChild(SyntaxRole.PACKAGE_DECLARATION, 0, declaration)));
     var base = contribution(root);
     var target = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-        SyntaxSemanticTarget.AnnotationApplication.forAttachment(declaration, annotation));
+        AnnotationAttachmentAdmission.forAttachment(declaration, annotation, Optional.empty(), List.of()));
     return contribution(root, base.structuralEdges(), append(base.semanticEdges(), target));
   }
 

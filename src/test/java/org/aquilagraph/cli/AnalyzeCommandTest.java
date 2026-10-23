@@ -16,8 +16,8 @@ import org.aquilagraph.application.CompletedRunPublicationService;
 import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
 import org.aquilagraph.cfg.CfgDerivers;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

@@ -4,12 +4,7 @@ MAVEN_FLAGS ?= -B --no-transfer-progress
 SKIP_TESTS ?= -Dmaven.test.skip=true
 BUILD_REPOSITORY = "-Dmaven.repo.local=$(CURDIR)/target/maven-repository"
 
-.PHONY: build-plugins compile test integration-test integration-test-neo4j coverage format format-check line-endings-check quality supply-chain-check
-
-build-plugins:
-	$(MAVEN) -B --no-transfer-progress $(BUILD_REPOSITORY) -f tools/maven-pmd-plugin/pom.xml install
-
-compile test integration-test integration-test-neo4j coverage format format-check quality supply-chain-check: build-plugins
+.PHONY: compile test integration-test integration-test-neo4j coverage format format-check line-endings-check quality supply-chain-check
 
 compile:
 	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) $(SKIP_TESTS) compile

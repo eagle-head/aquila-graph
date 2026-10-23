@@ -1,5 +1,6 @@
 package org.aquilagraph.application;
 
+import org.aquilagraph.source.api.AstProductionRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -13,15 +14,15 @@ import java.util.List;
 import java.util.stream.Collectors;
 import org.aquilagraph.cfg.api.OperationKind;
 import org.aquilagraph.cfg.api.TransferKind;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SoftwareVersion;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.StableId;
-import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.source.internal.SourceAnalysisFixture;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
@@ -103,8 +104,8 @@ class SourceAnalysisIntegrationTest {
   void givenAcceptedBodylessProgram_whenAnalysisRuns_thenEmptyRequiredBodySetCanComplete() throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("Bodyless.java"), "interface Bodyless { int value(); }");
-    var input = new JavaFrontend(new JavaSourceLoader()).analyze(temporaryDirectory,
-        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(temporaryDirectory,
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
 
     // Act
     var run = new SourceAnalysisFixture().analyze(input);
@@ -137,7 +138,7 @@ class SourceAnalysisIntegrationTest {
 
     // Act
     var run =
-        engine.analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
+        engine.analyze(frontend.produce(new AstProductionRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
 
     // Assert
     assertEquals(AnalysisCompletion.COMPLETE, run.completion());
@@ -174,7 +175,7 @@ class SourceAnalysisIntegrationTest {
     // Act
     var run =
         new SourceAnalysisFixture()
-            .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
+            .analyze(frontend.produce(new AstProductionRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
 
     // Assert
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
@@ -184,6 +185,7 @@ class SourceAnalysisIntegrationTest {
   @Test
   void givenUnsupportedExecutableClassMembers_whenAnalysisRuns_thenRunCannotComplete() throws IOException {
     // Arrange
+    var frontend = new JavaFrontend(new JavaSourceLoader());
     Files.writeString(temporaryDirectory.resolve("Initialization.java"), """
         class Initialization {
           static int staticValue = 1;
@@ -193,11 +195,10 @@ class SourceAnalysisIntegrationTest {
           void supportedMethod() { }
         }
         """);
-    var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
     var run = new SourceAnalysisFixture()
-        .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
+        .analyze(frontend.produce(new AstProductionRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
 
     // Assert
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
@@ -207,17 +208,17 @@ class SourceAnalysisIntegrationTest {
   @Test
   void givenUnavailableElementsAndErrorTypes_whenAnalysisRuns_thenStructuredDiagnosticsPreventCompletion() throws IOException {
     // Arrange
+    var frontend = new JavaFrontend(new JavaSourceLoader());
     Files.writeString(temporaryDirectory.resolve("BrokenSemantics.java"), """
         class BrokenSemantics {
           MissingType field;
           MissingType evaluate(MissingType value) { return field; }
         }
         """);
-    var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
     var run = new SourceAnalysisFixture()
-        .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
+        .analyze(frontend.produce(new AstProductionRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
 
     // Assert
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
@@ -241,7 +242,7 @@ class SourceAnalysisIntegrationTest {
     // Act
     var run =
         new SourceAnalysisFixture()
-            .analyze(frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
+            .analyze(frontend.produce(new AstProductionRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)));
 
     // Assert
     assertEquals(AnalysisCompletion.REJECTED, run.completion());
@@ -257,8 +258,8 @@ class SourceAnalysisIntegrationTest {
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
 
     // Act
-    var firstRun = engine.analyze(frontend.analyze(temporaryDirectory, configuration));
-    var secondRun = engine.analyze(frontend.analyze(temporaryDirectory, configuration));
+    var firstRun = engine.analyze(frontend.produce(new AstProductionRequest(temporaryDirectory, configuration, AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
+    var secondRun = engine.analyze(frontend.produce(new AstProductionRequest(temporaryDirectory, configuration, AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
 
     // Assert
     assertEquals(firstRun.identity(), secondRun.identity());
@@ -280,9 +281,9 @@ class SourceAnalysisIntegrationTest {
     var engine = new SourceAnalysisFixture();
 
     // Act
-    var firstRun = engine.analyze(frontend.analyze(temporaryDirectory, configuration));
+    var firstRun = engine.analyze(frontend.produce(new AstProductionRequest(temporaryDirectory, configuration, AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
     Files.writeString(dependency.resolve("marker.txt"), "second");
-    var secondRun = engine.analyze(frontend.analyze(temporaryDirectory, configuration));
+    var secondRun = engine.analyze(frontend.produce(new AstProductionRequest(temporaryDirectory, configuration, AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
 
     // Assert
     assertNotEquals(firstRun.identity().key(), secondRun.identity().key());
@@ -305,16 +306,16 @@ class SourceAnalysisIntegrationTest {
     // Act
     var firstRun =
         engine.analyze(
-            frontend.analyze(
+            frontend.produce(new AstProductionRequest(
                 temporaryDirectory,
                 new CompilerConfiguration(
-                    JavaRelease.JAVA_25, List.of(firstDependency), List.of(), List.of())));
+                    JavaRelease.JAVA_25, List.of(firstDependency), List.of(), List.of()), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
     var secondRun =
         engine.analyze(
-            frontend.analyze(
+            frontend.produce(new AstProductionRequest(
                 temporaryDirectory,
                 new CompilerConfiguration(
-                    JavaRelease.JAVA_25, List.of(secondDependency), List.of(), List.of())));
+                    JavaRelease.JAVA_25, List.of(secondDependency), List.of(), List.of()), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
 
     // Assert
     var firstAst = firstRun.representation().ast().result().orElseThrow();

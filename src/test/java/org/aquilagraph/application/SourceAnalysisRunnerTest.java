@@ -22,8 +22,8 @@ import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.CfgState;
 import org.aquilagraph.cfg.api.MethodCfgState;
 import org.aquilagraph.cfg.internal.RecoverableCfgFailures;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
@@ -167,8 +167,8 @@ class SourceAnalysisRunnerTest {
     assertTrue(cfg.methods().getFirst().body().isEmpty());
     assertTrue(cfg.methods().getFirst().graph().isEmpty());
     var graph = cfg.methods().get(1).graph().orElseThrow();
-    assertEquals(result.bodyRef(key(ast, "available")), graph.body());
-    assertEquals(result.identity(), graph.identity().orElseThrow().astIdentity());
+    assertEquals(result.bodyRef(key(ast, "available")).orElseThrow(), graph.body());
+    assertEquals(result.identity(), graph.identity().astIdentity());
     var refusal = cfg.methods().getLast();
     assertTrue(refusal.graph().isEmpty());
     assertEquals(List.of(MethodCfgState.UNSUPPORTED), refusal.blockers().stream().map(blocker -> blocker.kind()).toList());
@@ -234,8 +234,8 @@ class SourceAnalysisRunnerTest {
     assertSame(cause, cfg.methods().get(1).failure().orElseThrow());
     assertTrue(cfg.methods().get(1).graph().isEmpty());
     assertEquals(ast.result().orElseThrow().bodyRef(key(ast, "second")), cfg.methods().get(1).body());
-    assertEquals(ast.result().orElseThrow().identity(), cfg.methods().getFirst().graph().orElseThrow().identity().orElseThrow().astIdentity());
-    assertEquals(ast.result().orElseThrow().identity(), cfg.methods().getLast().graph().orElseThrow().identity().orElseThrow().astIdentity());
+    assertEquals(ast.result().orElseThrow().identity(), cfg.methods().getFirst().graph().orElseThrow().identity().astIdentity());
+    assertEquals(ast.result().orElseThrow().identity(), cfg.methods().getLast().graph().orElseThrow().identity().astIdentity());
     assertEquals(List.of(MethodCoverageState.AVAILABLE, MethodCoverageState.FAILED, MethodCoverageState.AVAILABLE),
         List.of("first", "second", "third").stream().map(name -> run.methodCoverage(key(ast, name)).orElseThrow().state()).toList());
     assertEquals(List.of("control-flow.construction-failed"), cfg.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());

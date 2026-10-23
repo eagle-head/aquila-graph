@@ -1,5 +1,7 @@
 package org.aquilagraph.cfg.api;
 
+import org.aquilagraph.identity.api.BodyRef;
+import org.aquilagraph.identity.api.AstIdentity;
 
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.ResolutionStatus;
@@ -22,7 +24,7 @@ class OperationNodeTest {
     // Act
     var failure = assertThrows(IllegalArgumentException.class,
         () -> new OperationNode("read", "graph", OperationKind.READ, "read", List.of(), Optional.empty(), Optional.empty(),
-            List.of(), categories, List.of()));
+            List.of(), categories, List.of(), provenance()));
 
     // Assert
     assertEquals(IllegalArgumentException.class, failure.getClass());
@@ -35,7 +37,7 @@ class OperationNodeTest {
 
     // Act
     var operation = new OperationNode("read", "graph", OperationKind.READ, "read", List.of(), Optional.empty(), Optional.empty(),
-        List.of(), categories, List.of());
+        List.of(), categories, List.of(), provenance());
     categories.clear();
 
     // Assert
@@ -107,7 +109,7 @@ class OperationNodeTest {
 
     // Act
     var operation = new OperationNode("read", "graph", OperationKind.READ, "read", List.of(), Optional.empty(), Optional.empty(),
-        List.of(reference, reference), List.of(), List.of());
+        List.of(reference, reference), List.of(), List.of(), provenance());
 
     // Assert
     assertEquals(List.of(reference, reference), operation.semanticReferences());
@@ -116,7 +118,7 @@ class OperationNodeTest {
   private static OperationNode initialization(List<OperationOperand> operands, Optional<FlowValue> definition,
       List<SemanticReference> references) {
     return new OperationNode("initialize", "graph", OperationKind.CLASS_INITIALIZATION, "initialize", operands, definition,
-        Optional.empty(), references, List.of("unchecked-class-initialization"), List.of());
+        Optional.empty(), references, List.of("unchecked-class-initialization"), List.of(), provenance());
   }
 
   private static SemanticReference target() {
@@ -126,5 +128,10 @@ class OperationNodeTest {
   private static SemanticReference reference(ReferenceKind kind, ResolutionStatus status, Optional<String> key, Optional<String> name,
       List<String> alternatives, List<String> hierarchy) {
     return new SemanticReference(kind, status, key, name, alternatives, hierarchy);
+  }
+  private static GraphSourceRef provenance() {
+    var identity = AstIdentity.fromContent("software", "java-source/19", "java-source-bounded/1", "javac-public/10", "content");
+    var body = new BodyRef(identity, "method", Optional.of("body"), Optional.empty());
+    return new GraphSourceRef(body, Optional.empty(), "operation/READ");
   }
 }
