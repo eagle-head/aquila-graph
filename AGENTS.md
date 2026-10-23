@@ -12,7 +12,9 @@ These instructions apply to the entire directory tree rooted at this file. More 
 
 ## CodeGraph Location
 
-- The existing CodeGraph index is located at `D:\Projects\aquila-graph\aquila-graph\src\main\java\org\aquilagraph\.codegraph`; use `D:\Projects\aquila-graph\aquila-graph\src\main\java\org\aquilagraph` as the CodeGraph project path.
+- Keep the CodeGraph index at `D:\Projects\aquila-graph\aquila-graph\.codegraph`; use `D:\Projects\aquila-graph\aquila-graph` as the CodeGraph project path.
+- Index the repository root so all production modules and test consumers share one project. Do not place CodeGraph metadata inside production or test source directories.
+- After source moves, renames, or removals, refresh the existing root index with `codegraph index D:\Projects\aquila-graph\aquila-graph` and verify that indexed paths resolve to current files. Do not create separate indexes for individual modules.
 - Before initializing CodeGraph or reporting that no index exists, search the entire repository tree for directories named `.codegraph`.
 
 ## Language

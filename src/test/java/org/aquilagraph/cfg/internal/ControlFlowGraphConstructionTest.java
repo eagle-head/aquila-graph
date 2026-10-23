@@ -218,7 +218,7 @@ class ControlFlowGraphConstructionTest {
     assertEquals(1, afterEdges.size());
     assertEquals(graph.exit().nodeId(), afterEdges.getFirst().targetNodeId());
     assertEquals("java.lang.ArithmeticException", afterEdges.getFirst().discriminator().orElseThrow());
-    assertTrue(graph.predecessors(innerHandler).isEmpty());
+    assertTrue(graph.edges().stream().noneMatch(edge -> edge.targetNodeId().equals(innerHandler.nodeId())));
   }
 
   private static ControlFlowGraphConstruction construction() {

@@ -1,6 +1,10 @@
 package org.aquilagraph.cfg.internal;
 
-import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.cfg.api.CfgProfile;
+import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstProductionRequest;
+import org.aquilagraph.source.internal.SourceAnalysisFixture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -12,8 +16,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.application.AnalysisCompletion;
@@ -25,7 +29,6 @@ import org.aquilagraph.source.api.SourceOwnerPath;
 import org.aquilagraph.cfg.api.TransferKind;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.JavaTypeStructure;
-import org.aquilagraph.source.api.SyntaxAnalysisInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxType;
@@ -153,13 +156,13 @@ class JavaExceptionGraphTest {
     assertFalse(exceptionalExit(graph, thrown));
     var methodKey = input.program().methods().stream().filter(method -> method.name().equals("execute"))
         .findFirst().orElseThrow().methodKey();
-    var body = input.methodSyntax(methodKey).orElseThrow();
+    var body = input.aggregate().methodSyntax(methodKey).orElseThrow();
     var parameter = body.root().descendantsAndSelf().stream()
         .filter(node -> node.syntaxKind() == SyntaxKind.CATCH).findFirst().orElseThrow()
         .requiredChild(SyntaxRole.PARAMETER);
     var alternatives = parameter.requiredReference().typeAlternativeNames();
     assertEquals(List.of("java.io.IOException", "java.lang.IllegalArgumentException"), alternatives);
-    var aggregate = input.aggregate().orElseThrow();
+    var aggregate = input.aggregate();
     var declarations = aggregate.nodes().stream()
         .filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration declaration
             && declaration.declarationKey().equals(methodKey)).toList();
@@ -272,13 +275,13 @@ class JavaExceptionGraphTest {
         && edge.targetNodeId().equals(thrown.nodeId()) && edge.transferKind() == TransferKind.NORMAL));
   }
 
-  private SyntaxAnalysisInput analyze() throws IOException {
-    return new JavaFrontend(new JavaSourceLoader()).analyze(sourceDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+  private AstResult analyze() throws IOException {
+    return new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(sourceDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
   }
 
-  private static ControlFlowGraph graph(SyntaxAnalysisInput input) {
+  private static ControlFlowGraph graph(AstResult input) {
     var method = input.program().methods().stream().filter(candidate -> candidate.name().equals("execute")).findFirst().orElseThrow();
-    var result = new ControlFlowGraphBuilder().build(method, input.methodSyntax(method.methodKey()).orElseThrow());
+    var result = new ControlFlowGraphBuilder().build(input, CfgAdmission.assess(input, method.methodKey(), CfgProfile.JAVA_BOUNDED).plan().orElseThrow());
     assertTrue(result.diagnostics().isEmpty());
     return result.graph().orElseThrow();
   }

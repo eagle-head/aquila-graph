@@ -1,5 +1,6 @@
 package org.aquilagraph.cfg.internal;
 
+import org.aquilagraph.source.internal.SourceValueCapture;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -15,19 +16,18 @@ import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
-import org.aquilagraph.cfg.api.CfgAdmissionResult;
 import org.aquilagraph.cfg.api.MethodCfgOutcome;
 import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.CfgState;
 import org.aquilagraph.cfg.api.MethodCfgState;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.source.admission.AstCodec;
-import org.aquilagraph.source.admission.AstResultAdmission;
+import org.aquilagraph.source.retention.AstCodec;
+import org.aquilagraph.source.internal.AstResultAdmission;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.api.AstCompletion;
@@ -35,7 +35,7 @@ import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.EvidenceValue;
 import org.aquilagraph.source.api.InvocationEvidence;
-import org.aquilagraph.source.api.SyntaxAnalysisInput;
+import org.aquilagraph.source.admission.SyntaxAnalysisInput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -80,7 +80,7 @@ class CfgAdmissionOutcomeTest {
     assertEquals(2, invocations.size());
     for (var reverse : List.of(false, true)) {
       // Arrange: only the optional call classifications are supplied variants.
-      var copied = CopiedAstValues.capture(original.aggregate());
+      var copied = SourceValueCapture.capture(original.aggregate());
       var erroneousKey = invocations.get(reverse ? 0 : 1).consumerNodeId();
       var bodies = copied.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), body.root(), body.origin(), body.uses(),
           body.invocations().stream().map(value -> body.methodKey().equals(method.methodKey())

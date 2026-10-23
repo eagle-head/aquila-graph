@@ -1,6 +1,10 @@
 package org.aquilagraph.cfg.internal;
 
-import org.aquilagraph.source.admission.SourceAnalysisFixture;
+import org.aquilagraph.cfg.api.CfgProfile;
+import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstProductionRequest;
+import org.aquilagraph.source.internal.SourceAnalysisFixture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -13,8 +17,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.application.AnalysisCompletion;
@@ -26,7 +30,6 @@ import org.aquilagraph.cfg.api.OperationNode;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.cfg.api.TransferKind;
 import org.aquilagraph.cfg.api.ValueKind;
-import org.aquilagraph.source.api.SyntaxAnalysisInput;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.Test;
 
@@ -566,7 +569,7 @@ class JavaGraphLoweringRegressionTest {
     Files.writeString(temporaryDirectory.resolve("SwitchScope.java"), "class SwitchScope { void execute() { } }");
     var input = analyze();
     var method = input.program().methods().stream().filter(candidate -> candidate.name().equals("execute")).findFirst().orElseThrow();
-    var lowerer = new SyntaxGraphLowerer(method, input.methodSyntax(method.methodKey()).orElseThrow());
+    var lowerer = new SyntaxGraphLowerer(method, input.aggregate().methodSyntax(method.methodKey()).orElseThrow());
     var failure = new IllegalStateException("lowering interrupted");
 
     // Act
@@ -611,14 +614,14 @@ class JavaGraphLoweringRegressionTest {
     assertTrue(normal.getFirst().discriminator().isEmpty());
   }
 
-  private SyntaxAnalysisInput analyze() throws IOException {
+  private AstResult analyze() throws IOException {
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    return frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    return frontend.produce(new AstProductionRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
   }
 
-  private static ControlFlowGraph graph(SyntaxAnalysisInput input, String methodName) {
+  private static ControlFlowGraph graph(AstResult input, String methodName) {
     var method = input.program().methods().stream().filter(candidate -> candidate.name().equals(methodName)).findFirst().orElseThrow();
-    return new ControlFlowGraphBuilder().build(method, input.methodSyntax(method.methodKey()).orElseThrow()).graph().orElseThrow();
+    return new ControlFlowGraphBuilder().build(input, CfgAdmission.assess(input, method.methodKey(), CfgProfile.JAVA_BOUNDED).plan().orElseThrow()).graph().orElseThrow();
   }
 
   private static void assertOperandEvaluationOrder(ControlFlowGraph graph, OperationNode write) {

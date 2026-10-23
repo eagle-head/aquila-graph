@@ -12,8 +12,8 @@ import java.util.List;
 import java.util.Optional;
 import org.aquilagraph.cfg.internal.CfgAdmission;
 import org.aquilagraph.cfg.internal.CfgReadiness;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
@@ -232,11 +232,11 @@ class ConstructorEvidenceAdmissionTest {
 
   private Fixture fixture(String content, String signature) throws IOException {
     var source = SourceFile.fromContent(Path.of("Status.java"), content);
-    var input = new JavaFrontend(new JavaSourceLoader()).analyze(InputSnapshot.fromSources(sourceRoot, List.of(source)),
-        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-    var aggregate = input.aggregate().orElseThrow();
+    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(InputSnapshot.fromSources(sourceRoot, List.of(source)),
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
+    var aggregate = input.aggregate();
     var method = input.program().methods().stream().filter(candidate -> candidate.signature().equals(signature)).findFirst().orElseThrow();
-    var syntax = input.methodSyntax(method.methodKey()).orElseThrow();
+    var syntax = input.aggregate().methodSyntax(method.methodKey()).orElseThrow();
     var call = syntax.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION).findFirst().orElseThrow();
     return new Fixture(aggregate, syntax, call);
   }

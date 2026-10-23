@@ -1,5 +1,8 @@
 package org.aquilagraph.source.api;
 
+import org.aquilagraph.source.internal.JavaAstAggregateBuilder;
+
+
 import java.util.List;
 import org.aquilagraph.identity.api.InputSnapshot;
 

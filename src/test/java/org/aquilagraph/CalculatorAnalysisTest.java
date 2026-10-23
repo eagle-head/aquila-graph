@@ -1,5 +1,7 @@
 package org.aquilagraph;
 
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstProductionRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -8,9 +10,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.aquilagraph.source.admission.SourceAnalysisFixture;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.source.internal.SourceAnalysisFixture;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.application.AnalysisCompletion;
@@ -32,7 +34,7 @@ class CalculatorAnalysisTest {
     // Act
     var run =
         new SourceAnalysisFixture()
-            .analyze(frontend.analyze(CALCULATOR_SOURCES, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
+            .analyze(frontend.produce(new AstProductionRequest(CALCULATOR_SOURCES, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
 
     // Assert
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
@@ -62,8 +64,7 @@ class CalculatorAnalysisTest {
     var run =
         new SourceAnalysisFixture()
             .analyze(
-                new JavaFrontend(new JavaSourceLoader())
-                    .analyze(CALCULATOR_SOURCES, CompilerConfiguration.forRelease(JavaRelease.JAVA_25)));
+                new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(CALCULATOR_SOURCES, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
     var analyses = run.representation().cfg().orElseThrow().methods();
 
     // Act

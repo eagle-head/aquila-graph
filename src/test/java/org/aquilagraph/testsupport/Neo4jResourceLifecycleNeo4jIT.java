@@ -8,6 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.dockerjava.api.exception.NotFoundException;
 import java.io.IOException;
+import java.io.File;
+import java.util.LinkedHashSet;
+import java.util.Arrays;
+import java.util.regex.Pattern;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -154,7 +158,16 @@ class Neo4jResourceLifecycleNeo4jIT {
   private Process launch(Path output, String mode, String... arguments) throws IOException {
     Files.createDirectories(output);
     var executable = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
-    var classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+    var roots = new LinkedHashSet<>(Arrays.asList(System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"))
+        .split(Pattern.quote(File.pathSeparator))));
+    for (var module : List.of("identity", "source", "cfg", "frontend", "application", "repository", "cli")) {
+      var classes = Path.of("target/classes/org.aquilagraph." + module).toAbsolutePath();
+      if (!Files.isRegularFile(classes.resolve("module-info.class"))) {
+        throw new IOException("Missing canonical module output: " + classes);
+      }
+      roots.add(classes.toString());
+    }
+    var classpath = String.join(File.pathSeparator, roots);
     var command = new ArrayList<>(List.of(executable.toString(), "-Xms64m", "-Xmx512m", "-Djava.io.tmpdir=" + directory,
         "-cp", classpath, Neo4jLifecycleProcess.class.getName(), output.toString(), mode));
     command.addAll(List.of(arguments));

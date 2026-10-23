@@ -418,7 +418,7 @@ class AquilaGraphProcessIT {
     assertEquals(2, result.exitCode());
     assertEquals("", result.output());
     assertEquals(List.of("--release may be supplied only once",
-        "Usage: java -jar aquila-graph.jar <source-root> [--release <feature>] [--persist]"), result.error().lines().toList());
+        "Usage: aquila-graph <source-root> [--release <feature>] [--persist]"), result.error().lines().toList());
   }
 
   @Test
@@ -429,7 +429,7 @@ class AquilaGraphProcessIT {
     Files.writeString(sourceRoot.resolve("Supported.java"), "class Supported { int value() { return 1; } }");
 
     // Act
-    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(List.of("--limit-modules", "java.base,java.compiler,java.logging"), Map.of(), sourceRoot);
+    var result = new PackagedAnalyzerProcess(temporaryDirectory).run(List.of("--limit-modules", "java.se,org.aquilagraph.cli"), Map.of(), sourceRoot);
 
     // Assert
     assertTrue(result.completed());

@@ -15,6 +15,7 @@ import java.lang.classfile.Signature.TypeArg.Bounded;
 import java.lang.classfile.Signature.TypeParam;
 import java.lang.classfile.attribute.AnnotationDefaultAttribute;
 import java.lang.classfile.attribute.CodeAttribute;
+import java.lang.classfile.attribute.ExceptionsAttribute;
 import java.lang.classfile.attribute.LocalVariableTableAttribute;
 import java.lang.classfile.attribute.LocalVariableTypeTableAttribute;
 import java.lang.classfile.attribute.RecordAttribute;
@@ -30,14 +31,18 @@ import java.lang.classfile.constantpool.MethodTypeEntry;
 import java.lang.classfile.constantpool.NameAndTypeEntry;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.MethodTypeDesc;
+import java.lang.reflect.AccessFlag;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
 public final class ClassfileDependencies {
   private final Set<String> types = new LinkedHashSet<>();
   private final Set<String> annotations = new LinkedHashSet<>();
+  private final boolean includeCode;
 
-  private ClassfileDependencies() {}
+  private ClassfileDependencies(boolean includeCode) {
+    this.includeCode = includeCode;
+  }
 
   public record References(Set<String> types, Set<String> annotations) {
     public References {
@@ -47,11 +52,15 @@ public final class ClassfileDependencies {
   }
 
   public static References read(byte[] bytes) {
-    var reader = new ClassfileDependencies();
+    var reader = new ClassfileDependencies(true);
     var model = ClassFile.of().parse(bytes);
     for (var entry : model.constantPool()) {
       switch (entry) {
-        case ClassEntry type -> reader.type(type.asSymbol());
+        case ClassEntry type -> {
+          if (!model.isModuleInfo() || !type.asInternalName().equals("module-info")) {
+            reader.type(type.asSymbol());
+          }
+        }
         case NameAndTypeEntry member -> reader.descriptor(member.type().stringValue());
         case MethodTypeEntry method -> reader.descriptor(method.descriptor().stringValue());
         default -> { }
@@ -65,6 +74,27 @@ public final class ClassfileDependencies {
     for (var method : model.methods()) {
       reader.descriptor(method.methodType().stringValue());
       reader.attributes(method);
+    }
+    return new References(reader.types, reader.annotations);
+  }
+
+  public static References publicSignatures(byte[] bytes) {
+    var reader = new ClassfileDependencies(false);
+    var model = ClassFile.of().parse(bytes);
+    model.superclass().ifPresent(type -> reader.type(type.asSymbol()));
+    model.interfaces().forEach(type -> reader.type(type.asSymbol()));
+    reader.attributes(model);
+    for (var field : model.fields()) {
+      if (field.flags().has(AccessFlag.PUBLIC) || field.flags().has(AccessFlag.PROTECTED)) {
+        reader.descriptor(field.fieldType().stringValue());
+        reader.attributes(field);
+      }
+    }
+    for (var method : model.methods()) {
+      if (method.flags().has(AccessFlag.PUBLIC) || method.flags().has(AccessFlag.PROTECTED)) {
+        reader.descriptor(method.methodType().stringValue());
+        reader.attributes(method);
+      }
     }
     return new References(reader.types, reader.annotations);
   }
@@ -115,7 +145,12 @@ public final class ClassfileDependencies {
         case RuntimeInvisibleTypeAnnotationsAttribute invisible ->
             invisible.annotations().forEach(value -> annotation(value.annotation()));
         case AnnotationDefaultAttribute value -> annotationValue(value.defaultValue());
-        case CodeAttribute code -> attributes(code);
+        case ExceptionsAttribute exceptions -> exceptions.exceptions().forEach(type -> type(type.asSymbol()));
+        case CodeAttribute code -> {
+          if (includeCode) {
+            attributes(code);
+          }
+        }
         case LocalVariableTableAttribute locals -> locals.localVariables().forEach(local -> type(local.typeSymbol()));
         case LocalVariableTypeTableAttribute locals ->
             locals.localVariableTypes().forEach(local -> signature(Signature.parseFrom(local.signature().stringValue())));

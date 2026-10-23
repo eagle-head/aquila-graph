@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="source-analysis" default="analyze" basedir=".">
+  <target name="analyze">
+    <available file="${java.home}/lib/jrt-fs.jar" property="selected.runtime.present" />
+    <fail unless="selected.runtime.present" message="The selected JDK runtime is required for source analysis." />
+    <available file="${analysis.classpathFile}" property="analysis.classpath.present" />
+    <fail unless="analysis.classpath.present" message="The resolved analysis classpath is required." />
+    <loadfile property="analysis.dependencies" srcFile="${analysis.classpathFile}" />
+    <path id="analysis.auxiliary">
+      <pathelement location="${java.home}/lib/jrt-fs.jar" />
+      <path path="${analysis.dependencies}" />
+    </path>
+    <pathconvert property="analysis.effectiveClasspath" refid="analysis.auxiliary" />
+    <resourcecount property="analysis.sourceCount">
+      <fileset dir="${analysis.sourceDirectory}" includes="**/*.java" />
+    </resourcecount>
+    <fail message="Source analysis requires a nonempty production source inventory.">
+      <condition><equals arg1="${analysis.sourceCount}" arg2="0" /></condition>
+    </fail>
+    <mkdir dir="${analysis.outputDirectory}" />
+    <mkdir dir="${analysis.outputDirectory}/site" />
+    <echo file="${analysis.outputDirectory}/pmd-classpath.txt" encoding="UTF-8">${analysis.effectiveClasspath}</echo>
+    <delete file="${analysis.outputDirectory}/pmd.xml" />
+    <delete file="${analysis.outputDirectory}/pmd-status.properties" />
+    <taskdef name="pmd" classname="net.sourceforge.pmd.ant.PMDTask" />
+    <pmd rulesetfiles="${analysis.ruleset}" encoding="UTF-8" threads="1" failOnError="true" failOnRuleViolation="true">
+      <sourceLanguage name="java" version="25" />
+      <auxclasspath refid="analysis.auxiliary" />
+      <fileset dir="${analysis.sourceDirectory}" includes="**/*.java" />
+      <formatter type="xml" toFile="${analysis.outputDirectory}/pmd.xml" />
+      <formatter type="html" toFile="${analysis.outputDirectory}/site/pmd.html" />
+      <formatter type="text" toConsole="true" />
+    </pmd>
+    <xslt in="${analysis.outputDirectory}/pmd.xml" style="${basedir}/report-status.xsl"
+          out="${analysis.outputDirectory}/pmd-status.properties" force="true" />
+    <loadproperties srcFile="${analysis.outputDirectory}/pmd-status.properties" />
+    <fail message="PMD processing or configuration errors: ${pmd.processingErrors}/${pmd.configurationErrors}; inspect pmd.xml.">
+      <condition><not><and>
+        <equals arg1="${pmd.processingErrors}" arg2="0" />
+        <equals arg1="${pmd.configurationErrors}" arg2="0" />
+      </and></not></condition>
+    </fail>
+  </target>
+</project>

@@ -1,5 +1,21 @@
 package org.aquilagraph.source.api;
 
+import org.aquilagraph.source.internal.values.DecisionValueValidation;
+
+import org.aquilagraph.source.internal.CoverageSourceProjection;
+
+import org.aquilagraph.source.internal.JavaAstAggregateBuilder;
+import org.aquilagraph.source.internal.ExecutionDecisionIndex;
+import org.aquilagraph.source.internal.ExecutionDecisionRegistration;
+import org.aquilagraph.source.internal.ExecutionDecisionValidation;
+import org.aquilagraph.source.admission.CoverageWrittenTypeUseTopology;
+import org.aquilagraph.source.internal.CoverageActualFactUniverse;
+import org.aquilagraph.source.admission.CoverageActualFactView;
+import org.aquilagraph.source.internal.CoverageAnnotationFacts;
+import org.aquilagraph.source.admission.SyntaxAnalysisInput;
+import org.aquilagraph.source.admission.CoverageActualFacts;
+
+
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -23,11 +39,11 @@ class DurableSyntaxBoundaryTest {
   @Test
   void givenImmutableAggregateReader_whenCompiledReferencesAreInspected_thenAdmissionAndBuildersAreAbsent() throws IOException {
     // Arrange
-    var classFiles = List.of("JavaAstAggregate", "JavaAstAggregate$NodeFacts", "SourceExecutionFacts", "ExecutionSyntax", "ExecutionScope", "MethodSyntax", "ExecutionDecisionIndex");
+    var classFiles = List.of("AstResult", "AstOutcome", "JavaAstAggregate", "LanguageFeatureCoverageResult", "ExecutionSyntax", "ExecutionScope", "MethodSyntax");
 
     // Act
     for (var name : classFiles) {
-      var bytes = Files.readAllBytes(Path.of("target/classes/org/aquilagraph/source/api", name + ".class"));
+      var bytes = Files.readAllBytes(Path.of("target/classes/org.aquilagraph.source/org/aquilagraph/source/api", name + ".class"));
       var references = ClassfileDependencies.read(bytes);
 
       // Assert

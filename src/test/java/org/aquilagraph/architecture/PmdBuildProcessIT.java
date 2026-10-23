@@ -6,16 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectStreamClass;
-import java.net.URL;
-import java.net.URLClassLoader;
+import java.time.Duration;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
+import org.aquilagraph.testsupport.OwnedProcess;
 import java.util.regex.Pattern;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.junit.jupiter.api.Test;
@@ -36,11 +33,11 @@ class PmdBuildProcessIT {
 
     // Assert
     assertEquals(0, result.exitCode(), result.output());
-    assertFalse(result.output().contains("[WARNING]"), result.output());
+    assertFalse(Pattern.compile("(?im)\\[WARNING\\]|\\bWARN\\b|falling back").matcher(result.output()).find(), result.output());
     var expectedRuntime = Path.of(System.getProperty("java.home"), "lib", "jrt-fs.jar").toRealPath();
-    var classpath = analysisClasspath(fixture);
+    var classpath = Files.readString(fixture.resolve("target/pmd-classpath.txt"));
     assertTrue(Arrays.stream(classpath.split(Pattern.quote(File.pathSeparator)))
-        .map(Path::of).anyMatch(path -> path.toAbsolutePath().normalize().equals(expectedRuntime)), classpath);
+        .map(Path::of).findFirst().orElseThrow().toRealPath().equals(expectedRuntime), classpath);
     assertEquals(0, reportCount(fixture.resolve("target/pmd.xml"), "violation"));
   }
 
@@ -94,41 +91,45 @@ class PmdBuildProcessIT {
     // Assert
     assertEquals(1, result.exitCode(), result.output());
     assertTrue(result.output().contains("BUILD FAILURE"), result.output());
-    assertTrue(result.output().contains("PMD processing errors"), result.output());
+    assertTrue(result.output().contains("PMD processing or configuration errors"), result.output());
+    assertTrue(reportCount(fixture.resolve("target/pmd.xml"), "error") > 0);
+  }
+
+  @Test
+  void givenRedundantReferenceCast_whenPmdResolvesSelectedRuntimeTypes_thenTypeDependentRuleFails() throws Exception {
+    // Arrange
+    var fixture = fixture();
+    writeSource(fixture, "Sample", "public class Sample { public CharSequence value(String input) { return (CharSequence) input; } }");
+
+    // Act
+    var result = run(fixture, "check");
+
+    // Assert
+    assertEquals(1, result.exitCode(), result.output());
+    assertTrue(Files.readString(fixture.resolve("target/pmd.xml")).contains("rule=\"UnnecessaryCast\""), result.output());
+  }
+
+  @Test
+  void givenEmptySourceInventory_whenPmdRuns_thenMissingInputFailsBuild() throws Exception {
+    // Arrange
+    var fixture = fixture();
+    Files.createDirectories(fixture.resolve("src/main/java"));
+
+    // Act
+    var result = run(fixture, "check");
+
+    // Assert
+    assertEquals(1, result.exitCode(), result.output());
+    assertTrue(result.output().contains("nonempty production source inventory"), result.output());
   }
 
   private Path fixture() throws Exception {
     var fixture = Files.createTempDirectory(temporaryDirectory, "pmd-build-");
-    var pluginVersion = property("maven-pmd-plugin.version");
-    var toolchainVersion = property("maven-toolchains-plugin.version");
-    Files.writeString(fixture.resolve("pom.xml"), """
-        <project xmlns="http://maven.apache.org/POM/4.0.0">
-          <modelVersion>4.0.0</modelVersion>
-          <groupId>validation</groupId><artifactId>analysis-rules</artifactId><version>1.0</version>
-          <properties><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>
-          <build><plugins>
-            <plugin>
-              <groupId>org.apache.maven.plugins</groupId><artifactId>maven-toolchains-plugin</artifactId>
-              <version>%s</version>
-              <configuration><version>[25,26)</version><useJdk>Never</useJdk></configuration>
-            </plugin>
-            <plugin>
-              <groupId>org.aquilagraph.build</groupId><artifactId>pmd-runtime-maven-plugin</artifactId>
-              <version>%s</version>
-              <configuration>
-                <targetJdk>25</targetJdk><includeTests>false</includeTests>
-                <rulesets><ruleset>ruleset.xml</ruleset></rulesets>
-                <failOnViolation>true</failOnViolation><skipPmdError>false</skipPmdError>
-                <linkXRef>false</linkXRef><minimumTokens>100</minimumTokens>
-              </configuration>
-            </plugin>
-          </plugins></build>
-        </project>
-        """.formatted(toolchainVersion, pluginVersion));
     Files.writeString(fixture.resolve("ruleset.xml"), """
         <ruleset name="Unused values" xmlns="http://pmd.sourceforge.net/ruleset/2.0.0">
-          <description>Detect unused local variables.</description>
+          <description>Detect unused local variables and type-dependent redundant casts.</description>
           <rule ref="category/java/bestpractices.xml/UnusedLocalVariable" />
+          <rule ref="category/java/codestyle.xml/UnnecessaryCast" />
         </ruleset>
         """);
     return fixture;
@@ -147,42 +148,21 @@ class PmdBuildProcessIT {
     } else {
       command.add(root.resolve("mvnw").toString());
     }
-    command.addAll(Arrays.asList("-B", "--no-transfer-progress", "-f", fixture.resolve("pom.xml").toString(),
+    command.addAll(Arrays.asList("-B", "--no-transfer-progress",
         "-Dmaven.repo.local=" + root.resolve("target/maven-repository"),
-        "toolchains:select-jdk-toolchain",
-        "org.aquilagraph.build:pmd-runtime-maven-plugin:" + property("maven-pmd-plugin.version") + ":" + goal));
+        "-Danalysis.sourceDirectory=" + fixture.resolve("src/main/java"),
+        "-Danalysis.ruleset=" + fixture.resolve("ruleset.xml"),
+        "-Danalysis.outputDirectory=" + fixture.resolve("target"),
+        "-Danalysis.classpathFile=" + fixture.resolve("target/analysis.classpath"),
+        "validate", "antrun:run@prepare-analysis-inputs",
+        "exec:exec@" + (goal.equals("cpd-check") ? "analyze-duplication" : "analyze-source")));
     var log = fixture.resolve("build.log");
-    var process = new ProcessBuilder(command).directory(root.toFile()).redirectErrorStream(true).redirectOutput(log.toFile()).start();
-    try {
-      if (!process.waitFor(60, TimeUnit.SECONDS)) {
+    try (var process = OwnedProcess.start(new ProcessBuilder(command).directory(root.toFile()).redirectErrorStream(true).redirectOutput(log.toFile()))) {
+      if (!process.await(Duration.ofSeconds(60))) {
         throw new IOException("Maven analysis did not finish within 60 seconds: " + Files.readString(log));
       }
       return new Result(process.exitValue(), Files.readString(log));
-    } finally {
-      if (process.isAlive()) {
-        process.destroyForcibly();
-        process.waitFor(5, TimeUnit.SECONDS);
-      }
     }
-  }
-
-  private static String analysisClasspath(Path fixture) throws Exception {
-    var originalPlugin = Path.of("target/maven-repository/org/apache/maven/plugins/maven-pmd-plugin/3.28.0/maven-pmd-plugin-3.28.0.jar");
-    try (var loader = new URLClassLoader(new URL[] {originalPlugin.toUri().toURL()}, ClassLoader.getPlatformClassLoader());
-        var input = new ObjectInputStream(Files.newInputStream(fixture.resolve("target/pmd/pmdrequest.bin"))) {
-          @Override
-          protected Class<?> resolveClass(ObjectStreamClass descriptor) throws ClassNotFoundException {
-            return Class.forName(descriptor.getName(), false, loader);
-          }
-        }) {
-      var request = input.readObject();
-      return (String) request.getClass().getMethod("getAuxClasspath").invoke(request);
-    }
-  }
-
-  private static String property(String name) throws Exception {
-    var document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(Path.of("pom.xml").toFile());
-    return document.getElementsByTagName(name).item(0).getTextContent().strip();
   }
 
   private static int reportCount(Path report, String element) throws Exception {

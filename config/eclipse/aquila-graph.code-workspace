@@ -1,0 +1,42 @@
+{
+  "folders": [
+    {
+      "path": "../..",
+      "name": "aquila-graph"
+    },
+    {
+      "path": "org.aquilagraph.identity"
+    },
+    {
+      "path": "org.aquilagraph.source"
+    },
+    {
+      "path": "org.aquilagraph.cfg"
+    },
+    {
+      "path": "org.aquilagraph.frontend"
+    },
+    {
+      "path": "org.aquilagraph.application"
+    },
+    {
+      "path": "org.aquilagraph.repository"
+    },
+    {
+      "path": "org.aquilagraph.cli"
+    },
+    {
+      "path": "aquila-graph-tests"
+    }
+  ],
+  "settings": {
+    "java.import.maven.enabled": false,
+    "java.autobuild.enabled": false,
+    "java.import.exclusions": [
+      "**/node_modules/**",
+      "**/.metadata/**",
+      "**/target/**",
+      "!**/target/editor/**"
+    ]
+  }
+}

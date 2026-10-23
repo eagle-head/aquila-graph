@@ -1,5 +1,9 @@
 package org.aquilagraph.cfg.internal;
 
+import org.aquilagraph.cfg.api.CfgProfile;
+import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstProductionRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -8,8 +12,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
@@ -20,7 +24,6 @@ import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.cfg.api.OperationKind;
 import org.aquilagraph.cfg.api.ValueKind;
 import org.aquilagraph.source.api.InvocationApplicabilityMode;
-import org.aquilagraph.source.api.SyntaxAnalysisInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,7 +45,7 @@ class EnumConstructorContextLoweringTest {
 
     // Assert
     var method = input.program().types().getFirst().methods().stream().filter(candidate -> candidate.constructor()).findFirst().orElseThrow();
-    var syntax = input.methodSyntax(method.methodKey()).orElseThrow();
+    var syntax = input.aggregate().methodSyntax(method.methodKey()).orElseThrow();
     var call = syntax.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION).findFirst().orElseThrow();
     assertTrue(method.parameters().isEmpty());
     assertTrue(call.children(SyntaxRole.ARGUMENT).isEmpty());
@@ -89,9 +92,9 @@ class EnumConstructorContextLoweringTest {
     // Assert
     assertEquals(3, methods.size());
     for (var method : methods) {
-      var syntax = input.methodSyntax(method.methodKey()).orElseThrow();
+      var syntax = input.aggregate().methodSyntax(method.methodKey()).orElseThrow();
       assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(syntax));
-      var graph = new ControlFlowGraphBuilder().build(method, syntax).graph().orElseThrow();
+      var graph = new ControlFlowGraphBuilder().build(input, CfgAdmission.assess(input, method.methodKey(), CfgProfile.JAVA_BOUNDED).plan().orElseThrow()).graph().orElseThrow();
       var context = syntax.evidence().constructors().getFirst();
       if (method.signature().equals("<init>(long)")) {
         assertEquals(InvocationForm.SUPER_CONSTRUCTOR, context.form());
@@ -128,7 +131,7 @@ class EnumConstructorContextLoweringTest {
     // Assert
     var method = input.program().types().stream().filter(type -> type.qualifiedName().equals("Choices")).findFirst().orElseThrow()
         .methods().stream().filter(candidate -> candidate.constructor() && candidate.parameters().isEmpty()).findFirst().orElseThrow();
-    var syntax = input.methodSyntax(method.methodKey()).orElseThrow();
+    var syntax = input.aggregate().methodSyntax(method.methodKey()).orElseThrow();
     var call = syntax.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION).findFirst().orElseThrow();
     assertEquals(InvocationApplicabilityMode.VARIABLE, syntax.invocationArity(call.nodeId()).orElseThrow().mode());
     assertEquals(1, syntax.invocationArity(call.nodeId()).orElseThrow().formalCount());
@@ -141,19 +144,19 @@ class EnumConstructorContextLoweringTest {
     assertEnumInvocation(constructor(input, "Choices", 1), InvocationForm.SUPER_CONSTRUCTOR, List.of());
   }
 
-  private SyntaxAnalysisInput analyze(String content) throws IOException {
+  private AstResult analyze(String content) throws IOException {
     var source = SourceFile.fromContent(Path.of("Enums.java"), content);
-    return new JavaFrontend(new JavaSourceLoader()).analyze(InputSnapshot.fromSources(sourceRoot, List.of(source)),
-        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    return new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(InputSnapshot.fromSources(sourceRoot, List.of(source)),
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
   }
 
-  private static ControlFlowGraph constructor(SyntaxAnalysisInput input, String owner, int sourceParameters) {
+  private static ControlFlowGraph constructor(AstResult input, String owner, int sourceParameters) {
     var method = input.program().types().stream().filter(type -> type.qualifiedName().equals(owner)).findFirst().orElseThrow()
         .methods().stream().filter(candidate -> candidate.constructor() && candidate.parameters().size() == sourceParameters)
         .findFirst().orElseThrow();
-    var syntax = input.methodSyntax(method.methodKey()).orElseThrow();
+    var syntax = input.aggregate().methodSyntax(method.methodKey()).orElseThrow();
     assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(syntax));
-    return new ControlFlowGraphBuilder().build(method, syntax).graph().orElseThrow();
+    return new ControlFlowGraphBuilder().build(input, CfgAdmission.assess(input, method.methodKey(), CfgProfile.JAVA_BOUNDED).plan().orElseThrow()).graph().orElseThrow();
   }
 
   private static void assertEnumInvocation(ControlFlowGraph graph, InvocationForm form, List<FlowValue> sourceArguments) {

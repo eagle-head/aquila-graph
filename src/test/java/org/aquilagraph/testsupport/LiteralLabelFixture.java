@@ -15,7 +15,7 @@ import org.aquilagraph.cfg.api.TransferKind;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.source.admission.AstCodec;
+import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;

@@ -11,9 +11,7 @@
   <disallow pkg="javax.lang.model" />
   <disallow pkg="javax.tools" />
   <disallow pkg="org.neo4j" />
-  <disallow class="org.aquilagraph.source.api.AstAggregateAdmission" />
   <allow pkg=".*" regex="true" />
-
   <subpackage name="identity">
     <allow pkg="java" />
     <allow pkg="org.aquilagraph.identity.api" />
@@ -21,7 +19,6 @@
     <allow class="org.jspecify.annotations.Nullable" />
     <disallow pkg=".*" regex="true" />
   </subpackage>
-
   <subpackage name="source">
     <disallow pkg="org.aquilagraph.application" />
     <disallow pkg="org.aquilagraph.cli" />
@@ -29,18 +26,13 @@
     <disallow pkg="org.aquilagraph.frontend" />
     <disallow pkg="org.aquilagraph.repository" />
     <subpackage name="api">
-      <disallow class="org.aquilagraph.source.api.AstAggregateAdmission" />
+      <allow pkg="org.aquilagraph.source.internal.values" />
+      <allow class="org\.aquilagraph\.source\.internal\.Admitted[A-Z].*" regex="true" />
       <disallow pkg="org.aquilagraph.source.admission" />
+      <disallow pkg="org.aquilagraph.source.retention" />
       <disallow pkg="org.aquilagraph.source.internal" />
-      <file name="AstAggregateAdmission(?:\.java)?" regex="true">
-        <allow class="org.aquilagraph.source.admission.CopiedAstValues" />
-      </file>
-    </subpackage>
-    <subpackage name="admission">
-      <allow class="org.aquilagraph.source.api.AstAggregateAdmission" />
     </subpackage>
   </subpackage>
-
   <subpackage name="model">
     <disallow pkg="org.aquilagraph.application" />
     <disallow pkg="org.aquilagraph.cli" />
@@ -48,7 +40,6 @@
     <disallow pkg="org.aquilagraph.frontend" />
     <disallow pkg="org.aquilagraph.repository" />
   </subpackage>
-
   <subpackage name="syntax">
     <disallow pkg="org.aquilagraph.application" />
     <disallow pkg="org.aquilagraph.cli" />
@@ -56,7 +47,6 @@
     <disallow pkg="org.aquilagraph.frontend" />
     <disallow pkg="org.aquilagraph.repository" />
   </subpackage>
-
   <subpackage name="cfg">
     <disallow pkg="org.aquilagraph.source.admission" />
     <disallow pkg="org.aquilagraph.source.internal" />
@@ -64,8 +54,12 @@
     <disallow pkg="org.aquilagraph.cli" />
     <disallow pkg="org.aquilagraph.frontend" />
     <disallow pkg="org.aquilagraph.repository" />
+    <subpackage name="api">
+      <allow pkg="org.aquilagraph.cfg.internal.values" />
+      <allow class="org\.aquilagraph\.cfg\.internal\.Admitted[A-Z].*" regex="true" />
+      <disallow pkg="org.aquilagraph.cfg.internal" />
+    </subpackage>
   </subpackage>
-
   <subpackage name="frontend">
     <disallow pkg="org.aquilagraph.source.internal" />
     <allow pkg="com.sun.source" />
@@ -75,50 +69,50 @@
     <disallow pkg="org.aquilagraph.cli" />
     <disallow pkg="org.aquilagraph.cfg" />
     <disallow pkg="org.aquilagraph.repository" />
+    <disallow pkg="org.aquilagraph.source.retention" />
   </subpackage>
-
   <subpackage name="application">
-    <disallow class="org.aquilagraph.cfg.api.GraphValueAdmission" />
-    <disallow class="org.aquilagraph.cfg.api.LoweringPlan" />
-    <disallow class="org.aquilagraph.cfg.api.CfgAdmissionResult" />
     <allow pkg="org.aquilagraph.cfg.api" />
     <disallow pkg="org.aquilagraph.cfg" />
     <disallow pkg="org.aquilagraph.source.admission" />
-    <disallow class="org.aquilagraph.source.api.AstAggregateAdmission" />
-    <disallow class="org.aquilagraph.source.api.JavaAstAggregateBuilder" />
     <disallow pkg="org.aquilagraph.cli" />
     <disallow pkg="org.aquilagraph.frontend" />
     <disallow pkg="org.aquilagraph.repository" />
+    <disallow pkg="org.aquilagraph.source.retention" />
   </subpackage>
-
   <subpackage name="cli">
-    <disallow class="org.aquilagraph.cfg.api.GraphValueAdmission" />
-    <disallow class="org.aquilagraph.cfg.api.LoweringPlan" />
     <allow pkg="org.aquilagraph.cfg.api" />
     <disallow pkg="org.aquilagraph.cfg" />
     <disallow pkg="org.aquilagraph.frontend" />
     <disallow pkg="org.aquilagraph.repository" />
+    <disallow pkg="org.aquilagraph.source.retention" />
   </subpackage>
-
   <subpackage name="repository">
     <disallow pkg="org.aquilagraph.application" />
     <disallow pkg="org.aquilagraph.cli" />
     <disallow pkg="org.aquilagraph.cfg" />
     <disallow pkg="org.aquilagraph.frontend" />
+    <disallow pkg="org.aquilagraph.source.admission" />
+    <disallow pkg="org.aquilagraph.source.internal" />
+    <subpackage name="internal">
+      <subpackage name="neo4j">
+        <allow pkg="org.aquilagraph.cfg.api" />
+        <allow class="org.aquilagraph.application.AnalysisRun" />
+        <allow class="org.aquilagraph.application.AnalysisCompletion" />
+        <allow class="org.aquilagraph.application.ProgramRepresentation" />
+        <allow class="org.aquilagraph.application.AstLookup" />
+        <allow class="org.aquilagraph.application.AstLookupStatus" />
+        <allow class="org.aquilagraph.application.CommitKnowledge" />
+        <allow class="org.aquilagraph.application.RepositoryOperationContext" />
+        <allow class="org.aquilagraph.application.RepositoryOperationException" />
+        <allow class="org.aquilagraph.application.RepositoryOperationKind" />
+        <allow class="org.aquilagraph.application.RepositoryPhase" />
+        <allow pkg="org.aquilagraph.application.port" />
+        <allow pkg="org.neo4j" />
+      </subpackage>
+    </subpackage>
     <subpackage name="neo4j">
-      <allow pkg="org.aquilagraph.cfg.api" />
-      <allow class="org.aquilagraph.application.AnalysisRun" />
-      <allow class="org.aquilagraph.application.AnalysisCompletion" />
-      <allow class="org.aquilagraph.application.ProgramRepresentation" />
-      <allow class="org.aquilagraph.application.AstLookup" />
-      <allow class="org.aquilagraph.application.AstLookupStatus" />
-      <allow class="org.aquilagraph.application.CommitKnowledge" />
-      <allow class="org.aquilagraph.application.RepositoryOperationContext" />
-      <allow class="org.aquilagraph.application.RepositoryOperationException" />
-      <allow class="org.aquilagraph.application.RepositoryOperationKind" />
-      <allow class="org.aquilagraph.application.RepositoryPhase" />
       <allow pkg="org.aquilagraph.application.port" />
-      <allow pkg="org.neo4j" />
     </subpackage>
   </subpackage>
 </import-control>

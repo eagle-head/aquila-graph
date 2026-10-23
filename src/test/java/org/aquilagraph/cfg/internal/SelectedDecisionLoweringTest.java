@@ -1,5 +1,8 @@
 package org.aquilagraph.cfg.internal;
 
+import org.aquilagraph.cfg.api.CfgProfile;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstProductionRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -7,8 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
@@ -576,12 +579,12 @@ class SelectedDecisionLoweringTest {
 
   private ControlFlowGraph build(String source, String ownerTypeKey, String methodName) throws IOException {
     var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
-    var input = new JavaFrontend(new JavaSourceLoader()).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
     var method = input.program().methods().stream().filter(candidate -> candidate.name().equals(methodName)
         && (ownerTypeKey.isEmpty() || candidate.ownerTypeKey().equals(ownerTypeKey))).findFirst().orElseThrow();
-    var syntax = input.methodSyntax(method.methodKey()).orElseThrow();
+    var syntax = input.aggregate().methodSyntax(method.methodKey()).orElseThrow();
     assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(syntax));
-    var result = new ControlFlowGraphBuilder().build(method, syntax);
+    var result = new ControlFlowGraphBuilder().build(input, CfgAdmission.assess(input, method.methodKey(), CfgProfile.JAVA_BOUNDED).plan().orElseThrow());
     assertTrue(result.diagnostics().isEmpty());
     return result.graph().orElseThrow();
   }

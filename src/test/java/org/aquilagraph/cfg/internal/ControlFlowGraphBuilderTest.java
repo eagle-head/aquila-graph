@@ -1,5 +1,13 @@
 package org.aquilagraph.cfg.internal;
 
+import org.aquilagraph.cfg.CfgDerivers;
+import org.aquilagraph.cfg.api.MethodCfgOutcome;
+import org.aquilagraph.cfg.api.MethodCfgState;
+import org.aquilagraph.cfg.api.CfgProfile;
+import org.aquilagraph.cfg.api.CfgRequest;
+import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstProductionRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -12,14 +20,11 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.IntStream;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceSpan;
-import org.aquilagraph.source.api.DiagnosticSeverity;
-import org.aquilagraph.source.api.AnalysisOutcomeKind;
-import org.aquilagraph.source.api.DiagnosticStage;
 import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
@@ -98,62 +103,46 @@ class ControlFlowGraphBuilderTest {
   }
 
   @Test
-  void givenUnresolvedExpressionType_whenCfgIsRequested_thenUnresolvedDiagnosticPreventsGraphConstruction() {
+  void givenUnresolvedExpressionType_whenBodyReadinessIsAssessed_thenUnresolvedSemanticsPreventLowering() {
     // Arrange
     var method = syntheticMethod(SyntaxType.Unresolved.INSTANCE);
-
     // Act
-    var result = build(method);
-
+    var readiness = CfgAdmission.classify(method.syntax());
     // Assert
-    assertTrue(result.graph().isEmpty());
-    assertEquals(List.of("control-flow.unresolved-semantics"),
-        result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
-    assertEquals(AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE, result.diagnostics().getFirst().outcomeKind());
+    assertEquals(CfgReadiness.UNRESOLVED_SEMANTICS, readiness);
   }
 
   @Test
-  void givenErroneousExpressionType_whenCfgIsRequested_thenErroneousDiagnosticPreventsGraphConstruction() {
+  void givenErroneousExpressionType_whenBodyReadinessIsAssessed_thenErroneousSemanticsPreventLowering() {
     // Arrange
     var method = syntheticMethod(SyntaxType.Erroneous.INSTANCE);
-
     // Act
-    var result = build(method);
-
+    var readiness = CfgAdmission.classify(method.syntax());
     // Assert
-    assertTrue(result.graph().isEmpty());
-    assertEquals(List.of("control-flow.erroneous-semantics"),
-        result.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
-    assertEquals(AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE, result.diagnostics().getFirst().outcomeKind());
+    assertEquals(CfgReadiness.ERRONEOUS_SEMANTICS, readiness);
   }
 
   @Test
-  void givenNullAndMismatchedOrBodylessInputs_whenCfgIsRequested_thenInvalidInputPrecedesReadinessRefusal() {
+  void givenAdmittedSourceAndAPlan_whenBuilderReceivesNullOrForeignQualification_thenItRejectsBeforeConstruction() throws IOException {
     // Arrange
-    var unresolved = syntheticMethod(SyntaxType.Unresolved.INSTANCE);
-    var declaration = unresolved.declaration();
-    var mismatch = new JavaMethod("type:Other#value()", "type:Other", "value", "value()", "int", List.of(), Set.of(),
-        false, true, true, List.of());
-    var bodyless = new JavaMethod(declaration.methodKey(), declaration.ownerTypeKey(), declaration.name(), declaration.signature(),
-        declaration.returnType(), declaration.parameters(), declaration.modifiers(), declaration.constructor(), declaration.sourceDeclared(), false,
-        declaration.origins());
+    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example { int value() { return 1; } }");
+    var original = method("value");
+    var ast = original.source();
+    var plan = CfgAdmission.assess(ast, original.declaration().methodKey(), CfgProfile.JAVA_BOUNDED).plan().orElseThrow();
+    Files.writeString(temporaryDirectory.resolve("Example.java"), "class Example { int value() { return 2; } }");
+    var foreign = method("value").source();
     var builder = new ControlFlowGraphBuilder();
-
     // Act
-    var missingMethod = assertThrows(NullPointerException.class, () -> builder.build(null, unresolved.syntax()));
-    var missingSyntax = assertThrows(NullPointerException.class, () -> builder.build(declaration, null));
-    var mismatchedMethod = assertThrows(IllegalArgumentException.class, () -> builder.build(mismatch, unresolved.syntax()));
-    var bodylessMethod = assertThrows(IllegalArgumentException.class, () -> builder.build(bodyless, unresolved.syntax()));
-
+    var missingSource = assertThrows(NullPointerException.class, () -> builder.build(null, plan));
+    var missingPlan = assertThrows(NullPointerException.class, () -> builder.build(ast, null));
     // Assert
-    assertEquals("method", missingMethod.getMessage());
-    assertEquals("syntax", missingSyntax.getMessage());
-    assertEquals("Control-flow syntax must belong to the declared method body", mismatchedMethod.getMessage());
-    assertEquals("Control-flow syntax must belong to the declared method body", bodylessMethod.getMessage());
+    assertEquals("ast", missingSource.getMessage());
+    assertEquals("plan", missingPlan.getMessage());
+    assertThrows(IllegalArgumentException.class, () -> builder.build(foreign, plan));
   }
 
   @Test
-  void givenErroneousAndUnresolvedFacts_whenCfgIsRequested_thenOneStableErroneousDiagnosticRetainsMethodOrigins() {
+  void givenErroneousAndUnresolvedFacts_whenReadinessIsAssessed_thenErroneousSemanticsHavePrecedence() {
     // Arrange
     var erroneous = syntheticMethod(SyntaxType.Erroneous.INSTANCE);
     var unresolvedLiteral = syntaxNode("mixed-unresolved-literal", JavaSourceKind.INT_LITERAL, SyntaxKind.LITERAL,
@@ -170,27 +159,15 @@ class ControlFlowGraphBuilderTest {
         original.returnType(), original.parameters(), original.modifiers(), original.constructor(), original.sourceDeclared(), original.hasBody(),
         List.of(new SourceSpan("source", 0, 1)));
     var syntax = MethodSyntaxFixture.view(method.methodKey(), root);
-    var builder = new ControlFlowGraphBuilder();
 
     // Act
-    var result = builder.build(method, syntax);
-    var repeated = builder.build(method, syntax);
-
+    var readiness = CfgAdmission.classify(syntax);
     // Assert
-    assertTrue(result.graph().isEmpty());
-    assertEquals(result, repeated);
-    assertEquals(1, result.diagnostics().size());
-    var diagnostic = result.diagnostics().getFirst();
-    assertEquals("control-flow.erroneous-semantics", diagnostic.code());
-    assertEquals("Method body contains erroneous compiler semantics", diagnostic.message());
-    assertEquals(DiagnosticStage.CONTROL_FLOW, diagnostic.stage());
-    assertEquals(DiagnosticSeverity.ERROR, diagnostic.severity());
-    assertEquals(method.origins(), diagnostic.origins());
-    assertEquals(AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE, diagnostic.outcomeKind());
+    assertEquals(CfgReadiness.ERRONEOUS_SEMANTICS, readiness);
   }
 
   @Test
-  void givenUnsupportedBodyWithErroneousFacts_whenCfgIsRequested_thenUnsupportedDiagnosticHasPrecedence() throws IOException {
+  void givenUnsupportedBodyWithErroneousFacts_whenAdmissionIsAssessed_thenUnsupportedReadinessPrecedesErrorsAndPublicRefusalRetainsCauses() throws IOException {
     // Arrange
     Files.writeString(temporaryDirectory.resolve("UnsupportedReadiness.java"), """
         class UnsupportedReadiness {
@@ -206,14 +183,10 @@ class ControlFlowGraphBuilderTest {
 
     // Assert
     assertTrue(result.graph().isEmpty());
-    assertEquals(1, result.diagnostics().size());
-    var diagnostic = result.diagnostics().getFirst();
-    assertEquals("control-flow.unsupported-method", diagnostic.code());
-    assertEquals("Method body contains a Java construct outside the supported subset", diagnostic.message());
-    assertEquals(DiagnosticStage.CONTROL_FLOW, diagnostic.stage());
-    assertEquals(DiagnosticSeverity.ERROR, diagnostic.severity());
-    assertEquals(method.declaration().origins(), diagnostic.origins());
-    assertEquals(AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE, diagnostic.outcomeKind());
+    assertEquals(CfgReadiness.UNSUPPORTED, CfgAdmission.classify(method.syntax()));
+    assertEquals(MethodCfgState.UNSUPPORTED, result.state());
+    assertEquals("control-flow.unsupported", result.diagnostics().getFirst().code());
+    assertTrue(result.blockers().stream().anyMatch(blocker -> blocker.kind() == MethodCfgState.ERRONEOUS_EVIDENCE));
   }
 
   @Test
@@ -276,7 +249,7 @@ class ControlFlowGraphBuilderTest {
     });
 
     // Act
-    var graph = new ControlFlowGraphBuilder().build(declaration, syntax).graph().orElseThrow();
+    var graph = new SyntaxGraphLowerer(declaration, syntax).lower().content();
 
     // Assert
     var constants =
@@ -551,11 +524,10 @@ class ControlFlowGraphBuilderTest {
         }
         """);
     var method = method("choose");
-    var builder = new ControlFlowGraphBuilder();
 
     // Act
-    var first = builder.build(method.declaration(), method.syntax());
-    var second = builder.build(method.declaration(), method.syntax());
+    var first = build(method);
+    var second = build(method);
 
     // Assert
     assertEquals(first, second);
@@ -591,8 +563,8 @@ class ControlFlowGraphBuilderTest {
     assertEquals(ValueKind.RECEIVER, fieldRead.operands().getFirst().value().kind());
   }
 
-  private static ControlFlowGraphResult build(MethodInput method) {
-    return new ControlFlowGraphBuilder().build(method.declaration(), method.syntax());
+  private static MethodCfgOutcome build(MethodInput method) {
+    return CfgDerivers.standard().derive(method.source(), new CfgRequest(method.source().identity(), List.of(method.declaration().methodKey()), CfgProfile.JAVA_BOUNDED)).methods().getFirst();
   }
 
   private static SyntaxNode syntaxLeaf(String nodeId, SyntaxKind kind, SyntaxValue value) {
@@ -603,7 +575,7 @@ class ControlFlowGraphBuilderTest {
     return new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"));
   }
 
-  private static MethodInput syntheticMethod(SyntaxType expressionType) {
+  private static SyntheticMethod syntheticMethod(SyntaxType expressionType) {
     var literal = syntaxNode("literal", JavaSourceKind.INT_LITERAL, SyntaxKind.LITERAL, expressionType,
         new SyntaxValue.Literal("1"), List.of(), Optional.empty());
     var returnNode = syntaxNode("return", JavaSourceKind.RETURN, SyntaxKind.RETURN, SyntaxType.NotApplicable.INSTANCE,
@@ -612,7 +584,7 @@ class ControlFlowGraphBuilderTest {
         SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, returnNode)), Optional.empty());
     var declaration = new JavaMethod("type:Synthetic#value()", "type:Synthetic", "value", "value()", "int", List.of(), Set.of(),
         false, true, true, List.of());
-    return new MethodInput(declaration, MethodSyntaxFixture.view(declaration.methodKey(), root));
+    return new SyntheticMethod(declaration, MethodSyntaxFixture.view(declaration.methodKey(), root));
   }
 
   private static SyntaxNode syntaxNode(String identity, JavaSourceKind sourceKind, SyntaxKind kind, SyntaxType type,
@@ -624,11 +596,14 @@ class ControlFlowGraphBuilderTest {
 
   private MethodInput method(String name) throws IOException {
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var result = frontend.analyze(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+    var result = frontend.produce(new AstProductionRequest(temporaryDirectory, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
     var declaration = result.program().methods().stream().filter(candidate -> candidate.name().equals(name)).findFirst().orElseThrow();
-    return new MethodInput(declaration, result.methodSyntax(declaration.methodKey()).orElseThrow());
+    return new MethodInput(declaration, result.aggregate().methodSyntax(declaration.methodKey()).orElseThrow(), result);
   }
 
-  private record MethodInput(JavaMethod declaration, MethodSyntax syntax) {
+  private record SyntheticMethod(JavaMethod declaration, MethodSyntax syntax) {
+  }
+
+  private record MethodInput(JavaMethod declaration, MethodSyntax syntax, AstResult source) {
   }
 }

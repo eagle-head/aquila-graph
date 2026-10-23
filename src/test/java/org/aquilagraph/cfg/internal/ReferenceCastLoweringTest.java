@@ -1,5 +1,8 @@
 package org.aquilagraph.cfg.internal;
 
+import org.aquilagraph.cfg.api.CfgProfile;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstProductionRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -8,8 +11,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.aquilagraph.frontend.JavaFrontend;
-import org.aquilagraph.frontend.JavaSourceLoader;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
@@ -35,16 +38,16 @@ class ReferenceCastLoweringTest {
         """;
 
     // Act
-    var input = new JavaFrontend(new JavaSourceLoader()).analyze(
+    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
         InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source))),
-        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
 
     // Assert
     for (var name : List.of("literal", "conditional")) {
       var method = input.program().methods().stream().filter(candidate -> candidate.name().equals(name)).findFirst().orElseThrow();
-      var syntax = input.methodSyntax(method.methodKey()).orElseThrow();
+      var syntax = input.aggregate().methodSyntax(method.methodKey()).orElseThrow();
       assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(syntax));
-      var result = new ControlFlowGraphBuilder().build(method, syntax);
+      var result = new ControlFlowGraphBuilder().build(input, CfgAdmission.assess(input, method.methodKey(), CfgProfile.JAVA_BOUNDED).plan().orElseThrow());
       assertTrue(result.diagnostics().isEmpty());
       var graph = result.graph().orElseThrow();
       var cast = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.CAST).findFirst().orElseThrow();
@@ -68,16 +71,16 @@ class ReferenceCastLoweringTest {
         """;
 
     // Act
-    var input = new JavaFrontend(new JavaSourceLoader()).analyze(
+    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
         InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source))),
-        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
 
     // Assert
     for (var name : List.of("reference", "array")) {
       var method = input.program().methods().stream().filter(candidate -> candidate.name().equals(name)).findFirst().orElseThrow();
-      var syntax = input.methodSyntax(method.methodKey()).orElseThrow();
+      var syntax = input.aggregate().methodSyntax(method.methodKey()).orElseThrow();
       assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(syntax));
-      var graph = new ControlFlowGraphBuilder().build(method, syntax).graph().orElseThrow();
+      var graph = new ControlFlowGraphBuilder().build(input, CfgAdmission.assess(input, method.methodKey(), CfgProfile.JAVA_BOUNDED).plan().orElseThrow()).graph().orElseThrow();
       var cast = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.CAST).findFirst().orElseThrow();
       assertEquals(List.of("java.lang.ClassCastException"), cast.possibleExceptions());
       assertTrue(graph.edges().stream().anyMatch(edge -> edge.sourceNodeId().equals(cast.nodeId())
@@ -105,20 +108,20 @@ class ReferenceCastLoweringTest {
         "variable", true, "intersection", true, "intersectionWiden", false);
 
     // Act
-    var input = new JavaFrontend(new JavaSourceLoader()).analyze(
+    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
         InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source))),
-        CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
 
     // Assert
     for (var entry : expectedChecks.entrySet()) {
       var method = input.program().methods().stream().filter(candidate -> candidate.name().equals(entry.getKey())).findFirst().orElseThrow();
-      var syntax = input.methodSyntax(method.methodKey()).orElseThrow();
+      var syntax = input.aggregate().methodSyntax(method.methodKey()).orElseThrow();
       assertEquals(CfgReadiness.LOWERABLE, CfgAdmission.classify(syntax), entry.getKey());
       var castNode = syntax.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_CAST)
           .findFirst().orElseThrow();
       assertEquals(Optional.of(entry.getValue()), syntax.useEvidence(castNode.nodeId(), SyntaxRole.EXPRESSION, 0)
           .orElseThrow().referenceCheck().knownValue(), entry.getKey());
-      var graph = new ControlFlowGraphBuilder().build(method, syntax).graph().orElseThrow();
+      var graph = new ControlFlowGraphBuilder().build(input, CfgAdmission.assess(input, method.methodKey(), CfgProfile.JAVA_BOUNDED).plan().orElseThrow()).graph().orElseThrow();
       var cast = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.CAST).findFirst().orElseThrow();
       assertEquals(entry.getValue() ? List.of("java.lang.ClassCastException") : List.of(), cast.possibleExceptions(), entry.getKey());
       assertEquals(entry.getValue(), graph.edges().stream().anyMatch(edge -> edge.sourceNodeId().equals(cast.nodeId())

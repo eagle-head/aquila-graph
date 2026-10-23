@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.aquilagraph.identity.api.StableId;
-import org.aquilagraph.cfg.api.FlowValue;
 import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
@@ -149,7 +148,7 @@ class UseConversionLowererTest {
     var consumer = SyntaxNode.withoutDirectSource("source", path, JavaSourceKind.TYPE_CAST, SyntaxKind.TYPE_CAST,
         new SyntaxType.Resolved(target), new SyntaxValue.TypeName(target.displayName()),
         List.of(new SyntaxChild(SyntaxRole.EXPRESSION, 0, child)), Optional.empty());
-    FlowValue value = graph.temporaryValue("producer", "source", Optional.of(source));
+    DraftValue value = graph.temporaryValue("producer", "source", Optional.of(source));
     var operation = graph.addOperationWithId("producer", child, OperationKind.READ, "source", List.of(), Optional.of(value), List.of());
     return new Fixture(graph, consumer, GraphFragment.value(operation.nodeId(), value));
   }

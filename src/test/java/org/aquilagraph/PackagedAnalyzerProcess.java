@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.TimeUnit;
+import org.aquilagraph.testsupport.OwnedProcess;
 
 /** Executes the packaged analyzer with bounded lifetime and captured, separate streams. */
 final class PackagedAnalyzerProcess {
@@ -25,31 +25,33 @@ final class PackagedAnalyzerProcess {
 
   Result run(List<String> javaOptions, Map<String, String> environment, Path sourceRoot, String... options)
       throws IOException, InterruptedException {
-    var javaName = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
-    var javaExecutable = Path.of(System.getProperty("java.home"), "bin", javaName);
-    var jar = Path.of("target/aquila-graph-0.1.0-SNAPSHOT.jar").toAbsolutePath().normalize();
+    var windows = System.getProperty("os.name").startsWith("Windows");
+    var launcher = Path.of("target/aquila-graph", windows ? "aquila-graph.cmd" : "aquila-graph").toAbsolutePath().normalize();
     var temporaryDirectory = Files.createDirectories(directory.resolve("process-tmp"));
-    var command = new ArrayList<>(List.of(javaExecutable.toString(), "-Xms64m", "-Xmx512m", "-Djava.io.tmpdir=" + temporaryDirectory));
-    command.addAll(javaOptions);
-    command.addAll(List.of("-jar", jar.toString(), sourceRoot.toString()));
+    var vmArguments = new ArrayList<>(List.of("-Xms64m", "-Xmx512m", "-Djava.io.tmpdir=" + temporaryDirectory));
+    vmArguments.addAll(javaOptions);
+    var argumentFile = directory.resolve("java-options.args");
+    Files.write(argumentFile, vmArguments.stream().map(argument -> "\"" + argument.replace('\\', '/').replace("\"", "\\\"") + "\"").toList(),
+        StandardCharsets.UTF_8);
+    var command = new ArrayList<String>();
+    if (windows) {
+      command.addAll(List.of("cmd.exe", "/d", "/c"));
+    }
+    command.addAll(List.of(launcher.toString(), sourceRoot.toString()));
     command.addAll(List.of(options));
     var outputFile = directory.resolve("process-output.txt");
     var errorFile = directory.resolve("process-error.txt");
     var builder = new ProcessBuilder(command).redirectOutput(outputFile.toFile()).redirectError(errorFile.toFile());
     builder.environment().putAll(environment);
-    var process = builder.start();
-    try {
-      var completed = process.waitFor(Duration.ofSeconds(30).toMillis(), TimeUnit.MILLISECONDS);
-      if (!completed) {
-        process.destroyForcibly().waitFor();
-      }
-      return new Result(completed, process.exitValue(), Files.readString(outputFile, StandardCharsets.UTF_8),
-          Files.readString(errorFile, StandardCharsets.UTF_8));
-    } finally {
-      if (process.isAlive()) {
-        process.destroyForcibly().waitFor();
-      }
+    builder.environment().put("JAVA_HOME", System.getProperty("java.home"));
+    builder.environment().put("AQUILA_JAVA_OPTIONS_FILE", argumentFile.toAbsolutePath().toString());
+    var process = OwnedProcess.start(builder);
+    boolean completed;
+    try (process) {
+      completed = process.await(Duration.ofSeconds(30));
     }
+    return new Result(completed, process.exitValue(), Files.readString(outputFile, StandardCharsets.UTF_8),
+        Files.readString(errorFile, StandardCharsets.UTF_8));
   }
 
   record Result(boolean completed, int exitCode, String output, String error) {

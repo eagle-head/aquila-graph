@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+launcher_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+java_command=java
+if [ -n "${JAVA_HOME:-}" ]; then
+  java_command="$JAVA_HOME/bin/java"
+fi
+if [ -n "${AQUILA_JAVA_OPTIONS_FILE:-}" ]; then
+  exec "$java_command" "@$AQUILA_JAVA_OPTIONS_FILE" --module-path "$launcher_dir/lib" --module org.aquilagraph.cli/org.aquilagraph.AquilaGraphApplication "$@"
+fi
+exec "$java_command" --module-path "$launcher_dir/lib" --module org.aquilagraph.cli/org.aquilagraph.AquilaGraphApplication "$@"
