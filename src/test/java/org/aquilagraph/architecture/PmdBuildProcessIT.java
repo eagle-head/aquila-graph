@@ -6,13 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.io.IOException;
-import java.time.Duration;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Locale;
-import org.aquilagraph.testsupport.OwnedProcess;
+import org.aquilagraph.testsupport.IsolatedBuild;
 import java.util.regex.Pattern;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.junit.jupiter.api.Test;
@@ -140,29 +137,38 @@ class PmdBuildProcessIT {
     Files.writeString(root.resolve(name + ".java"), source);
   }
 
-  private static Result run(Path fixture, String goal) throws Exception {
-    var root = Path.of("").toAbsolutePath();
-    var command = new ArrayList<String>();
-    if (System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows")) {
-      command.addAll(Arrays.asList("cmd.exe", "/d", "/c", root.resolve("mvnw.cmd").toString()));
-    } else {
-      command.add(root.resolve("mvnw").toString());
+  private static Result run(Path directory, String goal) throws Exception {
+    var fixture = new IsolatedBuild(directory);
+    Files.copy(fixture.tools().resolve("target/build-inputs/analysis.classpath"), fixture.root().resolve("target/analysis.classpath"));
+    var dependencies = new StringBuilder("<dependencies>");
+    for (var artifact : new String[][]{{"org.apache.ant", "ant", "ant.version"}, {"org.apache.ant", "ant-launcher", "ant.version"},
+        {"net.sourceforge.pmd", "pmd-ant", "pmd.version"}, {"net.sourceforge.pmd", "pmd-java", "pmd.version"},
+        {"net.sourceforge.pmd", "pmd-cli", "pmd.version"}}) {
+      dependencies.append("<dependency><groupId>").append(artifact[0]).append("</groupId><artifactId>").append(artifact[1])
+          .append("</artifactId><version>").append(fixture.version(artifact[2])).append("</version></dependency>");
     }
-    command.addAll(Arrays.asList("-B", "--no-transfer-progress",
-        "-Dmaven.repo.local=" + root.resolve("target/maven-repository"),
-        "-Danalysis.sourceDirectory=" + fixture.resolve("src/main/java"),
-        "-Danalysis.ruleset=" + fixture.resolve("ruleset.xml"),
-        "-Danalysis.outputDirectory=" + fixture.resolve("target"),
-        "-Danalysis.classpathFile=" + fixture.resolve("target/analysis.classpath"),
-        "validate", "antrun:run@prepare-analysis-inputs",
-        "exec:exec@" + (goal.equals("cpd-check") ? "analyze-duplication" : "analyze-source")));
-    var log = fixture.resolve("build.log");
-    try (var process = OwnedProcess.start(new ProcessBuilder(command).directory(root.toFile()).redirectErrorStream(true).redirectOutput(log.toFile()))) {
-      if (!process.await(Duration.ofSeconds(60))) {
-        throw new IOException("Maven analysis did not finish within 60 seconds: " + Files.readString(log));
-      }
-      return new Result(process.exitValue(), Files.readString(log));
-    }
+    dependencies.append("</dependencies>");
+    var arguments = goal.equals("cpd-check") ? """
+        <argument>net.sourceforge.pmd.cli.PmdCli</argument><argument>cpd</argument><argument>--language</argument><argument>java</argument>
+        <argument>--minimum-tokens</argument><argument>100</argument><argument>--dir</argument><argument>${project.basedir}/src/main/java</argument>
+        <argument>--encoding</argument><argument>UTF-8</argument><argument>--format</argument><argument>xml</argument>
+        <argument>--report-file</argument><argument>${project.build.directory}/cpd.xml</argument>
+        """ : """
+        <argument>org.apache.tools.ant.launch.Launcher</argument><argument>-f</argument><argument>%s</argument>
+        <argument>-Danalysis.sourceDirectory=${project.basedir}/src/main/java</argument><argument>-Danalysis.ruleset=${project.basedir}/ruleset.xml</argument>
+        <argument>-Danalysis.outputDirectory=${project.build.directory}</argument><argument>-Danalysis.classpathFile=${project.build.directory}/analysis.classpath</argument>
+        <argument>analyze</argument>
+        """.formatted(IsolatedBuild.xml(fixture.tools().resolve("config/pmd/analysis.xml").toString()));
+    fixture.writePom("""
+        <execution><id>analyze-fixture</id><phase>compile</phase><goals><goal>exec</goal></goals><configuration>
+        <executable>${java.home}/bin/java</executable><includePluginDependencies>true</includePluginDependencies><addOutputToClasspath>false</addOutputToClasspath>
+        <arguments><argument>-Xms128m</argument><argument>-Xmx1g</argument><argument>-cp</argument><classpath />%s</arguments>
+        </configuration></execution>
+        """.formatted(arguments), dependencies.toString(), "", """
+        <executions><execution><id>default-compile</id><phase>none</phase></execution></executions>
+        """);
+    var result = fixture.run("compile");
+    return new Result(result.exitCode(), result.output());
   }
 
   private static int reportCount(Path report, String element) throws Exception {

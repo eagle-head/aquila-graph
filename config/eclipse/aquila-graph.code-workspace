@@ -27,6 +27,9 @@
     },
     {
       "path": "aquila-graph-tests"
+    },
+    {
+      "path": "aquila-graph-build"
     }
   ],
   "settings": {
@@ -37,6 +40,43 @@
       "**/.metadata/**",
       "**/target/**",
       "!**/target/editor/**"
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Build: compile",
+        "type": "process",
+        "command": "java",
+        "args": [
+          "--enable-native-access=ALL-UNNAMED",
+          "${workspaceFolder:aquila-graph}/config/build/org/aquilagraph/build/BuildExecution.java",
+          "compile"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder:aquila-graph}"
+        },
+        "problemMatcher": [],
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        }
+      },
+      {
+        "label": "Build: test",
+        "type": "process",
+        "command": "java",
+        "args": [
+          "--enable-native-access=ALL-UNNAMED",
+          "${workspaceFolder:aquila-graph}/config/build/org/aquilagraph/build/BuildExecution.java",
+          "test"
+        ],
+        "options": {
+          "cwd": "${workspaceFolder:aquila-graph}"
+        },
+        "problemMatcher": []
+      }
     ]
   }
 }

@@ -37,7 +37,7 @@
     <testcontainers.version>2.0.5</testcontainers.version>
     <docker-java.version>3.7.1</docker-java.version>
     <slf4j.version>1.7.36</slf4j.version>
-    <test.jvm.arguments>-Xms128m -Xmx2g</test.jvm.arguments>
+    <test.jvm.arguments>-Xms128m -Xmx2g --enable-native-access=ALL-UNNAMED</test.jvm.arguments>
     <test.unit.forks>1</test.unit.forks>
     <test.integration.forks>1</test.integration.forks>
     <test.integration.reuse.forks>true</test.integration.reuse.forks>
@@ -52,6 +52,7 @@
     <analysis.ruleset>${project.basedir}/config/pmd/ruleset.xml</analysis.ruleset>
     <analysis.outputDirectory>${project.build.directory}</analysis.outputDirectory>
     <analysis.classpathFile>${project.build.directory}/build-inputs/analysis.classpath</analysis.classpathFile>
+    <build.tools.outputDirectory>${project.build.directory}/build-tool-classes</build.tools.outputDirectory>
   </properties>
   <dependencies>
     <dependency>
@@ -145,6 +146,9 @@
                   <include>partitions/**</include>
                   <include>*.jar</include>
                   <include>editor/**</include>
+                  <include>build-tool-classes/**</include>
+                  <include>build-tool-reports/**</include>
+                  <include>build-observation/**</include>
                 </includes>
               </fileset>
             </filesets>
@@ -299,24 +303,32 @@
             <goals>
               <goal>enforce</goal>
             </goals>
-            <configuration>
-              <fail>true</fail>
-              <rules>
-                <requireMavenVersion>
-                  <version>[3.9.16,3.10.0)</version>
-                </requireMavenVersion>
-                <requireJavaVersion>
-                  <version>[25,26)</version>
-                </requireJavaVersion>
-                <requirePluginVersions />
-                <requireExplicitDependencyScope />
-                <requireReleaseDeps />
-                <dependencyConvergence />
-                <reactorModuleConvergence />
-              </rules>
-            </configuration>
+
+          </execution>
+          <execution>
+            <id>enforce-clean-build-contract</id>
+            <phase>pre-clean</phase>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
           </execution>
         </executions>
+        <configuration>
+          <fail>true</fail>
+          <rules>
+            <requireMavenVersion>
+              <version>[3.9.16,3.10.0)</version>
+            </requireMavenVersion>
+            <requireJavaVersion>
+              <version>[25,26)</version>
+            </requireJavaVersion>
+            <requirePluginVersions />
+            <requireExplicitDependencyScope />
+            <requireReleaseDeps />
+            <dependencyConvergence />
+            <reactorModuleConvergence />
+          </rules>
+        </configuration>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -352,6 +364,8 @@
             <lineEndings>PRESERVE</lineEndings>
             <includes>
               <include>src/main/java/**/*.java</include>
+              <include>config/build/**/*.java</include>
+              <include>config/build-checks/**/*.java</include>
             </includes>
             <eclipse>
               <version>${eclipse.jdt.formatter.version}</version>
@@ -394,6 +408,11 @@
           <consoleOutput>true</consoleOutput>
           <linkXRef>false</linkXRef>
           <cacheFile>${project.build.directory}/checkstyle-cachefile</cacheFile>
+          <sourceDirectories>
+            <sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
+            <sourceDirectory>${project.basedir}/config/build</sourceDirectory>
+            <sourceDirectory>${project.basedir}/config/build-checks</sourceDirectory>
+          </sourceDirectories>
         </configuration>
         <executions>
           <execution>
@@ -517,6 +536,7 @@
             <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.application</additionalClasspathElement>
             <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.repository</additionalClasspathElement>
             <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.cli</additionalClasspathElement>
+            <additionalClasspathElement>${build.tools.outputDirectory}</additionalClasspathElement>
           </additionalClasspathElements>
         </configuration>
       </plugin>
@@ -548,6 +568,7 @@
             <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.application</additionalClasspathElement>
             <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.repository</additionalClasspathElement>
             <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.cli</additionalClasspathElement>
+            <additionalClasspathElement>${build.tools.outputDirectory}</additionalClasspathElement>
           </additionalClasspathElements>
         </configuration>
       </plugin>
@@ -584,6 +605,76 @@
           <async>false</async>
         </configuration>
         <executions>
+          <execution>
+            <id>admit-clean-lifecycle</id>
+            <phase>pre-clean</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>${java.home}/bin/java</executable>
+              <skip>false</skip>
+              <async>false</async>
+              <successCodes><successCode>0</successCode></successCodes>
+              <workingDirectory>${project.basedir}</workingDirectory>
+              <commandlineArgs>config/build/org/aquilagraph/build/BuildAdmission.java clean</commandlineArgs>
+              <environmentVariables>
+                <AQUILA_BUILD_EFFECTIVE_GOALS>goals=${session.request.goals}</AQUILA_BUILD_EFFECTIVE_GOALS>
+              </environmentVariables>
+            </configuration>
+          </execution>
+          <execution>
+            <id>admit-default-lifecycle</id>
+            <phase>validate</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>${java.home}/bin/java</executable>
+              <skip>false</skip>
+              <async>false</async>
+              <successCodes><successCode>0</successCode></successCodes>
+              <workingDirectory>${project.basedir}</workingDirectory>
+              <commandlineArgs>config/build/org/aquilagraph/build/BuildAdmission.java default</commandlineArgs>
+              <environmentVariables>
+                <AQUILA_BUILD_EFFECTIVE_GOALS>goals=${session.request.goals}</AQUILA_BUILD_EFFECTIVE_GOALS>
+              </environmentVariables>
+            </configuration>
+          </execution>
+          <execution>
+            <id>compile-build-tools</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>javac</executable>
+              <arguments>
+                <argument>-J-Xms128m</argument>
+                <argument>-J-Xmx1024m</argument>
+                <argument>--release</argument>
+                <argument>${maven.compiler.release}</argument>
+                <argument>-encoding</argument>
+                <argument>${project.build.sourceEncoding}</argument>
+                <argument>-g</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED</argument>
+                <argument>-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED</argument>
+                <argument>-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</argument>
+                <argument>-Xlint:all</argument>
+                <argument>-Werror</argument>
+                <argument>-parameters</argument>
+                <argument>-XDcompilePolicy=simple</argument>
+                <argument>--should-stop=ifError=FLOW</argument>
+                <argument>-Xplugin:ErrorProne -Xep:NullAway:ERROR -Xep:RequireExplicitNullMarking:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true</argument>
+                <argument>-d</argument>
+                <argument>${build.tools.outputDirectory}</argument>
+                <argument>@${project.build.directory}/build-inputs/build-tools.args</argument>
+              </arguments>
+            </configuration>
+          </execution>
           <execution>
             <id>compile-product-modules</id>
             <phase>compile</phase>
@@ -697,7 +788,7 @@
                 <argument>--minimum-tokens</argument>
                 <argument>100</argument>
                 <argument>--dir</argument>
-                <argument>${analysis.sourceDirectory}</argument>
+                <argument>${analysis.sourceDirectory},${project.basedir}/config/build</argument>
                 <argument>--encoding</argument>
                 <argument>${project.build.sourceEncoding}</argument>
                 <argument>--format</argument>
@@ -770,6 +861,53 @@
               </arguments>
             </configuration>
           </execution>
+          <execution>
+            <id>analyze-build-tools</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>java</executable>
+              <includePluginDependencies>true</includePluginDependencies>
+              <addOutputToClasspath>false</addOutputToClasspath>
+              <arguments>
+                <argument>-Xms128m</argument>
+                <argument>-Xmx1g</argument>
+                <argument>-cp</argument>
+                <classpath />
+                <argument>org.apache.tools.ant.launch.Launcher</argument>
+                <argument>-f</argument>
+                <argument>${project.basedir}/config/pmd/analysis.xml</argument>
+                <argument>-Danalysis.sourceDirectory=${project.basedir}/config/build</argument>
+                <argument>-Danalysis.ruleset=${analysis.ruleset}</argument>
+                <argument>-Danalysis.outputDirectory=${project.build.directory}/build-tool-reports</argument>
+                <argument>-Danalysis.classpathFile=${analysis.classpathFile}</argument>
+                <argument>analyze</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>validate-build-tool-documentation</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>javadoc</executable>
+              <arguments>
+                <argument>-quiet</argument>
+                <argument>-protected</argument>
+                <argument>-Xdoclint:all</argument>
+                <argument>-Werror</argument>
+                <argument>-encoding</argument>
+                <argument>${project.build.sourceEncoding}</argument>
+                <argument>-d</argument>
+                <argument>${project.build.directory}/reports/build-tools</argument>
+                <argument>@${project.build.directory}/build-inputs/build-tools-javadoc.args</argument>
+              </arguments>
+            </configuration>
+          </execution>
         </executions>
         <dependencies>
           <dependency>
@@ -819,8 +957,46 @@
             <artifactId>nullaway</artifactId>
             <version>${nullaway.version}</version>
           </dependency>
+          <dependency>
+            <groupId>org.jacoco</groupId>
+            <artifactId>org.jacoco.ant</artifactId>
+            <version>${jacoco-maven-plugin.version}</version>
+          </dependency>
         </dependencies>
         <executions>
+          <execution>
+            <id>prepare-build-tool-compilation</id>
+            <phase>initialize</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <target>
+                <mkdir dir="${project.build.directory}/build-inputs" />
+                <delete dir="${build.tools.outputDirectory}" />
+                <mkdir dir="${build.tools.outputDirectory}" />
+                <pathconvert property="tool.compile.dependencies" dirsep="/">
+                  <path location="${org.jspecify:jspecify:jar}" />
+                </pathconvert>
+                <pathconvert property="tool.processor.dependencies" refid="maven.plugin.classpath" dirsep="/" />
+                <pathconvert property="tool.sources" pathsep="&#10;" dirsep="/">
+                  <path>
+                    <fileset dir="${project.basedir}/config/build" includes="**/*.java" />
+                    <fileset dir="${project.basedir}/config/build-checks" includes="**/*.java" />
+                  </path>
+                  <mapper type="glob" from="*" to="&quot;*&quot;" />
+                </pathconvert>
+                <echo file="${project.build.directory}/build-inputs/build-tools.args" encoding="UTF-8">--class-path
+"${tool.compile.dependencies}"
+--processor-path
+"${tool.processor.dependencies}"
+${tool.sources}</echo>
+                <echo file="${project.build.directory}/build-inputs/build-tools-javadoc.args" encoding="UTF-8">--class-path
+"${tool.compile.dependencies}"
+${tool.sources}</echo>
+              </target>
+            </configuration>
+          </execution>
           <execution>
             <id>prepare-module-compilation</id>
             <phase>generate-sources</phase>
@@ -866,6 +1042,7 @@ ${production.sources}</echo>
                   <pathelement location="${project.build.outputDirectory}/org.aquilagraph.application" />
                   <pathelement location="${project.build.outputDirectory}/org.aquilagraph.repository" />
                   <pathelement location="${project.build.outputDirectory}/org.aquilagraph.cli" />
+                  <pathelement location="${build.tools.outputDirectory}" />
                 </path>
                 <pathconvert property="test.dependencies" refid="test.classpath" dirsep="/" />
                 <pathconvert property="test.sources" pathsep="&#10;" dirsep="/">
@@ -896,6 +1073,7 @@ ${test.sources}</echo>
                   <pathelement location="${project.build.outputDirectory}/org.aquilagraph.repository" />
                   <pathelement location="${project.build.outputDirectory}/org.aquilagraph.cli" />
                   <path refid="maven.compile.classpath" />
+                  <pathelement location="${build.tools.outputDirectory}" />
                 </path>
                 <pathconvert property="analysis.dependencies" refid="analysis.classpath" dirsep="/" />
                 <echo file="${analysis.classpathFile}" encoding="UTF-8">${analysis.dependencies}</echo>
@@ -909,6 +1087,7 @@ ${test.sources}</echo>
                   <pathelement location="${project.build.outputDirectory}/org.aquilagraph.application" />
                   <pathelement location="${project.build.outputDirectory}/org.aquilagraph.repository" />
                   <pathelement location="${project.build.outputDirectory}/org.aquilagraph.cli" />
+                  <pathelement location="${build.tools.outputDirectory}" />
                 </path>
                 <pathconvert property="analysis.classes" refid="analysis.targets" pathsep="&#10;" dirsep="/" />
                 <echo file="${project.build.directory}/build-inputs/spotbugs-classes.txt" encoding="UTF-8">${analysis.classes}</echo>
@@ -972,6 +1151,10 @@ ${test.sources}</echo>
                 <fail unless="report.2.present" message="Missing required report: ${analysis.outputDirectory}/spotbugsXml.xml" />
                 <available file="${project.build.directory}/reports/apidocs/index.html" property="report.3.present" />
                 <fail unless="report.3.present" message="Missing required report: ${project.build.directory}/reports/apidocs/index.html" />
+                <available file="${project.build.directory}/build-tool-reports/pmd.xml" property="tool.report.0.present" />
+                <fail unless="tool.report.0.present" message="Missing required build-tool report: ${project.build.directory}/build-tool-reports/pmd.xml" />
+                <available file="${project.build.directory}/reports/build-tools/index.html" property="tool.report.1.present" />
+                <fail unless="tool.report.1.present" message="Missing required build-tool report: ${project.build.directory}/reports/build-tools/index.html" />
               </target>
             </configuration>
           </execution>
@@ -983,6 +1166,13 @@ ${test.sources}</echo>
             </goals>
             <configuration>
               <target>
+                <pathconvert property="editor.toolsDirectory" dirsep="/">
+                  <path location="${build.tools.outputDirectory}" />
+                </pathconvert>
+                <pathconvert property="editor.tool.libraries" pathsep="" dirsep="/">
+                  <path location="${org.jspecify:jspecify:jar}" />
+                  <globmapper from="*" to="&lt;classpathentry kind=&quot;lib&quot; path=&quot;*&quot; /&gt;" />
+                </pathconvert>
                 <pathconvert property="editor.testSourceDirectory" dirsep="/">
                   <path location="${project.build.testSourceDirectory}" />
                 </pathconvert>
@@ -1007,6 +1197,8 @@ ${test.sources}</echo>
                   </chainedmapper>
                 </pathconvert>
                 <macrodef name="editor-project">
+                  <attribute name="links" default="" />
+                  <attribute name="sources" default="" />
                   <attribute name="name" />
                   <attribute name="source" />
                   <attribute name="dependencies" />
@@ -1017,17 +1209,20 @@ ${test.sources}</echo>
                       <filterset>
                         <filter token="NAME" value="@{name}" />
                         <filter token="SOURCE" value="@{source}" />
+                        <filter token="LINKS" value="@{links}" />
                       </filterset>
                     </copy>
                     <copy file="${project.basedir}/config/eclipse/classpath.xml" tofile="${project.build.directory}/editor/@{name}/.classpath" overwrite="true">
                       <filterset>
                         <filter token="DEPENDENCIES" value="@{dependencies}" />
                         <filter token="LIBRARIES" value="@{libraries}" />
+                        <filter token="SOURCES" value="@{sources}" />
                       </filterset>
                     </copy>
                     <copy file="${project.basedir}/config/eclipse/org.eclipse.jdt.core.prefs" todir="${project.build.directory}/editor/@{name}/.settings" overwrite="true" />
                   </sequential>
                 </macrodef>
+                <editor-project name="aquila-graph-build" source="${editor.baseDirectory}/config/build" dependencies="" libraries="${editor.tool.libraries}" sources="&lt;classpathentry kind=&quot;src&quot; path=&quot;checks&quot; /&gt;" links="&lt;link&gt;&lt;name&gt;checks&lt;/name&gt;&lt;type&gt;2&lt;/type&gt;&lt;location&gt;${editor.baseDirectory}/config/build-checks&lt;/location&gt;&lt;/link&gt;" />
                 <editor-project name="org.aquilagraph.identity" source="${editor.baseDirectory}/src/main/java/org.aquilagraph.identity" dependencies="" libraries="${editor.compile.libraries}" />
                 <editor-project name="org.aquilagraph.source" source="${editor.baseDirectory}/src/main/java/org.aquilagraph.source" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
                 <editor-project name="org.aquilagraph.cfg" source="${editor.baseDirectory}/src/main/java/org.aquilagraph.cfg" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
@@ -1035,7 +1230,7 @@ ${test.sources}</echo>
                 <editor-project name="org.aquilagraph.application" source="${editor.baseDirectory}/src/main/java/org.aquilagraph.application" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
                 <editor-project name="org.aquilagraph.repository" source="${editor.baseDirectory}/src/main/java/org.aquilagraph.repository" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.application&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
                 <editor-project name="org.aquilagraph.cli" source="${editor.baseDirectory}/src/main/java/org.aquilagraph.cli" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.frontend&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.application&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.repository&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
-                <editor-project name="aquila-graph-tests" source="${editor.testSourceDirectory}" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.source&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.cfg&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.frontend&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.application&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.repository&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.cli&quot; /&gt;" libraries="${editor.test.libraries}" />
+                <editor-project name="aquila-graph-tests" source="${editor.testSourceDirectory}" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.source&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.cfg&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.frontend&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.application&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.repository&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.cli&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.toolsDirectory}&quot; /&gt;" libraries="${editor.test.libraries}" />
                 <copy file="${project.basedir}/config/eclipse/aquila-graph.code-workspace" todir="${project.build.directory}/editor" overwrite="true" />
               </target>
             </configuration>
@@ -1052,6 +1247,52 @@ ${test.sources}</echo>
                 <delete dir="${project.build.directory}/runtime-dependencies" />
                 <mkdir dir="${project.build.directory}/modules" />
                 <mkdir dir="${project.build.directory}/runtime-dependencies" />
+              </target>
+            </configuration>
+          </execution>
+          <execution>
+            <id>report-unit-coverage</id>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <target>
+                <available file="${project.build.directory}/jacoco.exec" property="unit.coverage.present" />
+                <fail unless="unit.coverage.present" message="Missing current unit coverage execution data" />
+                <delete dir="${project.build.directory}/site/jacoco" />
+                <taskdef name="unit-coverage-report" classname="org.jacoco.ant.ReportTask" classpathref="maven.plugin.classpath" />
+                <unit-coverage-report>
+                  <executiondata>
+                    <file file="${project.build.directory}/jacoco.exec" />
+                  </executiondata>
+                  <structure name="aquila-graph">
+                    <group name="Product">
+                      <classfiles>
+                        <fileset dir="${project.build.outputDirectory}" includes="**/*.class" excludes="**/package-info*" />
+                      </classfiles>
+                      <sourcefiles encoding="UTF-8">
+                        <fileset dir="${project.basedir}/src/main/java/org.aquilagraph.identity" includes="**/*.java" />
+                        <fileset dir="${project.basedir}/src/main/java/org.aquilagraph.source" includes="**/*.java" />
+                        <fileset dir="${project.basedir}/src/main/java/org.aquilagraph.cfg" includes="**/*.java" />
+                        <fileset dir="${project.basedir}/src/main/java/org.aquilagraph.frontend" includes="**/*.java" />
+                        <fileset dir="${project.basedir}/src/main/java/org.aquilagraph.application" includes="**/*.java" />
+                        <fileset dir="${project.basedir}/src/main/java/org.aquilagraph.repository" includes="**/*.java" />
+                        <fileset dir="${project.basedir}/src/main/java/org.aquilagraph.cli" includes="**/*.java" />
+                      </sourcefiles>
+                    </group>
+                    <group name="Build tools">
+                      <classfiles>
+                        <fileset dir="${build.tools.outputDirectory}" includes="**/*.class" excludes="**/package-info*" />
+                      </classfiles>
+                      <sourcefiles encoding="UTF-8">
+                        <fileset dir="${project.basedir}/config/build" includes="**/*.java" />
+                      </sourcefiles>
+                    </group>
+                  </structure>
+                  <html destdir="${project.build.directory}/site/jacoco" encoding="UTF-8" />
+                  <xml destfile="${project.build.directory}/site/jacoco/jacoco.xml" />
+                  <csv destfile="${project.build.directory}/site/jacoco/jacoco.csv" encoding="UTF-8" />
+                </unit-coverage-report>
               </target>
             </configuration>
           </execution>

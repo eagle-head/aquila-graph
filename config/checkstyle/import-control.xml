@@ -12,6 +12,15 @@
   <disallow pkg="javax.tools" />
   <disallow pkg="org.neo4j" />
   <allow pkg=".*" regex="true" />
+  <subpackage name="build">
+    <allow pkg="java" />
+    <allow pkg="javax.xml" />
+    <allow pkg="org.w3c.dom" />
+    <allow pkg="org.xml.sax" />
+    <allow pkg="org.aquilagraph.build" />
+    <allow class="org.jspecify.annotations.NullMarked" />
+    <disallow pkg=".*" regex="true" />
+  </subpackage>
   <subpackage name="identity">
     <allow pkg="java" />
     <allow pkg="org.aquilagraph.identity.api" />
