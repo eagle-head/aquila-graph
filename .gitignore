@@ -5,6 +5,9 @@ books/
 # Local CodeGraph index
 .codegraph/
 
+# Local build leases, recovery journal, and retained baselines
+.build-state/
+
 # Python bytecode and caches
 __pycache__/
 *.py[cod]
@@ -27,6 +30,14 @@ ENV/
 .eggs/
 pip-wheel-metadata/
 build/
+!config/build/
+!config/build/**/
+!config/build/**/*.java
+!config/build-checks/
+!config/build-checks/**/
+!config/build-checks/**/*.java
+!src/test/java/org/aquilagraph/build/
+!src/test/java/org/aquilagraph/build/*.java
 dist/
 
 # Python coverage reports

@@ -54,6 +54,11 @@ public final class OwnedProcess implements AutoCloseable {
     return process.exitValue();
   }
 
+  /** Returns the exact created launcher for deliberate termination controls. */
+  public ProcessHandle handle() {
+    return process.toHandle();
+  }
+
   private void rememberDescendants() {
     process.descendants().forEach(descendants::add);
     for (var descendant : new ArrayList<>(descendants)) {

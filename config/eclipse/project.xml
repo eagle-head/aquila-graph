@@ -7,5 +7,6 @@
   <natures><nature>org.eclipse.jdt.core.javanature</nature></natures>
   <linkedResources>
     <link><name>source</name><type>2</type><location>@SOURCE@</location></link>
+    @LINKS@
   </linkedResources>
 </projectDescription>

@@ -2,47 +2,14 @@ MAVEN ?= ./mvnw
 .DEFAULT_GOAL := compile
 MAVEN_FLAGS ?= -B --no-transfer-progress
 SKIP_TESTS ?= -Dmaven.test.skip=true
-BUILD_REPOSITORY = "-Dmaven.repo.local=$(CURDIR)/target/maven-repository"
 
-.PHONY: compile test integration-test integration-test-neo4j coverage format format-check line-endings-check quality supply-chain-check
+unexport MAVEN MAVEN_FLAGS SKIP_TESTS
 
-compile:
-	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) $(SKIP_TESTS) compile
+export AQUILA_BUILD_MAVEN := $(value MAVEN)
+export AQUILA_BUILD_FLAGS := $(value MAVEN_FLAGS)
+export AQUILA_BUILD_SKIP_FLAGS := $(value SKIP_TESTS)
 
-test:
-	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) test
+.PHONY: compile test integration-test integration-test-neo4j coverage format format-check line-endings-check quality supply-chain-check clean
 
-integration-test:
-	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) -DskipTests=true verify
-
-integration-test-neo4j:
-	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) -DskipTests=true -Pneo4j-integration verify
-
-coverage:
-	rm -f target/jacoco.exec
-	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) jacoco:prepare-agent test jacoco:report
-
-format:
-	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) spotless:apply
-
-format-check:
-	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) spotless:check
-
-line-endings-check:
-	@cr="$$(printf '\r')"; \
-	matches="$$(git grep --cached -I -l "$$cr")"; status=$$?; \
-	if [ "$$status" -eq 0 ]; then printf 'Carriage returns in staged text:\n%s\n' "$$matches"; exit 1; fi; \
-	if [ "$$status" -ne 1 ]; then exit "$$status"; fi; \
-	commits="$$(git rev-list HEAD)" || exit $$?; \
-	for commit in $$commits; do \
-		matches="$$(git grep -I -l "$$cr" "$$commit")"; status=$$?; \
-		if [ "$$status" -eq 0 ]; then printf 'Non-LF text in commit %s:\n%s\n' "$$commit" "$$matches"; exit 1; fi; \
-		if [ "$$status" -ne 1 ]; then exit "$$status"; fi; \
-	done; \
-	printf 'LF-only Git text verified in the index and reachable commits.\n'
-
-quality: line-endings-check
-	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) $(SKIP_TESTS) verify
-
-supply-chain-check:
-	$(MAVEN) $(BUILD_REPOSITORY) $(MAVEN_FLAGS) $(SKIP_TESTS) -Psupply-chain verify
+compile test integration-test integration-test-neo4j coverage format format-check line-endings-check quality supply-chain-check clean:
+	@java --enable-native-access=ALL-UNNAMED config/build/org/aquilagraph/build/BuildExecution.java --make "$@"
