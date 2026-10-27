@@ -64,9 +64,44 @@ Keep `target/classes`, `target/test-classes`, `target/partitions`, and
 `target/maven-status` local to one toolchain. The Maven artifact cache under
 `target/maven-repository` can be reused.
 
+## Validation Cadence
+
+During implementation and correction, run the smallest existing check that reaches
+the changed behavior and distinguishes the required result. Reproduce a failure,
+correct its shared cause and affected callers, then rerun that focused check and
+the directly affected regressions. Batch related confirmed corrections before
+starting expensive validation. Do not run complete coverage, all integration
+groups or unrelated static gates after each small edit.
+
+Start a complete campaign when the implementation and wiring are coherent, known
+required corrections are closed, and focused checks pass. At that acceptance
+boundary, run the required final coverage and integration groups. Preserve valid
+evidence for unchanged behavior and rerun checks whose observations or validity
+the correction affects. A later correction returns work to the focused loop;
+repeat the required complete gates when the corrected candidate is ready again.
+Documentation or checkpoint edits alone do not require executable test campaigns.
+
+Stop the remaining owned campaign when an observed failure or error already
+requires a correction; do not finish unrelated tests merely to collect more
+failures. Preserve the original diagnostic, partial reports and actual nonzero or
+canceled result. Close owned processes, forks, databases and volumes before
+editing or starting another run. With concurrent forks, other cases can already
+be running; cancel owned work and record which cases completed, failed or were
+not executed. An interrupted campaign is incomplete and cannot satisfy final
+acceptance. Never relabel unexecuted cases as passing or suppress the first failure.
+
+Inspect the failure at its actual boundary, fix it and use focused verification
+before another complete campaign. Do not immediately restart the same broad run
+without a correction, restored prerequisite or other evidence-changing condition.
+The current task checkpoint records the next unmet obligation and reusable evidence;
+do not create a separate tracking workflow for this cadence.
+
 ## Coverage Freshness
 
-After changing production code or tests, run the `coverage` target. One Maven
+Before accepting changed production code or tests, run the `coverage` target on
+the final candidate, following the [validation cadence](#validation-cadence).
+Intermediate corrections use focused checks; they do not each trigger complete
+coverage. One Maven
 invocation prepares the JaCoCo agent, runs the complete unit suite, and generates
 the report. A failed phase stops the invocation before the later goals. Do not
 skip unit tests when validating changes.
@@ -82,8 +117,11 @@ and [`Makefile`](../Makefile), with the agent configured in [`pom.xml`](../pom.x
 
 ## Validation After Removals
 
-After any removal, validate the final implementation with every configured test
-group, regardless of the apparent scope of the change. Run `make coverage`
+After removals, validate the final implementation with every configured test
+group at the acceptance boundary, regardless of the apparent scope of the change.
+Use focused checks while correcting intermediate states; this requirement does
+not require a complete campaign after each removal or small correction.
+Run `make coverage`
 and `make integration-test-neo4j` on Linux and macOS, or
 `.\Invoke-Build.ps1 coverage` and `.\Invoke-Build.ps1 integration-test-neo4j`
 on Windows. The coverage target runs the complete `*Test` group with fresh
@@ -94,8 +132,9 @@ Use the requested coverage tool as the measurement reference and run the static
 quality gates separately.
 A missing test prerequisite or a failed test leaves validation
 incomplete; report it without weakening gates, skipping cases, or claiming success.
-If the implementation changes after validation, rerun all test groups against
-the final implementation.
+If an executable correction is needed after validation, return to focused checks,
+then rerun all required test groups when the final implementation is ready again.
+Stop a failed campaign and preserve its incomplete result as described above.
 
 ## Identity API Verification
 

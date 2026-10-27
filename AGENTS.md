@@ -31,11 +31,11 @@ These instructions apply to the entire directory tree rooted at this file. More 
 
 ## Validation After Removals
 
-- After any removal, run every configured test group against the final implementation before declaring the work complete. Follow the [complete test validation procedure](docs/build-quality.md#validation-after-removals).
+- After removals, run every configured test group against the final implementation before declaring the work complete. Use focused checks during corrections and reserve the complete campaign for acceptance readiness, following the [validation cadence](docs/build-quality.md#validation-cadence) and [complete test validation procedure](docs/build-quality.md#validation-after-removals).
 
 ## Coverage Freshness
 
-- After code or test changes, regenerate JaCoCo coverage with the `coverage` build target, which runs the complete unit suite and produces fresh reports. Follow the [coverage freshness procedure](docs/build-quality.md#coverage-freshness).
+- Before accepting changed code or tests, regenerate JaCoCo coverage for the final candidate with the `coverage` build target. This is an acceptance requirement, not a command to rerun the complete unit suite after each intermediate correction. Follow the [validation cadence](docs/build-quality.md#validation-cadence) and [coverage freshness procedure](docs/build-quality.md#coverage-freshness).
 
 ## Diagram Paths and Filenames
 
