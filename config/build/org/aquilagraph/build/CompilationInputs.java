@@ -3,6 +3,7 @@ package org.aquilagraph.build;
 import java.io.File;
 import java.io.IOException;
 import java.lang.System.Logger.Level;
+import java.lang.module.ModuleFinder;
 import java.nio.charset.MalformedInputException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,6 +20,7 @@ import java.util.jar.JarFile;
 
 /** Inventories live inputs and maps compiler reads exclusively onto their private capture. */
 final class CompilationInputs {
+  private static final String INPUT_PREFIX = "input.";
   private static final String SOURCE_PATH = "--source-path";
   private static final String MODULE_SOURCE_PATH = "--module-source-path";
   private static final String OUTPUT_OPTION = "-d";
@@ -50,6 +52,13 @@ final class CompilationInputs {
     observe(request.root().resolve("src/test/resources"));
     copy(request.sources(), captureDirectory.resolve(SOURCE_DIRECTORY));
     copy(request.resources(), captureDirectory.resolve("resources"));
+    if (CompilationRequest.CONSUMER_BATCH.equals(request.batch())) {
+      ConsumerPreparation.requireStaged(request);
+      observe(request.root().resolve(ConsumerPreparation.SOURCES));
+      observe(request.root().resolve("target/aquila-graph/lib"));
+      inputManifest.setProperty("consumer.modules", ModuleFinder.of(request.root().resolve("target/aquila-graph/lib")).findAll().stream()
+          .map(reference -> reference.descriptor().toNameAndVersion()).sorted().reduce("", (left, right) -> left + right + "\n"));
+    }
     if (CompilationRequest.TEST_BATCH.equals(request.batch())) {
       CompilationPublication.requireProduction(request.root());
       observe(request.root().resolve("target/compilation/production/success.properties"));
@@ -164,7 +173,7 @@ final class CompilationInputs {
   }
 
   private void observe(Path path) throws IOException {
-    inputManifest.setProperty("input." + path, PreparationFiles.digest(path));
+    inputManifest.setProperty(INPUT_PREFIX + path, PreparationFiles.digest(path));
   }
 
   private void copy(Path original, Path destination) throws IOException {
@@ -205,7 +214,7 @@ final class CompilationInputs {
     var provenance = new Properties();
     for (var entry : copies.entrySet()) {
       PreparationFiles.copy(entry.getKey(), entry.getValue());
-      if (!PreparationFiles.digest(entry.getValue()).equals(inputManifest.getProperty("input." + entry.getKey()))) {
+      if (!PreparationFiles.digest(entry.getValue()).equals(inputManifest.getProperty(INPUT_PREFIX + entry.getKey()))) {
         throw new IOException("Input changed during capture: " + entry.getKey());
       }
       provenance.setProperty(entry.getKey().toString(), entry.getValue().toString());
@@ -223,7 +232,7 @@ final class CompilationInputs {
 
   void requireCaptured() throws IOException {
     for (var entry : copies.entrySet()) {
-      if (!PreparationFiles.digest(entry.getValue()).equals(inputManifest.getProperty("input." + entry.getKey()))) {
+      if (!PreparationFiles.digest(entry.getValue()).equals(inputManifest.getProperty(INPUT_PREFIX + entry.getKey()))) {
         throw new IOException("Captured compiler input changed: " + entry.getKey());
       }
     }
@@ -231,6 +240,23 @@ final class CompilationInputs {
 
   List<String> compilerArguments() {
     return List.copyOf(compiler);
+  }
+
+  static void requireCurrentInputs(Properties manifest) throws IOException {
+    if (!"compilation-inputs/1".equals(manifest.getProperty("schema"))
+        || !CompilationRequest.CONSUMER_BATCH.equals(manifest.getProperty("batch"))) {
+      throw new IOException("Prepared consumer requires a complete compiler input manifest");
+    }
+    for (var key : manifest.stringPropertyNames()) {
+      if (key.startsWith(INPUT_PREFIX)
+          && !PreparationFiles.digest(Path.of(key.substring(INPUT_PREFIX.length()))).equals(manifest.getProperty(key))) {
+        throw new IOException("Prepared consumer input changed: " + key.substring(INPUT_PREFIX.length()));
+      }
+    }
+    if (!System.getProperty("java.home").equals(manifest.getProperty("jdk.home"))
+        || !Runtime.version().toString().equals(manifest.getProperty("jdk.version"))) {
+      throw new IOException("Prepared consumer toolchain differs from its compiler input manifest");
+    }
   }
 
   static Map<String, String> compilerEnvironment(Map<String, String> environment) {

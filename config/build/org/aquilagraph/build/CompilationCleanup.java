@@ -28,7 +28,7 @@ public final class CompilationCleanup {
 
   static void clear(Path root, String operation) throws IOException {
     var paths = switch (operation) {
-      case "clean" -> List.of("compilation", "resource-staging");
+      case "clean" -> List.of("compilation", "resource-staging", "consumer-inputs", "prepared-consumers", "consumer-receipts");
       case "production-resources" -> List.of("resource-staging/production");
       case "test-resources" -> List.of("resource-staging/tests");
       default -> throw new IOException("Unsupported compilation storage operation: " + operation);
