@@ -39,7 +39,7 @@ public final class IsolatedBuild {
       for (var source : files.filter(path -> path.toString().endsWith(".java")).toList()) {
         var destination = root.resolve("config/build").resolve(sources.relativize(source));
         Files.createDirectories(destination.getParent());
-        Files.createLink(destination, source);
+        Files.copy(source, destination);
       }
     }
   }
@@ -72,7 +72,7 @@ public final class IsolatedBuild {
             <plugin><groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId><version>@EXEC@</version>
               @DEPENDENCIES@
               <executions>
-                @ADMISSION_EXECUTIONS@
+                @LIFECYCLE_EXECUTIONS@
                 @EXECUTIONS@
               </executions>
             </plugin>
@@ -86,7 +86,7 @@ public final class IsolatedBuild {
         .replace("@SUREFIRE@", version("maven-surefire-plugin.version"))
         .replace("@EXEC@", version("exec-maven-plugin.version"))
                 .replace("@DEPENDENCIES@", dependencies).replace("@EXECUTIONS@", executions).replace("@PLUGINS@", plugins)
-        .replace("@ADMISSION_EXECUTIONS@", admissionExecutions())
+        .replace("@LIFECYCLE_EXECUTIONS@", executions("admit-default-lifecycle", "admit-clean-lifecycle", "clean-compilation-preparation"))
         .replace("@COMPILER_EXECUTIONS@", compilerExecutions);
     Files.writeString(root.resolve("pom.xml"), pom);
   }
@@ -96,15 +96,15 @@ public final class IsolatedBuild {
         .getElementsByTagName(property).item(0).getTextContent();
   }
 
-  private String admissionExecutions() throws Exception {
+  public String executions(String... ids) throws Exception {
     var document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(tools.resolve("pom.xml").toFile());
     var result = new StringWriter();
-    for (var kind : List.of("default", "clean")) {
+    for (var id : ids) {
       var source = (Node) XPathFactory.newInstance().newXPath().evaluate(
-          "/project/build/plugins/plugin[artifactId='exec-maven-plugin']/executions/execution[id='admit-" + kind + "-lifecycle']",
+          "/project/build/plugins/plugin[artifactId='exec-maven-plugin']/executions/execution[id='" + id + "']",
           document, XPathConstants.NODE);
       if (source == null) {
-        throw new IllegalStateException("The actual admission execution is missing: " + kind);
+        throw new IllegalStateException("The actual lifecycle execution is missing: " + id);
       }
       var transformer = TransformerFactory.newInstance().newTransformer();
       transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
@@ -166,7 +166,7 @@ public final class IsolatedBuild {
   }
 
   public static ProcessBuilder isolate(ProcessBuilder builder) {
-    for (var name : List.of("MAVEN_BASEDIR", "MAVEN_PROJECTBASEDIR", "AQUILA_BUILD_INVOCATION", "AQUILA_BUILD_RESERVATION",
+    for (var name : List.of("CLASSPATH", "MAVEN_BASEDIR", "MAVEN_PROJECTBASEDIR", "AQUILA_BUILD_INVOCATION", "AQUILA_BUILD_RESERVATION",
         "AQUILA_BUILD_WRAPPER", "AQUILA_BUILD_WRAPPER_COMMAND", "AQUILA_BUILD_PROCESS", "AQUILA_BUILD_EFFECTIVE_GOALS")) {
       builder.environment().remove(name);
     }

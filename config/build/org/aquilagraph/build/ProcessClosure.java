@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
+import org.aquilagraph.build.WindowsJobObject.Completion;
 
 /** Bounded exact-identity process closure, including descendants observed before termination. */
 final class ProcessClosure {
@@ -15,10 +16,11 @@ final class ProcessClosure {
     var forceAt = System.nanoTime() + timeout.dividedBy(2).toNanos();
     var interrupted = Thread.interrupted();
     var active = new ArrayList<ProcessHandle>();
-    try {
+    try (var completion = new Completion()) {
       while (true) {
         active.clear();
         for (var identity : journal.identities()) {
+          completion.observe(journal, identity);
           var live = identity.liveProcess();
           if (live.isPresent()) {
             var handle = live.orElseThrow();
@@ -34,6 +36,7 @@ final class ProcessClosure {
           }
         }
         if (active.isEmpty()) {
+          completion.await(deadline);
           return;
         }
         for (var handle : active.reversed()) {

@@ -22,7 +22,11 @@ final class LinuxProcessInventory {
     if (!SUPPORTED_PLATFORM.equals(System.getProperty("os.name"))) {
       throw new IOException("A required process argument observation is unavailable on this platform");
     }
-    var identity = ProcessIdentity.observe(process);
+    var observed = ProcessIdentity.observeAvailable(process);
+    if (observed.isEmpty()) {
+      return Optional.empty();
+    }
+    var identity = observed.orElseThrow();
     var directory = Path.of("/proc", Long.toString(identity.pid()));
     try {
       byte[] bytes;

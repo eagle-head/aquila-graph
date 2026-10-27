@@ -53,6 +53,7 @@
     <analysis.outputDirectory>${project.build.directory}</analysis.outputDirectory>
     <analysis.classpathFile>${project.build.directory}/build-inputs/analysis.classpath</analysis.classpathFile>
     <build.tools.outputDirectory>${project.build.directory}/build-tool-classes</build.tools.outputDirectory>
+    <build.compilation.force>false</build.compilation.force>
   </properties>
   <dependencies>
     <dependency>
@@ -133,6 +134,8 @@
                   <include>aquila-graph/**</include>
                   <include>runtime-dependencies/**</include>
                   <include>build-inputs/**</include>
+                  <include>compilation/**</include>
+                  <include>resource-staging/**</include>
                   <include>maven-status/**</include>
                   <include>site/**</include>
                   <include>reports/**</include>
@@ -334,6 +337,20 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-resources-plugin</artifactId>
         <version>${maven-resources-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>default-resources</id>
+            <configuration>
+              <outputDirectory>${project.build.directory}/resource-staging/production</outputDirectory>
+            </configuration>
+          </execution>
+          <execution>
+            <id>default-testResources</id>
+            <configuration>
+              <outputDirectory>${project.build.directory}/resource-staging/tests</outputDirectory>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -638,6 +655,52 @@
             </configuration>
           </execution>
           <execution>
+            <id>clean-compilation-preparation</id>
+            <phase>pre-clean</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>${java.home}/bin/java</executable>
+              <skip>false</skip>
+              <async>false</async>
+              <successCodes><successCode>0</successCode></successCodes>
+              <workingDirectory>${project.basedir}</workingDirectory>
+              <commandlineArgs>--enable-native-access=ALL-UNNAMED config/build/org/aquilagraph/build/CompilationCleanup.java clean</commandlineArgs>
+              <environmentVariables>
+                <AQUILA_BUILD_EFFECTIVE_GOALS>goals=${session.request.goals}</AQUILA_BUILD_EFFECTIVE_GOALS>
+              </environmentVariables>
+            </configuration>
+          </execution>
+          <execution>
+            <id>prepare-production-resources</id>
+            <phase>generate-resources</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>java</executable>
+              <skip>false</skip>
+              <async>false</async>
+              <workingDirectory>${project.basedir}</workingDirectory>
+              <commandlineArgs>--enable-native-access=ALL-UNNAMED config/build/org/aquilagraph/build/CompilationCleanup.java production-resources</commandlineArgs>
+              <environmentVariables>
+                <AQUILA_BUILD_EFFECTIVE_GOALS>goals=${session.goals}</AQUILA_BUILD_EFFECTIVE_GOALS>
+              </environmentVariables>
+            </configuration>
+          </execution>
+          <execution>
+            <id>prepare-test-resources</id>
+            <phase>generate-test-resources</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>java</executable>
+              <skip>${maven.test.skip}</skip>
+              <async>false</async>
+              <workingDirectory>${project.basedir}</workingDirectory>
+              <commandlineArgs>--enable-native-access=ALL-UNNAMED config/build/org/aquilagraph/build/CompilationCleanup.java test-resources</commandlineArgs>
+              <environmentVariables>
+                <AQUILA_BUILD_EFFECTIVE_GOALS>goals=${session.goals}</AQUILA_BUILD_EFFECTIVE_GOALS>
+              </environmentVariables>
+            </configuration>
+          </execution>
+          <execution>
             <id>compile-build-tools</id>
             <phase>generate-sources</phase>
             <goals>
@@ -682,8 +745,19 @@
               <goal>exec</goal>
             </goals>
             <configuration>
-              <executable>javac</executable>
+              <executable>java</executable>
+              <environmentVariables>
+                <AQUILA_BUILD_EFFECTIVE_GOALS>goals=${session.goals}</AQUILA_BUILD_EFFECTIVE_GOALS>
+              </environmentVariables>
               <arguments>
+                <argument>--enable-native-access=ALL-UNNAMED</argument>
+                <argument>${project.basedir}/config/build/org/aquilagraph/build/CompilationPreparation.java</argument>
+                <argument>${project.basedir}</argument>
+                <argument>production</argument>
+                <argument>${project.basedir}/src/main/java</argument>
+                <argument>${project.build.directory}/resource-staging/production</argument>
+                <argument>${project.build.outputDirectory}</argument>
+                <argument>${build.compilation.force}</argument>
                 <argument>-J-Xms128m</argument>
                 <argument>-J-Xmx1024m</argument>
                 <argument>--release</argument>
@@ -724,9 +798,20 @@
               <goal>exec</goal>
             </goals>
             <configuration>
-              <executable>javac</executable>
+              <executable>java</executable>
+              <environmentVariables>
+                <AQUILA_BUILD_EFFECTIVE_GOALS>goals=${session.goals}</AQUILA_BUILD_EFFECTIVE_GOALS>
+              </environmentVariables>
               <skip>${maven.test.skip}</skip>
               <arguments>
+                <argument>--enable-native-access=ALL-UNNAMED</argument>
+                <argument>${project.basedir}/config/build/org/aquilagraph/build/CompilationPreparation.java</argument>
+                <argument>${project.basedir}</argument>
+                <argument>tests</argument>
+                <argument>${project.build.testSourceDirectory}</argument>
+                <argument>${project.build.directory}/resource-staging/tests</argument>
+                <argument>${project.build.testOutputDirectory}</argument>
+                <argument>${build.compilation.force}</argument>
                 <argument>-J-Xms128m</argument>
                 <argument>-J-Xmx1024m</argument>
                 <argument>--release</argument>
@@ -1006,8 +1091,6 @@ ${tool.sources}</echo>
             <configuration>
               <target>
                 <mkdir dir="${project.build.directory}/build-inputs" />
-                <delete dir="${project.build.outputDirectory}" />
-                <mkdir dir="${project.build.outputDirectory}" />
                 <pathconvert property="compile.dependencies" refid="maven.compile.classpath" dirsep="/" />
                 <pathconvert property="processor.dependencies" refid="maven.plugin.classpath" dirsep="/" />
                 <pathconvert property="production.sources" pathsep="&#10;" dirsep="/">
@@ -1031,8 +1114,6 @@ ${production.sources}</echo>
             <configuration>
               <skip>${maven.test.skip}</skip>
               <target>
-                <delete dir="${project.build.testOutputDirectory}" />
-                <mkdir dir="${project.build.testOutputDirectory}" />
                 <path id="test.classpath">
                   <path refid="maven.test.classpath" />
                   <pathelement location="${project.build.outputDirectory}/org.aquilagraph.identity" />

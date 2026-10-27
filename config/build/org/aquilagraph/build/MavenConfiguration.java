@@ -23,6 +23,7 @@ final class MavenConfiguration {
     if (Runtime.version().feature() != BuildExecution.REQUIRED_JAVA_FEATURE) {
       throw new IllegalArgumentException("Local build execution requires a JDK 25 launcher");
     }
+    CompilationRequest.environmentArguments(environment);
     for (var name : List.of("JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS", "MAVEN_CONFIG", "MAVEN_DEBUG_OPTS")) {
       if (!environment.getOrDefault(name, "").isBlank()) {
         throw new IllegalArgumentException("Unsupported influencing environment: " + name);

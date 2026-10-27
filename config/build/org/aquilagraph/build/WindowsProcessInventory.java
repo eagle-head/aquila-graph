@@ -10,22 +10,19 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Properties;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 /** Native Windows process observations expose arguments that ProcessHandle may omit. */
 final class WindowsProcessInventory {
   private static final int MAX_RESULT_BYTES = 64 * 1024;
   private static final int IDENTITY_FIELDS = 2;
+  private static final String ABSENT_IDENTITY = "absent";
 
   private WindowsProcessInventory() {
   }
 
   static List<ProcessHandle> reservation(Properties intent) throws IOException {
-    var context = InvocationContext.observation(intent);
-    var journal = BuildJournal.reserve(context, "process-observation");
-    var executable = Path.of(System.getenv().getOrDefault("SystemRoot", "C:\\Windows"), "System32/WindowsPowerShell/v1.0/powershell.exe")
-        .toRealPath();
-    journal.recordEntry(executable);
     var script = """
         # Owned process observation @OBSERVER@ @RESERVATION@
         $ErrorActionPreference = 'Stop'
@@ -63,12 +60,44 @@ final class WindowsProcessInventory {
             Write-Output ($entry.ProcessId.ToString() + "`t" + $entry.CreationDate.ToUniversalTime().ToString('o'))
           }
         }
-        """.replace("@OBSERVER@", context.nonce()).replace("@RESERVATION@", journal.reservation())
-        .replace("@ACCOUNT@", encode(BuildFiles.required(intent, "account")))
+        """.replace("@ACCOUNT@", encode(BuildFiles.required(intent, "account")))
         .replace("@IMAGES@", encode(BuildFiles.required(intent, "intended.images")))
         .replace("@NONCE@", encode(BuildFiles.required(intent, "nonce")))
         .replace("@TARGET@", encode(BuildFiles.required(intent, "reservation")));
-    var encoded = Base64.getEncoder().encodeToString(script.getBytes(StandardCharsets.UTF_16LE));
+    return admitted(observe(intent, script));
+  }
+
+  static Optional<ProcessIdentity> identity(Properties intent, long pid) throws IOException {
+    if (pid <= 0 || pid > 0xffff_ffffL) {
+      throw new IOException("Windows process identity is out of range: " + pid);
+    }
+    var script = """
+        # Owned process observation @OBSERVER@ @RESERVATION@
+        $ErrorActionPreference = 'Stop'
+        $entries = @(Get-CimInstance Win32_Process -Filter 'ProcessId=@PID@' -OperationTimeoutSec 5)
+        if ($entries.Count -eq 0) { Write-Output '@ABSENT@'; exit 0 }
+        if ($entries.Count -ne 1 -or $null -eq $entries[0].CreationDate) { throw 'One complete process identity is required' }
+        Write-Output ($entries[0].ProcessId.ToString() + "`t" + $entries[0].CreationDate.ToUniversalTime().ToString('o'))
+        """.replace("@PID@", Long.toString(pid)).replace("@ABSENT@", ABSENT_IDENTITY);
+    var output = observe(intent, script).strip();
+    if (ABSENT_IDENTITY.equals(output)) {
+      return Optional.empty();
+    }
+    var fields = output.split("\t", -1);
+    if (fields.length != IDENTITY_FIELDS || !Long.toString(pid).equals(fields[0])) {
+      throw new IOException("Native Windows process identity observation is invalid: " + output);
+    }
+    return Optional.of(new ProcessIdentity(pid, Instant.parse(fields[1]).truncatedTo(ChronoUnit.MILLIS)));
+  }
+
+  private static String observe(Properties intent, String script) throws IOException {
+    var context = InvocationContext.observation(intent);
+    var journal = BuildJournal.reserve(context, "process-observation");
+    var executable = Path.of(System.getenv().getOrDefault("SystemRoot", "C:\\Windows"), "System32/WindowsPowerShell/v1.0/powershell.exe")
+        .toRealPath();
+    journal.recordEntry(executable);
+    var ownedScript = script.replace("@OBSERVER@", context.nonce()).replace("@RESERVATION@", journal.reservation());
+    var encoded = Base64.getEncoder().encodeToString(ownedScript.getBytes(StandardCharsets.UTF_16LE));
     var diagnostics = context.root().resolve("target/build-observation").resolve(context.nonce()).resolve(journal.reservation())
         .resolve("stderr.log");
     Files.createDirectories(context.root().resolve("target/build-observation").resolve(context.nonce()).resolve(journal.reservation()));
@@ -94,7 +123,7 @@ final class WindowsProcessInventory {
         throw new IOException("Native Windows process inventory failed: " + output + diagnosticText);
       }
       PowerShellDiagnostics.requireProgressOnly(diagnosticText);
-      return admitted(output);
+      return output;
     }
   }
 
@@ -111,7 +140,11 @@ final class WindowsProcessInventory {
       }
       var process = ProcessHandle.of(Long.parseLong(fields[0]));
       if (process.isPresent() && process.orElseThrow().isAlive()) {
-        var identity = ProcessIdentity.observe(process.orElseThrow());
+        var observed = ProcessIdentity.observeAvailable(process.orElseThrow());
+        if (observed.isEmpty()) {
+          continue;
+        }
+        var identity = observed.orElseThrow();
         if (!identity.started().truncatedTo(ChronoUnit.MILLIS).equals(Instant.parse(fields[1]).truncatedTo(ChronoUnit.MILLIS))) {
           throw new IOException("Native and Java process start observations differ for " + identity.pid());
         }

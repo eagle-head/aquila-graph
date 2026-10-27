@@ -124,6 +124,9 @@ record BuildRequest(Path root, Path toolRoot, Path maven, BuildOperation operati
         if ("test.integration.reuse.forks".equals(key) && Set.of("true", "false").contains(value)) {
           return;
         }
+        if ("build.compilation.force".equals(key) && Set.of("true", "false").contains(value)) {
+          return;
+        }
         if ("test".equals(key) && operation == BuildOperation.TEST && !value.isBlank() && !value.contains("\n")) {
           return;
         }

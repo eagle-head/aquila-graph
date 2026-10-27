@@ -1,5 +1,6 @@
 package org.aquilagraph.build;
 
+import static org.aquilagraph.build.BuildResourceAssertions.assertClosed;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -359,6 +360,7 @@ class LocalBuildProcessIT {
       assertFalse(owner.isAlive());
       assertInstanceOf(InterruptedException.class, failure.get());
     }
+    Files.delete(fixture.root().resolve("interrupted-maven.log"));
     assertClosed(fixture.root());
   }
 
@@ -625,17 +627,4 @@ class LocalBuildProcessIT {
     }
   }
 
-  private static void assertClosed(Path root) throws Exception {
-    try (var files = Files.walk(root.resolve(".build-state/invocations"))) {
-      for (var intent : files.filter(path -> path.getFileName().toString().equals("intent.properties")).toList()) {
-        assertTrue(Files.exists(intent.getParent().resolve("closed.properties")), intent.toString());
-        try (var identities = Files.newDirectoryStream(intent.getParent(), "process-*.properties")) {
-          for (var file : identities) {
-            var record = BuildFiles.read(file);
-            assertTrue(new ProcessIdentity(Long.parseLong(record.getProperty("pid")), Instant.parse(record.getProperty("started"))).liveProcess().isEmpty(), file.toString());
-          }
-        }
-      }
-    }
-  }
 }
