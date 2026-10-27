@@ -12,10 +12,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.aquilagraph.testsupport.IsolatedBuild;
 import org.aquilagraph.testsupport.OwnedProcess;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
+@Tag("process")
 class ProcessInventoryProcessIT {
   @TempDir(cleanup = CleanupMode.ON_SUCCESS)
   Path directory;

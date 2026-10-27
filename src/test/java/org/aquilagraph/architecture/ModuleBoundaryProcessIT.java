@@ -20,9 +20,11 @@ import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 import javax.tools.ToolProvider;
 import org.jspecify.annotations.NullMarked;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+@Tag("process")
 class ModuleBoundaryProcessIT {
   private static final String CONSUMER = "org.aquilagraph.consumer";
   private static final Path DISTRIBUTION = Path.of("target/aquila-graph/lib").toAbsolutePath();

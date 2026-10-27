@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.Base64;
 import java.nio.charset.StandardCharsets;
+import java.nio.charset.Charset;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.OutputKeys;
@@ -179,11 +180,13 @@ public final class IsolatedBuild {
 
   public Result run(ProcessBuilder builder) throws Exception {
     var log = root.resolve("build-" + UUID.randomUUID() + ".log");
+    // Native Maven and Java children write with the platform stdout encoding.
+    var encoding = windows() ? Charset.forName(System.getProperty("native.encoding")) : StandardCharsets.UTF_8;
     try (var process = OwnedProcess.start(builder.redirectOutput(log.toFile()))) {
       if (!process.await(Duration.ofSeconds(90))) {
-        throw new IOException("Isolated build exceeded 90 seconds: " + Files.readString(log));
+        throw new IOException("Isolated build exceeded 90 seconds: " + Files.readString(log, encoding));
       }
-      return new Result(process.exitValue(), Files.readString(log));
+      return new Result(process.exitValue(), Files.readString(log, encoding));
     }
   }
 

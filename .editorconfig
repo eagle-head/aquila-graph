@@ -20,3 +20,6 @@ trim_trailing_whitespace = false
 
 [mvnw]
 end_of_line = lf
+
+[src/main/launch/aquila-graph]
+end_of_line = lf

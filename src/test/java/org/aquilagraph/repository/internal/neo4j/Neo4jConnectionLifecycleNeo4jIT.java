@@ -20,6 +20,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.aquilagraph.testsupport.Neo4jIntegration;
@@ -31,6 +32,7 @@ import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.async.AsyncSession;
 
 @ExtendWith(Neo4jIntegration.class)
+@Tag("lifecycle")
 class Neo4jConnectionLifecycleNeo4jIT {
   private static final int DRIVER_WAIT_SECONDS = 10;
   private static final int CONNECTION_TIMEOUT_SECONDS = 5;

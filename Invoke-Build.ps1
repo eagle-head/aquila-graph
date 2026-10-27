@@ -3,6 +3,8 @@
 Runs one local build operation through the shared JDK 25 execution owner.
 .PARAMETER Target
 The operation to run; compile is the default.
+check-process, check-persistence and check-lifecycle run focused integrations only.
+Use integration-test-neo4j for all integrations; coverage and quality retain their separate responsibilities.
 .PARAMETER ProjectRoot
 The canonical project to build; the script directory is the default.
 .PARAMETER MavenCommand
@@ -13,6 +15,8 @@ Literal supported Maven logging, offline, profile, and operation-specific flags.
 The existing test-skip setting, validated by the shared operation owner.
 .EXAMPLE
 .\Invoke-Build.ps1 coverage
+.EXAMPLE
+.\Invoke-Build.ps1 check-process -MavenFlags @('-B', '--no-transfer-progress', '-Dbuild.integration.classes=org.aquilagraph.AquilaGraphProcessIT')
 #>
 [CmdletBinding()]
 param(

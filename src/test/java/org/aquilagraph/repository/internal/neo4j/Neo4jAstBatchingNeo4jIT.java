@@ -30,6 +30,7 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.testsupport.Neo4jIntegration;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -44,6 +45,7 @@ import org.neo4j.driver.Value;
 import org.neo4j.driver.Values;
 
 @ExtendWith(Neo4jIntegration.class)
+@Tag("persistence")
 class Neo4jAstBatchingNeo4jIT {
   @TempDir Path directory;
 

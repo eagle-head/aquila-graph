@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.nio.file.Path;
 import org.aquilagraph.testsupport.NestedBuildOwnership;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 @EnabledOnOs(OS.LINUX)
+@Tag("process")
 class LinuxProcessGroupProcessIT {
   @TempDir(cleanup = CleanupMode.ON_SUCCESS)
   Path directory;

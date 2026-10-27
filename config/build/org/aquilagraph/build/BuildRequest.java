@@ -105,8 +105,9 @@ record BuildRequest(Path root, Path toolRoot, Path maven, BuildOperation operati
     if (OPTIONS.contains(flag)) {
       return;
     }
-    if ("-Phigh-capacity-tests".equals(flag) && (operation == BuildOperation.TEST || operation == BuildOperation.COVERAGE
-        || operation == BuildOperation.INTEGRATION_TEST || operation == BuildOperation.INTEGRATION_TEST_NEO4J)) {
+    if ("-Phigh-capacity-tests".equals(flag)
+        && (operation == BuildOperation.TEST || operation == BuildOperation.COVERAGE || operation == BuildOperation.INTEGRATION_TEST
+            || operation == BuildOperation.INTEGRATION_TEST_NEO4J || operation.focusedIntegration())) {
       return;
     }
     if (("-Pneo4j-integration".equals(flag) && operation == BuildOperation.INTEGRATION_TEST_NEO4J)
@@ -130,6 +131,13 @@ record BuildRequest(Path root, Path toolRoot, Path maven, BuildOperation operati
         if ("test".equals(key) && operation == BuildOperation.TEST && !value.isBlank() && !value.contains("\n")) {
           return;
         }
+        if ("build.integration.classes".equals(key) && operation.focusedIntegration()
+            && value.matches("[A-Za-z_$][A-Za-z0-9_$.]*(,[A-Za-z_$][A-Za-z0-9_$.]*)*")) {
+          return;
+        }
+        if ("build.integration.groups".equals(key) && operation == BuildOperation.TEST && IntegrationCatalog.GROUPS.contains(value)) {
+          return;
+        }
       }
     }
     var displayed = flag.contains("=") ? flag.substring(0, flag.indexOf('=')) + "=<value>" : flag;
@@ -143,6 +151,11 @@ record BuildRequest(Path root, Path toolRoot, Path maven, BuildOperation operati
     result.addAll(flags);
     result.addAll(operation.arguments());
     return List.copyOf(result);
+  }
+
+  String integrationClasses() {
+    var prefix = "-Dbuild.integration.classes=";
+    return flags.stream().filter(value -> value.startsWith(prefix)).map(value -> value.substring(prefix.length())).findFirst().orElse("");
   }
 
   void validateEnvironment(Map<String, String> environment) throws IOException {

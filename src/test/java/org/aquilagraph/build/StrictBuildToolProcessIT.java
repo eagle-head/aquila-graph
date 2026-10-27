@@ -12,11 +12,13 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import org.aquilagraph.testsupport.IsolatedBuild;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 import org.w3c.dom.Element;
 
+@Tag("process")
 class StrictBuildToolProcessIT {
   @TempDir(cleanup = CleanupMode.ON_SUCCESS)
   Path directory;

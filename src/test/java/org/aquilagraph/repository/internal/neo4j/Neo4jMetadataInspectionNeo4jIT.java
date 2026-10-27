@@ -34,6 +34,7 @@ import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.aquilagraph.testsupport.Neo4jIntegration;
@@ -49,6 +50,7 @@ import org.neo4j.driver.async.AsyncSession;
 import org.neo4j.driver.exceptions.Neo4jException;
 
 @ExtendWith(Neo4jIntegration.class)
+@Tag("persistence")
 class Neo4jMetadataInspectionNeo4jIT {
   private static final int DRIVER_WAIT_SECONDS = 10;
   private static final int SAVE_WAIT_SECONDS = 30;

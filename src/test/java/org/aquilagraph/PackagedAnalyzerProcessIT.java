@@ -15,9 +15,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+@Tag("process")
 class PackagedAnalyzerProcessIT {
   private static final List<String> SUSPENDED_JVM = List.of(
       "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:0,timeout=60000");

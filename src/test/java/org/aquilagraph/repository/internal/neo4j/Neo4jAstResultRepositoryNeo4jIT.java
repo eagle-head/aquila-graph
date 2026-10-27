@@ -63,6 +63,7 @@ import org.aquilagraph.source.api.JavaTypeNesting;
 import org.aquilagraph.source.api.SyntaxType;
 import java.util.stream.Collectors;
 import java.util.Set;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.aquilagraph.testsupport.Neo4jIntegration;
@@ -74,6 +75,7 @@ import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 
 @ExtendWith(Neo4jIntegration.class)
+@Tag("persistence")
 class Neo4jAstResultRepositoryNeo4jIT {
   @TempDir Path directory;
 

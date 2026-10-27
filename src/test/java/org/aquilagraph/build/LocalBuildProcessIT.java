@@ -21,10 +21,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.TimeUnit;
 import org.aquilagraph.testsupport.IsolatedBuild;
 import org.aquilagraph.testsupport.OwnedProcess;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.io.CleanupMode;
 
+@Tag("process")
 class LocalBuildProcessIT {
   @TempDir(cleanup = CleanupMode.ON_SUCCESS)
   Path directory;

@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit;
 import javax.tools.ToolProvider;
 import org.aquilagraph.testsupport.IsolatedBuild;
 import org.aquilagraph.testsupport.OwnedProcess;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.io.CleanupMode;
 
+@Tag("process")
 class CompilationPreparationProcessIT {
   @TempDir(cleanup = CleanupMode.ON_SUCCESS) Path directory;
 
