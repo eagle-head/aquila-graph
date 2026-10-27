@@ -9,9 +9,9 @@ enum BuildOperation {
   COMPILE("-Dmaven.test.skip=true compile"), TEST("test"), INTEGRATION_TEST("-DskipTests=true verify"),
   INTEGRATION_TEST_NEO4J("-DskipTests=true -Pneo4j-integration verify"), CHECK_PROCESS(focused("process")),
   CHECK_PERSISTENCE(focused("persistence")), CHECK_LIFECYCLE(focused("lifecycle")),
-  COVERAGE("jacoco:prepare-agent test antrun:run@report-unit-coverage"), FORMAT("validate spotless:apply"),
-  FORMAT_CHECK("validate spotless:check"), LINE_ENDINGS_CHECK(""), QUALITY("-Dmaven.test.skip=true verify"),
-  SUPPLY_CHAIN_CHECK("-Dmaven.test.skip=true -Psupply-chain verify"), CLEAN("clean");
+  PREPARE_CONSUMERS("-Dmaven.test.skip=true pre-integration-test"), COVERAGE("jacoco:prepare-agent test antrun:run@report-unit-coverage"),
+  FORMAT("validate spotless:apply"), FORMAT_CHECK("validate spotless:check"), LINE_ENDINGS_CHECK(""),
+  QUALITY("-Dmaven.test.skip=true verify"), SUPPLY_CHAIN_CHECK("-Dmaven.test.skip=true -Psupply-chain verify"), CLEAN("clean");
 
   private final String mavenArgumentsText;
 

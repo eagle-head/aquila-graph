@@ -25,7 +25,7 @@ final class CompilationPublication {
     }
     var record = readMarker(marker);
     if (!"compilation-output/1".equals(record.getProperty("schema"))
-        || !request.output().toString().equals(record.getProperty("output.path"))) {
+        || !request.publishedOutput(input).toString().equals(record.getProperty("output.path"))) {
       explain("invalid publication record");
       return false;
     }
@@ -33,8 +33,8 @@ final class CompilationPublication {
       explain("effective inputs changed");
       return false;
     }
-    if (!Files.isDirectory(request.output(), LinkOption.NOFOLLOW_LINKS)
-        || !PreparationFiles.digest(request.output()).equals(record.getProperty("output.digest"))) {
+    if (!Files.isDirectory(request.publishedOutput(input), LinkOption.NOFOLLOW_LINKS)
+        || !PreparationFiles.digest(request.publishedOutput(input)).equals(record.getProperty("output.digest"))) {
       explain("published output inventory changed");
       return false;
     }
@@ -54,15 +54,16 @@ final class CompilationPublication {
     invalidate();
     var staged = request.state().resolve("output");
     var expected = PreparationFiles.digest(staged);
-    PreparationFiles.clear(request.root(), request.output());
-    PreparationFiles.copy(staged, request.output());
-    if (!expected.equals(PreparationFiles.digest(request.output()))) {
+    var output = request.publishedOutput(input);
+    PreparationFiles.clear(request.root(), output);
+    PreparationFiles.copy(staged, output);
+    if (!expected.equals(PreparationFiles.digest(output))) {
       throw new IOException("Published compilation output differs from the complete staged output");
     }
     var record = new Properties();
     record.setProperty("schema", "compilation-output/1");
     record.setProperty("input", input);
-    record.setProperty("output.path", request.output().toString());
+    record.setProperty("output.path", output.toString());
     record.setProperty("output.digest", expected);
     BuildFiles.write(marker, record);
   }

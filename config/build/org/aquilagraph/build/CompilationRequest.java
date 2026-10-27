@@ -12,11 +12,12 @@ record CompilationRequest(Path root, String batch, Path sources, Path resources,
     Map<String, String> environment) {
   private static final int HEADER_ARGUMENTS = 6;
   static final String TEST_BATCH = "tests";
+  static final String CONSUMER_BATCH = "consumers";
 
   CompilationRequest {
     arguments = List.copyOf(arguments);
     environment = Map.copyOf(environment);
-    if (!List.of("production", TEST_BATCH).contains(batch)) {
+    if (!List.of("production", TEST_BATCH, CONSUMER_BATCH).contains(batch)) {
       throw new IllegalArgumentException("Unknown compilation batch: " + batch);
     }
   }
@@ -37,6 +38,10 @@ record CompilationRequest(Path root, String batch, Path sources, Path resources,
 
   Path state() throws IOException {
     return PreparationFiles.owned(root, root.resolve("target/compilation").resolve(batch));
+  }
+
+  Path publishedOutput(String input) {
+    return CONSUMER_BATCH.equals(batch) ? output.resolve(input) : output;
   }
 
   List<String> effectiveArguments() throws IOException {

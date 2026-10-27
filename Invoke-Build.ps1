@@ -4,6 +4,7 @@ Runs one local build operation through the shared JDK 25 execution owner.
 .PARAMETER Target
 The operation to run; compile is the default.
 check-process, check-persistence and check-lifecycle run focused integrations only.
+prepare-consumers packages and prepares the independent query module without running tests.
 Use integration-test-neo4j for all integrations; coverage and quality retain their separate responsibilities.
 .PARAMETER ProjectRoot
 The canonical project to build; the script directory is the default.

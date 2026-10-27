@@ -151,6 +151,9 @@
                   <include>runtime-dependencies/**</include>
                   <include>build-inputs/**</include>
                   <include>compilation/**</include>
+                  <include>consumer-inputs/**</include>
+                  <include>prepared-consumers/**</include>
+                  <include>consumer-receipts/**</include>
                   <include>resource-staging/**</include>
                   <include>maven-status/**</include>
                   <include>site/**</include>
@@ -598,6 +601,8 @@
           </includes>
           <systemPropertyVariables>
             <aquila.integration.directory>${project.build.directory}/integration-selection/${env.AQUILA_BUILD_INVOCATION}</aquila.integration.directory>
+            <aquila.consumer.receipt>${project.build.directory}/consumer-receipts/${env.AQUILA_BUILD_INVOCATION}.properties</aquila.consumer.receipt>
+            <aquila.consumer.invocation>${env.AQUILA_BUILD_INVOCATION}</aquila.consumer.invocation>
           </systemPropertyVariables>
           <useModulePath>false</useModulePath>
           <additionalClasspathElements>
@@ -864,6 +869,24 @@
                 <argument>${build.integration.classes}</argument>
               </arguments>
 
+            </configuration>
+          </execution>
+          <execution>
+            <id>prepare-query-consumer</id>
+            <phase>pre-integration-test</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>java</executable>
+              <environmentVariables>
+                <AQUILA_BUILD_EFFECTIVE_GOALS>goals=${session.goals}</AQUILA_BUILD_EFFECTIVE_GOALS>
+              </environmentVariables>
+              <arguments>
+                <argument>--enable-native-access=ALL-UNNAMED</argument>
+                <argument>${project.basedir}/config/build/org/aquilagraph/build/ConsumerPreparation.java</argument>
+                <argument>${project.basedir}</argument>
+                <argument>${settings.localRepository}/org/jspecify/jspecify/${jspecify.version}/jspecify-${jspecify.version}.jar</argument>
+                <argument>${build.compilation.force}</argument>
+              </arguments>
             </configuration>
           </execution>
           <execution>
