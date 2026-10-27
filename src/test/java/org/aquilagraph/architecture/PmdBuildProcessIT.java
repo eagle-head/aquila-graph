@@ -12,9 +12,11 @@ import java.util.Arrays;
 import org.aquilagraph.testsupport.IsolatedBuild;
 import java.util.regex.Pattern;
 import javax.xml.parsers.DocumentBuilderFactory;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+@Tag("process")
 class PmdBuildProcessIT {
   @TempDir
   Path temporaryDirectory;

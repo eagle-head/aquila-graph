@@ -41,6 +41,7 @@ import org.aquilagraph.source.internal.SourceAnalysisFixture;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.SourceInput;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,6 +55,7 @@ import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 
 @ExtendWith(Neo4jIntegration.class)
+@Tag("persistence")
 class Neo4jExecutableAstRetentionNeo4jIT {
   enum CfgDisposition {
     ABSENT, REFUSED, FAILED

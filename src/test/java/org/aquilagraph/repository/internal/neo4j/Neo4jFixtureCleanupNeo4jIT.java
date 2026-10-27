@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.UUID;
 import org.aquilagraph.testsupport.Neo4jIntegration;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.neo4j.driver.AuthTokens;
@@ -12,6 +13,7 @@ import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 
 @ExtendWith(Neo4jIntegration.class)
+@Tag("lifecycle")
 class Neo4jFixtureCleanupNeo4jIT {
   @Test
   void givenOwnedFixturesAcrossCleanupBatches_whenDiscardingOneSubject_thenOtherSubjectRemains() {

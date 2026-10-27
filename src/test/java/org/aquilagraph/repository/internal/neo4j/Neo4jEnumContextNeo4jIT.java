@@ -21,6 +21,7 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.cfg.api.OperationKind;
 import org.aquilagraph.cfg.api.ValueKind;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,6 +32,7 @@ import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 
 @ExtendWith(Neo4jIntegration.class)
+@Tag("persistence")
 class Neo4jEnumContextNeo4jIT {
   @TempDir
   Path sourceRoot;

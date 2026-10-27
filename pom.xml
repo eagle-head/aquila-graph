@@ -54,6 +54,10 @@
     <analysis.classpathFile>${project.build.directory}/build-inputs/analysis.classpath</analysis.classpathFile>
     <build.tools.outputDirectory>${project.build.directory}/build-tool-classes</build.tools.outputDirectory>
     <build.compilation.force>false</build.compilation.force>
+    <build.integration.scope>legacy-process</build.integration.scope>
+    <build.integration.groups />
+    <build.integration.classes />
+    <build.integration.includes>**/*ProcessIT.java</build.integration.includes>
   </properties>
   <dependencies>
     <dependency>
@@ -71,6 +75,18 @@
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-api</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.platform</groupId>
+      <artifactId>junit-platform-engine</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.platform</groupId>
+      <artifactId>junit-platform-launcher</artifactId>
       <version>${junit.version}</version>
       <scope>test</scope>
     </dependency>
@@ -573,9 +589,16 @@
           <forkCount>${test.integration.forks}</forkCount>
           <reuseForks>${test.integration.reuse.forks}</reuseForks>
           <argLine>@{coverageAgentArguments} ${test.jvm.arguments} -Djava.io.tmpdir="${project.build.directory}"</argLine>
+          <groups>${build.integration.groups}</groups>
+          <test>${build.integration.classes}</test>
+          <failIfNoTests>true</failIfNoTests>
+          <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
           <includes>
-            <include>**/*ProcessIT.java</include>
+            <include>${build.integration.includes}</include>
           </includes>
+          <systemPropertyVariables>
+            <aquila.integration.directory>${project.build.directory}/integration-selection/${env.AQUILA_BUILD_INVOCATION}</aquila.integration.directory>
+          </systemPropertyVariables>
           <useModulePath>false</useModulePath>
           <additionalClasspathElements>
             <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.identity</additionalClasspathElement>
@@ -823,6 +846,24 @@
                 <argument>${project.build.testOutputDirectory}</argument>
                 <argument>@${project.build.directory}/build-inputs/test.args</argument>
               </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>discover-integration-catalog</id>
+            <phase>pre-integration-test</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>java</executable>
+              <skip>${maven.test.skip}</skip>
+              <arguments>
+                <argument>@${project.build.directory}/build-inputs/test-runtime.args</argument>
+                <argument>org.aquilagraph.build.IntegrationCatalogProbe</argument>
+                <argument>${project.basedir}</argument>
+                <argument>${project.build.testOutputDirectory}</argument>
+                <argument>${build.integration.scope}</argument>
+                <argument>${build.integration.classes}</argument>
+              </arguments>
+
             </configuration>
           </execution>
           <execution>
@@ -1126,6 +1167,8 @@ ${production.sources}</echo>
                   <pathelement location="${build.tools.outputDirectory}" />
                 </path>
                 <pathconvert property="test.dependencies" refid="test.classpath" dirsep="/" />
+                <echo file="${project.build.directory}/build-inputs/test-runtime.args" encoding="UTF-8">--class-path
+"${test.dependencies}"</echo>
                 <pathconvert property="test.sources" pathsep="&#10;" dirsep="/">
                   <fileset dir="${project.build.testSourceDirectory}" includes="**/*.java" />
                   <mapper type="glob" from="*" to="&quot;*&quot;" />
@@ -1427,6 +1470,10 @@ ${test.sources}</echo>
     </profile>
     <profile>
       <id>neo4j-integration</id>
+      <properties>
+        <build.integration.scope>all</build.integration.scope>
+        <build.integration.includes>**/*IT.java</build.integration.includes>
+      </properties>
       <build>
         <plugins>
           <plugin>

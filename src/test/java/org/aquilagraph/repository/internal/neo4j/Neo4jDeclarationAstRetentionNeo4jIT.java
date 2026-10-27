@@ -85,6 +85,7 @@ import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -100,6 +101,7 @@ import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 
 @ExtendWith(Neo4jIntegration.class)
+@Tag("persistence")
 class Neo4jDeclarationAstRetentionNeo4jIT {
   @TempDir Path directory;
 

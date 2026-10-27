@@ -37,6 +37,15 @@ public final class BuildExecution {
         Files.deleteIfExists(request.root().resolve("target/jacoco.exec"));
       }
       exit = request.operation() == BuildOperation.LINE_ENDINGS_CHECK ? 0 : processes.maven();
+      if (exit == 0 && request.operation().integrationScope().isPresent()) {
+        var scope = request.operation().integrationScope().orElseThrow();
+        var directory = IntegrationCatalog.directory(request.root(), lease.context().nonce());
+        var catalog = IntegrationCatalog.read(directory.resolve("catalog.properties"));
+        catalog.requireSelection(scope, request.integrationClasses());
+        IntegrationResults.verify(catalog, directory, request.root().resolve("target/failsafe-reports/failsafe-summary.xml"));
+        System.getLogger(BuildExecution.class.getName()).log(Level.INFO,
+            "Verified integration scope: " + scope + "; complete validation: incomplete");
+      }
     }
     System.exit(exit);
   }

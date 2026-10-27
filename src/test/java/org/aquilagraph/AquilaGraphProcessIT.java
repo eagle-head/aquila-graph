@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.DynamicTest;
@@ -20,6 +21,7 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.StableId;
 import javax.tools.ToolProvider;
 
+@Tag("process")
 class AquilaGraphProcessIT {
   @TempDir Path temporaryDirectory;
 
