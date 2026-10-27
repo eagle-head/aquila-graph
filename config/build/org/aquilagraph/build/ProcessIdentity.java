@@ -32,8 +32,19 @@ record ProcessIdentity(long pid, Instant started) {
   }
 
   static ProcessIdentity observe(ProcessHandle process) throws IOException {
-    return new ProcessIdentity(process.pid(), process.info().startInstant()
-        .orElseThrow(() -> new IOException("Process start time is unavailable for owned process " + process.pid())));
+    return observeAvailable(process)
+        .orElseThrow(() -> new IOException("Process start time is unavailable for owned process " + process.pid()));
+  }
+
+  static Optional<ProcessIdentity> observeAvailable(ProcessHandle process) throws IOException {
+    var started = process.info().startInstant();
+    if (started.isPresent()) {
+      return Optional.of(new ProcessIdentity(process.pid(), started.orElseThrow()));
+    }
+    if (process.isAlive()) {
+      throw new IOException("Process start time is unavailable for owned process " + process.pid());
+    }
+    return Optional.empty();
   }
 
   Optional<ProcessHandle> liveProcess() throws IOException {
@@ -41,7 +52,6 @@ record ProcessIdentity(long pid, Instant started) {
     if (process.isEmpty() || !process.orElseThrow().isAlive()) {
       return Optional.empty();
     }
-    var observed = observe(process.orElseThrow());
-    return equals(observed) ? process : Optional.empty();
+    return observeAvailable(process.orElseThrow()).filter(this::equals).map(ignored -> process.orElseThrow());
   }
 }

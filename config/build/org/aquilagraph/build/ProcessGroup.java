@@ -53,8 +53,8 @@ final class ProcessGroup implements AutoCloseable {
       case "git-inspection" -> "GitInspection";
       default -> throw new IOException("The reservation has an unsupported contained command kind");
     };
-    JavaArguments.write(arguments, List.of(context.entry(bridge).toString(), context.root().toString(), context.nonce(),
-        command.reservation(), launcher.reservation()));
+    JavaArguments.write(arguments, List.of("--enable-native-access=ALL-UNNAMED", context.entry(bridge).toString(),
+        context.root().toString(), context.nonce(), command.reservation(), launcher.reservation()));
     var java = Path.of(System.getProperty("java.home"), "bin", BuildRequest.windows() ? "java.exe" : "java");
     var builder = new ProcessBuilder(java.toString(), "@" + arguments).directory(context.root().toFile()).inheritIO();
     if (WINDOWS_JOB.equals(BuildFiles.required(intent, CONTAINMENT_KIND))) {

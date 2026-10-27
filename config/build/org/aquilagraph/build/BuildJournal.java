@@ -89,6 +89,10 @@ final class BuildJournal {
     return resourceDirectory;
   }
 
+  InvocationContext invocationContext() {
+    return context;
+  }
+
   void recordEntry(Path executable) throws IOException {
     var file = resourceDirectory.resolve(INTENT_RECORD);
     var intent = BuildFiles.read(file);
@@ -141,8 +145,9 @@ final class BuildJournal {
   }
 
   void observe(ProcessHandle process) throws IOException {
-    if (process.isAlive()) {
-      var identity = ProcessIdentity.observe(process);
+    var observed = ProcessIdentity.observeAvailable(process);
+    if (observed.isPresent()) {
+      var identity = observed.orElseThrow();
       var file = resourceDirectory.resolve("process-" + identity.pid() + ".properties");
       if (Files.exists(file) && identity.started().toString().equals(BuildFiles.read(file).getProperty(STARTED_PROPERTY))) {
         return;
