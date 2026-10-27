@@ -14,8 +14,9 @@
 *.ps1 text
 *.cmd text
 
-# The Unix Maven wrapper must remain executable with LF in the working tree.
+# Unix launchers require LF in the working tree.
 mvnw text eol=lf
+src/main/launch/aquila-graph text eol=lf
 
 # Binary review archives are not subject to line-ending conversion.
 *.zip -text
