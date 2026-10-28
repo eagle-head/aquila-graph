@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
+import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.GraphEdgeKey;
 import org.aquilagraph.identity.api.GraphNodeKey;
@@ -536,7 +537,7 @@ class GraphAdmissionTest {
         List.of(SourceFile.fromContent(Path.of("Stored.java"), source)));
     var produced = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         profile).result().orElseThrow();
-    var selected = historical ? SourceAnalysisFixture.historicalResult(produced) : produced;
+    var selected = historical ? SourceAnalysisFixture.historicalResult(produced, historicalEnvironment(produced.environment())) : produced;
     var ast = AstCodec.decode(AstCodec.encode(selected), selected.identity());
     var method = ast.program().types().stream().filter(type -> type.qualifiedName().equals("Stored"))
         .flatMap(type -> type.methods().stream()).filter(value -> constructor ? value.constructor() : value.name().equals("value"))
@@ -551,6 +552,11 @@ class GraphAdmissionTest {
           .orElse(ast.body(method.methodKey()).orElseThrow().root()));
     }
     return new Fixture(ast, new LoweringPlan(ast.bodyRef(method.methodKey()).orElseThrow(), CfgProfile.JAVA_BOUNDED), graph, draft, creating);
+  }
+
+  private static AnalysisEnvironmentSnapshot historicalEnvironment(AnalysisEnvironmentSnapshot current) {
+    return new AnalysisEnvironmentSnapshot(current.compilerConfiguration(), "com.sun.tools.javac.api.JavacTool", "Eclipse Adoptium",
+        "25.0.4.1+1-LTS", current.analysisOptions(), current.classPath(), current.modulePath(), current.identityScheme());
   }
 
   private static DraftGraph draft(ControlFlowGraph graph) {

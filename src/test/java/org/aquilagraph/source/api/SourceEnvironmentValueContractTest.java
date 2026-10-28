@@ -95,15 +95,18 @@ class SourceEnvironmentValueContractTest {
   @Test
   void givenNormalizedAbsoluteDependencyRolesAndOrderedOptions_whenCanonicalConfigurationIsQueried_thenLiteralNullAndNewlineSeparatorsAreRetained() {
     // Arrange
+    var dependencies = Path.of("Dependencies").toAbsolutePath();
+    var modules = Path.of("Modules").toAbsolutePath();
     var configuration = new CompilerConfiguration(JavaRelease.JAVA_25,
-        List.of(Path.of("D:\\Dependencies\\nested\\..\\alpha.jar"), Path.of("D:\\Dependencies\\beta.jar")),
-        List.of(Path.of("D:\\Modules\\alpha.jar")), List.of("-Xlint:all", "-parameters"));
+        List.of(dependencies.resolve("nested").resolve("..").resolve("alpha.jar"), dependencies.resolve("beta.jar")),
+        List.of(modules.resolve("alpha.jar")), List.of("-Xlint:all", "-parameters"));
 
     // Act
     var canonical = configuration.canonicalForm();
 
     // Assert
-    assertEquals("25\nD:\\Dependencies\\alpha.jar\u0000D:\\Dependencies\\beta.jar\nD:\\Modules\\alpha.jar\n-Xlint:all\u0000-parameters", canonical);
+    assertEquals("25\n" + dependencies.resolve("alpha.jar") + "\u0000" + dependencies.resolve("beta.jar") + "\n"
+        + modules.resolve("alpha.jar") + "\n-Xlint:all\u0000-parameters", canonical);
     assertEquals("25\n\n\n", CompilerConfiguration.forRelease(JavaRelease.JAVA_25).canonicalForm());
   }
 
