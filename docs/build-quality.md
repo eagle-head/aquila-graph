@@ -55,14 +55,19 @@ Real Neo4j/Docker, external service endpoints, packaged child processes, native 
 lifecycle controls and nested Maven/compiler process campaigns remain preserved
 but deferred until a new explicit user decision. Finishing implementation, reaching
 acceptance, editing or removing code, starting a review or selecting another task
-does not authorize them. The revised [T5](tasks/incremental-verification-build/complete-local-validation.md)
-owns development validation; [T6](tasks/incremental-verification-build/build-verification-integration.md)
-owns the deferred integrated scope and does not auto-start.
+does not authorize them. This decision applies to every epic and task through the
+[shared lifecycle](epics/README.md#current-verification-scope-for-every-epic-and-task).
+Each plan names its isolated deliverables and manual-only owners for deferred
+real-environment requirements. The accepted [build development validation](tasks/incremental-verification-build/complete-local-validation.md)
+and deferred [build integrated validation](tasks/incremental-verification-build/build-verification-integration.md)
+are one application of that separation, not its scope limit.
 
-The scope/command revision itself executed no tests or acceptance campaigns.
-The user subsequently authorized T5's complete project-wide isolated unit suite
-and fresh coverage. Its current checkpoint owns executed results and remaining
-acceptance steps; this authorization does not reactivate T6.
+Scope/command revisions execute no tests or acceptance campaigns. The earlier
+authorization for build development validation's complete isolated suite and fresh
+coverage remains recorded in its accepted checkpoint; it does not authorize tests
+during the other epic/task revisions or reactivate any real-environment campaign.
+Future project-wide isolated testing and coverage occur at the appropriate
+authorized verification step, not during this planning revision.
 Isolated evidence cannot establish real database query/transaction behavior,
 external service compatibility, process containment or complete integrated success.
 Keep known failures and unexecuted obligations visible in their owning task.
@@ -144,8 +149,8 @@ the directly affected regressions. Batch related confirmed corrections before
 starting expensive validation. Do not run complete coverage, all integration
 groups or unrelated static gates after each small edit.
 
-The earlier separation revision ran no tests. At the now-authorized development
-acceptance step, when implementation and wiring are coherent and focused checks pass, run
+At an authorized development acceptance step, when implementation and wiring are
+coherent and focused checks pass, run
 the complete active isolated scope with fresh unit coverage. This covers the
 project's layers without requiring a real environment. Preserve valid
 evidence for unchanged behavior and rerun checks whose observations or validity
