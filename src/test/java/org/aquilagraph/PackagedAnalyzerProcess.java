@@ -13,6 +13,7 @@ import org.aquilagraph.testsupport.OwnedProcess;
 
 /** Executes the packaged analyzer with bounded lifetime and captured, separate streams. */
 final class PackagedAnalyzerProcess {
+  private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(10);
   private final Path directory;
 
   PackagedAnalyzerProcess(Path directory) {
@@ -45,13 +46,64 @@ final class PackagedAnalyzerProcess {
     builder.environment().putAll(environment);
     builder.environment().put("JAVA_HOME", System.getProperty("java.home"));
     builder.environment().put("AQUILA_JAVA_OPTIONS_FILE", argumentFile.toAbsolutePath().toString());
-    var process = OwnedProcess.start(builder);
     boolean completed;
-    try (process) {
-      completed = process.await(Duration.ofSeconds(30));
+    int exit;
+    try (var outputs = new CapturedOutputs(List.of(outputFile, errorFile))) {
+      var process = OwnedProcess.start(builder);
+      try (process) {
+        try {
+          completed = process.await(Duration.ofSeconds(30));
+        } finally {
+          outputs.beginClosing();
+        }
+      }
+      exit = process.exitValue();
     }
-    return new Result(completed, process.exitValue(), Files.readString(outputFile, StandardCharsets.UTF_8),
+    return new Result(completed, exit, Files.readString(outputFile, StandardCharsets.UTF_8),
         Files.readString(errorFile, StandardCharsets.UTF_8));
+  }
+
+  private static final class CapturedOutputs implements AutoCloseable {
+    private final List<Path> files;
+    private long deadline;
+
+    CapturedOutputs(List<Path> files) {
+      this.files = files;
+    }
+
+    void beginClosing() {
+      if (deadline == 0) {
+        deadline = System.nanoTime() + CLOSE_TIMEOUT.toNanos();
+      }
+    }
+
+    @Override
+    public void close() throws IOException {
+      beginClosing();
+      var interrupted = Thread.interrupted();
+      try {
+        for (var file : files) {
+          if (!Files.exists(file)) { continue; }
+          var parked = file.resolveSibling(file.getFileName() + ".releasing");
+          var moved = false;
+          while (true) {
+            try {
+              if (!moved) { Files.move(file, parked); moved = true; }
+              Files.move(parked, file);
+              break;
+            } catch (IOException unavailable) {
+              if (System.nanoTime() >= deadline) {
+                throw new IOException("Packaged analyzer output remains unavailable after process closure: " + file, unavailable);
+              }
+              try { Thread.sleep(25); }
+              catch (InterruptedException interruption) { interrupted = true; }
+            }
+          }
+        }
+      } finally {
+        if (interrupted) { Thread.currentThread().interrupt(); }
+      }
+    }
   }
 
   record Result(boolean completed, int exitCode, String output, String error) {
