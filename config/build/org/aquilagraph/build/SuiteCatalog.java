@@ -9,8 +9,9 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 
-/** Validates functional ownership and selects exact identities supplied by JUnit discovery. */
-record IntegrationCatalog(String scope, String classes, List<Entry> entries) {
+/** Validates unit or integration ownership and selects exact identities supplied by JUnit discovery. */
+record SuiteCatalog(String scope, String classes, List<Entry> entries) {
+  static final String UNIT_SCOPE = "unit";
   private static final int CLASS_SELECTOR_MATCH_COUNT = 1;
   static final Set<String> GROUPS = Set.of("process", "persistence", "lifecycle");
 
@@ -21,14 +22,15 @@ record IntegrationCatalog(String scope, String classes, List<Entry> entries) {
   record Entry(String id, String className, String group, Kind kind, boolean platformSkipped) {
   }
 
-  IntegrationCatalog {
+  SuiteCatalog {
     entries = List.copyOf(entries);
-    if (!GROUPS.contains(scope) && !Set.of("all", "legacy-process").contains(scope)) {
+    if (!GROUPS.contains(scope) && !Set.of("all", "legacy-process", UNIT_SCOPE).contains(scope)) {
       throw new IllegalArgumentException("Unknown integration scope: " + scope);
     }
     var identities = new HashSet<String>();
     for (var entry : entries) {
-      if (!GROUPS.contains(entry.group()) || entry.id().isBlank() || entry.className().isBlank() || !identities.add(entry.id())) {
+      if (!(UNIT_SCOPE.equals(scope) ? UNIT_SCOPE.equals(entry.group()) : GROUPS.contains(entry.group())) || entry.id().isBlank()
+          || entry.className().isBlank() || !identities.add(entry.id())) {
         throw new IllegalArgumentException("Invalid or duplicate integration discovery identity: " + entry);
       }
     }
@@ -48,9 +50,14 @@ record IntegrationCatalog(String scope, String classes, List<Entry> entries) {
     return root.resolve("target/integration-selection").resolve(nonce);
   }
 
+  static Path directory(Path root, String nonce, String scope) {
+    var integration = directory(root, nonce);
+    return UNIT_SCOPE.equals(scope) ? root.resolve("target/unit-selection").resolve(nonce) : integration;
+  }
+
   List<Entry> selected() {
     var candidates = entries.stream().filter(entry -> switch (scope) {
-      case "all" -> true;
+      case "all", "unit" -> true;
       case "legacy-process" -> entry.className().endsWith("ProcessIT");
       default -> scope.equals(entry.group());
     }).toList();
@@ -107,7 +114,7 @@ record IntegrationCatalog(String scope, String classes, List<Entry> entries) {
     BuildFiles.write(file, data);
   }
 
-  static IntegrationCatalog read(Path file) throws IOException {
+  static SuiteCatalog read(Path file) throws IOException {
     var data = BuildFiles.read(file);
     var entries = new ArrayList<Entry>();
     var count = Integer.parseInt(BuildFiles.required(data, "count"));
@@ -117,6 +124,6 @@ record IntegrationCatalog(String scope, String classes, List<Entry> entries) {
           BuildFiles.required(data, prefix + "group"), Kind.valueOf(BuildFiles.required(data, prefix + "kind")),
           Boolean.parseBoolean(BuildFiles.required(data, prefix + "platform.skipped"))));
     }
-    return new IntegrationCatalog(BuildFiles.required(data, "scope"), data.getProperty("classes", ""), entries);
+    return new SuiteCatalog(BuildFiles.required(data, "scope"), data.getProperty("classes", ""), entries);
   }
 }

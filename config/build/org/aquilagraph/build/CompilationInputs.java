@@ -20,6 +20,7 @@ import java.util.jar.JarFile;
 
 /** Inventories live inputs and maps compiler reads exclusively onto their private capture. */
 final class CompilationInputs {
+  static final String SCHEMA = "compilation-inputs/1";
   private static final String INPUT_PREFIX = "input.";
   private static final String SOURCE_PATH = "--source-path";
   private static final String MODULE_SOURCE_PATH = "--module-source-path";
@@ -37,7 +38,7 @@ final class CompilationInputs {
   CompilationInputs(CompilationRequest request) throws IOException {
     this.request = request;
     captureDirectory = request.state().resolve("capture");
-    inputManifest.setProperty("schema", "compilation-inputs/1");
+    inputManifest.setProperty("schema", SCHEMA);
     inputManifest.setProperty("batch", request.batch());
     inputManifest.setProperty("jdk.home", System.getProperty("java.home"));
     inputManifest.setProperty("jdk.version", Runtime.version().toString());
@@ -243,19 +244,28 @@ final class CompilationInputs {
   }
 
   static void requireCurrentInputs(Properties manifest) throws IOException {
-    if (!"compilation-inputs/1".equals(manifest.getProperty("schema"))
-        || !CompilationRequest.CONSUMER_BATCH.equals(manifest.getProperty("batch"))) {
+    if (!SCHEMA.equals(manifest.getProperty("schema")) || !CompilationRequest.CONSUMER_BATCH.equals(manifest.getProperty("batch"))) {
       throw new IOException("Prepared consumer requires a complete compiler input manifest");
     }
-    for (var key : manifest.stringPropertyNames()) {
-      if (key.startsWith(INPUT_PREFIX)
-          && !PreparationFiles.digest(Path.of(key.substring(INPUT_PREFIX.length()))).equals(manifest.getProperty(key))) {
-        throw new IOException("Prepared consumer input changed: " + key.substring(INPUT_PREFIX.length()));
-      }
-    }
+    requireUnchangedPaths(manifest, "Prepared consumer");
     if (!System.getProperty("java.home").equals(manifest.getProperty("jdk.home"))
         || !Runtime.version().toString().equals(manifest.getProperty("jdk.version"))) {
       throw new IOException("Prepared consumer toolchain differs from its compiler input manifest");
+    }
+  }
+
+  static void requireUnchangedPaths(Properties manifest, String description) throws IOException {
+    var count = 0;
+    for (var key : manifest.stringPropertyNames()) {
+      if (key.startsWith(INPUT_PREFIX)) {
+        count++;
+        if (!PreparationFiles.digest(Path.of(key.substring(INPUT_PREFIX.length()))).equals(manifest.getProperty(key))) {
+          throw new IOException(description + " input changed: " + key.substring(INPUT_PREFIX.length()));
+        }
+      }
+    }
+    if (count == 0) {
+      throw new IOException(description + " requires a nonempty compiler input inventory");
     }
   }
 

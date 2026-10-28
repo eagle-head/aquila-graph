@@ -1,8 +1,8 @@
 package org.aquilagraph.build;
 
 import java.io.IOException;
-import org.aquilagraph.build.IntegrationCatalog.Entry;
-import org.aquilagraph.build.IntegrationCatalog.Kind;
+import org.aquilagraph.build.SuiteCatalog.Entry;
+import org.aquilagraph.build.SuiteCatalog.Kind;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -15,8 +15,8 @@ import javax.xml.parsers.ParserConfigurationException;
 import org.xml.sax.SAXException;
 
 /** Reconciles current fork receipts, dynamic descendants and the real Failsafe summary. */
-final class IntegrationResults {
-  private IntegrationResults() {
+final class SuiteResults {
+  private SuiteResults() {
   }
 
   private enum CompletionStatus {
@@ -35,7 +35,7 @@ final class IntegrationResults {
     }
   }
 
-  static void verify(IntegrationCatalog catalog, Path directory, Path summary) throws IOException {
+  static void verify(SuiteCatalog catalog, Path directory, Path summary) throws IOException {
     var expected = catalog.selected();
     var observed = outcomes(directory);
     for (var outcome : observed.values()) {
@@ -58,8 +58,13 @@ final class IntegrationResults {
       }
     }
     var cases = observed.values().stream().filter(value -> value.kind() == Kind.TEST || value.status() == CompletionStatus.SKIPPED).count();
-    requireSummary(summary, cases);
-    if (!summary.toAbsolutePath().normalize().equals(directory.resolve("failsafe-summary.xml").toAbsolutePath().normalize())) {
+    if (SuiteCatalog.UNIT_SCOPE.equals(catalog.scope())) {
+      requireUnitReports(summary, cases);
+    } else {
+      requireSummary(summary, cases);
+    }
+    if (!SuiteCatalog.UNIT_SCOPE.equals(catalog.scope())
+        && !summary.toAbsolutePath().normalize().equals(directory.resolve("failsafe-summary.xml").toAbsolutePath().normalize())) {
       Files.copy(summary, directory.resolve("failsafe-summary.xml"));
     }
     var verification = new Properties();
@@ -69,6 +74,39 @@ final class IntegrationResults {
     verification.setProperty("execution.verified", "true");
     verification.setProperty("complete.validation", "false");
     BuildFiles.write(directory.resolve("verification.properties"), verification);
+  }
+
+  static void requireInstrumentation(Path directory, boolean expected) throws IOException {
+    try (var files = Files.newDirectoryStream(directory, "execution-*.properties")) {
+      var count = 0;
+      for (var file : files) {
+        count++;
+        if (!Boolean.toString(expected).equals(BuildFiles.required(BuildFiles.read(file), "coverage.agent"))) {
+          throw new IOException("Test fork instrumentation differs from unit-only coverage ownership: " + file);
+        }
+      }
+      if (count == 0) {
+        throw new IOException("No current test fork instrumentation receipt: " + directory);
+      }
+    }
+  }
+
+  private static void requireUnitReports(Path directory, long cases) throws IOException {
+    long reported = 0;
+    try (var files = Files.newDirectoryStream(directory, "TEST-*.xml")) {
+      for (var file : files) {
+        var suite = BuildXml.read(file).getDocumentElement();
+        if (!"testsuite".equals(suite.getTagName()) || !"0".equals(suite.getAttribute("failures"))
+            || !"0".equals(suite.getAttribute("errors")) || suite.getElementsByTagName("flakyFailure").getLength() != 0
+            || suite.getElementsByTagName("rerunFailure").getLength() != 0) {
+          throw new IOException("Unit report is incomplete or contains a non-success outcome: " + file);
+        }
+        reported += Long.parseLong(suite.getAttribute("tests"));
+      }
+    }
+    if (cases == 0 || reported != cases) {
+      throw new IOException("Surefire reports do not reconcile with current discovered/executed units: " + reported + " versus " + cases);
+    }
   }
 
   private static boolean descendant(String id, String parent) {

@@ -29,6 +29,52 @@ Maven Enforcer rejects a different Java or Maven release, unpinned build plugins
 without explicit scopes, snapshot dependencies, dependency convergence failures, and reactor
 version drift.
 
+## Development Verification Scope
+
+The user decision of October 28, 2026 separates development verification from
+real-environment integration campaigns. The active development scope is unit tests
+throughout the project, including application, frontend, source/CFG, CLI, repository
+and build-tool behavior. In-process collaboration tests may exercise multiple real
+components while substituting external boundaries with stubs, mocks or fakes.
+Classify a test by the dependencies it exercises, not its architectural layer or
+whether its name contains "integration".
+
+External HTTP/network calls, database drivers and other service boundaries must
+use controlled test doubles in this scope. Prefer real domain objects and narrow
+fakes; assert observable results, state changes and failure handling rather than
+only calls to a mock. Controlled temporary files and the in-process compiler API
+may support isolated tests without starting an external environment. A mock's
+configured result alone does not verify the repository or caller that consumes it.
+
+Controlled in-process protocol fakes may use test-owned loopback transport, as in
+[BoltCommitAcknowledgementProxyTest](../src/test/java/org/aquilagraph/repository/internal/neo4j/BoltCommitAcknowledgementProxyTest.java).
+They create and close their own endpoints without depending on an existing
+service, external network or real database.
+
+Real Neo4j/Docker, external service endpoints, packaged child processes, native process
+lifecycle controls and nested Maven/compiler process campaigns remain preserved
+but deferred until a new explicit user decision. Finishing implementation, reaching
+acceptance, editing or removing code, starting a review or selecting another task
+does not authorize them. The revised [T5](tasks/incremental-verification-build/complete-local-validation.md)
+owns development validation; [T6](tasks/incremental-verification-build/build-verification-integration.md)
+owns the deferred integrated scope and does not auto-start.
+
+The scope/command revision itself executed no tests or acceptance campaigns.
+The user subsequently authorized T5's complete project-wide isolated unit suite
+and fresh coverage. Its current checkpoint owns executed results and remaining
+acceptance steps; this authorization does not reactivate T6.
+Isolated evidence cannot establish real database query/transaction behavior,
+external service compatibility, process containment or complete integrated success.
+Keep known failures and unexecuted obligations visible in their owning task.
+
+The command implementation uses [`BuildOperation`](../config/build/org/aquilagraph/build/BuildOperation.java)
+and [`BuildRequest`](../config/build/org/aquilagraph/build/BuildRequest.java), with
+Surefire/Failsafe selection in the [POM](../pom.xml). The separation includes moving
+the existing Git observation, restricted child-JVM observation, protected-Windows
+process observations and external compilation/invalidation cases into process-tagged `*ProcessIT` classes, retaining
+their assertions and their process-free companion tests. Source inspection is not
+a whole-suite runtime certification of isolation.
+
 ## Commands
 
 The Makefile and PowerShell script use the checked-in Wrapper, which enforces the Maven version and
@@ -37,9 +83,7 @@ distribution checksum:
 | Purpose | Linux and macOS | Windows PowerShell |
 | --- | --- | --- |
 | Compile | `make compile` | `.\Invoke-Build.ps1 compile` |
-| Run `*Test` tests | `make test` | `.\Invoke-Build.ps1 test` |
-| Run packaged-process `*ProcessIT` tests | `make integration-test` | `.\Invoke-Build.ps1 integration-test` |
-| Run all `*IT` tests, including the database test | `make integration-test-neo4j` | `.\Invoke-Build.ps1 integration-test-neo4j` |
+| Run development `*Test` tests when verification is requested | `make test` | `.\Invoke-Build.ps1 test` |
 | Produce unit-test coverage reports | `make coverage` | `.\Invoke-Build.ps1 coverage` |
 | Format production Java | `make format` | `.\Invoke-Build.ps1 format` |
 | Check production Java formatting | `make format-check` | `.\Invoke-Build.ps1 format-check` |
@@ -47,18 +91,45 @@ distribution checksum:
 | Run static quality gates without tests | `make quality` | `.\Invoke-Build.ps1 quality` |
 | Run supply-chain gates without tests | `make supply-chain-check` | `.\Invoke-Build.ps1 supply-chain-check` |
 
-Surefire runs the `*Test` group during Maven's `test` phase. Failsafe runs the `*ProcessIT` group during
-`verify`; the `neo4j-integration` profile broadens that group to all `*IT` classes and requires a configured
-Docker engine. The database suites acquire one isolated managed Neo4j per test engine and close it after the suites. The integration-only targets still compile test sources and package the application, but skip
-Surefire execution. The `quality` and `supply-chain-check` targets skip test compilation and execution, so
-run the relevant test targets separately when validating behavior.
+The following commands remain available for a later explicit decision. Their
+presence is not authorization to execute them during development or task closure.
+
+| Deferred scope | Linux and macOS | Windows PowerShell |
+| --- | --- | --- |
+| Packaged/native process integrations | `make integration-test` | `.\Invoke-Build.ps1 integration-test` |
+| All real integrations, including Neo4j | `make integration-test-neo4j` | `.\Invoke-Build.ps1 integration-test-neo4j` |
+| Focused process integrations | `make check-process` | `.\Invoke-Build.ps1 check-process` |
+| Focused persistence integrations | `make check-persistence` | `.\Invoke-Build.ps1 check-persistence` |
+| Focused resource lifecycle integrations | `make check-lifecycle` | `.\Invoke-Build.ps1 check-lifecycle` |
+| Fresh complete unit/integration/static composition | `make verify-all` | `.\Invoke-Build.ps1 verify-all` |
+
+Surefire runs the `*Test` group during Maven's `test` phase. `test` and `coverage`
+stop at that phase and do not dispatch Failsafe. Focused unit selection accepts
+comma-separated explicit simple or qualified class names ending in `Test`, with
+optional `#method` selectors. For example, use
+`make test MAVEN_FLAGS='-B --no-transfer-progress -Dtest=BuildRequestTest'` or
+`.\Invoke-Build.ps1 test -MavenFlags @('-B', '--no-transfer-progress', '-Dtest=BuildRequestTest')`.
+Class wildcards, regex selectors and `*IT` names are refused because Surefire's
+[`test` parameter](https://maven.apache.org/surefire/maven-surefire-plugin/test-mojo.html#test)
+overrides its ordinary includes/excludes. `coverage` retains the complete active
+unit selection rather than accepting a narrowed selector.
+
+Failsafe's manual operations run `*ProcessIT`; the `neo4j-integration` profile
+broadens selection to all `*IT` and requires Docker. Focused integration commands
+remain integration commands even when only one class is selected. The integration
+targets compile test sources and package the application but skip Surefire.
+Development test compilation still includes shared test sources; execution
+separation does not claim separate compilation roots. `quality` and
+`supply-chain-check` skip test compilation and execution. `prepare-consumers`
+packages and prepares the independent query module without executing tests.
 
 The [database integration runbook](../deployment/neo4j/testing.md) defines portable memory limits, disposable volumes, explicit preservation, logs, and lifecycle verification. Maven starts with a 128 MiB heap and a 1 GiB maximum through [`.mvn/jvm.config`](../.mvn/jvm.config). Forked compilers have a 1 GiB maximum. Surefire and Failsafe use a 128 MiB initial heap and a 2 GiB maximum; packaged CLI test consumers use a 512 MiB maximum, and the independent retained-AST query consumer uses 1 GiB. These budgets are independent of the container's total memory limit.
 
 Use fresh compiled outputs when switching operating systems in one checkout.
-For an opt-in profile with 16 unit-test forks and a separate
-final integration phase with three forks and isolated disposable databases, follow the
+For the resource settings of the opt-in profile with 16 unit-test forks and three
+integration forks, see the
 [high-capacity local execution procedure](../deployment/neo4j/testing.md#high-capacity-local-execution).
+Selecting a resource profile does not authorize a deferred integration campaign.
 
 Keep `target/classes`, `target/test-classes`, `target/partitions`, and
 `target/maven-status` local to one toolchain. The Maven artifact cache under
@@ -66,19 +137,22 @@ Keep `target/classes`, `target/test-classes`, `target/partitions`, and
 
 ## Validation Cadence
 
-During implementation and correction, run the smallest existing check that reaches
+When test execution is authorized, run the smallest existing isolated check that reaches
 the changed behavior and distinguishes the required result. Reproduce a failure,
 correct its shared cause and affected callers, then rerun that focused check and
 the directly affected regressions. Batch related confirmed corrections before
 starting expensive validation. Do not run complete coverage, all integration
 groups or unrelated static gates after each small edit.
 
-Start a complete campaign when the implementation and wiring are coherent, known
-required corrections are closed, and focused checks pass. At that acceptance
-boundary, run the required final coverage and integration groups. Preserve valid
+The earlier separation revision ran no tests. At the now-authorized development
+acceptance step, when implementation and wiring are coherent and focused checks pass, run
+the complete active isolated scope with fresh unit coverage. This covers the
+project's layers without requiring a real environment. Preserve valid
 evidence for unchanged behavior and rerun checks whose observations or validity
 the correction affects. A later correction returns work to the focused loop;
-repeat the required complete gates when the corrected candidate is ready again.
+repeat affected isolated checks when the corrected candidate is ready again.
+Real integration campaigns require a new explicit user decision; readiness alone
+does not start them or make them a prerequisite for development delivery.
 Documentation or checkpoint edits alone do not require executable test campaigns.
 
 Stop the remaining owned campaign when an observed failure or error already
@@ -98,8 +172,9 @@ do not create a separate tracking workflow for this cadence.
 
 ## Coverage Freshness
 
-Before accepting changed production code or tests, run the `coverage` target on
-the final candidate, following the [validation cadence](#validation-cadence).
+When development verification is performed, run the `coverage` target before
+accepting changed production code or tests on the final candidate, following the
+[validation cadence](#validation-cadence) and the user's current execution scope.
 Intermediate corrections use focused checks; they do not each trigger complete
 coverage. One Maven
 invocation prepares the JaCoCo agent, runs the complete unit suite, and generates
@@ -117,24 +192,20 @@ and [`Makefile`](../Makefile), with the agent configured in [`pom.xml`](../pom.x
 
 ## Validation After Removals
 
-After removals, validate the final implementation with every configured test
-group at the acceptance boundary, regardless of the apparent scope of the change.
-Use focused checks while correcting intermediate states; this requirement does
-not require a complete campaign after each removal or small correction.
-Run `make coverage`
-and `make integration-test-neo4j` on Linux and macOS, or
-`.\Invoke-Build.ps1 coverage` and `.\Invoke-Build.ps1 integration-test-neo4j`
-on Windows. The coverage target runs the complete `*Test` group with fresh
-JaCoCo reports, so a separate unit run is redundant. The full integration
-target runs every `*IT` class, including `*ProcessIT`, database behavior, packaged
-consumers, and resource lifecycle tests; a separate process-only run is redundant.
-Use the requested coverage tool as the measurement reference and run the static
-quality gates separately.
-A missing test prerequisite or a failed test leaves validation
-incomplete; report it without weakening gates, skipping cases, or claiming success.
-If an executable correction is needed after validation, return to focused checks,
-then rerun all required test groups when the final implementation is ready again.
-Stop a failed campaign and preserve its incomplete result as described above.
+After removals, validate the complete active isolated scope at the later
+development acceptance step. Use focused checks for intermediate corrections.
+`make coverage` on Linux/macOS or `.\Invoke-Build.ps1 coverage` on Windows runs
+that complete scope with fresh JaCoCo reports, so a separate unit run is redundant.
+Preserve static quality gates and their separate results. A removal does not
+expand the user's current execution authorization.
+
+Real-environment integration obligations remain deferred under the
+[development verification scope](#development-verification-scope). If the user
+later requests that work, `integration-test-neo4j` retains the complete `*IT`
+selection, including process, database, packaged-consumer and lifecycle cases.
+Until then, report them as deferred, not passed; their nonexecution does not
+block delivery within the revised development scope. A failure in an executed
+check still requires an honest failed result and a correction within its scope.
 
 ## Identity API Verification
 
@@ -204,7 +275,9 @@ normal builds from a fresh output directory without weakening `-Xlint:all -Werro
 inspects every reader, CFG, and frontend classfile reference, including generic and annotation
 metadata, and compiles both permitted and forbidden consumer controls against the actual
 restricted outputs. [IdentityBoundaryTest](../src/test/java/org/aquilagraph/architecture/IdentityBoundaryTest.java)
-also runs identity operations in a Java-base-only process without JSpecify definitions.
+inspects identity classfile closure; the deferred
+[IdentityRuntimeProcessIT](../src/test/java/org/aquilagraph/architecture/IdentityRuntimeProcessIT.java)
+owns the Java-base-only child-process observation without JSpecify definitions.
 These gates establish their dependency and access properties; independent domain operations,
 completion, canonical identities, retention, and query behavior require their own behavioral
 verification.

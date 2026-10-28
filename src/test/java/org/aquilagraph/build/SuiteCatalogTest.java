@@ -6,8 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.stream.Stream;
-import org.aquilagraph.build.IntegrationCatalog.Entry;
-import org.aquilagraph.build.IntegrationCatalog.Kind;
+import org.aquilagraph.build.SuiteCatalog.Entry;
+import org.aquilagraph.build.SuiteCatalog.Kind;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -17,15 +17,30 @@ import org.junit.platform.launcher.core.LauncherDiscoveryRequestBuilder;
 import org.junit.platform.launcher.core.LauncherFactory;
 import org.junit.platform.launcher.TestPlan;
 
-class IntegrationCatalogTest {
+class SuiteCatalogTest {
+  @Test
+  void givenUntaggedUnitsAndFactories_whenUnitDiscoveryRuns_thenTheWholeUnitInventoryNeedsNoIntegrationTag() {
+    // Arrange
+    var plan = discover(UnclassifiedCase.class, ProcessCase.class);
+
+    // Act
+    var units = SuiteCatalogProbe.catalog(plan, "unit", "");
+
+    // Assert
+    assertEquals(3, units.entries().size());
+    assertEquals(units.entries(), units.selected());
+    assertTrue(units.entries().stream().allMatch(entry -> "unit".equals(entry.group())));
+    assertEquals(1, units.entries().stream().filter(entry -> entry.kind() == Kind.CONTAINER).count());
+  }
+
   @Test
   void givenInheritedTestsAndDynamicFactory_whenDiscovered_thenConcreteOwnersAndFactoryIdentitiesAreSelected() {
     // Arrange
     var plan = discover(ProcessCase.class, PersistenceCase.class, LifecycleCase.class);
 
     // Act
-    var all = IntegrationCatalogProbe.catalog(plan, "all", "");
-    var selected = IntegrationCatalogProbe.catalog(plan, "process", ProcessCase.class.getName());
+    var all = SuiteCatalogProbe.catalog(plan, "all", "");
+    var selected = SuiteCatalogProbe.catalog(plan, "process", ProcessCase.class.getName());
 
     // Assert
     assertEquals(4, all.entries().size());
@@ -33,7 +48,7 @@ class IntegrationCatalogTest {
     assertTrue(selected.selected().stream().allMatch(entry -> entry.className().equals(ProcessCase.class.getName())));
     assertEquals(1, selected.selected().stream().filter(entry -> entry.kind() == Kind.CONTAINER).count());
     var union = Stream.of("process", "persistence", "lifecycle")
-        .flatMap(scope -> IntegrationCatalogProbe.catalog(plan, scope, "").selected().stream()).map(Entry::id).sorted().toList();
+        .flatMap(scope -> SuiteCatalogProbe.catalog(plan, scope, "").selected().stream()).map(Entry::id).sorted().toList();
     assertEquals(all.entries().stream().map(Entry::id).sorted().toList(), union);
   }
 
@@ -44,7 +59,7 @@ class IntegrationCatalogTest {
 
     // Act
     var failures = invalid.stream().map(type -> assertThrows(IllegalArgumentException.class,
-        () -> IntegrationCatalogProbe.catalog(discover(type), "all", ""))).toList();
+        () -> SuiteCatalogProbe.catalog(discover(type), "all", ""))).toList();
 
     // Assert
     assertEquals(4, failures.size());
@@ -57,9 +72,9 @@ class IntegrationCatalogTest {
     var plan = discover(ProcessCase.class);
 
     // Act
-    var empty = assertThrows(IllegalArgumentException.class, () -> IntegrationCatalogProbe.catalog(plan, "persistence", "").selected());
-    var misspelled = assertThrows(IllegalArgumentException.class, () -> IntegrationCatalogProbe.catalog(plan, "process", "MissingIT").selected());
-    var unknown = assertThrows(IllegalArgumentException.class, () -> IntegrationCatalogProbe.catalog(plan, "proces", ""));
+    var empty = assertThrows(IllegalArgumentException.class, () -> SuiteCatalogProbe.catalog(plan, "persistence", "").selected());
+    var misspelled = assertThrows(IllegalArgumentException.class, () -> SuiteCatalogProbe.catalog(plan, "process", "MissingIT").selected());
+    var unknown = assertThrows(IllegalArgumentException.class, () -> SuiteCatalogProbe.catalog(plan, "proces", ""));
 
     // Assert
     assertTrue(empty.getMessage().contains("empty"));

@@ -31,7 +31,8 @@ These instructions apply to the entire directory tree rooted at this file. More 
 
 ## Validation After Removals
 
-- After removals, run every configured test group against the final implementation before declaring the work complete. Use focused checks during corrections and reserve the complete campaign for acceptance readiness, following the [validation cadence](docs/build-quality.md#validation-cadence) and [complete test validation procedure](docs/build-quality.md#validation-after-removals).
+- Follow the current [development verification scope](docs/build-quality.md#development-verification-scope). Real-environment integration campaigns are deferred until a new explicit user decision; removals, task completion, reviews, or acceptance readiness do not reactivate them.
+- When test execution is authorized, validate removals against the complete active isolated scope at acceptance readiness, using focused checks during corrections. Follow the [validation cadence](docs/build-quality.md#validation-cadence) and [removal validation procedure](docs/build-quality.md#validation-after-removals), and report deferred integrated verification separately.
 
 ## Coverage Freshness
 

@@ -3,9 +3,13 @@
 Runs one local build operation through the shared JDK 25 execution owner.
 .PARAMETER Target
 The operation to run; compile is the default.
-check-process, check-persistence and check-lifecycle run focused integrations only.
+test runs development tests; coverage runs the same scope with unit coverage.
+Unit selectors use explicit *Test class names, optionally followed by #method.
+quality runs static gates without tests.
+Real-environment integration commands are deferred until a new explicit user decision.
+check-process, check-persistence and check-lifecycle are manual integration commands.
 prepare-consumers packages and prepares the independent query module without running tests.
-Use integration-test-neo4j for all integrations; coverage and quality retain their separate responsibilities.
+verify-all and integration-test-neo4j include real integrations; they are not development acceptance commands.
 .PARAMETER ProjectRoot
 The canonical project to build; the script directory is the default.
 .PARAMETER MavenCommand
@@ -17,7 +21,7 @@ The existing test-skip setting, validated by the shared operation owner.
 .EXAMPLE
 .\Invoke-Build.ps1 coverage
 .EXAMPLE
-.\Invoke-Build.ps1 check-process -MavenFlags @('-B', '--no-transfer-progress', '-Dbuild.integration.classes=org.aquilagraph.AquilaGraphProcessIT')
+.\Invoke-Build.ps1 test -MavenFlags @('-B', '--no-transfer-progress', '-Dtest=BuildRequestTest')
 #>
 [CmdletBinding()]
 param(

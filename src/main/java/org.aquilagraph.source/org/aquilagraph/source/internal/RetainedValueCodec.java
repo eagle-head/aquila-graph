@@ -1,5 +1,9 @@
 package org.aquilagraph.source.internal;
 
+import org.aquilagraph.source.internal.CapturedPaths.Role;
+
+import org.aquilagraph.source.internal.CapturedPaths.Syntax;
+
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.admission.CoverageAdmission;
@@ -22,11 +26,13 @@ import java.util.function.Function;
 import java.util.function.ToIntFunction;
 import org.aquilagraph.identity.api.CanonicalValueReader;
 import org.aquilagraph.identity.api.CanonicalValueWriter;
+import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.DependencySnapshot;
 import org.aquilagraph.identity.api.DependencySemantics;
 import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.CoverageValidationEvidence;
 import org.aquilagraph.source.api.CoverageEvidenceValue;
@@ -65,6 +71,8 @@ public final class RetainedValueCodec {
   private final boolean canonical;
   private final String format;
   private final int formatVersion;
+  private final CapturedPaths capturedPaths = new CapturedPaths();
+  private @Nullable Syntax frameSyntax;
   private final Map<String, JavaTypeIdentity> historicalTypeIdentities = new HashMap<>();
   private final Function<SyntaxNode, @Nullable Integer> nodeOrdinal;
   private final ToIntFunction<SyntaxNode> registerNode;
@@ -217,6 +225,11 @@ public final class RetainedValueCodec {
    * @return the resulting object
    */
   public Object read(CanonicalValueReader reader) {
+    return read(reader, Role.VALUE, null);
+  }
+
+  private Object read(CanonicalValueReader reader, Role pathRole, @Nullable Syntax sourceSyntax) {
+    var contextSyntax = sourceSyntax == null ? frameSyntax : sourceSyntax;
     var tag = reader.text();
     return switch (tag) {
       case "text" -> reader.text();
@@ -229,9 +242,9 @@ public final class RetainedValueCodec {
       case "int16" -> boundedInteger(reader, Short.MIN_VALUE, Short.MAX_VALUE).shortValue();
       case "char16" -> (char) boundedInteger(reader, Character.MIN_VALUE, Character.MAX_VALUE).intValue();
       case "decimal" -> new BigDecimal(reader.text());
-      case "path" -> Path.of(reader.text());
-      case "optional" -> reader.flag() ? Optional.of(read(reader)) : Optional.empty();
-      case "list" -> readSequence(reader);
+      case "path" -> capturedPaths.read(reader.text(), pathRole, contextSyntax);
+      case "optional" -> reader.flag() ? Optional.of(read(reader, pathRole, contextSyntax)) : Optional.empty();
+      case "list" -> readSequence(reader, pathRole, contextSyntax);
       case "set" -> readSet(reader);
       case "source-node" -> readNode(reader);
       case "source-node-reference" -> readNodeReference(reader);
@@ -241,7 +254,7 @@ public final class RetainedValueCodec {
       case "source-coverage-result" -> readCoverage(reader);
       case "syntax-value/annotation" -> readAnnotation(reader);
       case "syntax-value/local-declaration" -> readLegacyLocal(reader);
-      default -> readRegistered(reader, tag);
+      default -> readRegistered(reader, tag, contextSyntax);
     };
   }
 
@@ -298,7 +311,7 @@ public final class RetainedValueCodec {
         fact.semanticReference(), fact.sourceAssociation());
   }
 
-  private Object readRegistered(CanonicalValueReader reader, String tag) {
+  private Object readRegistered(CanonicalValueReader reader, String tag, @Nullable Syntax sourceSyntax) {
     validateFormatTag(tag);
     var shape = AstValueSchema.tag(tag);
     if (shape.type().isEnum()) {
@@ -318,11 +331,17 @@ public final class RetainedValueCodec {
       throw new IllegalArgumentException("Wrong retained field count: " + tag);
     }
     var components = new ArrayList<Object>(shape.fields().size());
+    var contextSyntax = sourceSyntax;
     for (var field : fields) {
       if (!field.equals(reader.text())) {
         throw new IllegalArgumentException("Wrong retained field order: " + tag + "/" + field);
       }
-      components.add(read(reader));
+      var component = read(reader, pathRole(shape.type(), field), contextSyntax);
+      components.add(component);
+      if (shape.type() == InputSnapshot.class && "sourceRoot".equals(field)) {
+        contextSyntax = capturedPaths.syntax(required(component, Path.class));
+        frameSyntax = contextSyntax;
+      }
     }
     if (formatVersion < 21 && "analysis-environment-snapshot".equals(tag)) {
       components.add(EnvironmentIdentityScheme.HISTORICAL);
@@ -366,6 +385,14 @@ public final class RetainedValueCodec {
       components.set(2, new JavaProgram(historicalTypes(program.types(), aggregate)));
     }
     return shape.construct(components);
+  }
+
+  private static Role pathRole(Class<?> type, String field) {
+    if ((type == InputSnapshot.class && "sourceRoot".equals(field)) || (type == DependencySnapshot.class && "location".equals(field))
+        || (type == CompilerConfiguration.class && ("classPath".equals(field) || "modulePath".equals(field)))) {
+      return Role.ABSOLUTE;
+    }
+    return type == SourceFile.class && "relativePath".equals(field) ? Role.RELATIVE : Role.VALUE;
   }
 
   private static List<JavaType> historicalTypes(List<JavaType> types, Optional<JavaAstAggregate> aggregate) {
@@ -602,13 +629,17 @@ public final class RetainedValueCodec {
   }
 
   private List<Object> readSequence(CanonicalValueReader reader) {
+    return readSequence(reader, Role.VALUE, null);
+  }
+
+  private List<Object> readSequence(CanonicalValueReader reader, Role pathRole, @Nullable Syntax sourceSyntax) {
     var count = reader.count();
     if (count > reader.remaining() / Integer.BYTES) {
       throw new IllegalArgumentException("Retained sequence count exceeds the remaining payload");
     }
     var values = new ArrayList<Object>(count);
     for (var index = 0; index < count; index++) {
-      values.add(read(reader));
+      values.add(read(reader, pathRole, sourceSyntax));
     }
     return List.copyOf(values);
   }

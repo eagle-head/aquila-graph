@@ -18,6 +18,25 @@ class BuildRequestTest {
   Path directory;
 
   @Test
+  void givenCompleteValidation_whenItsArgumentsAreBuilt_thenOneFullLifecycleOwnsFreshCompilationAndCoverage() throws Exception {
+    // Arrange
+    var request = BuildRequest.parse("--root", Path.of("").toRealPath().toString(), "verify-all");
+
+    // Act
+    var arguments = request.mavenArguments();
+    var refused = assertThrows(IllegalArgumentException.class,
+        () -> BuildRequest.validateFlag(BuildOperation.VERIFY_ALL, "-Dbuild.compilation.force=false"));
+
+    // Assert
+    assertEquals(List.of("help:effective-pom", "jacoco:prepare-agent", "verify", "antrun:run@report-unit-coverage"), request.operation().goals());
+    assertEquals(1, arguments.stream().filter("verify"::equals).count());
+    assertTrue(arguments.contains("-Dbuild.compilation.force=true"));
+    assertTrue(arguments.contains("-Pneo4j-integration"));
+    assertFalse(arguments.contains("-DskipTests=true"));
+    assertTrue(refused.getMessage().contains("verify-all"));
+  }
+
+  @Test
   void givenCompileRequest_whenArgumentsAreBuilt_thenTheCatalogOwnsSkipAndGoal() throws Exception {
     // Arrange
     var arguments = new String[]{"--root", Path.of("").toRealPath().toString(), "compile", "-o"};
@@ -60,6 +79,38 @@ class BuildRequestTest {
     // Assert
     assertTrue(coverage.getMessage().contains("coverage"));
     assertTrue(integration.getMessage().contains("integration-test-neo4j"));
+  }
+
+  @Test
+  void givenIntegrationOrBroadSelectors_whenUnitRequestsAreCreated_thenTheyAreRefusedBeforeExecution() {
+    // Arrange
+    var selectors = List.of("SomeProcessIT", "org.example.DatabaseIT#query", "*", "Selected*", "*IT", "SelectedTest,SomeIT",
+        "%regex[.*]", "SelectedTest,", "SelectedTest#", "#method");
+
+    // Act
+    var failures = new ArrayList<IllegalArgumentException>();
+    for (var selector : selectors) {
+      failures.add(assertThrows(IllegalArgumentException.class,
+          () -> new BuildRequest(directory, directory, Path.of("mvnw"), BuildOperation.TEST, List.of("-Dtest=" + selector))));
+    }
+
+    // Assert
+    assertEquals(selectors.size(), failures.size());
+    failures.forEach(failure -> assertTrue(failure.getMessage().contains("explicit *Test class names")));
+  }
+
+  @Test
+  void givenExplicitUnitClassesAndMethods_whenAUnitRequestIsCreated_thenLiteralSelectionsArePreserved() {
+    // Arrange
+    var selector = "-Dtest=FirstTest,org.example.RepositoryTest#givenFailure*+givenEmpty*,LiteralTest#literal & \"quoted\" $value";
+
+    // Act
+    var request = new BuildRequest(directory, directory, Path.of("mvnw"), BuildOperation.TEST, List.of(selector));
+
+    // Assert
+    assertTrue(request.mavenArguments().contains(selector));
+    assertEquals(List.of("test"), request.operation().goals());
+    assertTrue(request.operation().integrationScope().isEmpty());
   }
 
   @Test

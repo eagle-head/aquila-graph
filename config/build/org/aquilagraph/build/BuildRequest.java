@@ -102,12 +102,15 @@ record BuildRequest(Path root, Path toolRoot, Path maven, BuildOperation operati
   }
 
   static void validateFlag(BuildOperation operation, String flag) {
+    if (operation == BuildOperation.VERIFY_ALL && Set.of("-q", "--quiet").contains(flag)) {
+      throw new IllegalArgumentException("Complete validation requires observable Maven execution diagnostics");
+    }
     if (OPTIONS.contains(flag)) {
       return;
     }
-    if ("-Phigh-capacity-tests".equals(flag)
-        && (operation == BuildOperation.TEST || operation == BuildOperation.COVERAGE || operation == BuildOperation.INTEGRATION_TEST
-            || operation == BuildOperation.INTEGRATION_TEST_NEO4J || operation.focusedIntegration())) {
+    if ("-Phigh-capacity-tests".equals(flag) && (operation == BuildOperation.TEST || operation == BuildOperation.COVERAGE
+        || operation == BuildOperation.INTEGRATION_TEST || operation == BuildOperation.INTEGRATION_TEST_NEO4J
+        || operation == BuildOperation.VERIFY_ALL || operation.focusedIntegration())) {
       return;
     }
     if (("-Pneo4j-integration".equals(flag) && operation == BuildOperation.INTEGRATION_TEST_NEO4J)
@@ -125,17 +128,18 @@ record BuildRequest(Path root, Path toolRoot, Path maven, BuildOperation operati
         if ("test.integration.reuse.forks".equals(key) && Set.of("true", "false").contains(value)) {
           return;
         }
-        if ("build.compilation.force".equals(key) && Set.of("true", "false").contains(value)) {
+        if ("build.compilation.force".equals(key) && operation != BuildOperation.VERIFY_ALL && Set.of("true", "false").contains(value)) {
           return;
         }
-        if ("test".equals(key) && operation == BuildOperation.TEST && !value.isBlank() && !value.contains("\n")) {
+        if ("test".equals(key) && operation == BuildOperation.TEST) {
+          requireUnitSelector(value);
           return;
         }
         if ("build.integration.classes".equals(key) && operation.focusedIntegration()
             && value.matches("[A-Za-z_$][A-Za-z0-9_$.]*(,[A-Za-z_$][A-Za-z0-9_$.]*)*")) {
           return;
         }
-        if ("build.integration.groups".equals(key) && operation == BuildOperation.TEST && IntegrationCatalog.GROUPS.contains(value)) {
+        if ("build.integration.groups".equals(key) && operation == BuildOperation.TEST && SuiteCatalog.GROUPS.contains(value)) {
           return;
         }
       }
@@ -145,10 +149,28 @@ record BuildRequest(Path root, Path toolRoot, Path maven, BuildOperation operati
         + "; local operations own lifecycle goals, profiles and verification settings");
   }
 
+  private static void requireUnitSelector(String value) {
+    for (var selection : value.split(",", -1)) {
+      var method = selection.indexOf('#');
+      var type = method < 0 ? selection : selection.substring(0, method);
+      if (!type.matches("([A-Za-z_$][A-Za-z0-9_$]*\\.)*([A-Za-z_$][A-Za-z0-9_$]*)?Test") || method == selection.length() - 1
+          || selection.contains("\n") || selection.contains("\r")) {
+        throw new IllegalArgumentException("Unit test selectors require explicit *Test class names, optionally followed by #method; "
+            + "use a separate integration command for real-environment tests");
+      }
+    }
+  }
+
   List<String> mavenArguments() {
     var result = new ArrayList<String>();
     result.add("-Dmaven.repo.local=" + toolRoot.resolve("target/maven-repository"));
     result.addAll(flags);
+    if (operation == BuildOperation.VERIFY_ALL) {
+      result.add("-Doutput=" + root.resolve("target/complete-validation/effective-pom.xml"));
+      result.add("-Dstyle.color=never");
+      result.add("-Dbuild.complete.skip=false");
+      result.add("-Dbuild.failure.limit=1");
+    }
     result.addAll(operation.arguments());
     return List.copyOf(result);
   }

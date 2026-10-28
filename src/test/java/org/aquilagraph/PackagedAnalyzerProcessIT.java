@@ -50,6 +50,7 @@ class PackagedAnalyzerProcessIT {
       assertFalse(outcome.completed());
       assertTrue(owned.stream().noneMatch(ProcessHandle::isAlive), "Every previously observed launcher/JVM must close");
       assertTrue(newDescendants(baseline).isEmpty(), "No owned descendant may survive timeout");
+      assertOutputsReplaceable();
     } finally {
       closeRemaining(worker, owned, baseline);
     }
@@ -75,6 +76,7 @@ class PackagedAnalyzerProcessIT {
       assertInstanceOf(InterruptedException.class, failure.get());
       assertTrue(owned.stream().noneMatch(ProcessHandle::isAlive), "Every previously observed launcher/JVM must close");
       assertTrue(newDescendants(baseline).isEmpty(), "No owned descendant may survive interruption");
+      assertOutputsReplaceable();
     } finally {
       closeRemaining(worker, owned, baseline);
     }
@@ -88,6 +90,15 @@ class PackagedAnalyzerProcessIT {
         failure.set(problem);
       }
     });
+  }
+
+  private void assertOutputsReplaceable() throws Exception {
+    for (var name : List.of("process-output.txt", "process-error.txt")) {
+      var output = directory.resolve(name);
+      var moved = directory.resolve(name + ".closed");
+      Files.move(output, moved);
+      Files.move(moved, output);
+    }
   }
 
   private List<ProcessHandle> awaitLaunchedTree(Thread worker, Set<ProcessHandle> baseline) throws Exception {

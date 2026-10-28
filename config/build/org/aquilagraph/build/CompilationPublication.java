@@ -10,6 +10,10 @@ import java.util.Properties;
 
 /** A success marker is valid only for the entire published output inventory. */
 final class CompilationPublication {
+  private static final String OUTPUT_SCHEMA = "compilation-output/1";
+  private static final String SCHEMA_KEY = "schema";
+  private static final String OUTPUT_PATH = "output.path";
+  private static final String OUTPUT_DIGEST = "output.digest";
   private final CompilationRequest request;
   private final Path marker;
 
@@ -24,8 +28,8 @@ final class CompilationPublication {
       return false;
     }
     var record = readMarker(marker);
-    if (!"compilation-output/1".equals(record.getProperty("schema"))
-        || !request.publishedOutput(input).toString().equals(record.getProperty("output.path"))) {
+    if (!OUTPUT_SCHEMA.equals(record.getProperty(SCHEMA_KEY))
+        || !request.publishedOutput(input).toString().equals(record.getProperty(OUTPUT_PATH))) {
       explain("invalid publication record");
       return false;
     }
@@ -34,7 +38,7 @@ final class CompilationPublication {
       return false;
     }
     if (!Files.isDirectory(request.publishedOutput(input), LinkOption.NOFOLLOW_LINKS)
-        || !PreparationFiles.digest(request.publishedOutput(input)).equals(record.getProperty("output.digest"))) {
+        || !PreparationFiles.digest(request.publishedOutput(input)).equals(record.getProperty(OUTPUT_DIGEST))) {
       explain("published output inventory changed");
       return false;
     }
@@ -61,10 +65,10 @@ final class CompilationPublication {
       throw new IOException("Published compilation output differs from the complete staged output");
     }
     var record = new Properties();
-    record.setProperty("schema", "compilation-output/1");
+    record.setProperty(SCHEMA_KEY, OUTPUT_SCHEMA);
     record.setProperty("input", input);
-    record.setProperty("output.path", output.toString());
-    record.setProperty("output.digest", expected);
+    record.setProperty(OUTPUT_PATH, output.toString());
+    record.setProperty(OUTPUT_DIGEST, expected);
     BuildFiles.write(marker, record);
   }
 
@@ -72,11 +76,28 @@ final class CompilationPublication {
     var marker = root.resolve("target/compilation/production/success.properties");
     var record = readMarker(marker);
     var output = root.resolve("target/classes");
-    if (!Files.isDirectory(output, LinkOption.NOFOLLOW_LINKS) || !"compilation-output/1".equals(record.getProperty("schema"))
-        || !output.toString().equals(record.getProperty("output.path"))
-        || !PreparationFiles.digest(output).equals(record.getProperty("output.digest"))) {
+    if (!Files.isDirectory(output, LinkOption.NOFOLLOW_LINKS) || !OUTPUT_SCHEMA.equals(record.getProperty(SCHEMA_KEY))
+        || !output.toString().equals(record.getProperty(OUTPUT_PATH))
+        || !PreparationFiles.digest(output).equals(record.getProperty(OUTPUT_DIGEST))) {
       throw new IOException("Test compilation requires the exact successfully published production output");
     }
+  }
+
+  static Properties requireCurrent(Path root, String batch) throws IOException {
+    var state = PreparationFiles.owned(root, root.resolve("target/compilation").resolve(batch));
+    var manifest = BuildFiles.read(state.resolve("inputs.properties"));
+    var publication = BuildFiles.read(state.resolve("success.properties"));
+    if (!CompilationInputs.SCHEMA.equals(manifest.getProperty(SCHEMA_KEY)) || !batch.equals(manifest.getProperty("batch"))
+        || !PreparationFiles.digest(manifest).equals(publication.getProperty("input"))) {
+      throw new IOException("Final compilation requires its complete current input identity: " + batch);
+    }
+    CompilationInputs.requireUnchangedPaths(manifest, "Compilation " + batch);
+    var output = PreparationFiles.owned(root, Path.of(BuildFiles.required(publication, OUTPUT_PATH)));
+    if (!OUTPUT_SCHEMA.equals(publication.getProperty(SCHEMA_KEY)) || !Files.isDirectory(output, LinkOption.NOFOLLOW_LINKS)
+        || !PreparationFiles.digest(output).equals(publication.getProperty(OUTPUT_DIGEST))) {
+      throw new IOException("Final compilation output changed: " + batch);
+    }
+    return publication;
   }
 
   private static Properties readMarker(Path marker) throws IOException {

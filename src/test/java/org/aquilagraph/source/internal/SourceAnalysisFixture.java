@@ -70,10 +70,11 @@ public final class SourceAnalysisFixture {
   /**
    * Admits supplied historical values without claiming authentic historical producer output.
    * @param original source facts
+   * @param environment captured compiler environment retained by the fixture
    * @return historical format and identity derived from the supplied values
    */
-  public static AstResult historicalResult(AstResult original) {
-    var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
+  public static AstResult historicalResult(AstResult original, AnalysisEnvironmentSnapshot environment) {
+    var input = new SyntaxAnalysisInput(original.snapshot(), environment, original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());
     return AstResultAdmission.admit(historicalInput(input), original.profile(), original.identity().semanticProductionRevision());
   }
