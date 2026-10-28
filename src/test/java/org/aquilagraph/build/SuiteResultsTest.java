@@ -10,12 +10,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Properties;
-import org.aquilagraph.build.IntegrationCatalog.Entry;
-import org.aquilagraph.build.IntegrationCatalog.Kind;
+import org.aquilagraph.build.SuiteCatalog.Entry;
+import org.aquilagraph.build.SuiteCatalog.Kind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class IntegrationResultsTest {
+class SuiteResultsTest {
   private static final String CLASS_ID = "[engine:junit-jupiter]/[class:fixture.ExampleProcessIT]";
   private static final String STATIC_ID = CLASS_ID + "/[method:staticCase()]";
   private static final String FACTORY_ID = CLASS_ID + "/[test-factory:factoryCase()]";
@@ -33,8 +33,8 @@ class IntegrationResultsTest {
     catalog.write(directory.resolve("catalog.properties"));
 
     // Act
-    var restored = IntegrationCatalog.read(directory.resolve("catalog.properties"));
-    IntegrationResults.verify(restored, directory, summary);
+    var restored = SuiteCatalog.read(directory.resolve("catalog.properties"));
+    SuiteResults.verify(restored, directory, summary);
 
     // Assert
     assertEquals(catalog, restored);
@@ -55,7 +55,7 @@ class IntegrationResultsTest {
     // Act
     for (var status : statuses) {
       BuildFiles.write(directory.resolve("execution-fork.properties"), receipt(status, true));
-      var failure = assertThrows(IOException.class, () -> IntegrationResults.verify(catalog, directory, summary));
+      var failure = assertThrows(IOException.class, () -> SuiteResults.verify(catalog, directory, summary));
 
       // Assert
       assertTrue(failure.getMessage().contains("did not succeed"), failure.getMessage());
@@ -71,15 +71,15 @@ class IntegrationResultsTest {
     BuildFiles.write(directory.resolve("execution-fork.properties"), empty);
 
     // Act
-    var factory = assertThrows(IOException.class, () -> IntegrationResults.verify(catalog, directory, summary));
+    var factory = assertThrows(IOException.class, () -> SuiteResults.verify(catalog, directory, summary));
     var missing = new Properties();
     missing.setProperty("complete", "true");
     missing.setProperty("count", "0");
     BuildFiles.write(directory.resolve("execution-fork.properties"), missing);
-    var omitted = assertThrows(IOException.class, () -> IntegrationResults.verify(catalog, directory, summary));
+    var omitted = assertThrows(IOException.class, () -> SuiteResults.verify(catalog, directory, summary));
     BuildFiles.write(directory.resolve("execution-fork.properties"), empty);
     BuildFiles.write(directory.resolve("execution-duplicate.properties"), empty);
-    var duplicate = assertThrows(IOException.class, () -> IntegrationResults.verify(catalog, directory, summary));
+    var duplicate = assertThrows(IOException.class, () -> SuiteResults.verify(catalog, directory, summary));
 
     // Assert
     assertTrue(factory.getMessage().contains("no test descendants"));
@@ -94,13 +94,13 @@ class IntegrationResultsTest {
     var summary = summary(8);
 
     // Act
-    var absent = assertThrows(IOException.class, () -> IntegrationResults.verify(catalog, directory, summary));
+    var absent = assertThrows(IOException.class, () -> SuiteResults.verify(catalog, directory, summary));
     var incomplete = receipt("SUCCESSFUL", true);
     incomplete.setProperty("complete", "false");
     BuildFiles.write(directory.resolve("execution-fork.properties"), incomplete);
-    var partial = assertThrows(IOException.class, () -> IntegrationResults.verify(catalog, directory, summary));
+    var partial = assertThrows(IOException.class, () -> SuiteResults.verify(catalog, directory, summary));
     BuildFiles.write(directory.resolve("execution-fork.properties"), receipt("SUCCESSFUL", true));
-    var mismatch = assertThrows(IOException.class, () -> IntegrationResults.verify(catalog, directory, summary));
+    var mismatch = assertThrows(IOException.class, () -> SuiteResults.verify(catalog, directory, summary));
 
     // Assert
     assertTrue(absent.getMessage().contains("No current"));
@@ -120,8 +120,8 @@ class IntegrationResultsTest {
     var summary = summary(1);
 
     // Act
-    IntegrationResults.verify(catalog, directory, summary);
-    var unexpected = assertThrows(IOException.class, () -> IntegrationResults.verify(catalog(false), directory, summary));
+    SuiteResults.verify(catalog, directory, summary);
+    var unexpected = assertThrows(IOException.class, () -> SuiteResults.verify(catalog(false), directory, summary));
 
     // Assert
     assertTrue(unexpected.getMessage().contains("did not succeed"));
@@ -139,7 +139,7 @@ class IntegrationResultsTest {
       var data = receipt("SUCCESSFUL", true);
       data.setProperty("entry.0." + field, "UNRECOGNIZED");
       BuildFiles.write(directory.resolve("execution-fork.properties"), data);
-      var failure = assertThrows(IOException.class, () -> IntegrationResults.verify(catalog, directory, summary));
+      var failure = assertThrows(IOException.class, () -> SuiteResults.verify(catalog, directory, summary));
 
       // Assert
       assertTrue(failure.getMessage().contains("Invalid integration completion record"));
@@ -147,8 +147,8 @@ class IntegrationResultsTest {
     }
   }
 
-  private static IntegrationCatalog catalog(boolean platformSkipped) {
-    return new IntegrationCatalog("process", "", List.of(
+  private static SuiteCatalog catalog(boolean platformSkipped) {
+    return new SuiteCatalog("process", "", List.of(
         new Entry(STATIC_ID, "fixture.ExampleProcessIT", "process", Kind.TEST, platformSkipped),
         new Entry(FACTORY_ID, "fixture.ExampleProcessIT", "process", Kind.CONTAINER, platformSkipped)));
   }

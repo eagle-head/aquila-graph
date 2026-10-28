@@ -39,6 +39,7 @@ final class IntegrationBuildFixture {
         <build.integration.groups /><build.integration.classes /><build.integration.includes>**/*ProcessIT.java</build.integration.includes>
         <test.integration.forks>1</test.integration.forks><test.integration.reuse.forks>true</test.integration.reuse.forks>
         <coverageAgentArguments /><test.jvm.arguments>-Xms128m -Xmx512m --enable-native-access=ALL-UNNAMED</test.jvm.arguments>
+        <build.failure.limit>0</build.failure.limit>
         """);
     var dependencies = new StringBuilder("<dependencies>");
     for (var artifact : List.of("junit-jupiter-api", "junit-jupiter-engine", "junit-platform-launcher")) {

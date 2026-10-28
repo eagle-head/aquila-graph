@@ -57,6 +57,9 @@ public final class BuildAdmission {
           + BuildFiles.required(request, "goals") + ", observed " + effectiveGoals + ", lifecycle " + arguments[0]);
     }
     wrapper.observe(ProcessHandle.current().parent().orElseThrow(() -> new IOException("Maven parent identity is unavailable")));
+    if (BuildOperation.VERIFY_ALL.command().equals(BuildFiles.required(request, "operation"))) {
+      CompleteConfiguration.admit(context);
+    }
     System.getLogger(BuildAdmission.class.getName()).log(Level.INFO,
         "Admitted leased local operation " + BuildFiles.required(request, "operation"));
   }

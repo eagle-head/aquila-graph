@@ -1,6 +1,7 @@
 package org.aquilagraph.build;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.util.Properties;
 import java.nio.file.Path;
@@ -125,7 +126,22 @@ final class CommandLaunch implements AutoCloseable {
 
   int awaitExit() throws IOException, InterruptedException {
     var child = processFor(State.PERMITTED);
+    var complete = "verify-all".equals(BuildFiles.read(context.directory().resolve("invocation.properties")).getProperty("operation"));
+    var failureDeadline = Long.MAX_VALUE;
     while (!child.waitFor(100, TimeUnit.MILLISECONDS)) {
+      if (complete) {
+        for (var scope : List.of("unit", "all")) {
+          var failure = SuiteCatalog.directory(context.root(), context.nonce(), scope).resolve("failure.properties");
+          if (Files.isRegularFile(failure)) {
+            if (failureDeadline == Long.MAX_VALUE) {
+              failureDeadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+            }
+            if (System.nanoTime() >= failureDeadline) {
+              throw new IOException("Complete validation stopped after observed test failure: " + BuildFiles.read(failure));
+            }
+          }
+        }
+      }
       try (var descendants = child.descendants()) {
         for (var descendant : descendants.toList()) {
           journal.observe(descendant);

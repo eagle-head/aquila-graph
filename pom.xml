@@ -54,6 +54,9 @@
     <analysis.classpathFile>${project.build.directory}/build-inputs/analysis.classpath</analysis.classpathFile>
     <build.tools.outputDirectory>${project.build.directory}/build-tool-classes</build.tools.outputDirectory>
     <build.compilation.force>false</build.compilation.force>
+    <build.complete.skip>true</build.complete.skip>
+    <build.unit.directory />
+    <build.failure.limit>0</build.failure.limit>
     <build.integration.scope>legacy-process</build.integration.scope>
     <build.integration.groups />
     <build.integration.classes />
@@ -540,6 +543,11 @@
         </executions>
       </plugin>
       <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-help-plugin</artifactId>
+        <version>3.5.2</version>
+      </plugin>
+      <plugin>
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>
         <version>${jacoco-maven-plugin.version}</version>
@@ -558,8 +566,12 @@
         <configuration>
           <forkCount>${test.unit.forks}</forkCount>
           <reuseForks>true</reuseForks>
+          <skipAfterFailureCount>${build.failure.limit}</skipAfterFailureCount>
           <argLine>@{coverageAgentArguments} ${test.jvm.arguments} -Djava.io.tmpdir="${project.build.directory}"</argLine>
           <useManifestOnlyJar>false</useManifestOnlyJar>
+          <systemPropertyVariables>
+            <aquila.unit.directory>${build.unit.directory}</aquila.unit.directory>
+          </systemPropertyVariables>
           <includes>
             <include>**/*Test.java</include>
           </includes>
@@ -591,7 +603,8 @@
         <configuration>
           <forkCount>${test.integration.forks}</forkCount>
           <reuseForks>${test.integration.reuse.forks}</reuseForks>
-          <argLine>@{coverageAgentArguments} ${test.jvm.arguments} -Djava.io.tmpdir="${project.build.directory}"</argLine>
+          <skipAfterFailureCount>${build.failure.limit}</skipAfterFailureCount>
+          <argLine>${test.jvm.arguments} -Djava.io.tmpdir="${project.build.directory}"</argLine>
           <groups>${build.integration.groups}</groups>
           <test>${build.integration.classes}</test>
           <failIfNoTests>true</failIfNoTests>
@@ -680,6 +693,16 @@
               <environmentVariables>
                 <AQUILA_BUILD_EFFECTIVE_GOALS>goals=${session.request.goals}</AQUILA_BUILD_EFFECTIVE_GOALS>
               </environmentVariables>
+            </configuration>
+          </execution>
+          <execution>
+            <id>require-docker-engine</id>
+            <phase>validate</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>docker</executable>
+              <skip>${build.complete.skip}</skip>
+              <arguments><argument>version</argument><argument>--format</argument><argument>{{.Server.Version}}</argument></arguments>
             </configuration>
           </execution>
           <execution>
@@ -854,6 +877,48 @@
             </configuration>
           </execution>
           <execution>
+            <id>discover-unit-catalog</id>
+            <phase>process-test-classes</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>java</executable>
+              <skip>${build.complete.skip}</skip>
+              <arguments>
+                <argument>@${project.build.directory}/build-inputs/test-runtime.args</argument>
+                <argument>org.aquilagraph.build.SuiteCatalogProbe</argument>
+                <argument>${project.basedir}</argument>
+                <argument>${project.build.testOutputDirectory}</argument>
+                <argument>unit</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>capture-unit-validation</id>
+            <phase>prepare-package</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>java</executable>
+              <skip>${build.complete.skip}</skip>
+              <arguments>
+                <argument>${project.basedir}/config/build/org/aquilagraph/build/CompleteValidationCheckpoint.java</argument>
+                <argument>${project.basedir}</argument><argument>unit</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>reconcile-integration-validation</id>
+            <phase>post-integration-test</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>java</executable>
+              <skip>${build.complete.skip}</skip>
+              <arguments>
+                <argument>${project.basedir}/config/build/org/aquilagraph/build/CompleteValidationCheckpoint.java</argument>
+                <argument>${project.basedir}</argument><argument>integration</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
             <id>discover-integration-catalog</id>
             <phase>pre-integration-test</phase>
             <goals><goal>exec</goal></goals>
@@ -862,7 +927,7 @@
               <skip>${maven.test.skip}</skip>
               <arguments>
                 <argument>@${project.build.directory}/build-inputs/test-runtime.args</argument>
-                <argument>org.aquilagraph.build.IntegrationCatalogProbe</argument>
+                <argument>org.aquilagraph.build.SuiteCatalogProbe</argument>
                 <argument>${project.basedir}</argument>
                 <argument>${project.build.testOutputDirectory}</argument>
                 <argument>${build.integration.scope}</argument>

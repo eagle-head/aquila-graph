@@ -10,6 +10,8 @@ enum BuildOperation {
   INTEGRATION_TEST_NEO4J("-DskipTests=true -Pneo4j-integration verify"), CHECK_PROCESS(focused("process")),
   CHECK_PERSISTENCE(focused("persistence")), CHECK_LIFECYCLE(focused("lifecycle")),
   PREPARE_CONSUMERS("-Dmaven.test.skip=true pre-integration-test"), COVERAGE("jacoco:prepare-agent test antrun:run@report-unit-coverage"),
+  VERIFY_ALL(
+      "-Dbuild.compilation.force=true -Pneo4j-integration help:effective-pom jacoco:prepare-agent verify antrun:run@report-unit-coverage"),
   FORMAT("validate spotless:apply"), FORMAT_CHECK("validate spotless:check"), LINE_ENDINGS_CHECK(""),
   QUALITY("-Dmaven.test.skip=true verify"), SUPPLY_CHAIN_CHECK("-Dmaven.test.skip=true -Psupply-chain verify"), CLEAN("clean");
 
@@ -52,12 +54,12 @@ enum BuildOperation {
       case CHECK_PERSISTENCE -> Optional.of("persistence");
       case CHECK_LIFECYCLE -> Optional.of("lifecycle");
       case INTEGRATION_TEST -> Optional.of("legacy-process");
-      case INTEGRATION_TEST_NEO4J -> Optional.of("all");
+      case INTEGRATION_TEST_NEO4J, VERIFY_ALL -> Optional.of("all");
       default -> Optional.empty();
     };
   }
 
   boolean checksLineEndings() {
-    return this == QUALITY || this == LINE_ENDINGS_CHECK;
+    return this == QUALITY || this == LINE_ENDINGS_CHECK || this == VERIFY_ALL;
   }
 }

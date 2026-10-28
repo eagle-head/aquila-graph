@@ -2,7 +2,6 @@ package org.aquilagraph.build;
 
 import java.io.IOException;
 import java.lang.System.Logger.Level;
-import java.nio.file.Files;
 import java.util.Optional;
 
 /** Shared local entry; platform adapters forward literal argument elements and exit codes. */
@@ -25,29 +24,55 @@ public final class BuildExecution {
   public static void main(String[] arguments) throws IOException, InterruptedException {
     var request = BuildRequest.parse(AdapterArguments.read(arguments, System.getenv()));
     request.validateEnvironment(System.getenv());
-    int exit;
-    try (var lease = BuildLease.acquire(request);
-        var processes = new ManagedProcesses(lease, Optional.empty());
-        var shutdown = new ShutdownRegistration(processes)) {
-      shutdown.requireActive();
-      if (request.operation().checksLineEndings()) {
-        processes.checkLineEndings();
+    int exit = -1;
+    Optional<CompleteValidation> complete = Optional.empty();
+    try {
+      try (var lease = BuildLease.acquire(request)) {
+        if (request.operation() == BuildOperation.VERIFY_ALL) {
+          complete = Optional.of(CompleteValidation.prepare(lease.context()));
+        }
+        try (var processes = new ManagedProcesses(lease, Optional.empty()); var shutdown = new ShutdownRegistration(processes)) {
+          shutdown.requireActive();
+          if (request.operation().checksLineEndings()) {
+            processes.checkLineEndings();
+          }
+          if (request.operation() == BuildOperation.COVERAGE) {
+            CompleteValidation.invalidateCoverage(request.root());
+          }
+          exit = request.operation() == BuildOperation.LINE_ENDINGS_CHECK ? 0 : processes.maven();
+          if (exit == 0 && request.operation() != BuildOperation.VERIFY_ALL && request.operation().integrationScope().isPresent()) {
+            verifyIntegrations(request, lease.context());
+          }
+        }
+        if (exit == 0 && complete.isPresent()) {
+          complete.orElseThrow().verify();
+        }
+        if (complete.isPresent()) {
+          complete.orElseThrow().record(exit == 0 ? "PASSED" : "FAILED", exit == 0 ? "All current obligations reconciled" : "Maven failed",
+              exit);
+        }
       }
-      if (request.operation() == BuildOperation.COVERAGE) {
-        Files.deleteIfExists(request.root().resolve("target/jacoco.exec"));
+    } catch (IOException | InterruptedException | IllegalArgumentException | IllegalStateException exception) {
+      if (complete.isPresent()) {
+        try {
+          complete.orElseThrow().record("FAILED", exception.toString(), exit == 0 ? -1 : exit);
+        } catch (IOException recording) {
+          exception.addSuppressed(recording);
+        }
       }
-      exit = request.operation() == BuildOperation.LINE_ENDINGS_CHECK ? 0 : processes.maven();
-      if (exit == 0 && request.operation().integrationScope().isPresent()) {
-        var scope = request.operation().integrationScope().orElseThrow();
-        var directory = IntegrationCatalog.directory(request.root(), lease.context().nonce());
-        var catalog = IntegrationCatalog.read(directory.resolve("catalog.properties"));
-        catalog.requireSelection(scope, request.integrationClasses());
-        IntegrationResults.verify(catalog, directory, request.root().resolve("target/failsafe-reports/failsafe-summary.xml"));
-        System.getLogger(BuildExecution.class.getName()).log(Level.INFO,
-            "Verified integration scope: " + scope + "; complete validation: incomplete");
-      }
+      throw exception;
     }
     System.exit(exit);
+  }
+
+  private static void verifyIntegrations(BuildRequest request, InvocationContext context) throws IOException {
+    var scope = request.operation().integrationScope().orElseThrow();
+    var directory = SuiteCatalog.directory(request.root(), context.nonce());
+    var catalog = SuiteCatalog.read(directory.resolve("catalog.properties"));
+    catalog.requireSelection(scope, request.integrationClasses());
+    SuiteResults.verify(catalog, directory, request.root().resolve("target/failsafe-reports/failsafe-summary.xml"));
+    System.getLogger(BuildExecution.class.getName()).log(Level.INFO, "Verified integration scope: " + scope + "; complete validation: "
+        + (request.operation() == BuildOperation.VERIFY_ALL ? "pending reconciliation" : "incomplete"));
   }
 
   private static void closeOnShutdown(ManagedProcesses processes) {
