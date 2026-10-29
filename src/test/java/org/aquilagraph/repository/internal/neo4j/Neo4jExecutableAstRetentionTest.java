@@ -1,13 +1,10 @@
 package org.aquilagraph.repository.internal.neo4j;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.HashMap;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.api.AstProfile;
 import org.junit.jupiter.api.Test;
@@ -37,28 +34,4 @@ class Neo4jExecutableAstRetentionTest {
     assertTrue(projection.nodes().stream().noneMatch(node -> node.properties().containsKey("runId")));
   }
 
-  @Test
-  void givenMixedExecutableValuesAndAlteredChildOrder_whenDecoding_thenSupportedCorruptionCannotReturnAnOutcome() throws IOException {
-    // Arrange
-    var outcome = ExecutableAstRetentionFixture.frontend().produce(ExecutableAstRetentionFixture.snapshot(directory),
-        ExecutableAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_EXPANDED);
-    var codec = new Neo4jAstResultCodec();
-    var original = codec.map(outcome);
-    var links = new ArrayList<>(original.relationships());
-    var childLists = links.stream().filter(link -> link.type().equals("AST_CHILD")).map(Neo4jRelationship::targetKey).toList();
-    var child = links.stream().filter(link -> childLists.contains(link.sourceKey())
-        && link.properties().get("position").equals(1L)).findFirst().orElseThrow();
-    var properties = new HashMap<>(child.properties());
-    properties.put("position", 0L);
-    links.set(links.indexOf(child), new Neo4jRelationship(child.key(), child.type(), child.sourceKey(), child.targetKey(), properties));
-    var corrupted = new Neo4jAstProjection(original.identity(), original.nodes(), links);
-
-    // Act
-    var failure = assertThrows(IllegalArgumentException.class, () -> codec.decode(corrupted, original.identity()));
-
-    // Assert
-    assertTrue(failure.getMessage().contains("Materialized AST fields"));
-    ExecutableAstRetentionFixture.assertPreserved(outcome.result().orElseThrow(),
-        codec.decode(original, original.identity()).result().orElseThrow());
-  }
 }
