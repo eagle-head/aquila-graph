@@ -1,21 +1,15 @@
 package org.aquilagraph.build;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.nio.file.Files;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Properties;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 
 /** Native Windows process observations expose arguments that ProcessHandle may omit. */
 final class WindowsProcessInventory {
-  private static final int MAX_RESULT_BYTES = 64 * 1024;
   private static final int IDENTITY_FIELDS = 2;
   private static final String ABSENT_IDENTITY = "absent";
 
@@ -60,11 +54,11 @@ final class WindowsProcessInventory {
             Write-Output ($entry.ProcessId.ToString() + "`t" + $entry.CreationDate.ToUniversalTime().ToString('o'))
           }
         }
-        """.replace("@ACCOUNT@", encode(BuildFiles.required(intent, "account")))
-        .replace("@IMAGES@", encode(BuildFiles.required(intent, "intended.images")))
-        .replace("@NONCE@", encode(BuildFiles.required(intent, "nonce")))
-        .replace("@TARGET@", encode(BuildFiles.required(intent, "reservation")));
-    return admitted(observe(intent, script));
+        """.replace("@ACCOUNT@", WindowsManagement.encode(BuildFiles.required(intent, "account")))
+        .replace("@IMAGES@", WindowsManagement.encode(BuildFiles.required(intent, "intended.images")))
+        .replace("@NONCE@", WindowsManagement.encode(BuildFiles.required(intent, "nonce")))
+        .replace("@TARGET@", WindowsManagement.encode(BuildFiles.required(intent, "reservation")));
+    return admitted(WindowsManagement.run(intent, script));
   }
 
   static Optional<ProcessIdentity> identity(Properties intent, long pid) throws IOException {
@@ -79,7 +73,7 @@ final class WindowsProcessInventory {
         if ($entries.Count -ne 1 -or $null -eq $entries[0].CreationDate) { throw 'One complete process identity is required' }
         Write-Output ($entries[0].ProcessId.ToString() + "`t" + $entries[0].CreationDate.ToUniversalTime().ToString('o'))
         """.replace("@PID@", Long.toString(pid)).replace("@ABSENT@", ABSENT_IDENTITY);
-    var output = observe(intent, script).strip();
+    var output = WindowsManagement.run(intent, script).strip();
     if (ABSENT_IDENTITY.equals(output)) {
       return Optional.empty();
     }
@@ -90,45 +84,18 @@ final class WindowsProcessInventory {
     return Optional.of(new ProcessIdentity(pid, Instant.parse(fields[1]).truncatedTo(ChronoUnit.MILLIS)));
   }
 
-  private static String observe(Properties intent, String script) throws IOException {
-    var context = InvocationContext.observation(intent);
-    var journal = BuildJournal.reserve(context, "process-observation");
-    var executable = Path.of(System.getenv().getOrDefault("SystemRoot", "C:\\Windows"), "System32/WindowsPowerShell/v1.0/powershell.exe")
-        .toRealPath();
-    journal.recordEntry(executable);
-    var ownedScript = script.replace("@OBSERVER@", context.nonce()).replace("@RESERVATION@", journal.reservation());
-    var encoded = Base64.getEncoder().encodeToString(ownedScript.getBytes(StandardCharsets.UTF_16LE));
-    var diagnostics = context.root().resolve("target/build-observation").resolve(context.nonce()).resolve(journal.reservation())
-        .resolve("stderr.log");
-    Files.createDirectories(context.root().resolve("target/build-observation").resolve(context.nonce()).resolve(journal.reservation()));
-    var builder = new ProcessBuilder(executable.toString(), "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
-        .redirectError(diagnostics.toFile());
-    try (var observation = new NativeObservation(context, journal)) {
-      var process = observation.start(builder);
-      try {
-        if (!process.waitFor(15, TimeUnit.SECONDS)) {
-          throw new IOException("Native Windows process inventory exceeded 15 seconds");
+  static WindowsBootSession boot(Properties intent) throws IOException {
+    var script = """
+        # Owned host observation @OBSERVER@ @RESERVATION@
+        $ErrorActionPreference = 'Stop'
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+        $entries = @(Get-CimInstance Win32_OperatingSystem -OperationTimeoutSec 5)
+        if ($entries.Count -ne 1 -or [string]::IsNullOrWhiteSpace($entries[0].CSName) -or $null -eq $entries[0].LastBootUpTime) {
+          throw 'One complete Windows boot observation is required'
         }
-      } catch (InterruptedException exception) {
-        Thread.currentThread().interrupt();
-        throw new IOException("Native Windows process inventory was interrupted", exception);
-      }
-      var bytes = process.getInputStream().readNBytes(MAX_RESULT_BYTES + 1);
-      if (bytes.length > MAX_RESULT_BYTES) {
-        throw new IOException("Native Windows process inventory exceeded its bounded result size");
-      }
-      var output = new String(bytes, StandardCharsets.UTF_8);
-      var diagnosticText = Files.readString(diagnostics, StandardCharsets.UTF_8);
-      if (process.exitValue() != 0) {
-        throw new IOException("Native Windows process inventory failed: " + output + diagnosticText);
-      }
-      PowerShellDiagnostics.requireProgressOnly(diagnosticText);
-      return output;
-    }
-  }
-
-  private static String encode(String value) {
-    return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+        Write-Output ($entries[0].CSName + "`t" + $entries[0].LastBootUpTime.ToUniversalTime().ToString('o'))
+        """;
+    return WindowsBootSession.parse(WindowsManagement.run(intent, script), WindowsKernel.instance().uptimeMillis());
   }
 
   private static List<ProcessHandle> admitted(String output) throws IOException {

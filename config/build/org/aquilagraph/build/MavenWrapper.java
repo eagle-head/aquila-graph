@@ -1,10 +1,14 @@
 package org.aquilagraph.build;
 
 import java.io.IOException;
+import java.io.Closeable;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.lang.ProcessBuilder.Redirect;
 import java.util.ArrayList;
+import java.util.Optional;
+import java.time.Duration;
+import org.aquilagraph.build.NativeObservation.Creation;
 
 /** Runs the native Maven wrapper only after its source bridge is contained and acknowledged. */
 public final class MavenWrapper {
@@ -48,18 +52,20 @@ public final class MavenWrapper {
     }
     WrapperCommand.configure(builder, Path.of(BuildFiles.required(request, "maven")), mavenArguments);
     context.requireLiveOwner();
-    var process = builder.start();
-    int exit;
-    try {
+    System.exit(run(wrapper, builder, complete ? Optional.of(CompleteValidation.directory(context).resolve("maven.log")) : Optional.empty(),
+        ProcessBuilder::start));
+  }
+
+  static int run(BuildJournal wrapper, ProcessBuilder builder, Optional<Path> log, Creation creation)
+      throws IOException, InterruptedException {
+    var process = creation.start(builder);
+    try (var _ = ProcessStreams.closing(Optional.of(process)); Closeable _ = () -> ProcessClosure.close(process, Duration.ofSeconds(10))) {
       wrapper.observe(process.toHandle());
-      if (complete) {
-        copyOutput(process, CompleteValidation.directory(context).resolve("maven.log"));
+      if (log.isPresent()) {
+        copyOutput(process, log.orElseThrow());
       }
-      exit = process.waitFor();
-    } finally {
-      ProcessStreams.close(process);
+      return process.waitFor();
     }
-    System.exit(exit);
   }
 
   private static void copyOutput(Process process, Path log) throws IOException {

@@ -2,7 +2,9 @@ package org.aquilagraph.build;
 
 import java.io.IOException;
 import java.lang.System.Logger.Level;
+import java.time.Duration;
 import java.util.Optional;
+import org.aquilagraph.build.BuildCancellation.Requested;
 
 /** Shared local entry; platform adapters forward literal argument elements and exit codes. */
 public final class BuildExecution {
@@ -23,6 +25,14 @@ public final class BuildExecution {
    */
   public static void main(String[] arguments) throws IOException, InterruptedException {
     var request = BuildRequest.parse(AdapterArguments.read(arguments, System.getenv()));
+    if (request.operation() == BuildOperation.CANCEL) {
+      var observed = BuildCancellation.request(request.root()).awaitClosure(Duration.ofSeconds(60));
+      System.getLogger(BuildExecution.class.getName()).log(Level.INFO,
+          observed
+              ? "Local build canceled; resources and output lease are closed"
+              : "Local build completed before observing cancellation; resources and output lease are closed");
+      return;
+    }
     request.validateEnvironment(System.getenv());
     int exit = -1;
     Optional<CompleteValidation> complete = Optional.empty();
@@ -52,17 +62,36 @@ public final class BuildExecution {
               exit);
         }
       }
-    } catch (IOException | InterruptedException | IllegalArgumentException | IllegalStateException exception) {
+    } catch (Requested exception) {
+      if (exception.getSuppressed().length != 0) {
+        recordFailure(complete, exception, -1);
+        throw exception;
+      }
+      exit = 130;
       if (complete.isPresent()) {
         try {
-          complete.orElseThrow().record("FAILED", exception.toString(), exit == 0 ? -1 : exit);
+          complete.orElseThrow().record("CANCELED", exception.toString(), exit);
         } catch (IOException recording) {
           exception.addSuppressed(recording);
+          throw exception;
         }
       }
+      System.getLogger(BuildExecution.class.getName()).log(Level.INFO, exception.toString());
+    } catch (IOException | InterruptedException | IllegalArgumentException | IllegalStateException exception) {
+      recordFailure(complete, exception, exit == 0 ? -1 : exit);
       throw exception;
     }
     System.exit(exit);
+  }
+
+  private static void recordFailure(Optional<CompleteValidation> complete, Exception exception, int exit) {
+    if (complete.isPresent()) {
+      try {
+        complete.orElseThrow().record("FAILED", exception.toString(), exit);
+      } catch (IOException recording) {
+        exception.addSuppressed(recording);
+      }
+    }
   }
 
   private static void verifyIntegrations(BuildRequest request, InvocationContext context) throws IOException {

@@ -1,6 +1,7 @@
 package org.aquilagraph.build;
 
 import java.io.IOException;
+import java.io.Closeable;
 import java.io.Serial;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
@@ -99,6 +100,7 @@ record WindowsKernel(Arena library, MemoryLayout callState, Map<String, NativeCa
         Map.entry("TerminateJobObject", FunctionDescriptor.of(integer, address, integer)),
         Map.entry("CloseHandle", FunctionDescriptor.of(integer, address)),
         Map.entry("OpenProcess", FunctionDescriptor.of(address, integer, integer, integer)),
+        Map.entry("GetTickCount64", FunctionDescriptor.of(size)),
         Map.entry("GetProcessTimes", FunctionDescriptor.of(integer, address, address, address, address, address)),
         Map.entry(CREATE_FILE_FUNCTION, FunctionDescriptor.of(address, address, integer, integer, address, integer, integer, address)),
         Map.entry(SET_FILE_INFORMATION_FUNCTION, FunctionDescriptor.of(integer, address, integer, address, integer)),
@@ -138,8 +140,9 @@ record WindowsKernel(Arena library, MemoryLayout callState, Map<String, NativeCa
         throw failed("CreateJobObjectW", result.error());
       }
       if (result.error() == ERROR_ALREADY_EXISTS) {
-        close(handle);
-        throw new IOException("The new Windows job name already exists: " + name);
+        try (var _ = new FileHandle(this, handle)) {
+          throw new IOException("The new Windows job name already exists: " + name);
+        }
       }
       return handle;
     }
@@ -176,6 +179,10 @@ record WindowsKernel(Arena library, MemoryLayout callState, Map<String, NativeCa
     }
   }
 
+  long uptimeMillis() {
+    return (Long) invoke("GetTickCount64").value().orElseThrow();
+  }
+
   Child start(MemorySegment job, Path java, Path arguments, Path directory) throws IOException {
     try (var arena = Arena.ofConfined()) {
       var size = arena.allocate(ValueLayout.JAVA_LONG);
@@ -189,36 +196,32 @@ record WindowsKernel(Arena library, MemoryLayout callState, Map<String, NativeCa
       }
       var attributes = arena.allocate(bytes, ValueLayout.ADDRESS.byteAlignment());
       requireSuccess("InitializeProcThreadAttributeList", attributes, 1, 0, size);
-      try {
-        var jobs = arena.allocate(ValueLayout.ADDRESS);
-        jobs.set(ValueLayout.ADDRESS, 0, job);
-        requireSuccess("UpdateProcThreadAttribute", attributes, 0, JOB_LIST_ATTRIBUTE, jobs, ValueLayout.ADDRESS.byteSize(),
-            MemorySegment.NULL, MemorySegment.NULL);
-        var startup = arena.allocate(EXTENDED_STARTUP_INFO_BYTES, ValueLayout.ADDRESS.byteAlignment());
-        startup.set(ValueLayout.JAVA_INT, 0, EXTENDED_STARTUP_INFO_BYTES);
-        startup.set(ValueLayout.JAVA_INT, STARTUP_FLAGS_OFFSET, USE_STANDARD_HANDLES);
-        startup.set(ValueLayout.ADDRESS, STANDARD_INPUT_OFFSET,
-            (MemorySegment) invoke(STANDARD_HANDLE_FUNCTION, STANDARD_INPUT).value().orElseThrow());
-        startup.set(ValueLayout.ADDRESS, STANDARD_OUTPUT_OFFSET,
-            (MemorySegment) invoke(STANDARD_HANDLE_FUNCTION, STANDARD_OUTPUT).value().orElseThrow());
-        startup.set(ValueLayout.ADDRESS, STANDARD_ERROR_OFFSET,
-            (MemorySegment) invoke(STANDARD_HANDLE_FUNCTION, STANDARD_ERROR).value().orElseThrow());
-        startup.set(ValueLayout.ADDRESS, ATTRIBUTES_OFFSET, attributes);
-        var information = arena.allocate(PROCESS_INFORMATION_BYTES, ValueLayout.ADDRESS.byteAlignment());
-        var command = "\"" + java + "\" \"@" + arguments + "\"";
-        requireSuccess("CreateProcessW", wideString(arena, java.toString()), wideString(arena, command), MemorySegment.NULL,
-            MemorySegment.NULL, 1, EXTENDED_STARTUP_PRESENT, MemorySegment.NULL, wideString(arena, directory.toString()), startup,
-            information);
-        var process = information.get(ValueLayout.ADDRESS, 0);
-        try {
+      try (var acquisition = new ProcessAcquisition()) {
+        try (Closeable _ = () -> invoke("DeleteProcThreadAttributeList", attributes)) {
+          var jobs = arena.allocate(ValueLayout.ADDRESS);
+          jobs.set(ValueLayout.ADDRESS, 0, job);
+          requireSuccess("UpdateProcThreadAttribute", attributes, 0, JOB_LIST_ATTRIBUTE, jobs, ValueLayout.ADDRESS.byteSize(),
+              MemorySegment.NULL, MemorySegment.NULL);
+          var startup = arena.allocate(EXTENDED_STARTUP_INFO_BYTES, ValueLayout.ADDRESS.byteAlignment());
+          startup.set(ValueLayout.JAVA_INT, 0, EXTENDED_STARTUP_INFO_BYTES);
+          startup.set(ValueLayout.JAVA_INT, STARTUP_FLAGS_OFFSET, USE_STANDARD_HANDLES);
+          startup.set(ValueLayout.ADDRESS, STANDARD_INPUT_OFFSET,
+              (MemorySegment) invoke(STANDARD_HANDLE_FUNCTION, STANDARD_INPUT).value().orElseThrow());
+          startup.set(ValueLayout.ADDRESS, STANDARD_OUTPUT_OFFSET,
+              (MemorySegment) invoke(STANDARD_HANDLE_FUNCTION, STANDARD_OUTPUT).value().orElseThrow());
+          startup.set(ValueLayout.ADDRESS, STANDARD_ERROR_OFFSET,
+              (MemorySegment) invoke(STANDARD_HANDLE_FUNCTION, STANDARD_ERROR).value().orElseThrow());
+          startup.set(ValueLayout.ADDRESS, ATTRIBUTES_OFFSET, attributes);
+          var information = arena.allocate(PROCESS_INFORMATION_BYTES, ValueLayout.ADDRESS.byteAlignment());
+          var command = "\"" + java + "\" \"@" + arguments + "\"";
+          requireSuccess("CreateProcessW", wideString(arena, java.toString()), wideString(arena, command), MemorySegment.NULL,
+              MemorySegment.NULL, 1, EXTENDED_STARTUP_PRESENT, MemorySegment.NULL, wideString(arena, directory.toString()), startup,
+              information);
+          var process = information.get(ValueLayout.ADDRESS, 0);
+          acquisition.own(new Child(process, Integer.toUnsignedLong(information.get(ValueLayout.JAVA_INT, PROCESS_ID_OFFSET)), this));
           close(information.get(ValueLayout.ADDRESS, ValueLayout.ADDRESS.byteSize()));
-        } catch (IOException exception) {
-          close(process);
-          throw exception;
         }
-        return new Child(process, Integer.toUnsignedLong(information.get(ValueLayout.JAVA_INT, PROCESS_ID_OFFSET)));
-      } finally {
-        invoke("DeleteProcThreadAttributeList", attributes);
+        return acquisition.transfer();
       }
     }
   }
@@ -242,7 +245,7 @@ record WindowsKernel(Arena library, MemoryLayout callState, Map<String, NativeCa
       }
       throw failed("OpenProcess", result.error());
     }
-    try (var process = new ProcessAcquisition(new Child(handle, identity.pid()))) {
+    try (var process = new ProcessAcquisition(new Child(handle, identity.pid(), this))) {
       try (var arena = Arena.ofConfined()) {
         var created = arena.allocate(ValueLayout.JAVA_LONG);
         var exited = arena.allocate(ValueLayout.JAVA_LONG);
@@ -354,22 +357,32 @@ record WindowsKernel(Arena library, MemoryLayout callState, Map<String, NativeCa
   }
 
   private static final class ProcessAcquisition implements AutoCloseable {
-    private final Child process;
+    private Optional<Child> process = Optional.empty();
     private boolean transferred;
 
+    ProcessAcquisition() {
+    }
+
     ProcessAcquisition(Child process) {
-      this.process = process;
+      own(process);
+    }
+
+    void own(Child child) {
+      if (process.isPresent()) {
+        throw new IllegalStateException("A native process acquisition owns one handle");
+      }
+      process = Optional.of(child);
     }
 
     Child transfer() {
       transferred = true;
-      return process;
+      return process.orElseThrow();
     }
 
     @Override
     public void close() throws IOException {
-      if (!transferred) {
-        process.close();
+      if (!transferred && process.isPresent()) {
+        process.orElseThrow().close();
       }
     }
   }

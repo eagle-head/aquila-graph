@@ -1,6 +1,7 @@
 package org.aquilagraph.build;
 
 import java.io.IOException;
+import org.aquilagraph.build.NativeObservation.Creation;
 import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,10 +13,16 @@ import java.util.concurrent.TimeUnit;
 public final class GitInspection {
   private final InvocationContext context;
   private final BuildJournal container;
+  private final Creation creation;
 
   private GitInspection(InvocationContext context, BuildJournal container) {
+    this(context, container, ProcessBuilder::start);
+  }
+
+  GitInspection(InvocationContext context, BuildJournal container, Creation creation) {
     this.context = context;
     this.container = container;
+    this.creation = creation;
   }
 
   /**
@@ -62,7 +69,7 @@ public final class GitInspection {
     System.getLogger(GitInspection.class.getName()).log(Level.INFO, "LF-only Git text verified in the index and reachable commits.");
   }
 
-  private String git(List<String> arguments, int expectedExit) throws IOException, InterruptedException {
+  String git(List<String> arguments, int expectedExit) throws IOException, InterruptedException {
     var journal = BuildJournal.reserve(context, "git-observation");
     journal.recordContainer(container.reservation());
     var command = new ArrayList<>(
@@ -71,15 +78,8 @@ public final class GitInspection {
     var outputFile = Files.createTempFile(journal.observationDirectory(), "git-", ".txt");
     var builder = new ProcessBuilder(command).directory(context.root().toFile()).redirectErrorStream(true)
         .redirectOutput(outputFile.toFile());
-    Process process;
-    try {
-      process = builder.start();
-      journal.observe(process.toHandle());
-    } catch (IOException exception) {
-      journal.closeObserved();
-      throw exception;
-    }
-    try {
+    try (var observation = new NativeObservation(context, journal, creation, false)) {
+      var process = observation.start(builder);
       if (!process.waitFor(60, TimeUnit.SECONDS)) {
         throw new IOException("Git observation exceeded 60 seconds");
       }
@@ -88,12 +88,6 @@ public final class GitInspection {
         throw new IOException("Git observation exited " + process.exitValue() + ": " + text);
       }
       return text;
-    } finally {
-      try {
-        journal.closeObserved();
-      } finally {
-        ProcessStreams.close(process);
-      }
     }
   }
 }

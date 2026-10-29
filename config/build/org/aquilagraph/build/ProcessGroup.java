@@ -1,8 +1,10 @@
 package org.aquilagraph.build;
 
 import java.io.IOException;
+import java.io.Closeable;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
@@ -25,8 +27,7 @@ final class ProcessGroup implements AutoCloseable {
   private boolean started;
   private boolean closed;
 
-  private ProcessGroup(InvocationContext context, BuildJournal journal, ProcessBuilder builder, Path arguments,
-      Optional<WindowsJobObject> job) {
+  ProcessGroup(InvocationContext context, BuildJournal journal, ProcessBuilder builder, Path arguments, Optional<WindowsJobObject> job) {
     this.context = context;
     this.journal = journal;
     this.builder = builder;
@@ -117,11 +118,11 @@ final class ProcessGroup implements AutoCloseable {
   private static void closeWindows(BuildJournal journal, Properties intent) throws IOException {
     var existing = WindowsJobObject.open(intent);
     if (existing.isEmpty()) {
-      if (Files.exists(journal.directory().resolve("contained-start.properties"))
-          && !Files.exists(journal.directory().resolve("contained-closed.properties"))) {
+      if (Files.exists(journal.directory().resolve("contained-start.properties")) && !journal.containmentClosed()) {
         throw new IOException("All native Windows job handles were lost before complete closure was observed; mutation remains refused: "
-            + journal.directory());
+            + journal.directory() + "; request cooperative cancellation while the owner is live, or restart Windows and retry");
       }
+      journal.containmentClosed();
       return;
     }
     try (var job = existing.orElseThrow()) {
@@ -133,25 +134,24 @@ final class ProcessGroup implements AutoCloseable {
   @Override
   public void close() throws IOException {
     closed = true;
-    try {
-      journal.closeObserved();
-    } finally {
-      try {
-        if (nativeChild.isPresent()) {
-          try (var _ = nativeChild.orElseThrow()) {
-            // Release the native process handle after group closure has been reconciled.
-          }
-        }
-        if (process.isPresent()) {
-          ProcessStreams.close(process.orElseThrow());
-        }
-      } finally {
-        if (job.isPresent()) {
-          try (var _ = job.orElseThrow()) {
-            // Keep the job handle alive through child and journal cleanup.
-          }
-        }
+    try (Closeable _ = this::closeJob; var _ = ProcessStreams.closing(process); Closeable _ = this::closeChild) {
+      if (process.isPresent()) {
+        ProcessClosure.close(process.orElseThrow(), Duration.ofSeconds(10));
       }
+      journal.stopObserved();
+    }
+    journal.completeObserved();
+  }
+
+  private void closeJob() throws IOException {
+    if (job.isPresent()) {
+      job.orElseThrow().close();
+    }
+  }
+
+  private void closeChild() throws IOException {
+    if (nativeChild.isPresent()) {
+      nativeChild.orElseThrow().close();
     }
   }
 

@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit;
 /** A hierarchical native slice retains scopes and descendants created by nested builds. */
 final class LinuxScope {
   private static final String INVOCATION_SLICE = "containment.invocation.slice";
+  private static final String NATIVE_CLOSED = "native-closed.properties";
   private static final int MAX_UNIT_NAME_LENGTH = 255;
   private static final int REQUIRED_CGROUP_MOUNTS = 1;
   private static final int MAX_OBSERVATION_BYTES = 64 * 1024;
@@ -55,13 +56,22 @@ final class LinuxScope {
 
   static void closeInvocation(InvocationContext context) throws IOException {
     var record = BuildFiles.read(context.directory().resolve("invocation.properties"));
-    if (!record.containsKey(INVOCATION_SLICE) || Files.exists(context.directory().resolve("native-closed.properties"))) {
+    if (!record.containsKey(INVOCATION_SLICE) || invocationClosed(context.directory(), record)) {
       return;
     }
     record.setProperty("containment.slice", BuildFiles.required(record, INVOCATION_SLICE));
     record.setProperty("account", BuildFiles.required(record, "containment.account"));
     close(record);
-    BuildFiles.write(context.directory().resolve("native-closed.properties"), context.properties());
+    BuildFiles.write(context.directory().resolve(NATIVE_CLOSED), context.properties());
+  }
+
+  static boolean invocationClosed(Path directory, Properties ownership) throws IOException {
+    try {
+      InvocationContext.requireIdentity(ownership, BuildFiles.read(directory.resolve(NATIVE_CLOSED)));
+      return true;
+    } catch (NoSuchFileException exception) {
+      return false;
+    }
   }
 
   private static String name(Properties intent) throws IOException {

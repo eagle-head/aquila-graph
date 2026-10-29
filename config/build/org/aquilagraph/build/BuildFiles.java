@@ -1,6 +1,7 @@
 package org.aquilagraph.build;
 
 import java.io.IOException;
+import java.io.Closeable;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.ByteBuffer;
@@ -40,7 +41,7 @@ final class BuildFiles {
     var writer = new StringWriter();
     properties.store(writer, "Local build ownership");
     var temporary = Files.createTempFile(parent, "record-", ".tmp");
-    try {
+    try (Closeable _ = () -> Files.deleteIfExists(temporary)) {
       try (var channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
         var bytes = ByteBuffer.wrap(writer.toString().getBytes(StandardCharsets.UTF_8));
         while (bytes.hasRemaining()) {
@@ -49,8 +50,6 @@ final class BuildFiles {
         channel.force(true);
       }
       Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-    } finally {
-      Files.deleteIfExists(temporary);
     }
   }
 }
