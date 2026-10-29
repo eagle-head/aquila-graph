@@ -1,6 +1,7 @@
 package org.aquilagraph.build;
 
 import java.io.IOException;
+import java.io.Closeable;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.util.Properties;
@@ -19,7 +20,7 @@ final class CommandLaunch implements AutoCloseable {
   private final Optional<Path> output;
   private final BuildJournal journal;
   private final BuildJournal command;
-  private Optional<WindowsJobObject> nativeJob = Optional.empty();
+  private final CommandPlatform platform;
   private Optional<Process> process = Optional.empty();
   private enum State {
     RESERVED, CREATED, ACKNOWLEDGED, PERMITTED, CLOSED
@@ -27,21 +28,29 @@ final class CommandLaunch implements AutoCloseable {
 
   private State state = State.RESERVED;
 
-  private CommandLaunch(BuildLease lease, Optional<Path> output, String kind) throws IOException {
+  CommandLaunch(BuildLease lease, Optional<Path> output, BuildJournal journal, BuildJournal command, CommandPlatform platform) {
     this.lease = lease;
     this.output = output;
     context = lease.context();
-    journal = BuildJournal.reserve(context, "command-launcher");
-    command = BuildJournal.reserve(context, kind);
+    this.journal = journal;
+    this.command = command;
+    this.platform = platform;
+  }
+
+  private static CommandLaunch reserve(BuildLease lease, Optional<Path> output, String kind) throws IOException {
+    var context = lease.context();
+    var journal = BuildJournal.reserve(context, "command-launcher");
+    var command = BuildJournal.reserve(context, kind);
     journal.recordCommand(command.reservation());
+    return new CommandLaunch(lease, output, journal, command, CommandPlatform.local(context, command));
   }
 
   static CommandLaunch maven(BuildLease lease, Optional<Path> output) throws IOException {
-    return new CommandLaunch(lease, output, "maven-wrapper");
+    return reserve(lease, output, "maven-wrapper");
   }
 
   static CommandLaunch git(BuildLease lease, Optional<Path> output, Optional<List<String>> arguments, int expectedExit) throws IOException {
-    var launch = new CommandLaunch(lease, output, "git-inspection");
+    var launch = reserve(lease, output, "git-inspection");
     launch.command.recordInspection(arguments, expectedExit);
     return launch;
   }
@@ -50,8 +59,9 @@ final class CommandLaunch implements AutoCloseable {
     return command.observationDirectory().resolve("git-result.txt");
   }
 
-  void start() throws IOException {
+  void start() throws IOException, InterruptedException {
     synchronized (lock) {
+      BuildCancellation.check(context);
       if (state != State.RESERVED) {
         throw new IllegalStateException("A reserved launch can create only one process");
       }
@@ -69,15 +79,7 @@ final class CommandLaunch implements AutoCloseable {
         builder.inheritIO();
       }
       state = State.CREATED;
-      try {
-        if (BuildRequest.windows()) {
-          nativeJob = Optional.of(WindowsJobObject.create(BuildFiles.read(command.directory().resolve("intent.properties"))));
-        }
-        process = Optional.of(builder.start());
-      } catch (IOException exception) {
-        journal.closeWithoutLaunch();
-        throw exception;
-      }
+      process = Optional.of(platform.start(builder));
     }
   }
 
@@ -91,6 +93,8 @@ final class CommandLaunch implements AutoCloseable {
         record = BuildFiles.read(acknowledgement);
         break;
       } catch (NoSuchFileException exception) {
+        BuildCancellation.check(context);
+        platform.requireAvailable();
         if (!child.isAlive()) {
           throw new IOException("Source launcher exited before process acknowledgement, exit " + child.exitValue(), exception);
         }
@@ -115,6 +119,8 @@ final class CommandLaunch implements AutoCloseable {
 
   void permit() throws IOException {
     synchronized (lock) {
+      BuildCancellation.check(context);
+      platform.requireAvailable();
       if (state != State.ACKNOWLEDGED) {
         throw new IllegalStateException("Only one acknowledged live launch may receive a mutation permit");
       }
@@ -125,10 +131,13 @@ final class CommandLaunch implements AutoCloseable {
   }
 
   int awaitExit() throws IOException, InterruptedException {
+    BuildCancellation.check(context);
     var child = processFor(State.PERMITTED);
     var complete = "verify-all".equals(BuildFiles.read(context.directory().resolve("invocation.properties")).getProperty("operation"));
     var failureDeadline = Long.MAX_VALUE;
     while (!child.waitFor(100, TimeUnit.MILLISECONDS)) {
+      BuildCancellation.check(context);
+      platform.requireAvailable();
       if (complete) {
         for (var scope : List.of("unit", "all")) {
           var failure = SuiteCatalog.directory(context.root(), context.nonce(), scope).resolve("failure.properties");
@@ -161,35 +170,30 @@ final class CommandLaunch implements AutoCloseable {
   }
 
   void stop() throws IOException {
-    synchronized (lock) {
-      if (state == State.CLOSED) {
-        return;
-      }
-      if (process.isEmpty()) {
-        journal.closeWithoutLaunch();
-      } else {
-        journal.observe(process.orElseThrow().toHandle());
-        journal.closeObserved();
-      }
-      command.closeObserved();
-      if (nativeJob.isPresent()) {
-        nativeJob.orElseThrow().close();
-        nativeJob = Optional.empty();
-      }
-      state = State.CLOSED;
-    }
+    close();
   }
 
   @Override
   public void close() throws IOException {
     synchronized (lock) {
-      try {
-        stop();
-      } finally {
+      if (state == State.CLOSED) {
+        return;
+      }
+      try (var _ = ProcessStreams.closing(process); var _ = platform; Closeable _ = command::stopObserved) {
         if (process.isPresent()) {
-          ProcessStreams.close(process.orElseThrow());
+          ProcessClosure.close(process.orElseThrow(), Duration.ofSeconds(10));
+          journal.observe(process.orElseThrow().toHandle());
+          journal.stopObserved();
         }
       }
+      if (process.isEmpty()) {
+        journal.closeWithoutLaunch();
+      } else {
+        journal.completeObserved();
+      }
+      command.completeObserved();
+      state = State.CLOSED;
     }
   }
+
 }

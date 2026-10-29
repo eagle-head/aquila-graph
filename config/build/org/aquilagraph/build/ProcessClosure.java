@@ -11,6 +11,35 @@ final class ProcessClosure {
   private ProcessClosure() {
   }
 
+  static void close(Process process, Duration timeout) throws IOException {
+    var interrupted = Thread.interrupted();
+    try {
+      if (process.isAlive()) {
+        process.destroy();
+        try {
+          process.waitFor(timeout.toMillis() / 2, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException exception) {
+          interrupted = true;
+        }
+        if (process.isAlive()) {
+          process.destroyForcibly();
+          try {
+            process.waitFor(timeout.toMillis() / 2, TimeUnit.MILLISECONDS);
+          } catch (InterruptedException exception) {
+            interrupted = true;
+          }
+        }
+        if (process.isAlive()) {
+          throw new IOException("A returned process remains alive after bounded physical closure");
+        }
+      }
+    } finally {
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
+    }
+  }
+
   static void close(BuildJournal journal, Duration timeout) throws IOException {
     var deadline = System.nanoTime() + timeout.toNanos();
     var forceAt = System.nanoTime() + timeout.dividedBy(2).toNanos();

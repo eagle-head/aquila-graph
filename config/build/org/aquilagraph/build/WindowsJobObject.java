@@ -19,34 +19,38 @@ import java.util.concurrent.TimeUnit;
 final class WindowsJobObject implements AutoCloseable {
   private static final int WAIT_TIMEOUT = 0x102;
   private final MemorySegment handle;
+  private final WindowsKernel kernel;
 
-  private WindowsJobObject(MemorySegment handle) {
+  WindowsJobObject(MemorySegment handle, WindowsKernel kernel) {
     this.handle = handle;
+    this.kernel = kernel;
   }
 
   static WindowsJobObject create(Properties intent) throws IOException {
     requireAccess();
-    try (var acquisition = new Acquisition(WindowsKernel.instance().create(name(intent)))) {
-      WindowsKernel.instance().killWhenLastHandleCloses(acquisition.handle());
+    var kernel = WindowsKernel.instance();
+    try (var acquisition = new Acquisition(kernel.create(name(intent)), kernel)) {
+      kernel.killWhenLastHandleCloses(acquisition.handle());
       return acquisition.transfer();
     }
   }
 
   static Optional<WindowsJobObject> open(Properties intent) throws IOException {
     requireAccess();
-    return WindowsKernel.instance().open(name(intent)).map(WindowsJobObject::new);
+    var kernel = WindowsKernel.instance();
+    return kernel.open(name(intent)).map(handle -> new WindowsJobObject(handle, kernel));
   }
 
   Child start(Path java, Path arguments, Path directory) throws IOException {
-    return WindowsKernel.instance().start(handle, java, arguments, directory);
+    return kernel.start(handle, java, arguments, directory);
   }
 
   void terminateAndObserveEmpty() throws IOException {
     var interrupted = Thread.interrupted();
     try {
-      WindowsKernel.instance().terminate(handle);
+      kernel.terminate(handle);
       var deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-      while (WindowsKernel.instance().activeProcesses(handle) != 0) {
+      while (kernel.activeProcesses(handle) != 0) {
         if (System.nanoTime() >= deadline) {
           throw new IOException("Owned Windows job closure remains unresolved");
         }
@@ -75,14 +79,14 @@ final class WindowsJobObject implements AutoCloseable {
 
   @Override
   public void close() throws IOException {
-    WindowsKernel.instance().close(handle);
+    kernel.close(handle);
   }
 
   private static final class Acquisition implements AutoCloseable {
     private Optional<WindowsJobObject> job;
 
-    Acquisition(MemorySegment handle) {
-      job = Optional.of(new WindowsJobObject(handle));
+    Acquisition(MemorySegment handle, WindowsKernel kernel) {
+      job = Optional.of(new WindowsJobObject(handle, kernel));
     }
 
     MemorySegment handle() {
@@ -106,10 +110,12 @@ final class WindowsJobObject implements AutoCloseable {
   static final class Child implements AutoCloseable {
     private final MemorySegment process;
     private final long pid;
+    private final WindowsKernel kernel;
 
-    Child(MemorySegment process, long pid) {
+    Child(MemorySegment process, long pid, WindowsKernel kernel) {
       this.process = process;
       this.pid = pid;
+      this.kernel = kernel;
     }
 
     ProcessHandle handle() throws IOException {
@@ -120,7 +126,7 @@ final class WindowsJobObject implements AutoCloseable {
       if (Thread.interrupted()) {
         throw new InterruptedException("The contained Windows process wait was interrupted");
       }
-      var result = WindowsKernel.instance().invokeInt("WaitForSingleObject", process, 100);
+      var result = kernel.invokeInt("WaitForSingleObject", process, 100);
       if (result == 0) {
         return true;
       }
@@ -133,14 +139,14 @@ final class WindowsJobObject implements AutoCloseable {
     int exitValue() throws IOException {
       try (var arena = Arena.ofConfined()) {
         var result = arena.allocate(ValueLayout.JAVA_INT);
-        WindowsKernel.instance().requireSuccess("GetExitCodeProcess", process, result);
+        kernel.requireSuccess("GetExitCodeProcess", process, result);
         return result.get(ValueLayout.JAVA_INT, 0);
       }
     }
 
     @Override
     public void close() throws IOException {
-      WindowsKernel.instance().close(process);
+      kernel.close(process);
     }
   }
 

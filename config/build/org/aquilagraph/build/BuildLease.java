@@ -61,22 +61,22 @@ final class BuildLease implements AutoCloseable {
     if (!closed) {
       if (channel.isOpen()) {
         try (channel; lock) {
-          completeOwnership();
+          requireCompletion();
         }
       } else {
-        completeOwnership();
+        requireCompletion();
       }
+      ActiveLease.release(invocation);
+      BuildFiles.write(invocation.directory().resolve("owner-closed.properties"), invocation.properties());
       closed = true;
     }
   }
 
-  private void completeOwnership() throws IOException {
+  private void requireCompletion() throws IOException {
     if (!invocation.owner().equals(ProcessIdentity.observe(ProcessHandle.current()))) {
       throw new IOException("Only the original owner can complete its lease closure");
     }
     BuildJournal.requireClosed(invocation);
-    BuildFiles.write(invocation.directory().resolve("owner-closed.properties"), invocation.properties());
-    ActiveLease.release(invocation);
   }
 
   private static final class NativeAcquisition implements AutoCloseable {

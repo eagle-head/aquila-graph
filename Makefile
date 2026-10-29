@@ -9,12 +9,13 @@ export AQUILA_BUILD_MAVEN := $(value MAVEN)
 export AQUILA_BUILD_FLAGS := $(value MAVEN_FLAGS)
 export AQUILA_BUILD_SKIP_FLAGS := $(value SKIP_TESTS)
 
-.PHONY: compile test integration-test integration-test-neo4j check-process check-persistence check-lifecycle prepare-consumers verify-all coverage format format-check line-endings-check quality supply-chain-check clean help
+.PHONY: compile test integration-test integration-test-neo4j check-process check-persistence check-lifecycle prepare-consumers verify-all coverage format format-check line-endings-check quality supply-chain-check clean cancel help
 
-compile test integration-test integration-test-neo4j check-process check-persistence check-lifecycle prepare-consumers verify-all coverage format format-check line-endings-check quality supply-chain-check clean:
+compile test integration-test integration-test-neo4j check-process check-persistence check-lifecycle prepare-consumers verify-all coverage format format-check line-endings-check quality supply-chain-check clean cancel:
 	@java --enable-native-access=ALL-UNNAMED config/build/org/aquilagraph/build/BuildExecution.java --make "$@"
 
 help:
+	@echo 'cancel: request cleanup from the active build owner and wait for resource and lease closure.'
 	@echo 'test: development tests; coverage: the same scope with unit coverage; quality: static gates without tests.'
 	@echo 'Unit selectors require explicit *Test class names, optionally followed by #method.'
 	@echo 'Real-environment integration commands are deferred until a new explicit user decision.'

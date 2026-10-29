@@ -60,9 +60,12 @@ record BuildRequest(Path root, Path toolRoot, Path maven, BuildOperation operati
     } else if (flags.isEmpty()) {
       flags.addAll(List.of("-B", "--no-transfer-progress"));
     }
-    var effectiveFlags = new ArrayList<>(ArgumentWords.parse(System.getenv().getOrDefault("MAVEN_ARGS", "")));
+    var effectiveFlags = new ArrayList<String>();
+    if (operation != BuildOperation.CANCEL) {
+      effectiveFlags.addAll(ArgumentWords.parse(System.getenv().getOrDefault("MAVEN_ARGS", "")));
+    }
     effectiveFlags.addAll(flags);
-    var maven = operation == BuildOperation.LINE_ENDINGS_CHECK
+    var maven = operation == BuildOperation.LINE_ENDINGS_CHECK || operation == BuildOperation.CANCEL
         ? root.resolve(executable.isEmpty() ? (windows() ? "mvnw.cmd" : "mvnw") : executable).normalize()
         : resolveMaven(root, executable);
     return new BuildRequest(root, toolRoot.isEmpty() ? root : Path.of(toolRoot).toRealPath(), maven, operation, effectiveFlags);
@@ -117,7 +120,7 @@ record BuildRequest(Path root, Path toolRoot, Path maven, BuildOperation operati
         || ("-Psupply-chain".equals(flag) && operation == BuildOperation.SUPPLY_CHAIN_CHECK)) {
       return;
     }
-    if (flag.startsWith("-D")) {
+    if (flag.startsWith("-D") && operation != BuildOperation.CANCEL) {
       var separator = flag.indexOf('=');
       if (separator > PROPERTY_PREFIX_LENGTH) {
         var key = flag.substring(PROPERTY_PREFIX_LENGTH, separator);

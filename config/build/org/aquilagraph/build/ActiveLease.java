@@ -1,8 +1,10 @@
 package org.aquilagraph.build;
 
 import java.io.IOException;
+import java.io.Closeable;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -12,6 +14,10 @@ final class ActiveLease {
   }
 
   static String acquire(BuildRequest request) throws IOException {
+    return acquire(request, Files::createLink);
+  }
+
+  static String acquire(BuildRequest request, Publication publication) throws IOException {
     var active = request.root().resolve(".build-state/active-owner.properties");
     if (Files.exists(active)) {
       var old = BuildFiles.read(active);
@@ -35,12 +41,19 @@ final class ActiveLease {
         ProcessIdentity.observe(ProcessHandle.current()), ProcessIdentity.namespace()).properties();
     BuildFiles.write(claim, properties);
     try {
-      Files.createLink(active, claim);
+      publication.create(active, claim);
     } catch (FileAlreadyExistsException exception) {
-      Files.delete(claim);
-      throw new IOException("Another local build acquired the shared filesystem ownership claim", exception);
+      try (Closeable _ = () -> Files.delete(claim)) {
+        throw new IOException("Another local build acquired the shared filesystem ownership claim", exception);
+      }
     }
     return nonce;
+  }
+
+  /** Atomic filesystem publication is the ownership claim's external boundary. */
+  @FunctionalInterface
+  interface Publication {
+    void create(Path active, Path claim) throws IOException;
   }
 
   static void require(InvocationContext context) throws IOException {

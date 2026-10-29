@@ -6,6 +6,7 @@ The operation to run; compile is the default.
 test runs development tests; coverage runs the same scope with unit coverage.
 Unit selectors use explicit *Test class names, optionally followed by #method.
 quality runs static gates without tests.
+cancel requests cleanup from the active build owner and waits for resource and lease closure.
 Real-environment integration commands are deferred until a new explicit user decision.
 check-process, check-persistence and check-lifecycle are manual integration commands.
 prepare-consumers packages and prepares the independent query module without running tests.

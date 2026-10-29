@@ -18,6 +18,35 @@ class BuildRequestTest {
   Path directory;
 
   @Test
+  void givenCancellationWithoutAWrapper_whenParsed_thenNoMavenExecutableOrGoalIsRequired() throws Exception {
+    // Arrange
+    var root = directory.toRealPath();
+
+    // Act
+    var request = BuildRequest.parse("--root", root.toString(), "cancel");
+
+    // Assert
+    assertEquals(BuildOperation.CANCEL, request.operation());
+    assertTrue(request.operation().goals().isEmpty());
+    assertTrue(request.operation().integrationScope().isEmpty());
+    assertFalse(Files.exists(request.maven()));
+  }
+
+  @Test
+  void givenCancellationWithExecutionFlags_whenValidated_thenNoBuildOrIntegrationSettingIsAccepted() {
+    // Arrange
+    var flags = List.of("-Dtest=SelectedTest", "-Dtest.unit.forks=2", "-Pneo4j-integration", "-Phigh-capacity-tests", "verify");
+
+    // Act
+    for (var flag : flags) {
+      var failure = assertThrows(IllegalArgumentException.class, () -> BuildRequest.validateFlag(BuildOperation.CANCEL, flag));
+
+      // Assert
+      assertTrue(failure.getMessage().contains("Unsupported flag for cancel"));
+    }
+  }
+
+  @Test
   void givenCompleteValidation_whenItsArgumentsAreBuilt_thenOneFullLifecycleOwnsFreshCompilationAndCoverage() throws Exception {
     // Arrange
     var request = BuildRequest.parse("--root", Path.of("").toRealPath().toString(), "verify-all");
