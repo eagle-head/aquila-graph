@@ -156,6 +156,11 @@ final class JavaDeclarationHeaderProjector {
               "A written type has no matching explicit declaration element and stable key", range));
       return Optional.empty();
     }
+    if (typeElement.getKind() == ElementKind.ANNOTATION_TYPE && typeElement.getNestingKind() == NestingKind.LOCAL) {
+      diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey(),
+          "frontend.invalid-local-type-declaration", "An annotation interface cannot be declared in a local block", range));
+      return Optional.empty();
+    }
     var anonymous = typeElement.getNestingKind() == NestingKind.ANONYMOUS;
     var name = declaration.getSimpleName().toString();
     if (!SourceVersion.isIdentifier(name)

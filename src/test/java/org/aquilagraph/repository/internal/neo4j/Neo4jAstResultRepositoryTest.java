@@ -4,6 +4,7 @@ import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -36,6 +37,8 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstContractException;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.testsupport.StatementBranchFixture;
 import org.aquilagraph.source.retention.AstCodec;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -44,6 +47,69 @@ import org.neo4j.driver.exceptions.Neo4jException;
 
 class Neo4jAstResultRepositoryTest {
   @TempDir Path directory;
+
+  @Test
+  void givenDeclarationInRetainedBranchAndCleanupFailures_whenFinding_thenDecodeCausePrecedesOrderedCleanup() {
+    for (var role : List.of(SyntaxRole.THEN_BRANCH, SyntaxRole.ELSE_BRANCH)) {
+      for (var kind : StatementBranchFixture.DECLARATIONS) {
+        // Arrange
+        var ast = StatementBranchFixture.produce(directory, AstProfile.JAVA_SOURCE_MODULE_SERVICES);
+        var result = ast.result().orElseThrow();
+        var projection = new Neo4jAstResultCodec().map(ast);
+        var root = projection.root();
+        var properties = new HashMap<>(root.properties());
+        var malformed = StatementBranchFixture.withDeclaration(AstCodec.encode(result), result.identity().sourceModelVersion(),
+            StatementBranchFixture.branch(ast, role), kind, false);
+        properties.put("payload", Base64.getEncoder().encodeToString(malformed));
+        var nodes = new ArrayList<>(projection.nodes());
+        nodes.set(nodes.indexOf(root), new Neo4jNode(root.key(), root.label(), properties));
+        var backend = new AstRepositoryDriverStub();
+        backend.stored = new Neo4jAstProjection(projection.identity(), nodes, projection.relationships());
+        backend.closeFailure = new IllegalStateException("Read cleanup after invalid branch");
+        backend.failingClose = 0;
+        backend.driverCloseFailure = new Neo4jException("Driver cleanup after invalid branch");
+        // Act
+        var failure = assertThrows(RepositoryOperationException.class, () -> {
+          try (var repository = repository(ast, RepositoryOperationKind.QUERY_AST, backend)) {
+            repository.find(result.identity());
+          }
+        });
+        // Assert
+        assertEquals(context(ast, RepositoryOperationKind.QUERY_AST), failure.context());
+        assertEquals(RepositoryPhase.DECODE, failure.phase());
+        assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge());
+        var sourceFailure = assertInstanceOf(AstContractException.class, failure.effectivePrimary());
+        assertTrue(sourceFailure.getMessage().contains("child category"), sourceFailure.toString());
+        assertInstanceOf(IllegalArgumentException.class, sourceFailure.getCause());
+        assertEquals(2, failure.getSuppressed().length);
+        var sessionClose = assertInstanceOf(RepositoryOperationException.class, failure.getSuppressed()[0]);
+        var driverClose = assertInstanceOf(RepositoryOperationException.class, failure.getSuppressed()[1]);
+        assertEquals(RepositoryPhase.READ_SESSION_CLOSE, sessionClose.phase());
+        assertSame(backend.closeFailure, sessionClose.effectivePrimary());
+        assertEquals(RepositoryPhase.REPOSITORY_CLOSE, driverClose.phase());
+        assertSame(backend.driverCloseFailure, driverClose.effectivePrimary().getCause());
+        assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), backend.events);
+      }
+    }
+  }
+
+  @Test
+  void givenValidBranches_whenFindingThroughAdapter_thenExactClosedValuesAndNormalCleanupSurvive() {
+    // Arrange
+    var ast = StatementBranchFixture.produce(directory, AstProfile.JAVA_SOURCE_MODULE_SERVICES);
+    var result = ast.result().orElseThrow();
+    var backend = new AstRepositoryDriverStub();
+    backend.stored = new Neo4jAstResultCodec().map(ast);
+    // Act
+    AstLookup lookup;
+    try (var repository = repository(ast, RepositoryOperationKind.QUERY_AST, backend)) {
+      lookup = repository.find(result.identity());
+    }
+    // Assert
+    assertEquals(AstLookupStatus.FOUND, lookup.status());
+    assertArrayEquals(AstCodec.encode(result), AstCodec.encode(lookup.outcome().orElseThrow().result().orElseThrow()));
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), backend.events);
+  }
 
   @Test
   void givenExpandedClosedValue_whenFindingThroughAdapter_thenEverySourceValueAndProfileSurvive() throws IOException {

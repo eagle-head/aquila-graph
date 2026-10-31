@@ -5,12 +5,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.aquilagraph.cfg.internal.CfgAdmission;
 import org.aquilagraph.cfg.internal.CfgReadiness;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DynamicTest;
+import org.junit.jupiter.api.TestFactory;
+import org.aquilagraph.testsupport.StatementBranchFixture;
 
 class SyntaxNodeTest {
   private static final SourceSpan ORIGIN = new SourceSpan("source", 0, 1);
@@ -1266,6 +1271,129 @@ class SyntaxNodeTest {
 
     // Assert
     assertTrue(failure.getMessage().contains("child category"));
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenDirectDeclarations_whenAttachedAsStatementBodies_thenEveryBodyOwnerRejectsTheCategory() {
+    return StatementBranchFixture.DECLARATIONS.stream().flatMap(kind -> Stream.of(false, true).flatMap(unsupported ->
+        Stream.of(SyntaxKind.IF, SyntaxKind.WHILE_LOOP, SyntaxKind.DO_WHILE_LOOP, SyntaxKind.FOR_LOOP,
+            SyntaxKind.ENHANCED_FOR_LOOP, SyntaxKind.LABELED_STATEMENT).flatMap(owner ->
+                (owner == SyntaxKind.IF ? Stream.of(SyntaxRole.THEN_BRANCH, SyntaxRole.ELSE_BRANCH) : Stream.of(SyntaxRole.BODY))
+                    .map(role -> DynamicTest.dynamicTest("given" + kind + (unsupported ? "Unsupported" : "Represented")
+                        + "_whenAttachedTo" + owner + role + "_thenChildCategoryIsRejected", () -> {
+                      // Arrange
+                      var declaration = StatementBranchFixture.declaration("source", path("declaration"), kind, unsupported, Optional.of(ORIGIN));
+                      // Act
+                      var failure = assertThrows(IllegalArgumentException.class, () -> bodyOwner(owner, role, declaration));
+                      // Assert
+                      assertTrue(failure.getMessage().contains("child category"), failure.toString());
+                    })))));
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenLocalDeclarationsInBlocks_whenUsedAsBranches_thenLegalCategoriesAndRoleOrderSurvive() {
+    return StatementBranchFixture.DECLARATIONS.stream().filter(kind -> kind != JavaSourceKind.ANNOTATION_TYPE)
+        .flatMap(kind -> Stream.of(false, true).flatMap(unsupported -> Stream.of(SyntaxRole.THEN_BRANCH, SyntaxRole.ELSE_BRANCH)
+            .map(role -> DynamicTest.dynamicTest("given" + kind + (unsupported ? "Unsupported" : "Represented")
+                + "InBlock_whenAttachedTo" + role + "_thenDeclarationAndOrderSurvive", () -> {
+              // Arrange
+              var declaration = StatementBranchFixture.declaration("source", path("declaration"), kind, unsupported, Optional.of(ORIGIN));
+              var block = source("block", SyntaxKind.BLOCK, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+                  List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, declaration)), Optional.empty());
+              // Act
+              var result = bodyOwner(SyntaxKind.IF, role, block);
+              // Assert
+              assertEquals(declaration, result.requiredChild(role).requiredChild(SyntaxRole.STATEMENT));
+              assertEquals(List.of(SyntaxRole.CONDITION, SyntaxRole.THEN_BRANCH, SyntaxRole.ELSE_BRANCH),
+                  result.children().stream().map(SyntaxChild::role).toList());
+            }))));
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenAnnotationInterface_whenPlacedInStatementList_thenLocalCategoryIsRejected() {
+    return Stream.of(false, true).flatMap(unsupported -> Stream.of(SyntaxKind.BLOCK, SyntaxKind.STATIC_INITIALIZER_BLOCK,
+        SyntaxKind.INSTANCE_INITIALIZER_BLOCK, SyntaxKind.CASE).map(owner -> DynamicTest.dynamicTest("givenAnnotationInterface"
+        + (unsupported ? "Unsupported" : "Represented") + "_whenPlacedIn" + owner + "_thenLocalCategoryIsRejected", () -> {
+      // Arrange
+      var declaration = StatementBranchFixture.declaration("source", path("annotation"), JavaSourceKind.ANNOTATION_TYPE,
+          unsupported, Optional.of(ORIGIN));
+      // Act
+      var failure = assertThrows(IllegalArgumentException.class, () -> statementList(owner, declaration));
+      // Assert
+      assertTrue(failure.getMessage().contains("child category"), failure.toString());
+    })));
+  }
+
+  @Test
+  void givenLegalLocalDeclarations_whenPlacedInInitializerOrSwitchStatementLists_thenChildrenRemainValid() {
+    for (var owner : List.of(SyntaxKind.STATIC_INITIALIZER_BLOCK, SyntaxKind.INSTANCE_INITIALIZER_BLOCK, SyntaxKind.CASE)) {
+      for (var kind : StatementBranchFixture.DECLARATIONS) {
+        if (kind == JavaSourceKind.ANNOTATION_TYPE) continue;
+        // Arrange
+        var declaration = StatementBranchFixture.declaration("source", path("declaration"), kind, false, Optional.of(ORIGIN));
+        // Act
+        var result = statementList(owner, declaration);
+        // Assert
+        assertEquals(List.of(declaration), result.children(SyntaxRole.STATEMENT));
+      }
+    }
+  }
+
+  private static SyntaxNode statementList(SyntaxKind kind, SyntaxNode statement) {
+    SyntaxValue value = kind == SyntaxKind.CASE ? new SyntaxValue.SwitchCase(SyntaxValue.SwitchCaseForm.STATEMENT_GROUP,
+        List.of(SyntaxValue.SwitchLabel.Default.INSTANCE)) : SyntaxValue.None.INSTANCE;
+    return SyntaxNode.source("source", path("container"), kind == SyntaxKind.CASE ? JavaSourceKind.CASE : JavaSourceKind.BLOCK,
+        kind, SyntaxType.NotApplicable.INSTANCE, value, List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, statement)), Optional.empty(), ORIGIN);
+  }
+
+  @Test
+  void givenDeclarationsWithoutDirectSource_whenUsedAsBranches_thenTheSameCategoryInvariantApplies() {
+    for (var kind : StatementBranchFixture.DECLARATIONS) {
+      // Arrange
+      var declaration = StatementBranchFixture.declaration("source", path("declaration"), kind, false, Optional.empty());
+      var condition = leaf("condition", SyntaxKind.LITERAL, new SyntaxValue.Literal("1"));
+      // Act
+      var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.withoutDirectSource("source", path("if"),
+          JavaSourceKind.IF, SyntaxKind.IF, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
+          List.of(new SyntaxChild(SyntaxRole.CONDITION, 0, condition), new SyntaxChild(SyntaxRole.THEN_BRANCH, 0, declaration)), Optional.empty()));
+      // Assert
+      assertTrue(failure.getMessage().contains("child category"), failure.toString());
+    }
+  }
+
+  @Test
+  void givenNestedLoopAndConditional_whenUsedAsBranches_thenNestedStatementsRemainQueryable() {
+    // Arrange
+    var empty = leaf("empty", SyntaxKind.EMPTY, SyntaxValue.None.INSTANCE);
+    var loop = bodyOwner(SyntaxKind.WHILE_LOOP, SyntaxRole.BODY, empty);
+    var nested = bodyOwner(SyntaxKind.IF, SyntaxRole.ELSE_BRANCH, loop);
+    // Act
+    var outer = bodyOwner(SyntaxKind.IF, SyntaxRole.THEN_BRANCH, nested);
+    // Assert
+    assertEquals(empty, outer.requiredChild(SyntaxRole.THEN_BRANCH).requiredChild(SyntaxRole.ELSE_BRANCH).requiredChild(SyntaxRole.BODY));
+  }
+
+  private static SyntaxNode bodyOwner(SyntaxKind owner, SyntaxRole role, SyntaxNode body) {
+    var condition = leaf("condition", SyntaxKind.LITERAL, new SyntaxValue.Literal("1"));
+    var children = new ArrayList<SyntaxChild>();
+    if (owner == SyntaxKind.IF || owner == SyntaxKind.WHILE_LOOP || owner == SyntaxKind.DO_WHILE_LOOP) {
+      children.add(new SyntaxChild(SyntaxRole.CONDITION, 0, condition));
+    }
+    if (owner == SyntaxKind.IF) {
+      var empty = leaf("other", SyntaxKind.EMPTY, SyntaxValue.None.INSTANCE);
+      children.add(new SyntaxChild(SyntaxRole.THEN_BRANCH, 0, role == SyntaxRole.THEN_BRANCH ? body : empty));
+      children.add(new SyntaxChild(SyntaxRole.ELSE_BRANCH, 0, role == SyntaxRole.ELSE_BRANCH ? body : empty));
+    } else {
+      if (owner == SyntaxKind.ENHANCED_FOR_LOOP) {
+        var parameter = StatementBranchFixture.declaration("source", path("parameter"), JavaSourceKind.VARIABLE, false, Optional.of(ORIGIN));
+        children.add(new SyntaxChild(SyntaxRole.PARAMETER, 0, parameter));
+        children.add(new SyntaxChild(SyntaxRole.ITERABLE, 0, condition));
+      }
+      children.add(new SyntaxChild(SyntaxRole.BODY, 0, body));
+    }
+    SyntaxValue value = owner == SyntaxKind.LABELED_STATEMENT ? new SyntaxValue.StatementLabel(Optional.of("label")) : SyntaxValue.None.INSTANCE;
+    return SyntaxNode.source("source", path("owner"), JavaSourceKind.valueOf(owner.name()), owner,
+        SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), ORIGIN);
   }
 
   @Test

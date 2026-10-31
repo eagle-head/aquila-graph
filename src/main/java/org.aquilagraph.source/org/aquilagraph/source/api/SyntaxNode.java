@@ -1148,7 +1148,7 @@ public final class SyntaxNode {
         throw new IllegalArgumentException("Inferred record type arguments require their deconstruction pattern owner");
       }
       var valid = switch (kind) {
-        case BLOCK -> isStatement(node);
+        case BLOCK, STATIC_INITIALIZER_BLOCK, INSTANCE_INITIALIZER_BLOCK -> isStatement(node);
         case LOCAL_DECLARATION -> child.role() != SyntaxRole.INITIALIZER || isExpression(node);
         case LAMBDA_EXPRESSION -> child.role() == SyntaxRole.PARAMETER
             ? node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION
@@ -1167,10 +1167,9 @@ public final class SyntaxNode {
         case ASSERT, EXPRESSION_STATEMENT, RETURN, THROW, PARENTHESIZED, YIELD, ARRAY_LENGTH, UNARY, BINARY, CONDITIONAL_AND,
             CONDITIONAL_OR, ASSIGNMENT, COMPOUND_ASSIGNMENT, UPDATE, ARRAY_ACCESS, CONDITIONAL_EXPRESSION ->
           isExpression(node);
-        case IF -> child.role() == SyntaxRole.CONDITION ? isExpression(node) : isStatement(node);
         case SYNCHRONIZED ->
           child.role() == SyntaxRole.MONITOR ? isExpression(node) : isCategory(node, SyntaxKind.BLOCK, JavaSourceKind.BLOCK);
-        case WHILE_LOOP, DO_WHILE_LOOP -> child.role() == SyntaxRole.CONDITION ? isExpression(node) : isStatementBody(node);
+        case IF, WHILE_LOOP, DO_WHILE_LOOP -> child.role() == SyntaxRole.CONDITION ? isExpression(node) : isStatementBody(node);
         case FOR_LOOP -> switch (child.role()) {
           case INITIALIZER -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION || node.syntaxKind() == SyntaxKind.EXPRESSION_STATEMENT;
           case UPDATE -> node.syntaxKind() == SyntaxKind.EXPRESSION_STATEMENT;
@@ -1252,6 +1251,9 @@ public final class SyntaxNode {
   }
 
   private static boolean isStatement(SyntaxNode node) {
+    if (node.sourceKind() == JavaSourceKind.ANNOTATION_TYPE) {
+      return false;
+    }
     return switch (node.syntaxKind()) {
       case BLOCK, LOCAL_DECLARATION, EXPRESSION_STATEMENT, RETURN, THROW, IF, WHILE_LOOP, DO_WHILE_LOOP, FOR_LOOP, ENHANCED_FOR_LOOP,
           LABELED_STATEMENT, BREAK, CONTINUE, ASSERT, SYNCHRONIZED, TRY, YIELD, EMPTY, TYPE_DECLARATION, SWITCH_STATEMENT ->
@@ -1280,9 +1282,11 @@ public final class SyntaxNode {
   }
 
   private static boolean isStatementBody(SyntaxNode node) {
-    return isStatement(node) && node.sourceKind() != JavaSourceKind.VARIABLE && node.sourceKind() != JavaSourceKind.CLASS
-        && node.sourceKind() != JavaSourceKind.INTERFACE && node.sourceKind() != JavaSourceKind.ENUM
-        && node.sourceKind() != JavaSourceKind.RECORD;
+    return isStatement(node) && node.syntaxKind() != SyntaxKind.LOCAL_DECLARATION && node.syntaxKind() != SyntaxKind.TYPE_DECLARATION
+        && switch (node.sourceKind()) {
+          case VARIABLE, CLASS, INTERFACE, ENUM, RECORD, ANNOTATION_TYPE -> false;
+          default -> true;
+        };
   }
 
   private static boolean isAnnotationArray(SyntaxNode node) {
