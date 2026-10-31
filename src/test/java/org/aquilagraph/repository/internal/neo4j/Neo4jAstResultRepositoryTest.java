@@ -21,6 +21,10 @@ import java.util.HashMap;
 import java.util.List;
 import org.aquilagraph.application.AstLookupStatus;
 import org.aquilagraph.application.AstLookup;
+import org.aquilagraph.application.AstRetentionService;
+import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.RepositoryOperationException;
@@ -39,6 +43,7 @@ import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstContractException;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.testsupport.StatementBranchFixture;
+import org.aquilagraph.testsupport.SourceCompositionFixture;
 import org.aquilagraph.source.retention.AstCodec;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -47,6 +52,37 @@ import org.neo4j.driver.exceptions.Neo4jException;
 
 class Neo4jAstResultRepositoryTest {
   @TempDir Path directory;
+
+  @Test
+  void givenComposedClosedSource_whenExplicitlyRetainedAndReadThroughApplicationAdapter_thenFactsAndCleanupSurvive() {
+    // Arrange
+    var original = SourceCompositionFixture.produce(directory, true);
+    var outcome = AstOutcome.available(original);
+    var writer = new AstRepositoryDriverStub();
+    var reader = new AstRepositoryDriverStub();
+    reader.stored = new Neo4jAstResultCodec().map(outcome);
+    var retention = new AstRetentionService(context -> new Neo4jAstResultRepository(
+        (context.kind() == RepositoryOperationKind.SAVE_AST ? writer : reader).driver(), SessionConfig.defaultConfig(), context));
+    var noSave = new AstRetentionService(context -> {
+      throw new AssertionError("Explicit no-save cannot acquire an adapter");
+    });
+    // Act
+    var declined = noSave.retainAst(new AstPublicationRequest(outcome, PublicationIntent.DO_NOT_SAVE));
+    var publication = retention.retainAst(outcome);
+    var lookup = retention.findAst(original.identity());
+    // Assert
+    assertEquals(PublicationStatus.NOT_REQUESTED, declined.status());
+    assertEquals(CommitKnowledge.NOT_STARTED, declined.knowledge());
+    assertEquals(PublicationStatus.SAVED, publication.status());
+    assertEquals(CommitKnowledge.KNOWN_COMMIT, publication.knowledge());
+    assertEquals(AstLookupStatus.FOUND, lookup.status());
+    var decoded = lookup.outcome().orElseThrow().result().orElseThrow();
+    SourceCompositionFixture.assertComposition(decoded, true);
+    SourceCompositionFixture.assertRoundTrip(original, decoded);
+    assertEquals(List.of("session.open:0", "session.close:0", "session.open:1", "write.begin", "callback.return",
+        "write.acknowledged", "session.close:1", "driver.close"), writer.events);
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), reader.events);
+  }
 
   @Test
   void givenDeclarationInRetainedBranchAndCleanupFailures_whenFinding_thenDecodeCausePrecedesOrderedCleanup() {

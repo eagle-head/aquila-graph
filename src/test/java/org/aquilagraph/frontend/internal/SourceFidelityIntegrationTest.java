@@ -30,6 +30,7 @@ import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.testsupport.SourceFidelityFixture;
+import org.aquilagraph.testsupport.SourceCompositionFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.DynamicTest;
@@ -37,6 +38,34 @@ import org.junit.jupiter.api.io.TempDir;
 
 class SourceFidelityIntegrationTest {
   @TempDir Path directory;
+
+  @TestFactory
+  Stream<DynamicTest> givenLexicalCorrectionsInsideNestedBranches_whenProducedAndConsumed_thenExactSourceAndSeparateCfgOutcomesCompose() {
+    // Arrange
+    var spellings = List.of(false, true);
+    // Act
+    var observations = spellings.stream().map(escaped -> DynamicTest.dynamicTest(
+        "given" + (escaped ? "Escaped" : "Ordinary") + "NestedBranches_whenProducedAndDecoded_thenStructureAndCfgOutcomesCompose", () -> {
+          // Arrange
+          var original = SourceCompositionFixture.produce(directory, escaped);
+          var bytes = AstCodec.encode(original);
+          var methods = List.of("supported", "refused").stream().map(name -> original.program().methods().stream()
+              .filter(method -> method.name().equals(name)).findFirst().orElseThrow().methodKey()).toList();
+          // Act
+          var decoded = AstCodec.decode(bytes, original.identity());
+          var run = new SourceAnalysisRunner(JavaFrontends.standard(), CfgDerivers.standard()).deriveExisting(AstOutcome.available(decoded),
+              new CfgRequest(decoded.identity(), methods, CfgProfile.JAVA_WITHOUT_SWITCH_EXPRESSIONS));
+          // Assert
+          SourceCompositionFixture.assertComposition(original, escaped);
+          SourceCompositionFixture.assertComposition(decoded, escaped);
+          SourceCompositionFixture.assertRoundTrip(original, decoded);
+          assertEquals(List.of(MethodCfgState.AVAILABLE, MethodCfgState.UNSUPPORTED),
+              run.representation().cfg().orElseThrow().methods().stream().map(method -> method.state()).toList());
+          assertArrayEquals(bytes, AstCodec.encode(run.representation().ast().result().orElseThrow()));
+        }));
+    // Assert
+    return observations;
+  }
 
   @Test
   void givenBlockDeclarationsAndNestedBranches_whenProducedAndConsumedAfterClosure_thenSourceStructureAndCfgIndependenceSurvive() {
