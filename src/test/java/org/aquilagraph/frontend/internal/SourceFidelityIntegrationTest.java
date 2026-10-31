@@ -3,11 +3,14 @@ package org.aquilagraph.frontend.internal;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Comparator;
 import java.util.stream.Stream;
 import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.frontend.JavaFrontends;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -22,6 +25,10 @@ import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.SourceInput;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.testsupport.SourceFidelityFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
@@ -30,6 +37,112 @@ import org.junit.jupiter.api.io.TempDir;
 
 class SourceFidelityIntegrationTest {
   @TempDir Path directory;
+
+  @Test
+  void givenBlockDeclarationsAndNestedBranches_whenProducedAndConsumedAfterClosure_thenSourceStructureAndCfgIndependenceSurvive() {
+    // Arrange
+    var text = """
+        @interface Top {}
+        class Branches {
+          @interface Member {}
+          void run(boolean flag) {
+            if (flag) {
+              int value = 1;
+              class Local {}
+              interface Contract {}
+              enum Choice { ONLY }
+              record Data(int number) {}
+              while (flag) { if (flag) break; else ; }
+            } else { if (flag) ; else for (; flag;) break; }
+          }
+          int refused(int number) { return switch (number) { case 0 -> 1; default -> 2; }; }
+        }
+        """;
+    var source = SourceFile.fromContent(Path.of("Branches.java"), text);
+    var snapshot = InputSnapshot.fromSources(directory, List.of(source));
+    var frontend = JavaFrontends.standard();
+    var request = new AstProductionRequest(new SourceInput.Snapshot(snapshot),
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES);
+    // Act
+    var outcome = frontend.produce(request);
+    var original = outcome.result().orElseThrow();
+    var bytes = AstCodec.encode(original);
+    var decoded = AstCodec.decode(bytes, original.identity());
+    var conditional = decoded.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.IF)
+        .min(Comparator.comparingLong(node -> node.origin().orElseThrow().startOffset())).orElseThrow();
+    var statements = conditional.requiredChild(SyntaxRole.THEN_BRANCH).children();
+    var refused = decoded.program().methods().stream().filter(method -> method.name().equals("refused")).findFirst().orElseThrow();
+    var selected = new SourceAnalysisRunner(frontend, CfgDerivers.standard()).deriveExisting(AstOutcome.available(decoded),
+        new CfgRequest(decoded.identity(), List.of(refused.methodKey()), CfgProfile.JAVA_WITHOUT_SWITCH_EXPRESSIONS));
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
+    assertTrue(outcome.diagnostics().isEmpty(), outcome.diagnostics().toString());
+    assertEquals(original.aggregate(), decoded.aggregate());
+    assertEquals(original.coverage(), decoded.coverage());
+    assertEquals(original.identity(), decoded.identity());
+    assertEquals(text, decoded.snapshot().sourceFiles().getFirst().content());
+    assertEquals(List.of(JavaSourceKind.VARIABLE, JavaSourceKind.CLASS, JavaSourceKind.INTERFACE, JavaSourceKind.ENUM,
+        JavaSourceKind.RECORD, JavaSourceKind.WHILE_LOOP), statements.stream().map(child -> child.node().sourceKind()).toList());
+    assertEquals(List.of("int value = 1;", "class Local {}", "interface Contract {}", "enum Choice { ONLY }", "record Data(int number) {}",
+        "while (flag) { if (flag) break; else ; }"), statements.stream().map(child -> {
+          var span = child.node().origin().orElseThrow();
+          return text.substring((int) span.startOffset(), (int) span.endOffsetExclusive());
+        }).toList());
+    assertEquals(List.of(0, 1, 2, 3, 4, 5), statements.stream().map(SyntaxChild::position).toList());
+    for (var child : statements) {
+      assertEquals(conditional.requiredChild(SyntaxRole.THEN_BRANCH).structuralPath().child(SyntaxRole.STATEMENT, child.position()),
+          child.node().structuralPath());
+      assertEquals(source.sourceFileKey(), child.node().sourceFileKey());
+    }
+    assertEquals(2, decoded.aggregate().nodes().stream().filter(node -> node.sourceKind() == JavaSourceKind.ANNOTATION_TYPE).count());
+    assertEquals(MethodCfgState.UNSUPPORTED, selected.representation().cfg().orElseThrow().methods().getFirst().state());
+    assertArrayEquals(bytes, AstCodec.encode(selected.representation().ast().result().orElseThrow()));
+  }
+
+  @Test
+  void givenInvalidDirectJavaDeclaration_whenPublicProducerRuns_thenRealCompilerDiagnosticsPreventCompleteQualification() {
+    // Arrange
+    var source = SourceFile.fromContent(Path.of("Invalid.java"), "class Invalid { void run(boolean flag) { if (flag) int value; } }");
+    var request = new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(directory, List.of(source))),
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES);
+    // Act
+    var outcome = JavaFrontends.standard().produce(request);
+    // Assert
+    assertNotEquals(AstCompletion.COMPLETE, outcome.completion());
+    assertTrue(outcome.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")), outcome.diagnostics().toString());
+    outcome.result().ifPresent(result -> {
+      var decoded = AstCodec.decode(AstCodec.encode(result), result.identity());
+      assertEquals(result.completion(), decoded.completion());
+      assertEquals(result.diagnostics(), decoded.diagnostics());
+    });
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenLocalAnnotationInterfaces_whenPublicProducerRuns_thenCompilerAndProjectionDiagnosticsPreventPublication() {
+    return Stream.of("void run() { @interface Invalid {} }", "static { @interface Invalid {} }", "{ @interface Invalid {} }",
+        "Runnable action = () -> { @interface Invalid {} };",
+        "void run(int value) { switch (value) { default: @interface Invalid {} } }")
+        .map(member -> DynamicTest.dynamicTest("givenLocalAnnotationIn" + member
+            + "_whenPublicProducerRuns_thenCompilerAndProjectionDiagnosticsSurvive", () -> {
+          // Arrange
+          var source = SourceFile.fromContent(Path.of("Invalid.java"), "class Invalid { " + member + " }");
+          var request = new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(directory, List.of(source))),
+              CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES);
+          // Act
+          var outcome = JavaFrontends.standard().produce(request);
+          // Assert
+          assertNotEquals(AstCompletion.COMPLETE, outcome.completion());
+          assertTrue(outcome.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")), outcome.diagnostics().toString());
+          assertTrue(outcome.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.invalid-local-type-declaration")),
+              outcome.diagnostics().toString());
+          outcome.result().ifPresent(result -> {
+            var decoded = AstCodec.decode(AstCodec.encode(result), result.identity());
+            assertEquals(result.completion(), decoded.completion());
+            assertEquals(result.diagnostics(), decoded.diagnostics());
+            assertTrue(decoded.aggregate().nodes().stream().noneMatch(node -> node.sourceKind() == JavaSourceKind.ANNOTATION_TYPE));
+          });
+        }));
+  }
 
   @TestFactory
   Stream<DynamicTest> givenInvalidMixturesBesideCombinedCorrections_whenFrontendIsReused_thenRealErrorsAndIndependentValidFactsSurvive() {

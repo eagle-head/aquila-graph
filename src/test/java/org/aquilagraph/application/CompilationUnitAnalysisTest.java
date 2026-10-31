@@ -20,12 +20,35 @@ import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.SourceInput;
+import org.aquilagraph.source.api.AstContractException;
+import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.testsupport.StatementBranchFixture;
 import org.aquilagraph.source.retention.AstCodec;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class CompilationUnitAnalysisTest {
   @TempDir Path directory;
+
+  @Test
+  void givenRejectedRetainedBranch_whenApplicationRequestsAstRetention_thenContractFailurePreventsPublication() {
+    // Arrange
+    var valid = StatementBranchFixture.produce(directory, AstProfile.JAVA_SOURCE_MODULE_SERVICES);
+    var result = valid.result().orElseThrow();
+    var malformed = StatementBranchFixture.withDeclaration(AstCodec.encode(result), result.identity().sourceModelVersion(),
+        StatementBranchFixture.branch(valid, SyntaxRole.THEN_BRANCH), JavaSourceKind.CLASS, false);
+    var runner = new SourceAnalysisRunner(ignored -> AstOutcome.available(AstCodec.decode(malformed, result.identity())), CfgDerivers.standard());
+    var retention = new AstRetentionService(ignored -> { throw new AssertionError("Rejected values must not acquire retention"); });
+    var service = new AnalysisApplicationService(runner, retention, ignored -> { throw new AssertionError("No completed run may be published"); });
+    var request = new AnalysisRequest(new SourceInput.Snapshot(result.snapshot()), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+        result.profile(), Optional.empty(), PublicationIntent.SAVE_COMPLETE_AST);
+    // Act
+    var failure = assertThrows(AstContractException.class, () -> service.execute(request));
+    // Assert
+    assertTrue(failure.getMessage().contains("child category"), failure.toString());
+    assertTrue(failure.getCause() instanceof IllegalArgumentException);
+  }
 
   @Test
   void givenACompleteNoTypeUnit_whenTheApplicationRequestsNoSaveAndDerivesAnEmptySelection_thenSourceAndItsIdentitySurvive() {

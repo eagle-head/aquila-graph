@@ -54,6 +54,8 @@ import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.MethodCfgState;
 import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.AstOutcome;
+import org.aquilagraph.testsupport.StatementBranchFixture;
 import org.aquilagraph.source.api.CoveragePropertyValue;
 import org.aquilagraph.source.api.CoverageFactReference;
 import org.aquilagraph.source.api.CoverageFactValue;
@@ -77,6 +79,7 @@ import org.aquilagraph.source.api.JavaExecutableErasure;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
@@ -94,6 +97,59 @@ import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.io.TempDir;
 
 class AstCodecContractTest {
+  @Test
+  void givenRetainedAnnotationInInitializerBlock_whenReconstructedWithoutDirectSource_thenTheSharedCategoryRejectsPlacement() {
+    for (var kind : List.of(SyntaxKind.BLOCK, SyntaxKind.STATIC_INITIALIZER_BLOCK, SyntaxKind.INSTANCE_INITIALIZER_BLOCK)) {
+      // Arrange
+      var path = SyntaxStructuralPath.sourceFileRoot();
+      var leaf = SyntaxNode.withoutDirectSource("source", path.child(SyntaxRole.STATEMENT, 0), JavaSourceKind.EMPTY_STATEMENT,
+          SyntaxKind.EMPTY, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, List.of(), Optional.empty());
+      var block = SyntaxNode.withoutDirectSource("source", path, JavaSourceKind.BLOCK, kind, SyntaxType.NotApplicable.INSTANCE,
+          SyntaxValue.None.INSTANCE, List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, leaf)), Optional.empty());
+      var writer = new CanonicalValueWriter(AstCodec.FORMAT_VERSION);
+      new RetainedValueCodec(false).write(writer, block);
+      var malformed = StatementBranchFixture.withDeclaration(writer.toByteArray(), AstCodec.FORMAT_VERSION, leaf,
+          JavaSourceKind.ANNOTATION_TYPE, false);
+      // Act
+      var failure = assertThrows(IllegalArgumentException.class,
+          () -> new RetainedValueCodec(false).read(new CanonicalValueReader(malformed, AstCodec.FORMAT_VERSION)));
+      // Assert
+      assertTrue(deepestCause(failure).getMessage().contains("child category"), failure.toString());
+    }
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenCurrentAndHistoricalBranches_whenDeclarationsReplaceLeafBodies_thenReconstructionRejectsTheCategory() {
+    return Stream.of(false, true).flatMap(historical -> Stream.of(SyntaxRole.THEN_BRANCH, SyntaxRole.ELSE_BRANCH)
+        .map(role -> DynamicTest.dynamicTest("given" + (historical ? "Historical" : "Current") + role
+            + "_whenLeafIsReplacedByDeclaration_thenReconstructionRejectsCategory", () -> {
+          // Arrange
+          var produced = StatementBranchFixture.produce(directory,
+              historical ? AstProfile.JAVA_SOURCE_BOUNDED : AstProfile.JAVA_SOURCE_MODULE_SERVICES).result().orElseThrow();
+          var original = historical ? SourceAnalysisFixture.legacyResult(produced) : produced;
+          var bytes = AstCodec.encode(original);
+          var leaf = StatementBranchFixture.branch(AstOutcome.available(original), role);
+          // Act
+          var decoded = AstCodec.decode(bytes, original.identity());
+          // Assert
+          assertEquals(original.identity(), decoded.identity());
+          assertEquals(original.completion(), decoded.completion());
+          assertEquals(original.aggregate(), decoded.aggregate());
+          assertArrayEquals(bytes, AstCodec.encode(decoded));
+          for (var kind : StatementBranchFixture.DECLARATIONS) {
+            for (var unsupported : List.of(false, true)) {
+              // Arrange
+              var malformed = StatementBranchFixture.withDeclaration(bytes, original.identity().sourceModelVersion(), leaf, kind, unsupported);
+              // Act
+              var failure = assertThrows(AstContractException.class, () -> AstCodec.decode(malformed, original.identity()));
+              // Assert
+              assertTrue(deepestCause(failure).getMessage().contains("child category"), kind + " " + unsupported + " " + failure);
+              assertInstanceOf(IllegalArgumentException.class, deepestCause(failure));
+            }
+          }
+        })));
+  }
+
   @TestFactory
   Stream<DynamicTest> givenVoidAtAnyArrayDepth_whenCopiedOrDecoded_thenValueComponentsRejectWhileDirectVoidResultsRemainLegal() {
     return IntStream.rangeClosed(1, 2).boxed().flatMap(depth -> Stream.of("parameter", "return").map(part -> DynamicTest.dynamicTest(depth + " " + part, () -> {
