@@ -1,0 +1,25 @@
+{
+  "MD013": {
+    "line_length": 140
+  },
+  "MD033": {
+    "allowed_elements": [
+      "a",
+      "br",
+      "cite",
+      "code",
+      "dfn",
+      "em",
+      "i",
+      "kbd",
+      "li",
+      "ol",
+      "p",
+      "pre",
+      "span",
+      "strong",
+      "sub",
+      "sup"
+    ]
+  }
+}
