@@ -26,9 +26,11 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.function.Function;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
@@ -60,11 +62,12 @@ final class JavaConstructorSelection {
   private final Elements originalElements;
   private final SemanticResolver originalSemantics;
   private final JavaTranslationPolicy policy;
-  private final ConstructorIdentityLookup<Tree, Optional<SelectedConstructorFacts>> selections = ConstructorIdentityLookup
-      .usingReferenceIdentity();
+  private final Function<CompilationUnitTree, JavaSourceTokens> lexicalView;
+  private final ConstructorIdentityLookup<Tree, ConstructorCorrelation> selections = ConstructorIdentityLookup.usingReferenceIdentity();
 
   JavaConstructorSelection(JavaCompiler compiler, JavaCompilerInvocation invocation, SnapshotSourceCatalog sources,
-      StandardJavaFileManager manager, Trees trees, Types types, Elements elements, JavaTranslationPolicy policy) {
+      StandardJavaFileManager manager, Trees trees, Types types, Elements elements, JavaTranslationPolicy policy,
+      Function<CompilationUnitTree, JavaSourceTokens> lexicalView) {
     this.compiler = Objects.requireNonNull(compiler, "compiler");
     this.invocation = Objects.requireNonNull(invocation, "invocation");
     this.sources = Objects.requireNonNull(sources, "sources");
@@ -73,16 +76,17 @@ final class JavaConstructorSelection {
     originalTypes = Objects.requireNonNull(types, "types");
     originalElements = Objects.requireNonNull(elements, "elements");
     this.policy = Objects.requireNonNull(policy, "policy");
+    this.lexicalView = Objects.requireNonNull(lexicalView, "lexicalView");
     originalSemantics = new SemanticResolver(trees, types, elements, new DeclarationIdentityRegistry(trees, types, elements, policy));
   }
 
-  Optional<SelectedConstructorFacts> select(TreePath path, ExecutableElement selected) {
+  ConstructorCorrelation select(TreePath path, ExecutableElement selected) {
     Objects.requireNonNull(path, "path");
     Objects.requireNonNull(selected, "selected");
     if (!selected.equals(originalTrees.getElement(path))) {
       throw new IllegalArgumentException("Constructor selection requires its exact original attributed element");
     }
-    return selections.find(path.getLeaf()).orElseGet(Optional::empty);
+    return selections.find(path.getLeaf()).orElseGet(ConstructorCorrelation::unavailable);
   }
 
   void prepare(List<CompilationUnitTree> units) throws IOException {
@@ -116,10 +120,10 @@ final class JavaConstructorSelection {
       var fixed = creation.getArguments().size() == selected.getParameters().size()
           && !fixedArrayCannotAcceptCast(path, creation, selected, created)
               ? attribute(path, creation, selected, owner, created, false)
-              : WitnessAttribution.inapplicable();
-      var facts = fixed.status() == WitnessStatus.INAPPLICABLE && selected.isVarArgs()
-          ? attribute(path, creation, selected, owner, created, true).facts()
-          : fixed.facts();
+              : ConstructorCorrelation.inapplicable();
+      var facts = fixed.status() == CorrelationStatus.INAPPLICABLE && selected.isVarArgs()
+          ? attribute(path, creation, selected, owner, created, true)
+          : fixed;
       selections.remember(creation, facts);
     }
   }
@@ -171,10 +175,10 @@ final class JavaConstructorSelection {
   private record ConstructorTarget(ExecutableElement constructor, DeclaredType created, TypeElement owner) {
   }
 
-  private WitnessAttribution attribute(TreePath path, NewClassTree creation, ExecutableElement selected, TypeElement owner,
+  private ConstructorCorrelation attribute(TreePath path, NewClassTree creation, ExecutableElement selected, TypeElement owner,
       DeclaredType created, boolean expanded) throws IOException {
     if (creation.getClassBody() != null && creation.getArguments().isEmpty()) {
-      return WitnessAttribution.unavailable();
+      return ConstructorCorrelation.unavailable();
     }
     var name = uniqueName(owner);
     var diamond = creation.getClassBody() == null && creation.getIdentifier() instanceof ParameterizedTypeTree parameterized
@@ -186,17 +190,17 @@ final class JavaConstructorSelection {
     var enumConstant = path.getParentPath() != null && originalTrees.getElement(path.getParentPath()) != null
         && originalTrees.getElement(path.getParentPath()).getKind() == ElementKind.ENUM_CONSTANT;
     if (enumConstant && creation.getArguments().isEmpty()) {
-      return WitnessAttribution.unavailable();
+      return ConstructorCorrelation.unavailable();
     }
     var replaced = creation.getClassBody() == null && !enumConstant ? creation : creation.getArguments().getFirst();
     var start = position(original, replaced, false);
     var end = position(original, replaced, true);
     if (start < 0 || end < start) {
-      return WitnessAttribution.unavailable();
+      return ConstructorCorrelation.unavailable();
     }
     var receiver = receiverType(path, creation, owner, created);
     if (receiver.isEmpty()) {
-      return WitnessAttribution.unavailable();
+      return ConstructorCorrelation.unavailable();
     }
     var replacement = replacement(original, creation, receiver.orElseThrow(), content, name, diamond, expanded,
         selected.getParameters().size() - 1);
@@ -211,16 +215,18 @@ final class JavaConstructorSelection {
     var declaration = originalTrees.getPath(owner);
     if (declaration != null && declaration.getLeaf() instanceof ClassTree classTree) {
       var ownerUnit = declaration.getCompilationUnit();
-      var ownerContent = ownerUnit.getSourceFile().getCharContent(true).toString();
+      var ownerStart = position(ownerUnit, classTree, false);
       var ownerEnd = position(ownerUnit, classTree, true);
-      if (ownerEnd <= 0 || ownerContent.charAt(ownerEnd - 1) != '}') {
-        return WitnessAttribution.unavailable();
+      var delimiter = lexicalView.apply(ownerUnit).closingBrace(ownerStart, ownerEnd);
+      if (ownerStart < 0 || delimiter.isEmpty()) {
+        return ConstructorCorrelation.unavailable();
       }
-      edits.add(new SourceEdit(ownerUnit.getSourceFile(), ownerEnd - 1, ownerEnd - 1, notional.sourceMethod()));
+      var insertion = delimiter.orElseThrow().start();
+      edits.add(new SourceEdit(ownerUnit.getSourceFile(), insertion, insertion, notional.sourceMethod()));
     } else {
       var binary = binaryInput(owner);
       if (binary.isEmpty()) {
-        return WitnessAttribution.unavailable();
+        return ConstructorCorrelation.unavailable();
       }
       var input = binary.orElseThrow();
       byte[] adapted;
@@ -288,7 +294,7 @@ final class JavaConstructorSelection {
         : Optional.empty();
   }
 
-  private WitnessAttribution attributeWitness(TreePath path, NewClassTree creation, ExecutableElement selected, TypeElement owner,
+  private ConstructorCorrelation attributeWitness(TreePath path, NewClassTree creation, ExecutableElement selected, TypeElement owner,
       DeclaredType created, String name, boolean expanded, List<SourceEdit> edits, JavaFileManager files,
       DiagnosticCollector<JavaFileObject> diagnostics) throws IOException {
     var task = (JavacTask) compiler.getTask(new StringWriter(), files, diagnostics, invocation.compilerOptions(), null,
@@ -299,15 +305,15 @@ final class JavaConstructorSelection {
     var errors = diagnostics.getDiagnostics().stream().filter(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR).toList();
     if (!errors.isEmpty()) {
       return !expanded && onlyInapplicabilityErrors(errors, edits.getFirst(), edits)
-          ? WitnessAttribution.inapplicable()
-          : WitnessAttribution.unavailable();
+          ? ConstructorCorrelation.inapplicable()
+          : ConstructorCorrelation.rejected();
     }
     var trees = Trees.instance(task);
     var resolver = new SemanticResolver(trees, task.getTypes(), task.getElements(),
         new DeclarationIdentityRegistry(trees, task.getTypes(), task.getElements(), policy));
     var calls = witnessCalls(units, trees, task.getElements(), originalElements.getBinaryName(owner).toString(), name);
     if (calls.size() != SELECTED_CALL_COUNT) {
-      return WitnessAttribution.unavailable();
+      return ConstructorCorrelation.unavailable();
     }
     var call = calls.getFirst();
     var returned = trees.getTypeMirror(call);
@@ -315,14 +321,14 @@ final class JavaConstructorSelection {
     if (!(call.getLeaf() instanceof MethodInvocationTree method)
         || !(trees.getElement(call) instanceof ExecutableElement witnessDeclaration)
         || !(trees.getTypeMirror(new TreePath(call, method.getMethodSelect())) instanceof ExecutableType executable)
-        || !correspondence.matches(created, returned)) {
-      return WitnessAttribution.unavailable();
+        || !correspondence.matches(constructorResultType(created), returned)) {
+      return ConstructorCorrelation.unavailable();
     }
     var arguments = new ArrayList<TypeMirror>();
     var originalArguments = new ArrayList<JavaTypeIdentity>();
     var prefix = selected.getParameters().size() - 1;
     if (method.getArguments().size() != creation.getArguments().size() + (expanded ? 1 : 0)) {
-      return WitnessAttribution.unavailable();
+      return ConstructorCorrelation.unavailable();
     }
     var witnessArgumentPaths = method.getArguments().stream().map(argument -> new TreePath(call, argument)).toList();
     var originalArgumentPaths = creation.getArguments().stream().map(argument -> new TreePath(path, argument)).toList();
@@ -334,7 +340,7 @@ final class JavaConstructorSelection {
       var originalArgument = originalTrees.getTypeMirror(originalArgumentPath);
       if (argument == null || originalArgument == null
           || !correspondence.matchesArgument(originalArgumentPath, originalTrees, witnessArgumentPath, trees)) {
-        return WitnessAttribution.unavailable();
+        return ConstructorCorrelation.unavailable();
       }
       arguments.add(argument);
       originalArguments.add(originalSemantics.typeIdentity(originalArgument));
@@ -348,7 +354,19 @@ final class JavaConstructorSelection {
             && value.variableArray().stream()
                 .noneMatch(array -> ConstructorTypeCorrespondence.retainsWitnessParameter(array, witnessDeclaration)))
         .flatMap(value -> copyFacts(resolver, correspondence, task.getTypes(), value, arguments, originalArguments));
-    return facts.map(WitnessAttribution::selected).orElseGet(WitnessAttribution::unavailable);
+    return facts.map(ConstructorCorrelation::selected).orElseGet(ConstructorCorrelation::unavailable);
+  }
+
+  private DeclaredType constructorResultType(DeclaredType created) {
+    if (created.getAnnotationMirrors().isEmpty()) {
+      return created;
+    }
+    // Creation-site annotations remain on the source occurrence, outside constructor inference.
+    var owner = (TypeElement) created.asElement();
+    var arguments = created.getTypeArguments().toArray(TypeMirror[]::new);
+    return owner.getNestingKind() == NestingKind.MEMBER && created.getEnclosingType() instanceof DeclaredType enclosing
+        ? originalTypes.getDeclaredType(enclosing, owner, arguments)
+        : originalTypes.getDeclaredType(owner, arguments);
   }
 
   private static Optional<JavaInvocationApplicability.Selection> expandedSelection(SemanticResolver resolver, Types types,
@@ -580,29 +598,33 @@ final class JavaConstructorSelection {
     }
   }
 
-  private enum WitnessStatus {
-    SELECTED, INAPPLICABLE, UNAVAILABLE
+  enum CorrelationStatus {
+    SELECTED, INAPPLICABLE, UNAVAILABLE, WITNESS_REJECTED
   }
 
-  private record WitnessAttribution(WitnessStatus status, Optional<SelectedConstructorFacts> facts) {
-    WitnessAttribution {
+  record ConstructorCorrelation(CorrelationStatus status, Optional<SelectedConstructorFacts> facts) {
+    ConstructorCorrelation {
       Objects.requireNonNull(status, "status");
       Objects.requireNonNull(facts, "facts");
-      if ((status == WitnessStatus.SELECTED) != facts.isPresent()) {
+      if ((status == CorrelationStatus.SELECTED) != facts.isPresent()) {
         throw new IllegalArgumentException("Only a selected witness may retain constructor facts");
       }
     }
 
-    static WitnessAttribution selected(SelectedConstructorFacts facts) {
-      return new WitnessAttribution(WitnessStatus.SELECTED, Optional.of(facts));
+    static ConstructorCorrelation selected(SelectedConstructorFacts facts) {
+      return new ConstructorCorrelation(CorrelationStatus.SELECTED, Optional.of(facts));
     }
 
-    static WitnessAttribution inapplicable() {
-      return new WitnessAttribution(WitnessStatus.INAPPLICABLE, Optional.empty());
+    static ConstructorCorrelation inapplicable() {
+      return new ConstructorCorrelation(CorrelationStatus.INAPPLICABLE, Optional.empty());
     }
 
-    static WitnessAttribution unavailable() {
-      return new WitnessAttribution(WitnessStatus.UNAVAILABLE, Optional.empty());
+    static ConstructorCorrelation rejected() {
+      return new ConstructorCorrelation(CorrelationStatus.WITNESS_REJECTED, Optional.empty());
+    }
+
+    static ConstructorCorrelation unavailable() {
+      return new ConstructorCorrelation(CorrelationStatus.UNAVAILABLE, Optional.empty());
     }
   }
 }

@@ -15,7 +15,7 @@ import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.Trees;
-import org.aquilagraph.frontend.internal.JavaConstructorSelection.SelectedConstructorFacts;
+import org.aquilagraph.frontend.internal.JavaConstructorSelection.ConstructorCorrelation;
 import java.util.ArrayDeque;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -75,8 +75,8 @@ final class SemanticResolver {
     this.constructorSelection = Objects.requireNonNull(constructorSelection, "constructorSelection");
   }
 
-  Optional<SelectedConstructorFacts> selectedConstructor(TreePath path, ExecutableElement selected) {
-    return constructorSelection.flatMap(selection -> selection.select(path, selected));
+  ConstructorCorrelation selectedConstructor(TreePath path, ExecutableElement selected) {
+    return constructorSelection.map(selection -> selection.select(path, selected)).orElseGet(ConstructorCorrelation::unavailable);
   }
 
   Element element(TreePath path) {

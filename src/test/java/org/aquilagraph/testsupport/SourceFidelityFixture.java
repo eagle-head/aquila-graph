@@ -73,7 +73,7 @@ public final class SourceFidelityFixture {
     assertTrue(result.diagnostics().isEmpty());
     assertEquals(AstProfile.JAVA_SOURCE_FIDELITY, result.profile());
     assertEquals("java-source/21", result.identity().sourceModelVersion());
-    assertEquals("javac-public/10", result.identity().semanticProductionRevision());
+    assertEquals("javac-public/12", result.identity().semanticProductionRevision());
     assertEquals("java-source-expanded/7", result.identity().astProfileVersion());
     assertSourceFacts(result);
   }

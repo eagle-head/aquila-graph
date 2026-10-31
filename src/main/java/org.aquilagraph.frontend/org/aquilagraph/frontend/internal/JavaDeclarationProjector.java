@@ -317,7 +317,7 @@ final class JavaDeclarationProjector {
         children, Optional.empty(), header.range());
     sourceAssociations.created(node, fieldPath);
     declarationEdge(fieldPath, node, semanticEdges);
-    initializations.retain(initialization.orElseThrow(), node);
+    initializations.retain(initialization.orElseThrow(), node, diagnostics);
     return Optional.of(node);
   }
 

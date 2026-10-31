@@ -101,6 +101,64 @@ class SourceContractCompositionTest {
   @TempDir Path directory;
 
   @Test
+  void givenCorrectedLexicalSource_whenApplicationRetainsAndQueriesThroughAdapter_thenExactFactsSurviveCfgRefusal() {
+    // Arrange
+    var spelling = "tr" + "\\" + "u0000ue";
+    var source = "class Box { <T> Box(T x) {} " + "\\" + "u007d class Sample { "
+        + "Object make() { return new Box(1); } String literal() { return \"prefix\" + " + spelling + "; } "
+        + "int refused() { java.util.function.IntSupplier next = () -> 1; return next.getAsInt(); } }";
+    var input = request(source);
+    var runner = new SourceAnalysisRunner(JavaFrontends.standard(), CfgDerivers.standard());
+    var write = new AstRepositoryDriverStub();
+    var retention = new AstRetentionService(context ->
+        new Neo4jAstResultRepository(write.driver(), SessionConfig.defaultConfig(), context));
+    var noSave = new AstRetentionService(context -> {
+      throw new AssertionError("No-save must not acquire storage");
+    });
+
+    // Act
+    var analysis = runner.analyze(new AnalysisRequest(input.input(), input.configuration(), input.profile(),
+        Optional.empty(), PublicationIntent.DO_NOT_SAVE));
+    var outcome = analysis.representation().ast();
+    var original = outcome.result().orElseThrow();
+    var unrequested = noSave.retainAst(new AstPublicationRequest(outcome, PublicationIntent.DO_NOT_SAVE));
+    var publication = retention.retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
+    var read = new AstRepositoryDriverStub();
+    read.stored = new Neo4jAstResultCodec().map(outcome);
+    var lookup = new AstRetentionService(context ->
+        new Neo4jAstResultRepository(read.driver(), SessionConfig.defaultConfig(), context)).findAst(original.identity());
+    var retained = lookup.outcome().orElseThrow().result().orElseThrow();
+    var refused = retained.program().methods().stream().filter(method -> method.name().equals("refused")).findFirst().orElseThrow();
+    var derived = runner.deriveExisting(AstOutcome.available(retained),
+        new CfgRequest(retained.identity(), List.of(refused.methodKey()), CfgProfile.JAVA_BOUNDED));
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
+    assertEquals(PublicationStatus.NOT_REQUESTED, unrequested.status());
+    assertEquals(PublicationStatus.SAVED, publication.status());
+    assertEquals(CommitKnowledge.KNOWN_COMMIT, publication.knowledge());
+    assertEquals(AstLookupStatus.FOUND, lookup.status());
+    assertEquals(original.identity(), retained.identity());
+    assertEquals("javac-public/12", retained.identity().semanticProductionRevision());
+    assertEquals(original.aggregate(), retained.aggregate());
+    assertEquals(original.coverage(), retained.coverage());
+    assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retained));
+    var literalStart = source.indexOf(spelling);
+    var literal = retained.aggregate().nodes().stream().filter(node -> node.origin().equals(Optional.of(
+        new SourceSpan(retained.snapshot().sourceFiles().getFirst().sourceFileKey(), literalStart, literalStart + spelling.length()))))
+        .findFirst().orElseThrow();
+    assertEquals("true", literal.value(SyntaxValue.Literal.class).text());
+    var make = retained.program().methods().stream().filter(method -> method.name().equals("make")).findFirst().orElseThrow();
+    var body = retained.body(make.methodKey()).orElseThrow();
+    var creation = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION).findFirst().orElseThrow();
+    assertEquals("java.lang.Integer", body.useDecision(creation.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow().selectedTarget().displayName());
+    assertEquals(MethodCfgState.UNSUPPORTED, derived.representation().cfg().orElseThrow().methods().getFirst().state());
+    assertArrayEquals(AstCodec.encode(original), AstCodec.encode(derived.representation().ast().result().orElseThrow()));
+    assertEquals("driver.close", write.events.getLast());
+    assertEquals("driver.close", read.events.getLast());
+  }
+
+  @Test
   void givenMixedSourceFamilies_whenProducedAndDecoded_thenDetachedFactsKeepExactValuesAndOwners() {
     // Arrange
     var request = request(SOURCE);
@@ -304,7 +362,7 @@ class SourceContractCompositionTest {
     assertTrue(ast.diagnostics().isEmpty(), ast.diagnostics().toString());
     assertEquals(AstProfile.JAVA_SOURCE_MODULE_SERVICES, ast.profile());
     assertEquals("java-source-expanded/8", ast.identity().astProfileVersion());
-    assertEquals("javac-public/11", ast.identity().semanticProductionRevision());
+    assertEquals("javac-public/12", ast.identity().semanticProductionRevision());
     assertEquals("java-source/21", ast.identity().sourceModelVersion());
     assertNeighborFacts(ast);
   }

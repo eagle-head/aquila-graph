@@ -134,7 +134,7 @@ class JavaMethodBodyAdmissionTest {
             // Act
             var projection = projector.project(fixture.unit(), fixture.source(), input.scope(), input.path().getLeaf(), input.path(),
                 JavaSyntaxStructuralPath.executionRoot(input.path()), false, false);
-            var decisions = new JavaBodyDecisionProducer(semantics).produce(projection);
+            var decisions = new JavaBodyDecisionProducer(semantics).produce(projection).value();
 
             // Assert
             assertEquals(1, decisions.concatenations().size());

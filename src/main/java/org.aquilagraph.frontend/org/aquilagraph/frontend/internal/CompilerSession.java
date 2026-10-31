@@ -49,7 +49,7 @@ final class CompilerSession implements AutoCloseable {
     var types = task.getTypes();
     var identities = new DeclarationIdentityRegistry(trees, types, task.getElements(), policy);
     var selection = new JavaConstructorSelection(compiler, invocation, sources, fileManager.standardFileManager(), trees, types,
-        task.getElements(), policy);
+        task.getElements(), policy, parsedSource.treeInventory()::tokens);
     selection.prepare(parsedSource.units());
     return new JavaCompilation(parsedSource.units(),
         new SemanticResolver(trees, types, task.getElements(), identities, Optional.of(selection)), parsedSource.sourceEvidence(),

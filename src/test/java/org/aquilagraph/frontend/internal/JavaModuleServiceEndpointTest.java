@@ -73,7 +73,7 @@ class JavaModuleServiceEndpointTest {
     // Assert
     assertEquals(AstCompletion.COMPLETE, result.completion(), result.diagnostics().toString());
     assertEquals("java-source-expanded/8", result.profile().version());
-    assertEquals("javac-public/11", result.identity().semanticProductionRevision());
+    assertEquals("javac-public/12", result.identity().semanticProductionRevision());
     assertEquals("java-source/21", result.identity().sourceModelVersion());
     for (var subject : List.of(result, retained)) {
       var operands = endpoints(subject);
@@ -243,7 +243,7 @@ class JavaModuleServiceEndpointTest {
     // Assert
     assertEquals(AstCompletion.COMPLETE, old.completion(), old.diagnostics().toString());
     assertEquals("java-source/21", old.identity().sourceModelVersion());
-    assertEquals("javac-public/10", old.identity().semanticProductionRevision());
+    assertEquals("javac-public/12", old.identity().semanticProductionRevision());
     assertTrue(endpoints(old).isEmpty());
     assertTrue(old.aggregate().nodes().stream().flatMap(node -> node.semanticReference().stream()).allMatch(reference -> reference.declarationIdentity().isEmpty()));
     assertEquals(AstCompletion.COMPLETE, absent.completion(), absent.diagnostics().toString());

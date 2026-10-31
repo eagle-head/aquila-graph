@@ -127,7 +127,10 @@ final class JavaWrittenExpression {
     }
     return switch (node) {
       case Anchor anchor -> JavaProjectionIdentity.sameInstance(anchor.path().getLeaf(), path.getLeaf());
-      case Literal _ -> path.getLeaf() instanceof LiteralTree;
+      case Literal literal ->
+        path.getLeaf() instanceof LiteralTree compiler && literal.sourceKind().name().equals(compiler.getKind().name())
+            && (literal.token().kind() != JavaSourceTokens.Kind.IDENTIFIER || JavaSourceLiteral.parse(literal, false)
+                .map(value -> value.constant().equals(Optional.ofNullable(compiler.getValue()))).orElse(false));
       case Unary _ -> false;
       case Binary binary -> path.getLeaf() instanceof BinaryTree compiler && binary.operator().name().equals(compiler.getKind().name())
           && matches(binary.left(), new TreePath(path, compiler.getLeftOperand()), source, evidence)
@@ -148,7 +151,7 @@ final class JavaWrittenExpression {
         case STRING, TEXT_BLOCK -> JavaSourceKind.STRING_LITERAL;
         case CHARACTER -> JavaSourceKind.CHAR_LITERAL;
         case NUMBER -> numberKind(token.value());
-        default -> "null".equals(token.value()) ? JavaSourceKind.NULL_LITERAL : JavaSourceKind.BOOLEAN_LITERAL;
+        default -> "null".equals(token.meaning()) ? JavaSourceKind.NULL_LITERAL : JavaSourceKind.BOOLEAN_LITERAL;
       };
     }
 
@@ -225,7 +228,7 @@ final class JavaWrittenExpression {
         return operand().map(value -> new Unary(operator, value, span(token.start(), value.origin().endOffsetExclusive())));
       }
       return token.kind() != JavaSourceTokens.Kind.SYMBOL
-          && (token.kind() != JavaSourceTokens.Kind.IDENTIFIER || List.of("true", "false", "null").contains(token.value()))
+          && (token.kind() != JavaSourceTokens.Kind.IDENTIFIER || List.of("true", "false", "null").contains(token.meaning()))
               ? Optional.of(new Literal(token, span(token.start(), token.end())))
               : Optional.empty();
     }

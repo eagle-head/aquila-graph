@@ -13,7 +13,7 @@ final class JavaSourceLiteral {
   }
 
   static Optional<Value> parse(JavaWrittenExpression.Literal literal, boolean immediateMinus) {
-    var text = literal.token().value();
+    var text = literal.token().meaning();
     try {
       return Optional.of(switch (literal.sourceKind()) {
         case STRING_LITERAL -> new Value(TypeKind.DECLARED, Optional.of(string(literal.token())), Optional.empty());

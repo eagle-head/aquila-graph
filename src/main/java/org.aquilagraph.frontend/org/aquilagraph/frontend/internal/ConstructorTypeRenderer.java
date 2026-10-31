@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
@@ -37,14 +38,15 @@ final class ConstructorTypeRenderer {
     }
     if (type instanceof DeclaredType declared && declared.asElement() instanceof TypeElement owner) {
       var enclosing = declared.getEnclosingType();
-      var prefix = enclosing.getKind() == TypeKind.DECLARED
-          ? source(enclosing) + "." + annotatedPrefix + owner.getSimpleName()
-          : owner.getQualifiedName().toString();
-      if (prefix.isEmpty()) {
+      String prefix;
+      if (owner.getNestingKind() == NestingKind.LOCAL) {
         prefix = annotatedPrefix + owner.getSimpleName();
-      } else if (enclosing.getKind() != TypeKind.DECLARED && !annotations.isEmpty()) {
+      } else if (enclosing.getKind() == TypeKind.DECLARED) {
+        prefix = source(enclosing) + "." + annotatedPrefix + owner.getSimpleName();
+      } else {
+        var name = owner.getQualifiedName().toString();
         var suffix = owner.getSimpleName().length();
-        prefix = prefix.substring(0, prefix.length() - suffix) + annotatedPrefix + owner.getSimpleName();
+        prefix = name.substring(0, name.length() - suffix) + annotatedPrefix + owner.getSimpleName();
       }
       return prefix + (declared.getTypeArguments().isEmpty() ? "" : "<" + joinedSource(declared.getTypeArguments(), ",") + ">");
     }
@@ -74,9 +76,9 @@ final class ConstructorTypeRenderer {
   String diamondReceiver(DeclaredType declared) {
     var owner = (TypeElement) declared.asElement();
     var enclosing = declared.getEnclosingType();
-    var prefix = enclosing.getKind() == TypeKind.DECLARED
-        ? source(enclosing) + "." + owner.getSimpleName()
-        : owner.getQualifiedName().toString();
+    var prefix = owner.getNestingKind() == NestingKind.LOCAL
+        ? owner.getSimpleName().toString()
+        : enclosing.getKind() == TypeKind.DECLARED ? source(enclosing) + "." + owner.getSimpleName() : owner.getQualifiedName().toString();
     if (prefix.isEmpty()) {
       prefix = owner.getSimpleName().toString();
     }

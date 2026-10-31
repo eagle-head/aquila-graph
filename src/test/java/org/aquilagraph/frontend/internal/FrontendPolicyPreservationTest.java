@@ -59,7 +59,7 @@ class FrontendPolicyPreservationTest {
       assertEquals(AstCompletion.COMPLETE, direct.completion(), direct.diagnostics().toString());
       var result = direct.result().orElseThrow();
       assertEquals(profile, result.profile());
-      assertEquals("javac-public/10", result.identity().semanticProductionRevision());
+      assertEquals("javac-public/12", result.identity().semanticProductionRevision());
       assertEquals(List.of("subject"), result.program().methods().stream().filter(method -> method.name().equals("subject"))
           .map(method -> method.name()).toList());
       var method = result.program().methods().stream().filter(value -> value.name().equals("subject")).findFirst().orElseThrow();

@@ -56,6 +56,8 @@ import org.aquilagraph.source.api.JavaTypeReference;
 import org.aquilagraph.source.api.ConversionEvidence;
 import org.aquilagraph.source.api.ChildUseEvidence;
 import org.aquilagraph.source.api.SemanticReference;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.frontend.internal.JavaConstructorSelection.CorrelationStatus;
 
 /** Copies selected use facts while exact compiler paths and body instances remain live. */
 final class JavaBodyDecisionProducer {
@@ -71,9 +73,10 @@ final class JavaBodyDecisionProducer {
     constructors = new JavaConstructorEvidenceProducer(semantics);
   }
 
-  JavaBodyDecisions produce(Projection projection) {
+  TranslationResult<JavaBodyDecisions> produce(Projection projection) {
     projection.requireSemantics(semantics);
     var scopeKey = projection.scopeKey();
+    var diagnostics = new DiagnosticEmissionCollector("JavaBodyDecisionProducer", scopeKey);
     var root = projection.translation().value();
     var bindings = corroborate(root, projection.nodes());
     var uses = new ArrayList<ChildUseEvidence>();
@@ -89,7 +92,7 @@ final class JavaBodyDecisionProducer {
       if (consumer.syntaxKind() == SyntaxKind.INVOCATION || consumer.syntaxKind() == SyntaxKind.OBJECT_CREATION) {
         var context = constructors.produce(projection, consumer);
         context.ifPresent(constructorContexts::add);
-        invocation(scopeKey, binding, bindings, uses, invocations);
+        invocation(scopeKey, binding, bindings, uses, invocations, diagnostics);
       } else {
         for (var child : consumer.children()) {
           if (child.node().syntaxKind().requiresType()) {
@@ -123,7 +126,8 @@ final class JavaBodyDecisionProducer {
       return new ConstructorEvidence(value.scopeKey(), value.invocationNodeId(), value.ownerTypeKey(), value.selectedConstructorKey(),
           value.form(), new EvidenceValue<>(evidence.state(), known, evidence.origin(), evidence.explanation(), evidence.diagnostic()));
     }).toList();
-    return new JavaBodyDecisions(uses, retainedInvocations, staticAccesses, concatenations, retainedConstructors);
+    return new TranslationResult<>(new JavaBodyDecisions(uses, retainedInvocations, staticAccesses, concatenations, retainedConstructors),
+        diagnostics.snapshot());
   }
 
   Map<SyntaxNode, NodeProjection> corroborate(SyntaxNode root, List<NodeProjection> projections) {
@@ -196,7 +200,9 @@ final class JavaBodyDecisionProducer {
             source(projection.binding(projection.translation().value())), target, false, true));
   }
 
-  JavaBodyDecisions enumConstant(String scopeKey, SyntaxNode constant, TreePath creationPath, Optional<SemanticReference> constructor) {
+  TranslationResult<JavaBodyDecisions> enumConstant(String scopeKey, SyntaxNode constant, TreePath creationPath,
+      Optional<SemanticReference> constructor) {
+    var diagnostics = new DiagnosticEmissionCollector("JavaBodyDecisionProducer", scopeKey);
     var fieldPath = creationPath.getParentPath();
     if (fieldPath == null || !(fieldPath.getLeaf() instanceof VariableTree field)
         || !JavaProjectionIdentity.sameInstance(field.getInitializer(), creationPath.getLeaf())
@@ -211,11 +217,11 @@ final class JavaBodyDecisionProducer {
     if (selectedPath.isEmpty() || !(semantics.element(selectedPath.orElseThrow()) instanceof ExecutableElement executable)
         || !constructor.flatMap(reference -> reference.symbolKey()).equals(semantics.declarationKey(executable))
         || !(creationPath.getLeaf() instanceof NewClassTree creation)) {
-      return new JavaBodyDecisions(List.of(), List.of(), List.of(), List.of());
+      return new TranslationResult<>(new JavaBodyDecisions(List.of(), List.of(), List.of(), List.of()), diagnostics.snapshot());
     }
     if (!executable.getTypeParameters().isEmpty()) {
       if (semantics.element(creationPath) instanceof ExecutableElement actual) {
-        constructorInvocation(scopeKey, constant, creationPath, actual, uses, invocations);
+        constructorInvocation(scopeKey, constant, creationPath, actual, uses, invocations, diagnostics);
       }
     } else if (executable.asType() instanceof ExecutableType signature) {
       var arguments = creation.getArguments().stream().map(argument -> semantics.attributedMirror(new TreePath(creationPath, argument)))
@@ -237,19 +243,20 @@ final class JavaBodyDecisionProducer {
             });
       }
     }
-    return new JavaBodyDecisions(uses, invocations.stream().map(value -> InvocationEvidence.known(value, constant.origin())).toList(),
-        List.of(), List.of());
+    return new TranslationResult<>(new JavaBodyDecisions(uses,
+        invocations.stream().map(value -> InvocationEvidence.known(value, constant.origin())).toList(), List.of(), List.of()),
+        diagnostics.snapshot());
   }
 
   private void invocation(String scopeKey, NodeProjection consumer, Map<SyntaxNode, NodeProjection> bindings, List<ChildUseEvidence> uses,
-      List<InvocationApplicability> invocations) {
+      List<InvocationApplicability> invocations, DiagnosticEmissionCollector diagnostics) {
     if (!(semantics.element(consumer.compilerAnchor()) instanceof ExecutableElement executable)
         || !referenceMatches(consumer.node(), executable)) {
       return;
     }
     if (consumer.compilerAnchor().getLeaf() instanceof NewClassTree creation
         && (!executable.getTypeParameters().isEmpty() || (creation.getClassBody() != null && !creation.getArguments().isEmpty()))) {
-      constructorInvocation(scopeKey, consumer.node(), consumer.compilerAnchor(), executable, uses, invocations);
+      constructorInvocation(scopeKey, consumer.node(), consumer.compilerAnchor(), executable, uses, invocations, diagnostics);
       return;
     }
     var selectedType = selectedExecutable(consumer.compilerAnchor(), executable);
@@ -284,18 +291,22 @@ final class JavaBodyDecisionProducer {
   }
 
   private void constructorInvocation(String scopeKey, SyntaxNode consumer, TreePath path, ExecutableElement executable,
-      List<ChildUseEvidence> uses, List<InvocationApplicability> invocations) {
-    var proof = semantics.selectedConstructor(path, executable);
+      List<ChildUseEvidence> uses, List<InvocationApplicability> invocations, DiagnosticEmissionCollector diagnostics) {
+    var correlation = semantics.selectedConstructor(path, executable);
+    var proof = correlation.facts();
     if (proof.isEmpty()) {
+      missingConstructorCorrelation(consumer, correlation.status(), diagnostics);
       return;
     }
     var facts = proof.orElseThrow();
     var children = consumer.children(SyntaxRole.ARGUMENT);
     if (children.size() != facts.arguments().size()) {
+      missingConstructorCorrelation(consumer, CorrelationStatus.UNAVAILABLE, diagnostics);
       return;
     }
     for (var index = 0; index < children.size(); index++) {
       if (!children.get(index).resolvedType().equals(Optional.of(facts.arguments().get(index).sourceType()))) {
+        missingConstructorCorrelation(consumer, CorrelationStatus.UNAVAILABLE, diagnostics);
         return;
       }
     }
@@ -309,6 +320,21 @@ final class JavaBodyDecisionProducer {
             argument.preBoxPrimitiveType(), argument.boxedType()), consumer.syntaxKind(), consumer.origin()));
       }
     }
+  }
+
+  private static void missingConstructorCorrelation(SyntaxNode consumer, CorrelationStatus status,
+      DiagnosticEmissionCollector diagnostics) {
+    var arguments = consumer.children(SyntaxRole.ARGUMENT);
+    if (arguments.isEmpty() || arguments.stream().anyMatch(argument -> argument.resolvedType().isEmpty())) {
+      return;
+    }
+    var rejected = status == CorrelationStatus.WITNESS_REJECTED;
+    diagnostics.emit(FrontendDiagnosticFactory.error(consumer.nodeId(),
+        rejected ? "frontend.constructor-witness-rejected" : "frontend.missing-constructor-correlation",
+        rejected
+            ? "Private constructor witness compilation did not establish the required argument evidence"
+            : "Required constructor argument evidence could not be correlated with its captured source occurrence",
+        consumer.origin(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
   }
 
   private Optional<ExecutableType> selectedExecutable(TreePath path, ExecutableElement executable) {
