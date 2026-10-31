@@ -9,8 +9,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Optional;
 import java.util.stream.Stream;
+import javax.tools.DiagnosticCollector;
+import javax.tools.JavaFileObject;
+import javax.tools.ToolProvider;
 import org.aquilagraph.frontend.JavaFrontends;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
@@ -23,6 +27,8 @@ import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.InvocationApplicabilityMode;
+import org.aquilagraph.source.api.AnnotationScalar;
 import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.ResolutionStatus;
@@ -40,6 +46,242 @@ import org.junit.jupiter.api.io.TempDir;
 
 class LexicalSourceAstTest {
   @TempDir Path directory;
+
+  @Test
+  void givenEscapedOwnerDelimiter_whenProducedAndDecoded_thenGenericConstructorRetainsItsWrittenArguments() throws IOException {
+    // Arrange
+    var delimiter = unicode("007d");
+    var source = "class Box { <T> Box(T x) {} " + delimiter + " class Probe { Object make() { return new Box(1); } }";
+    assertEquals(6, delimiter.length());
+    assertCompilerAccepts(source);
+
+    // Act
+    var outcome = produce(source);
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
+    var original = outcome.result().orElseThrow();
+    for (var ast : List.of(original, AstCodec.decode(AstCodec.encode(original), original.identity()))) {
+      assertCompleteCapture(ast, source);
+      var creation = occurrence(ast, SyntaxKind.OBJECT_CREATION, "new Box(1)");
+      assertEquals(List.of(occurrence(ast, SyntaxKind.LITERAL, "1")), creation.children(SyntaxRole.ARGUMENT));
+      assertConstructorEvidence(ast, creation);
+    }
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenTranslatedOwnerBoundaries_whenProducedAndDecoded_thenConstructorMeaningComposesAcrossContexts() {
+    // Arrange
+    var cases = List.of(
+        "class Box { <T> Box(T x) {} } class Probe { Object make() { return new Box(1); } }",
+        "class Box { <T> Box(T x) {} " + "\\" + "uuuu007d class Probe { Object make() { return new Box(1); } }",
+        "class Box { String braces = \"}\"; /* } */ <T> Box(T x) {} " + unicode("007d")
+            + " class Probe { Object make() { return new Box(1); } }",
+        "class Probe { Object scope() { class Box { <T> Box(T x) {} " + unicode("007d")
+            + " class Local { Object make() { return new Box(1); } } return new Local().make(); } }",
+        "class Probe { Object scope() { class Box<A> { <T> Box(T x) {} " + unicode("007d")
+            + " class Local { Object make() { return new Box<>(1); } } return new Local().make(); } }");
+
+    // Act
+    var tests = cases.stream().map(source -> DynamicTest.dynamicTest(
+        "givenOwnerContext" + cases.indexOf(source) + "_whenProducedAndDecoded_thenSelectedConstructorAndOffsetsRemainExact", () -> {
+          // Arrange
+          assertCompilerAccepts(source);
+          // Act
+          var outcome = produce(source);
+          // Assert
+          assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
+          var original = outcome.result().orElseThrow();
+          for (var ast : List.of(original, AstCodec.decode(AstCodec.encode(original), original.identity()))) {
+            var creation = occurrence(ast, SyntaxKind.OBJECT_CREATION, source.contains("new Box<>") ? "new Box<>(1)" : "new Box(1)");
+            assertConstructorEvidence(ast, creation);
+            assertEquals(List.of(occurrence(ast, SyntaxKind.LITERAL, "1")), creation.children(SyntaxRole.ARGUMENT));
+          }
+        }));
+    // Assert
+    return tests;
+  }
+
+  @Test
+  void givenEscapedConstructorOwnerInAnotherUnit_whenProducedAndDecoded_thenDeclarationUnitSuppliesTheBoundary() throws IOException {
+    // Arrange
+    var owner = "class Box { <T> Box(T x) {} " + unicode("007d");
+    var use = "class Probe { Object make() { return new Box(1); } }";
+    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Box.java"), owner),
+        SourceFile.fromContent(Path.of("Probe.java"), use)));
+    assertCompilerAccepts(snapshot.sourceFiles());
+
+    // Act
+    var outcome = JavaFrontends.standard().produce(request(new SourceInput.Snapshot(snapshot)));
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
+    var original = outcome.result().orElseThrow();
+    for (var ast : List.of(original, AstCodec.decode(AstCodec.encode(original), original.identity()))) {
+      var creation = ast.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION).findFirst().orElseThrow();
+      assertConstructorEvidence(ast, creation);
+      var file = ast.snapshot().sourceFiles().stream().filter(value -> value.sourceFileKey().equals(creation.sourceFileKey())).findFirst().orElseThrow();
+      assertEquals(Path.of("Probe.java"), file.relativePath());
+      assertEquals("new Box(1)", slice(creation, file.content()));
+      assertEquals(original.aggregate(), ast.aggregate());
+    }
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenCompilerLiteralSpellingsAndFoldedChildren_whenProducedAndDecoded_thenMeaningsAndWrittenOperandsRemainDistinct() {
+    // Arrange
+    var cases = List.of(new LiteralCase("true control", "true", "true"),
+        new LiteralCase("ignorable true", "tr" + unicode("0000") + "ue", "true"),
+        new LiteralCase("ignorable false", "fa" + unicode("0000") + "lse", "false"),
+        new LiteralCase("ignorable null", "nu" + unicode("0000") + "ll", "null"));
+
+    // Act
+    var tests = cases.stream().map(example -> DynamicTest.dynamicTest(
+        "given" + example.name() + "_whenFoldedAndDecoded_thenIndividualLiteralAndRangeRemainExact", () -> {
+          // Arrange
+          var expression = "\"prefix\" + " + example.raw() + " + \"suffix\"";
+          var source = "class Example { String value() { return " + expression + "; } }";
+          assertCompilerAccepts(source);
+          // Act
+          var outcome = produce(source);
+          // Assert
+          assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
+          var original = outcome.result().orElseThrow();
+          for (var ast : List.of(original, AstCodec.decode(AstCodec.encode(original), original.identity()))) {
+            var literal = occurrence(ast, SyntaxKind.LITERAL, example.raw());
+            assertEquals(example.expected(), literal.value(SyntaxValue.Literal.class).text());
+            var outer = occurrence(ast, SyntaxKind.BINARY, expression);
+            assertEquals(literal, outer.requiredChild(SyntaxRole.LEFT_OPERAND).requiredChild(SyntaxRole.RIGHT_OPERAND));
+            assertEquals("suffix", outer.requiredChild(SyntaxRole.RIGHT_OPERAND).value(SyntaxValue.Literal.class).text());
+          }
+        }));
+    // Assert
+    return tests;
+  }
+
+  @Test
+  void givenIgnorableLiteralInAnnotationDefault_whenProducedAndDecoded_thenAnnotationAndStringContentsKeepTheirOwnMeaning() throws IOException {
+    // Arrange
+    var spelling = "tr" + unicode("0000") + "ue";
+    var content = "tr" + unicode("0000") + "ue";
+    var source = "@interface Example { String value() default \"prefix\" + " + spelling
+        + "; } class Probe { String text() { return \"" + content + "\"; } }";
+    assertCompilerAccepts(source);
+
+    // Act
+    var outcome = produce(source);
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
+    var original = outcome.result().orElseThrow();
+    for (var ast : List.of(original, AstCodec.decode(AstCodec.encode(original), original.identity()))) {
+      var value = ast.aggregate().nodes().stream().filter(node -> node.sourceKind() == JavaSourceKind.BOOLEAN_LITERAL).findFirst().orElseThrow();
+      assertEquals(spelling, value.value(SyntaxValue.Literal.class).text());
+      assertEquals(spelling, slice(value, source));
+      var declaration = ast.aggregate().nodes().stream().filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration method
+          && method.defaultValue().isPresent()).findFirst().orElseThrow();
+      assertEquals(Optional.of(new AnnotationScalar.StringValue("prefixtrue")),
+          declaration.value(SyntaxValue.ExecutableDeclaration.class).defaultValue());
+      var text = occurrence(ast, SyntaxKind.LITERAL, "\"" + content + "\"");
+      assertEquals("tr" + Character.toString(0) + "ue", text.value(SyntaxValue.Literal.class).text());
+      assertEquals(original.coverage(), ast.coverage());
+    }
+  }
+
+  private static void assertConstructorEvidence(AstResult ast, SyntaxNode creation) {
+    var owner = ast.program().types().stream().filter(value -> value.qualifiedName().endsWith("Box")).findFirst().orElseThrow();
+    var constructor = owner.methods().stream().filter(value -> value.constructor()).findFirst().orElseThrow();
+    assertEquals(constructor.methodKey(), creation.semanticReference().orElseThrow().symbolKey().orElseThrow());
+    var method = ast.program().methods().stream().filter(value -> value.name().equals("make")).findFirst().orElseThrow();
+    var body = ast.body(method.methodKey()).orElseThrow();
+    var conversion = body.useDecision(creation.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow();
+    assertEquals("int", conversion.sourceType().displayName());
+    assertEquals("java.lang.Integer", conversion.selectedTarget().displayName());
+    assertEquals("int", conversion.preBoxPrimitiveType().orElseThrow().displayName());
+    assertEquals("java.lang.Integer", conversion.boxedType().orElseThrow().displayName());
+    var applicability = body.invocationArity(creation.nodeId()).orElseThrow();
+    assertEquals(InvocationApplicabilityMode.FIXED, applicability.mode());
+    assertEquals(1, applicability.formalCount());
+    assertEquals(method.methodKey(), conversion.scopeKey());
+    assertFalse(ast.program().methods().stream().anyMatch(value -> value.name().startsWith("constructorSelection")));
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenAnnotatedLocalConstructorReceivers_whenProducedAndDecoded_thenAnnotationsAndSelectedFactsCompose() {
+    // Arrange
+    var cases = List.of(new AnnotatedConstruction(true, false, "}"), new AnnotatedConstruction(true, false, unicode("007d")),
+        new AnnotatedConstruction(false, false, unicode("007d")), new AnnotatedConstruction(true, true, unicode("007d")),
+        new AnnotatedConstruction(false, true, "}"));
+
+    // Act
+    var tests = cases.stream().map(example -> DynamicTest.dynamicTest(
+        "givenAnnotatedLocalContext" + cases.indexOf(example) + "_whenProducedAndDecoded_thenSelectedFactsAndRangesSurvive", () -> {
+          // Arrange
+          var creationText = example.diamond() ? "new @Mark Box<>(1)" : "new @Mark Box(1)";
+          var source = "import java.lang.annotation.*; @Target(ElementType.TYPE_USE) @interface Mark {} class Probe { "
+              + (example.staticMethod() ? "static " : "") + "Object make() { class Box" + (example.diamond() ? "<A>" : "")
+              + " { <T> Box(T x) {} " + example.delimiter() + " return " + creationText + "; } }";
+          assertCompilerAccepts(source);
+          // Act
+          var outcome = produce(source);
+          // Assert
+          assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
+          var original = outcome.result().orElseThrow();
+          for (var ast : List.of(original, AstCodec.decode(AstCodec.encode(original), original.identity()))) {
+            var creation = occurrence(ast, SyntaxKind.OBJECT_CREATION, creationText);
+            assertConstructorEvidence(ast, creation);
+            assertEquals(original.aggregate(), ast.aggregate());
+            assertEquals(original.coverage(), ast.coverage());
+            assertTrue(creation.descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.ANNOTATION));
+          }
+        }));
+    // Assert
+    return tests;
+  }
+
+  private record AnnotatedConstruction(boolean staticMethod, boolean diamond, String delimiter) {
+  }
+
+  @Test
+  void givenCompilerRecognizedIgnorableBoolean_whenProducedAndDecoded_thenValueAndOriginalRangeRemainTrue() throws IOException {
+    // Arrange
+    var spelling = "tr" + unicode("0000") + "ue";
+    var source = "class Probe { boolean m() { return " + spelling + "; } }";
+    assertCompilerAccepts(source);
+
+    // Act
+    var outcome = produce(source);
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
+    var original = outcome.result().orElseThrow();
+    for (var ast : List.of(original, AstCodec.decode(AstCodec.encode(original), original.identity()))) {
+      assertCompleteCapture(ast, source);
+      var literal = occurrence(ast, SyntaxKind.LITERAL, spelling);
+      assertEquals(JavaSourceKind.BOOLEAN_LITERAL, literal.sourceKind());
+      assertEquals("true", literal.value(SyntaxValue.Literal.class).text());
+    }
+  }
+
+  private void assertCompilerAccepts(String source) throws IOException {
+    assertCompilerAccepts(List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+  }
+
+  private void assertCompilerAccepts(List<SourceFile> sources) throws IOException {
+    var paths = new ArrayList<Path>();
+    for (var source : sources) {
+      var file = directory.resolve(source.relativePath());
+      Files.writeString(file, source.content());
+      paths.add(file);
+    }
+    var compiler = ToolProvider.getSystemJavaCompiler();
+    var diagnostics = new DiagnosticCollector<JavaFileObject>();
+    try (var manager = compiler.getStandardFileManager(diagnostics, null, null)) {
+      assertTrue(compiler.getTask(null, manager, diagnostics,
+          List.of("--release", "25", "-proc:none", "-d", directory.toString()), null,
+          manager.getJavaFileObjectsFromPaths(paths)).call(), diagnostics.getDiagnostics().toString());
+    }
+  }
 
   @Test
   void givenCrLfAndEscapedKeywordAfterSupplementaryComment_whenCapturedAndDecoded_thenRawDeclarationAndChildOffsetsRemainExact()

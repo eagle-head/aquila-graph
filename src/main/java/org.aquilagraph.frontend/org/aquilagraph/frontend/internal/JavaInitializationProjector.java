@@ -67,17 +67,18 @@ final class JavaInitializationProjector {
     var projection = executableProjection(unit, sourceFile, value.declarationKey(), initializer, new TreePath(fieldPath, initializer),
         JavaSyntaxStructuralPath.executionRoot(fieldPath).child(SyntaxRole.INITIALIZER, 0), memberContext(nestedDeclarations));
     var decisions = new JavaBodyDecisionProducer(semantics).produce(projection);
+    diagnostics.include(decisions.emissions());
     var copied = bodyCorrelation.projectExecutable(projection, path.child(SyntaxRole.INITIALIZER, 0), diagnostics);
     return copied.map(node -> new Initialization(List.of(new SyntaxChild(SyntaxRole.INITIALIZER, 0, node)),
-        new FieldRegistration(value, fieldPath, Optional.of(projection), decisions)));
+        new FieldRegistration(value, fieldPath, Optional.of(projection), decisions.value())));
   }
 
-  void retain(Initialization initialization, SyntaxNode declaration) {
+  void retain(Initialization initialization, SyntaxNode declaration, DiagnosticEmissionCollector diagnostics) {
     switch (initialization.registration) {
       case NoRegistration _ -> {
       }
       case FieldRegistration field -> retainField(field.value(), declaration, field.path(), field.projection(), field.decisions());
-      case EnumRegistration constant -> retainEnum(constant, declaration);
+      case EnumRegistration constant -> retainEnum(constant, declaration, diagnostics);
     }
   }
 
@@ -115,11 +116,12 @@ final class JavaInitializationProjector {
       var projection = executableProjection(unit, sourceFile, value.declarationKey(), argument, argumentPath,
           JavaSyntaxStructuralPath.executionRoot(argumentPath), context);
       var decisions = decisionProducer.produce(projection);
+      diagnostics.include(decisions.emissions());
       var copied = bodyCorrelation.projectExecutable(projection, path.child(SyntaxRole.ARGUMENT, index), diagnostics);
       if (copied.isEmpty()) {
         return Optional.empty();
       }
-      var retained = bodyCorrelation.rebind(decisions, projection.translation().value(), copied.orElseThrow());
+      var retained = bodyCorrelation.rebind(decisions.value(), projection.translation().value(), copied.orElseThrow());
       children.add(new SyntaxChild(SyntaxRole.ARGUMENT, index, copied.orElseThrow()));
       enumUses.addAll(retained.uses());
       enumInvocations.addAll(retained.invocations());
@@ -142,10 +144,12 @@ final class JavaInitializationProjector {
         new JavaBodyDecisions(enumUses, enumInvocations, enumStaticAccesses, enumConcatenations), enumAttributions)));
   }
 
-  private void retainEnum(EnumRegistration constant, SyntaxNode node) {
+  private void retainEnum(EnumRegistration constant, SyntaxNode node, DiagnosticEmissionCollector diagnostics) {
     var value = constant.value();
-    var decisions = new JavaBodyDecisionProducer(semantics).enumConstant(value.declarationKey(), node, constant.creationPath(),
+    var translated = new JavaBodyDecisionProducer(semantics).enumConstant(value.declarationKey(), node, constant.creationPath(),
         constant.constructor());
+    diagnostics.include(translated.emissions());
+    var decisions = translated.value();
     var uses = new ArrayList<>(constant.decisions().uses());
     uses.addAll(decisions.uses());
     var invocations = new ArrayList<>(constant.decisions().invocations());
@@ -195,6 +199,7 @@ final class JavaInitializationProjector {
         context);
     var original = projection.translation().value();
     var decisions = new JavaBodyDecisionProducer(semantics).produce(projection);
+    diagnostics.include(decisions.emissions());
     var projected = bodyCorrelation.projectExecutable(projection, path, diagnostics);
     if (projected.isEmpty()) {
       return Optional.empty();
@@ -204,7 +209,7 @@ final class JavaInitializationProjector {
         SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE, projected.orElseThrow().children(), Optional.empty(), origin),
         treePath);
     bodyCorrelation.retainCopy(original, node);
-    var retained = bodyCorrelation.rebind(decisions, original, node);
+    var retained = bodyCorrelation.rebind(decisions.value(), original, node);
     bodyCorrelation.retainScope(new CopiedAstValues.Scope(new ExecutionScope.Initializer(key, ownerKey.orElseThrow(), origin, kind), node,
         retained.uses(), retained.invocations(), retained.staticAccesses(), retained.concatenations(),
         bodyCorrelation.executionAttributions(projection)));

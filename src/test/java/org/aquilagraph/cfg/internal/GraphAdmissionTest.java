@@ -537,7 +537,7 @@ class GraphAdmissionTest {
         List.of(SourceFile.fromContent(Path.of("Stored.java"), source)));
     var produced = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         profile).result().orElseThrow();
-    var selected = historical ? SourceAnalysisFixture.historicalResult(produced, historicalEnvironment(produced.environment())) : produced;
+    var selected = historical ? SourceAnalysisFixture.historicalResult(produced, historicalEnvironment(produced.environment()), "javac-public/10") : produced;
     var ast = AstCodec.decode(AstCodec.encode(selected), selected.identity());
     var method = ast.program().types().stream().filter(type -> type.qualifiedName().equals("Stored"))
         .flatMap(type -> type.methods().stream()).filter(value -> constructor ? value.constructor() : value.name().equals("value"))

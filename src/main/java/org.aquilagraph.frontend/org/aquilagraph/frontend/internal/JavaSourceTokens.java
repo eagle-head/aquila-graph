@@ -3,6 +3,7 @@ package org.aquilagraph.frontend.internal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /** Immutable complete-unit lexical view with translated spelling and original UTF-16 offsets. */
 final class JavaSourceTokens {
@@ -56,7 +57,9 @@ final class JavaSourceTokens {
         var symbol = symbol(text, index);
         index += symbol.length();
       }
-      result.add(new Token(kind, text.substring(start, index), decoded.starts().get(start), decoded.ends().get(index - 1)));
+      var spelling = text.substring(start, index);
+      var meaning = kind == Kind.IDENTIFIER ? identifierMeaning(spelling) : spelling;
+      result.add(new Token(kind, spelling, meaning, decoded.starts().get(start), decoded.ends().get(index - 1)));
     }
     return new JavaSourceTokens(result);
   }
@@ -67,6 +70,16 @@ final class JavaSourceTokens {
 
   List<Token> within(long start, long end) {
     return tokens.stream().filter(token -> token.start() >= start && token.end() <= end).toList();
+  }
+
+  Optional<Token> closingBrace(long start, long end) {
+    return tokens.stream().filter(token -> token.start() >= start && token.end() == end)
+        .filter(token -> token.kind() == Kind.SYMBOL && "}".equals(token.value())).findFirst();
+  }
+
+  private static String identifierMeaning(String spelling) {
+    return spelling.codePoints().filter(character -> !Character.isIdentifierIgnorable(character))
+        .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append).toString();
   }
 
   private static String symbol(String text, int index) {
@@ -181,7 +194,8 @@ final class JavaSourceTokens {
     IDENTIFIER, NUMBER, CHARACTER, STRING, TEXT_BLOCK, SYMBOL
   }
 
-  record Token(Kind kind, String value, int start, int end) {
+  /** Keeps translated spelling and compiler identifier interpretation separate from original offsets. */
+  record Token(Kind kind, String value, String meaning, int start, int end) {
   }
 
   private record DecodedSource(String text, List<Integer> starts, List<Integer> ends) {
