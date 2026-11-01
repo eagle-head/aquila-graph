@@ -364,6 +364,7 @@ public final class JavaAstAggregateBuilder {
     validateAttributionOwnership(nodes);
     validateDeclarationMemberOrders(orderedNodes);
     validateDeclarationTypes(orderedNodes);
+    EnclosingTypeAdmission.validate(orderedNodes);
     var decisionIndexes = new HashMap<String, ExecutionDecisionIndex>();
     for (var body : executionScopes.entrySet()) {
       decisionIndexes.put(body.getKey(),

@@ -333,7 +333,7 @@ public final class AstValueSchema {
     record(types, JavaTypeReference.class, "java-type-reference", IDENTITY_FIELD, DECLARATION_KEY_FIELD);
     record(types, JavaTypeStructure.Primitive.class, "java-type-structure/primitive", KIND_FIELD);
     record(types, JavaTypeStructure.Declared.class, "java-type-structure/declared", DECLARATION_KEY_FIELD, LEXICAL_OWNER_KEY_FIELD,
-        ENCLOSING_TYPE_FIELD, ARGUMENTS_FIELD);
+        ENCLOSING_TYPE_FIELD, ARGUMENTS_FIELD, "enclosingOwnerType");
     record(types, JavaTypeStructure.LocalDeclared.class, "java-type-structure/local-declared", DECLARATION_KEY_FIELD,
         LEXICAL_OWNER_KEY_FIELD, KIND_FIELD, ENCLOSING_TYPE_FIELD, ARGUMENTS_FIELD);
     enumeration(types, JavaTypeStructure.LocalDeclared.Kind.class, "java-type-structure/local-declared/kind");
@@ -614,6 +614,9 @@ public final class AstValueSchema {
     }
 
     List<String> retainedFields(int version) {
+      if (version < 22 && type == JavaTypeStructure.Declared.class) {
+        return fields.subList(0, fields.size() - 1);
+      }
       if (version < 21 && (type == AnalysisEnvironmentSnapshot.class || type == DependencySnapshot.class)) {
         return fields.subList(0, fields.size() - 1);
       }
@@ -638,6 +641,12 @@ public final class AstValueSchema {
 
     List<Object> retainedComponents(Object value, int version) {
       var values = components(value);
+      if (version < 22 && value instanceof JavaTypeStructure.Declared declared) {
+        if (declared.enclosingOwnerType().isPresent()) {
+          throw new IllegalArgumentException("Indirect enclosing instance views require retained AST format java-source/22");
+        }
+        return values.subList(0, values.size() - 1);
+      }
       if (version < 21 && value instanceof AnalysisEnvironmentSnapshot environment) {
         if (environment.identityScheme() != EnvironmentIdentityScheme.HISTORICAL) {
           throw new IllegalArgumentException("Module-aware environment identity requires retained AST format java-source/21");

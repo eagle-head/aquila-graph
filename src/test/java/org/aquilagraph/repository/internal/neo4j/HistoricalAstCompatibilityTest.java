@@ -23,7 +23,7 @@ class HistoricalAstCompatibilityTest {
     // Act
     var reproduced = new JavaFrontend(new JavaSourceLoader()).produce(request).result().orElseThrow();
     // Assert
-    assertEquals("java-source/21", reproduced.identity().sourceModelVersion());
+    assertEquals("java-source/22", reproduced.identity().sourceModelVersion());
     assertNotEquals(original.identity(), reproduced.identity());
     assertEquals(original.completion(), reproduced.completion());
     assertEquals(original.snapshot(), reproduced.snapshot());

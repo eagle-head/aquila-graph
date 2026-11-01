@@ -23,6 +23,7 @@ import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.TypeVariable;
 import javax.lang.model.type.UnionType;
 import javax.lang.model.type.WildcardType;
+import javax.lang.model.util.Types;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeStructure;
 import org.aquilagraph.source.api.JavaTypeIdentity;
@@ -35,13 +36,14 @@ final class JavaTypeStructureProjection {
   private final DeclarationIdentityRegistry identities;
   private final Function<TypeMirror, JavaTypeIdentity> typeIdentity;
   private final Function<TypeMirror, TypeMirror> erasure;
+  private final Types types;
   private final CaptureBindings captures = CaptureBindings.usingReferenceIdentity();
 
-  JavaTypeStructureProjection(DeclarationIdentityRegistry identities, Function<TypeMirror, JavaTypeIdentity> typeIdentity,
-      Function<TypeMirror, TypeMirror> erasure) {
+  JavaTypeStructureProjection(DeclarationIdentityRegistry identities, Function<TypeMirror, JavaTypeIdentity> typeIdentity, Types types) {
     this.identities = Objects.requireNonNull(identities, "identities");
     this.typeIdentity = Objects.requireNonNull(typeIdentity, "typeIdentity");
-    this.erasure = Objects.requireNonNull(erasure, "erasure");
+    this.types = Objects.requireNonNull(types, "types");
+    this.erasure = types::erasure;
   }
 
   Optional<JavaTypeStructure> project(TypeMirror type) {
@@ -89,7 +91,7 @@ final class JavaTypeStructureProjection {
   private SyntaxType erasedComponent(TypeMirror type) {
     var mirror = erasure.apply(type);
     var identity = typeIdentity.apply(mirror);
-    return new JavaTypeStructureProjection(identities, typeIdentity, erasure).project(mirror)
+    return new JavaTypeStructureProjection(identities, typeIdentity, types).project(mirror)
         .<SyntaxType>map(value -> new SyntaxType.Resolved(identity, value)).orElseGet(() -> new SyntaxType.StructureUnavailable(identity));
   }
 
@@ -97,7 +99,7 @@ final class JavaTypeStructureProjection {
     return switch (type.getKind()) {
       case ERROR -> SyntaxType.Erroneous.INSTANCE;
       case OTHER -> SyntaxType.Unsupported.INSTANCE;
-      default -> new JavaTypeStructureProjection(identities, typeIdentity, erasure).project(type)
+      default -> new JavaTypeStructureProjection(identities, typeIdentity, types).project(type)
           .<SyntaxType>map(value -> new SyntaxType.Resolved(typeIdentity.apply(type), value))
           .orElseGet(() -> new SyntaxType.StructureUnavailable(typeIdentity.apply(type)));
     };
@@ -208,7 +210,18 @@ final class JavaTypeStructureProjection {
       var kind = nesting == NestingKind.LOCAL ? JavaTypeStructure.LocalDeclared.Kind.LOCAL : JavaTypeStructure.LocalDeclared.Kind.ANONYMOUS;
       return Optional.of(new JavaTypeStructure.LocalDeclared(key.orElseThrow(), lexicalOwner.orElseThrow(), kind, enclosing, arguments));
     }
-    return Optional.of(new JavaTypeStructure.Declared(key.orElseThrow(), lexicalOwner, enclosing, arguments));
+    Optional<JavaTypeStructure> ownerView = Optional.empty();
+    if (enclosingMirror.getKind() != TypeKind.NONE && !(enclosingMirror instanceof DeclaredType)) {
+      if (!(element.getEnclosingElement() instanceof TypeElement owner)) {
+        return Optional.empty();
+      }
+      ownerView = JavaMemberTypeView.owner(enclosingMirror, owner, types)
+          .flatMap(view -> new JavaTypeStructureProjection(identities, typeIdentity, types).project(view));
+      if (ownerView.isEmpty()) {
+        return Optional.empty();
+      }
+    }
+    return Optional.of(new JavaTypeStructure.Declared(key.orElseThrow(), lexicalOwner, enclosing, arguments, ownerView));
   }
 
   private record CaptureBindings(Function<Element, Optional<Integer>> lookup, BiConsumer<Element, Integer> storage, IntSupplier count) {

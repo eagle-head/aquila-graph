@@ -1656,7 +1656,9 @@ public final class SyntaxNode {
     }
     if ((sourceKind == JavaSourceKind.IDENTIFIER || sourceKind == JavaSourceKind.MEMBER_SELECT)
         && declarationType.filter(declared -> !declared.arguments().isEmpty()).isPresent()
-        && path.steps().getLast().role() != SyntaxRole.TYPE_NAME && !(value instanceof SyntaxValue.InferredRecordType)) {
+        && path.steps().reversed().stream().map(SyntaxStructuralPath.Step::role).dropWhile(role -> role == SyntaxRole.UNDERLYING_TYPE)
+            .findFirst().filter(role -> role == SyntaxRole.TYPE_NAME).isEmpty()
+        && !(value instanceof SyntaxValue.InferredRecordType)) {
       throw new IllegalArgumentException("A written raw type name cannot carry attributed type arguments");
     }
     if (sourceKind == JavaSourceKind.ARRAY_TYPE

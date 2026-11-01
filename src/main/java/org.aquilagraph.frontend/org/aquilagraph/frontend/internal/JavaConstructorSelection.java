@@ -1,10 +1,10 @@
 package org.aquilagraph.frontend.internal;
 
-import com.sun.source.tree.AssignmentTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.MethodInvocationTree;
+import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.ExpressionStatementTree;
 import com.sun.source.tree.NewClassTree;
 import com.sun.source.tree.ParameterizedTypeTree;
@@ -30,8 +30,6 @@ import java.util.function.Function;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.TypeElement;
-import javax.lang.model.element.NestingKind;
-import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.ExecutableType;
@@ -49,6 +47,7 @@ import javax.tools.StandardJavaFileManager;
 import javax.tools.StandardLocation;
 import org.aquilagraph.source.api.JavaTypeIdentity;
 import org.aquilagraph.source.api.InvocationApplicabilityMode;
+import org.aquilagraph.frontend.internal.ConstructorWitnessFileManager.Replacement;
 
 /** Copies exact constructor instantiation facts from private public-compiler witnesses. */
 final class JavaConstructorSelection {
@@ -117,6 +116,10 @@ final class JavaConstructorSelection {
       var selected = target.orElseThrow().constructor();
       var created = target.orElseThrow().created();
       var owner = target.orElseThrow().owner();
+      if (originalTypes.asMemberOf(created, selected) instanceof ExecutableType executable && executable.getTypeVariables().isEmpty()) {
+        selections.remember(creation, attributedSelection(path, creation, selected, executable));
+        continue;
+      }
       var fixed = creation.getArguments().size() == selected.getParameters().size()
           && !fixedArrayCannotAcceptCast(path, creation, selected, created)
               ? attribute(path, creation, selected, owner, created, false)
@@ -126,6 +129,19 @@ final class JavaConstructorSelection {
           : fixed;
       selections.remember(creation, facts);
     }
+  }
+
+  private ConstructorCorrelation attributedSelection(TreePath path, NewClassTree creation, ExecutableElement selected,
+      ExecutableType executable) {
+    var arguments = creation.getArguments().stream().map(argument -> childType(originalTrees, path, argument)).toList();
+    if (arguments.stream().anyMatch(Objects::isNull)) {
+      return ConstructorCorrelation.unavailable();
+    }
+    var identities = arguments.stream().map(originalSemantics::typeIdentity).toList();
+    return new JavaInvocationApplicability(originalSemantics).select(executable, selected.isVarArgs(), arguments)
+        .flatMap(selection -> copyFacts(originalSemantics, selection, arguments, identities,
+            type -> Optional.of(originalSemantics.typeIdentity(type))))
+        .map(ConstructorCorrelation::selected).orElseGet(ConstructorCorrelation::unavailable);
   }
 
   private static boolean insideMethod(TreePath path) {
@@ -180,11 +196,19 @@ final class JavaConstructorSelection {
     if (creation.getClassBody() != null && creation.getArguments().isEmpty()) {
       return ConstructorCorrelation.unavailable();
     }
-    var name = uniqueName(owner);
+    var name = uniqueName(owner, "constructorSelection");
     var diamond = creation.getClassBody() == null && creation.getIdentifier() instanceof ParameterizedTypeTree parameterized
         && parameterized.getTypeArguments().isEmpty();
     var notional = new ConstructorNotionalMethod(selected, owner, originalTypes, originalElements, name, diamond,
         creation.getArguments().size(), expanded);
+    var projection = Optional.<ConstructorReceiverProjection>empty();
+    if (creation.getEnclosingExpression() != null) {
+      if (!(owner.getEnclosingElement() instanceof TypeElement enclosingOwner)) {
+        return ConstructorCorrelation.unavailable();
+      }
+      projection = Optional.of(new ConstructorReceiverProjection(owner, created, uniqueName(enclosingOwner, "constructorReceiver"), diamond,
+          originalTypes, originalElements));
+    }
     var original = path.getCompilationUnit();
     var content = original.getSourceFile().getCharContent(true).toString();
     var enumConstant = path.getParentPath() != null && originalTrees.getElement(path.getParentPath()) != null
@@ -192,26 +216,42 @@ final class JavaConstructorSelection {
     if (enumConstant && creation.getArguments().isEmpty()) {
       return ConstructorCorrelation.unavailable();
     }
-    var replaced = creation.getClassBody() == null && !enumConstant ? creation : creation.getArguments().getFirst();
+    var replaced = creation.getClassBody() != null && projection.isPresent()
+        ? creation.getEnclosingExpression()
+        : creation.getClassBody() == null && !enumConstant ? creation : creation.getArguments().getFirst();
     var start = position(original, replaced, false);
     var end = position(original, replaced, true);
     if (start < 0 || end < start) {
       return ConstructorCorrelation.unavailable();
     }
-    var receiver = receiverType(path, creation, owner, created);
-    if (receiver.isEmpty()) {
+    var edits = new ArrayList<SourceEdit>();
+    var adaptations = new ArrayList<Replacement>();
+    if (!addWitnessDeclaration(owner, notional.sourceMethod(), notional::adaptBinary, edits, adaptations)
+        || (projection.isPresent() && !addWitnessDeclaration(projection.orElseThrow().owner(), projection.orElseThrow().sourceMethod(),
+            projection.orElseThrow()::adaptBinary, edits, adaptations))) {
       return ConstructorCorrelation.unavailable();
     }
-    var replacement = replacement(original, creation, receiver.orElseThrow(), content, name, diamond, expanded,
-        selected.getParameters().size() - 1);
-    if (creation.getClassBody() != null || enumConstant) {
-      // Only the original argument arm completes normally; proof arguments cannot change its flow.
-      replacement = "switch (0) { case 1 -> { " + replacement + "; throw null; } default -> " + sourceText(original, replaced, content)
-          + "; }";
+    var selectionExpression = replacement(original, creation, created, content, name, diamond, expanded,
+        selected.getParameters().size() - 1, projection, edits);
+    var proof = creation.getClassBody() != null || enumConstant;
+    // Only the original expression arm completes normally; proof arguments cannot change its flow.
+    var expression = proof
+        ? "switch (0) { case 1 -> { " + selectionExpression + "; throw null; } default -> " + sourceText(original, replaced, content, edits)
+            + "; }"
+        : selectionExpression;
+    var replacement = proof && projection.isPresent() ? "(" + expression + ")" : expression;
+    edits.addFirst(new SourceEdit(original.getSourceFile(), start, end, replacement));
+    var diagnostics = new DiagnosticCollector<JavaFileObject>();
+    try (
+        var witnessManager = new CompilerFileManager(Objects.requireNonNull(
+            compiler.getStandardFileManager(diagnostics, Locale.ROOT, StandardCharsets.UTF_8), "constructor witness file manager"));
+        var files = new ConstructorWitnessFileManager(witnessManager, adaptations)) {
+      return attributeWitness(path, creation, selected, owner, created, name, expanded, edits, files, diagnostics, projection);
     }
-    var edits = new ArrayList<SourceEdit>();
-    edits.add(new SourceEdit(original.getSourceFile(), start, end, replacement));
-    var adaptation = Optional.<BinaryAdaptation>empty();
+  }
+
+  private boolean addWitnessDeclaration(TypeElement owner, String method, Function<byte[], byte[]> adapt, List<SourceEdit> edits,
+      List<Replacement> adaptations) throws IOException {
     var declaration = originalTrees.getPath(owner);
     if (declaration != null && declaration.getLeaf() instanceof ClassTree classTree) {
       var ownerUnit = declaration.getCompilationUnit();
@@ -219,84 +259,28 @@ final class JavaConstructorSelection {
       var ownerEnd = position(ownerUnit, classTree, true);
       var delimiter = lexicalView.apply(ownerUnit).closingBrace(ownerStart, ownerEnd);
       if (ownerStart < 0 || delimiter.isEmpty()) {
-        return ConstructorCorrelation.unavailable();
+        return false;
       }
       var insertion = delimiter.orElseThrow().start();
-      edits.add(new SourceEdit(ownerUnit.getSourceFile(), insertion, insertion, notional.sourceMethod()));
+      edits.add(new SourceEdit(ownerUnit.getSourceFile(), insertion, insertion, method));
     } else {
       var binary = binaryInput(owner);
       if (binary.isEmpty()) {
-        return ConstructorCorrelation.unavailable();
+        return false;
       }
       var input = binary.orElseThrow();
       byte[] adapted;
       try (var stream = input.openInputStream()) {
-        adapted = notional.adaptBinary(stream.readAllBytes());
+        adapted = adapt.apply(stream.readAllBytes());
       }
-      adaptation = Optional.of(new BinaryAdaptation(input, adapted));
+      adaptations.add(new Replacement(originalElements.getBinaryName(owner).toString(), input.toUri(), adapted));
     }
-    var diagnostics = new DiagnosticCollector<JavaFileObject>();
-    try (var witnessManager = new CompilerFileManager(Objects.requireNonNull(
-        compiler.getStandardFileManager(diagnostics, Locale.ROOT, StandardCharsets.UTF_8), "constructor witness file manager"))) {
-      if (adaptation.isPresent()) {
-        var binary = adaptation.orElseThrow();
-        try (var files = new ConstructorWitnessFileManager(witnessManager, originalElements.getBinaryName(owner).toString(),
-            binary.input().toUri(), binary.content())) {
-          return attributeWitness(path, creation, selected, owner, created, name, expanded, edits, files, diagnostics);
-        }
-      }
-      return attributeWitness(path, creation, selected, owner, created, name, expanded, edits, witnessManager, diagnostics);
-    }
-  }
-
-  private Optional<DeclaredType> receiverType(TreePath path, NewClassTree creation, TypeElement owner, DeclaredType created) {
-    var enclosing = creation.getEnclosingExpression();
-    if (enclosing == null) {
-      return Optional.of(created);
-    }
-    var qualifier = new TreePath(path, enclosing);
-    var candidate = declaredReceiverType(qualifier);
-    if (candidate.isEmpty()) {
-      return Optional.of(created);
-    }
-    var declared = candidate.orElseThrow();
-    var correspondence = new ConstructorTypeCorrespondence(originalElements, originalElements);
-    if (!correspondence.matches(originalTrees.getTypeMirror(qualifier), originalTypes.capture(declared))
-        || !(originalTypes.asMemberOf(declared, owner) instanceof DeclaredType member)
-        || !(member.getEnclosingType() instanceof DeclaredType containing)) {
-      return Optional.empty();
-    }
-    return Optional.of(originalTypes.getDeclaredType(containing, owner, created.getTypeArguments().toArray(TypeMirror[]::new)));
-  }
-
-  private Optional<DeclaredType> declaredReceiverType(TreePath qualifier) {
-    var expression = qualifier.getLeaf();
-    if (expression instanceof ParenthesizedTree parenthesized) {
-      return declaredReceiverType(new TreePath(qualifier, parenthesized.getExpression()));
-    }
-    if (expression instanceof AssignmentTree assignment) {
-      return childType(originalTrees, qualifier, assignment.getVariable()) instanceof DeclaredType declared
-          ? Optional.of(declared)
-          : Optional.empty();
-    }
-    if (expression instanceof TypeCastTree cast) {
-      return childType(originalTrees, qualifier, cast.getType()) instanceof DeclaredType declared
-          ? Optional.of(declared)
-          : Optional.empty();
-    }
-    if (expression instanceof MethodInvocationTree invocation) {
-      return childType(originalTrees, qualifier, invocation.getMethodSelect()) instanceof ExecutableType executable
-          && executable.getReturnType() instanceof DeclaredType declared ? Optional.of(declared) : Optional.empty();
-    }
-    var source = originalTrees.getElement(qualifier);
-    return source instanceof VariableElement variable && variable.asType() instanceof DeclaredType declared
-        ? Optional.of(declared)
-        : Optional.empty();
+    return true;
   }
 
   private ConstructorCorrelation attributeWitness(TreePath path, NewClassTree creation, ExecutableElement selected, TypeElement owner,
       DeclaredType created, String name, boolean expanded, List<SourceEdit> edits, JavaFileManager files,
-      DiagnosticCollector<JavaFileObject> diagnostics) throws IOException {
+      DiagnosticCollector<JavaFileObject> diagnostics, Optional<ConstructorReceiverProjection> projection) throws IOException {
     var task = (JavacTask) compiler.getTask(new StringWriter(), files, diagnostics, invocation.compilerOptions(), null,
         editedSources(edits));
     var units = new ArrayList<CompilationUnitTree>();
@@ -318,10 +302,32 @@ final class JavaConstructorSelection {
     var call = calls.getFirst();
     var returned = trees.getTypeMirror(call);
     var correspondence = new ConstructorTypeCorrespondence(originalElements, task.getElements());
+    if (projection.isPresent()) {
+      var receiver = projection.orElseThrow();
+      var receivers = witnessCalls(units, trees, task.getElements(), originalElements.getBinaryName(receiver.owner()).toString(),
+          receiver.name());
+      if (receivers.size() != SELECTED_CALL_COUNT) {
+        return ConstructorCorrelation.unavailable();
+      }
+      var receiverPath = receivers.getFirst();
+      var receiverCall = (MethodInvocationTree) receiverPath.getLeaf();
+      var receiverCorrespondence = new ConstructorTypeCorrespondence(originalElements, task.getElements());
+      var projectedSource = sourceText(path.getCompilationUnit(), creation.getEnclosingExpression(),
+          path.getCompilationUnit().getSourceFile().getCharContent(true).toString(),
+          edits.stream().filter(edit -> edit.start() == edit.end()).toList());
+      if (!(receiverCall.getMethodSelect() instanceof MemberSelectTree select)
+          || !(select.getExpression() instanceof ParenthesizedTree expression)
+          || !receiverCorrespondence.matchesCapturedReceiver(new TreePath(path, creation.getEnclosingExpression()), originalTrees,
+              originalTypes, new TreePath(new TreePath(new TreePath(receiverPath, select), expression), expression.getExpression()), trees,
+              task.getTypes(), projectedSource)) {
+        return ConstructorCorrelation.unavailable();
+      }
+      correspondence.retainDeclarations(receiverCorrespondence);
+    }
     if (!(call.getLeaf() instanceof MethodInvocationTree method)
         || !(trees.getElement(call) instanceof ExecutableElement witnessDeclaration)
         || !(trees.getTypeMirror(new TreePath(call, method.getMethodSelect())) instanceof ExecutableType executable)
-        || !correspondence.matches(constructorResultType(created), returned)) {
+        || !correspondence.matchesJavaType(created, returned)) {
       return ConstructorCorrelation.unavailable();
     }
     var arguments = new ArrayList<TypeMirror>();
@@ -353,20 +359,9 @@ final class JavaConstructorSelection {
             .noneMatch(target -> ConstructorTypeCorrespondence.retainsWitnessParameter(target, witnessDeclaration))
             && value.variableArray().stream()
                 .noneMatch(array -> ConstructorTypeCorrespondence.retainsWitnessParameter(array, witnessDeclaration)))
-        .flatMap(value -> copyFacts(resolver, correspondence, task.getTypes(), value, arguments, originalArguments));
+        .flatMap(value -> copyFacts(resolver, value, arguments, originalArguments,
+            type -> selectedTypeIdentity(resolver, correspondence, task.getTypes(), type)));
     return facts.map(ConstructorCorrelation::selected).orElseGet(ConstructorCorrelation::unavailable);
-  }
-
-  private DeclaredType constructorResultType(DeclaredType created) {
-    if (created.getAnnotationMirrors().isEmpty()) {
-      return created;
-    }
-    // Creation-site annotations remain on the source occurrence, outside constructor inference.
-    var owner = (TypeElement) created.asElement();
-    var arguments = created.getTypeArguments().toArray(TypeMirror[]::new);
-    return owner.getNestingKind() == NestingKind.MEMBER && created.getEnclosingType() instanceof DeclaredType enclosing
-        ? originalTypes.getDeclaredType(enclosing, owner, arguments)
-        : originalTypes.getDeclaredType(owner, arguments);
   }
 
   private static Optional<JavaInvocationApplicability.Selection> expandedSelection(SemanticResolver resolver, Types types,
@@ -417,6 +412,9 @@ final class JavaConstructorSelection {
   private static JavaFileObject editedSource(JavaFileObject input, List<SourceEdit> edits) throws IOException {
     var content = new StringBuilder(input.getCharContent(true));
     var matching = edits.stream().filter(edit -> edit.input().toUri().equals(input.toUri()))
+        .filter(edit -> edit.start() != edit.end() || edits.stream()
+            .noneMatch(parent -> parent.input().toUri().equals(input.toUri()) && parent.start() != parent.end()
+                && parent.start() <= edit.start() && edit.end() <= parent.end()))
         .sorted(Comparator.comparingInt(SourceEdit::start).reversed()).toList();
     for (var edit : matching) {
       content.replace(edit.start(), edit.end(), edit.replacement());
@@ -425,22 +423,44 @@ final class JavaConstructorSelection {
   }
 
   private String replacement(CompilationUnitTree unit, NewClassTree creation, DeclaredType created, String content, String name,
-      boolean diamond, boolean expanded, int prefix) {
+      boolean diamond, boolean expanded, int prefix, Optional<ConstructorReceiverProjection> projection, List<SourceEdit> edits) {
     var renderer = new ConstructorTypeRenderer(originalElements, Map.of());
-    var qualifier = "((" + (diamond ? renderer.diamondReceiver(created) : renderer.source(created)) + ")null)";
-    var arguments = new ArrayList<>(creation.getArguments().stream().map(argument -> sourceText(unit, argument, content)).toList());
+    String qualifier;
+    if (projection.isPresent()) {
+      var memberArguments = creation.getIdentifier() instanceof ParameterizedTypeTree parameterized
+          && !parameterized.getTypeArguments().isEmpty()
+              ? parameterized.getTypeArguments().stream().map(argument -> sourceText(unit, argument, content, edits))
+                  .collect(Collectors.joining(",", "<", ">"))
+              : !diamond && !created.getTypeArguments().isEmpty()
+                  ? created.getTypeArguments().stream().map(renderer::source).collect(Collectors.joining(",", "<", ">"))
+                  : "";
+      qualifier = "(" + sourceText(unit, creation.getEnclosingExpression(), content, edits) + ")." + memberArguments
+          + projection.orElseThrow().name() + "()";
+    } else {
+      qualifier = "((" + (diamond ? renderer.diamondReceiver(created) : renderer.source(created)) + ")null)";
+    }
+    var arguments = new ArrayList<>(creation.getArguments().stream().map(argument -> sourceText(unit, argument, content, edits)).toList());
     if (expanded) {
       arguments.add(prefix, "null");
     }
     var explicit = creation.getTypeArguments().isEmpty()
         ? ""
-        : creation.getTypeArguments().stream().map(argument -> sourceText(unit, argument, content))
+        : creation.getTypeArguments().stream().map(argument -> sourceText(unit, argument, content, edits))
             .collect(Collectors.joining(",", "<", ">"));
     return qualifier + "." + explicit + name + "(" + String.join(",", arguments) + ")";
   }
 
-  private String sourceText(CompilationUnitTree unit, Tree tree, String content) {
-    return content.substring(position(unit, tree, false), position(unit, tree, true));
+  private String sourceText(CompilationUnitTree unit, Tree tree, String content, List<SourceEdit> declarations) {
+    var start = position(unit, tree, false);
+    var end = position(unit, tree, true);
+    var copied = new StringBuilder(content.substring(start, end));
+    var contained = declarations.stream()
+        .filter(edit -> edit.input().toUri().equals(unit.getSourceFile().toUri()) && start <= edit.start() && edit.end() <= end)
+        .sorted(Comparator.comparingInt(SourceEdit::start).reversed()).toList();
+    for (var edit : contained) {
+      copied.replace(edit.start() - start, edit.end() - start, edit.replacement());
+    }
+    return copied.toString();
   }
 
   private int position(CompilationUnitTree unit, Tree tree, boolean end) {
@@ -488,14 +508,14 @@ final class JavaConstructorSelection {
     return calls;
   }
 
-  private Optional<SelectedConstructorFacts> copyFacts(SemanticResolver resolver, ConstructorTypeCorrespondence correspondence,
-      Types witnessTypes, JavaInvocationApplicability.Selection selection, List<TypeMirror> arguments,
-      List<JavaTypeIdentity> originalArguments) {
+  private static Optional<SelectedConstructorFacts> copyFacts(SemanticResolver resolver, JavaInvocationApplicability.Selection selection,
+      List<TypeMirror> arguments, List<JavaTypeIdentity> originalArguments,
+      Function<TypeMirror, Optional<JavaTypeIdentity>> selectedIdentity) {
     var facts = new ArrayList<ArgumentFacts>();
     for (var index = 0; index < arguments.size(); index++) {
       var source = arguments.get(index);
       var target = selection.argumentTargets().get(index);
-      var identity = selectedTypeIdentity(resolver, correspondence, witnessTypes, target);
+      var identity = selectedIdentity.apply(target);
       if (identity.isEmpty()) {
         return Optional.empty();
       }
@@ -521,8 +541,8 @@ final class JavaConstructorSelection {
       facts.add(argumentFacts(originalArguments.get(index), identity.orElseThrow(), unboxed, effective, preBox, boxed));
     }
     var array = selection.variableArray();
-    var arrayIdentity = array.flatMap(value -> selectedTypeIdentity(resolver, correspondence, witnessTypes, value));
-    var elementIdentity = array.flatMap(value -> selectedTypeIdentity(resolver, correspondence, witnessTypes, value.getComponentType()));
+    var arrayIdentity = array.flatMap(selectedIdentity);
+    var elementIdentity = array.flatMap(value -> selectedIdentity.apply(value.getComponentType()));
     if (array.isPresent() && (arrayIdentity.isEmpty() || elementIdentity.isEmpty())) {
       return Optional.empty();
     }
@@ -544,11 +564,11 @@ final class JavaConstructorSelection {
     return ConstructorTypeCorrespondence.containsVariable(type) ? Optional.empty() : Optional.of(resolver.typeIdentity(type));
   }
 
-  private String uniqueName(TypeElement owner) {
+  private String uniqueName(TypeElement owner, String prefix) {
     var names = originalElements.getAllMembers(owner).stream().map(element -> element.getSimpleName().toString()).toList();
-    var name = "constructorSelection";
+    var name = prefix;
     for (var index = 0; names.contains(name); index++) {
-      name = "constructorSelection" + index;
+      name = prefix + index;
     }
     return name;
   }
@@ -578,24 +598,6 @@ final class JavaConstructorSelection {
   }
 
   private record SourceEdit(JavaFileObject input, int start, int end, String replacement) {
-  }
-
-  private static final class BinaryAdaptation {
-    private final JavaFileObject sourceInput;
-    private final byte[] binaryContent;
-
-    BinaryAdaptation(JavaFileObject input, byte[] content) {
-      sourceInput = Objects.requireNonNull(input, "input");
-      binaryContent = content.clone();
-    }
-
-    JavaFileObject input() {
-      return sourceInput;
-    }
-
-    byte[] content() {
-      return binaryContent.clone();
-    }
   }
 
   enum CorrelationStatus {

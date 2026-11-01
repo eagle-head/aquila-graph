@@ -37,17 +37,7 @@ final class ConstructorTypeRenderer {
       return annotatedPrefix + names.getOrDefault(variable.asElement(), variable.asElement().getSimpleName().toString());
     }
     if (type instanceof DeclaredType declared && declared.asElement() instanceof TypeElement owner) {
-      var enclosing = declared.getEnclosingType();
-      String prefix;
-      if (owner.getNestingKind() == NestingKind.LOCAL) {
-        prefix = annotatedPrefix + owner.getSimpleName();
-      } else if (enclosing.getKind() == TypeKind.DECLARED) {
-        prefix = source(enclosing) + "." + annotatedPrefix + owner.getSimpleName();
-      } else {
-        var name = owner.getQualifiedName().toString();
-        var suffix = owner.getSimpleName().length();
-        prefix = name.substring(0, name.length() - suffix) + annotatedPrefix + owner.getSimpleName();
-      }
+      var prefix = declaredPrefix(declared, owner, annotatedPrefix);
       return prefix + (declared.getTypeArguments().isEmpty() ? "" : "<" + joinedSource(declared.getTypeArguments(), ",") + ">");
     }
     if (type instanceof WildcardType wildcard) {
@@ -75,16 +65,24 @@ final class ConstructorTypeRenderer {
 
   String diamondReceiver(DeclaredType declared) {
     var owner = (TypeElement) declared.asElement();
-    var enclosing = declared.getEnclosingType();
-    var prefix = owner.getNestingKind() == NestingKind.LOCAL
-        ? owner.getSimpleName().toString()
-        : enclosing.getKind() == TypeKind.DECLARED ? source(enclosing) + "." + owner.getSimpleName() : owner.getQualifiedName().toString();
-    if (prefix.isEmpty()) {
-      prefix = owner.getSimpleName().toString();
-    }
+    var prefix = declaredPrefix(declared, owner, "");
     return prefix + (owner.getTypeParameters().isEmpty()
         ? ""
         : owner.getTypeParameters().stream().map(ignored -> "?").collect(Collectors.joining(",", "<", ">")));
+  }
+
+  private String declaredPrefix(DeclaredType declared, TypeElement owner, String annotatedPrefix) {
+    var enclosing = declared.getEnclosingType();
+    if (owner.getNestingKind() == NestingKind.LOCAL || (enclosing instanceof DeclaredType outer
+        && outer.asElement() instanceof TypeElement enclosingOwner && enclosingOwner.getNestingKind() == NestingKind.ANONYMOUS)) {
+      return annotatedPrefix + owner.getSimpleName();
+    }
+    if (enclosing.getKind() == TypeKind.DECLARED) {
+      return source(enclosing) + "." + annotatedPrefix + owner.getSimpleName();
+    }
+    var name = owner.getQualifiedName().toString();
+    var suffix = owner.getSimpleName().length();
+    return name.substring(0, name.length() - suffix) + annotatedPrefix + owner.getSimpleName();
   }
 
   String signature(TypeMirror type) {

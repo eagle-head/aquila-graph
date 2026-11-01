@@ -306,7 +306,7 @@ final class SemanticResolver {
   }
 
   private Optional<JavaTypeStructure> structuredType(TypeMirror type) {
-    return new JavaTypeStructureProjection(identities, this::typeIdentity, types::erasure).project(type);
+    return new JavaTypeStructureProjection(identities, this::typeIdentity, types).project(type);
   }
 
   SyntaxType receiverType(ExecutableElement executable) {

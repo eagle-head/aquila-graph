@@ -263,8 +263,8 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       assertTrue(execution.run().representation().cfg().isEmpty());
       assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
       assertEquals("java-source-expanded/8", retained.profile().version());
-      assertEquals("javac-public/12", retained.identity().semanticProductionRevision());
-      assertEquals("java-source/21", retained.identity().sourceModelVersion());
+      assertEquals("javac-public/14", retained.identity().semanticProductionRevision());
+      assertEquals("java-source/22", retained.identity().sourceModelVersion());
       DeclarationAstRetentionFixture.assertPreserved(original, retained);
       assertEquals(List.of(MethodCfgState.AVAILABLE, MethodCfgState.UNSUPPORTED), graphs.methods().stream().map(method -> method.state()).toList());
       assertEquals(2, retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION).count());
@@ -428,8 +428,8 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     // Assert
     DeclarationAstRetentionFixture.assertPreserved(original, retained);
     assertEquals(AstProfile.JAVA_SOURCE_FIDELITY, retained.profile());
-    assertEquals("java-source/21", retained.identity().sourceModelVersion());
-    assertEquals("javac-public/12", retained.identity().semanticProductionRevision());
+    assertEquals("java-source/22", retained.identity().sourceModelVersion());
+    assertEquals("javac-public/14", retained.identity().semanticProductionRevision());
     assertEquals(6, retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.BINARY).count());
     assertEquals(3, retained.aggregate().nodes().stream().filter(node -> node.sourceKind() == JavaSourceKind.UNARY_MINUS).count());
     assertEquals(2, retained.aggregate().nodes().stream().filter(node -> node.value() instanceof SyntaxValue.Literal literal
@@ -462,7 +462,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, retained.completion());
-    assertEquals("javac-public/12", retained.identity().semanticProductionRevision());
+    assertEquals("javac-public/14", retained.identity().semanticProductionRevision());
     assertEquals(ast.result().orElseThrow().identity(), retained.identity());
     assertEquals(ast.result().orElseThrow().aggregate(), retained.aggregate());
     assertEquals(preceding.identity(), prior.identity());
@@ -500,8 +500,8 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, retained.completion());
-    assertEquals("javac-public/12", retained.identity().semanticProductionRevision());
-    assertEquals("java-source/21", retained.identity().sourceModelVersion());
+    assertEquals("javac-public/14", retained.identity().semanticProductionRevision());
+    assertEquals("java-source/22", retained.identity().sourceModelVersion());
     var modifiers = retained.coverage().validationEvidence().outcomes().stream()
         .filter(value -> value.address().role().equals("TypeElement::Element#getModifiers()"))
         .flatMap(value -> value.encounteredValue().stream()).flatMap(value -> value.items().stream())

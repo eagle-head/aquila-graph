@@ -14,7 +14,7 @@ public sealed interface AstResult permits AdmittedAstResult {
   /** Compatible format introducing module service and provider declaration targets. */
   public static final String MODULE_SERVICE_MODEL_VERSION = "java-source/20";
   /** Version of the retained source value schema. */
-  public static final String SOURCE_MODEL_VERSION = "java-source/21";
+  public static final String SOURCE_MODEL_VERSION = "java-source/22";
   /** Retained format with explicit compiler-effective environment identity. */
   public static final String ENVIRONMENT_IDENTITY_MODEL_VERSION = "java-source/21";
   /** Compatible format retaining independently proven written expressions. */
@@ -62,7 +62,7 @@ public sealed interface AstResult permits AdmittedAstResult {
    * @return whether the current reader supports the schema
    */
   public static boolean supportsSourceModelVersion(String version) {
-    if (ENVIRONMENT_IDENTITY_MODEL_VERSION.equals(version)) {
+    if (SOURCE_MODEL_VERSION.equals(version) || ENVIRONMENT_IDENTITY_MODEL_VERSION.equals(version)) {
       return true;
     }
     return MODULE_SERVICE_MODEL_VERSION.equals(version) || WRITTEN_EXPRESSION_MODEL_VERSION.equals(version)

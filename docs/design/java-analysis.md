@@ -171,6 +171,65 @@ Every applicable required source slot must be `KNOWN` with a consistent value. `
 
 Required source types, selected references and recursive annotation/type structures have the intrinsic states retained below; unresolved/unsupported required structure is a source gap even when a coarse display type exists. The family rows do not make a whole payload mandatory when only one slot is missing. Separate selected-reference/type/classification slots allow, for example, known call target plus missing applicability. In that case AST can be `COMPLETE` with no source error, while the initial CFG profile returns `INSUFFICIENT_EVIDENCE`. Missing selected call target instead makes this AST `INCOMPLETE`. A known target/type plus missing reference-cast runtime-check classification likewise need not make AST incomplete but refuses CFG when that check is required. Contradictory supplied known facts always reject admission. These concrete distinctions make walkthrough 4 decidable without moving graph policy into AST.
 
+### Qualified construction and enclosing type composition
+
+Semantic production `javac-public/14` preserves two distinct contracts: selecting the
+constructor in the original attributed environment, and retaining the recursive type
+of its actual enclosing instance. A generic field declaration is not its substituted
+member type. Capturing a field's result after substitution also cannot recover a capture
+already lost inside a nested type argument or array. The compiler operations and language
+rules are specified by
+[`Types.asMemberOf`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/util/Types.html#asMemberOf(javax.lang.model.type.DeclaredType,javax.lang.model.element.Element)),
+[capture conversion](https://docs.oracle.com/javase/specs/jls/se25/html/jls-5.html#jls-5.1.10), and
+[class instance creation](https://docs.oracle.com/javase/specs/jls/se25/html/jls-15.html#jls-15.9).
+
+When the original instantiated constructor signature has no unresolved method variables,
+[`JavaConstructorSelection`](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaConstructorSelection.java)
+copies that signature's applicability and conversions directly. It does not replace an
+enclosing type variable with its bound and reinfer a different constructor signature.
+Otherwise, the private witness uses the original enclosing expression through an instance
+receiver projection on the lexical enclosing declaration. This preserves compiler capture
+and lexical method variables without rendering captured types as source names. Source and
+binary declarations use the same projection contract. Constructor arguments retain strict
+source, annotation and capture correspondence. Receiver comparison uses capture-converted
+Java types in an independent comparison scope; constructor-result comparison uses Java type
+structure with its original capture identities. These semantic comparisons do not require
+type-use annotations to survive method substitution. They cannot populate the strict
+annotation-comparison cache. Original annotation occurrences remain retained source facts.
+
+For a qualified anonymous creation, the proof branch is inserted into the enclosing
+expression and completes abruptly; the original qualifier is its only normally completing
+branch. The original creation, arguments, anonymous body, target context and statement-expression
+form remain in place. Proof arguments and original arguments cannot both complete on one
+path. Witness declarations and dependency overlays belong only to the private compiler
+acquisition; they do not become retained source or mutate dependency bytes.
+When the copied qualifier itself owns a declaration, its witness insertions are composed
+inside that copy before replacing the outer occurrence. Correlation checks the exact
+projected text and maps its local declarations independently of compiler binary ordinals.
+Restoring a copied nominal type preserves its actual arguments; semantic capture mappings
+cannot copy unrelated class-argument annotations into a selected constructor target.
+
+Retained format `java-source/22` adds `Declared.enclosingOwnerType`. `enclosingType`
+continues to hold the original instance, including a variable or captured variable. The
+optional new field holds its parametrized lexical-owner view, with an independent complete
+capture scope. It cannot override a directly declared instance or identify another lexical
+owner. Aggregate admission checks the written qualifier and available source bounds, including
+inherited substitutions and capture renumbering. Unavailable external hierarchy facts remain
+unavailable; this intrinsic check does not reconstruct a compiler or prove an absent classpath.
+The representation and admission owners are
+[`JavaTypeStructure`](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/api/JavaTypeStructure.java) and
+[`EnclosingTypeAdmission`](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/EnclosingTypeAdmission.java).
+
+The existing source profiles retain their meanings. Supported historical payloads retain
+their schema, semantic revision, identity, facts, completion and bytes on decode/re-encode;
+decoding never reproduces the source or synthesizes an enclosing-owner view. A new nonempty
+view cannot be encoded in an older schema. Public producer, supplied-value and retention
+obligations are exercised by
+[`EnclosingConstructorCompositionTest`](../../src/test/java/org/aquilagraph/frontend/internal/EnclosingConstructorCompositionTest.java),
+[`EnclosingTypeAdmissionTest`](../../src/test/java/org/aquilagraph/frontend/internal/EnclosingTypeAdmissionTest.java),
+[`QualifiedConstructorCompositionTest`](../../src/test/java/org/aquilagraph/frontend/internal/QualifiedConstructorCompositionTest.java), and
+[`HistoricalAstCompatibilityTest`](../../src/test/java/org/aquilagraph/repository/internal/neo4j/HistoricalAstCompatibilityTest.java).
+
 ### Module service and provider identities
 
 **Contract and accepted delivery:** Resolved service and provider declaration identities are required source facts in `java-source-expanded/8`. They are not optional CFG classifications. The [accepted module service identity integration](../tasks/java-module-service-identities/module-service-integration.md) delivers this capability under semantic production `javac-public/11` and retained format `java-source/20`, separately from the earlier source-fidelity delivery. The requirement is a product decision grounded in the existing G1-G6 duties, not a claim that Java mandates a particular AST API. Acceptance is recorded by the owning checkpoints and original reviews; this reconciliation performs no new runtime verification.[16][18][20]
