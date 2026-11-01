@@ -29,6 +29,7 @@ import org.aquilagraph.identity.api.ModuleCandidate;
 import org.aquilagraph.identity.api.ModuleNameOrigin;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.JavaProgram;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
@@ -64,6 +65,9 @@ class EnvironmentQualificationTest {
     assertEquals(AstCompletion.UNAVAILABLE, first.completion());
     assertEquals(AstCompletion.UNAVAILABLE, second.completion());
     assertTrue(first.result().isEmpty());
+    assertEquals(Optional.of(original.identity().semanticProductionRevision()), first.qualification().semanticRevision());
+    assertTrue(first.qualification().reasons().stream().anyMatch(reason -> reason.category() == SourceQualificationReason.Category.UNAVAILABLE_ROOTS
+        && reason.subject() == SourceQualificationReason.Capture.INSTANCE && reason.origins().isEmpty()));
     assertEquals(Optional.of(firstEnvironment), first.capturedEnvironment());
     assertEquals(Optional.of(secondEnvironment), second.capturedEnvironment());
     assertNotEquals(first.sourceSubjectDigest(), second.sourceSubjectDigest());

@@ -1,6 +1,8 @@
 package org.aquilagraph.source.internal;
 
 import java.util.function.Predicate;
+import java.util.ArrayList;
+import java.util.List;
 import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
@@ -52,20 +54,38 @@ public final class SourceSwitchRequirements {
   }
 
   /**
-   * Reports whether every source form in the body belongs to the admitted profile.
+   * Returns all unsupported switch contexts without short-circuiting descendants.
    *
    * @param node
-   *          node
+   *          admitted execution root
    * @param enclosingExpression
-   *          enclosing expression
-   * @return whether the facts satisfy the required relation
+   *          whether the root is within a switch expression
+   * @return offending nodes in source traversal order
    */
-  public static boolean supportsBody(SyntaxNode node, boolean enclosingExpression) {
+  public static List<SyntaxNode> unsupportedNodes(SyntaxNode node, boolean enclosingExpression) {
+    var gaps = new ArrayList<SyntaxNode>();
+    collectUnsupported(node, enclosingExpression, gaps);
+    return List.copyOf(gaps);
+  }
+
+  private static void collectUnsupported(SyntaxNode node, boolean enclosingExpression, List<SyntaxNode> gaps) {
+    if (!supportsNode(node, enclosingExpression)) {
+      gaps.add(node);
+    }
+    if (node.syntaxKind() == SyntaxKind.TYPE_DECLARATION) {
+      return;
+    }
+    var expression = node.syntaxKind() == SyntaxKind.SWITCH_EXPRESSION;
+    var selectedExpression = node.syntaxKind() == SyntaxKind.LAMBDA_EXPRESSION ? false : expression || enclosingExpression;
+    node.children().forEach(child -> collectUnsupported(child.node(), selectedExpression, gaps));
+  }
+
+  private static boolean supportsNode(SyntaxNode node, boolean enclosingExpression) {
     var expression = node.syntaxKind() == SyntaxKind.SWITCH_EXPRESSION;
     var selection = expression || node.syntaxKind() == SyntaxKind.SWITCH_STATEMENT;
     if (selection) {
       var cases = node.children(SyntaxRole.CASE);
-      if ((expression && cases.isEmpty())
+      if (cases.stream().anyMatch(value -> !(value.value() instanceof SyntaxValue.SwitchCase)) || (expression && cases.isEmpty())
           || cases.stream().map(value -> value.value(SyntaxValue.SwitchCase.class).form()).distinct().count() > 1) {
         return false;
       }
@@ -92,10 +112,6 @@ public final class SourceSwitchRequirements {
         return false;
       }
     }
-    if (node.syntaxKind() == SyntaxKind.TYPE_DECLARATION) {
-      return true;
-    }
-    var selectedExpression = node.syntaxKind() == SyntaxKind.LAMBDA_EXPRESSION ? false : expression || enclosingExpression;
-    return node.children().stream().allMatch(child -> supportsBody(child.node(), selectedExpression));
+    return true;
   }
 }

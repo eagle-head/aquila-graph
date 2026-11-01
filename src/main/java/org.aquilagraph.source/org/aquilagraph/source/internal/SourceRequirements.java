@@ -1,5 +1,25 @@
 package org.aquilagraph.source.internal;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.SourceQualification;
+import org.aquilagraph.source.api.SourceQualificationReason;
+import org.aquilagraph.source.api.SourceQualificationReason.Category;
+import org.aquilagraph.source.api.SourceQualificationReason.EvidenceRole;
+import org.aquilagraph.source.api.SourceQualificationReason.Subject;
+import org.aquilagraph.source.api.SourceQualificationReason.Capture;
+import org.aquilagraph.source.api.SourceQualificationReason.Node;
+import org.aquilagraph.source.api.SourceQualificationReason.Declaration;
+import org.aquilagraph.source.api.SourceQualificationReason.Context;
+import org.aquilagraph.source.api.SourceQualificationReason.Fact;
+import org.aquilagraph.source.api.SourceQualificationReason.DiagnosticReference;
+import org.aquilagraph.source.api.SourceQualificationReason.DiagnosticEvidence;
+import org.aquilagraph.source.api.DiagnosticEmission;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.EvidenceState;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.FeatureContextOutcome;
@@ -23,65 +43,272 @@ import org.aquilagraph.source.api.SourceContext;
 
 /** Source-only qualification over intrinsically admitted copied facts. */
 public final class SourceRequirements {
+  private static final String UNNAMED_LOCAL = "_";
   private SourceRequirements() {
   }
 
   /**
-   * Computes completion from the captured source facts and the selected profile.
+   * Establishes completion and all blocking causes from the same admitted facts.
    *
    * @param input
-   *          captured source input
+   *          admitted source input
    * @param profile
-   *          selected source profile
+   *          selected original source profile
    * @param semanticRevision
-   *          source semantic contract revision
-   * @return the resulting ast completion
+   *          original production revision
+   * @return immutable source assessment in rule and source occurrence order
    */
-  public static AstCompletion assess(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision) {
+  public static SourceQualification assess(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision) {
     if (!profile.isSupported()) {
       throw new IllegalArgumentException("Unsupported source profile: " + profile.version());
     }
-    if (input.snapshot().sourceFiles().isEmpty() || input.aggregate().isEmpty()) {
-      return AstCompletion.UNAVAILABLE;
+    var reasons = new ArrayList<SourceQualificationReason>();
+    if (input.snapshot().sourceFiles().isEmpty()) {
+      reasons.add(reason(Category.EMPTY_SOURCE, EvidenceRole.SOURCE_CAPTURE, Capture.INSTANCE, List.of()));
     }
-    if (input.aggregate().orElseThrow().roots().stream()
-        .anyMatch(root -> root.value(SyntaxValue.CompilationUnit.class)
-            .range() != (profile.supportsSourceEnvelope()
-                ? SyntaxValue.CompilationUnitRange.CAPTURED_SOURCE
-                : SyntaxValue.CompilationUnitRange.LEGACY_PROFILE))) {
-      throw new IllegalArgumentException("Compilation unit range policy must agree with its source profile");
+    if (input.aggregate().isEmpty()) {
+      reasons.add(reason(Category.UNAVAILABLE_ROOTS, EvidenceRole.SOURCE_ROOTS, Capture.INSTANCE, List.of()));
     }
-    if (!profile.supportsSourceEnvelope() && input.program().types().isEmpty()) {
-      return AstCompletion.UNAVAILABLE;
+    if (input.aggregate().isPresent()) {
+      var source = input.aggregate().orElseThrow();
+      if (source.roots().stream()
+          .anyMatch(root -> root.value(SyntaxValue.CompilationUnit.class)
+              .range() != (profile.supportsSourceEnvelope()
+                  ? SyntaxValue.CompilationUnitRange.CAPTURED_SOURCE
+                  : SyntaxValue.CompilationUnitRange.LEGACY_PROFILE))) {
+        throw new IllegalArgumentException("Compilation unit range policy must agree with its source profile");
+      }
+      if (!profile.supportsSourceEnvelope() && input.program().types().isEmpty()) {
+        reasons.add(reason(Category.PROFILE_RESTRICTION, EvidenceRole.DECLARATION_ENVELOPE, Capture.INSTANCE, List.of()));
+      }
+      if (profile.supportsModuleServices()) {
+        collectModuleServiceGaps(input, reasons);
+      }
+      if (profile.supportsWrittenExpressions()
+          && input.languageFeatureCoverageResult().validationEvidence().writtenInventory().writtenExpressions().isEmpty()) {
+        reasons.add(reason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.WRITTEN_EXPRESSIONS, Capture.INSTANCE, List.of()));
+      }
+      for (var type : input.program().types()) {
+        if (type.staticType().category() != JavaTypeCategory.DECLARED) {
+          reasons.add(reason(Category.ERRONEOUS_EVIDENCE, EvidenceRole.DECLARED_TYPE, new Declaration(type.typeKey()), type.origins()));
+        }
+      }
+      if (profile.supportsNestedDeclarations()) {
+        for (var type : input.program().types()) {
+          if (type.nesting().lexicalOwnerKey().isPresent() && type.nesting().ownerDetails().isEmpty()) {
+            reasons.add(
+                reason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.LEXICAL_OWNER, new Declaration(type.typeKey()), type.origins()));
+          }
+          if (type.sourceDeclared()
+              && source.declarationMemberOrder(type.typeKey()).flatMap(order -> order.attributedTreeOrder()).isEmpty()) {
+            reasons.add(
+                reason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.MEMBER_ORDER, new Declaration(type.typeKey()), type.origins()));
+          }
+        }
+      }
     }
-    if ((profile.supportsModuleServices() && hasModuleServiceGap(input))
-        || (profile.supportsWrittenExpressions()
-            && input.languageFeatureCoverageResult().validationEvidence().writtenInventory().writtenExpressions().isEmpty())
-        || input.program().types().stream().anyMatch(type -> type.staticType().category() != JavaTypeCategory.DECLARED)
-        || (profile.supportsNestedDeclarations() && input.program().types().stream()
-            .anyMatch(type -> (type.nesting().lexicalOwnerKey().isPresent() && type.nesting().ownerDetails().isEmpty())
-                || (type.sourceDeclared() && input.aggregate().orElseThrow().declarationMemberOrder(type.typeKey())
-                    .flatMap(order -> order.attributedTreeOrder()).isEmpty())))
-        || input.diagnostics().stream().anyMatch(diagnostic -> diagnostic.isError())
-        || input.languageFeatureCoverageResult().validationEvidence().outcomes().stream()
-            .anyMatch(outcome -> outcome.support().mode() == FeatureContextOutcome.Mode.FAILED)
-        || !input.languageFeatureCoverageResult().validationEvidence().unmatchedFacts().isEmpty()
-        || input.aggregate().orElseThrow().nodes().stream()
-            .anyMatch(node -> hasRequiredSourceGap(node, profile)
-                || hasProfileGap(input.aggregate().orElseThrow(), node, profile, semanticRevision)
-                || hasDeclarationScopeGap(input.aggregate().orElseThrow(), node, profile))
-        || input.aggregate().orElseThrow().nodes().stream()
-            .flatMap(node -> input.aggregate().orElseThrow().writtenSourceAssociation(node.nodeId()).stream())
-            .flatMap(association -> association.normalizedExpression().stream()).anyMatch(SourceRequirements::hasWrittenExpressionGap)
-        || input.aggregate().orElseThrow().executionScopes().stream()
-            .flatMap(scope -> input.aggregate().orElseThrow().executionSyntax(scope.key()).stream())
-            .anyMatch(execution -> hasRequiredExecutionFactGap(execution, profile))
-        || input.program().types().stream().flatMap(type -> type.methods().stream()).filter(method -> method.hasBody())
-            .anyMatch(method -> input.aggregate().orElseThrow().methodBodyOrigin(method.methodKey())
-                .map(origin -> origin == MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION).orElse(true))) {
-      return AstCompletion.INCOMPLETE;
+    var evidence = input.languageFeatureCoverageResult().validationEvidence();
+    for (var event : evidence.diagnosticEmissions()) {
+      if (event.diagnostic().isError()) {
+        reasons.add(new SourceQualificationReason(
+            event.diagnostic().outcomeKind() == AnalysisOutcomeKind.COMPILER_ERROR ? Category.COMPILER_ERROR : Category.SOURCE_ERROR,
+            EvidenceRole.DIAGNOSTIC, Capture.INSTANCE, event.diagnostic().origins(), List.of(reference(input, event)), List.of()));
+      }
     }
-    return AstCompletion.COMPLETE;
+    for (var outcome : evidence.outcomes()) {
+      if (outcome.support().mode() == FeatureContextOutcome.Mode.FAILED) {
+        var context = evidence.writtenInventory().contexts().stream().filter(value -> value.address().equals(outcome.address())).findFirst()
+            .orElseThrow();
+        reasons
+            .add(new SourceQualificationReason(Category.STRUCTURAL_COVERAGE_GAP, EvidenceRole.COVERAGE_SUPPORT,
+                new Context(outcome.address()), context.origins(), evidence.diagnosticEmissions().stream()
+                    .filter(event -> outcome.emissions().contains(event.address())).map(event -> reference(input, event)).toList(),
+                List.of()));
+      }
+    }
+    for (var unmatched : evidence.unmatchedFacts()) {
+      var context = evidence.writtenInventory().contexts().stream().filter(value -> value.address().equals(unmatched.owner())).findFirst()
+          .orElseThrow();
+      var event = evidence.diagnosticEmissions().stream().filter(value -> value.address().equals(unmatched.emission())).findFirst()
+          .orElseThrow();
+      reasons.add(new SourceQualificationReason(Category.STRUCTURAL_COVERAGE_GAP, EvidenceRole.UNMATCHED_FACT, new Fact(unmatched.fact()),
+          context.origins(), List.of(reference(input, event)), List.of()));
+    }
+    input.aggregate().ifPresent(source -> {
+      source.nodes().forEach(node -> collectSourceGaps(node, profile, reasons));
+      source.nodes().forEach(node -> collectProfileGaps(source, node, profile, semanticRevision, reasons));
+      source.nodes().forEach(node -> collectDeclarationScopeGaps(source, node, profile, reasons));
+      for (var node : source.nodes()) {
+        if (source.writtenSourceAssociation(node.nodeId()).flatMap(association -> association.normalizedExpression())
+            .filter(SourceRequirements::hasWrittenExpressionGap).isPresent()) {
+          reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.CONSTANT_EXPRESSION, node));
+        }
+      }
+      source.executionScopes()
+          .forEach(scope -> source.executionSyntax(scope.key()).ifPresent(execution -> collectExecutionGaps(execution, profile, reasons)));
+      for (var method : input.program().methods()) {
+        if (method.hasBody() && source.methodBodyOrigin(method.methodKey())
+            .map(origin -> origin == MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION).orElse(true)) {
+          reasons.add(
+              reason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.METHOD_BODY, new Declaration(method.methodKey()), method.origins()));
+        }
+      }
+    });
+    var unavailable = input.snapshot().sourceFiles().isEmpty() || input.aggregate().isEmpty()
+        || (!profile.supportsSourceEnvelope() && input.program().types().isEmpty());
+    reasons.sort(Comparator.comparing(SourceQualificationReason::role).thenComparingInt(reason -> fileOrder(input, reason))
+        .thenComparingLong(reason -> occurrenceOrder(input, reason)));
+    return new SourceQualification(
+        unavailable ? AstCompletion.UNAVAILABLE : reasons.isEmpty() ? AstCompletion.COMPLETE : AstCompletion.INCOMPLETE, profile,
+        Optional.of(semanticRevision), reasons);
+  }
+
+  /**
+   * Qualifies an empty capture without manufacturing a production revision.
+   *
+   * @param profile
+   *          selected source profile
+   * @return unavailable assessment with truthful semantic absence
+   */
+  public static SourceQualification empty(AstProfile profile) {
+    return new SourceQualification(AstCompletion.UNAVAILABLE, profile, Optional.empty(),
+        List.of(reason(Category.EMPTY_SOURCE, EvidenceRole.SOURCE_CAPTURE, Capture.INSTANCE, List.of())));
+  }
+
+  private static int fileOrder(SyntaxAnalysisInput input, SourceQualificationReason reason) {
+    var key = switch (reason.subject()) {
+      case Node node -> Optional.of(node.sourceFileKey());
+      case Context context -> Optional.of(context.address().sourceFileKey());
+      case Fact fact -> Optional.of(fact.reference().sourceFileKey());
+      case Declaration declaration -> declarationNode(input, declaration).map(SyntaxNode::sourceFileKey)
+          .or(() -> input.aggregate().flatMap(source -> source.methodSyntax(declaration.key())).map(body -> body.root().sourceFileKey()))
+          .or(() -> reason.origins().stream().findFirst().map(SourceSpan::sourceFileKey));
+      default -> reason.origins().stream().findFirst().map(SourceSpan::sourceFileKey);
+    };
+    for (var index = 0; index < input.snapshot().sourceFiles().size(); index++) {
+      if (key.filter(input.snapshot().sourceFiles().get(index).sourceFileKey()::equals).isPresent()) {
+        return index;
+      }
+    }
+    return Integer.MAX_VALUE;
+  }
+
+  private static long occurrenceOrder(SyntaxAnalysisInput input, SourceQualificationReason reason) {
+    var nodeKey = switch (reason.subject()) {
+      case Node node -> Optional.of(node.nodeKey());
+      case Declaration declaration -> declarationNode(input, declaration).map(SyntaxNode::nodeId);
+      default -> Optional.<String>empty();
+    };
+    if (nodeKey.isPresent() && input.aggregate().isPresent()) {
+      var nodes = input.aggregate().orElseThrow().nodes();
+      for (var index = 0; index < nodes.size(); index++) {
+        if (nodes.get(index).nodeId().equals(nodeKey.orElseThrow())) {
+          return index;
+        }
+      }
+    }
+    return reason.origins().stream().findFirst().map(SourceSpan::startOffset).orElse(Long.MAX_VALUE);
+  }
+
+  private static Optional<SyntaxNode> declarationNode(SyntaxAnalysisInput input, Declaration declaration) {
+    var source = input.aggregate().orElseThrow();
+    var direct = source.nodes().stream()
+        .filter(node -> (node.value() instanceof SyntaxValue.TypeDeclaration type && type.declarationKey().equals(declaration.key()))
+            || (node.value() instanceof SyntaxValue.ExecutableDeclaration method && method.declarationKey().equals(declaration.key())))
+        .findFirst();
+    if (direct.isPresent()) {
+      return direct;
+    }
+    var owner = input.program().methods().stream().filter(method -> method.methodKey().equals(declaration.key()))
+        .map(method -> method.ownerTypeKey()).findFirst();
+    return owner.flatMap(key -> source.nodes().stream()
+        .filter(node -> node.value() instanceof SyntaxValue.TypeDeclaration type && type.declarationKey().equals(key)).findFirst());
+  }
+
+  private static DiagnosticReference reference(SyntaxAnalysisInput input, DiagnosticEmission event) {
+    return new DiagnosticReference(input.diagnostics(), event.slot(), Optional.of(event.address()));
+  }
+
+  private static SourceQualificationReason reason(Category category, EvidenceRole role, Subject subject, List<SourceSpan> origins) {
+    return new SourceQualificationReason(category, role, subject, origins, List.of(), List.of());
+  }
+
+  private static SourceQualificationReason nodeReason(Category category, EvidenceRole role, SyntaxNode node) {
+    return reason(category, role, new Node(node.nodeId(), node.sourceFileKey()), node.origin().stream().toList());
+  }
+
+  private static void collectSourceGaps(SyntaxNode node, AstProfile profile, List<SourceQualificationReason> reasons) {
+    if (node.syntaxKind() == SyntaxKind.TYPE_USE && node.value() instanceof SyntaxValue.PackageQualifier
+        && node.type() == SyntaxType.NotApplicable.INSTANCE) {
+      return;
+    }
+    if (!SourceFormRequirements.supports(node, profile)) {
+      reasons.add(nodeReason(Category.STRUCTURAL_COVERAGE_GAP, EvidenceRole.SOURCE_FORM, node));
+    }
+    if (node.syntaxKind().requiresType() && (!(node.type() instanceof SyntaxType.Resolved resolved)
+        || resolved.identity().category() == JavaTypeCategory.ERROR || resolved.identity().category() == JavaTypeCategory.OTHER)) {
+      var erroneous = node.type() == SyntaxType.Erroneous.INSTANCE
+          || node.type().knownIdentity().filter(type -> type.category() == JavaTypeCategory.ERROR).isPresent();
+      reasons.add(nodeReason(erroneous ? Category.ERRONEOUS_EVIDENCE : Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.TYPE, node));
+    }
+    if (node.semanticReference().filter(reference -> reference.status() != ResolutionStatus.RESOLVED).isPresent()) {
+      reasons.add(nodeReason(node.semanticReference().orElseThrow().status() == ResolutionStatus.ERROR
+          ? Category.ERRONEOUS_EVIDENCE
+          : Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.SEMANTIC_REFERENCE, node));
+    }
+    switch (node.syntaxKind()) {
+      case INVOCATION, OBJECT_CREATION -> {
+        if (node.semanticReference().isEmpty()) {
+          reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.SEMANTIC_REFERENCE, node));
+        }
+        if (node.value(SyntaxValue.Invocation.class).semantics().isEmpty()) {
+          reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.INVOCATION_SEMANTICS, node));
+        }
+      }
+      case FIELD_ACCESS, VARIABLE_ACCESS -> {
+        if (node.semanticReference().isEmpty()) {
+          reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.SEMANTIC_REFERENCE, node));
+        }
+      }
+      default -> {
+      }
+    }
+  }
+
+  private static void collectExecutionGaps(ExecutionSyntax execution, AstProfile profile, List<SourceQualificationReason> reasons) {
+    if (profile.supportsMemberInitialization() && !(execution.scope() instanceof ExecutionScope.Method)
+        && execution.attributedOccurrences().stream().noneMatch(address -> address.nodeKey().equals(execution.root().nodeId()))) {
+      reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.EXECUTION_ROOT, execution.root()));
+    }
+    SourcePatternRequirements.unsupportedNodes(execution.root())
+        .forEach(node -> reasons.add(nodeReason(Category.STRUCTURAL_COVERAGE_GAP, EvidenceRole.PATTERN_PLACEMENT, node)));
+    SourceSwitchRequirements.unsupportedNodes(execution.root(), false)
+        .forEach(node -> reasons.add(nodeReason(Category.STRUCTURAL_COVERAGE_GAP, EvidenceRole.SWITCH_STRUCTURE, node)));
+    for (var node : SourceExecutionTraversal.nodes(execution.root())) {
+      if (isStaticMember(node) && execution.staticAccess(node.nodeId()).flatMap(value -> value.declaringOwner().knownValue())
+          .flatMap(owner -> owner.declarationKey()).isEmpty()) {
+        var value = execution.staticAccess(node.nodeId()).map(item -> item.declaringOwner());
+        var diagnostic = value.flatMap(item -> item.diagnostic());
+        reasons.add(new SourceQualificationReason(
+            value.filter(item -> item.state() == EvidenceState.ERRONEOUS).isPresent()
+                ? Category.ERRONEOUS_EVIDENCE
+                : Category.MISSING_REQUIRED_EVIDENCE,
+            EvidenceRole.STATIC_OWNER, new Node(node.nodeId(), node.sourceFileKey()), node.origin().stream().toList(), List.of(),
+            diagnostic.stream().map(item -> new DiagnosticEvidence(EvidenceRole.STATIC_OWNER, item)).toList()));
+      }
+      if (node.syntaxKind() == SyntaxKind.INVOCATION || node.syntaxKind() == SyntaxKind.OBJECT_CREATION
+          || node.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION) {
+        for (var child : node.children()) {
+          if (child.role() == SyntaxRole.ARGUMENT && execution.useEvidence(node.nodeId(), child.role(), child.position()).isEmpty()) {
+            reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.ARGUMENT_TARGET, child.node()));
+          }
+        }
+      }
+      if (node.syntaxKind() == SyntaxKind.FIELD_DECLARATION && !node.children(SyntaxRole.INITIALIZER).isEmpty()
+          && execution.useEvidence(node.nodeId(), SyntaxRole.INITIALIZER, 0).isEmpty()) {
+        reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.INITIALIZER_USE, node));
+      }
+    }
   }
 
   private static boolean hasWrittenExpressionGap(NormalizedExpressionCorrespondence value) {
@@ -91,7 +318,8 @@ public final class SourceRequirements {
         || (value.derivedConstantExpression().orElse(false) && value.derivedConstant().isEmpty()));
   }
 
-  private static boolean hasProfileGap(JavaAstAggregate source, SyntaxNode node, AstProfile profile, String semanticRevision) {
+  private static void collectProfileGaps(JavaAstAggregate source, SyntaxNode node, AstProfile profile, String semanticRevision,
+      List<SourceQualificationReason> reasons) {
     if (profile.equals(AstProfile.JAVA_SOURCE_BOUNDED) && (node.syntaxKind() == SyntaxKind.CLASS_LITERAL
         || node.syntaxKind() == SyntaxKind.UPDATE || node.syntaxKind() == SyntaxKind.COMPOUND_ASSIGNMENT
         || node.syntaxKind() == SyntaxKind.ARRAY_CREATION || isIteration(node.syntaxKind()) || node.syntaxKind() == SyntaxKind.ASSERT
@@ -103,25 +331,45 @@ public final class SourceRequirements {
         || (node.syntaxKind() == SyntaxKind.TRY
             && (!node.children(SyntaxRole.RESOURCE).isEmpty() || !node.children(SyntaxRole.FINALLY_BLOCK).isEmpty()))
         || node.sourceKind() == JavaSourceKind.UNION_TYPE || node.sourceKind() == JavaSourceKind.INTERSECTION_TYPE)) {
-      return true;
+      reasons.add(nodeReason(Category.PROFILE_RESTRICTION, EvidenceRole.PROFILE_FORM, node));
     }
     if (!profile.supportsNestedDeclarations()
         && (!node.children(SyntaxRole.CLASS_BODY).isEmpty() || (node.syntaxKind() == SyntaxKind.TYPE_DECLARATION
             && node.structuralPath().steps().stream().anyMatch(step -> step.role() == SyntaxRole.STATEMENT)))) {
-      return true;
+      reasons.add(nodeReason(Category.PROFILE_RESTRICTION, EvidenceRole.PROFILE_FORM, node));
     }
     if (!(node.value() instanceof SyntaxValue.LocalDeclaration local)) {
-      return false;
+      return;
     }
     if (profile.equals(AstProfile.JAVA_SOURCE_BOUNDED)) {
-      return "_".equals(local.name()) || !local.writtenModifiers().isEmpty() || !node.children(SyntaxRole.ANNOTATION).isEmpty()
-          || local.bindingEvidence()
-              .filter(binding -> binding.typeForm() != LocalBindingEvidence.TypeForm.DECLARED || !binding.sharedAnnotationKeys().isEmpty())
-              .isPresent();
+      if (UNNAMED_LOCAL.equals(local.name())) {
+        reasons.add(nodeReason(Category.PROFILE_RESTRICTION, EvidenceRole.LOCAL_NAME, node));
+      }
+      if (!local.writtenModifiers().isEmpty()) {
+        reasons.add(nodeReason(Category.PROFILE_RESTRICTION, EvidenceRole.LOCAL_MODIFIERS, node));
+      }
+      if (!node.children(SyntaxRole.ANNOTATION).isEmpty()) {
+        reasons.add(nodeReason(Category.PROFILE_RESTRICTION, EvidenceRole.LOCAL_ANNOTATIONS, node));
+      }
+      local.bindingEvidence().ifPresent(binding -> {
+        if (binding.typeForm() != LocalBindingEvidence.TypeForm.DECLARED) {
+          reasons.add(nodeReason(Category.PROFILE_RESTRICTION, EvidenceRole.LOCAL_TYPE_FORM, node));
+        }
+        if (!binding.sharedAnnotationKeys().isEmpty()) {
+          reasons.add(nodeReason(Category.PROFILE_RESTRICTION, EvidenceRole.LOCAL_SHARED_ANNOTATIONS, node));
+        }
+      });
+      return;
     }
-    return ("_".equals(local.name()) && local.bindingEvidence().isEmpty())
-        || local.bindingEvidence().map(binding -> binding.declarationKey().isEmpty()).orElse(false)
-        || (!"_".equals(local.name()) && node.semanticReference().isEmpty());
+    if (UNNAMED_LOCAL.equals(local.name()) && local.bindingEvidence().isEmpty()) {
+      reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.LOCAL_BINDING, node));
+    }
+    if (local.bindingEvidence().filter(binding -> binding.declarationKey().isEmpty()).isPresent()) {
+      reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.LOCAL_DECLARATION, node));
+    }
+    if (!UNNAMED_LOCAL.equals(local.name()) && node.semanticReference().isEmpty()) {
+      reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.SEMANTIC_REFERENCE, node));
+    }
   }
 
   private static boolean boundedCase(JavaAstAggregate source, SyntaxNode node, String semanticRevision) {
@@ -131,35 +379,39 @@ public final class SourceRequirements {
         : SourceSwitchRequirements.isBoundedCase(node, source);
   }
 
-  private static boolean hasRequiredExecutionFactGap(ExecutionSyntax execution, AstProfile profile) {
-    if (profile.supportsMemberInitialization() && !(execution.scope() instanceof ExecutionScope.Method)
-        && execution.attributedOccurrences().stream().noneMatch(address -> address.nodeKey().equals(execution.root().nodeId()))) {
-      return true;
-    }
-    return !SourceFormRequirements.supportsBody(execution.root()) || SourceExecutionTraversal.nodes(execution.root()).stream().anyMatch(
-        node -> (isStaticMember(node) && execution.staticAccess(node.nodeId()).flatMap(value -> value.declaringOwner().knownValue())
-            .flatMap(owner -> owner.declarationKey()).isEmpty()) || hasSelectedArgumentTargetGap(execution, node)
-            || (node.syntaxKind() == SyntaxKind.FIELD_DECLARATION && !node.children(SyntaxRole.INITIALIZER).isEmpty()
-                && execution.useEvidence(node.nodeId(), SyntaxRole.INITIALIZER, 0).isEmpty()));
-  }
-
-  private static boolean hasDeclarationScopeGap(JavaAstAggregate aggregate, SyntaxNode node, AstProfile profile) {
+  private static void collectDeclarationScopeGaps(JavaAstAggregate aggregate, SyntaxNode node, AstProfile profile,
+      List<SourceQualificationReason> reasons) {
     if (!profile.supportsMemberInitialization()) {
-      return false;
+      return;
     }
     if (node.syntaxKind() == SyntaxKind.FIELD_DECLARATION) {
-      return aggregate.executionSyntax(node.value(SyntaxValue.VariableDeclaration.class).declarationKey())
-          .filter(scope -> scope.scope() instanceof ExecutionScope.Field).isEmpty();
+      if (aggregate.executionSyntax(node.value(SyntaxValue.VariableDeclaration.class).declarationKey())
+          .filter(scope -> scope.scope() instanceof ExecutionScope.Field).isEmpty()) {
+        reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.DECLARATION_SCOPE, node));
+      }
+      return;
     }
     if (profile.supportsEnumInitialization() && node.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION) {
-      return aggregate.executionSyntax(node.value(SyntaxValue.VariableDeclaration.class).declarationKey())
-          .filter(scope -> scope.scope() instanceof ExecutionScope.EnumConstant constant && constant.selectedConstructor()
-              .filter(reference -> reference.status() == ResolutionStatus.RESOLVED).flatMap(reference -> reference.symbolKey()).isPresent())
-          .isEmpty();
+      var scope = aggregate.executionSyntax(node.value(SyntaxValue.VariableDeclaration.class).declarationKey()).map(ExecutionSyntax::scope)
+          .filter(ExecutionScope.EnumConstant.class::isInstance).map(ExecutionScope.EnumConstant.class::cast);
+      if (scope.isEmpty()) {
+        reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.DECLARATION_SCOPE, node));
+      } else {
+        var constructor = scope.orElseThrow().selectedConstructor();
+        if (constructor.filter(reference -> reference.status() == ResolutionStatus.RESOLVED).flatMap(reference -> reference.symbolKey())
+            .isEmpty()) {
+          reasons.add(nodeReason(constructor.filter(reference -> reference.status() == ResolutionStatus.ERROR).isPresent()
+              ? Category.ERRONEOUS_EVIDENCE
+              : Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.ENUM_CONSTRUCTOR, node));
+        }
+      }
+      return;
     }
-    return (node.syntaxKind() == SyntaxKind.STATIC_INITIALIZER_BLOCK || node.syntaxKind() == SyntaxKind.INSTANCE_INITIALIZER_BLOCK)
+    if ((node.syntaxKind() == SyntaxKind.STATIC_INITIALIZER_BLOCK || node.syntaxKind() == SyntaxKind.INSTANCE_INITIALIZER_BLOCK)
         && aggregate.executionScopes().stream().filter(ExecutionScope.Initializer.class::isInstance)
-            .noneMatch(scope -> aggregate.executionSyntax(scope.key()).orElseThrow().root().nodeId().equals(node.nodeId()));
+            .noneMatch(scope -> aggregate.executionSyntax(scope.key()).orElseThrow().root().nodeId().equals(node.nodeId()))) {
+      reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.DECLARATION_SCOPE, node));
+    }
   }
 
   private static boolean isIteration(SyntaxKind kind) {
@@ -169,74 +421,40 @@ public final class SourceRequirements {
     };
   }
 
-  private static boolean hasSelectedArgumentTargetGap(ExecutionSyntax body, SyntaxNode node) {
-    return (node.syntaxKind() == SyntaxKind.INVOCATION || node.syntaxKind() == SyntaxKind.OBJECT_CREATION
-        || node.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION)
-        && node.children().stream().filter(child -> child.role() == SyntaxRole.ARGUMENT)
-            .anyMatch(child -> body.useEvidence(node.nodeId(), child.role(), child.position()).isEmpty());
-  }
-
   private static boolean isStaticMember(SyntaxNode node) {
     return (node.value() instanceof SyntaxValue.FieldAccess access && access.receiver().isStatic())
         || (node.syntaxKind() == SyntaxKind.INVOCATION && node.value() instanceof SyntaxValue.Invocation invocation
             && invocation.form().isStatic());
   }
 
-  private static boolean hasRequiredSourceGap(SyntaxNode node, AstProfile profile) {
-    if (node.syntaxKind() == SyntaxKind.TYPE_USE && node.value() instanceof SyntaxValue.PackageQualifier
-        && node.type() == SyntaxType.NotApplicable.INSTANCE) {
-      return false;
-    }
-    if (!SourceFormRequirements.supports(node, profile)) {
-      return true;
-    }
-    if (node.syntaxKind().requiresType() && (!(node.type() instanceof SyntaxType.Resolved resolved)
-        || resolved.identity().category() == JavaTypeCategory.ERROR || resolved.identity().category() == JavaTypeCategory.OTHER)) {
-      return true;
-    }
-    if (node.semanticReference().map(reference -> reference.status() != ResolutionStatus.RESOLVED).orElse(false)) {
-      return true;
-    }
-    return switch (node.syntaxKind()) {
-      case INVOCATION, OBJECT_CREATION ->
-        node.semanticReference().isEmpty() || node.value(SyntaxValue.Invocation.class).semantics().isEmpty();
-      case FIELD_ACCESS, VARIABLE_ACCESS -> node.semanticReference().isEmpty();
-      default -> false;
-    };
-  }
-  /**
-   * Checks all successor directive slots and their independent required coverage.
-   *
-   * @param input
-   *          admitted source facts
-   * @return whether any required endpoint or captured obligation is absent or unresolved
-   */
-  private static boolean hasModuleServiceGap(SyntaxAnalysisInput input) {
+  private static void collectModuleServiceGaps(SyntaxAnalysisInput input, List<SourceQualificationReason> reasons) {
     var aggregate = input.aggregate().orElseThrow();
     var inventory = input.languageFeatureCoverageResult().validationEvidence().writtenInventory();
     for (var node : aggregate.nodes()) {
-      if (node.value() instanceof SyntaxValue.Uses && node.children(SyntaxRole.SERVICE_TYPE).size() != 1) {
-        return true;
-      }
-      if (node.value() instanceof SyntaxValue.Provides provides && (node.children(SyntaxRole.SERVICE_TYPE).size() != 1
-          || node.children(SyntaxRole.PROVIDER_TYPE).size() != provides.providers().size())) {
-        return true;
+      if ((node.value() instanceof SyntaxValue.Uses && node.children(SyntaxRole.SERVICE_TYPE).size() != 1)
+          || (node.value() instanceof SyntaxValue.Provides provides && (node.children(SyntaxRole.SERVICE_TYPE).size() != 1
+              || node.children(SyntaxRole.PROVIDER_TYPE).size() != provides.providers().size()))) {
+        reasons.add(nodeReason(Category.STRUCTURAL_COVERAGE_GAP, EvidenceRole.MODULE_SERVICE_SLOTS, node));
       }
       if (node.syntaxKind() != SyntaxKind.MODULE_TYPE_REFERENCE) {
         continue;
       }
-      if (node.origin().isEmpty() || node.semanticReference()
+      if (node.origin().isEmpty()) {
+        reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.MODULE_SERVICE_ORIGIN, node));
+      }
+      if (node.semanticReference()
           .filter(reference -> reference.status() == ResolutionStatus.RESOLVED && reference.declarationIdentity().isPresent()).isEmpty()) {
-        return true;
+        reasons.add(nodeReason(node.semanticReference().filter(reference -> reference.status() == ResolutionStatus.ERROR).isPresent()
+            ? Category.ERRONEOUS_EVIDENCE
+            : Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.MODULE_SERVICE_TARGET, node));
       }
       var association = aggregate.writtenSourceAssociation(node.nodeId());
       if (association.isEmpty() || inventory.contexts().stream()
           .noneMatch(context -> context.address().partition() == SourceContext.Partition.MODULE_ENDPOINT
               && context.address().sourceFileKey().equals(node.sourceFileKey()) && context.origins().equals(node.origin().stream().toList())
               && association.orElseThrow().ownerPath().equals(context.address().ownerPath()))) {
-        return true;
+        reasons.add(nodeReason(Category.STRUCTURAL_COVERAGE_GAP, EvidenceRole.MODULE_ENDPOINT_CONTEXT, node));
       }
     }
-    return false;
   }
 }

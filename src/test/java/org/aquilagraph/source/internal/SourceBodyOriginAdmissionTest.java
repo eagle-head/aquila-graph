@@ -32,7 +32,9 @@ import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstContractException;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.JavaProgram;
 import org.aquilagraph.source.api.MethodBodyOrigin;
+import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxNode;
@@ -195,7 +197,8 @@ class SourceBodyOriginAdmissionTest {
 
   @TestFactory
   Stream<DynamicTest> givenNonpublishedBodyWithUnavailablePosition_whenAdmittedAndDecoded_thenIncompleteSourceHasNoFabricatedBodyReference() {
-    return PROFILES.stream().map(profile -> DynamicTest.dynamicTest(profile.version(), () -> {
+    return PROFILES.stream().map(profile -> DynamicTest.dynamicTest("given" + profile.version()
+        + "UnavailableBody_whenAdmittedAndDecoded_thenIncompleteWithoutFabricatedBodyReference", () -> {
       // Arrange
       var original = fixture(profile, false);
       var synthesizedKey = original.program().methods().stream().filter(method -> method.constructor()).findFirst().orElseThrow().methodKey();
@@ -213,9 +216,59 @@ class SourceBodyOriginAdmissionTest {
       assertEquals(Optional.of(MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION), decoded.aggregate().methodBodyOrigin(synthesizedKey));
       assertTrue(decoded.body(synthesizedKey).orElseThrow().root().origin().isEmpty());
       assertTrue(decoded.bodyRef(synthesizedKey).isEmpty());
+      var reasons = decoded.qualification().reasons().stream()
+          .filter(reason -> reason.role() == SourceQualificationReason.EvidenceRole.METHOD_BODY).toList();
+      assertEquals(1, reasons.size());
+      assertEquals(new SourceQualificationReason.Declaration(synthesizedKey), reasons.getFirst().subject());
+      assertTrue(reasons.getFirst().origins().isEmpty());
+      assertEquals(admitted.qualification(), decoded.qualification());
       assertEquals(original.coverage().validationEvidence().writtenInventory(), decoded.coverage().validationEvidence().writtenInventory());
       assertEquals(original.coverage().validationEvidence().attributedExpectations(),
           decoded.coverage().validationEvidence().attributedExpectations());
+    }));
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenOriginlessBodiesInReversedProgramOrder_whenAdmittedAndDecoded_thenReasonsFollowCapturedFilesAndCanonicalDeclarations() {
+    return PROFILES.stream().map(profile -> DynamicTest.dynamicTest("given" + profile.version()
+        + "OriginlessBodiesInReversedProgramOrder_whenAdmittedAndDecoded_thenReasonsFollowCapturedFilesAndCanonicalDeclarations", () -> {
+      // Arrange
+      var snapshot = InputSnapshot.fromSources(directory, List.of(
+          SourceFile.fromContent(Path.of("First.java"), "class Zulu {} class Alpha {}"),
+          SourceFile.fromContent(Path.of("Second.java"), "class Bravo {}")));
+      var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)
+          .result().orElseThrow();
+      assertEquals(AstCompletion.COMPLETE, original.completion());
+      var expected = Stream.of("Zulu", "Alpha", "Bravo").map(name -> original.program().types().stream()
+          .filter(type -> type.qualifiedName().equals(name)).findFirst().orElseThrow().methods().getFirst().methodKey()).toList();
+      var captured = SourceValueCapture.capture(original.aggregate());
+      var bodies = captured.bodies().stream().map(body -> new Body(body.methodKey(), copy(body.root(), false),
+          MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION, body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(),
+          body.constructors(), body.attributedOccurrences())).toList();
+      var values = new CopiedAstValues(captured.snapshot(), captured.sources(), bodies, captured.memberOrders(), captured.associations(),
+          captured.declarationTypes());
+      var program = new JavaProgram(original.program().types().reversed());
+
+      // Act
+      var aggregate = AstValueAdmission.admit(values);
+      var input = new SyntaxAnalysisInput(snapshot, original.environment(), program, Optional.of(aggregate), original.diagnostics(),
+          original.coverage());
+      var admitted = AstResultAdmission.admit(input, profile, original.identity().semanticProductionRevision());
+      var bytes = AstCodec.encode(admitted);
+      var decoded = AstCodec.decode(bytes, admitted.identity());
+
+      // Assert
+      assertEquals(expected.reversed(), program.methods().stream().map(method -> method.methodKey()).toList());
+      assertEquals(AstCompletion.INCOMPLETE, admitted.completion());
+      var reasons = admitted.qualification().reasons().stream()
+          .filter(reason -> reason.role() == SourceQualificationReason.EvidenceRole.METHOD_BODY).toList();
+      assertEquals(expected.stream().map(SourceQualificationReason.Declaration::new).toList(),
+          reasons.stream().map(SourceQualificationReason::subject).toList());
+      assertTrue(reasons.stream().allMatch(reason -> reason.origins().isEmpty()));
+      assertTrue(expected.stream().allMatch(key -> admitted.bodyRef(key).isEmpty()));
+      assertEquals(original.diagnostics(), admitted.diagnostics());
+      assertEquals(admitted.qualification(), decoded.qualification());
+      assertArrayEquals(bytes, AstCodec.encode(decoded));
     }));
   }
 

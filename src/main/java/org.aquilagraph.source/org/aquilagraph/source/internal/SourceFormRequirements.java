@@ -184,14 +184,4 @@ public final class SourceFormRequirements {
     };
   }
 
-  /**
-   * Reports whether every source form in the body belongs to the admitted profile.
-   *
-   * @param root
-   *          root
-   * @return whether the facts satisfy the required relation
-   */
-  public static boolean supportsBody(SyntaxNode root) {
-    return SourcePatternRequirements.supports(root) && SourceSwitchRequirements.supportsBody(root, false);
-  }
 }

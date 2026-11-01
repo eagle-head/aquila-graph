@@ -9,14 +9,13 @@ import org.aquilagraph.identity.api.CapturedValueEncoding;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
-import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.SourceQualification;
 import org.aquilagraph.source.api.AstContractException;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
 import org.aquilagraph.source.internal.AdmittedAstOutcome;
 import org.aquilagraph.source.internal.AstResultAdmission;
-import org.aquilagraph.source.internal.CanonicalAstEncoding;
 import org.aquilagraph.source.internal.RetainedValueCodec;
 import org.aquilagraph.source.internal.SourceRequirements;
 
@@ -45,13 +44,7 @@ public final class AstProductionAdmission {
       throw new AstContractException("Semantic production revision cannot be blank", new IllegalArgumentException("semanticRevision"));
     }
     try {
-      var completion = SourceRequirements.assess(input, profile, semanticRevision);
-      if (completion == AstCompletion.UNAVAILABLE) {
-        return unavailable(profile, Optional.of(input.snapshot()), Optional.of(input.environmentSnapshot()),
-            Optional.of(input.compilerConfiguration()), Optional.of(input.languageFeatureCoverageResult()), input.diagnostics(),
-            CanonicalAstEncoding.canonicalDigest(input, profile, semanticRevision));
-      }
-      return AstOutcome.available(AstResultAdmission.admit(input, profile, semanticRevision));
+      return AstResultAdmission.outcome(input, profile, semanticRevision);
     } catch (IllegalArgumentException exception) {
       throw rejection(exception);
     }
@@ -91,8 +84,8 @@ public final class AstProductionAdmission {
       codec.write(writer, configuration);
       codec.write(writer, coverage);
       codec.write(writer, List.of());
-      return unavailable(profile, Optional.of(snapshot), Optional.empty(), Optional.of(configuration), Optional.of(coverage), List.of(),
-          writer.digest("source-subject"));
+      return unavailable(profile, SourceRequirements.empty(profile), Optional.of(snapshot), Optional.empty(), Optional.of(configuration),
+          Optional.of(coverage), List.of(), writer.digest("source-subject"));
     } catch (IllegalArgumentException exception) {
       throw rejection(exception);
     }
@@ -103,6 +96,8 @@ public final class AstProductionAdmission {
    *
    * @param profile
    *          requested source profile
+   * @param qualification
+   *          source-owned unavailable assessment
    * @param input
    *          available captured source values
    * @param environment
@@ -117,11 +112,11 @@ public final class AstProductionAdmission {
    *          admitted canonical source subject digest
    * @return immutable unavailable source outcome
    */
-  private static AstOutcome unavailable(AstProfile profile, Optional<InputSnapshot> input,
+  private static AstOutcome unavailable(AstProfile profile, SourceQualification qualification, Optional<InputSnapshot> input,
       Optional<AnalysisEnvironmentSnapshot> environment, Optional<CompilerConfiguration> configuration,
       Optional<LanguageFeatureCoverageResult> coverage, List<AnalysisDiagnostic> diagnostics, String digest) {
-    return new AdmittedAstOutcome(profile, AstCompletion.UNAVAILABLE, Optional.empty(), input, environment, configuration, coverage,
-        diagnostics, digest);
+    return new AdmittedAstOutcome(profile, qualification, Optional.empty(), input, environment, configuration, coverage, diagnostics,
+        digest);
   }
 
   private static AstContractException rejection(IllegalArgumentException exception) {

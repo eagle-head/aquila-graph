@@ -51,6 +51,7 @@ import org.aquilagraph.source.api.MethodBodyOrigin;
 import org.aquilagraph.source.internal.AstResultAdmission;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -248,6 +249,7 @@ class JavaAstSourcePositionTest {
 
   @Test
   void givenInjectedRootPositionFault_whenPublicEngineAnalyzes_thenCompletionIsBlocked() throws IOException {
+    // Arrange
     Files.writeString(sourceRoot.resolve("Example.java"), CONTENT);
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var loader = new JavaSourceLoader();
@@ -267,9 +269,20 @@ class JavaAstSourcePositionTest {
         var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
         var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
             translated.value().aggregate(), translated.emissions().events());
+        // Act
         var run = new SourceAnalysisFixture().analyze(input);
 
+        // Assert
+
         assertTrue(input.aggregate().isEmpty());
+        var qualification = run.representation().ast().qualification();
+        assertEquals(AstCompletion.UNAVAILABLE, qualification.completion());
+        assertTrue(qualification.semanticRevision().isPresent());
+        var rootReasons = qualification.reasons().stream()
+            .filter(reason -> reason.category() == SourceQualificationReason.Category.UNAVAILABLE_ROOTS).toList();
+        assertEquals(1, rootReasons.size());
+        assertEquals(SourceQualificationReason.Capture.INSTANCE, rootReasons.getFirst().subject());
+        assertTrue(rootReasons.getFirst().origins().isEmpty());
         assertTrue(input.program().types().isEmpty());
         assertTrue(run.completion() != AnalysisCompletion.COMPLETE);
         assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(position.code())

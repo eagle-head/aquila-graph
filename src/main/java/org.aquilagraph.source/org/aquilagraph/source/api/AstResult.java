@@ -96,7 +96,16 @@ public sealed interface AstResult permits AdmittedAstResult {
    *
    * @return source-only qualification
    */
-  AstCompletion completion();
+  default AstCompletion completion() {
+    return qualification().completion();
+  }
+
+  /**
+   * Returns the admitted source decision and ordered blocking explanations.
+   *
+   * @return immutable assessment readable without compiler or CFG acquisition
+   */
+  SourceQualification qualification();
 
   /**
    * Returns exact captured source values.

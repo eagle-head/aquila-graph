@@ -1,6 +1,8 @@
 package org.aquilagraph.source.internal;
 
 import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.List;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -15,13 +17,14 @@ public final class SourcePatternRequirements {
   }
 
   /**
-   * Checks whether the copied facts establish the requested coverage property.
+   * Returns every independently unsupported pattern placement.
    *
    * @param root
-   *          root
-   * @return whether the facts satisfy the required relation
+   *          admitted execution root
+   * @return offending nodes in execution occurrence order
    */
-  public static boolean supports(SyntaxNode root) {
+  public static List<SyntaxNode> unsupportedNodes(SyntaxNode root) {
+    var gaps = new ArrayList<SyntaxNode>();
     var parents = new HashMap<String, SyntaxNode>();
     var nodes = SourceExecutionTraversal.nodes(root);
     nodes.forEach(node -> node.children().forEach(child -> parents.put(child.node().nodeId(), node)));
@@ -29,7 +32,7 @@ public final class SourcePatternRequirements {
       if (node.syntaxKind() == SyntaxKind.ANY_PATTERN) {
         var parent = parents.get(node.nodeId());
         if (parent == null || parent.syntaxKind() != SyntaxKind.DECONSTRUCTION_PATTERN) {
-          return false;
+          gaps.add(node);
         }
       }
       var parent = parents.get(node.nodeId());
@@ -39,11 +42,11 @@ public final class SourcePatternRequirements {
         if (binding.value(SyntaxValue.LocalDeclaration.class).bindingEvidence()
             .filter(evidence -> evidence.typeForm() != LocalBindingEvidence.TypeForm.DECLARED).isPresent()
             || binding.type().knownIdentity().filter(identity -> isPrimitive(identity.category())).isPresent()) {
-          return false;
+          gaps.add(node);
         }
       }
     }
-    return true;
+    return List.copyOf(gaps);
   }
 
   private static boolean isPrimitive(JavaTypeCategory category) {

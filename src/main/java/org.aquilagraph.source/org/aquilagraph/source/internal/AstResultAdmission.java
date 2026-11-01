@@ -4,6 +4,9 @@ import org.aquilagraph.source.admission.SyntaxAnalysisInput;
 import org.aquilagraph.source.admission.CoverageAdmission;
 
 import java.util.Objects;
+import java.util.Optional;
+import org.aquilagraph.source.api.AstOutcome;
+import org.aquilagraph.source.api.SourceQualification;
 import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
 import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
 import org.aquilagraph.identity.api.AstIdentity;
@@ -94,18 +97,47 @@ public final class AstResultAdmission {
         throw new IllegalArgumentException("The written-expression source profile requires retained AST format java-source/19");
       }
       var retained = retainedInput(input, format);
-      var completion = SourceRequirements.assess(retained, profile, semanticRevision);
-      if (completion == AstCompletion.UNAVAILABLE) {
+      var qualification = SourceRequirements.assess(retained, profile, semanticRevision);
+      if (qualification.completion() == AstCompletion.UNAVAILABLE) {
         throw new IllegalArgumentException("Copied source values cannot establish an available AST result");
       }
-      var software = SoftwareVersion.from(retained.snapshot(), retained.environmentSnapshot());
-      var identity = AstIdentity.fromContent(software.signature(), format, profile.version(), semanticRevision,
-          CanonicalAstEncoding.canonicalDigest(retained, profile, semanticRevision, format));
-      return new AdmittedAstResult(identity, profile, completion, retained.snapshot(), retained.environmentSnapshot(), retained.program(),
-          retained.aggregate().orElseThrow(), retained.diagnostics(), retained.languageFeatureCoverageResult());
+      return available(retained, profile, semanticRevision, format, qualification);
     } catch (IllegalArgumentException exception) {
       throw rejection(exception);
     }
+  }
+
+  /**
+   * Admits production once over the exact facts retained by the selected format.
+   *
+   * @param input
+   *          copied production input
+   * @param profile
+   *          original source profile
+   * @param semanticRevision
+   *          original production revision
+   * @return available or unavailable outcome with its established assessment
+   */
+  public static AstOutcome outcome(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision) {
+    var format = formatFor(profile, input.environmentSnapshot());
+    var retained = retainedInput(input, format);
+    var qualification = SourceRequirements.assess(retained, profile, semanticRevision);
+    if (qualification.completion() == AstCompletion.UNAVAILABLE) {
+      return new AdmittedAstOutcome(profile, qualification, Optional.empty(), Optional.of(retained.snapshot()),
+          Optional.of(retained.environmentSnapshot()), Optional.of(retained.compilerConfiguration()),
+          Optional.of(retained.languageFeatureCoverageResult()), retained.diagnostics(),
+          CanonicalAstEncoding.canonicalDigest(retained, profile, semanticRevision));
+    }
+    return AstOutcome.available(available(retained, profile, semanticRevision, format, qualification));
+  }
+
+  private static AstResult available(SyntaxAnalysisInput retained, AstProfile profile, String semanticRevision, String format,
+      SourceQualification qualification) {
+    var software = SoftwareVersion.from(retained.snapshot(), retained.environmentSnapshot());
+    var identity = AstIdentity.fromContent(software.signature(), format, profile.version(), semanticRevision,
+        CanonicalAstEncoding.canonicalDigest(retained, profile, semanticRevision, format));
+    return new AdmittedAstResult(identity, profile, qualification, retained.snapshot(), retained.environmentSnapshot(), retained.program(),
+        retained.aggregate().orElseThrow(), retained.diagnostics(), retained.languageFeatureCoverageResult());
   }
 
   private static SyntaxAnalysisInput retainedInput(SyntaxAnalysisInput input, String format) {
