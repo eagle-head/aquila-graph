@@ -14,6 +14,19 @@ import org.junit.jupiter.api.function.Executable;
 
 class AnalyzeCommandArgumentsTest {
   @Test
+  void givenAstRetentionIntent_whenCommandArgumentsAreCreated_thenUnsupportedPublicationIsRejected() {
+    // Arrange
+    var sourceRoot = Path.of("source");
+
+    // Act
+    Executable createArguments = () -> new AnalyzeCommandArguments(sourceRoot, JavaRelease.JAVA_25,
+        PublicationIntent.SAVE_COMPLETE_AST);
+
+    // Assert
+    assertThrows(IllegalArgumentException.class, createArguments);
+  }
+
+  @Test
   void givenValidatedCommandArguments_whenConvertedToAnalysisRequest_thenDomainValuesArePreserved() {
     // Arrange
     var sourceRoot = Path.of("source");
