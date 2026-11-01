@@ -230,6 +230,72 @@ obligations are exercised by
 [`QualifiedConstructorCompositionTest`](../../src/test/java/org/aquilagraph/frontend/internal/QualifiedConstructorCompositionTest.java), and
 [`HistoricalAstCompatibilityTest`](../../src/test/java/org/aquilagraph/repository/internal/neo4j/HistoricalAstCompatibilityTest.java).
 
+#### Outstanding composition requirements
+
+The following boundaries remain unresolved in semantic production `javac-public/14`.
+They are current requirements, not completed capabilities. Existing isolated test success
+does not establish their completion.
+
+- **Anonymous enclosing owners with diamond.** Valid construction through an anonymous
+  owner created with diamond must retain constructor applicability and argument conversions,
+  including when the constructed member is itself anonymous. For example,
+  `new Parent<>() { class Box { <T> Box(T value) {} } }.new Box(1)` currently reports
+  `frontend.constructor-witness-rejected`; an explicit `Parent<String>` owner completes.
+  [Receiver projection](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/ConstructorReceiverProjection.java)
+  emits a public method into that owner. Its declaration must satisfy the enclosing
+  context's language rules while preserving the original receiver and inference context.
+  [JLS 25 section 15.9.5](https://docs.oracle.com/javase/specs/jls/se25/html/jls-15.html#jls-15.9.5)
+  requires non-private methods declared in a diamond anonymous class to override a supertype
+  method. The existing
+  [composition regressions](../../src/test/java/org/aquilagraph/frontend/internal/EnclosingConstructorCompositionTest.java)
+  cover inline anonymous owners without diamond on the owner.
+
+- **Parameterized ancestors in binary enclosing chains.** Source and binary declarations
+  must preserve the complete enclosing chain through intermediate types with no type
+  parameters of their own. With `Outer<A>.Middle.Box`, where `Middle` is nongeneric and
+  `Box` has a generic constructor, `middle.new Box(1)` currently completes with source
+  declarations but reports `frontend.missing-constructor-correlation` with binary
+  declarations. Ordinary and anonymous member constructions reproduce this difference
+  with `Outer<Number>.Middle`; original dependency bytes remain unchanged.
+  [Binary signature rendering](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/ConstructorTypeRenderer.java)
+  must retain the parameterized ancestor even when the immediate enclosing type has no
+  arguments. The current
+  [binary receiver regression](../../src/test/java/org/aquilagraph/frontend/internal/QualifiedReceiverProjectionTest.java)
+  exercises only one enclosing level.
+
+- **Raw source inheritance during admission.** Available raw source hierarchy must have a
+  defined erased owner view. For `Child<A> extends Outer<A>` and `<O extends Child>`,
+  public aggregate admission currently accepts replacing the raw `Outer` owner view
+  with `Outer<String>`. The same replacement under `Child<Integer>` rejects.
+  [Enclosing type admission](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/EnclosingTypeAdmission.java)
+  must distinguish raw inheritance, parameterized substitution, and unavailable hierarchy.
+  A parameter-count mismatch for an otherwise known raw source declaration cannot
+  convert its determined superclass into unknown evidence.
+  [JLS 25 section 4.8](https://docs.oracle.com/javase/specs/jls/se25/html/jls-4.html#jls-4.8)
+  defines the erased supertypes of a raw type. The existing
+  [owner admission regressions](../../src/test/java/org/aquilagraph/frontend/internal/EnclosingTypeAdmissionTest.java)
+  cover parameterized inherited bounds.
+
+- **Every retained recursive type carrier.** Enclosing-owner consistency must apply to
+  types stored within syntax values as well as each node's own type and declared bounds.
+  For `supply(() -> outer.new Box(1))` under `<O extends Outer<Integer>>`, public
+  aggregate admission currently accepts changing only
+  [`SyntaxValue.Lambda.returnType`](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/api/SyntaxValue.java)
+  to carry owner `Outer<String>`. The node type, creation type, source bounds, children,
+  and execution evidence remain unchanged. The shared admission traversal must reach
+  all applicable recursive type carriers and preserve their independent capture scopes.
+  This observation establishes an aggregate-admission gap; it does not establish
+  acceptance by every later result or persistence boundary.
+  [Lambda regressions](../../src/test/java/org/aquilagraph/frontend/internal/LambdaAstTest.java)
+  already distinguish unavailable descriptor return types, but do not reject this
+  contradictory resolved enclosing-owner view.
+
+These obligations extend the
+[constructor evidence and structural composition criteria](../epics/java-ast-source-consistency.md#acceptance-criteria).
+They require shared contract corrections and discriminating public producer or supplied-value
+regressions. Rejecting valid raw inputs, omitting retained types, weakening diagnostics,
+or adding spelling-specific exceptions cannot satisfy them.
+
 ### Module service and provider identities
 
 **Contract and accepted delivery:** Resolved service and provider declaration identities are required source facts in `java-source-expanded/8`. They are not optional CFG classifications. The [accepted module service identity integration](../tasks/java-module-service-identities/module-service-integration.md) delivers this capability under semantic production `javac-public/11` and retained format `java-source/20`, separately from the earlier source-fidelity delivery. The requirement is a product decision grounded in the existing G1-G6 duties, not a claim that Java mandates a particular AST API. Acceptance is recorded by the owning checkpoints and original reviews; this reconciliation performs no new runtime verification.[16][18][20]
