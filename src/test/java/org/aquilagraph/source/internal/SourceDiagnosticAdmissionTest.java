@@ -36,6 +36,8 @@ import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstContractException;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.SourceQualification;
+import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.api.CoverageValidationEvidence;
 import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.DiagnosticSeverity;
@@ -65,10 +67,14 @@ class SourceDiagnosticAdmissionTest {
   void givenSuppliedForeignDiagnostic_whenAdmittingUnavailableSource_thenAbsenceDoesNotBypassCreatingOwnerAdmission() {
     verifyProfiles(original -> assertAll(FOREIGN_STAGES.stream().map(stage -> (Executable) () -> {
       for (var severity : DiagnosticSeverity.values()) {
+        // Arrange
         var diagnostic = diagnostic(stage, severity, "unavailable");
-        assertThrows(IllegalArgumentException.class, () -> new AdmittedAstOutcome(original.profile(), AstCompletion.UNAVAILABLE, Optional.empty(),
+        // Act
+        var rejection = assertThrows(IllegalArgumentException.class, () -> new AdmittedAstOutcome(original.profile(), unavailableQualification(original), Optional.empty(),
             Optional.of(original.snapshot()), Optional.of(original.environment()), Optional.of(CONFIGURATION), Optional.empty(),
             List.of(diagnostic), "provided-source-subject"));
+        // Assert
+        assertTrue(rejection.getMessage().contains("Source diagnostics require"));
       }
     })));
   }
@@ -108,11 +114,14 @@ class SourceDiagnosticAdmissionTest {
   @Test
   void givenOwnedInputAndFrontendDiagnostics_whenAdmittingUnavailableSource_thenExactStagesOrderAndOccurrencesRemain() {
     verifyProfiles(original -> {
+      // Arrange
       var input = diagnostic(DiagnosticStage.INPUT, DiagnosticSeverity.ERROR, "input");
       var frontend = diagnostic(DiagnosticStage.FRONTEND, DiagnosticSeverity.INFO, "frontend");
       var expected = List.of(input, frontend, input);
-      var unavailable = new AdmittedAstOutcome(original.profile(), AstCompletion.UNAVAILABLE, Optional.empty(), Optional.of(original.snapshot()),
+      // Act
+      var unavailable = new AdmittedAstOutcome(original.profile(), unavailableQualification(original), Optional.empty(), Optional.of(original.snapshot()),
           Optional.of(original.environment()), Optional.of(CONFIGURATION), Optional.empty(), expected, "provided-source-subject");
+      // Assert
       assertEquals(AstCompletion.UNAVAILABLE, unavailable.completion());
       assertTrue(unavailable.result().isEmpty());
       assertEquals(expected, unavailable.diagnostics());
@@ -131,6 +140,27 @@ class SourceDiagnosticAdmissionTest {
           && value.isError() && value.outcomeKind() == AnalysisOutcomeKind.COMPILER_ERROR));
       assertTrue(outcome.diagnostics().stream().allMatch(value -> value.stage() == DiagnosticStage.FRONTEND));
     }));
+  }
+
+  @Test
+  void givenEqualSourceErrorsInDistinctEmissionSlots_whenAdmittedAndDecoded_thenReasonsReferenceEachOriginalEvent() {
+    // Arrange
+    verifyProfiles(original -> {
+      var error = diagnostic(DiagnosticStage.FRONTEND, DiagnosticSeverity.ERROR, "repeated");
+      // Act
+      var admitted = admitted(original, List.of(error, error));
+      var decoded = AstCodec.decode(AstCodec.encode(admitted), admitted.identity());
+      // Assert
+      for (var result : List.of(admitted, decoded)) {
+        var references = result.qualification().reasons().stream().flatMap(reason -> reason.diagnostics().stream()).toList();
+        assertEquals(List.of(0, 1), references.stream().map(SourceQualificationReason.DiagnosticReference::position).toList());
+        assertEquals(result.coverage().validationEvidence().diagnosticEmissions().stream().map(DiagnosticEmission::address).toList(),
+            references.stream().map(reference -> reference.emission().orElseThrow()).toList());
+        assertTrue(references.stream().allMatch(reference -> reference.owner().equals(result.diagnostics())));
+        assertEquals(List.of(error, error), references.stream().map(SourceQualificationReason.DiagnosticReference::diagnostic).toList());
+      }
+      assertEquals(admitted.qualification(), decoded.qualification());
+    });
   }
 
   private void verifyForeignAdmission(List<DiagnosticSeverity> severities) {
@@ -175,6 +205,7 @@ class SourceDiagnosticAdmissionTest {
     assertEquals(expected.stream().map(AnalysisDiagnostic::outcomeKind).toList(), events.stream().map(DiagnosticEmission::cause).toList());
     var decoded = AstCodec.decode(AstCodec.encode(retained), retained.identity());
     assertEquals(retained.completion(), decoded.completion());
+    assertEquals(retained.qualification(), decoded.qualification());
     assertEquals(retained.program(), decoded.program());
     assertEquals(retained.aggregate(), decoded.aggregate());
     assertEquals(expected, decoded.diagnostics());
@@ -199,6 +230,12 @@ class SourceDiagnosticAdmissionTest {
   private static AnalysisDiagnostic diagnostic(DiagnosticStage stage, DiagnosticSeverity severity, String key) {
     return new AnalysisDiagnostic("provided:" + key, "provided.observation", stage, severity, "Supplied source diagnostic", List.of(),
         AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+  }
+
+  private static SourceQualification unavailableQualification(AstResult original) {
+    return new SourceQualification(AstCompletion.UNAVAILABLE, original.profile(), Optional.of(original.identity().semanticProductionRevision()),
+        List.of(new SourceQualificationReason(SourceQualificationReason.Category.UNAVAILABLE_ROOTS,
+            SourceQualificationReason.EvidenceRole.SOURCE_ROOTS, SourceQualificationReason.Capture.INSTANCE, List.of(), List.of(), List.of())));
   }
 
   private static AstResult admitted(AstResult original, List<AnalysisDiagnostic> diagnostics) {

@@ -837,7 +837,7 @@ class AnalysisDiagnosticProjectionTest {
     var original = analyze("class Example { int value(int a) { (a) = 1; return a; } }", AstProfile.JAVA_SOURCE_BOUNDED);
     var graphDiagnostic = original.diagnostics().getFirst();
     var applicationDiagnostics = List.of(graphDiagnostic, graphDiagnostic);
-    var run = new AnalysisRun(original.identity(), original.representation(), AnalysisCompletion.FAILED, applicationDiagnostics);
+    var run = AnalysisRun.create(original.identity(), original.representation(), applicationDiagnostics);
 
     // Act
     var projection = AnalysisRunSummary.from(run).diagnostics();

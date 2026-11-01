@@ -243,7 +243,7 @@ class Neo4jStoredSurfaceContractTest {
         "Supplied source observation", List.of(origin), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
     var noOrigin = new AnalysisDiagnostic("diagnostic:implicit", "frontend.observation", DiagnosticStage.FRONTEND, DiagnosticSeverity.WARNING,
         "Supplied observation without origin", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
-    return new AnalysisRun(original.identity(), original.representation(), original.completion(), List.of(warning, noOrigin, warning));
+    return AnalysisRun.create(original.identity(), original.representation(), List.of(warning, noOrigin, warning));
   }
 
   private AnalysisRun relocate(AnalysisRun run, boolean changeOptionText) throws IOException {

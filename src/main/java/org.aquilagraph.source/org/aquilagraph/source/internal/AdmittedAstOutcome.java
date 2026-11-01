@@ -2,6 +2,7 @@ package org.aquilagraph.source.internal;
 
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.SourceQualification;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
@@ -16,7 +17,7 @@ import org.aquilagraph.identity.api.InputSnapshot;
 /** A normal source outcome with admitted qualification and truthful captured provenance. */
 public final class AdmittedAstOutcome implements AstOutcome {
   private final AstProfile requestedProfile;
-  private final AstCompletion sourceCompletion;
+  private final SourceQualification sourceQualification;
   private final Optional<AstResult> sourceResult;
   private final Optional<InputSnapshot> capturedSource;
   private final Optional<AnalysisEnvironmentSnapshot> capturedCompilerEnvironment;
@@ -30,8 +31,8 @@ public final class AdmittedAstOutcome implements AstOutcome {
    *
    * @param profile
    *          selected source profile
-   * @param completion
-   *          completion
+   * @param qualification
+   *          admitted source assessment
    * @param result
    *          result
    * @param capturedInput
@@ -47,11 +48,16 @@ public final class AdmittedAstOutcome implements AstOutcome {
    * @param sourceSubjectDigest
    *          source subject digest
    */
-  public AdmittedAstOutcome(AstProfile profile, AstCompletion completion, Optional<AstResult> result, Optional<InputSnapshot> capturedInput,
-      Optional<AnalysisEnvironmentSnapshot> capturedEnvironment, Optional<CompilerConfiguration> requestedConfiguration,
-      Optional<LanguageFeatureCoverageResult> coverageQualification, List<AnalysisDiagnostic> diagnostics, String sourceSubjectDigest) {
+  public AdmittedAstOutcome(AstProfile profile, SourceQualification qualification, Optional<AstResult> result,
+      Optional<InputSnapshot> capturedInput, Optional<AnalysisEnvironmentSnapshot> capturedEnvironment,
+      Optional<CompilerConfiguration> requestedConfiguration, Optional<LanguageFeatureCoverageResult> coverageQualification,
+      List<AnalysisDiagnostic> diagnostics, String sourceSubjectDigest) {
     requestedProfile = Objects.requireNonNull(profile, "profile");
-    sourceCompletion = Objects.requireNonNull(completion, "completion");
+    sourceQualification = Objects.requireNonNull(qualification, "qualification");
+    var completion = qualification.completion();
+    if (!profile.equals(qualification.profile())) {
+      throw new IllegalArgumentException("Source assessment must retain its original profile");
+    }
     sourceResult = Objects.requireNonNull(result, "result");
     capturedSource = Objects.requireNonNull(capturedInput, "capturedInput");
     capturedCompilerEnvironment = Objects.requireNonNull(capturedEnvironment, "capturedEnvironment");
@@ -65,8 +71,8 @@ public final class AdmittedAstOutcome implements AstOutcome {
     }
     if (result.isPresent()) {
       var value = result.orElseThrow();
-      if (!value.profile().equals(profile) || value.completion() != completion || !capturedInput.equals(Optional.of(value.snapshot()))
-          || !capturedEnvironment.equals(Optional.of(value.environment()))
+      if (!value.profile().equals(profile) || !value.qualification().equals(qualification)
+          || !capturedInput.equals(Optional.of(value.snapshot())) || !capturedEnvironment.equals(Optional.of(value.environment()))
           || !requestedConfiguration.equals(Optional.of(value.environment().compilerConfiguration()))
           || !coverageQualification.equals(Optional.of(value.coverage())) || !diagnostics.equals(value.diagnostics())
           || !sourceSubjectDigest.equals(value.identity().canonicalContentDigest())) {
@@ -91,8 +97,8 @@ public final class AdmittedAstOutcome implements AstOutcome {
    * @return source-only qualification
    */
   @Override
-  public AstCompletion completion() {
-    return sourceCompletion;
+  public SourceQualification qualification() {
+    return sourceQualification;
   }
 
   /**

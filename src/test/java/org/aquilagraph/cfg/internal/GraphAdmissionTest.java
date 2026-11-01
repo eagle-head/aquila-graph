@@ -14,6 +14,7 @@ import org.aquilagraph.cfg.api.ControlFlowGraph;
 import org.aquilagraph.cfg.CfgDerivers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -43,6 +44,11 @@ import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.identity.api.StableId;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.internal.SourceAnalysisFixture;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.application.RequestQualificationReason;
+import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.source.api.AstOutcome;
+import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
@@ -384,6 +390,48 @@ class GraphAdmissionTest {
     assertEquals(CfgState.PARTIAL, new CfgOutcome(request, CfgState.PARTIAL, List.of(methodWithError), List.of(error)).state());
     var foreignStage = new AnalysisDiagnostic(first.diagnosticKey(), first.code(), DiagnosticStage.FRONTEND, first.severity(), first.message(), first.origins(), first.outcomeKind());
     assertThrows(IllegalArgumentException.class, () -> new GraphAdmission(fixture.ast(), fixture.plan()).admit( fixture.draft(), fixture.creating(), Map.of(), List.of(foreignStage)));
+  }
+
+  @Test
+  void givenAvailableGraphWithRepeatedNativeErrors_whenApplicationDerivesExisting_thenFailedQualificationRetainsExactGraphAndDiagnosticSlots()
+      throws IOException {
+    // Arrange
+    var fixture = fixture();
+    var ast = AstOutcome.available(fixture.ast());
+    var origin = fixture.ast().body(fixture.plan().body().methodKey()).orElseThrow().root().origin().orElseThrow();
+    var error = new AnalysisDiagnostic("provided:graph", "control-flow.provided", DiagnosticStage.CONTROL_FLOW,
+        DiagnosticSeverity.ERROR, "Supplied graph error", List.of(origin), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+    var diagnostics = List.of(error, error);
+    var graph = new GraphAdmission(fixture.ast(), fixture.plan()).admit(fixture.draft(), fixture.creating(), Map.of(), diagnostics);
+    var method = new MethodCfgOutcome(fixture.ast().identity(), graph.methodKey(), MethodCfgState.AVAILABLE,
+        Optional.of(graph.body()), Optional.of(graph), List.of(), Optional.empty(), graph.diagnostics());
+    var request = new CfgRequest(fixture.ast().identity(), List.of(graph.methodKey()), fixture.plan().profile());
+    var cfg = new CfgOutcome(request, CfgState.PARTIAL, List.of(method), diagnostics);
+    var runner = new SourceAnalysisRunner(ignored -> {
+      throw new AssertionError("Existing source must not be produced again");
+    }, (source, invoked) -> cfg);
+
+    // Act
+    var run = runner.deriveExisting(ast, request);
+    var reasons = run.qualification().reasons().stream().map(RequestQualificationReason.MethodDiagnostic.class::cast).toList();
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, ast.completion());
+    assertEquals(CfgState.PARTIAL, cfg.state());
+    assertEquals(MethodCfgState.AVAILABLE, method.state());
+    assertEquals(AnalysisCompletion.FAILED, run.completion());
+    assertSame(ast, run.representation().ast());
+    assertSame(cfg, run.representation().cfg().orElseThrow());
+    assertSame(graph, run.representation().cfg().orElseThrow().methods().getFirst().graph().orElseThrow());
+    assertEquals(graph.identity(), method.graph().orElseThrow().identity());
+    assertNotEquals(fixture.graph().identity(), graph.identity());
+    assertTrue(ast.diagnostics().isEmpty());
+    assertEquals(diagnostics, run.diagnostics());
+    assertEquals(List.of(0, 1), reasons.stream().map(RequestQualificationReason.MethodDiagnostic::position).toList());
+    assertTrue(reasons.stream().allMatch(reason -> reason.outcome() == method));
+    assertSame(error, reasons.getFirst().outcome().diagnostics().get(reasons.getFirst().position()));
+    assertSame(error, reasons.getLast().outcome().diagnostics().get(reasons.getLast().position()));
+    assertFalse(run.isPublishable());
   }
 
   @Test

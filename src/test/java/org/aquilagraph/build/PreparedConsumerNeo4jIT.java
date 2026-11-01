@@ -56,6 +56,7 @@ class PreparedConsumerNeo4jIT {
     var outcome = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(snapshot,
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES));
     assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.toString());
+    assertTrue(outcome.qualification().reasons().isEmpty());
     var original = outcome.result().orElseThrow();
     var service = new AstRetentionService(Neo4jRepositories.astResults(() -> settings));
     assertEquals(PublicationStatus.SAVED, service.retainAst(outcome).status());
@@ -77,6 +78,7 @@ class PreparedConsumerNeo4jIT {
         assertEquals(PublicAstObservation.describe(original), actual);
         assertTrue(actual.contains(snapshot.sourceFiles().getFirst().content()));
         assertTrue(actual.contains("coverage-result"));
+        assertTrue(actual.contains("org.aquilagraph.source.api.SourceQualification"));
         assertTrue(actual.contains("5:graph"));
         assertTrue(observed.log().contains("Closed independent query: " + identity.astResultKey()), observed.log());
       }

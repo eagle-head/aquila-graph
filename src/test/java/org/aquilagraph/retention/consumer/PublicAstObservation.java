@@ -40,7 +40,7 @@ public final class PublicAstObservation {
 
   private static String render(Object value) {
     return switch (value) {
-      case AstResult ast -> tuple("ast", ast.identity(), ast.profile(), ast.completion(), ast.snapshot(), ast.environment(),
+      case AstResult ast -> tuple("ast", ast.identity(), ast.profile(), ast.completion(), ast.qualification(), ast.qualification().reasons(), ast.snapshot(), ast.environment(),
           ast.program(), ast.aggregate(), ast.diagnostics(), ast.coverage());
       case JavaAstAggregate aggregate -> tuple("aggregate", aggregate.roots().stream().map(SyntaxNode::nodeId).toList(), aggregate.nodes(),
           aggregate.nodeTuples(), aggregate.rangeTuples(), aggregate.structuralEdges(), aggregate.semanticEdges(),

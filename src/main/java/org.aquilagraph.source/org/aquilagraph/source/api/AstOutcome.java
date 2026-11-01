@@ -23,7 +23,16 @@ public sealed interface AstOutcome permits AdmittedAstOutcome {
    *
    * @return source-only qualification
    */
-  AstCompletion completion();
+  default AstCompletion completion() {
+    return qualification().completion();
+  }
+
+  /**
+   * Returns the admitted source decision and ordered blocking explanations.
+   *
+   * @return immutable assessment readable without compiler or CFG acquisition
+   */
+  SourceQualification qualification();
 
   /**
    * Returns admitted available source result.
@@ -82,7 +91,7 @@ public sealed interface AstOutcome permits AdmittedAstOutcome {
    */
   public static AstOutcome available(AstResult result) {
     Objects.requireNonNull(result, "result");
-    return new AdmittedAstOutcome(result.profile(), result.completion(), Optional.of(result), Optional.of(result.snapshot()),
+    return new AdmittedAstOutcome(result.profile(), result.qualification(), Optional.of(result), Optional.of(result.snapshot()),
         Optional.of(result.environment()), Optional.of(result.environment().compilerConfiguration()), Optional.of(result.coverage()),
         result.diagnostics(), result.identity().canonicalContentDigest());
   }

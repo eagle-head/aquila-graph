@@ -98,6 +98,6 @@ public final class SourceAnalysisRunner {
   }
 
   private static AnalysisRun run(AnalysisRequestIdentity identity, AstOutcome ast, Optional<CfgOutcome> cfg) {
-    return new AnalysisRun(identity, new ProgramRepresentation(ast, cfg), AnalysisQualification.assess(ast, cfg, List.of()), List.of());
+    return AnalysisRun.create(identity, new ProgramRepresentation(ast, cfg), List.of());
   }
 }

@@ -26,7 +26,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
-import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.identity.api.StableId;
@@ -131,7 +130,7 @@ class Neo4jMetadataInspectionNeo4jIT {
     var warning = new AnalysisDiagnostic(StableId.sha256("diagnostic", run.identity().key(), suffix), "publication.metadata." + suffix,
         DiagnosticStage.FRONTEND, DiagnosticSeverity.WARNING, "Supplied metadata-observation warning: " + suffix, List.of(origin),
         AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
-    return new AnalysisRun(run.identity(), run.representation(), AnalysisCompletion.COMPLETE, List.of(warning));
+    return AnalysisRun.create(run.identity(), run.representation(), List.of(warning));
   }
 
   private static InetSocketAddress loopbackTarget(URI uri) throws IOException {

@@ -20,6 +20,7 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -163,7 +164,8 @@ class SwitchAstTest {
 
   @TestFactory
   Stream<DynamicTest> givenInvalidSwitchInputs_whenProduced_thenActualCompilerErrorsPreventCompletion() {
-    return Stream.of(
+    // Arrange
+    var inputs = Stream.of(
         "int subject(int value) { return switch (value) { case 1, 1 -> 1; default -> 0; }; }",
         "int subject(int value) { return switch (value) { case 1, default -> 1; }; }",
         "int subject(String value) { return switch (value) { case null, \"x\" -> 1; default -> 0; }; }",
@@ -179,16 +181,28 @@ class SwitchAstTest {
         "int subject(Object value) { return switch (value) { case Object other -> 1; case String text -> 2; }; }",
         "int subject(int value) { return switch (value) { case null, default -> 1; }; }",
         "int subject(int value) { return switch (value) { default -> { java.util.function.IntSupplier supplier = () -> { yield 1; }; yield supplier.getAsInt(); } }; }",
-        "int subject(Object value) { switch (value) { case String text: break; default: return text.length(); } return 0; }")
-        .map(method -> DynamicTest.dynamicTest(method, () -> {
+        "int subject(Object value) { switch (value) { case String text: break; default: return text.length(); } return 0; }");
+    // Act
+    var observations = inputs.map(method -> DynamicTest.dynamicTest("givenInvalidSwitch(" + method
+        + ")_whenProduced_thenCompilerErrorsAndTypedReasonsPreventCompletion", () -> {
           // Arrange
           var source = "class Example { " + method + " }";
           // Act
           var result = produce(source, AstProfile.JAVA_SOURCE_EXPANDED);
           // Assert
           assertEquals(AstCompletion.INCOMPLETE, result.completion(), result.diagnostics().toString());
+          assertTrue(result.qualification().reasons().stream()
+              .anyMatch(reason -> reason.category() == SourceQualificationReason.Category.COMPILER_ERROR));
+          for (var node : result.aggregate().nodes()) {
+            if (node.syntaxKind() == SyntaxKind.UNSUPPORTED) {
+              assertTrue(result.qualification().reasons().stream().anyMatch(reason -> reason.role() == SourceQualificationReason.EvidenceRole.SOURCE_FORM
+                  && reason.subject().equals(new SourceQualificationReason.Node(node.nodeId(), node.sourceFileKey()))));
+            }
+          }
           assertTrue(result.diagnostics().stream().anyMatch(diagnostic -> diagnostic.isError() && diagnostic.code().startsWith("compiler.")), result.diagnostics().toString());
         }));
+    // Assert
+    return observations;
   }
 
   @TestFactory

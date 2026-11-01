@@ -33,6 +33,7 @@ import org.aquilagraph.identity.api.CanonicalValueWriter;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
@@ -163,6 +164,13 @@ class ModuleServiceAdmissionTest {
         var retained = AstCodec.decode(AstCodec.encode(result), result.identity());
         // Assert
         assertEquals(AstCompletion.INCOMPLETE, result.completion());
+        assertEquals(result.qualification(), retained.qualification());
+        var targetReasons = retained.qualification().reasons().stream()
+            .filter(reason -> reason.role() == SourceQualificationReason.EvidenceRole.MODULE_SERVICE_TARGET).toList();
+        assertEquals(1, targetReasons.size());
+        assertEquals(new SourceQualificationReason.Node(operand.nodeId(), operand.sourceFileKey()), targetReasons.getFirst().subject());
+        assertEquals(status == ResolutionStatus.ERROR ? SourceQualificationReason.Category.ERRONEOUS_EVIDENCE
+            : SourceQualificationReason.Category.MISSING_REQUIRED_EVIDENCE, targetReasons.getFirst().category());
         assertEquals(result.identity(), retained.identity());
         assertEquals(operands.size(), operands(retained).size());
         var actual = retained.aggregate().node(operand.nodeId()).orElseThrow();
@@ -177,6 +185,12 @@ class ModuleServiceAdmissionTest {
         var context = endpointContext(original, operand);
         var failed = retained.coverage().validationEvidence().outcomes().stream().filter(outcome -> outcome.address().equals(context.address())).findFirst().orElseThrow();
         assertEquals(FeatureContextOutcome.Mode.FAILED, failed.support().mode());
+        var support = retained.qualification().reasons().stream()
+            .filter(reason -> reason.subject().equals(new SourceQualificationReason.Context(context.address()))).findFirst().orElseThrow();
+        assertEquals(SourceQualificationReason.EvidenceRole.COVERAGE_SUPPORT, support.role());
+        assertEquals(context.origins(), support.origins());
+        assertEquals(failed.emissions(), support.diagnostics().stream().map(eventReference -> eventReference.emission().orElseThrow()).toList());
+        assertTrue(support.diagnostics().stream().allMatch(eventReference -> eventReference.diagnostic().equals(retained.diagnostics().get(eventReference.position()))));
         assertTrue(retained.coverage().validationEvidence().diagnosticEmissions().stream().anyMatch(event -> event.contexts().contains(context.address())
             && event.diagnostic().code().equals("frontend.missing-source-evidence") && event.diagnostic().origins().equals(context.origins())));
         assertTrue(retained.diagnostics().stream().noneMatch(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.COMPILER_ERROR));

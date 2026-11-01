@@ -22,7 +22,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
@@ -83,7 +82,7 @@ class Neo4jAnalysisRunMapperTest {
     var origin = new SourceSpan(original.representation().ast().capturedInput().orElseThrow().sourceFiles().getFirst().sourceFileKey(), 0, 1);
     var first = diagnostic("diagnostic", "Observed source", List.of(origin));
     var second = diagnostic("diagnostic", "Observed source", List.of(origin));
-    var run = new AnalysisRun(original.identity(), original.representation(), AnalysisCompletion.COMPLETE, List.of(first, second));
+    var run = AnalysisRun.create(original.identity(), original.representation(), List.of(first, second));
 
     // Act
     var projection = new Neo4jAnalysisRunMapper().map(run);
@@ -101,7 +100,7 @@ class Neo4jAnalysisRunMapperTest {
     // Arrange
     var original = completedMapperFixture(new SourceAnalysisFixture().analyze(new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
         completedSourceRoot("collision"), CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow()));
-    var run = new AnalysisRun(original.identity(), original.representation(), AnalysisCompletion.COMPLETE, List.of(diagnostic("diagnostic", "First observation", List.of()), diagnostic("diagnostic", "Second observation", List.of())));
+    var run = AnalysisRun.create(original.identity(), original.representation(), List.of(diagnostic("diagnostic", "First observation", List.of()), diagnostic("diagnostic", "Second observation", List.of())));
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class, () -> new Neo4jAnalysisRunMapper().map(run));
@@ -118,7 +117,7 @@ class Neo4jAnalysisRunMapperTest {
     var sourceFileKey = original.representation().ast().capturedInput().orElseThrow().sourceFiles().getFirst().sourceFileKey();
     var first = new SourceSpan(sourceFileKey, 0, 1);
     var second = new SourceSpan(sourceFileKey, 1, 2);
-    var run = new AnalysisRun(original.identity(), original.representation(), AnalysisCompletion.COMPLETE, List.of(diagnostic("diagnostic", "Observed source", List.of(first, second)),
+    var run = AnalysisRun.create(original.identity(), original.representation(), List.of(diagnostic("diagnostic", "Observed source", List.of(first, second)),
             diagnostic("diagnostic", "Observed source", List.of(second, first))));
 
     // Act
@@ -469,7 +468,7 @@ class Neo4jAnalysisRunMapperTest {
   }
 
   private static AnalysisRun completedMapperFixture(AnalysisRun analyzedRun) {
-    return new AnalysisRun(analyzedRun.identity(), analyzedRun.representation(), AnalysisCompletion.COMPLETE, List.of());
+    return AnalysisRun.create(analyzedRun.identity(), analyzedRun.representation(), List.of());
   }
 
   private static AnalysisDiagnostic diagnostic(String key, String message, List<SourceSpan> origins) {

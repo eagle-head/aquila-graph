@@ -112,6 +112,38 @@ For the new AST publication operations, an effective application-port `Repositor
 
 `ComputedPublicationSubject` is an application-owned closed choice between an AST subject referencing `AstOutcome` and a coordinated subject referencing `AnalysisRun`. It retains existing immutable results rather than making either domain type inherit an application type. Exactly one subject variant is present in the exception; attempted subject identity must match that value.
 
+### Qualification explanations
+
+`AstResult.qualification()` and `AstOutcome.qualification()` expose the same
+immutable `SourceQualification` for an available result. `completion()` derives
+from that assessment. Source admission establishes all blocking reasons from the
+actual admitted input, its original profile, and production revision. Empty
+capture retains an absent revision and compiler environment. Reasons retain typed
+categories, evidence roles, input-local subjects, available origins, exact source
+diagnostic list slots and emission addresses. A diagnostic evidence value without
+an established event association remains separately labeled evidence. Repeated
+values and keys do not identify or merge events. Reasons are ordered by assessment
+rule, captured file, and canonical occurrence; complete source has no blocking
+reason. These are derived queries, excluded from retained encoding and identity.
+See [SourceQualification](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/api/SourceQualification.java),
+[SourceQualificationReason](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/api/SourceQualificationReason.java),
+and [SourceRequirements.assess](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/SourceRequirements.java).
+
+`AnalysisRun.create` assesses exact source/CFG owners and application diagnostic
+occurrences once. The run retains `RequestQualification`, and `completion()`
+derives from it. Its constructor checks the source subject, selection, context
+correspondence, and assessed diagnostic list. Typed request reasons retain source,
+rejected selection, refused/failed method, native method error, or exact
+application diagnostic slots. An error on an `AVAILABLE` graph retains `FAILED`
+request qualification; native errors on a bodyless `NOT_APPLICABLE` method retain
+`PARTIAL`. Both retain exact method diagnostic slots without changing the method
+state or restricting previously admitted values. All independent causes survive precedence
+`REJECTED`, `FAILED`, `PARTIAL`, `COMPLETE`; method blockers and abrupt derivation
+failures retain their existing domain owners. See
+[AnalysisQualification](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisQualification.java),
+[RequestQualificationReason](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/RequestQualificationReason.java),
+and [AnalysisRun](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisRun.java).
+
 ### Target repository failure crossing
 
 The new application-owned AST port uses `AstResultRepositoryFactory.open(RepositoryOperationContext)`. The context contains `SAVE_AST` or `QUERY_AST` and the exact requested `AstIdentity`. The returned repository is owned by that single operation: `saveComplete` or `find` must match the context's kind and identity; no second subject or operation is accepted. The application closes every successfully acquired repository, including after work failure. Acquisition failures own cleanup of any accessible resources not transferred. This changes only the new AST port; the legacy factory and completed-run port keep their declared contracts.

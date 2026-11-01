@@ -2,6 +2,7 @@ package org.aquilagraph.source.internal;
 
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.SourceQualification;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.JavaAstAggregate;
@@ -28,7 +29,7 @@ import org.aquilagraph.identity.api.SourceOccurrence;
 public final class AdmittedAstResult implements AstResult {
   private final AstIdentity qualifiedIdentity;
   private final AstProfile sourceProfile;
-  private final AstCompletion sourceCompletion;
+  private final SourceQualification sourceQualification;
   private final InputSnapshot capturedInput;
   private final AnalysisEnvironmentSnapshot capturedEnvironment;
   private final JavaProgram declarations;
@@ -44,8 +45,8 @@ public final class AdmittedAstResult implements AstResult {
    *          identity
    * @param profile
    *          selected source profile
-   * @param completion
-   *          completion
+   * @param qualification
+   *          admitted source assessment
    * @param snapshot
    *          snapshot
    * @param environment
@@ -59,12 +60,16 @@ public final class AdmittedAstResult implements AstResult {
    * @param coverage
    *          coverage
    */
-  public AdmittedAstResult(AstIdentity identity, AstProfile profile, AstCompletion completion, InputSnapshot snapshot,
+  public AdmittedAstResult(AstIdentity identity, AstProfile profile, SourceQualification qualification, InputSnapshot snapshot,
       AnalysisEnvironmentSnapshot environment, JavaProgram program, JavaAstAggregate aggregate, List<AnalysisDiagnostic> diagnostics,
       LanguageFeatureCoverageResult coverage) {
     qualifiedIdentity = Objects.requireNonNull(identity, "identity");
     sourceProfile = Objects.requireNonNull(profile, "profile");
-    sourceCompletion = Objects.requireNonNull(completion, "completion");
+    sourceQualification = Objects.requireNonNull(qualification, "qualification");
+    var completion = qualification.completion();
+    if (!profile.equals(qualification.profile())) {
+      throw new IllegalArgumentException("Source assessment must retain its original profile");
+    }
     capturedInput = Objects.requireNonNull(snapshot, "snapshot");
     capturedEnvironment = Objects.requireNonNull(environment, "environment");
     declarations = Objects.requireNonNull(program, "program");
@@ -106,8 +111,8 @@ public final class AdmittedAstResult implements AstResult {
    * @return source-only qualification
    */
   @Override
-  public AstCompletion completion() {
-    return sourceCompletion;
+  public SourceQualification qualification() {
+    return sourceQualification;
   }
 
   /**

@@ -21,6 +21,7 @@ import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
@@ -96,10 +97,15 @@ class SwitchLabelCompatibilityTest {
               .filter(method -> method.name().equals(name)).findFirst().orElseThrow().methodKey()).toList();
 
           // Act
+          var decoded = AstCodec.decode(AstCodec.encode(original), original.identity());
           var direct = CfgDerivers.standard().derive(original, new CfgRequest(original.identity(), methods, CfgProfile.JAVA_BOUNDED));
 
           // Assert
           assertEquals("javac-public/9", original.identity().semanticProductionRevision());
+          assertEquals(original.qualification(), decoded.qualification());
+          assertEquals(profile.equals(AstProfile.JAVA_SOURCE_BOUNDED), decoded.qualification().reasons().stream()
+              .anyMatch(reason -> reason.category() == SourceQualificationReason.Category.PROFILE_RESTRICTION));
+          assertArrayEquals(AstCodec.encode(original), AstCodec.encode(decoded));
           assertEquals(profile.equals(AstProfile.JAVA_SOURCE_BOUNDED) ? AstCompletion.INCOMPLETE : AstCompletion.COMPLETE,
               original.completion());
           assertEquals(List.of(MethodCfgState.AVAILABLE, MethodCfgState.AVAILABLE), direct.methods().stream().map(method -> method.state()).toList());

@@ -2,6 +2,7 @@ package org.aquilagraph.source.internal;
 
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
+import org.aquilagraph.source.admission.CoverageAdmission;
 import org.aquilagraph.source.retention.AstCodec;
 
 
@@ -27,6 +28,11 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.DiagnosticEmission;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
@@ -34,6 +40,7 @@ import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.EvidenceState;
 import org.aquilagraph.source.api.EvidenceValue;
 import org.aquilagraph.source.api.StaticMemberEvidence;
+import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.api.JavaTypeReference;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -113,6 +120,16 @@ class StaticMemberEvidenceRetentionTest {
     assertEquals(2, members.size());
     assertEquals(6, decoded.size());
     assertTrue(decoded.stream().allMatch(value -> value.completion() == AstCompletion.INCOMPLETE));
+    for (var index = 0; index < decoded.size(); index++) {
+      var value = decoded.get(index);
+      var reasons = value.qualification().reasons().stream()
+          .filter(reason -> reason.role() == SourceQualificationReason.EvidenceRole.STATIC_OWNER).toList();
+      assertEquals(1, reasons.size());
+      assertEquals(index % 3 == 2 ? SourceQualificationReason.Category.ERRONEOUS_EVIDENCE
+          : SourceQualificationReason.Category.MISSING_REQUIRED_EVIDENCE, reasons.getFirst().category());
+      assertTrue(reasons.getFirst().diagnostics().isEmpty());
+      assertEquals(incomplete.get(index).qualification(), value.qualification());
+    }
     assertTrue(decoded.stream().allMatch(value -> value.program().equals(original.program())));
     assertTrue(decoded.stream().allMatch(value -> value.body(method.methodKey()).orElseThrow().root()
         .equals(original.body(method.methodKey()).orElseThrow().root())));
@@ -124,6 +141,44 @@ class StaticMemberEvidenceRetentionTest {
         assertEquals(selected.constantVariable(), member.constantVariable());
       }
     }
+  }
+
+  @Test
+  void givenErroneousRequiredOwnerWithOnlyDiagnosticEvidence_whenAdmittedAndDecoded_thenItsValueIsPreservedWithoutInventingAnEventSlot()
+      throws IOException {
+    // Arrange
+    var original = produce();
+    var selected = member(original);
+    var error = new AnalysisDiagnostic("provided:owner", "provided.owner", DiagnosticStage.FRONTEND, DiagnosticSeverity.ERROR,
+        "Supplied owner error", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+    var evidence = original.coverage().validationEvidence();
+    var events = new ArrayList<>(evidence.diagnosticEmissions());
+    events.add(new DiagnosticEmission(new DiagnosticEmission.Address("CopiedOwner", "owner", events.size()), error,
+        error.outcomeKind(), List.of(), events.size()));
+    var diagnostics = new ArrayList<>(original.diagnostics());
+    diagnostics.add(error);
+    var coverage = CoverageAdmission.fromEvidence(original.coverage().coverage(), evidence.writtenInventory(),
+        evidence.attributedExpectations(), evidence.outcomes(), evidence.unmatchedFacts(), events);
+    var withError = AstResultAdmission.admit(new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(),
+        Optional.of(original.aggregate()), diagnostics, coverage), original.profile(), original.identity().semanticProductionRevision());
+    var replacement = new StaticMemberEvidence(selected.scopeKey(), selected.accessNodeId(), selected.selectedMemberKey(), selected.kind(),
+        EvidenceValue.erroneous(selected.declaringOwner().origin(), "Owner erroneous", error), selected.constantVariable());
+
+    // Act
+    var admitted = replace(withError, replacement);
+    var decoded = AstCodec.decode(AstCodec.encode(admitted), admitted.identity());
+    var reasons = decoded.qualification().reasons().stream()
+        .filter(reason -> reason.role() == SourceQualificationReason.EvidenceRole.STATIC_OWNER).toList();
+
+    // Assert
+    assertEquals(AstCompletion.INCOMPLETE, decoded.completion());
+    assertEquals(1, reasons.size());
+    assertEquals(SourceQualificationReason.Category.ERRONEOUS_EVIDENCE, reasons.getFirst().category());
+    assertTrue(reasons.getFirst().diagnostics().isEmpty());
+    assertEquals(List.of(new SourceQualificationReason.DiagnosticEvidence(SourceQualificationReason.EvidenceRole.STATIC_OWNER, error)),
+        reasons.getFirst().evidence());
+    assertEquals(diagnostics, decoded.diagnostics());
+    assertEquals(admitted.qualification(), decoded.qualification());
   }
 
   @Test
