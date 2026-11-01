@@ -19,24 +19,52 @@ import org.aquilagraph.source.api.JavaMethod;
  *          represented source and selection provenance
  * @param representation
  *          established source and optional derivation
- * @param completion
- *          application qualification
+ * @param qualification
+ *          admitted application assessment
  * @param applicationDiagnostics
  *          ordered application-created diagnostic occurrences
  */
-public record AnalysisRun(AnalysisRequestIdentity identity, ProgramRepresentation representation, AnalysisCompletion completion,
+public record AnalysisRun(AnalysisRequestIdentity identity, ProgramRepresentation representation, RequestQualification qualification,
     List<AnalysisDiagnostic> applicationDiagnostics) {
   /** Checks qualification without replacing or copying either context's owner. */
   public AnalysisRun {
     Objects.requireNonNull(identity, "identity");
     Objects.requireNonNull(representation, "representation");
-    Objects.requireNonNull(completion, "completion");
+    Objects.requireNonNull(qualification, "qualification");
     applicationDiagnostics = List.copyOf(Objects.requireNonNull(applicationDiagnostics, "applicationDiagnostics"));
     if (!identity.source().equals(AnalysisRequestIdentity.sourceSubject(representation.ast()))
-        || completion != AnalysisQualification.assess(representation.ast(), representation.cfg(), applicationDiagnostics)) {
+        || !qualification.matches(representation, applicationDiagnostics)) {
       throw new IllegalArgumentException("Analysis run must retain its source subject and actual context qualification");
     }
+    applicationDiagnostics = List.copyOf(qualification.applicationDiagnostics());
     validateSelection(identity, representation);
+  }
+
+  /**
+   * Assesses the exact contexts and constructs their request run.
+   *
+   * @param identity
+   *          represented source and selection provenance
+   * @param representation
+   *          established source and optional derivation
+   * @param applicationDiagnostics
+   *          ordered application-created occurrences
+   * @return admitted run with a single established assessment
+   */
+  public static AnalysisRun create(AnalysisRequestIdentity identity, ProgramRepresentation representation,
+      List<AnalysisDiagnostic> applicationDiagnostics) {
+    var diagnostics = List.copyOf(applicationDiagnostics);
+    var qualification = RequestQualification.assess(representation, diagnostics);
+    return new AnalysisRun(identity, representation, qualification, diagnostics);
+  }
+
+  /**
+   * Returns completion from the retained application assessment.
+   *
+   * @return established request completion
+   */
+  public AnalysisCompletion completion() {
+    return qualification.completion();
   }
 
   /**

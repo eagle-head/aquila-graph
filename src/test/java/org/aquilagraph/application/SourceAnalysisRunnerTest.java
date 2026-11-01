@@ -20,6 +20,8 @@ import org.aquilagraph.cfg.api.CfgDerivationException;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.CfgState;
+import org.aquilagraph.cfg.api.CfgOutcome;
+import org.aquilagraph.cfg.api.MethodCfgOutcome;
 import org.aquilagraph.cfg.api.MethodCfgState;
 import org.aquilagraph.cfg.internal.RecoverableCfgFailures;
 import org.aquilagraph.frontend.internal.JavaFrontend;
@@ -32,6 +34,9 @@ import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.DiagnosticSeverity;
+import org.aquilagraph.source.api.DiagnosticStage;
 import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -65,6 +70,7 @@ class SourceAnalysisRunnerTest {
     assertEquals(AnalysisCompletion.REJECTED, run.completion());
     assertEquals(new CfgRequest(ast.identity(), selection.methodKeys(), selection.profile()), cfg.request());
     assertEquals(CfgState.REJECTED, cfg.state());
+    assertSame(cfg, ((RequestQualificationReason.Selection) run.qualification().reasons().getFirst()).outcome());
     assertEquals(List.of("control-flow.unknown-method", "control-flow.duplicate-selection", "control-flow.unknown-method",
         "control-flow.unknown-method"), run.diagnostics().stream().map(value -> value.code()).toList());
     assertEquals(List.of(AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE, AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE,
@@ -128,6 +134,7 @@ class SourceAnalysisRunnerTest {
     assertEquals(ast.result().orElseThrow().identity(), cfg.request().astIdentity());
     assertEquals(MethodCoverageState.NOT_REQUESTED, run.methodCoverage(key(ast, "absent")).orElseThrow().state());
     assertEquals(AnalysisCompletion.COMPLETE, run.completion());
+    assertTrue(run.qualification().reasons().isEmpty());
     assertTrue(run.isPublishable());
     assertTrue(cfg.methods().stream().allMatch(value -> value.state() == MethodCfgState.AVAILABLE));
   }
@@ -170,6 +177,8 @@ class SourceAnalysisRunnerTest {
     assertEquals(result.bodyRef(key(ast, "available")).orElseThrow(), graph.body());
     assertEquals(result.identity(), graph.identity().astIdentity());
     var refusal = cfg.methods().getLast();
+    assertEquals(1, run.qualification().reasons().size());
+    assertSame(refusal, ((RequestQualificationReason.Method) run.qualification().reasons().getFirst()).outcome());
     assertTrue(refusal.graph().isEmpty());
     assertEquals(List.of(MethodCfgState.UNSUPPORTED), refusal.blockers().stream().map(blocker -> blocker.kind()).toList());
     assertEquals(List.of("construct"), refusal.blockers().stream().map(blocker -> blocker.slot()).toList());
@@ -198,6 +207,12 @@ class SourceAnalysisRunnerTest {
     assertEquals(AstCompletion.COMPLETE, ast.completion());
     assertSame(ast, run.representation().ast());
     assertEquals(AnalysisCompletion.FAILED, run.completion());
+    var failed = run.qualification().reasons().stream().filter(RequestQualificationReason.Method.class::isInstance)
+        .map(RequestQualificationReason.Method.class::cast).filter(reason -> reason.outcome().state() == MethodCfgState.FAILED).toList();
+    assertEquals(1, failed.size());
+    assertSame(cause, failed.getFirst().outcome().failure().orElseThrow());
+    assertEquals(ast.completion() == AstCompletion.INCOMPLETE,
+        run.qualification().reasons().stream().anyMatch(RequestQualificationReason.Source.class::isInstance));
     assertEquals(selection.methodKeys(), run.representation().cfg().orElseThrow().request().methodKeys());
     assertConstructionProgress(ast, run, cause);
   }
@@ -223,6 +238,12 @@ class SourceAnalysisRunnerTest {
     assertSame(request, run.representation().cfg().orElseThrow().request());
     assertSame(request, ((ExistingSelection) run.identity().selection()).request());
     assertEquals(AnalysisCompletion.FAILED, run.completion());
+    var failed = run.qualification().reasons().stream().filter(RequestQualificationReason.Method.class::isInstance)
+        .map(RequestQualificationReason.Method.class::cast).filter(reason -> reason.outcome().state() == MethodCfgState.FAILED).toList();
+    assertEquals(1, failed.size());
+    assertSame(cause, failed.getFirst().outcome().failure().orElseThrow());
+    assertEquals(ast.completion() == AstCompletion.INCOMPLETE,
+        run.qualification().reasons().stream().anyMatch(RequestQualificationReason.Source.class::isInstance));
     assertConstructionProgress(ast, run, cause);
   }
 
@@ -260,6 +281,7 @@ class SourceAnalysisRunnerTest {
     // Assert
     assertSame(ast, run.representation().ast());
     assertEquals(AnalysisCompletion.COMPLETE, run.completion());
+    assertTrue(run.qualification().reasons().isEmpty());
     assertTrue(run.representation().cfg().isEmpty());
     assertEquals(0, calls.get());
     assertEquals(MethodCoverageState.NOT_REQUESTED, run.methodCoverage(key(ast, "value")).orElseThrow().state());
@@ -282,6 +304,7 @@ class SourceAnalysisRunnerTest {
     assertSame(request, run.representation().cfg().orElseThrow().request());
     assertSame(request, ((ExistingSelection) run.identity().selection()).request());
     assertEquals(AnalysisCompletion.COMPLETE, run.completion());
+    assertTrue(run.qualification().reasons().isEmpty());
     assertEquals(MethodCoverageState.NOT_APPLICABLE, run.methodCoverage(key(ast, "absent")).orElseThrow().state());
     assertEquals(MethodCoverageState.NOT_REQUESTED, run.methodCoverage(key(ast, "value")).orElseThrow().state());
   }
@@ -302,6 +325,8 @@ class SourceAnalysisRunnerTest {
     // Assert
     assertSame(ast, run.representation().ast());
     assertEquals(AnalysisCompletion.REJECTED, run.completion());
+    assertEquals(1, run.qualification().reasons().size());
+    assertSame(ast, ((RequestQualificationReason.Source) run.qualification().reasons().getFirst()).outcome());
     assertTrue(run.representation().cfg().isEmpty());
     var retained = (ProductionSelection) run.identity().selection();
     assertTrue(retained.boundIdentity().isEmpty());
@@ -329,6 +354,8 @@ class SourceAnalysisRunnerTest {
     assertSame(unavailable, run.representation().ast());
     assertSame(request, ((ExistingSelection) run.identity().selection()).request());
     assertEquals(AnalysisCompletion.REJECTED, run.completion());
+    assertEquals(1, run.qualification().reasons().size());
+    assertSame(unavailable, ((RequestQualificationReason.Source) run.qualification().reasons().getFirst()).outcome());
     assertTrue(run.representation().cfg().isEmpty());
   }
 
@@ -371,7 +398,9 @@ class SourceAnalysisRunnerTest {
     assertNotEquals(noSave.identity().key(), selectedEmpty.identity().key());
     assertNotEquals(selectedEmpty.identity().key(), existingEmpty.identity().key());
     assertEquals(AnalysisCompletion.COMPLETE, selectedEmpty.completion());
+    assertTrue(selectedEmpty.qualification().reasons().isEmpty());
     assertEquals(AnalysisCompletion.COMPLETE, existingEmpty.completion());
+    assertTrue(existingEmpty.qualification().reasons().isEmpty());
   }
 
   @Test
@@ -393,6 +422,44 @@ class SourceAnalysisRunnerTest {
     assertSame(cfgFailure, failure.getCause());
     assertSame(cfgFailure, failure.derivationFailure());
     assertSame(cause, failure.derivationFailure().getCause());
+  }
+
+  @Test
+  void givenBodylessMethodWithNativeErrorOccurrences_whenDerivingExisting_thenPartialQualificationExplainsEverySlotWithoutChangingMethodState()
+      throws IOException {
+    // Arrange
+    var ast = produce("interface Stored { int absent(); }");
+    var result = ast.result().orElseThrow();
+    var key = key(ast, "absent");
+    var error = new AnalysisDiagnostic("provided:bodyless", "control-flow.provided", DiagnosticStage.CONTROL_FLOW,
+        DiagnosticSeverity.ERROR, "Supplied bodyless method error", result.method(key).orElseThrow().origins(),
+        AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+    var diagnostics = List.of(error, error);
+    var method = new MethodCfgOutcome(result.identity(), key, MethodCfgState.NOT_APPLICABLE, Optional.empty(), Optional.empty(),
+        List.of(), Optional.empty(), diagnostics);
+    var request = new CfgRequest(result.identity(), List.of(key), CfgProfile.JAVA_BOUNDED);
+    var cfg = new CfgOutcome(request, CfgState.PARTIAL, List.of(method), diagnostics);
+    var runner = new SourceAnalysisRunner(ignored -> {
+      throw new AssertionError("Existing source must not be produced again");
+    }, (source, invoked) -> cfg);
+
+    // Act
+    var run = runner.deriveExisting(ast, request);
+    var reasons = run.qualification().reasons().stream().map(RequestQualificationReason.MethodDiagnostic.class::cast).toList();
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, ast.completion());
+    assertEquals(AnalysisCompletion.PARTIAL, run.completion());
+    assertSame(ast, run.representation().ast());
+    assertSame(cfg, run.representation().cfg().orElseThrow());
+    assertEquals(MethodCfgState.NOT_APPLICABLE, method.state());
+    assertTrue(method.graph().isEmpty());
+    assertEquals(diagnostics, run.diagnostics());
+    assertEquals(List.of(0, 1), reasons.stream().map(RequestQualificationReason.MethodDiagnostic::position).toList());
+    assertTrue(reasons.stream().allMatch(reason -> reason.outcome() == method));
+    assertSame(error, reasons.getFirst().outcome().diagnostics().get(reasons.getFirst().position()));
+    assertSame(error, reasons.getLast().outcome().diagnostics().get(reasons.getLast().position()));
+    assertFalse(run.isPublishable());
   }
 
   private AstOutcome produce(String source) throws IOException {

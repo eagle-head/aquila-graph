@@ -163,7 +163,7 @@ class AnalyzeCommandPresenterTest {
     // Arrange
     var original = CliTestFixtures.completedRun();
     var warning = CliTestFixtures.warningDiagnostic();
-    var run = new AnalysisRun(original.identity(), original.representation(), original.completion(), List.of(warning, warning));
+    var run = AnalysisRun.create(original.identity(), original.representation(), List.of(warning, warning));
     var streams = CapturedStreams.create();
 
     // Act

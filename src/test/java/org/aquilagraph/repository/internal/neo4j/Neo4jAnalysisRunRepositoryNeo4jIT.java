@@ -101,7 +101,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
     final StoredProjection independentState;
     var replacementWarning = new AnalysisDiagnostic("diagnostic:replacement-warning", "publication.replacement-warning",
         DiagnosticStage.FRONTEND, DiagnosticSeverity.WARNING, "Replacement warning", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
-    var replacementRun = new AnalysisRun(primaryRun.identity(), primaryRun.representation(), primaryRun.completion(), List.of(replacementWarning));
+    var replacementRun = AnalysisRun.create(primaryRun.identity(), primaryRun.representation(), List.of(replacementWarning));
 
     try {
       // Act
@@ -317,7 +317,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
     var origin = original.representation().ast().result().orElseThrow().program().types().getFirst().origins().getFirst();
     var warning = new AnalysisDiagnostic("diagnostic:publication-warning", "publication.warning", DiagnosticStage.FRONTEND,
         DiagnosticSeverity.WARNING, "Publication warning", List.of(origin), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
-    var run = new AnalysisRun(original.identity(), original.representation(), original.completion(), List.of(warning, warning));
+    var run = AnalysisRun.create(original.identity(), original.representation(), List.of(warning, warning));
 
     try {
       // Act

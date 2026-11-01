@@ -5,7 +5,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.CommitKnowledge;
@@ -40,17 +39,17 @@ final class CliTestFixtures {
 
   static AnalysisRun completedRunWithWarning() {
     var run = completedRun();
-    return new AnalysisRun(run.identity(), run.representation(), run.completion(), List.of(warningDiagnostic()));
+    return AnalysisRun.create(run.identity(), run.representation(), List.of(warningDiagnostic()));
   }
 
   static AnalysisRun incompleteRun() {
     var run = completedRun();
-    return new AnalysisRun(run.identity(), run.representation(), AnalysisCompletion.FAILED, List.of(errorDiagnostic()));
+    return AnalysisRun.create(run.identity(), run.representation(), List.of(errorDiagnostic()));
   }
 
   static AnalysisRun rejectedRun() {
     var run = analyze("");
-    return new AnalysisRun(run.identity(), run.representation(), AnalysisCompletion.REJECTED, List.of(errorDiagnostic()));
+    return AnalysisRun.create(run.identity(), run.representation(), List.of(errorDiagnostic()));
   }
 
   static AnalysisRun analyze(String source) {
