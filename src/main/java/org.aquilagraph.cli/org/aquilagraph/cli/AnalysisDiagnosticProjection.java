@@ -64,7 +64,7 @@ final class AnalysisDiagnosticProjection {
           continue;
         }
         var node = occurrence.orElseThrow();
-        var statement = statementRoots.stream().filter(root -> projectedBy(root, node.origin())).findFirst();
+        var statement = statementRoots.stream().filter(root -> projectedBy(root, node.origin().orElseThrow())).findFirst();
         if (statement.isPresent() && blocker.kind() == MethodCfgState.UNSUPPORTED) {
           if (node.equals(statement.orElseThrow())) {
             insertions.add(new Insertion(body.orElseThrow().ordinal(), node.origin().orElseThrow(), new DiagnosticSummary(
@@ -94,9 +94,8 @@ final class AnalysisDiagnosticProjection {
         result.addAll(catalog);
         catalogInserted = true;
       }
-      if ((!catalog.isEmpty() && diagnostic.code().startsWith(TREE_DIAGNOSTIC_PREFIX))
-          || (UNSUPPORTED_SYNTAX.equals(diagnostic.code()) && statementRoots.stream()
-              .anyMatch(root -> diagnostic.origins().stream().anyMatch(origin -> projectedBy(root, Optional.of(origin)))))) {
+      if ((!catalog.isEmpty() && diagnostic.code().startsWith(TREE_DIAGNOSTIC_PREFIX)) || (UNSUPPORTED_SYNTAX.equals(diagnostic.code())
+          && statementRoots.stream().anyMatch(root -> diagnostic.origins().stream().anyMatch(origin -> projectedBy(root, origin))))) {
         continue;
       }
       var position = bodyPosition(source, bodies, diagnostic);
@@ -125,9 +124,6 @@ final class AnalysisDiagnosticProjection {
         representedGraphEvents.put(diagnostic.diagnosticKey(), remaining - 1);
       }
     }
-    if (representedGraphEvents.values().stream().anyMatch(value -> value != 0)) {
-      throw new IllegalArgumentException("Projected CFG occurrences must exist in the application diagnostic stream");
-    }
     run.applicationDiagnostics().forEach(value -> result.add(DiagnosticSummary.from(value)));
     return List.copyOf(result);
   }
@@ -135,10 +131,11 @@ final class AnalysisDiagnosticProjection {
   private static List<SyntaxNode> statementRoots(AstResult source) {
     var nodes = source.program().methods().stream().flatMap(method -> source.body(method.methodKey()).stream())
         .flatMap(body -> body.root().descendantsAndSelf().stream())
-        .filter(node -> (EXPANDED_STATEMENT_KINDS.contains(node.sourceKind().name()) || isExpandedCase(node) || isExpandedTry(node))
-            && node.syntaxKind() != SyntaxKind.UNSUPPORTED && node.origin().isPresent())
+        .filter(node -> node.syntaxKind() != SyntaxKind.UNSUPPORTED && node.origin().isPresent())
+        .filter(node -> EXPANDED_STATEMENT_KINDS.contains(node.sourceKind().name()) || isExpandedCase(node) || isExpandedTry(node))
         .toList();
-    return nodes.stream().filter(node -> nodes.stream().noneMatch(parent -> !parent.equals(node) && projectedBy(parent, node.origin())))
+    return nodes.stream()
+        .filter(node -> nodes.stream().noneMatch(parent -> !parent.equals(node) && projectedBy(parent, node.origin().orElseThrow())))
         .toList();
   }
 
@@ -156,17 +153,15 @@ final class AnalysisDiagnosticProjection {
         && (!node.children(SyntaxRole.RESOURCE).isEmpty() || !node.children(SyntaxRole.FINALLY_BLOCK).isEmpty());
   }
 
-  private static boolean projectedBy(SyntaxNode root, Optional<SourceSpan> origin) {
+  private static boolean projectedBy(SyntaxNode root, SourceSpan origin) {
     // Exception clauses replace their own refusal while preserving independently reported descendants.
-    return within(root, origin) && (!isExpandedTry(root) || root.origin().equals(origin));
+    return within(root, origin) && (!isExpandedTry(root) || root.origin().orElseThrow().equals(origin));
   }
 
-  private static boolean within(SyntaxNode parent, Optional<SourceSpan> origin) {
-    return origin.isPresent() && parent.origin()
-        .filter(range -> range.sourceFileKey().equals(origin.orElseThrow().sourceFileKey())
-            && range.startOffset() <= origin.orElseThrow().startOffset()
-            && range.endOffsetExclusive() >= origin.orElseThrow().endOffsetExclusive())
-        .isPresent();
+  private static boolean within(SyntaxNode parent, SourceSpan origin) {
+    var range = parent.origin().orElseThrow();
+    return range.sourceFileKey().equals(origin.sourceFileKey()) && range.startOffset() <= origin.startOffset()
+        && range.endOffsetExclusive() >= origin.endOffsetExclusive();
   }
 
   private static List<DiagnosticSummary> catalogProjection(AstResult source) {
@@ -209,11 +204,11 @@ final class AnalysisDiagnosticProjection {
 
   private static boolean pairSourceOccurrence(List<AnalysisDiagnostic> diagnostics, SyntaxNode node, Set<Integer> pairedSlots) {
     var message = UNSUPPORTED_MESSAGE + node.value(Unsupported.class).compilerKind();
+    var origin = node.origin().orElseThrow();
     for (var index = 0; index < diagnostics.size(); index++) {
       var diagnostic = diagnostics.get(index);
       if (!pairedSlots.contains(index) && diagnostic.stage() == DiagnosticStage.FRONTEND && UNSUPPORTED_SYNTAX.equals(diagnostic.code())
-          && diagnostic.isError() && diagnostic.message().equals(message) && node.origin().isPresent()
-          && diagnostic.origins().equals(node.origin().stream().toList())) {
+          && diagnostic.isError() && diagnostic.message().equals(message) && diagnostic.origins().equals(List.of(origin))) {
         pairedSlots.add(index);
         return true;
       }
