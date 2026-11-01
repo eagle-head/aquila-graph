@@ -60,9 +60,7 @@ public final class AstResultAdmission {
    * @return the resulting string
    */
   public static String formatFor(AstProfile profile, AnalysisEnvironmentSnapshot environment) {
-    return environment.identityScheme() == EnvironmentIdentityScheme.MODULE_SEMANTICS
-        ? AstResult.ENVIRONMENT_IDENTITY_MODEL_VERSION
-        : formatFor(profile);
+    return environment.identityScheme() == EnvironmentIdentityScheme.MODULE_SEMANTICS ? AstResult.SOURCE_MODEL_VERSION : formatFor(profile);
   }
 
   /**

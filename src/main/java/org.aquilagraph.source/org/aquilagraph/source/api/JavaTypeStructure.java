@@ -101,9 +101,27 @@ public sealed interface JavaTypeStructure {
    *          innermost enclosing instance type when the compiler supplies one
    * @param arguments
    *          actual type arguments in compiler order; empty for a raw or nongeneric use
+   * @param enclosingOwnerType
+   *          parameterized lexical-owner view of an indirect enclosing instance, with its own complete capture scope
    */
   record Declared(String declarationKey, Optional<String> lexicalOwnerKey, Optional<JavaTypeStructure> enclosingType,
-      List<JavaTypeStructure> arguments) implements JavaTypeStructure {
+      List<JavaTypeStructure> arguments, Optional<JavaTypeStructure> enclosingOwnerType) implements JavaTypeStructure {
+    /**
+     * Constructs a declared type whose enclosing instance directly identifies its lexical owner.
+     *
+     * @param declarationKey
+     *          selected declaration
+     * @param lexicalOwnerKey
+     *          lexical owner
+     * @param enclosingType
+     *          enclosing instance
+     * @param arguments
+     *          ordered type arguments
+     */
+    public Declared(String declarationKey, Optional<String> lexicalOwnerKey, Optional<JavaTypeStructure> enclosingType,
+        List<JavaTypeStructure> arguments) {
+      this(declarationKey, lexicalOwnerKey, enclosingType, arguments, Optional.empty());
+    }
     /**
      * Derives the lexical owner from an attributed enclosing instance when one exists.
      *
@@ -129,9 +147,21 @@ public sealed interface JavaTypeStructure {
         }
       });
       Objects.requireNonNull(enclosingType, "enclosingType");
+      Objects.requireNonNull(enclosingOwnerType, "enclosingOwnerType");
+      if (enclosingOwnerType.isPresent() && enclosingType.isEmpty()) {
+        throw new IllegalArgumentException("An enclosing owner view requires its actual instance type");
+      }
       enclosingType.ifPresent(value -> {
-        if (!lexicalOwnerKey.equals(Optional.of(declaredKey(value)))) {
+        var owner = enclosingOwnerType.orElse(value);
+        if (!lexicalOwnerKey.equals(Optional.of(declaredKey(owner)))) {
           throw new IllegalArgumentException("An enclosing instance type must match the lexical owner declaration");
+        }
+        if (enclosingOwnerType.isPresent() && !(value instanceof Variable || value instanceof Captured || value instanceof CaptureReference
+            || value instanceof Intersection)) {
+          throw new IllegalArgumentException("Only an indirect enclosing instance requires a separate owner view");
+        }
+        if (enclosingOwnerType.isPresent() && !classInstanceBound(value)) {
+          throw new IllegalArgumentException("An indirect enclosing instance requires class-type bounds");
         }
       });
       arguments = List.copyOf(Objects.requireNonNull(arguments, "arguments"));
@@ -140,6 +170,15 @@ public sealed interface JavaTypeStructure {
 
     private static Optional<String> enclosingKey(Optional<JavaTypeStructure> enclosingType) {
       return Objects.requireNonNull(enclosingType, "enclosingType").map(Declared::declaredKey);
+    }
+
+    private static boolean classInstanceBound(JavaTypeStructure value) {
+      return switch (value) {
+        case Declared _,LocalDeclared _,Variable _,CaptureReference _ -> true;
+        case Captured captured -> classInstanceBound(captured.upperBound());
+        case Intersection intersection -> intersection.bounds().stream().allMatch(Declared::classInstanceBound);
+        default -> false;
+      };
     }
 
     private static String declaredKey(JavaTypeStructure value) {

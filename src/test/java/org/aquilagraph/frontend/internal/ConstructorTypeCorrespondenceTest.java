@@ -38,6 +38,61 @@ class ConstructorTypeCorrespondenceTest {
       """;
 
   @Test
+  void givenSemanticTypeCorrespondence_whenStrictMetadataIsCheckedAfterward_thenSemanticCachingCannotHideAnnotationChanges() throws IOException {
+    // Arrange
+    var source = "import java.lang.annotation.*; @Target(ElementType.TYPE_USE) @interface Mark { int value(); } "
+        + "class Types { Object read() { Object value = new @Mark(1) Object(); return value; } }";
+    var compiler = ToolProvider.getSystemJavaCompiler();
+    try (var originalFiles = compiler.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8);
+        var witnessFiles = compiler.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8)) {
+      var original = attribute(originalFiles, source);
+      var witness = attribute(witnessFiles, source.replace("@Mark(1)", "@Mark(2)"));
+      var correspondence = new ConstructorTypeCorrespondence(original.task().getElements(), witness.task().getElements());
+      var originalType = original.trees().getTypeMirror(original.initializer());
+      var witnessType = witness.trees().getTypeMirror(witness.initializer());
+
+      // Act
+      var semantic = correspondence.matchesJavaType(originalType, witnessType);
+      var strict = correspondence.matches(originalType, witnessType);
+
+      // Assert
+      assertTrue(semantic);
+      assertFalse(strict);
+      assertFalse(correspondence.matches(originalType, witnessType));
+    }
+  }
+
+  @Test
+  void givenDifferentWrittenTypeAnnotations_whenTypesAreCompared_thenMetadataLossRemainsRejected() throws IOException {
+    // Arrange
+    var source = """
+        import java.lang.annotation.ElementType;
+        import java.lang.annotation.Target;
+        @Target(ElementType.TYPE_USE) @interface Mark { int value(); }
+        class Types { Object read() { Object value = new @Mark(1) Object(); return value; } }
+        """;
+    var compiler = ToolProvider.getSystemJavaCompiler();
+    try (var originalFiles = compiler.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8);
+        var witnessFiles = compiler.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8)) {
+      var original = attribute(originalFiles, source);
+      var witness = attribute(witnessFiles, source.replace("@Mark(1)", "@Mark(2)"));
+      var correspondence = new ConstructorTypeCorrespondence(original.task().getElements(), witness.task().getElements());
+      var originalType = original.trees().getTypeMirror(original.initializer());
+      var witnessType = witness.trees().getTypeMirror(witness.initializer());
+
+      // Act
+      var matched = correspondence.matches(originalType, witnessType);
+      var restored = correspondence.originalType(witnessType, original.task().getTypes(), witness.task().getTypes());
+
+      // Assert
+      assertFalse(matched);
+      assertTrue(restored.isEmpty());
+      assertEquals("@Mark(1)", originalType.getAnnotationMirrors().getFirst().toString());
+      assertEquals("@Mark(2)", witnessType.getAnnotationMirrors().getFirst().toString());
+    }
+  }
+
+  @Test
   void givenDifferentDeclaredTypes_whenComparedRepeatedly_thenRejectionCannotBecomeAnAcceptedCorrespondence() throws IOException {
     // Arrange
     var compiler = ToolProvider.getSystemJavaCompiler();

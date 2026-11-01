@@ -139,7 +139,7 @@ class SourceContractCompositionTest {
     assertEquals(CommitKnowledge.KNOWN_COMMIT, publication.knowledge());
     assertEquals(AstLookupStatus.FOUND, lookup.status());
     assertEquals(original.identity(), retained.identity());
-    assertEquals("javac-public/12", retained.identity().semanticProductionRevision());
+    assertEquals("javac-public/14", retained.identity().semanticProductionRevision());
     assertEquals(original.aggregate(), retained.aggregate());
     assertEquals(original.coverage(), retained.coverage());
     assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retained));
@@ -362,8 +362,8 @@ class SourceContractCompositionTest {
     assertTrue(ast.diagnostics().isEmpty(), ast.diagnostics().toString());
     assertEquals(AstProfile.JAVA_SOURCE_MODULE_SERVICES, ast.profile());
     assertEquals("java-source-expanded/8", ast.identity().astProfileVersion());
-    assertEquals("javac-public/12", ast.identity().semanticProductionRevision());
-    assertEquals("java-source/21", ast.identity().sourceModelVersion());
+    assertEquals("javac-public/14", ast.identity().semanticProductionRevision());
+    assertEquals("java-source/22", ast.identity().sourceModelVersion());
     assertNeighborFacts(ast);
   }
 

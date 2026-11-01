@@ -343,6 +343,9 @@ public final class RetainedValueCodec {
         frameSyntax = contextSyntax;
       }
     }
+    if (formatVersion < 22 && "java-type-structure/declared".equals(tag)) {
+      components.add(Optional.empty());
+    }
     if (formatVersion < 21 && "analysis-environment-snapshot".equals(tag)) {
       components.add(EnvironmentIdentityScheme.HISTORICAL);
     }

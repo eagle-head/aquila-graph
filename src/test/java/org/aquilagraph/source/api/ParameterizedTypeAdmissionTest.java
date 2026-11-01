@@ -65,6 +65,19 @@ class ParameterizedTypeAdmissionTest {
   }
 
   @Test
+  void givenAnnotatedRawNameWithAttributedArguments_whenConstructed_thenAnnotationNestingCannotAdmitItAsParameterized() {
+    // Arrange
+    var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.DECLARED_TYPE, 0).child(SyntaxRole.UNDERLYING_TYPE, 0);
+    var type = declared("Example", List.of(declared("java.lang.String", List.of()).structure().orElseThrow()));
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class, () -> name(path, "Example", type, 0, 7));
+
+    // Assert
+    assertEquals("A written raw type name cannot carry attributed type arguments", failure.getMessage());
+  }
+
+  @Test
   void givenBareWrittenNameWithAttributedArguments_whenConstructed_thenRawTypeAdmissionStillRejectsIt() {
     // Arrange
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.DECLARED_TYPE, 0);

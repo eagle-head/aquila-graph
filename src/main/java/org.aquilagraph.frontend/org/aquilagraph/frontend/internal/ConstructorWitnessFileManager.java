@@ -7,6 +7,9 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Objects;
 import java.util.Set;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import javax.tools.FileObject;
 import javax.tools.ForwardingJavaFileManager;
 import javax.tools.JavaFileManager;
@@ -16,29 +19,31 @@ import javax.tools.JavaFileObject.Kind;
 import javax.tools.SimpleJavaFileObject;
 import org.jspecify.annotations.Nullable;
 
-/** Overlays one adapted dependency without taking ownership of its manager. */
+/** Overlays adapted dependencies without taking ownership of their manager. */
 final class ConstructorWitnessFileManager extends ForwardingJavaFileManager<JavaFileManager> {
-  private final BinaryWitness witness;
+  private final Map<URI, BinaryWitness> witnesses;
 
-  ConstructorWitnessFileManager(JavaFileManager manager, String binaryName, URI originalUri, byte[] content) {
+  ConstructorWitnessFileManager(JavaFileManager manager, List<Replacement> replacements) {
     super(manager);
-    witness = new BinaryWitness(binaryName, originalUri, content);
+    witnesses = replacements.stream().collect(Collectors.toUnmodifiableMap(Replacement::originalUri,
+        value -> new BinaryWitness(value.binaryName(), value.originalUri(), value.content())));
   }
 
   @Override
   public @Nullable JavaFileObject getJavaFileForInput(Location location, String className, Kind kind) throws IOException {
     var original = super.getJavaFileForInput(location, className, kind);
-    return original != null && kind == Kind.CLASS && className.equals(witness.binaryName) && original.toUri().equals(witness.toUri())
-        ? witness
-        : original;
+    var witness = original == null ? null : witnesses.get(original.toUri());
+    return witness != null && kind == Kind.CLASS && className.equals(witness.binaryName) ? witness : original;
   }
 
   @Override
   public Iterable<JavaFileObject> list(Location location, String packageName, Set<Kind> kinds, boolean recurse) throws IOException {
     var result = new ArrayList<JavaFileObject>();
     for (var input : super.list(location, packageName, kinds, recurse)) {
-      result.add(input.getKind() == Kind.CLASS && witness.binaryName.equals(inferBinaryName(location, input))
-          && input.toUri().equals(witness.toUri()) ? witness : input);
+      var witness = witnesses.get(input.toUri());
+      result.add(witness != null && input.getKind() == Kind.CLASS && witness.binaryName.equals(inferBinaryName(location, input))
+          ? witness
+          : input);
     }
     return result;
   }
@@ -58,6 +63,30 @@ final class ConstructorWitnessFileManager extends ForwardingJavaFileManager<Java
   @Override
   public void close() {
     // The witness acquisition retains manager ownership.
+  }
+
+  static final class Replacement {
+    private final String sourceName;
+    private final URI sourceUri;
+    private final byte[] binaryContent;
+
+    Replacement(String binaryName, URI originalUri, byte[] content) {
+      sourceName = Objects.requireNonNull(binaryName, "binaryName");
+      sourceUri = Objects.requireNonNull(originalUri, "originalUri");
+      binaryContent = content.clone();
+    }
+
+    String binaryName() {
+      return sourceName;
+    }
+
+    URI originalUri() {
+      return sourceUri;
+    }
+
+    byte[] content() {
+      return binaryContent.clone();
+    }
   }
 
   private static final class BinaryWitness extends SimpleJavaFileObject {

@@ -27,7 +27,7 @@ final class JavaTranslationPolicy {
   }
 
   String semanticRevision() {
-    return "javac-public/12";
+    return "javac-public/14";
   }
 
   boolean supportsMemberInitialization() {

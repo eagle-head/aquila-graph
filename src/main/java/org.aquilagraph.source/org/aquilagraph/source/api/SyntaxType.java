@@ -127,6 +127,7 @@ public sealed interface SyntaxType {
         case JavaTypeStructure.Declared declared -> {
           declared.enclosingType().ifPresent(enclosing -> validateCaptureScope(enclosing, captures));
           declared.arguments().forEach(argument -> validateCaptureScope(argument, captures));
+          declared.enclosingOwnerType().ifPresent(owner -> validateCaptureScope(owner, new HashSet<>()));
         }
         case JavaTypeStructure.LocalDeclared local -> {
           local.enclosingType().ifPresent(enclosing -> validateCaptureScope(enclosing, captures));

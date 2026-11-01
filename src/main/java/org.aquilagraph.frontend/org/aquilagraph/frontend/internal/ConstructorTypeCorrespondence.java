@@ -33,6 +33,8 @@ final class ConstructorTypeCorrespondence {
       .usingReferenceIdentity();
   private final ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> pairs = ConstructorIdentityLookup
       .usingReferenceIdentity();
+  private final ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> mappings = ConstructorIdentityLookup
+      .usingReferenceIdentity();
 
   ConstructorTypeCorrespondence(Elements originalElements, Elements witnessElements) {
     this.originalElements = Objects.requireNonNull(originalElements, "originalElements");
@@ -40,7 +42,21 @@ final class ConstructorTypeCorrespondence {
   }
 
   boolean matchesArgument(TreePath original, Trees originalTrees, TreePath witness, Trees witnessTrees) throws IOException {
-    if (!sourceText(original, originalTrees).equals(sourceText(witness, witnessTrees))) {
+    return matchesExpression(original, originalTrees, originalTrees.getTypeMirror(original), witness, witnessTrees,
+        witnessTrees.getTypeMirror(witness), true, sourceText(original, originalTrees));
+  }
+
+  boolean matchesCapturedReceiver(TreePath original, Trees originalTrees, Types originalTypes, TreePath witness, Trees witnessTrees,
+      Types witnessTypes, String projectedSource) throws IOException {
+    var originalType = originalTrees.getTypeMirror(original);
+    var witnessType = witnessTrees.getTypeMirror(witness);
+    return originalType != null && witnessType != null && matchesExpression(original, originalTrees, originalTypes.capture(originalType),
+        witness, witnessTrees, witnessTypes.capture(witnessType), false, projectedSource);
+  }
+
+  private boolean matchesExpression(TreePath original, Trees originalTrees, @Nullable TypeMirror originalType, TreePath witness,
+      Trees witnessTrees, @Nullable TypeMirror witnessType, boolean requireAnnotations, String projectedSource) throws IOException {
+    if (!projectedSource.equals(sourceText(witness, witnessTrees))) {
       return false;
     }
     var originals = declarations(original, originalTrees);
@@ -48,7 +64,7 @@ final class ConstructorTypeCorrespondence {
     if (originals.size() != witnesses.size()) {
       return false;
     }
-    var attempt = new MatchAttempt();
+    var attempt = new MatchAttempt(requireAnnotations);
     for (var index = 0; index < originals.size(); index++) {
       var originalDeclaration = originals.get(index);
       var witnessDeclaration = witnesses.get(index);
@@ -59,7 +75,7 @@ final class ConstructorTypeCorrespondence {
       attempt.copiedDeclarations.remember(originalDeclaration, witnessDeclaration);
       attempt.copiedOriginals.remember(witnessDeclaration, originalDeclaration);
     }
-    return attempt.acceptIfMatched(originalTrees.getTypeMirror(original), witnessTrees.getTypeMirror(witness));
+    return attempt.acceptIfMatched(originalType, witnessType);
   }
 
   private static String sourceText(TreePath path, Trees trees) throws IOException {
@@ -88,8 +104,18 @@ final class ConstructorTypeCorrespondence {
     return new MatchAttempt().acceptIfMatched(original, witness);
   }
 
+  boolean matchesJavaType(@Nullable TypeMirror original, @Nullable TypeMirror witness) {
+    return new MatchAttempt(false).acceptIfMatched(original, witness);
+  }
+
+  void retainDeclarations(ConstructorTypeCorrespondence accepted) {
+    retain(accepted.copiedDeclarations, copiedDeclarations);
+    retain(accepted.copiedOriginals, copiedOriginals);
+  }
+
   /** Keeps recursive assumptions private until the complete type or argument comparison succeeds. */
   private final class MatchAttempt {
+    private final boolean requireAnnotations;
     private final ConstructorIdentityLookup<TypeElement, TypeElement> copiedDeclarations;
     private final ConstructorIdentityLookup<TypeElement, TypeElement> copiedOriginals;
     private final ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> originals;
@@ -97,6 +123,11 @@ final class ConstructorTypeCorrespondence {
     private final ConstructorIdentityLookup<TypeMirror, ConstructorIdentityLookup<TypeMirror, Boolean>> pairs;
 
     private MatchAttempt() {
+      this(true);
+    }
+
+    private MatchAttempt(boolean requireAnnotations) {
+      this.requireAnnotations = requireAnnotations;
       copiedDeclarations = ConstructorIdentityLookup.usingReferenceIdentity();
       copiedOriginals = ConstructorIdentityLookup.usingReferenceIdentity();
       originals = ConstructorIdentityLookup.usingReferenceIdentity();
@@ -112,7 +143,10 @@ final class ConstructorTypeCorrespondence {
       retain(copiedOriginals, ConstructorTypeCorrespondence.this.copiedOriginals);
       retainPairs(originals, ConstructorTypeCorrespondence.this.originals);
       retainPairs(witnesses, ConstructorTypeCorrespondence.this.witnesses);
-      retainPairs(pairs, ConstructorTypeCorrespondence.this.pairs);
+      retainPairs(pairs, ConstructorTypeCorrespondence.this.mappings);
+      if (requireAnnotations) {
+        retainPairs(pairs, ConstructorTypeCorrespondence.this.pairs);
+      }
       return true;
     }
 
@@ -120,7 +154,7 @@ final class ConstructorTypeCorrespondence {
       if (original == null || witness == null) {
         return original == null && witness == null;
       }
-      if (original.getKind() != witness.getKind() || !annotations(original).equals(annotations(witness))) {
+      if (original.getKind() != witness.getKind() || (requireAnnotations && !annotations(original).equals(annotations(witness)))) {
         return false;
       }
       if (paired(ConstructorTypeCorrespondence.this.pairs, original, witness) || paired(pairs, original, witness)) {
@@ -222,10 +256,13 @@ final class ConstructorTypeCorrespondence {
   }
 
   Optional<TypeMirror> originalType(TypeMirror witness, Types originalTypes, Types witnessTypes) {
-    for (var pair : pairs.entries()) {
+    var accepted = witness instanceof TypeVariable ? mappings : pairs;
+    var metadata = new ConstructorTypeCorrespondence(witnessElements, witnessElements);
+    for (var pair : accepted.entries()) {
       for (var entry : pair.value().entries()) {
         var candidate = entry.key();
-        if (annotations(candidate).equals(annotations(witness)) && witnessTypes.isSameType(candidate, witness)) {
+        if (annotations(pair.key()).equals(annotations(witness)) && annotations(candidate).equals(annotations(witness))
+            && witnessTypes.isSameType(candidate, witness) && metadata.matches(candidate, witness)) {
           return Optional.of(pair.key());
         }
       }
@@ -250,13 +287,14 @@ final class ConstructorTypeCorrespondence {
       return Optional.empty();
     }
     var copied = copiedOriginals.find(witnessOwner);
-    if (copied.isPresent()) {
-      return Optional.of(copied.orElseThrow().asType());
-    }
     var moduleName = witnessElements.getModuleOf(witnessOwner).getQualifiedName();
     var module = originalElements.getModuleElement(moduleName);
-    var owner = module == null ? null : originalElements.getTypeElement(module, witnessOwner.getQualifiedName());
-    if (owner == null || !originalElements.getBinaryName(owner).contentEquals(witnessElements.getBinaryName(witnessOwner))) {
+    var owner = copied.orElse(null);
+    if (owner == null && module != null) {
+      owner = originalElements.getTypeElement(module, witnessOwner.getQualifiedName());
+    }
+    if (owner == null
+        || (copied.isEmpty() && !originalElements.getBinaryName(owner).contentEquals(witnessElements.getBinaryName(witnessOwner)))) {
       return Optional.empty();
     }
     var arguments = new TypeMirror[witness.getTypeArguments().size()];
@@ -270,8 +308,9 @@ final class ConstructorTypeCorrespondence {
     var enclosing = witness.getEnclosingType();
     if (enclosing instanceof DeclaredType) {
       var originalEnclosing = originalType(enclosing, originalTypes, witnessTypes);
-      return originalEnclosing.filter(DeclaredType.class::isInstance)
-          .map(value -> originalTypes.getDeclaredType((DeclaredType) value, owner, arguments));
+      return originalEnclosing.orElse(null) instanceof DeclaredType containing
+          ? Optional.of(originalTypes.getDeclaredType(containing, owner, arguments))
+          : Optional.empty();
     }
     return Optional.of(originalTypes.getDeclaredType(owner, arguments));
   }

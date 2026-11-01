@@ -250,11 +250,14 @@ public final class CoverageSourceProjection {
   private static Structure typeStructure(JavaTypeStructure type) {
     return switch (type) {
       case JavaTypeStructure.Primitive primitive -> structure(Tag.TYPE_PRIMITIVE, field(KIND_FIELD, named(primitive.kind())));
-      case JavaTypeStructure.Declared declared ->
-        structure(Tag.TYPE_DECLARED, field(DECLARATION_KEY_FIELD, text(declared.declarationKey())),
+      case JavaTypeStructure.Declared declared -> {
+        var components = new ArrayList<>(List.of(field(DECLARATION_KEY_FIELD, text(declared.declarationKey())),
             field("lexicalOwnerKey", optional(declared.lexicalOwnerKey(), CoverageSourceProjection::text)),
             field("enclosingType", optional(declared.enclosingType(), CoverageSourceProjection::typeStructure)),
-            field(ARGUMENTS_FIELD, sequence(declared.arguments(), CoverageSourceProjection::typeStructure)));
+            field(ARGUMENTS_FIELD, sequence(declared.arguments(), CoverageSourceProjection::typeStructure))));
+        declared.enclosingOwnerType().ifPresent(owner -> components.add(field("enclosingOwnerType", typeStructure(owner))));
+        yield new Structure(Tag.TYPE_DECLARED, components);
+      }
       case JavaTypeStructure.LocalDeclared local ->
         structure(Tag.TYPE_LOCAL_DECLARED, field(DECLARATION_KEY_FIELD, text(local.declarationKey())),
             field("lexicalOwnerKey", text(local.lexicalOwnerKey())), field(KIND_FIELD, named(local.kind())),

@@ -171,6 +171,131 @@ Every applicable required source slot must be `KNOWN` with a consistent value. `
 
 Required source types, selected references and recursive annotation/type structures have the intrinsic states retained below; unresolved/unsupported required structure is a source gap even when a coarse display type exists. The family rows do not make a whole payload mandatory when only one slot is missing. Separate selected-reference/type/classification slots allow, for example, known call target plus missing applicability. In that case AST can be `COMPLETE` with no source error, while the initial CFG profile returns `INSUFFICIENT_EVIDENCE`. Missing selected call target instead makes this AST `INCOMPLETE`. A known target/type plus missing reference-cast runtime-check classification likewise need not make AST incomplete but refuses CFG when that check is required. Contradictory supplied known facts always reject admission. These concrete distinctions make walkthrough 4 decidable without moving graph policy into AST.
 
+### Qualified construction and enclosing type composition
+
+Semantic production `javac-public/14` preserves two distinct contracts: selecting the
+constructor in the original attributed environment, and retaining the recursive type
+of its actual enclosing instance. A generic field declaration is not its substituted
+member type. Capturing a field's result after substitution also cannot recover a capture
+already lost inside a nested type argument or array. The compiler operations and language
+rules are specified by
+[`Types.asMemberOf`](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/util/Types.html#asMemberOf(javax.lang.model.type.DeclaredType,javax.lang.model.element.Element)),
+[capture conversion](https://docs.oracle.com/javase/specs/jls/se25/html/jls-5.html#jls-5.1.10), and
+[class instance creation](https://docs.oracle.com/javase/specs/jls/se25/html/jls-15.html#jls-15.9).
+
+When the original instantiated constructor signature has no unresolved method variables,
+[`JavaConstructorSelection`](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaConstructorSelection.java)
+copies that signature's applicability and conversions directly. It does not replace an
+enclosing type variable with its bound and reinfer a different constructor signature.
+Otherwise, the private witness uses the original enclosing expression through an instance
+receiver projection on the lexical enclosing declaration. This preserves compiler capture
+and lexical method variables without rendering captured types as source names. Source and
+binary declarations use the same projection contract. Constructor arguments retain strict
+source, annotation and capture correspondence. Receiver comparison uses capture-converted
+Java types in an independent comparison scope; constructor-result comparison uses Java type
+structure with its original capture identities. These semantic comparisons do not require
+type-use annotations to survive method substitution. They cannot populate the strict
+annotation-comparison cache. Original annotation occurrences remain retained source facts.
+
+For a qualified anonymous creation, the proof branch is inserted into the enclosing
+expression and completes abruptly; the original qualifier is its only normally completing
+branch. The original creation, arguments, anonymous body, target context and statement-expression
+form remain in place. Proof arguments and original arguments cannot both complete on one
+path. Witness declarations and dependency overlays belong only to the private compiler
+acquisition; they do not become retained source or mutate dependency bytes.
+When the copied qualifier itself owns a declaration, its witness insertions are composed
+inside that copy before replacing the outer occurrence. Correlation checks the exact
+projected text and maps its local declarations independently of compiler binary ordinals.
+Restoring a copied nominal type preserves its actual arguments; semantic capture mappings
+cannot copy unrelated class-argument annotations into a selected constructor target.
+
+Retained format `java-source/22` adds `Declared.enclosingOwnerType`. `enclosingType`
+continues to hold the original instance, including a variable or captured variable. The
+optional new field holds its parametrized lexical-owner view, with an independent complete
+capture scope. It cannot override a directly declared instance or identify another lexical
+owner. Aggregate admission checks the written qualifier and available source bounds, including
+inherited substitutions and capture renumbering. Unavailable external hierarchy facts remain
+unavailable; this intrinsic check does not reconstruct a compiler or prove an absent classpath.
+The representation and admission owners are
+[`JavaTypeStructure`](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/api/JavaTypeStructure.java) and
+[`EnclosingTypeAdmission`](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/EnclosingTypeAdmission.java).
+
+The existing source profiles retain their meanings. Supported historical payloads retain
+their schema, semantic revision, identity, facts, completion and bytes on decode/re-encode;
+decoding never reproduces the source or synthesizes an enclosing-owner view. A new nonempty
+view cannot be encoded in an older schema. Public producer, supplied-value and retention
+obligations are exercised by
+[`EnclosingConstructorCompositionTest`](../../src/test/java/org/aquilagraph/frontend/internal/EnclosingConstructorCompositionTest.java),
+[`EnclosingTypeAdmissionTest`](../../src/test/java/org/aquilagraph/frontend/internal/EnclosingTypeAdmissionTest.java),
+[`QualifiedConstructorCompositionTest`](../../src/test/java/org/aquilagraph/frontend/internal/QualifiedConstructorCompositionTest.java), and
+[`HistoricalAstCompatibilityTest`](../../src/test/java/org/aquilagraph/repository/internal/neo4j/HistoricalAstCompatibilityTest.java).
+
+#### Outstanding composition requirements
+
+The following boundaries remain unresolved in semantic production `javac-public/14`.
+They are current requirements, not completed capabilities. Existing isolated test success
+does not establish their completion.
+
+- **Anonymous enclosing owners with diamond.** Valid construction through an anonymous
+  owner created with diamond must retain constructor applicability and argument conversions,
+  including when the constructed member is itself anonymous. For example,
+  `new Parent<>() { class Box { <T> Box(T value) {} } }.new Box(1)` currently reports
+  `frontend.constructor-witness-rejected`; an explicit `Parent<String>` owner completes.
+  [Receiver projection](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/ConstructorReceiverProjection.java)
+  emits a public method into that owner. Its declaration must satisfy the enclosing
+  context's language rules while preserving the original receiver and inference context.
+  [JLS 25 section 15.9.5](https://docs.oracle.com/javase/specs/jls/se25/html/jls-15.html#jls-15.9.5)
+  requires non-private methods declared in a diamond anonymous class to override a supertype
+  method. The existing
+  [composition regressions](../../src/test/java/org/aquilagraph/frontend/internal/EnclosingConstructorCompositionTest.java)
+  cover inline anonymous owners without diamond on the owner.
+
+- **Parameterized ancestors in binary enclosing chains.** Source and binary declarations
+  must preserve the complete enclosing chain through intermediate types with no type
+  parameters of their own. With `Outer<A>.Middle.Box`, where `Middle` is nongeneric and
+  `Box` has a generic constructor, `middle.new Box(1)` currently completes with source
+  declarations but reports `frontend.missing-constructor-correlation` with binary
+  declarations. Ordinary and anonymous member constructions reproduce this difference
+  with `Outer<Number>.Middle`; original dependency bytes remain unchanged.
+  [Binary signature rendering](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/ConstructorTypeRenderer.java)
+  must retain the parameterized ancestor even when the immediate enclosing type has no
+  arguments. The current
+  [binary receiver regression](../../src/test/java/org/aquilagraph/frontend/internal/QualifiedReceiverProjectionTest.java)
+  exercises only one enclosing level.
+
+- **Raw source inheritance during admission.** Available raw source hierarchy must have a
+  defined erased owner view. For `Child<A> extends Outer<A>` and `<O extends Child>`,
+  public aggregate admission currently accepts replacing the raw `Outer` owner view
+  with `Outer<String>`. The same replacement under `Child<Integer>` rejects.
+  [Enclosing type admission](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/EnclosingTypeAdmission.java)
+  must distinguish raw inheritance, parameterized substitution, and unavailable hierarchy.
+  A parameter-count mismatch for an otherwise known raw source declaration cannot
+  convert its determined superclass into unknown evidence.
+  [JLS 25 section 4.8](https://docs.oracle.com/javase/specs/jls/se25/html/jls-4.html#jls-4.8)
+  defines the erased supertypes of a raw type. The existing
+  [owner admission regressions](../../src/test/java/org/aquilagraph/frontend/internal/EnclosingTypeAdmissionTest.java)
+  cover parameterized inherited bounds.
+
+- **Every retained recursive type carrier.** Enclosing-owner consistency must apply to
+  types stored within syntax values as well as each node's own type and declared bounds.
+  For `supply(() -> outer.new Box(1))` under `<O extends Outer<Integer>>`, public
+  aggregate admission currently accepts changing only
+  [`SyntaxValue.Lambda.returnType`](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/api/SyntaxValue.java)
+  to carry owner `Outer<String>`. The node type, creation type, source bounds, children,
+  and execution evidence remain unchanged. The shared admission traversal must reach
+  all applicable recursive type carriers and preserve their independent capture scopes.
+  This observation establishes an aggregate-admission gap; it does not establish
+  acceptance by every later result or persistence boundary.
+  [Lambda regressions](../../src/test/java/org/aquilagraph/frontend/internal/LambdaAstTest.java)
+  already distinguish unavailable descriptor return types, but do not reject this
+  contradictory resolved enclosing-owner view.
+
+These obligations extend the
+[constructor evidence and structural composition criteria](../epics/java-ast-source-consistency.md#acceptance-criteria).
+They require shared contract corrections and discriminating public producer or supplied-value
+regressions. Rejecting valid raw inputs, omitting retained types, weakening diagnostics,
+or adding spelling-specific exceptions cannot satisfy them.
+
 ### Module service and provider identities
 
 **Contract and accepted delivery:** Resolved service and provider declaration identities are required source facts in `java-source-expanded/8`. They are not optional CFG classifications. The [accepted module service identity integration](../tasks/java-module-service-identities/module-service-integration.md) delivers this capability under semantic production `javac-public/11` and retained format `java-source/20`, separately from the earlier source-fidelity delivery. The requirement is a product decision grounded in the existing G1-G6 duties, not a claim that Java mandates a particular AST API. Acceptance is recorded by the owning checkpoints and original reviews; this reconciliation performs no new runtime verification.[16][18][20]
