@@ -195,8 +195,8 @@ class AnalyzeCommandTest {
     assertEquals(List.of("Qualification: APPLICATION SOURCE", "  Profile: \"java-source-bounded/1\"",
         "  Subject: \"" + run.get().representation().ast().result().orElseThrow().identity().astResultKey() + "\""),
         streams.errorLines().subList(applicationReason, applicationReason + 3));
-    assertFalse(streams.errorLines().contains("Diagnostic:"));
-    assertFalse(streams.errorLines().contains("frontend.unsupported-tree-kind.union-type"));
+    assertFalse(streams.errorLines().stream().anyMatch(line -> line.startsWith("Diagnostic:")));
+    assertFalse(streams.errorLines().stream().anyMatch(line -> line.contains("frontend.unsupported-tree-kind.union-type")));
   }
 
   @Test
