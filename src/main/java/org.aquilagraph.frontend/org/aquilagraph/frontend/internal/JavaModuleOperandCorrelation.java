@@ -70,6 +70,9 @@ final class JavaModuleOperandCorrelation {
       return List.of();
     }
     var service = trees.getElement(new TreePath(directivePath, serviceTree));
+    if (!(service instanceof TypeElement)) {
+      return List.of();
+    }
     var directives = module.getDirectives().stream().filter(directive -> switch (directive) {
       case UsesDirective uses -> directivePath.getLeaf() instanceof UsesTree && uses.getService().equals(service);
       case ProvidesDirective provides -> directivePath.getLeaf() instanceof ProvidesTree && provides.getService().equals(service);
