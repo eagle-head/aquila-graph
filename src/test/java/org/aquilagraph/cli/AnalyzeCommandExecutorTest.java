@@ -48,8 +48,9 @@ class AnalyzeCommandExecutorTest {
 
     // Assert
     var repositoryFailed = assertInstanceOf(AnalyzeCommandOutcome.RepositoryFailed.class, outcome);
-    assertSame(run, repositoryFailed.run());
-    assertEquals("database unavailable", repositoryFailed.message());
+    assertSame(run, repositoryFailed.failure().analysisRun());
+    assertSame(failure, repositoryFailed.failure().repositoryFailure());
+    assertEquals("database unavailable", repositoryFailed.failure().repositoryFailure().description());
   }
 
   @Test

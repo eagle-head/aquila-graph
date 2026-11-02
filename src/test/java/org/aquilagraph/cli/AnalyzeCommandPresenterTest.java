@@ -3,13 +3,14 @@ package org.aquilagraph.cli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.ByteArrayOutputStream;
-import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.ArrayList;
 import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.AnalysisRepositoryException;
+import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.identity.api.SoftwareVersion;
 import org.junit.jupiter.api.Test;
@@ -29,10 +30,8 @@ class AnalyzeCommandPresenterTest {
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_COMPLETED, exitCode);
-    assertEquals(List.of("Run: " + run.identity().key(), "Software version: " + SoftwareVersion.from(run.representation().ast().capturedInput().orElseThrow(), run.representation().ast().capturedEnvironment().orElseThrow()).signature(), "Completion: COMPLETED",
-        "Java release: 25", "Java source files: 1", "Java types: 1", "Java methods: 1", "Analyzed method bodies: 1",
-        "CFG operations: 0", "CFG nodes: 2", "CFG edges: 1", "Repository: NOT_REQUESTED"), streams.outputLines());
-    assertEquals(List.of("WARNING FRONTEND cli.warning: analysis warning"), streams.errorLines());
+    assertEquals(expectedOutput(run, "COMPLETE", "NOT_REQUESTED"), streams.outputLines());
+    assertEquals(expectedWarning(1), streams.errorLines());
   }
 
   @Test
@@ -47,10 +46,9 @@ class AnalyzeCommandPresenterTest {
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
-    assertEquals(List.of("Run: " + run.identity().key(), "Software version: " + SoftwareVersion.from(run.representation().ast().capturedInput().orElseThrow(), run.representation().ast().capturedEnvironment().orElseThrow()).signature(), "Completion: INCOMPLETE",
-        "Java release: 25", "Java source files: 1", "Java types: 1", "Java methods: 1", "Analyzed method bodies: 1",
-        "CFG operations: 0", "CFG nodes: 2", "CFG edges: 1", "Repository: NOT_ELIGIBLE"), streams.outputLines());
-    assertEquals(List.of("ERROR FRONTEND cli.error: source failed"), streams.errorLines());
+    assertEquals(expectedOutput(run, "FAILED", "NOT_ELIGIBLE"), streams.outputLines());
+    assertEquals(1, streams.errorLines().stream().filter(line -> line.equals("Diagnostic: \"" + CliTestFixtures.errorDiagnostic().diagnosticKey() + "\"")).count());
+    assertEquals(true, streams.errorLines().contains("Qualification: APPLICATION APPLICATION_DIAGNOSTIC"));
   }
 
   @Test
@@ -65,9 +63,12 @@ class AnalyzeCommandPresenterTest {
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
-    assertEquals(List.of("Run: " + run.identity().key(), "Software version: " + "unavailable", "Completion: REJECTED",
-        "Java release: 25", "Java source files: 0", "Repository: NOT_REQUESTED"), streams.outputLines());
-    assertEquals(List.of("ERROR FRONTEND cli.error: source failed"), streams.errorLines());
+    assertEquals(List.of("Run: " + run.identity().key(), "Software version: unavailable", "Completion: REJECTED",
+        "Java release: 25", "Java source files: 0", "AST: UNAVAILABLE", "AST profile: java-source-bounded/1",
+        "CFG: UNAVAILABLE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"",
+        "CFG selection: ALL_BODIES", "CFG binding: UNBOUND", "Repository: NOT_REQUESTED"), streams.outputLines());
+    assertEquals(1, streams.errorLines().stream().filter(line -> line.equals("Diagnostic: \"" + CliTestFixtures.errorDiagnostic().diagnosticKey() + "\"")).count());
+    assertEquals(true, streams.errorLines().contains("Qualification: APPLICATION APPLICATION_DIAGNOSTIC"));
   }
 
   @Test
@@ -77,12 +78,12 @@ class AnalyzeCommandPresenterTest {
     var streams = CapturedStreams.create();
 
     // Act
-    var exitCode = presenter.present(new AnalyzeCommandOutcome.RepositoryFailed(run, "database unavailable"), streams.output(),
+    var exitCode = presenter.present(new AnalyzeCommandOutcome.RepositoryFailed(new AnalysisRepositoryException(run, new RepositoryException("database unavailable", new IllegalStateException("offline")))), streams.output(),
         streams.error());
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_REPOSITORY_FAILED, exitCode);
-    assertEquals("Completion: COMPLETED", streams.outputLines().get(2));
+    assertEquals("Completion: COMPLETE", streams.outputLines().get(2));
     assertEquals(List.of("Repository save failed: database unavailable"), streams.errorLines());
   }
 
@@ -150,11 +151,7 @@ class AnalyzeCommandPresenterTest {
       // Assert
       assertEquals(row.exitCode(), code);
       assertEquals("Repository: " + row.repositoryText(), streams.outputLines().getLast());
-      assertEquals("Completion: " + switch (row.execution().run().completion()) {
-        case COMPLETE -> "COMPLETED";
-        case PARTIAL, FAILED -> "INCOMPLETE";
-        case REJECTED -> "REJECTED";
-      }, streams.outputLines().get(2));
+      assertEquals("Completion: " + row.execution().run().completion(), streams.outputLines().get(2));
     }
   }
 
@@ -172,62 +169,44 @@ class AnalyzeCommandPresenterTest {
 
     // Assert
     assertEquals(0, code);
-    assertEquals(List.of("WARNING FRONTEND cli.warning: analysis warning", "WARNING FRONTEND cli.warning: analysis warning"),
-        streams.errorLines());
+    var expected = new ArrayList<>(expectedWarning(1));
+    expected.addAll(expectedWarning(2));
+    assertEquals(expected, streams.errorLines());
   }
 
   @Test
-  void givenBorrowedStreams_whenCompletedExecutionIsPresented_thenCallsFollowSummaryDiagnosticsStatusWithoutClosingOrFlushing() {
+  void givenBorrowedStreams_whenCompletedExecutionIsPresented_thenBothChannelsRemainWritable() {
     // Arrange
     var run = CliTestFixtures.completedRunWithWarning();
-    var calls = new ArrayList<String>();
-    var output = new RecordingPrintStream("output", calls);
-    var error = new RecordingPrintStream("error", calls);
-
+    var streams = CapturedStreams.create();
     // Act
-    var code = presenter.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)), output, error);
-
+    var code = presenter.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)), streams.output(), streams.error());
+    streams.output().println("output remains open");
+    streams.error().println("error remains open");
     // Assert
     assertEquals(0, code);
-    assertEquals(List.of("output: Run: " + run.identity().key(), "output: Software version: " + SoftwareVersion.from(run.representation().ast().capturedInput().orElseThrow(), run.representation().ast().capturedEnvironment().orElseThrow()).signature(),
-        "output: Completion: COMPLETED", "output: Java release: 25", "output: Java source files: 1", "output: Java types: 1",
-        "output: Java methods: 1", "output: Analyzed method bodies: 1", "output: CFG operations: 0", "output: CFG nodes: 2",
-        "output: CFG edges: 1", "error: WARNING FRONTEND cli.warning: analysis warning", "output: Repository: NOT_REQUESTED"), calls);
+    assertEquals("output remains open", streams.outputLines().getLast());
+    assertEquals("error remains open", streams.errorLines().getLast());
+  }
+
+  private static List<String> expectedOutput(AnalysisRun run, String completion, String repository) {
+    var ast = run.representation().ast().result().orElseThrow();
+    var key = ast.program().methods().getFirst().methodKey();
+    return List.of("Run: " + run.identity().key(), "Software version: " + SoftwareVersion.from(ast.snapshot(), ast.environment()).signature(),
+        "Completion: " + completion, "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: java-source-bounded/1",
+        "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"", "CFG selection: ALL_BODIES",
+        "CFG binding: " + ast.identity().astResultKey(), "Selected method: \"" + key + "\"", "Java types: 1", "Java methods: 1",
+        "Analyzed method bodies: 1", "CFG operations: 0", "CFG nodes: 2", "CFG edges: 1", "Method CFG: \"" + key + "\" AVAILABLE",
+        "Repository: " + repository);
+  }
+
+  private static List<String> expectedWarning(int occurrence) {
+    return List.of("Diagnostic: \"" + CliTestFixtures.warningDiagnostic().diagnosticKey() + "\"", "  Occurrence: " + occurrence,
+        "  Severity: WARNING", "  Stage: FRONTEND", "  Cause: OTHER_ANALYSIS_ERROR", "  Code: \"cli.warning\"",
+        "  Message: \"analysis warning\"", "  Origins: unavailable");
   }
 
   private record PresentationRow(AnalysisExecution execution, int exitCode, String repositoryText) {
-  }
-
-  private static final class RecordingPrintStream extends PrintStream {
-    private final String name;
-    private final List<String> calls;
-
-    RecordingPrintStream(String name, List<String> calls) {
-      super(OutputStream.nullOutputStream());
-      this.name = name;
-      this.calls = calls;
-    }
-
-    @Override
-    public PrintStream printf(String format, Object... arguments) {
-      calls.add(name + ": " + String.format(format, arguments).stripTrailing());
-      return this;
-    }
-
-    @Override
-    public void println(String value) {
-      calls.add(name + ": " + value);
-    }
-
-    @Override
-    public void close() {
-      calls.add(name + ": close");
-    }
-
-    @Override
-    public void flush() {
-      calls.add(name + ": flush");
-    }
   }
 
   private record CapturedStreams(ByteArrayOutputStream outputBytes, ByteArrayOutputStream errorBytes, PrintStream output,

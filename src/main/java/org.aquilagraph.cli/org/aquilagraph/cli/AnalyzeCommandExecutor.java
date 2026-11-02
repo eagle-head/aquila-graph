@@ -19,7 +19,7 @@ final class AnalyzeCommandExecutor {
     try {
       return new AnalyzeCommandOutcome.Executed(analysisUseCase.execute(arguments.toAnalysisRequest()));
     } catch (AnalysisRepositoryException exception) {
-      return new AnalyzeCommandOutcome.RepositoryFailed(exception.analysisRun(), exception.repositoryFailure().description());
+      return new AnalyzeCommandOutcome.RepositoryFailed(exception);
     } catch (AnalysisInputException exception) {
       return new AnalyzeCommandOutcome.InputRejected(exception.description());
     } catch (AnalysisEnvironmentException exception) {

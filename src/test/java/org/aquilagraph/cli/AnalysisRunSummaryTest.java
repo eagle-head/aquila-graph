@@ -4,13 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import org.aquilagraph.application.AnalysisCompletion;
-import org.aquilagraph.cli.AnalysisDiagnosticProjection.DiagnosticSummary;
 import org.aquilagraph.identity.api.SoftwareVersion;
-import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.junit.jupiter.api.Test;
 
 class AnalysisRunSummaryTest {
@@ -23,12 +19,12 @@ class AnalysisRunSummaryTest {
     var summary = AnalysisRunSummary.from(run);
 
     // Assert
-    assertEquals(run.identity().key(), summary.runId());
+    assertEquals(run.identity().key(), summary.run().identity().key());
     assertEquals(SoftwareVersion.from(run.representation().ast().capturedInput().orElseThrow(), run.representation().ast().capturedEnvironment().orElseThrow()).signature(), summary.softwareVersionSignature());
-    assertSame(AnalysisCompletion.COMPLETE, summary.completion());
-    assertEquals(25, summary.javaRelease());
-    assertEquals(1, summary.sourceFileCount());
-    assertEquals(List.of(new DiagnosticSummary(DiagnosticSeverity.WARNING, "FRONTEND", "cli.warning", "analysis warning")), summary.diagnostics());
+    assertSame(AnalysisCompletion.COMPLETE, summary.run().completion());
+    assertEquals(25, summary.run().representation().ast().requestedConfiguration().orElseThrow().release().feature());
+    assertEquals(1, summary.run().representation().ast().capturedInput().orElseThrow().sourceFileCount());
+    assertEquals(List.of(CliTestFixtures.warningDiagnostic()), summary.occurrences().diagnostics());
     var program = summary.program().orElseThrow();
     assertEquals(1, program.typeCount());
     assertEquals(1, program.methodCount());
@@ -36,21 +32,6 @@ class AnalysisRunSummaryTest {
     assertEquals(0, program.controlFlowOperationCount());
     assertEquals(2, program.controlFlowNodeCount());
     assertEquals(1, program.controlFlowEdgeCount());
-  }
-
-  @Test
-  void givenMutableDiagnosticList_whenSummaryIsCreated_thenDiagnosticsAreDefensivelyCopied() {
-    // Arrange
-    var diagnostic = new DiagnosticSummary(DiagnosticSeverity.WARNING, "FRONTEND", "cli.warning", "analysis warning");
-    var diagnostics = new ArrayList<>(List.of(diagnostic));
-
-    // Act
-    var summary = new AnalysisRunSummary("run", "version", AnalysisCompletion.PARTIAL, 25, 1, Optional.empty(), diagnostics);
-    diagnostics.clear();
-
-    // Assert
-    assertEquals(List.of(diagnostic), summary.diagnostics());
-    assertFalse(summary.program().isPresent());
   }
 
   @Test
