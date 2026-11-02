@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.SourceQualification;
 import org.aquilagraph.source.api.SourceQualificationReason;
@@ -199,7 +201,7 @@ public final class SourceRequirements {
       case Declaration declaration -> declarationNode(input, declaration).map(SyntaxNode::nodeId);
       default -> Optional.<String>empty();
     };
-    if (nodeKey.isPresent() && input.aggregate().isPresent()) {
+    if (nodeKey.isPresent()) {
       var nodes = input.aggregate().orElseThrow().nodes();
       for (var index = 0; index < nodes.size(); index++) {
         if (nodes.get(index).nodeId().equals(nodeKey.orElseThrow())) {
@@ -213,8 +215,7 @@ public final class SourceRequirements {
   private static Optional<SyntaxNode> declarationNode(SyntaxAnalysisInput input, Declaration declaration) {
     var source = input.aggregate().orElseThrow();
     var direct = source.nodes().stream()
-        .filter(node -> (node.value() instanceof SyntaxValue.TypeDeclaration type && type.declarationKey().equals(declaration.key()))
-            || (node.value() instanceof SyntaxValue.ExecutableDeclaration method && method.declarationKey().equals(declaration.key())))
+        .filter(node -> node.value() instanceof SyntaxValue.TypeDeclaration type && type.declarationKey().equals(declaration.key()))
         .findFirst();
     if (direct.isPresent()) {
       return direct;
@@ -238,8 +239,7 @@ public final class SourceRequirements {
   }
 
   private static void collectSourceGaps(SyntaxNode node, AstProfile profile, List<SourceQualificationReason> reasons) {
-    if (node.syntaxKind() == SyntaxKind.TYPE_USE && node.value() instanceof SyntaxValue.PackageQualifier
-        && node.type() == SyntaxType.NotApplicable.INSTANCE) {
+    if (node.value() instanceof SyntaxValue.PackageQualifier) {
       return;
     }
     if (!SourceFormRequirements.supports(node, profile)) {
@@ -258,16 +258,8 @@ public final class SourceRequirements {
     }
     switch (node.syntaxKind()) {
       case INVOCATION, OBJECT_CREATION -> {
-        if (node.semanticReference().isEmpty()) {
-          reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.SEMANTIC_REFERENCE, node));
-        }
         if (node.value(SyntaxValue.Invocation.class).semantics().isEmpty()) {
           reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.INVOCATION_SEMANTICS, node));
-        }
-      }
-      case FIELD_ACCESS, VARIABLE_ACCESS -> {
-        if (node.semanticReference().isEmpty()) {
-          reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.SEMANTIC_REFERENCE, node));
         }
       }
       default -> {
@@ -315,7 +307,7 @@ public final class SourceRequirements {
     var occurrence = value.region().occurrences().stream().filter(item -> item.path().equals(value.occurrencePath())).findFirst()
         .orElseThrow();
     return occurrence.restrictedDecimal().isEmpty() && (value.derivedConstantExpression().isEmpty()
-        || (value.derivedConstantExpression().orElse(false) && value.derivedConstant().isEmpty()));
+        || (value.derivedConstantExpression().orElseThrow() && value.derivedConstant().isEmpty()));
   }
 
   private static void collectProfileGaps(JavaAstAggregate source, SyntaxNode node, AstProfile profile, String semanticRevision,
@@ -366,9 +358,6 @@ public final class SourceRequirements {
     }
     if (local.bindingEvidence().filter(binding -> binding.declarationKey().isEmpty()).isPresent()) {
       reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.LOCAL_DECLARATION, node));
-    }
-    if (!UNNAMED_LOCAL.equals(local.name()) && node.semanticReference().isEmpty()) {
-      reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.SEMANTIC_REFERENCE, node));
     }
   }
 
@@ -423,24 +412,21 @@ public final class SourceRequirements {
 
   private static boolean isStaticMember(SyntaxNode node) {
     return (node.value() instanceof SyntaxValue.FieldAccess access && access.receiver().isStatic())
-        || (node.syntaxKind() == SyntaxKind.INVOCATION && node.value() instanceof SyntaxValue.Invocation invocation
-            && invocation.form().isStatic());
+        || (node.syntaxKind() == SyntaxKind.INVOCATION && node.value(SyntaxValue.Invocation.class).form().isStatic());
   }
 
   private static void collectModuleServiceGaps(SyntaxAnalysisInput input, List<SourceQualificationReason> reasons) {
     var aggregate = input.aggregate().orElseThrow();
     var inventory = input.languageFeatureCoverageResult().validationEvidence().writtenInventory();
+    var endpoints = inventory.contexts().stream()
+        .filter(context -> context.address().partition() == SourceContext.Partition.MODULE_ENDPOINT).collect(Collectors
+            .groupingBy(context -> context.address().sourceFileKey(), Collectors.groupingBy(context -> context.address().ownerPath())));
     for (var node : aggregate.nodes()) {
-      if ((node.value() instanceof SyntaxValue.Uses && node.children(SyntaxRole.SERVICE_TYPE).size() != 1)
-          || (node.value() instanceof SyntaxValue.Provides provides && (node.children(SyntaxRole.SERVICE_TYPE).size() != 1
-              || node.children(SyntaxRole.PROVIDER_TYPE).size() != provides.providers().size()))) {
+      if ((node.value() instanceof SyntaxValue.Uses || node.value() instanceof SyntaxValue.Provides) && node.children().isEmpty()) {
         reasons.add(nodeReason(Category.STRUCTURAL_COVERAGE_GAP, EvidenceRole.MODULE_SERVICE_SLOTS, node));
       }
       if (node.syntaxKind() != SyntaxKind.MODULE_TYPE_REFERENCE) {
         continue;
-      }
-      if (node.origin().isEmpty()) {
-        reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.MODULE_SERVICE_ORIGIN, node));
       }
       if (node.semanticReference()
           .filter(reference -> reference.status() == ResolutionStatus.RESOLVED && reference.declarationIdentity().isPresent()).isEmpty()) {
@@ -449,10 +435,10 @@ public final class SourceRequirements {
             : Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.MODULE_SERVICE_TARGET, node));
       }
       var association = aggregate.writtenSourceAssociation(node.nodeId());
-      if (association.isEmpty() || inventory.contexts().stream()
-          .noneMatch(context -> context.address().partition() == SourceContext.Partition.MODULE_ENDPOINT
-              && context.address().sourceFileKey().equals(node.sourceFileKey()) && context.origins().equals(node.origin().stream().toList())
-              && association.orElseThrow().ownerPath().equals(context.address().ownerPath()))) {
+      var contexts = association
+          .map(value -> endpoints.getOrDefault(node.sourceFileKey(), Map.of()).getOrDefault(value.ownerPath(), List.of()))
+          .orElse(List.of());
+      if (contexts.stream().noneMatch(context -> context.origins().equals(node.origin().stream().toList()))) {
         reasons.add(nodeReason(Category.STRUCTURAL_COVERAGE_GAP, EvidenceRole.MODULE_ENDPOINT_CONTEXT, node));
       }
     }

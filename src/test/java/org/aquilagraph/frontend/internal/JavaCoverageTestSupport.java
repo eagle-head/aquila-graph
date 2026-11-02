@@ -71,8 +71,14 @@ public final class JavaCoverageTestSupport {
 
   public static SyntaxAnalysisInput withFacts(SyntaxAnalysisInput original, JavaProgram program, Optional<JavaAstAggregate> aggregate,
       List<DiagnosticEmission> emissions) {
+    return withFacts(original, program, aggregate, emissions, original.languageFeatureCoverageResult().validationEvidence().writtenInventory());
+  }
+
+  public static SyntaxAnalysisInput withFacts(SyntaxAnalysisInput original, JavaProgram program, Optional<JavaAstAggregate> aggregate,
+      List<DiagnosticEmission> emissions, SourceCoverageInventory inventory) {
     var evidence = original.languageFeatureCoverageResult().validationEvidence();
-    var reconciled = new JavaSourceCoverageReconciler(evidence.writtenInventory(), evidence.attributedExpectations(), program, aggregate,
+    var attributed = new AttributedCoverageExpectations(inventory, evidence.attributedExpectations().projections());
+    var reconciled = new JavaSourceCoverageReconciler(inventory, attributed, program, aggregate,
         new DiagnosticEmissions(emissions)).reconcileRetained(original.languageFeatureCoverage(), evidence.outcomes());
     return new SyntaxAnalysisInput(original.snapshot(), original.environmentSnapshot(), program, aggregate, reconciled.diagnostics(), reconciled.coverageResult());
   }

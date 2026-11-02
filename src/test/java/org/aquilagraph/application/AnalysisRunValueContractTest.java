@@ -8,9 +8,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
+import org.aquilagraph.cfg.api.CfgOutcome;
+import org.aquilagraph.cfg.api.CfgState;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.cfg.api.MethodCfgOutcome;
 import org.aquilagraph.cfg.api.MethodCfgState;
@@ -21,6 +24,88 @@ import org.aquilagraph.source.api.DiagnosticStage;
 import org.junit.jupiter.api.Test;
 
 class AnalysisRunValueContractTest {
+  @Test
+  void givenWarningAndErrorInABodylessMethod_whenAssessingTheRequest_thenOnlyTheErrorBlocksAndBothNativeSlotsRemain() {
+    // Arrange
+    var source = TestAnalysisRuns.fromSource("interface Example { void absent(); }").representation().ast();
+    var ast = source.result().orElseThrow();
+    var key = ast.program().methods().getFirst().methodKey();
+    var warning = new AnalysisDiagnostic("diagnostic:warning", "control-flow.notice", DiagnosticStage.CONTROL_FLOW,
+        DiagnosticSeverity.WARNING, "Method notice", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+    var error = new AnalysisDiagnostic("diagnostic:error", "control-flow.error", DiagnosticStage.CONTROL_FLOW,
+        DiagnosticSeverity.ERROR, "Method error", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+    var diagnostics = List.of(warning, error);
+    var method = new MethodCfgOutcome(ast.identity(), key, MethodCfgState.NOT_APPLICABLE, Optional.empty(), Optional.empty(),
+        List.of(), Optional.empty(), diagnostics);
+    var request = new CfgRequest(ast.identity(), List.of(key), CfgProfile.JAVA_BOUNDED);
+    var cfg = new CfgOutcome(request, CfgState.PARTIAL, List.of(method), diagnostics);
+
+    // Act
+    var qualification = RequestQualification.assess(new ProgramRepresentation(source, Optional.of(cfg)), List.of());
+
+    // Assert
+    assertEquals(AnalysisCompletion.PARTIAL, qualification.completion());
+    assertEquals(List.of(new RequestQualificationReason.MethodDiagnostic(method, 1)), qualification.reasons());
+    assertEquals(diagnostics, method.diagnostics());
+  }
+
+  @Test
+  void givenEquivalentAndDifferentNativeContexts_whenComparingAssessments_thenEqualityAndHashingFollowTheCapturedContext() {
+    // Arrange
+    var run = TestAnalysisRuns.completed();
+    var representation = run.representation();
+    var error = new AnalysisDiagnostic("diagnostic:application", "application.error", DiagnosticStage.FRONTEND,
+        DiagnosticSeverity.ERROR, "Application error", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+    var sourceOnly = new ProgramRepresentation(representation.ast(), Optional.empty());
+
+    // Act
+    var first = RequestQualification.assess(representation, List.of());
+    var equal = RequestQualification.assess(representation, List.of());
+    var changedDiagnostic = RequestQualification.assess(representation, List.of(error));
+    var changedContext = RequestQualification.assess(sourceOnly, List.of());
+
+    // Assert
+    assertTrue(first.equals(first));
+    assertEquals(first, equal);
+    assertEquals(first.hashCode(), equal.hashCode());
+    assertFalse(first.equals(null));
+    assertFalse(first.equals("assessment"));
+    assertFalse(first.equals(changedDiagnostic));
+    assertFalse(first.equals(changedContext));
+    assertFalse(first.equals(TestAnalysisRuns.rejected().qualification()));
+    assertTrue(first.matches(representation, List.of()));
+    assertFalse(first.matches(sourceOnly, List.of()));
+    assertFalse(changedContext.matches(representation, List.of()));
+    assertFalse(first.matches(representation, List.of(error)));
+  }
+
+  @Test
+  void givenDiagnosticPositionsOutsideTheirNativeOwners_whenConstructingReasons_thenBothBoundsAreRejected() {
+    // Arrange
+    var run = TestAnalysisRuns.completed();
+    var method = TestAnalysisRuns.fromSource("interface Example { static void run() {} }")
+        .representation().cfg().orElseThrow().methods().getFirst();
+    var diagnostic = new AnalysisDiagnostic("diagnostic:application", "application.error", DiagnosticStage.FRONTEND,
+        DiagnosticSeverity.ERROR, "Application error", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+    var diagnostics = List.of(diagnostic);
+
+    // Act
+    var negativeMethod = assertThrows(IllegalArgumentException.class,
+        () -> new RequestQualificationReason.MethodDiagnostic(method, -1));
+    var missingMethod = assertThrows(IllegalArgumentException.class,
+        () -> new RequestQualificationReason.MethodDiagnostic(method, method.diagnostics().size()));
+    var negativeApplication = assertThrows(IllegalArgumentException.class,
+        () -> new RequestQualificationReason.ApplicationDiagnostic(diagnostics, -1));
+    var missingApplication = assertThrows(IllegalArgumentException.class,
+        () -> new RequestQualificationReason.ApplicationDiagnostic(diagnostics, diagnostics.size()));
+
+    // Assert
+    assertEquals("A method error requires an existing diagnostic slot", negativeMethod.getMessage());
+    assertEquals(negativeMethod.getMessage(), missingMethod.getMessage());
+    assertEquals("An application error requires an existing diagnostic slot", negativeApplication.getMessage());
+    assertEquals(negativeApplication.getMessage(), missingApplication.getMessage());
+  }
+
   @Test
   void givenUnavailableSource_whenRunUsesForeignCompleteAssessment_thenActualQualificationRejectsIt() {
     // Arrange

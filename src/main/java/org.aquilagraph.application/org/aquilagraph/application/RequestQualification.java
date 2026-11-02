@@ -53,13 +53,12 @@ public final class RequestQualification {
   @Override
   public boolean equals(Object other) {
     return this == other || (other instanceof RequestQualification value && representation.equals(value.representation)
-        && diagnostics.equals(value.diagnostics) && establishedCompletion == value.establishedCompletion
-        && blockingReasons.equals(value.blockingReasons));
+        && diagnostics.equals(value.diagnostics));
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(representation, diagnostics, establishedCompletion, blockingReasons);
+    return Objects.hash(representation, diagnostics);
   }
 
   List<AnalysisDiagnostic> applicationDiagnostics() {
@@ -67,8 +66,6 @@ public final class RequestQualification {
   }
 
   boolean matches(ProgramRepresentation candidate, List<AnalysisDiagnostic> applicationDiagnostics) {
-    return representation.ast().equals(candidate.ast())
-        && representation.cfg().stream().allMatch(value -> candidate.cfg().filter(value::equals).isPresent())
-        && representation.cfg().isPresent() == candidate.cfg().isPresent() && diagnostics.equals(applicationDiagnostics);
+    return representation.equals(candidate) && diagnostics.equals(applicationDiagnostics);
   }
 }

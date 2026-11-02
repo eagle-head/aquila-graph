@@ -15,6 +15,7 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.internal.AstResultAdmission;
 
 /** Supplies compiler source-position failures through the normal translation and admission boundaries. */
@@ -22,9 +23,13 @@ public final class SourcePositionFixtures {
   private SourcePositionFixtures() {}
 
   public static AstResult produce(String content, Predicate<Tree> unavailable) throws IOException {
+    return produce(content, unavailable, AstProfile.JAVA_SOURCE_BOUNDED);
+  }
+
+  public static AstResult produce(String content, Predicate<Tree> unavailable, AstProfile profile) throws IOException {
     var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(SourceFile.fromContent(Path.of("Example.java"), content)));
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
-    var policy = JavaTranslationPolicy.legacyAnalysis();
+    var policy = JavaTranslationPolicy.forProfile(profile);
     var baseline = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture()))
         .analyze(snapshot, configuration, policy);
     var sources = new SnapshotSourceCatalog(snapshot);
