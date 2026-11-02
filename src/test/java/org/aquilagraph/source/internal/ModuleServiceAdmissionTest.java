@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
+import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 import java.util.ArrayList;
@@ -58,6 +59,78 @@ import org.junit.jupiter.api.function.Executable;
 
 class ModuleServiceAdmissionTest {
   @TempDir Path directory;
+
+  @Test
+  void givenModuleOperandWithoutItsCopiedSourceAssociation_whenAdmittingAndDecoding_thenTheMissingContextIsExplained() {
+    // Arrange
+    var original = fixture(AstProfile.JAVA_SOURCE_MODULE_SERVICES);
+    var operand = operands(original).getFirst();
+    var copied = SourceValueCapture.capture(original.aggregate());
+    var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), copied.bodies(), copied.memberOrders(),
+        copied.associations().stream().filter(value -> !value.nodeKey().equals(operand.nodeId())).toList(), copied.declarationTypes(), copied.scopes()));
+
+    // Act
+    var result = admitted(original, aggregate);
+    var decoded = AstCodec.decode(AstCodec.encode(result), result.identity());
+    var reasons = decoded.qualification().reasons().stream()
+        .filter(reason -> reason.role() == SourceQualificationReason.EvidenceRole.MODULE_ENDPOINT_CONTEXT).toList();
+
+    // Assert
+    assertEquals(AstCompletion.INCOMPLETE, decoded.completion());
+    assertEquals(1, reasons.size());
+    assertEquals(new SourceQualificationReason.Node(operand.nodeId(), operand.sourceFileKey()), reasons.getFirst().subject());
+    assertEquals(SourceQualificationReason.Category.STRUCTURAL_COVERAGE_GAP, reasons.getFirst().category());
+    assertEquals(original.aggregate().node(operand.nodeId()), decoded.aggregate().node(operand.nodeId()));
+    assertEquals(result.qualification(), decoded.qualification());
+  }
+
+  @Test
+  void givenConflictingCapturedModuleDescriptors_whenProducingAndDecoding_thenCompilerErrorsAndFileSpecificOperandFactsRemain() throws IOException {
+    // Arrange
+    var snapshot = InputSnapshot.fromSources(directory, List.of(
+        SourceFile.fromContent(Path.of("first/module-info.java"), "module first { uses java.lang.Runnable; }"),
+        SourceFile.fromContent(Path.of("second/module-info.java"), "module second { uses java.lang.AutoCloseable; }")));
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+
+    // Act
+    var original = frontend.produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES)
+        .result().orElseThrow();
+    var decoded = AstCodec.decode(AstCodec.encode(original), original.identity());
+
+    // Assert
+    assertEquals(AstCompletion.INCOMPLETE, decoded.completion());
+    assertTrue(decoded.diagnostics().stream().anyMatch(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.COMPILER_ERROR));
+    assertEquals(2, operands(decoded).size());
+    assertEquals(snapshot.sourceFiles().stream().map(SourceFile::sourceFileKey).toList(),
+        operands(decoded).stream().map(SyntaxNode::sourceFileKey).toList());
+    assertEquals(original.qualification(), decoded.qualification());
+  }
+
+  @Test
+  void givenResolvedModuleOperandWithoutTypedDeclarationIdentity_whenAdmittingAndDecoding_thenTheRequiredTargetRemainsMissing() {
+    // Arrange
+    var original = fixture(AstProfile.JAVA_SOURCE_MODULE_SERVICES);
+    var operand = operands(original).getFirst();
+    var selected = operand.semanticReference().orElseThrow();
+    var reference = new SemanticReference(selected.referenceKind(), selected.status(), selected.symbolKey(), selected.typeName(),
+        selected.typeAlternativeNames(), selected.assignableToTypeNames());
+    var aggregate = copied(original, node -> node.nodeId().equals(operand.nodeId())
+        ? copy(node, node.children(), Optional.of(reference), node.origin().orElseThrow()) : node, UnaryOperator.identity());
+
+    // Act
+    var result = admitted(original, aggregate);
+    var decoded = AstCodec.decode(AstCodec.encode(result), result.identity());
+    var reasons = decoded.qualification().reasons().stream()
+        .filter(reason -> reason.role() == SourceQualificationReason.EvidenceRole.MODULE_SERVICE_TARGET).toList();
+
+    // Assert
+    assertEquals(AstCompletion.INCOMPLETE, decoded.completion());
+    assertEquals(1, reasons.size());
+    assertEquals(SourceQualificationReason.Category.MISSING_REQUIRED_EVIDENCE, reasons.getFirst().category());
+    assertEquals(new SourceQualificationReason.Node(operand.nodeId(), operand.sourceFileKey()), reasons.getFirst().subject());
+    assertEquals(selected.symbolKey(), decoded.aggregate().node(operand.nodeId()).orElseThrow().requiredReference().symbolKey());
+    assertEquals(result.qualification(), decoded.qualification());
+  }
 
   @Test
   void givenWrittenDirectivesWithoutEndpointEvidence_whenSuccessorAdmitted_thenAvailableSourceRemainsIncomplete() {
