@@ -2,16 +2,13 @@ package org.aquilagraph.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
 import org.aquilagraph.application.AnalysisExecution;
-import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.AnalysisRepositoryException;
-import org.aquilagraph.application.port.RepositoryException;
+import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.identity.api.SoftwareVersion;
 import org.junit.jupiter.api.Test;
 
@@ -23,7 +20,7 @@ class AnalyzeCommandPresenterTest {
     // Arrange
     var run = CliTestFixtures.completedRunWithWarning();
     var outcome = new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run));
-    var streams = CapturedStreams.create();
+    var streams = new CliStreams();
 
     // Act
     var exitCode = presenter.present(outcome, streams.output(), streams.error());
@@ -39,7 +36,7 @@ class AnalyzeCommandPresenterTest {
     // Arrange
     var run = CliTestFixtures.incompleteRun();
     var execution = CliTestFixtures.notEligibleForRepository(run, PublicationIntent.SAVE_COMPLETED);
-    var streams = CapturedStreams.create();
+    var streams = new CliStreams();
 
     // Act
     var exitCode = presenter.present(new AnalyzeCommandOutcome.Executed(execution), streams.output(), streams.error());
@@ -56,7 +53,7 @@ class AnalyzeCommandPresenterTest {
     // Arrange
     var run = CliTestFixtures.rejectedRun();
     var execution = CliTestFixtures.withoutRepositoryRequest(run);
-    var streams = CapturedStreams.create();
+    var streams = new CliStreams();
 
     // Act
     var exitCode = presenter.present(new AnalyzeCommandOutcome.Executed(execution), streams.output(), streams.error());
@@ -75,7 +72,7 @@ class AnalyzeCommandPresenterTest {
   void givenRepositoryFailure_whenOutcomeIsPresented_thenAnalysisAndRepositoryFailureRemainSeparate() {
     // Arrange
     var run = CliTestFixtures.completedRun();
-    var streams = CapturedStreams.create();
+    var streams = new CliStreams();
 
     // Act
     var exitCode = presenter.present(new AnalyzeCommandOutcome.RepositoryFailed(new AnalysisRepositoryException(run, new RepositoryException("database unavailable", new IllegalStateException("offline")))), streams.output(),
@@ -90,7 +87,7 @@ class AnalyzeCommandPresenterTest {
   @Test
   void givenInputRejection_whenOutcomeIsPresented_thenInputFailureIsRendered() {
     // Arrange
-    var streams = CapturedStreams.create();
+    var streams = new CliStreams();
 
     // Act
     var exitCode = presenter.present(new AnalyzeCommandOutcome.InputRejected("source unreadable"), streams.output(), streams.error());
@@ -104,7 +101,7 @@ class AnalyzeCommandPresenterTest {
   @Test
   void givenEnvironmentFailure_whenOutcomeIsPresented_thenAnalysisFailureIsRendered() {
     // Arrange
-    var streams = CapturedStreams.create();
+    var streams = new CliStreams();
 
     // Act
     var exitCode = presenter.present(new AnalyzeCommandOutcome.EnvironmentFailed("compiler unavailable"), streams.output(), streams.error());
@@ -118,7 +115,7 @@ class AnalyzeCommandPresenterTest {
   @Test
   void givenParserRejection_whenOutcomeIsPresented_thenMessageAndUsageAreRendered() {
     // Arrange
-    var streams = CapturedStreams.create();
+    var streams = new CliStreams();
     var rejection = new AnalyzeCommandParser.Rejected("Exactly one source root is required");
 
     // Act
@@ -144,7 +141,7 @@ class AnalyzeCommandPresenterTest {
         new PresentationRow(CliTestFixtures.saved(completed), 0, "SAVED"));
 
     for (var row : rows) {
-      var streams = CapturedStreams.create();
+      var streams = new CliStreams();
       // Act
       var code = presenter.present(new AnalyzeCommandOutcome.Executed(row.execution()), streams.output(), streams.error());
 
@@ -161,7 +158,7 @@ class AnalyzeCommandPresenterTest {
     var original = CliTestFixtures.completedRun();
     var warning = CliTestFixtures.warningDiagnostic();
     var run = AnalysisRun.create(original.identity(), original.representation(), List.of(warning, warning));
-    var streams = CapturedStreams.create();
+    var streams = new CliStreams();
 
     // Act
     var code = presenter.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)),
@@ -178,15 +175,19 @@ class AnalyzeCommandPresenterTest {
   void givenBorrowedStreams_whenCompletedExecutionIsPresented_thenBothChannelsRemainWritable() {
     // Arrange
     var run = CliTestFixtures.completedRunWithWarning();
-    var streams = CapturedStreams.create();
+    var streams = new CliStreams();
     // Act
     var code = presenter.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)), streams.output(), streams.error());
     streams.output().println("output remains open");
     streams.error().println("error remains open");
     // Assert
     assertEquals(0, code);
-    assertEquals("output remains open", streams.outputLines().getLast());
-    assertEquals("error remains open", streams.errorLines().getLast());
+    var expectedOutput = new ArrayList<>(expectedOutput(run, "COMPLETE", "NOT_REQUESTED"));
+    expectedOutput.add("output remains open");
+    var expectedError = new ArrayList<>(expectedWarning(1));
+    expectedError.add("error remains open");
+    assertEquals(expectedOutput, streams.outputLines());
+    assertEquals(expectedError, streams.errorLines());
   }
 
   private static List<String> expectedOutput(AnalysisRun run, String completion, String repository) {
@@ -207,23 +208,5 @@ class AnalyzeCommandPresenterTest {
   }
 
   private record PresentationRow(AnalysisExecution execution, int exitCode, String repositoryText) {
-  }
-
-  private record CapturedStreams(ByteArrayOutputStream outputBytes, ByteArrayOutputStream errorBytes, PrintStream output,
-      PrintStream error) {
-    static CapturedStreams create() {
-      var outputBytes = new ByteArrayOutputStream();
-      var errorBytes = new ByteArrayOutputStream();
-      return new CapturedStreams(outputBytes, errorBytes, new PrintStream(outputBytes, true, StandardCharsets.UTF_8),
-          new PrintStream(errorBytes, true, StandardCharsets.UTF_8));
-    }
-
-    List<String> outputLines() {
-      return outputBytes.toString(StandardCharsets.UTF_8).lines().toList();
-    }
-
-    List<String> errorLines() {
-      return errorBytes.toString(StandardCharsets.UTF_8).lines().toList();
-    }
   }
 }

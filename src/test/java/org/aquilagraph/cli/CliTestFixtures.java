@@ -5,13 +5,25 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import org.aquilagraph.application.AnalysisApplicationService;
 import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.CommitKnowledge;
+import org.aquilagraph.application.CompletedRunPublicationService;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationOutcome;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.PublicationSubjectIdentity;
+import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import org.aquilagraph.cfg.CfgDerivers;
+import org.aquilagraph.cfg.api.CfgBlocker;
+import org.aquilagraph.cfg.api.CfgOutcome;
+import org.aquilagraph.cfg.api.CfgProfile;
+import org.aquilagraph.cfg.api.CfgRequest;
+import org.aquilagraph.cfg.api.CfgState;
+import org.aquilagraph.cfg.api.MethodCfgOutcome;
 import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
@@ -19,12 +31,14 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.StableId;
-import org.aquilagraph.source.internal.SourceAnalysisFixture;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.internal.SourceAnalysisFixture;
 
 final class CliTestFixtures {
   private CliTestFixtures() {}
@@ -53,14 +67,69 @@ final class CliTestFixtures {
   }
 
   static AnalysisRun analyze(String source) {
-    var sources = source.isEmpty() ? List.<SourceFile>of() : List.of(SourceFile.fromContent(Path.of("Example.java"), source));
-    var snapshot = InputSnapshot.fromSources(Path.of("."), sources);
     try {
-      return new SourceAnalysisFixture().analyze(new JavaFrontend(new JavaSourceLoader()).produce(snapshot,
-          CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED));
+      return analyze(source, AstProfile.JAVA_SOURCE_BOUNDED);
     } catch (IOException exception) {
       throw new UncheckedIOException(exception);
     }
+  }
+
+  static AnalysisRun analyze(String source, AstProfile profile) throws IOException {
+    return analyze(produce(source, profile));
+  }
+
+  static AnalysisRun analyze(AstOutcome outcome) {
+    return new SourceAnalysisFixture().analyze(outcome);
+  }
+
+  static AnalysisRun analyze(AstResult result) {
+    return analyze(AstOutcome.available(result));
+  }
+
+  static AstOutcome produce(InputSnapshot snapshot, AstProfile profile) throws IOException {
+    return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile);
+  }
+
+  static AstOutcome produce(String source, AstProfile profile) throws IOException {
+    var sources = source.isEmpty() ? List.<SourceFile>of() : List.of(SourceFile.fromContent(Path.of("Example.java"), source));
+    return produce(Path.of("."), sources, profile);
+  }
+
+  static AstOutcome produce(String source) throws IOException {
+    return produce(source, AstProfile.JAVA_SOURCE_BOUNDED);
+  }
+
+  static AstOutcome produce(Path root, List<SourceFile> sources, AstProfile profile) throws IOException {
+    var snapshot = InputSnapshot.fromSources(root, sources);
+    return produce(snapshot, profile);
+  }
+
+  static SourceAnalysisRunner runner() {
+    return new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+  }
+
+  static AnalysisApplicationService service(SourceAnalysisRunner runner, AnalysisRunRepositoryFactory repositories) {
+    return new AnalysisApplicationService(runner,
+        new AstRetentionService(context -> { throw new AssertionError("AST repository must not open"); }),
+        new CompletedRunPublicationService(repositories));
+  }
+
+  static AnalysisRunRepositoryFactory repositoriesMustNotOpen() {
+    return () -> { throw new AssertionError("Repository must not open"); };
+  }
+
+  static AnalysisRun withRefusal(AstResult ast, CfgBlocker blocker) {
+    var request = new CfgRequest(ast.identity(), List.of(blocker.methodKey()), CfgProfile.JAVA_BOUNDED);
+    var method = new MethodCfgOutcome(ast.identity(), blocker.methodKey(), blocker.kind(), ast.bodyRef(blocker.methodKey()),
+        Optional.empty(), List.of(blocker), Optional.empty(), List.of(blocker.diagnostic()));
+    var cfg = new CfgOutcome(request, CfgState.PARTIAL, List.of(method), method.diagnostics());
+    var outcome = AstOutcome.available(ast);
+    return new SourceAnalysisRunner(ignored -> outcome, (source, selected) -> cfg).deriveExisting(outcome, request);
+  }
+
+  static int present(AnalysisRun run, CliStreams streams) {
+    return new AnalyzeCommandPresenter().present(new AnalyzeCommandOutcome.Executed(withoutRepositoryRequest(run)),
+        streams.output(), streams.error());
   }
 
   static AnalysisExecution withoutRepositoryRequest(AnalysisRun run) {
