@@ -7,10 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import org.aquilagraph.application.AnalysisRepositoryException;
-import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.port.AnalysisUseCase;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.source.api.AnalysisEnvironmentException;
@@ -88,14 +85,9 @@ class AnalyzeCommandExecutorTest {
   @Test
   void givenRelativeRootWithParentSegment_whenCommandExecutes_thenOneNormalizedRequestIsDelivered() {
     // Arrange
-    var invocations = new AtomicInteger();
-    var capturedRequest = new AtomicReference<AnalysisRequest>();
     var execution = CliTestFixtures.withoutRepositoryRequest(CliTestFixtures.completedRun());
-    var executor = new AnalyzeCommandExecutor(request -> {
-      invocations.incrementAndGet();
-      capturedRequest.set(request);
-      return execution;
-    });
+    var useCase = new CapturingAnalysisUseCase(request -> execution);
+    var executor = new AnalyzeCommandExecutor(useCase);
     var arguments = new AnalyzeCommandArguments(Path.of("source", "..", "target-source"),
         CliTestFixtures.arguments().release(), CliTestFixtures.arguments().publicationIntent());
 
@@ -104,8 +96,8 @@ class AnalyzeCommandExecutorTest {
 
     // Assert
     assertSame(execution, assertInstanceOf(AnalyzeCommandOutcome.Executed.class, result).execution());
-    assertEquals(1, invocations.get());
-    var request = capturedRequest.get();
+    assertEquals(1, useCase.requests().size());
+    var request = useCase.requests().getFirst();
     assertEquals(Path.of("target-source").toAbsolutePath().normalize(), ((SourceInput.Root) request.input()).path());
     assertEquals(arguments.release(), request.configuration().release());
     assertEquals(arguments.publicationIntent(), request.publicationIntent());

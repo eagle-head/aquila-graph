@@ -14,6 +14,66 @@ class AnalyzeCommandParserTest {
   private final AnalyzeCommandParser parser = new AnalyzeCommandParser(JavaRelease.JAVA_25);
 
   @Test
+  void givenNoSourceRoot_whenArgumentsAreParsed_thenRootCardinalityIsRejected() {
+    // Arrange
+    var arguments = new String[0];
+
+    // Act
+    var result = parser.parse(arguments);
+
+    // Assert
+    assertEquals("Exactly one source root is required", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+  }
+
+  @Test
+  void givenUnsupportedRelease_whenArgumentsAreParsed_thenSupportedReleaseIsReported() {
+    // Arrange
+    var arguments = new String[] {"source", "--release", "26"};
+
+    // Act
+    var result = parser.parse(arguments);
+
+    // Assert
+    assertEquals("Unsupported Java release: 26. Supported releases: 25", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+  }
+
+  @Test
+  void givenMalformedRelease_whenArgumentsAreParsed_thenOriginalTokenIsReported() {
+    // Arrange
+    var arguments = new String[] {"source", "--release", "latest"};
+
+    // Act
+    var result = parser.parse(arguments);
+
+    // Assert
+    assertEquals("Invalid Java release: latest", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+  }
+
+  @Test
+  void givenReleaseWithoutValue_whenArgumentsAreParsed_thenMissingValueIsReported() {
+    // Arrange
+    var arguments = new String[] {"source", "--release"};
+
+    // Act
+    var result = parser.parse(arguments);
+
+    // Assert
+    assertEquals("--release requires a Java feature-release number", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+  }
+
+  @Test
+  void givenDuplicateReleaseWithValues_whenArgumentsAreParsed_thenDuplicateIsRejected() {
+    // Arrange
+    var arguments = new String[] {"source", "--release", "25", "--release", "25"};
+
+    // Act
+    var result = parser.parse(arguments);
+
+    // Assert
+    assertEquals("--release may be supplied only once", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+  }
+
+  @Test
   void givenSourceRootWithoutOptions_whenArgumentsAreParsed_thenDefaultsAreApplied() {
     // Arrange
     var arguments = new String[] {"source"};

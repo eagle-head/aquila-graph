@@ -1,26 +1,18 @@
 package org.aquilagraph.cli;
 
-import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.AstProductionRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.aquilagraph.application.AnalysisCompletion;
-import org.aquilagraph.frontend.internal.JavaFrontend;
-import org.aquilagraph.frontend.internal.JavaSourceLoader;
-import org.aquilagraph.identity.api.CompilerConfiguration;
-import org.aquilagraph.identity.api.InputSnapshot;
-import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SoftwareVersion;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.source.internal.SourceAnalysisFixture;
+import org.aquilagraph.source.api.AstOutcome;
+import org.aquilagraph.source.api.AstProfile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -31,20 +23,15 @@ class SelectedGraphSummaryTest {
   void givenActualBoxingAndUnboxingGraphs_whenSummaryAndPresenterRun_thenNewOperationsCountAsNodesAndTheirEffectsCountAsEdges() throws IOException {
     // Arrange
     var source = "class Example { Number box(int input) { return input; } long unbox(Integer input) { return input; } }";
-    var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
-    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
-    var run = new SourceAnalysisFixture().analyze(input);
-    var output = new ByteArrayOutputStream();
-    var error = new ByteArrayOutputStream();
+    var input = CliTestFixtures.produce(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source)),
+        AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
+    var run = CliTestFixtures.analyze(AstOutcome.available(input));
+    var streams = new CliStreams(StandardCharsets.UTF_8);
 
     // Act
     var summary = AnalysisRunSummary.from(run);
-    int exitCode;
-    try (var outputStream = new PrintStream(output, true, StandardCharsets.UTF_8);
-        var errorStream = new PrintStream(error, true, StandardCharsets.UTF_8)) {
-      exitCode = new AnalyzeCommandPresenter().present(
-          new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)), outputStream, errorStream);
-    }
+    var exitCode = new AnalyzeCommandPresenter().present(
+        new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)), streams.output(), streams.error());
 
     // Assert
     assertEquals(AnalysisCompletion.COMPLETE, run.completion());
@@ -71,7 +58,7 @@ class SelectedGraphSummaryTest {
         + "CFG nodes: 13" + System.lineSeparator()
         + "CFG edges: 13" + System.lineSeparator()
         + input.program().methods().stream().map(method -> "Method CFG: \"" + method.methodKey() + "\" AVAILABLE" + System.lineSeparator()).collect(Collectors.joining())
-        + "Repository: NOT_REQUESTED" + System.lineSeparator(), output.toString(StandardCharsets.UTF_8));
-    assertEquals("", error.toString(StandardCharsets.UTF_8));
+        + "Repository: NOT_REQUESTED" + System.lineSeparator(), streams.outputText());
+    assertEquals("", streams.errorText());
   }
 }
