@@ -4,6 +4,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.aquilagraph.application.AnalysisRequest;
+import org.aquilagraph.application.CfgSelection;
+import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.cfg.CfgDerivers;
+import org.aquilagraph.cfg.api.CfgProfile;
+import org.aquilagraph.frontend.internal.JavaFrontend;
+import org.aquilagraph.frontend.internal.JavaSourceLoader;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.SourceInput;
+import java.util.Optional;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,7 +58,7 @@ class AquilaGraphProcessIT {
     assertTrue(result.completed(), result.error());
     assertEquals(0, result.exitCode(), result.error());
     assertTrue(result.output().contains("Software version: " + software), result.output());
-    assertTrue(result.output().contains("Completion: COMPLETED"), result.output());
+    assertTrue(result.output().lines().toList().contains("Completion: COMPLETE"), result.output());
     assertTrue(result.output().contains("Repository: NOT_REQUESTED"), result.output());
     assertEquals("", result.error());
   }
@@ -62,7 +75,7 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(0, result.exitCode(), result.error());
-    assertTrue(result.output().contains("Completion: COMPLETED"), result.output());
+    assertTrue(result.output().lines().toList().contains("Completion: COMPLETE"), result.output());
     assertEquals("", result.error());
   }
 
@@ -79,7 +92,7 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(0, result.exitCode(), result.error());
-    assertTrue(result.output().contains("Completion: COMPLETED"), result.output());
+    assertTrue(result.output().lines().toList().contains("Completion: COMPLETE"), result.output());
     assertEquals("", result.error());
   }
 
@@ -106,9 +119,9 @@ class AquilaGraphProcessIT {
           // Assert
           assertTrue(result.completed(), result.error());
           assertEquals(1, result.exitCode());
-          assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+          assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
           assertEquals(1, result.error().lines().filter(line -> line.startsWith(
-              "ERROR FRONTEND compiler.err.invalid.repeatable.annotation.repeated.and.container.present:")).count(), result.error());
+              "  Code: \"compiler.err.invalid.repeatable.annotation.repeated.and.container.present\"")).count(), result.error());
         }));
 
     // Assert
@@ -118,7 +131,7 @@ class AquilaGraphProcessIT {
   @TestFactory
   Stream<DynamicTest> givenPackagedUnsupportedDeclarationWithinExceptionClauses_whenBoundedProcessRuns_thenBothCausesRemainObservable() {
     return Stream.of("try { class Local {} } finally {}", "try (input) {} catch (Exception failure) { class Local {} }")
-        .map(statement -> DynamicTest.dynamicTest(statement, () -> {
+        .map(statement -> DynamicTest.dynamicTest("givenUnsupportedLocalDeclarationIn" + statement + "_whenPresented_thenNativeEventsAndReasonsRemainVisible", () -> {
           // Arrange
           var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
           Files.writeString(sourceRoot.resolve("Example.java"), "class Example { void subject(AutoCloseable input) throws Exception { " + statement + " } }");
@@ -127,14 +140,13 @@ class AquilaGraphProcessIT {
           // Assert
           assertTrue(result.completed(), result.error());
           assertEquals(1, result.exitCode());
-          assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
-          assertEquals(List.of("ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: TRY",
-              "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: CLASS"), result.error().lines().toList());
+          assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
+          assertNativeReport(result, sourceRoot);
         }));
   }
 
   @Test
-  void givenPackagedResourceAndFinallySource_whenBoundedProcessRuns_thenHistoricalTryDiagnosticRemainsObservable() throws IOException, InterruptedException {
+  void givenPackagedResourceAndFinallySource_whenBoundedProcessRuns_thenNativeQualificationAndCfgRefusalRemainObservable() throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
     Files.writeString(sourceRoot.resolve("Resources.java"), "class Resources { void value(AutoCloseable input) throws Exception { try (input) {} finally {} } }");
@@ -143,12 +155,12 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(1, result.exitCode());
-    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
-    assertEquals(List.of("ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: TRY"), result.error().lines().toList());
+    assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
+    assertNativeReport(result, sourceRoot);
   }
 
   @Test
-  void givenPackagedMultiCatchSource_whenBoundedProcessRuns_thenHistoricalUnionDiagnosticRemainsObservable() throws IOException, InterruptedException {
+  void givenPackagedMultiCatchSource_whenBoundedProcessRuns_thenNativeQualificationExplainsUnionRestriction() throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
     Files.writeString(sourceRoot.resolve("Catching.java"), "class Catching { void value() { try {} catch (IllegalArgumentException | IllegalStateException failure) {} } }");
@@ -157,12 +169,12 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(1, result.exitCode());
-    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
-    assertEquals(List.of("ERROR FRONTEND frontend.unsupported-tree-kind.union-type: Java compiler tree kind UNION_TYPE is outside the supported semantic graph profile"), result.error().lines().toList());
+    assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
+    assertNativeReport(result, sourceRoot);
   }
 
   @Test
-  void givenPackagedNestedTriesAndLoop_whenBoundedProcessRuns_thenHistoricalNestedDiagnosticsRetainTheirOrder() throws IOException, InterruptedException {
+  void givenPackagedNestedTriesAndLoop_whenBoundedProcessRuns_thenNativeNestedDiagnosticsRetainTheirOrder() throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
     Files.writeString(sourceRoot.resolve("Cleanup.java"), "class Cleanup { void value(boolean flag) { try { try { while (flag) {} } finally {} } finally {} } }");
@@ -171,16 +183,12 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(1, result.exitCode());
-    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
-    assertEquals(List.of(
-        "ERROR FRONTEND frontend.unsupported-tree-kind.while-loop: Java compiler tree kind WHILE_LOOP is outside the supported semantic graph profile",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: TRY",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: TRY",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: WHILE_LOOP"), result.error().lines().toList());
+    assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
+    assertNativeReport(result, sourceRoot);
   }
 
   @Test
-  void givenPackagedSwitchStatement_whenBoundedProcessRuns_thenHistoricalSwitchDiagnosticsAndRefusalRemainObservable()
+  void givenPackagedSwitchStatement_whenBoundedProcessRuns_thenNativeSwitchDiagnosticsAndRefusalRemainObservable()
       throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
@@ -190,14 +198,12 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(1, result.exitCode());
-    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
-    assertEquals(List.of(
-        "ERROR FRONTEND frontend.unsupported-tree-kind.switch: Java compiler tree kind SWITCH is outside the supported semantic graph profile",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: SWITCH"), result.error().lines().toList());
+    assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
+    assertNativeReport(result, sourceRoot);
   }
 
   @Test
-  void givenPackagedConstantSwitchLabel_whenBoundedProcessRuns_thenHistoricalCaseRefusalRemainsObservable()
+  void givenPackagedConstantSwitchLabel_whenBoundedProcessRuns_thenNativeCaseRefusalRemainsObservable()
       throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
@@ -207,12 +213,12 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(1, result.exitCode());
-    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
-    assertEquals(List.of("ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: CASE"), result.error().lines().toList());
+    assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
+    assertNativeReport(result, sourceRoot);
   }
 
   @Test
-  void givenPackagedPatternSource_whenBoundedProcessRuns_thenHistoricalDiagnosticsAndRefusalRemainObservable() throws IOException, InterruptedException {
+  void givenPackagedPatternSource_whenBoundedProcessRuns_thenNativeDiagnosticsAndRefusalRemainObservable() throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
     Files.writeString(sourceRoot.resolve("Patterns.java"), "class Patterns { boolean value(Object input) { return input instanceof String text; } }");
@@ -221,15 +227,12 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(1, result.exitCode());
-    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
-    assertEquals(List.of(
-        "ERROR FRONTEND frontend.unsupported-tree-kind.instance-of: Java compiler tree kind INSTANCE_OF is outside the supported semantic graph profile",
-        "ERROR FRONTEND frontend.unsupported-tree-kind.binding-pattern: Java compiler tree kind BINDING_PATTERN is outside the supported semantic graph profile",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: INSTANCE_OF"), result.error().lines().toList());
+    assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
+    assertNativeReport(result, sourceRoot);
   }
 
   @Test
-  void givenPackagedReferenceSource_whenBoundedProcessRuns_thenHistoricalReferenceRefusalRemainsObservable() throws IOException, InterruptedException {
+  void givenPackagedReferenceSource_whenBoundedProcessRuns_thenNativeReferenceRefusalRemainsObservable() throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
     Files.writeString(sourceRoot.resolve("References.java"), "class References { java.util.function.IntFunction<int[]> value() { return int[]::new; } }");
@@ -238,14 +241,12 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(1, result.exitCode());
-    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
-    assertEquals(List.of(
-        "ERROR FRONTEND frontend.unsupported-tree-kind.member-reference: Java compiler tree kind MEMBER_REFERENCE is outside the supported semantic graph profile",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: MEMBER_REFERENCE"), result.error().lines().toList());
+    assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
+    assertNativeReport(result, sourceRoot);
   }
 
   @Test
-  void givenPackagedLambdaWithNestedExecution_whenBoundedProcessRuns_thenHistoricalLambdaRefusalRemainsObservable()
+  void givenPackagedLambdaWithNestedExecution_whenBoundedProcessRuns_thenNativeLambdaRefusalRemainsObservable()
       throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
@@ -256,14 +257,12 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(1, result.exitCode());
-    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
-    assertEquals(List.of(
-        "ERROR FRONTEND frontend.unsupported-tree-kind.lambda-expression: Java compiler tree kind LAMBDA_EXPRESSION is outside the supported semantic graph profile",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: LAMBDA_EXPRESSION"), result.error().lines().toList());
+    assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
+    assertNativeReport(result, sourceRoot);
   }
 
   @Test
-  void givenPackagedAssertionsAndMonitors_whenBoundedProcessRuns_thenHistoricalRefusalAndDiagnosticsRemainObservable()
+  void givenPackagedAssertionsAndMonitors_whenBoundedProcessRuns_thenNativeRefusalAndDiagnosticsRemainObservable()
       throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
@@ -274,12 +273,8 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(1, result.exitCode());
-    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
-    assertEquals(List.of(
-        "ERROR FRONTEND frontend.unsupported-tree-kind.assert: Java compiler tree kind ASSERT is outside the supported semantic graph profile",
-        "ERROR FRONTEND frontend.unsupported-tree-kind.synchronized: Java compiler tree kind SYNCHRONIZED is outside the supported semantic graph profile",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: ASSERT",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: SYNCHRONIZED"), result.error().lines().toList());
+    assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
+    assertNativeReport(result, sourceRoot);
   }
 
   @Test
@@ -296,7 +291,7 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), "The packaged analyzer process did not finish within 30 seconds: " + result.output());
     assertEquals(0, result.exitCode(), result.output());
-    assertTrue(result.output().contains("Completion: COMPLETED"), result.output());
+    assertTrue(result.output().lines().toList().contains("Completion: COMPLETE"), result.output());
     assertFalse(result.output().contains("frontend.unsupported-tree-kind.compilation-unit"), result.output());
     assertFalse(result.output().contains("frontend.unsupported-tree-kind.primitive-type"), result.output());
     assertTrue(result.output().contains("Java release: 25"), result.output());
@@ -306,7 +301,7 @@ class AquilaGraphProcessIT {
   }
 
   @Test
-  void givenPackagedJarAndRepeatedParenthesizedTargets_whenProcessRuns_thenHistoricalDiagnosticsRemainRepeated()
+  void givenPackagedJarAndRepeatedParenthesizedTargets_whenProcessRuns_thenNativeDiagnosticsRemainRepeated()
       throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
@@ -319,16 +314,13 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(1, result.exitCode(), result.error());
-    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
     assertTrue(result.output().endsWith("Repository: NOT_REQUESTED" + System.lineSeparator()), result.output());
-    assertEquals(List.of(
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: PARENTHESIZED",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: PARENTHESIZED"),
-        result.error().lines().toList());
+    assertNativeReport(result, sourceRoot);
   }
 
   @Test
-  void givenPackagedJarAndParenthesizedTargetBeforeLoop_whenProcessRuns_thenHistoricalSourceOrderIsPreserved()
+  void givenPackagedJarAndParenthesizedTargetBeforeLoop_whenProcessRuns_thenCanonicalNativeEventsRemainInOrder()
       throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
@@ -341,15 +333,11 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(1, result.exitCode(), result.error());
-    assertEquals(List.of(
-        "ERROR FRONTEND frontend.unsupported-tree-kind.while-loop: Java compiler tree kind WHILE_LOOP is outside the supported semantic graph profile",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: PARENTHESIZED",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: WHILE_LOOP"),
-        result.error().lines().toList());
+    assertNativeReport(result, sourceRoot);
   }
 
   @Test
-  void givenPackagedJarAndParenthesizedTargetAfterLoop_whenProcessRuns_thenHistoricalSourceOrderIsPreserved()
+  void givenPackagedJarAndParenthesizedTargetAfterLoop_whenProcessRuns_thenCanonicalNativeEventsRemainInOrder()
       throws IOException, InterruptedException {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
@@ -362,11 +350,7 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(1, result.exitCode(), result.error());
-    assertEquals(List.of(
-        "ERROR FRONTEND frontend.unsupported-tree-kind.while-loop: Java compiler tree kind WHILE_LOOP is outside the supported semantic graph profile",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: WHILE_LOOP",
-        "ERROR FRONTEND frontend.unsupported-syntax: Unsupported Java construct in method body: PARENTHESIZED"),
-        result.error().lines().toList());
+    assertNativeReport(result, sourceRoot);
   }
 
   @Test
@@ -382,7 +366,7 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), "The packaged analyzer process did not finish within 30 seconds: " + result.output());
     assertEquals(1, result.exitCode(), result.output());
-    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
     assertTrue(result.error().contains("frontend.unsupported-field-initializer"), result.error());
     assertTrue(result.error().contains("frontend.unsupported-enum-constant-initialization"), result.error());
     assertTrue(result.output().contains("Repository: NOT_REQUESTED"), result.output());
@@ -454,7 +438,7 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed());
     assertEquals(0, result.exitCode(), result.error());
-    assertTrue(result.output().contains("Completion: COMPLETED"), result.output());
+    assertTrue(result.output().lines().toList().contains("Completion: COMPLETE"), result.output());
     assertTrue(result.output().endsWith("Repository: NOT_REQUESTED" + System.lineSeparator()), result.output());
     assertEquals("", result.error());
   }
@@ -472,8 +456,8 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed());
     assertEquals(3, result.exitCode(), result.error());
-    assertTrue(result.output().contains("Completion: COMPLETED"), result.output());
-    assertFalse(result.output().contains("Repository:"), result.output());
+    assertTrue(result.output().lines().toList().contains("Completion: COMPLETE"), result.output());
+    assertTrue(result.output().endsWith("Repository: FAILED" + System.lineSeparator()), result.output());
     assertEquals("Repository save failed: Invalid Neo4j repository configuration" + System.lineSeparator(), result.error());
   }
 
@@ -490,9 +474,9 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed());
     assertEquals(1, result.exitCode(), result.error());
-    assertTrue(result.output().contains("Completion: INCOMPLETE"), result.output());
+    assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
     assertTrue(result.output().endsWith("Repository: NOT_ELIGIBLE" + System.lineSeparator()), result.output());
-    assertTrue(result.error().contains("frontend.unsupported-tree-kind.while-loop"), result.error());
+    assertTrue(result.error().contains("Qualification: SOURCE PROFILE_RESTRICTION"), result.error());
     assertFalse(result.error().contains("Repository save failed:"), result.error());
   }
 
@@ -508,11 +492,27 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed());
     assertEquals(2, result.exitCode(), result.error());
-    assertTrue(result.output().contains("Completion: REJECTED"), result.output());
+    assertTrue(result.output().lines().toList().contains("Completion: REJECTED"), result.output());
     assertTrue(result.output().contains("Java source files: 0"), result.output());
     assertTrue(result.output().endsWith("Repository: NOT_ELIGIBLE" + System.lineSeparator()), result.output());
     assertFalse(result.output().contains("Java types:"), result.output());
     assertFalse(result.error().contains("Repository save failed:"), result.error());
+  }
+
+  private static void assertNativeReport(PackagedAnalyzerProcess.Result result, Path root) {
+    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var run = runner.analyze(new AnalysisRequest(new SourceInput.Root(root), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+        AstProfile.JAVA_SOURCE_BOUNDED, Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE));
+    assertEquals(run.diagnostics().stream().map(diagnostic -> "Diagnostic: \"" + diagnostic.diagnosticKey() + "\"").toList(),
+        result.error().lines().filter(line -> line.startsWith("Diagnostic:")).toList(), result.error());
+    assertEquals(run.diagnostics().stream().map(diagnostic -> "  Code: \"" + diagnostic.code() + "\"").toList(),
+        result.error().lines().filter(line -> line.startsWith("  Code:")).toList(), result.error());
+    assertEquals(run.diagnostics().stream().map(diagnostic -> "  Stage: " + diagnostic.stage()).toList(),
+        result.error().lines().filter(line -> line.startsWith("  Stage:")).toList(), result.error());
+    assertEquals(run.representation().ast().qualification().reasons().stream().map(reason -> "Qualification: SOURCE " + reason.category()).toList(),
+        result.error().lines().filter(line -> line.startsWith("Qualification: SOURCE ")).toList(), result.error());
+    assertTrue(result.output().contains("AST: " + run.representation().ast().completion()), result.output());
+    assertTrue(result.output().contains("CFG: " + run.representation().cfg().orElseThrow().state()), result.output());
   }
 
 }

@@ -41,12 +41,12 @@ class AnalyzeCommandTest {
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
-    assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Completion: INCOMPLETE"));
+    assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Completion: PARTIAL"));
     assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Java release: 25"));
     assertTrue(
         capturedOutput.toString(StandardCharsets.UTF_8).contains("Repository: NOT_REQUESTED"));
     assertTrue(capturedError.toString(StandardCharsets.UTF_8)
-        .contains("frontend.unsupported-tree-kind.while-loop"));
+        .contains("Qualification: SOURCE PROFILE_RESTRICTION"));
   }
 
   @Test
@@ -68,7 +68,7 @@ class AnalyzeCommandTest {
     assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
     assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Java release: 25"));
     assertTrue(capturedError.toString(StandardCharsets.UTF_8)
-        .contains("frontend.unsupported-tree-kind.while-loop"));
+        .contains("Qualification: SOURCE PROFILE_RESTRICTION"));
   }
 
   @Test
@@ -226,10 +226,10 @@ class AnalyzeCommandTest {
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
-    assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Completion: INCOMPLETE"));
+    assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Completion: PARTIAL"));
     assertTrue(capturedOutput.toString(StandardCharsets.UTF_8).contains("Repository: NOT_ELIGIBLE"));
     assertTrue(capturedError.toString(StandardCharsets.UTF_8)
-        .contains("frontend.unsupported-tree-kind.while-loop"));
+        .contains("Qualification: SOURCE PROFILE_RESTRICTION"));
   }
 
   private static AnalyzeCommand command(AnalysisRunRepositoryFactory repositoryFactory) {

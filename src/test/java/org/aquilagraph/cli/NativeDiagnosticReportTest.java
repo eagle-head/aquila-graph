@@ -8,6 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.Tree;
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.util.stream.IntStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -17,10 +21,10 @@ import java.util.stream.Stream;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.RequestQualificationReason;
 import org.aquilagraph.application.CfgSelection;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.SourceAnalysisRunner;
-import org.aquilagraph.cli.AnalysisDiagnosticProjection.DiagnosticSummary;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgBlocker;
 import org.aquilagraph.cfg.api.CfgOutcome;
@@ -50,6 +54,9 @@ import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.EvidenceValue;
+import org.aquilagraph.source.api.StaticMemberEvidence;
+import org.aquilagraph.source.api.SourceQualificationReason.EvidenceRole;
 import org.aquilagraph.source.api.MethodBodyOrigin;
 import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -61,9 +68,9 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
-class AnalysisDiagnosticProjectionTest {
+class NativeDiagnosticReportTest {
   @Test
-  void givenWarningSharingTheUnsupportedSourceProtocol_whenPresented_thenOnlyTheBlockingErrorPairsWithTheGraphCause()
+  void givenWarningSharingTheUnsupportedSourceProtocol_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible()
       throws IOException {
     // Arrange
     var original = analyze("class Example { void subject() { class Local {} } }", AstProfile.JAVA_SOURCE_BOUNDED)
@@ -85,16 +92,16 @@ class AnalysisDiagnosticProjectionTest {
     var run = new SourceAnalysisFixture().analyze(ast);
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
-    assertEquals(List.of(DiagnosticSummary.from(warning), DiagnosticSummary.from(error)), projection);
+    assertNativeReport(run, projection);
     assertEquals(3, run.diagnostics().size());
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
   }
 
   @Test
-  void givenLocatedSourceUnitWithUnavailableBodyPosition_whenPresented_thenItsNativeRefusalIsPreserved() throws IOException {
+  void givenLocatedSourceUnitWithUnavailableBodyPosition_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var ast = SourcePositionFixtures.produce("class Example { int subject() { return 1; } }", tree -> tree.getKind() == Tree.Kind.BLOCK);
     var method = ast.program().methods().stream().filter(value -> value.name().equals("subject")).findFirst().orElseThrow();
@@ -107,18 +114,17 @@ class AnalysisDiagnosticProjectionTest {
     var run = withRefusal(ast, blocker);
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
+    assertNativeReport(run, projection);
     assertEquals(AstCompletion.INCOMPLETE, ast.completion());
     assertTrue(ast.bodyRef(method.methodKey()).isEmpty());
     assertTrue(blocker.occurrence().isPresent());
-    assertEquals(run.diagnostics().stream().map(DiagnosticSummary::from).toList(), projection);
-    assertEquals(DiagnosticSummary.from(diagnostic), projection.getLast());
   }
 
   @Test
-  void givenUnpublishedBodyAfterDescendantPositionLoss_whenPresented_thenNativeGraphCausesRemainVisible()
+  void givenUnpublishedBodyAfterDescendantPositionLoss_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible()
       throws IOException {
     // Arrange
     var ast = SourcePositionFixtures.produce("class Example { void subject(boolean flag) { assert flag; while (flag) {} } }",
@@ -131,21 +137,20 @@ class AnalysisDiagnosticProjectionTest {
         .filter(node -> node.syntaxKind() == SyntaxKind.ASSERT).findFirst().orElseThrow();
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
+    var rendered = assertNativeReport(run, projection);
+    assertTrue(rendered.contains("  Source occurrence: unavailable"));
     assertTrue(loop.origin().isEmpty());
     assertTrue(ast.occurrence(loop).isEmpty());
     assertTrue(assertion.origin().isPresent());
     assertTrue(ast.occurrence(assertion).isEmpty());
-    assertEquals(run.representation().cfg().orElseThrow().diagnostics().stream().map(DiagnosticSummary::from).toList(),
-        projection.stream().filter(value -> value.stage().equals("CONTROL_FLOW")).toList());
-    assertFalse(projection.stream().anyMatch(value -> value.code().equals("frontend.unsupported-syntax")));
     assertEquals(AstCompletion.INCOMPLETE, ast.completion());
   }
 
   @Test
-  void givenUnsupportedSourceWithoutOccurrencePosition_whenPresented_thenSourceAndGraphCausesRemainDistinct() throws IOException {
+  void givenUnsupportedSourceWithoutOccurrencePosition_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var ast = SourcePositionFixtures.produce("class Example { void subject() { class Local {} } }",
         tree -> tree instanceof ClassTree declaration && declaration.getSimpleName().contentEquals("Local"));
@@ -156,18 +161,16 @@ class AnalysisDiagnosticProjectionTest {
         .findFirst().orElseThrow();
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
+    assertNativeReport(run, projection);
     assertTrue(unsupported.origin().isEmpty());
     assertTrue(ast.occurrence(unsupported).isEmpty());
-    assertEquals(run.diagnostics().stream().map(DiagnosticSummary::from).toList(), projection);
-    assertEquals("control-flow.source-unavailable", projection.getLast().code());
-    assertTrue(projection.stream().anyMatch(value -> value.message().equals("Unsupported Java construct in method body: CLASS")));
   }
 
   @Test
-  void givenBodyLevelRefusalForUnavailableDescendant_whenPresented_thenItsNativeDiagnosticIsNotReplacedByAChildDiagnostic()
+  void givenBodyLevelRefusalForUnavailableDescendant_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible()
       throws IOException {
     // Arrange
     var original = analyze("class Example { void subject() { class Local {} } }", AstProfile.JAVA_SOURCE_BOUNDED);
@@ -182,15 +185,15 @@ class AnalysisDiagnosticProjectionTest {
     var run = withRefusal(ast, blocker);
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
-    assertEquals(List.of(DiagnosticSummary.from(ast.diagnostics().getFirst()), DiagnosticSummary.from(diagnostic)), projection);
+    assertNativeReport(run, projection);
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
   }
 
   @Test
-  void givenAssignmentRefusalUsingAProviderSpecificSlot_whenPresented_thenTheNativeDiagnosticProtocolIsPreserved() throws IOException {
+  void givenAssignmentRefusalUsingAProviderSpecificSlot_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var original = analyze("class Example { int subject(int value) { (value) = 1; return value; } }", AstProfile.JAVA_SOURCE_BOUNDED);
     var ast = original.representation().ast().result().orElseThrow();
@@ -205,28 +208,32 @@ class AnalysisDiagnosticProjectionTest {
     var run = withRefusal(ast, blocker);
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
-    assertEquals(List.of(DiagnosticSummary.from(diagnostic)), projection);
+    var rendered = assertNativeReport(run, projection);
+    var span = assignment.origin().orElseThrow();
+    assertEquals(List.of(List.of("Qualification: CFG UNSUPPORTED", "  Profile: \"java-cfg-bounded/1\"",
+        "  Subject: \"" + method.methodKey() + "\"", "  AST result: \"" + ast.identity().astResultKey() + "\"",
+        "  Source occurrence: \"" + ast.occurrence(assignment).orElseThrow().nodeKey() + "\"", "  Slot: \"assignment.target\"",
+        "  Origin: \"" + span.sourceFileKey() + "\" file=\"Example.java\" range=[" + span.startOffset() + "," + span.endOffsetExclusive() + ")",
+        "  Related diagnostic: \"cfg:assignment-target\" occurrence=1")), qualificationBlocks(rendered, "CFG"));
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
     assertEquals(AstCompletion.COMPLETE, ast.completion());
   }
 
   @Test
-  void givenClassLiteralOutsideTheHistoricalCfgProfile_whenPresented_thenNativeControlFlowRefusalIsPreserved() throws IOException {
+  void givenClassLiteralOutsideTheBoundedCfgProfile_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var run = analyze("class Example { Class<?> subject() { return String.class; } }", AstProfile.JAVA_SOURCE_BOUNDED);
     var nativeDiagnostics = run.diagnostics();
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
+    assertNativeReport(run, projection);
     assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
-    assertEquals(List.of(new DiagnosticSummary(DiagnosticSeverity.ERROR, "CONTROL_FLOW", "control-flow.unsupported",
-        "Represented source construct is outside the selected CFG profile")), projection);
-    assertEquals(nativeDiagnostics.stream().map(DiagnosticSummary::from).toList(), projection);
     assertEquals(nativeDiagnostics, run.diagnostics());
   }
 
@@ -241,19 +248,17 @@ class AnalysisDiagnosticProjectionTest {
           var nativeDiagnostics = run.diagnostics();
 
           // Act
-          var projection = AnalysisRunSummary.from(run).diagnostics();
+          var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
           // Assert
+          assertNativeReport(run, projection);
           assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
-          assertTrue(projection.stream().anyMatch(value -> value.code().startsWith("compiler.")));
-          assertTrue(projection.stream().anyMatch(value -> value.code().equals("control-flow.unsupported")));
-          assertEquals(nativeDiagnostics.stream().map(DiagnosticSummary::from).toList(), projection);
           assertEquals(nativeDiagnostics, run.diagnostics());
         }));
   }
 
   @Test
-  void givenInputNoticeBeforeUnsupportedSourceDiagnostic_whenPresented_thenOnlyTheMatchingSourceCauseReplacesTheGraphRefusal()
+  void givenInputNoticeBeforeUnsupportedSourceDiagnostic_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible()
       throws IOException {
     // Arrange
     var original = analyze("class Example { void subject() { class Local {} } }", AstProfile.JAVA_SOURCE_BOUNDED)
@@ -274,18 +279,19 @@ class AnalysisDiagnosticProjectionTest {
     var run = new SourceAnalysisFixture().analyze(ast);
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
-    assertEquals(List.of(new DiagnosticSummary(DiagnosticSeverity.INFO, "INPUT", "input.notice", "Supplied input notice"),
-        new DiagnosticSummary(DiagnosticSeverity.ERROR, "FRONTEND", "frontend.unsupported-syntax",
-            "Unsupported Java construct in method body: CLASS")), projection);
+    var rendered = assertNativeReport(run, projection);
+    var related = relatedFromOwner(rendered, "SOURCE");
+    assertFalse(related.isEmpty());
+    assertTrue(related.stream().allMatch(line -> line.equals("  Related diagnostic: \"" + original.diagnostics().getFirst().diagnosticKey() + "\" occurrence=2")));
     assertEquals(diagnostics, ast.diagnostics());
     assertEquals(3, run.diagnostics().size());
   }
 
   @Test
-  void givenMalformedBinaryExpression_whenPresented_thenCompilerAndCapabilityDiagnosticsRemainInSourceOrder() throws IOException {
+  void givenMalformedBinaryExpression_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var run = analyze("class Example { int subject() { return 1 + ; } }", AstProfile.JAVA_SOURCE_BOUNDED);
     var diagnostics = run.representation().ast().diagnostics();
@@ -293,18 +299,16 @@ class AnalysisDiagnosticProjectionTest {
         .findFirst().orElseThrow();
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
+    assertNativeReport(run, projection);
     assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
     assertTrue(diagnostics.stream().anyMatch(value -> value.code().startsWith("compiler.")));
-    assertEquals(diagnostics.stream().map(DiagnosticSummary::from).toList(),
-        projection.stream().filter(value -> value.stage().equals("FRONTEND")).toList());
-    assertEquals(1L, projection.stream().filter(DiagnosticSummary.from(capability)::equals).count());
   }
 
   @TestFactory
-  Stream<DynamicTest> givenSuppliedSourceDiagnosticsOutsideTheHistoricalProtocol_whenPresented_thenSourceAndGraphCausesRemainDistinct() {
+  Stream<DynamicTest> givenSuppliedSourceDiagnosticsOutsideTheBoundedProtocol_whenPresented_thenSourceAndGraphCausesRemainDistinct() {
     return Stream.of("Message", "Code", "Originless")
         .map(variant -> DynamicTest.dynamicTest("givenAlternative" + variant + "SourceDiagnostic_whenPresented_thenBothCausesRemain", () -> {
           // Arrange
@@ -328,11 +332,11 @@ class AnalysisDiagnosticProjectionTest {
           var run = new SourceAnalysisFixture().analyze(ast);
 
           // Act
-          var projection = AnalysisRunSummary.from(run).diagnostics();
+          var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
           // Assert
-          assertEquals(List.of(DiagnosticSummary.from(replacement), new DiagnosticSummary(DiagnosticSeverity.ERROR, "CONTROL_FLOW",
-              "control-flow.source-unavailable", "Required source facts for this form are unavailable")), projection);
+          var rendered = assertNativeReport(run, projection);
+          assertTrue(rendered.contains("  Message: \"" + replacement.message() + "\""));
           assertEquals(List.of(replacement), ast.diagnostics());
           assertEquals(List.of(sourceDiagnostic), original.diagnostics());
           assertEquals(AnalysisCompletion.PARTIAL, run.completion());
@@ -340,7 +344,7 @@ class AnalysisDiagnosticProjectionTest {
   }
 
   @Test
-  void givenRepeatedCfgCauseForOneSourceOccurrence_whenPresented_thenOnlyOneGraphCauseIsPairedWithTheSourceDiagnostic()
+  void givenRepeatedCfgCauseForOneSourceOccurrence_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible()
       throws IOException {
     // Arrange
     var original = analyze("class Example { void subject() { class Local {} } }", AstProfile.JAVA_SOURCE_BOUNDED);
@@ -357,17 +361,17 @@ class AnalysisDiagnosticProjectionTest {
     var run = runner.deriveExisting(ast, cfg.request());
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
-    assertEquals(List.of(DiagnosticSummary.from(ast.diagnostics().getFirst()), DiagnosticSummary.from(blocker.diagnostic())), projection);
+    assertNativeReport(run, projection);
     assertEquals(3, run.diagnostics().size());
     assertEquals(List.of(blocker.diagnostic(), blocker.diagnostic()), cfg.diagnostics());
     assertSame(ast, run.representation().ast());
   }
 
   @Test
-  void givenAdmittedSourceWithUnavailableImplicitConstructorPosition_whenPresented_thenDeclarationRefusalAndOtherGraphsArePreserved()
+  void givenAdmittedSourceWithUnavailableImplicitConstructorPosition_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible()
       throws IOException {
     // Arrange
     var original = analyze("class Example { int subject() { return 1; } }", AstProfile.JAVA_SOURCE_BOUNDED)
@@ -389,17 +393,16 @@ class AnalysisDiagnosticProjectionTest {
     var summary = AnalysisRunSummary.from(run);
 
     // Assert
+    assertNativeReport(run, summary.occurrences().diagnostics());
     assertEquals(AstCompletion.INCOMPLETE, ast.completion());
-    assertEquals(AnalysisCompletion.PARTIAL, summary.completion());
+    assertEquals(AnalysisCompletion.PARTIAL, summary.run().completion());
     assertEquals(List.of(MethodCfgState.SOURCE_UNAVAILABLE, MethodCfgState.AVAILABLE),
         run.representation().cfg().orElseThrow().methods().stream().map(value -> value.state()).toList());
-    assertEquals(List.of(new DiagnosticSummary(DiagnosticSeverity.ERROR, "CONTROL_FLOW", "control-flow.source-unavailable",
-        "The selected written body has unavailable source facts")), summary.diagnostics());
     assertEquals(1, summary.program().orElseThrow().analyzedMethodBodyCount());
   }
 
   @TestFactory
-  Stream<DynamicTest> givenProducerNotesAtDifferentSourceLocations_whenPresented_thenHistoricalRefusalKeepsItsWrittenPosition() {
+  Stream<DynamicTest> givenProducerNotesAtDifferentSourceLocations_whenPresented_thenBoundedRefusalKeepsItsWrittenPosition() {
     return Stream.of("Originless", "Input", "Assignment", "Target", "TargetStart", "Body", "BeforeBody", "BeyondBody", "ForeignAndTarget")
         .map(location -> DynamicTest.dynamicTest("given" + location + "ProducerNote_whenPresented_thenWrittenDiagnosticOrderIsPreserved", () -> {
           // Arrange
@@ -443,30 +446,27 @@ class AnalysisDiagnosticProjectionTest {
               Optional.of(original.aggregate()), diagnostics, coverage);
           var ast = AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision());
           var run = new SourceAnalysisFixture().analyze(ast);
-          var note = new DiagnosticSummary(DiagnosticSeverity.INFO, stage.name(), "source.note", "Supplied producer note");
-          var refusal = new DiagnosticSummary(DiagnosticSeverity.ERROR, "FRONTEND", "frontend.unsupported-syntax",
-              "Unsupported Java construct in method body: PARENTHESIZED");
-          var expected = location.equals("Target") || location.equals("TargetStart") || location.equals("ForeignAndTarget")
-              ? List.of(refusal, note) : List.of(note, refusal);
+
+
 
           // Act
           var summary = AnalysisRunSummary.from(run);
 
           // Assert
-          assertEquals(expected, summary.diagnostics());
+          assertNativeReport(run, summary.occurrences().diagnostics());
           assertEquals(AstCompletion.COMPLETE, ast.completion());
           assertEquals(List.of(diagnostic), ast.diagnostics());
-          assertEquals(AnalysisCompletion.PARTIAL, summary.completion());
+          assertEquals(AnalysisCompletion.PARTIAL, summary.run().completion());
         }));
   }
 
   @TestFactory
-  Stream<DynamicTest> givenHistoricalSwitchLabels_whenPresented_thenSupportedCasesRemainFreeOfRefusals() {
+  Stream<DynamicTest> givenBoundedSwitchLabels_whenPresented_thenSupportedCasesRemainFreeOfRefusals() {
     return Stream.of(
-        new SwitchExample("NumericLabels", "int subject(int value) { return switch (value) { case 1, 2 -> 3; default -> 4; }; }", 0),
-        new SwitchExample("StringLabels", "int subject(String value) { return switch (value) { case \"a\", \"b\" -> 1; default -> 2; }; }", 0),
-        new SwitchExample("EnumLabels", "int subject(RetentionPolicy value) { return switch (value) { case SOURCE, CLASS -> 1; case RUNTIME -> 2; }; }", 0),
-        new SwitchExample("QualifiedEnumLabel", "int subject(Object value) { return switch (value) { case RetentionPolicy.SOURCE -> 1; default -> 2; }; }", 0))
+        new SwitchExample("NumericLabels", "int subject(int value) { return switch (value) { case 1, 2 -> 3; default -> 4; }; }"),
+        new SwitchExample("StringLabels", "int subject(String value) { return switch (value) { case \"a\", \"b\" -> 1; default -> 2; }; }"),
+        new SwitchExample("EnumLabels", "int subject(RetentionPolicy value) { return switch (value) { case SOURCE, CLASS -> 1; case RUNTIME -> 2; }; }"),
+        new SwitchExample("QualifiedEnumLabel", "int subject(Object value) { return switch (value) { case RetentionPolicy.SOURCE -> 1; default -> 2; }; }"))
         .map(example -> DynamicTest.dynamicTest("given" + example.context() + "_whenPresented_thenNoRefusalsRemain", () -> {
           // Arrange
           var run = analyze("import java.lang.annotation.RetentionPolicy; class Example { " + example.method() + " }",
@@ -476,52 +476,47 @@ class AnalysisDiagnosticProjectionTest {
           var summary = AnalysisRunSummary.from(run);
 
           // Assert
-          assertEquals(List.of(), summary.diagnostics());
-          assertEquals(AnalysisCompletion.COMPLETE, summary.completion());
+          assertNativeReport(run, summary.occurrences().diagnostics());
+          assertEquals(AnalysisCompletion.COMPLETE, summary.run().completion());
         }));
   }
 
   @TestFactory
-  Stream<DynamicTest> givenExpandedSwitchExpressionLabels_whenPresented_thenEachUnsupportedCaseKeepsItsHistoricalRefusal() {
+  Stream<DynamicTest> givenExpandedSwitchExpressionLabels_whenPresented_thenEachUnsupportedCaseKeepsItsBoundedRefusal() {
     return Stream.of(
-        new SwitchExample("StatementGroups", "int subject(int value) { return switch (value) { case 1: yield 2; default: yield 3; }; }", 2),
-        new SwitchExample("ConstantExpression", "int subject(int value) { return switch (value) { case 1 + 2 -> 3; default -> 4; }; }", 1),
-        new SwitchExample("NullLabel", "int subject(String value) { return switch (value) { case null -> 0; default -> 1; }; }", 1),
-        new SwitchExample("LocalConstant", "int subject(int value) { final int label = 1; return switch (value) { case label -> 2; default -> 3; }; }", 1))
-        .map(example -> DynamicTest.dynamicTest("given" + example.context() + "_whenPresented_thenHistoricalCaseRefusalsRemain", () -> {
+        new SwitchExample("StatementGroups", "int subject(int value) { return switch (value) { case 1: yield 2; default: yield 3; }; }"),
+        new SwitchExample("ConstantExpression", "int subject(int value) { return switch (value) { case 1 + 2 -> 3; default -> 4; }; }"),
+        new SwitchExample("NullLabel", "int subject(String value) { return switch (value) { case null -> 0; default -> 1; }; }"),
+        new SwitchExample("LocalConstant", "int subject(int value) { final int label = 1; return switch (value) { case label -> 2; default -> 3; }; }"))
+        .map(example -> DynamicTest.dynamicTest("given" + example.context() + "_whenPresented_thenBoundedCaseRefusalsRemain", () -> {
           // Arrange
           var run = analyze("class Example { " + example.method() + " }", AstProfile.JAVA_SOURCE_BOUNDED);
           var nativeDiagnostics = run.diagnostics();
-          var expected = Collections.nCopies(example.refusedCases(), new DiagnosticSummary(DiagnosticSeverity.ERROR, "FRONTEND",
-              "frontend.unsupported-syntax", "Unsupported Java construct in method body: CASE"));
 
           // Act
-          var projection = AnalysisRunSummary.from(run).diagnostics();
+          var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
           // Assert
-          assertEquals(expected, projection);
+          assertNativeReport(run, projection);
           assertEquals(nativeDiagnostics, run.diagnostics());
         }));
   }
 
   @Test
-  void givenGuardedSwitchExpression_whenPresented_thenCaseAndCatalogRefusalsRemainInHistoricalOrder() throws IOException {
+  void givenGuardedSwitchExpression_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var run = analyze("class Example { int subject(Object value) { return switch (value) { "
         + "case String text when text.length() > 0 -> text.length(); default -> 0; }; } }", AstProfile.JAVA_SOURCE_BOUNDED);
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
-    assertEquals(List.of("frontend.unsupported-tree-kind.pattern-case-label", "frontend.unsupported-tree-kind.binding-pattern",
-        "frontend.unsupported-syntax"), projection.stream().map(DiagnosticSummary::code).toList());
-    assertEquals("Unsupported Java construct in method body: CASE", projection.getLast().message());
-    assertEquals(List.of("FRONTEND", "FRONTEND", "FRONTEND"), projection.stream().map(DiagnosticSummary::stage).toList());
+    assertNativeReport(run, projection);
   }
 
   @Test
-  void givenAstOnlyRequestWithSourceErrors_whenPresented_thenNativeDiagnosticsArePreserved() throws IOException {
+  void givenAstOnlyRequestWithSourceErrors_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(SourceFile.fromContent(Path.of("Example.java"),
         "class Example { int subject() { return missing; } }")));
@@ -531,16 +526,15 @@ class AnalysisDiagnosticProjectionTest {
     var run = runner.analyze(request);
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
+    assertNativeReport(run, projection);
     assertTrue(run.representation().cfg().isEmpty());
-    assertTrue(projection.stream().anyMatch(value -> value.code().equals("compiler.err.cant.resolve.location")), projection.toString());
-    assertEquals(run.diagnostics().stream().map(DiagnosticSummary::from).toList(), projection);
   }
 
   @Test
-  void givenAlternativeCfgProfile_whenPresented_thenNativeGraphRefusalsArePreserved() {
+  void givenAlternativeCfgProfile_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() {
     // Arrange
     var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(SourceFile.fromContent(Path.of("Example.java"),
         "class Example { int subject(int value) { return switch (value) { case 1 -> 2; default -> 3; }; } }")));
@@ -551,16 +545,14 @@ class AnalysisDiagnosticProjectionTest {
     var run = runner.analyze(request);
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
-    assertEquals(List.of("control-flow.unsupported"), projection.stream().map(DiagnosticSummary::code).toList());
-    assertEquals(List.of("CONTROL_FLOW"), projection.stream().map(DiagnosticSummary::stage).toList());
-    assertEquals(run.diagnostics().stream().map(DiagnosticSummary::from).toList(), projection);
+    assertNativeReport(run, projection);
   }
 
   @Test
-  void givenMalformedExpressionBesideIteration_whenPresented_thenCompilerAndCapabilityErrorsRemainVisible() throws IOException {
+  void givenMalformedExpressionBesideIteration_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var run = analyze("class Example { int subject(boolean flag) { while (flag) {} return (); } }",
         AstProfile.JAVA_SOURCE_BOUNDED);
@@ -568,21 +560,19 @@ class AnalysisDiagnosticProjectionTest {
     var capability = sourceDiagnostics.stream()
         .filter(value -> value.code().equals("frontend.unsupported-tree-kind.erroneous")).findFirst().orElseThrow();
     var compilerErrors = sourceDiagnostics.stream().filter(value -> value.code().startsWith("compiler."))
-        .map(DiagnosticSummary::from).toList();
+        .toList();
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
-    assertEquals(1L, projection.stream().filter(DiagnosticSummary.from(capability)::equals).count());
+    assertNativeReport(run, projection);
     assertFalse(compilerErrors.isEmpty());
-    assertEquals(compilerErrors, projection.stream().filter(value -> value.code().startsWith("compiler.")).toList());
-    assertTrue(projection.stream().anyMatch(value -> value.message().equals("Unsupported Java construct in method body: WHILE_LOOP")));
     assertEquals(sourceDiagnostics, run.representation().ast().diagnostics());
   }
 
   @Test
-  void givenInterleavedSourceAndGraphRefusalsInSeveralBodies_whenPresented_thenWrittenMethodAndOccurrenceOrderIsPreserved()
+  void givenInterleavedSourceAndGraphRefusalsInSeveralBodies_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible()
       throws IOException {
     // Arrange
     var run = analyze("""
@@ -594,18 +584,15 @@ class AnalysisDiagnosticProjectionTest {
     var original = run.diagnostics();
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
-    assertEquals(List.of("PARENTHESIZED", "CLASS", "CLASS", "PARENTHESIZED", "CLASS"), projection.stream()
-        .map(value -> value.message().substring("Unsupported Java construct in method body: ".length())).toList());
-    assertEquals(List.of("FRONTEND", "FRONTEND", "FRONTEND", "FRONTEND", "FRONTEND"),
-        projection.stream().map(DiagnosticSummary::stage).toList());
+    assertNativeReport(run, projection);
     assertEquals(original, run.diagnostics());
   }
 
   @Test
-  void givenRefusalsInSeveralFilesAndBodylessDeclarations_whenPresented_thenCatalogAndBodiesFollowSnapshotOrder() throws IOException {
+  void givenRefusalsInSeveralFilesAndBodylessDeclarations_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(
         SourceFile.fromContent(Path.of("First.java"), "interface First { void bodyless(); default void first(boolean flag) { while (flag) {} } }"),
@@ -615,12 +602,10 @@ class AnalysisDiagnosticProjectionTest {
     var run = new SourceAnalysisFixture().analyze(ast);
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
-    assertEquals(List.of("Java compiler tree kind WHILE_LOOP is outside the supported semantic graph profile",
-        "Unsupported Java construct in method body: WHILE_LOOP", "Unsupported Java construct in method body: PARENTHESIZED",
-        "Unsupported Java construct in method body: CLASS"), projection.stream().map(DiagnosticSummary::message).toList());
+    assertNativeReport(run, projection);
   }
 
   @TestFactory
@@ -631,7 +616,7 @@ class AnalysisDiagnosticProjectionTest {
       "try {} finally { class Local {} }",
       "try (input) { class Local {} }",
       "try (AutoCloseable local = input) { class Local {} } finally {}")
-        .map(statement -> DynamicTest.dynamicTest(statement, () -> {
+        .map(statement -> DynamicTest.dynamicTest("givenUnsupportedLocalDeclarationIn" + statement + "_whenPresented_thenNativeEventsAndReasonsRemainVisible", () -> {
           // Arrange
           var source = "class Example { void subject(AutoCloseable input) throws Exception { " + statement + " } }";
           var bounded = analyze(source, AstProfile.JAVA_SOURCE_BOUNDED);
@@ -641,14 +626,13 @@ class AnalysisDiagnosticProjectionTest {
           var boundedAst = bounded.representation().ast().result().orElseThrow();
           var boundedCfg = bounded.representation().cfg().orElseThrow();
           // Act
-          var projected = AnalysisRunSummary.from(bounded).diagnostics();
-          var expandedProjection = AnalysisRunSummary.from(expanded).diagnostics();
+          var projected = AnalysisRunSummary.from(bounded).occurrences().diagnostics();
+          var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().diagnostics();
           // Assert
-          assertEquals(List.of("Unsupported Java construct in method body: TRY", "Unsupported Java construct in method body: CLASS"),
-              projected.stream().map(DiagnosticSummary::message).toList());
+          assertNativeReport(bounded, projected);
+          assertNativeReport(expanded, expandedProjection);
           assertEquals(List.of("Unsupported Java construct in method body: CLASS"),
               boundedAst.diagnostics().stream().map(value -> value.message()).toList());
-          assertEquals(nativeExpanded.stream().map(DiagnosticSummary::from).toList(), expandedProjection);
           assertEquals(nativeBounded, bounded.diagnostics());
           assertEquals(nativeExpanded, expanded.diagnostics());
           assertSame(boundedAst, bounded.representation().ast().result().orElseThrow());
@@ -659,33 +643,31 @@ class AnalysisDiagnosticProjectionTest {
   }
 
   @Test
-  void givenUnsupportedDeclarationWithinNestedTries_whenPresented_thenEachEnclosingAndDescendantCauseKeepsItsOrder() throws IOException {
+  void givenUnsupportedDeclarationWithinNestedTries_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var run = analyze("class Example { void subject() { try { try {} finally { class Local {} } } finally {} } }", AstProfile.JAVA_SOURCE_BOUNDED);
     var nativeDiagnostics = run.diagnostics();
     // Act
-    var projected = AnalysisRunSummary.from(run).diagnostics();
+    var projected = AnalysisRunSummary.from(run).occurrences().diagnostics();
     // Assert
-    assertEquals(List.of("Unsupported Java construct in method body: TRY", "Unsupported Java construct in method body: TRY",
-        "Unsupported Java construct in method body: CLASS"), projected.stream().map(DiagnosticSummary::message).toList());
+    assertNativeReport(run, projected);
     assertEquals(nativeDiagnostics, run.diagnostics());
   }
 
   @Test
-  void givenExceptionClauseWithinHistoricalIterationBoundary_whenPresented_thenTheOuterStatementStillOwnsTheProjection() throws IOException {
+  void givenExceptionClauseWithinBoundedIterationBoundary_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var run = analyze("class Example { void subject(boolean flag) { while (flag) { try { class Local {} } finally {} } } }", AstProfile.JAVA_SOURCE_BOUNDED);
     var nativeDiagnostics = run.diagnostics();
     // Act
-    var projected = AnalysisRunSummary.from(run).diagnostics();
+    var projected = AnalysisRunSummary.from(run).occurrences().diagnostics();
     // Assert
-    assertEquals(List.of("Java compiler tree kind WHILE_LOOP is outside the supported semantic graph profile",
-        "Unsupported Java construct in method body: WHILE_LOOP"), projected.stream().map(DiagnosticSummary::message).toList());
+    assertNativeReport(run, projected);
     assertEquals(nativeDiagnostics, run.diagnostics());
   }
 
   @Test
-  void givenNestedExceptionSyntaxInBothProfiles_whenPresented_thenHistoricalTryAndNestedLoopDiagnosticsStayInTheConsoleBoundary() throws IOException {
+  void givenNestedExceptionSyntaxInBothProfiles_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var source = "class Example { void value(AutoCloseable input, boolean flag) throws Exception { try (input) { try { while(flag) {} } finally {} } finally {} } }";
     var bounded = analyze(source, AstProfile.JAVA_SOURCE_BOUNDED);
@@ -693,13 +675,11 @@ class AnalysisDiagnosticProjectionTest {
     var originalBounded = bounded.diagnostics();
     var originalExpanded = expanded.diagnostics();
     // Act
-    var projected = AnalysisRunSummary.from(bounded).diagnostics();
-    var expandedProjection = AnalysisRunSummary.from(expanded).diagnostics();
+    var projected = AnalysisRunSummary.from(bounded).occurrences().diagnostics();
+    var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().diagnostics();
     // Assert
-    assertEquals(List.of("Java compiler tree kind WHILE_LOOP is outside the supported semantic graph profile",
-        "Unsupported Java construct in method body: TRY", "Unsupported Java construct in method body: TRY",
-        "Unsupported Java construct in method body: WHILE_LOOP"), projected.stream().map(DiagnosticSummary::message).toList());
-    assertEquals(originalExpanded.stream().map(DiagnosticSummary::from).toList(), expandedProjection);
+    assertNativeReport(bounded, projected);
+    assertNativeReport(expanded, expandedProjection);
     assertEquals(originalBounded, bounded.diagnostics());
     assertEquals(originalExpanded, expanded.diagnostics());
     assertEquals(AstCompletion.COMPLETE, expanded.representation().ast().completion());
@@ -707,43 +687,38 @@ class AnalysisDiagnosticProjectionTest {
   }
 
   @Test
-  void givenMultiCatchInBothProfiles_whenPresented_thenHistoricalUnionDiagnosticDoesNotBecomeANativeSourceError() throws IOException {
+  void givenMultiCatchInBothProfiles_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var source = "class Example { void value() { try {} catch (IllegalArgumentException | IllegalStateException failure) {} } }";
     var bounded = analyze(source, AstProfile.JAVA_SOURCE_BOUNDED);
     var expanded = analyze(source, AstProfile.JAVA_SOURCE_EXPANDED);
     // Act
-    var projected = AnalysisRunSummary.from(bounded).diagnostics();
-    var expandedProjection = AnalysisRunSummary.from(expanded).diagnostics();
+    var projected = AnalysisRunSummary.from(bounded).occurrences().diagnostics();
+    var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().diagnostics();
     // Assert
-    assertEquals(List.of("frontend.unsupported-tree-kind.union-type"), projected.stream().map(DiagnosticSummary::code).toList());
+    assertNativeReport(bounded, projected);
+    assertNativeReport(expanded, expandedProjection);
     assertEquals(List.of(), bounded.diagnostics());
     assertEquals(List.of(), expanded.diagnostics());
-    assertEquals(List.of(), expandedProjection);
     assertEquals(AstCompletion.COMPLETE, expanded.representation().ast().completion());
     assertEquals(AnalysisCompletion.COMPLETE, expanded.completion());
   }
 
   @Test
-  void givenNestedAssertionsAndMonitor_whenBoundedPresentationRuns_thenCatalogAndOuterBodyBoundariesRemainDistinct() throws IOException {
+  void givenNestedAssertionsAndMonitor_whenBoundedPresentationRuns_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var run = analyze("class Example { void value(Object lock, boolean flag) { assert flag; synchronized (lock) { assert flag; } } }", AstProfile.JAVA_SOURCE_BOUNDED);
     var nativeDiagnostics = run.diagnostics();
     // Act
-    var projected = AnalysisRunSummary.from(run).diagnostics();
+    var projected = AnalysisRunSummary.from(run).occurrences().diagnostics();
     // Assert
-    assertEquals(List.of(
-        "Java compiler tree kind ASSERT is outside the supported semantic graph profile",
-        "Java compiler tree kind SYNCHRONIZED is outside the supported semantic graph profile",
-        "Java compiler tree kind ASSERT is outside the supported semantic graph profile",
-        "Unsupported Java construct in method body: ASSERT",
-        "Unsupported Java construct in method body: SYNCHRONIZED"), projected.stream().map(DiagnosticSummary::message).toList());
+    assertNativeReport(run, projected);
     assertEquals(nativeDiagnostics, run.diagnostics());
     assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
   }
 
   @Test
-  void givenNestedIterationInBothProfiles_whenPresented_thenOnlyBoundedPresentationKeepsTheHistoricalStatementBoundary() throws IOException {
+  void givenNestedIterationInBothProfiles_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var source = "class Example { void value(int n) { outer: while (n > 0) { for (int i = 0; i < n; i++) { continue outer; } break; } } }";
     var bounded = analyze(source, AstProfile.JAVA_SOURCE_BOUNDED);
@@ -751,37 +726,35 @@ class AnalysisDiagnosticProjectionTest {
     var originalBounded = bounded.diagnostics();
     var originalExpanded = expanded.diagnostics();
     // Act
-    var boundedProjection = AnalysisRunSummary.from(bounded).diagnostics();
-    var expandedProjection = AnalysisRunSummary.from(expanded).diagnostics();
+    var boundedProjection = AnalysisRunSummary.from(bounded).occurrences().diagnostics();
+    var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().diagnostics();
     // Assert
-    assertEquals(List.of("frontend.unsupported-tree-kind.labeled-statement", "frontend.unsupported-tree-kind.while-loop",
-        "frontend.unsupported-tree-kind.for-loop", "frontend.unsupported-tree-kind.continue", "frontend.unsupported-tree-kind.break",
-        "frontend.unsupported-syntax"), boundedProjection.stream().map(DiagnosticSummary::code).toList());
-    assertEquals("Unsupported Java construct in method body: LABELED_STATEMENT", boundedProjection.getLast().message());
-    assertEquals(originalExpanded.stream().map(DiagnosticSummary::from).toList(), expandedProjection);
+    assertNativeReport(bounded, boundedProjection);
+    assertNativeReport(expanded, expandedProjection);
     assertEquals(originalBounded, bounded.diagnostics());
     assertEquals(originalExpanded, expanded.diagnostics());
     assertEquals(AstCompletion.COMPLETE, expanded.representation().ast().completion());
   }
 
   @Test
-  void givenRealCompilerErrorWithinAnIteration_whenPresented_thenEveryGenuineSourceErrorRemainsVisible() throws IOException {
+  void givenRealCompilerErrorWithinAnIteration_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var run = analyze("class Example { void value() { while (missing) { } } }", AstProfile.JAVA_SOURCE_BOUNDED);
     var genuine = run.representation().ast().diagnostics().stream().filter(diagnostic -> !diagnostic.code().startsWith("frontend.unsupported-")).toList();
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
     // Assert
+    assertNativeReport(run, projection);
     assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
     assertEquals(true, genuine.stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     for (var diagnostic : genuine) {
       assertEquals(run.representation().ast().diagnostics().stream().filter(diagnostic::equals).count(),
-          projection.stream().filter(summary -> summary.equals(DiagnosticSummary.from(diagnostic))).count());
+          projection.stream().filter(diagnostic::equals).count());
     }
   }
 
   @Test
-  void givenBoundedAndExpandedProfiles_whenRepeatedRefusalsArePresented_thenOnlyBoundedConsoleUsesHistoricalLabels() throws IOException {
+  void givenBoundedAndExpandedProfiles_whenRepeatedRefusalsArePresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var source = "class Example { int value(int a) { (a) = 1; (a) = 2; return a; } }";
     for (var profile : List.of(AstProfile.JAVA_SOURCE_BOUNDED, AstProfile.JAVA_SOURCE_EXPANDED)) {
@@ -791,15 +764,10 @@ class AnalysisDiagnosticProjectionTest {
       var nativeDiagnostics = run.diagnostics();
 
       // Act
-      var projection = AnalysisRunSummary.from(run).diagnostics();
+      var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
       // Assert
-      var expected = profile.equals(AstProfile.JAVA_SOURCE_BOUNDED)
-          ? new DiagnosticSummary(DiagnosticSeverity.ERROR, "FRONTEND", "frontend.unsupported-syntax",
-              "Unsupported Java construct in method body: PARENTHESIZED")
-          : new DiagnosticSummary(DiagnosticSeverity.ERROR, "CONTROL_FLOW", "control-flow.unsupported",
-              "Represented source construct is outside the selected CFG profile");
-      assertEquals(List.of(expected, expected), projection);
+      assertNativeReport(run, projection);
       assertEquals(AstCompletion.COMPLETE, ast.completion());
       assertEquals(List.of(), ast.diagnostics());
       assertSame(ast, run.representation().ast().result().orElseThrow());
@@ -810,7 +778,7 @@ class AnalysisDiagnosticProjectionTest {
   }
 
   @Test
-  void givenNestedTargetsInMultipleBodies_whenPresented_thenCatalogPrefixAndWrittenBodyOrderArePreserved() throws IOException {
+  void givenNestedTargetsInMultipleBodies_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var run = analyze("""
         class Example {
@@ -820,19 +788,14 @@ class AnalysisDiagnosticProjectionTest {
         """, AstProfile.JAVA_SOURCE_BOUNDED);
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
-    assertEquals(List.of(
-        "Java compiler tree kind WHILE_LOOP is outside the supported semantic graph profile",
-        "Unsupported Java construct in method body: PARENTHESIZED",
-        "Unsupported Java construct in method body: WHILE_LOOP",
-        "Unsupported Java construct in method body: PARENTHESIZED"), projection.stream().map(DiagnosticSummary::message).toList());
-    assertEquals(List.of("FRONTEND", "FRONTEND", "FRONTEND", "FRONTEND"), projection.stream().map(DiagnosticSummary::stage).toList());
+    assertNativeReport(run, projection);
   }
 
   @Test
-  void givenRepeatedApplicationSlotsEqualToGraphDiagnostic_whenPresented_thenApplicationOccurrencesRemainVisible() throws IOException {
+  void givenRepeatedApplicationSlotsEqualToGraphDiagnostic_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var original = analyze("class Example { int value(int a) { (a) = 1; return a; } }", AstProfile.JAVA_SOURCE_BOUNDED);
     var graphDiagnostic = original.diagnostics().getFirst();
@@ -840,17 +803,142 @@ class AnalysisDiagnosticProjectionTest {
     var run = AnalysisRun.create(original.identity(), original.representation(), applicationDiagnostics);
 
     // Act
-    var projection = AnalysisRunSummary.from(run).diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
 
     // Assert
-    assertEquals(List.of(new DiagnosticSummary(DiagnosticSeverity.ERROR, "FRONTEND", "frontend.unsupported-syntax",
-        "Unsupported Java construct in method body: PARENTHESIZED"),
-        new DiagnosticSummary(DiagnosticSeverity.ERROR, "CONTROL_FLOW", "control-flow.unsupported",
-            "Represented source construct is outside the selected CFG profile"),
-        new DiagnosticSummary(DiagnosticSeverity.ERROR, "CONTROL_FLOW", "control-flow.unsupported",
-            "Represented source construct is outside the selected CFG profile")), projection);
+    assertNativeReport(run, projection);
     assertEquals(3, run.diagnostics().size());
     assertEquals(List.of(graphDiagnostic, graphDiagnostic), run.applicationDiagnostics());
+  }
+
+  @Test
+  void givenSourceOwnerEvidenceEqualToANativeEvent_whenPresented_thenRetainedEvidenceDoesNotAcquireAnInventedOccurrence() throws IOException {
+    // Arrange
+    var original = analyze("interface Example { static int read() { return Integer.MAX_VALUE; } }", AstProfile.JAVA_SOURCE_BOUNDED)
+        .representation().ast().result().orElseThrow();
+    var methodKey = original.program().methods().getFirst().methodKey();
+    var selected = original.body(methodKey).orElseThrow().evidence().staticMembers().getFirst();
+    var error = new AnalysisDiagnostic("source:owner", "source.owner", DiagnosticStage.FRONTEND, DiagnosticSeverity.ERROR,
+        "Supplied owner error", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+    var evidence = original.coverage().validationEvidence();
+    var events = new ArrayList<>(evidence.diagnosticEmissions());
+    events.add(new DiagnosticEmission(new DiagnosticEmission.Address("CopiedOwner", "owner", events.size()), error,
+        error.outcomeKind(), List.of(), events.size()));
+    var coverage = CoverageAdmission.fromEvidence(original.coverage().coverage(), evidence.writtenInventory(),
+        evidence.attributedExpectations(), evidence.outcomes(), evidence.unmatchedFacts(), events);
+    var replacement = new StaticMemberEvidence(selected.scopeKey(), selected.accessNodeId(), selected.selectedMemberKey(), selected.kind(),
+        EvidenceValue.erroneous(selected.declaringOwner().origin(), "Owner erroneous", error), selected.constantVariable());
+    var copied = SourceValueCapture.capture(original.aggregate());
+    var bodies = copied.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), body.root(), body.origin(), body.uses(),
+        body.invocations(), body.staticAccesses().isEmpty() ? body.staticAccesses() : List.of(replacement), body.concatenations(),
+        body.constructors(), body.attributedOccurrences())).toList();
+    var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), bodies, copied.memberOrders(),
+        copied.associations(), copied.declarationTypes()));
+    var ast = AstResultAdmission.admit(new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(),
+        Optional.of(aggregate), List.of(error), coverage), original.profile(), original.identity().semanticProductionRevision());
+    var outcome = AstOutcome.available(ast);
+    var run = new SourceAnalysisRunner(ignored -> outcome, CfgDerivers.standard())
+        .deriveExisting(outcome, new CfgRequest(ast.identity(), List.of(), CfgProfile.JAVA_BOUNDED));
+    var output = new ByteArrayOutputStream();
+    var errors = new ByteArrayOutputStream();
+
+    // Act
+    new AnalyzeCommandPresenter().present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)),
+        new PrintStream(output, true, StandardCharsets.UTF_8), new PrintStream(errors, true, StandardCharsets.UTF_8));
+
+    // Assert
+    var ownerReason = ast.qualification().reasons().stream().filter(reason -> reason.role() == EvidenceRole.STATIC_OWNER).findFirst().orElseThrow();
+    assertTrue(ownerReason.diagnostics().isEmpty());
+    assertEquals(error, ownerReason.evidence().getFirst().diagnostic());
+    assertEquals(List.of(error), run.diagnostics());
+    var lines = errors.toString(StandardCharsets.UTF_8).lines().toList();
+    assertEquals(List.of("Diagnostic: \"source:owner\""), lines.stream().filter(line -> line.startsWith("Diagnostic:")).toList());
+    var index = lines.indexOf("  Evidence diagnostic: \"source:owner\"");
+    assertTrue(index >= 0);
+    assertEquals(List.of("  Evidence diagnostic: \"source:owner\"", "    Severity: ERROR", "    Stage: FRONTEND",
+        "    Cause: OTHER_ANALYSIS_ERROR", "    Code: \"source.owner\"", "    Message: \"Supplied owner error\"", "    Origins: unavailable"),
+        lines.subList(index, index + 7));
+    assertEquals(1, lines.stream().filter(line -> line.contains("Occurrence:")).count());
+  }
+
+  private static List<String> assertNativeReport(AnalysisRun run, List<AnalysisDiagnostic> projected) {
+    var summary = AnalysisRunSummary.from(run);
+    var output = new ByteArrayOutputStream();
+    var error = new ByteArrayOutputStream();
+    new AnalyzeCommandPresenter().present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)),
+        new PrintStream(output, true, StandardCharsets.UTF_8),
+        new PrintStream(error, true, StandardCharsets.UTF_8));
+    var events = summary.occurrences().diagnostics();
+    assertEquals(run.diagnostics(), events);
+    assertEquals(run.diagnostics().stream().map(value -> "Diagnostic: \"" + value.diagnosticKey() + "\"").toList(),
+        error.toString(StandardCharsets.UTF_8).lines().filter(line -> line.startsWith("Diagnostic: ")).toList());
+    assertEquals(run.diagnostics().stream().map(value -> "  Stage: " + value.stage()).toList(),
+        error.toString(StandardCharsets.UTF_8).lines().filter(line -> line.startsWith("  Stage: ")).toList());
+    assertEquals(IntStream.rangeClosed(1, events.size()).mapToObj(position -> "  Occurrence: " + position).toList(),
+        error.toString(StandardCharsets.UTF_8).lines().filter(line -> line.startsWith("  Occurrence: ")).toList());
+    var lines = error.toString(StandardCharsets.UTF_8).lines().toList();
+    assertEquals(run.diagnostics().stream().map(value -> "  Code: \"" + value.code() + "\"").toList(),
+        lines.stream().filter(line -> line.startsWith("  Code:")).toList());
+    assertEquals(run.diagnostics().stream().map(value -> "  Severity: " + value.severity()).toList(),
+        lines.stream().filter(line -> line.startsWith("  Severity:")).toList());
+    assertEquals(run.diagnostics().stream().map(value -> "  Cause: " + value.outcomeKind()).toList(),
+        lines.stream().filter(line -> line.startsWith("  Cause:")).toList());
+    assertEquals(run.representation().ast().qualification().reasons().stream().map(reason -> "Qualification: SOURCE " + reason.category()).toList(),
+        lines.stream().filter(line -> line.startsWith("Qualification: SOURCE ")).toList());
+    var expectedCfg = new ArrayList<String>();
+    run.representation().cfg().ifPresent(cfg -> {
+      if (cfg.state() == CfgState.REJECTED) { expectedCfg.add("Qualification: CFG REJECTED"); }
+      cfg.methods().forEach(method -> {
+        if (method.state() == MethodCfgState.FAILED) { expectedCfg.add("Qualification: CFG FAILED"); }
+        method.blockers().forEach(blocker -> expectedCfg.add("Qualification: CFG " + blocker.kind()));
+      });
+    });
+    assertEquals(expectedCfg, lines.stream().filter(line -> line.startsWith("Qualification: CFG ")).toList());
+    assertEquals(run.qualification().reasons().stream().map(reason -> "Qualification: APPLICATION " + switch (reason) {
+      case RequestQualificationReason.Source _ -> "SOURCE";
+      case RequestQualificationReason.Selection _ -> "SELECTION";
+      case RequestQualificationReason.Method _ -> "METHOD";
+      case RequestQualificationReason.MethodDiagnostic _ -> "METHOD_DIAGNOSTIC";
+      case RequestQualificationReason.ApplicationDiagnostic _ -> "APPLICATION_DIAGNOSTIC";
+    }).toList(), lines.stream().filter(line -> line.startsWith("Qualification: APPLICATION ")).toList());
+    var sourceReferences = run.representation().ast().qualification().reasons().stream()
+        .flatMap(reason -> reason.diagnostics().stream())
+        .map(reference -> "  Related diagnostic: \"" + reference.diagnostic().diagnosticKey() + "\" occurrence=" + (reference.position() + 1)).toList();
+    assertEquals(sourceReferences, relatedFromOwner(lines, "SOURCE"));
+    var cfg = run.representation().cfg();
+    var blockers = cfg.stream().flatMap(value -> value.methods().stream()).flatMap(method -> method.blockers().stream()).toList();
+    var expectedAstResults = cfg.map(value -> Collections.nCopies(expectedCfg.size(),
+        "  AST result: \"" + value.request().astIdentity().astResultKey() + "\"")).orElseGet(List::of);
+    assertEquals(expectedAstResults, lines.stream().filter(line -> line.startsWith("  AST result:")).toList());
+    assertEquals(blockers.stream().map(blocker -> "  Source occurrence: " + blocker.occurrence()
+        .map(value -> "\"" + value.nodeKey() + "\"").orElse("unavailable")).toList(),
+        lines.stream().filter(line -> line.startsWith("  Source occurrence:")).toList());
+    assertEquals(blockers.stream().map(blocker -> "  Slot: \"" + blocker.slot() + "\"").toList(),
+        lines.stream().filter(line -> line.startsWith("  Slot:")).toList());
+    assertSame(run, summary.run());
+    assertEquals(events, projected);
+    return lines;
+  }
+
+  private static List<String> relatedFromOwner(List<String> lines, String owner) {
+    return qualificationBlocks(lines, owner).stream().flatMap(List::stream)
+        .filter(line -> line.startsWith("  Related diagnostic:")).toList();
+  }
+
+  private static List<List<String>> qualificationBlocks(List<String> lines, String owner) {
+    var result = new ArrayList<List<String>>();
+    var current = new ArrayList<String>();
+    var selected = false;
+    for (var line : lines) {
+      if (line.startsWith("Qualification: ")) {
+        if (selected) { result.add(List.copyOf(current)); }
+        current.clear();
+        selected = line.startsWith("Qualification: " + owner + " ");
+      }
+      if (selected) { current.add(line); }
+    }
+    if (selected) { result.add(List.copyOf(current)); }
+    return List.copyOf(result);
   }
 
   private static AnalysisRun withRefusal(AstResult ast, CfgBlocker blocker) {
@@ -862,7 +950,7 @@ class AnalysisDiagnosticProjectionTest {
     return new SourceAnalysisRunner(ignored -> outcome, (source, selected) -> cfg).deriveExisting(outcome, request);
   }
 
-  private record SwitchExample(String context, String method, int refusedCases) {}
+  private record SwitchExample(String context, String method) {}
 
   private record InvalidAssignment(String context, String methods) {}
 

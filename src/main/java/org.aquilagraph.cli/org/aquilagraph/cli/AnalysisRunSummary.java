@@ -1,23 +1,19 @@
 package org.aquilagraph.cli;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import org.aquilagraph.application.AnalysisCompletion;
-import org.aquilagraph.cli.AnalysisDiagnosticProjection.DiagnosticSummary;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.ProgramRepresentation;
 import org.aquilagraph.identity.api.SoftwareVersion;
 
 /** Immutable command-line projection of an analysis run. */
-record AnalysisRunSummary(String runId, String softwareVersionSignature, AnalysisCompletion completion, int javaRelease,
-    int sourceFileCount, Optional<ProgramSummary> program, List<DiagnosticSummary> diagnostics) {
+record AnalysisRunSummary(AnalysisRun run, String softwareVersionSignature, Optional<ProgramSummary> program,
+    DiagnosticOccurrences occurrences) {
   AnalysisRunSummary {
-    Objects.requireNonNull(runId, "runId");
+    Objects.requireNonNull(run, "run");
     Objects.requireNonNull(softwareVersionSignature, "softwareVersionSignature");
-    Objects.requireNonNull(completion, "completion");
     Objects.requireNonNull(program, "program");
-    diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics"));
+    Objects.requireNonNull(occurrences, "occurrences");
   }
 
   static AnalysisRunSummary from(AnalysisRun run) {
@@ -25,10 +21,8 @@ record AnalysisRunSummary(String runId, String softwareVersionSignature, Analysi
     var ast = run.representation().ast();
     var software = ast.capturedInput()
         .flatMap(snapshot -> ast.capturedEnvironment().map(environment -> SoftwareVersion.from(snapshot, environment)));
-    return new AnalysisRunSummary(run.identity().key(), software.map(SoftwareVersion::signature).orElse("unavailable"), run.completion(),
-        ast.requestedConfiguration().orElseThrow().release().feature(),
-        ast.capturedInput().map(snapshot -> snapshot.sourceFileCount()).orElse(0),
-        ast.result().map(ignored -> ProgramSummary.from(run.representation())), AnalysisDiagnosticProjection.from(run));
+    return new AnalysisRunSummary(run, software.map(SoftwareVersion::signature).orElse("unavailable"),
+        ast.result().map(ignored -> ProgramSummary.from(run.representation())), DiagnosticOccurrences.from(run));
   }
 
   record ProgramSummary(int typeCount, int methodCount, int analyzedMethodBodyCount, int controlFlowOperationCount,
