@@ -38,10 +38,9 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
     assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
     assertEquals(nativeDiagnostics, run.diagnostics().values());
   }
@@ -60,10 +59,9 @@ class SourceProfileReportTest {
 
           // Act
           CliTestFixtures.present(run, runStreams);
-          var projection = AnalysisRunSummary.from(run).occurrences().values();
 
           // Assert
-          assertNativeReport(run, projection, runStreams);
+          assertNativeReport(run, runStreams);
           assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
           assertEquals(nativeDiagnostics, run.diagnostics().values());
         }));
@@ -81,10 +79,9 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
     assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
     assertTrue(diagnostics.stream().anyMatch(value -> value.code().startsWith("compiler.")));
   }
@@ -108,7 +105,7 @@ class SourceProfileReportTest {
           var summary = AnalysisRunSummary.from(run);
 
           // Assert
-          assertNativeReport(run, summary.occurrences().values(), runStreams);
+          assertNativeReport(run, runStreams);
           assertEquals(AnalysisCompletion.COMPLETE, summary.run().completion());
         }));
   }
@@ -129,10 +126,9 @@ class SourceProfileReportTest {
 
           // Act
           CliTestFixtures.present(run, runStreams);
-          var projection = AnalysisRunSummary.from(run).occurrences().values();
 
           // Assert
-          assertNativeReport(run, projection, runStreams);
+          assertNativeReport(run, runStreams);
           assertEquals(nativeDiagnostics, run.diagnostics().values());
         }));
   }
@@ -147,10 +143,9 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
   }
 
   @Test
@@ -167,10 +162,9 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
     assertTrue(run.representation().cfg().isEmpty());
   }
 
@@ -189,10 +183,9 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
   }
 
   @Test
@@ -210,10 +203,9 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
     assertFalse(compilerErrors.isEmpty());
     assertEquals(sourceDiagnostics, run.representation().ast().diagnostics());
   }
@@ -241,11 +233,9 @@ class SourceProfileReportTest {
           // Act
           CliTestFixtures.present(bounded, boundedStreams);
           CliTestFixtures.present(expanded, expandedStreams);
-          var projected = AnalysisRunSummary.from(bounded).occurrences().values();
-          var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().values();
           // Assert
-          assertNativeReport(bounded, projected, boundedStreams);
-          assertNativeReport(expanded, expandedProjection, expandedStreams);
+          assertNativeReport(bounded, boundedStreams);
+          assertNativeReport(expanded, expandedStreams);
           assertEquals(List.of("Unsupported Java construct in method body: CLASS"),
               boundedAst.diagnostics().stream().map(value -> value.message()).toList());
           assertEquals(nativeBounded, bounded.diagnostics().values());
@@ -266,9 +256,8 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projected = AnalysisRunSummary.from(run).occurrences().values();
     // Assert
-    assertNativeReport(run, projected, runStreams);
+    assertNativeReport(run, runStreams);
     assertEquals(nativeDiagnostics, run.diagnostics().values());
   }
 
@@ -281,9 +270,8 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projected = AnalysisRunSummary.from(run).occurrences().values();
     // Assert
-    assertNativeReport(run, projected, runStreams);
+    assertNativeReport(run, runStreams);
     assertEquals(nativeDiagnostics, run.diagnostics().values());
   }
 
@@ -301,11 +289,9 @@ class SourceProfileReportTest {
     // Act
     CliTestFixtures.present(bounded, boundedStreams);
     CliTestFixtures.present(expanded, expandedStreams);
-    var projected = AnalysisRunSummary.from(bounded).occurrences().values();
-    var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().values();
     // Assert
-    assertNativeReport(bounded, projected, boundedStreams);
-    assertNativeReport(expanded, expandedProjection, expandedStreams);
+    assertNativeReport(bounded, boundedStreams);
+    assertNativeReport(expanded, expandedStreams);
     assertEquals(originalBounded, bounded.diagnostics().values());
     assertEquals(originalExpanded, expanded.diagnostics().values());
     assertEquals(AstCompletion.COMPLETE, expanded.representation().ast().completion());
@@ -324,11 +310,9 @@ class SourceProfileReportTest {
     // Act
     CliTestFixtures.present(bounded, boundedStreams);
     CliTestFixtures.present(expanded, expandedStreams);
-    var projected = AnalysisRunSummary.from(bounded).occurrences().values();
-    var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().values();
     // Assert
-    assertNativeReport(bounded, projected, boundedStreams);
-    assertNativeReport(expanded, expandedProjection, expandedStreams);
+    assertNativeReport(bounded, boundedStreams);
+    assertNativeReport(expanded, expandedStreams);
     assertEquals(List.of(), bounded.diagnostics().values());
     assertEquals(List.of(), expanded.diagnostics().values());
     assertEquals(AstCompletion.COMPLETE, expanded.representation().ast().completion());
@@ -344,9 +328,8 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projected = AnalysisRunSummary.from(run).occurrences().values();
     // Assert
-    assertNativeReport(run, projected, runStreams);
+    assertNativeReport(run, runStreams);
     assertEquals(nativeDiagnostics, run.diagnostics().values());
     assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
   }
@@ -365,11 +348,9 @@ class SourceProfileReportTest {
     // Act
     CliTestFixtures.present(bounded, boundedStreams);
     CliTestFixtures.present(expanded, expandedStreams);
-    var boundedProjection = AnalysisRunSummary.from(bounded).occurrences().values();
-    var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().values();
     // Assert
-    assertNativeReport(bounded, boundedProjection, boundedStreams);
-    assertNativeReport(expanded, expandedProjection, expandedStreams);
+    assertNativeReport(bounded, boundedStreams);
+    assertNativeReport(expanded, expandedStreams);
     assertEquals(originalBounded, bounded.diagnostics().values());
     assertEquals(originalExpanded, expanded.diagnostics().values());
     assertEquals(AstCompletion.COMPLETE, expanded.representation().ast().completion());
@@ -384,14 +365,13 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
     assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
     assertEquals(true, genuine.stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     for (var diagnostic : genuine) {
       assertEquals(run.representation().ast().diagnostics().stream().filter(diagnostic::equals).count(),
-          projection.stream().filter(diagnostic::equals).count());
+          run.diagnostics().values().stream().filter(diagnostic::equals).count());
     }
   }
 
@@ -409,10 +389,9 @@ class SourceProfileReportTest {
 
       // Act
       CliTestFixtures.present(run, runStreams);
-      var projection = AnalysisRunSummary.from(run).occurrences().values();
 
       // Assert
-      assertNativeReport(run, projection, runStreams);
+      assertNativeReport(run, runStreams);
       assertEquals(AstCompletion.COMPLETE, ast.completion());
       assertEquals(List.of(), ast.diagnostics());
       assertSame(ast, run.representation().ast().result().orElseThrow());
@@ -436,10 +415,9 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
   }
 
   private record SwitchExample(String context, String method) {}

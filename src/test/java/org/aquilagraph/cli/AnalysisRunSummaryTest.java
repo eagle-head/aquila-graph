@@ -19,12 +19,13 @@ class AnalysisRunSummaryTest {
     var summary = AnalysisRunSummary.from(run);
 
     // Assert
+    assertSame(run, summary.run());
     assertEquals(run.identity().key(), summary.run().identity().key());
     assertEquals(SoftwareVersion.from(run.representation().ast().capturedInput().orElseThrow(), run.representation().ast().capturedEnvironment().orElseThrow()).signature(), summary.softwareVersionSignature());
     assertSame(AnalysisCompletion.COMPLETE, summary.run().completion());
     assertEquals(25, summary.run().representation().ast().requestedConfiguration().orElseThrow().release().feature());
     assertEquals(1, summary.run().representation().ast().capturedInput().orElseThrow().sourceFileCount());
-    assertEquals(List.of(CliTestFixtures.warningDiagnostic()), summary.occurrences().values());
+    assertEquals(List.of(CliTestFixtures.warningDiagnostic()), summary.run().diagnostics().values());
     var program = summary.program().orElseThrow();
     assertEquals(1, program.typeCount());
     assertEquals(1, program.methodCount());
