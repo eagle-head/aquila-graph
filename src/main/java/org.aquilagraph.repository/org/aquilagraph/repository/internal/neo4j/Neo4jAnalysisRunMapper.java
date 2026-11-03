@@ -36,7 +36,7 @@ final class Neo4jAnalysisRunMapper {
     projection.relate("ANALYZED_SOFTWARE", runId, softwareVersion.signature(), "software-version");
     inputMapper.map(softwareVersion.signature(), ast.snapshot(), projection);
     environmentMapper.map(softwareVersion.signature(), ast.environment(), projection);
-    evidenceMapper.mapDiagnostics(runId, run.diagnostics(), projection);
+    evidenceMapper.mapDiagnostics(runId, run.diagnostics().values(), projection);
     programMapper.map(runId, run.representation(), projection);
     return projection.build();
   }

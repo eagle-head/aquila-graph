@@ -6,17 +6,19 @@ import org.aquilagraph.source.api.AnalysisDiagnostic;
 
 /** Immutable application decision bound to its exact context owners and diagnostic slots. */
 public final class RequestQualification {
-  private final ProgramRepresentation representation;
-  private final List<AnalysisDiagnostic> diagnostics;
+  private final ProgramRepresentation nativeRepresentation;
+  private final List<AnalysisDiagnostic> nativeApplicationDiagnostics;
   private final AnalysisCompletion establishedCompletion;
   private final List<RequestQualificationReason> blockingReasons;
+  private final AnalysisDiagnostics diagnosticOccurrences;
 
   RequestQualification(ProgramRepresentation representation, List<AnalysisDiagnostic> diagnostics, AnalysisCompletion completion,
       List<RequestQualificationReason> reasons) {
-    this.representation = representation;
-    this.diagnostics = List.copyOf(diagnostics);
+    nativeRepresentation = representation;
+    nativeApplicationDiagnostics = List.copyOf(diagnostics);
     establishedCompletion = completion;
     blockingReasons = List.copyOf(reasons);
+    diagnosticOccurrences = new AnalysisDiagnostics(representation, nativeApplicationDiagnostics, blockingReasons);
   }
 
   /**
@@ -52,20 +54,28 @@ public final class RequestQualification {
 
   @Override
   public boolean equals(Object other) {
-    return this == other || (other instanceof RequestQualification value && representation.equals(value.representation)
-        && diagnostics.equals(value.diagnostics));
+    return this == other || (other instanceof RequestQualification value && nativeRepresentation.equals(value.nativeRepresentation)
+        && nativeApplicationDiagnostics.equals(value.nativeApplicationDiagnostics));
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(representation, diagnostics);
+    return Objects.hash(nativeRepresentation, nativeApplicationDiagnostics);
   }
 
   List<AnalysisDiagnostic> applicationDiagnostics() {
-    return diagnostics;
+    return nativeApplicationDiagnostics;
+  }
+
+  ProgramRepresentation representation() {
+    return nativeRepresentation;
+  }
+
+  AnalysisDiagnostics diagnostics() {
+    return diagnosticOccurrences;
   }
 
   boolean matches(ProgramRepresentation candidate, List<AnalysisDiagnostic> applicationDiagnostics) {
-    return representation.equals(candidate) && diagnostics.equals(applicationDiagnostics);
+    return nativeRepresentation.equals(candidate) && nativeApplicationDiagnostics.equals(applicationDiagnostics);
   }
 }

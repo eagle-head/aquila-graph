@@ -175,7 +175,7 @@ class CanonicalBodyEvidenceTest {
         assertAll(() -> assertEquals(expectedMethod.blockers(), actual.methods().getFirst().blockers()),
             () -> assertEquals(expectedMethod.diagnostics(), actual.methods().getFirst().diagnostics()),
             () -> assertEquals(expected.diagnostics(), actual.diagnostics()),
-            () -> assertEquals(expectedRun.diagnostics(), runner.deriveExisting(AstOutcome.available(retained), request).diagnostics()));
+            () -> assertEquals(expectedRun.diagnostics().values(), runner.deriveExisting(AstOutcome.available(retained), request).diagnostics().values()));
       }
     }
   }

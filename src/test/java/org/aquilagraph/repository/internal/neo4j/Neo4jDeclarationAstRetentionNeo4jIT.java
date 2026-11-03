@@ -149,7 +149,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       assertEquals(original.environment(), firstRead.outcome().orElseThrow().result().orElseThrow().environment());
       assertEquals(PublicationStatus.SAVED, oldSave.status());
       assertEquals(PublicationStatus.SAVED, replacement.status());
-      assertEquals(PublicationStatus.SAVED, runSave.status(), run.diagnostics().toString());
+      assertEquals(PublicationStatus.SAVED, runSave.status(), run.diagnostics().values().toString());
       assertEquals(PublicationStatus.SAVED, runReplacement.status());
       assertEquals(EnvironmentIdentityScheme.MODULE_SEMANTICS, retained.environment().identityScheme());
       assertEquals(List.of(new ModuleCandidate(".", "alpha", Optional.empty(), ModuleNameOrigin.FILENAME)),

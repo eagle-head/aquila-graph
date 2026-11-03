@@ -73,7 +73,7 @@ class SourceQualificationTest {
     assertFalse(reason.origins().isEmpty());
     assertTrue(reason.diagnostics().isEmpty());
     assertTrue(ast.diagnostics().isEmpty());
-    assertTrue(run.diagnostics().isEmpty());
+    assertTrue(run.diagnostics().values().isEmpty());
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
     assertSame(outcome, assertInstanceOf(RequestQualificationReason.Source.class, run.qualification().reasons().getFirst()).outcome());
     assertThrows(UnsupportedOperationException.class, () -> qualification.reasons().clear());

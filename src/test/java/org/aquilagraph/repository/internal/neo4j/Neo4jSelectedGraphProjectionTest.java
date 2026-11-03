@@ -450,8 +450,8 @@ class Neo4jSelectedGraphProjectionTest {
     var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
     var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
     var run = new SourceAnalysisFixture().analyze(input);
-    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().toString());
-    assertTrue(run.diagnostics().stream().noneMatch(AnalysisDiagnostic::isError));
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().values().toString());
+    assertTrue(run.diagnostics().values().stream().noneMatch(AnalysisDiagnostic::isError));
     var graph = run.representation().cfg().orElseThrow().methods().stream()
         .filter(analysis -> run.representation().ast().result().orElseThrow().method(analysis.methodKey()).orElseThrow().ownerTypeKey().equals(owner) && run.representation().ast().result().orElseThrow().method(analysis.methodKey()).orElseThrow().name().equals(name))
         .map(analysis -> analysis.graph().orElseThrow()).findFirst().orElseThrow();

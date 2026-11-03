@@ -44,11 +44,11 @@ class JavaDeclarationCompletenessRegressionTest {
 
       // Assert
       assertNotEquals(AnalysisCompletion.COMPLETE, run.completion(), sourceCase.description());
-      assertTrue(run.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")),
-          () -> sourceCase + ": " + run.diagnostics());
-      var matchingDiagnostics = run.diagnostics().stream()
+      assertTrue(run.diagnostics().values().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")),
+          () -> sourceCase + ": " + run.diagnostics().values());
+      var matchingDiagnostics = run.diagnostics().values().stream()
           .filter(diagnostic -> diagnostic.code().equals(sourceCase.expectedDiagnosticCode())).toList();
-      assertEquals(sourceCase.expectedOccurrences(), matchingDiagnostics.size(), () -> sourceCase + ": " + run.diagnostics());
+      assertEquals(sourceCase.expectedOccurrences(), matchingDiagnostics.size(), () -> sourceCase + ": " + run.diagnostics().values());
       assertTrue(matchingDiagnostics.stream().allMatch(diagnostic -> diagnostic.stage() == DiagnosticStage.FRONTEND
           && diagnostic.isError() && !diagnostic.origins().isEmpty()), sourceCase.description());
     }));
@@ -71,7 +71,7 @@ class JavaDeclarationCompletenessRegressionTest {
     var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
-    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().values().toString());
     assertEquals(6, input.aggregate().orElseThrow().nodes().stream()
         .filter(node -> node.value() instanceof SyntaxValue.Annotation).count());
   }
@@ -142,13 +142,13 @@ class JavaDeclarationCompletenessRegressionTest {
 
     // Assert
     assertNotEquals(AnalysisCompletion.COMPLETE, run.completion());
-    assertEquals(List.of(), run.diagnostics().stream().map(diagnostic -> diagnostic.code())
+    assertEquals(List.of(), run.diagnostics().values().stream().map(diagnostic -> diagnostic.code())
         .filter(code -> code.startsWith("frontend.unsupported-local-")).toList());
     assertEquals(List.of("final"), local.value(SyntaxValue.LocalDeclaration.class).writtenModifiers());
     assertEquals(1, local.children(SyntaxRole.ANNOTATION).size());
-    assertTrue(run.diagnostics().stream()
+    assertTrue(run.diagnostics().values().stream()
         .noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-declaration-annotations")));
-    assertTrue(run.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
+    assertTrue(run.diagnostics().values().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
   }
 
   @Test
@@ -199,12 +199,12 @@ class JavaDeclarationCompletenessRegressionTest {
     var run = new SourceAnalysisFixture().analyze(result);
 
     // Assert
-    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().values().toString());
     assertFalse(result.program().types().getFirst().synthesizedDeclarations().isEmpty());
     assertTrue(result.program().types().getFirst().synthesizedDeclarations().stream()
         .allMatch(declaration -> declaration.ownerTypeKey().equals(result.program().types().getFirst().typeKey())));
-    assertTrue(run.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-enclosed-declarations")));
-    assertTrue(run.diagnostics().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
+    assertTrue(run.diagnostics().values().stream().noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-enclosed-declarations")));
+    assertTrue(run.diagnostics().values().stream().noneMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
   }
 
   @Test
@@ -218,8 +218,8 @@ class JavaDeclarationCompletenessRegressionTest {
 
     // Assert
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
-    assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
-    assertTrue(run.diagnostics().stream()
+    assertTrue(run.diagnostics().values().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
+    assertTrue(run.diagnostics().values().stream()
         .noneMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-declaration-annotations")));
   }
 

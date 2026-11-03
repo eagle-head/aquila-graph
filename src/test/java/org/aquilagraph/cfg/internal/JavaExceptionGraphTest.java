@@ -147,7 +147,7 @@ class JavaExceptionGraphTest {
 
     // Assert
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
-    var errors = run.diagnostics().stream().filter(AnalysisDiagnostic::isError).toList();
+    var errors = run.diagnostics().values().stream().filter(AnalysisDiagnostic::isError).toList();
     assertTrue(errors.isEmpty(), errors.toString());
     var handlers = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.CATCH).toList();
     assertEquals(2, handlers.size());

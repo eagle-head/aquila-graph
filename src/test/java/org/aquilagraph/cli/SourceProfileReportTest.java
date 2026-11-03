@@ -32,18 +32,18 @@ class SourceProfileReportTest {
   void givenClassLiteralOutsideTheBoundedCfgProfile_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var run = CliTestFixtures.analyze("class Example { Class<?> subject() { return String.class; } }", AstProfile.JAVA_SOURCE_BOUNDED);
-    var nativeDiagnostics = run.diagnostics();
+    var nativeDiagnostics = run.diagnostics().values();
 
     var runStreams = new CliStreams();
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
     assertNativeReport(run, projection, runStreams);
     assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
-    assertEquals(nativeDiagnostics, run.diagnostics());
+    assertEquals(nativeDiagnostics, run.diagnostics().values());
   }
 
   @TestFactory
@@ -54,18 +54,18 @@ class SourceProfileReportTest {
         .map(example -> DynamicTest.dynamicTest("given" + example.context() + "AssignmentTarget_whenPresented_thenNativeRefusalsRemain", () -> {
           // Arrange
           var run = CliTestFixtures.analyze("class Example { " + example.methods() + " }", AstProfile.JAVA_SOURCE_BOUNDED);
-          var nativeDiagnostics = run.diagnostics();
+          var nativeDiagnostics = run.diagnostics().values();
 
           var runStreams = new CliStreams();
 
           // Act
           CliTestFixtures.present(run, runStreams);
-          var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+          var projection = AnalysisRunSummary.from(run).occurrences().values();
 
           // Assert
           assertNativeReport(run, projection, runStreams);
           assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
-          assertEquals(nativeDiagnostics, run.diagnostics());
+          assertEquals(nativeDiagnostics, run.diagnostics().values());
         }));
   }
 
@@ -81,7 +81,7 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
     assertNativeReport(run, projection, runStreams);
@@ -108,7 +108,7 @@ class SourceProfileReportTest {
           var summary = AnalysisRunSummary.from(run);
 
           // Assert
-          assertNativeReport(run, summary.occurrences().diagnostics(), runStreams);
+          assertNativeReport(run, summary.occurrences().values(), runStreams);
           assertEquals(AnalysisCompletion.COMPLETE, summary.run().completion());
         }));
   }
@@ -123,17 +123,17 @@ class SourceProfileReportTest {
         .map(example -> DynamicTest.dynamicTest("given" + example.context() + "_whenPresented_thenBoundedCaseRefusalsRemain", () -> {
           // Arrange
           var run = CliTestFixtures.analyze("class Example { " + example.method() + " }", AstProfile.JAVA_SOURCE_BOUNDED);
-          var nativeDiagnostics = run.diagnostics();
+          var nativeDiagnostics = run.diagnostics().values();
 
           var runStreams = new CliStreams();
 
           // Act
           CliTestFixtures.present(run, runStreams);
-          var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+          var projection = AnalysisRunSummary.from(run).occurrences().values();
 
           // Assert
           assertNativeReport(run, projection, runStreams);
-          assertEquals(nativeDiagnostics, run.diagnostics());
+          assertEquals(nativeDiagnostics, run.diagnostics().values());
         }));
   }
 
@@ -147,7 +147,7 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
     assertNativeReport(run, projection, runStreams);
@@ -167,7 +167,7 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
     assertNativeReport(run, projection, runStreams);
@@ -189,7 +189,7 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
     assertNativeReport(run, projection, runStreams);
@@ -210,7 +210,7 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
     assertNativeReport(run, projection, runStreams);
@@ -231,8 +231,8 @@ class SourceProfileReportTest {
           var source = "class Example { void subject(AutoCloseable input) throws Exception { " + statement + " } }";
           var bounded = CliTestFixtures.analyze(source, AstProfile.JAVA_SOURCE_BOUNDED);
           var expanded = CliTestFixtures.analyze(source, AstProfile.JAVA_SOURCE_EXPANDED);
-          var nativeBounded = bounded.diagnostics();
-          var nativeExpanded = expanded.diagnostics();
+          var nativeBounded = bounded.diagnostics().values();
+          var nativeExpanded = expanded.diagnostics().values();
           var boundedAst = bounded.representation().ast().result().orElseThrow();
           var boundedCfg = bounded.representation().cfg().orElseThrow();
           var boundedStreams = new CliStreams();
@@ -241,15 +241,15 @@ class SourceProfileReportTest {
           // Act
           CliTestFixtures.present(bounded, boundedStreams);
           CliTestFixtures.present(expanded, expandedStreams);
-          var projected = AnalysisRunSummary.from(bounded).occurrences().diagnostics();
-          var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().diagnostics();
+          var projected = AnalysisRunSummary.from(bounded).occurrences().values();
+          var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().values();
           // Assert
           assertNativeReport(bounded, projected, boundedStreams);
           assertNativeReport(expanded, expandedProjection, expandedStreams);
           assertEquals(List.of("Unsupported Java construct in method body: CLASS"),
               boundedAst.diagnostics().stream().map(value -> value.message()).toList());
-          assertEquals(nativeBounded, bounded.diagnostics());
-          assertEquals(nativeExpanded, expanded.diagnostics());
+          assertEquals(nativeBounded, bounded.diagnostics().values());
+          assertEquals(nativeExpanded, expanded.diagnostics().values());
           assertSame(boundedAst, bounded.representation().ast().result().orElseThrow());
           assertSame(boundedCfg, bounded.representation().cfg().orElseThrow());
           assertEquals(AstCompletion.INCOMPLETE, boundedAst.completion());
@@ -261,30 +261,30 @@ class SourceProfileReportTest {
   void givenUnsupportedDeclarationWithinNestedTries_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var run = CliTestFixtures.analyze("class Example { void subject() { try { try {} finally { class Local {} } } finally {} } }", AstProfile.JAVA_SOURCE_BOUNDED);
-    var nativeDiagnostics = run.diagnostics();
+    var nativeDiagnostics = run.diagnostics().values();
     var runStreams = new CliStreams();
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projected = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projected = AnalysisRunSummary.from(run).occurrences().values();
     // Assert
     assertNativeReport(run, projected, runStreams);
-    assertEquals(nativeDiagnostics, run.diagnostics());
+    assertEquals(nativeDiagnostics, run.diagnostics().values());
   }
 
   @Test
   void givenExceptionClauseWithinBoundedIterationBoundary_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var run = CliTestFixtures.analyze("class Example { void subject(boolean flag) { while (flag) { try { class Local {} } finally {} } } }", AstProfile.JAVA_SOURCE_BOUNDED);
-    var nativeDiagnostics = run.diagnostics();
+    var nativeDiagnostics = run.diagnostics().values();
     var runStreams = new CliStreams();
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projected = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projected = AnalysisRunSummary.from(run).occurrences().values();
     // Assert
     assertNativeReport(run, projected, runStreams);
-    assertEquals(nativeDiagnostics, run.diagnostics());
+    assertEquals(nativeDiagnostics, run.diagnostics().values());
   }
 
   @Test
@@ -293,21 +293,21 @@ class SourceProfileReportTest {
     var source = "class Example { void value(AutoCloseable input, boolean flag) throws Exception { try (input) { try { while(flag) {} } finally {} } finally {} } }";
     var bounded = CliTestFixtures.analyze(source, AstProfile.JAVA_SOURCE_BOUNDED);
     var expanded = CliTestFixtures.analyze(source, AstProfile.JAVA_SOURCE_EXPANDED);
-    var originalBounded = bounded.diagnostics();
-    var originalExpanded = expanded.diagnostics();
+    var originalBounded = bounded.diagnostics().values();
+    var originalExpanded = expanded.diagnostics().values();
     var boundedStreams = new CliStreams();
     var expandedStreams = new CliStreams();
 
     // Act
     CliTestFixtures.present(bounded, boundedStreams);
     CliTestFixtures.present(expanded, expandedStreams);
-    var projected = AnalysisRunSummary.from(bounded).occurrences().diagnostics();
-    var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().diagnostics();
+    var projected = AnalysisRunSummary.from(bounded).occurrences().values();
+    var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().values();
     // Assert
     assertNativeReport(bounded, projected, boundedStreams);
     assertNativeReport(expanded, expandedProjection, expandedStreams);
-    assertEquals(originalBounded, bounded.diagnostics());
-    assertEquals(originalExpanded, expanded.diagnostics());
+    assertEquals(originalBounded, bounded.diagnostics().values());
+    assertEquals(originalExpanded, expanded.diagnostics().values());
     assertEquals(AstCompletion.COMPLETE, expanded.representation().ast().completion());
     assertEquals(AstCompletion.INCOMPLETE, bounded.representation().ast().completion());
   }
@@ -324,13 +324,13 @@ class SourceProfileReportTest {
     // Act
     CliTestFixtures.present(bounded, boundedStreams);
     CliTestFixtures.present(expanded, expandedStreams);
-    var projected = AnalysisRunSummary.from(bounded).occurrences().diagnostics();
-    var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().diagnostics();
+    var projected = AnalysisRunSummary.from(bounded).occurrences().values();
+    var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().values();
     // Assert
     assertNativeReport(bounded, projected, boundedStreams);
     assertNativeReport(expanded, expandedProjection, expandedStreams);
-    assertEquals(List.of(), bounded.diagnostics());
-    assertEquals(List.of(), expanded.diagnostics());
+    assertEquals(List.of(), bounded.diagnostics().values());
+    assertEquals(List.of(), expanded.diagnostics().values());
     assertEquals(AstCompletion.COMPLETE, expanded.representation().ast().completion());
     assertEquals(AnalysisCompletion.COMPLETE, expanded.completion());
   }
@@ -339,15 +339,15 @@ class SourceProfileReportTest {
   void givenNestedAssertionsAndMonitor_whenBoundedPresentationRuns_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
     var run = CliTestFixtures.analyze("class Example { void value(Object lock, boolean flag) { assert flag; synchronized (lock) { assert flag; } } }", AstProfile.JAVA_SOURCE_BOUNDED);
-    var nativeDiagnostics = run.diagnostics();
+    var nativeDiagnostics = run.diagnostics().values();
     var runStreams = new CliStreams();
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projected = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projected = AnalysisRunSummary.from(run).occurrences().values();
     // Assert
     assertNativeReport(run, projected, runStreams);
-    assertEquals(nativeDiagnostics, run.diagnostics());
+    assertEquals(nativeDiagnostics, run.diagnostics().values());
     assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
   }
 
@@ -357,21 +357,21 @@ class SourceProfileReportTest {
     var source = "class Example { void value(int n) { outer: while (n > 0) { for (int i = 0; i < n; i++) { continue outer; } break; } } }";
     var bounded = CliTestFixtures.analyze(source, AstProfile.JAVA_SOURCE_BOUNDED);
     var expanded = CliTestFixtures.analyze(source, AstProfile.JAVA_SOURCE_EXPANDED);
-    var originalBounded = bounded.diagnostics();
-    var originalExpanded = expanded.diagnostics();
+    var originalBounded = bounded.diagnostics().values();
+    var originalExpanded = expanded.diagnostics().values();
     var boundedStreams = new CliStreams();
     var expandedStreams = new CliStreams();
 
     // Act
     CliTestFixtures.present(bounded, boundedStreams);
     CliTestFixtures.present(expanded, expandedStreams);
-    var boundedProjection = AnalysisRunSummary.from(bounded).occurrences().diagnostics();
-    var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().diagnostics();
+    var boundedProjection = AnalysisRunSummary.from(bounded).occurrences().values();
+    var expandedProjection = AnalysisRunSummary.from(expanded).occurrences().values();
     // Assert
     assertNativeReport(bounded, boundedProjection, boundedStreams);
     assertNativeReport(expanded, expandedProjection, expandedStreams);
-    assertEquals(originalBounded, bounded.diagnostics());
-    assertEquals(originalExpanded, expanded.diagnostics());
+    assertEquals(originalBounded, bounded.diagnostics().values());
+    assertEquals(originalExpanded, expanded.diagnostics().values());
     assertEquals(AstCompletion.COMPLETE, expanded.representation().ast().completion());
   }
 
@@ -384,7 +384,7 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().values();
     // Assert
     assertNativeReport(run, projection, runStreams);
     assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
@@ -403,13 +403,13 @@ class SourceProfileReportTest {
       var run = CliTestFixtures.analyze(source, profile);
       var ast = run.representation().ast().result().orElseThrow();
       var cfg = run.representation().cfg().orElseThrow();
-      var nativeDiagnostics = run.diagnostics();
+      var nativeDiagnostics = run.diagnostics().values();
 
       var runStreams = new CliStreams();
 
       // Act
       CliTestFixtures.present(run, runStreams);
-      var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+      var projection = AnalysisRunSummary.from(run).occurrences().values();
 
       // Assert
       assertNativeReport(run, projection, runStreams);
@@ -417,7 +417,7 @@ class SourceProfileReportTest {
       assertEquals(List.of(), ast.diagnostics());
       assertSame(ast, run.representation().ast().result().orElseThrow());
       assertSame(cfg, run.representation().cfg().orElseThrow());
-      assertEquals(nativeDiagnostics, run.diagnostics());
+      assertEquals(nativeDiagnostics, run.diagnostics().values());
       assertEquals(List.of("control-flow.unsupported", "control-flow.unsupported"), nativeDiagnostics.stream().map(value -> value.code()).toList());
     }
   }
@@ -436,7 +436,7 @@ class SourceProfileReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
     assertNativeReport(run, projection, runStreams);

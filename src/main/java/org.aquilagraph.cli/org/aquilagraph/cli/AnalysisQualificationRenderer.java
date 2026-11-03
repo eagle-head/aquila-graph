@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.AnalysisDiagnostics;
+import org.aquilagraph.application.AnalysisDiagnosticOccurrence;
 import org.aquilagraph.application.RequestQualificationReason;
 import org.aquilagraph.cfg.api.CfgOutcome;
 import org.aquilagraph.cfg.api.CfgState;
@@ -21,7 +23,7 @@ final class AnalysisQualificationRenderer {
   private static final String UNAVAILABLE = "unavailable";
   private static final String APPLICATION_OWNER = "APPLICATION";
   private final AnalysisRun run;
-  private final DiagnosticOccurrences occurrences;
+  private final AnalysisDiagnostics occurrences;
   private final AnalysisDiagnosticRenderer diagnostics;
   private final PrintStream error;
 
@@ -37,7 +39,7 @@ final class AnalysisQualificationRenderer {
     for (var reason : ast.qualification().reasons()) {
       header("SOURCE", reason.category().name(), quote(ast.profile().version()), subject(reason.subject()));
       diagnostics.origins(reason.origins(), "  ");
-      reason.diagnostics().forEach(reference -> diagnostics.related(reference.diagnostic(), occurrences.source(reference.position())));
+      occurrences.relatedTo(reason).forEach(this::related);
       reason.evidence().forEach(evidence -> diagnostics.evidence(evidence.diagnostic()));
     }
     run.representation().cfg().ifPresent(this::cfg);
@@ -50,9 +52,7 @@ final class AnalysisQualificationRenderer {
     if (outcome.state() == CfgState.REJECTED) {
       cfgHeader("REJECTED", outcome.request().astIdentity().astResultKey(), outcome);
       diagnosticOrigins(outcome.diagnostics());
-      for (var position = 0; position < outcome.diagnostics().size(); position++) {
-        diagnostics.related(outcome.diagnostics().get(position), occurrences.request(position));
-      }
+      occurrences.relatedTo(outcome).forEach(this::related);
     }
     for (var method : outcome.methods()) {
       if (method.state() == MethodCfgState.FAILED) {
@@ -70,7 +70,7 @@ final class AnalysisQualificationRenderer {
         error.println("  Source occurrence: " + blocker.occurrence().map(value -> quote(value.nodeKey())).orElse(UNAVAILABLE));
         error.println("  Slot: " + quote(blocker.slot()));
         diagnostics.origins(blocker.diagnostic().origins(), "  ");
-        diagnostics.related(blocker.diagnostic(), occurrences.method(method.methodKey(), position));
+        related(occurrences.forBlocker(method, position));
         blocker.evidenceDiagnostic().ifPresent(diagnostics::evidence);
       }
     }
@@ -88,35 +88,35 @@ final class AnalysisQualificationRenderer {
         header(APPLICATION_OWNER, "SELECTION", quote(outcome.request().profile().version()),
             quote(outcome.request().astIdentity().astResultKey()));
         diagnosticOrigins(outcome.diagnostics());
-        for (var position = 0; position < outcome.diagnostics().size(); position++) {
-          diagnostics.related(outcome.diagnostics().get(position), occurrences.request(position));
-        }
+        occurrences.relatedTo(selection).forEach(this::related);
       }
       case RequestQualificationReason.Method method -> {
         header(APPLICATION_OWNER, "METHOD", quote(run.representation().cfg().orElseThrow().request().profile().version()),
             quote(method.outcome().methodKey()));
         diagnosticOrigins(method.outcome().diagnostics());
-        relatedMethod(method.outcome());
+        occurrences.relatedTo(method).forEach(this::related);
       }
       case RequestQualificationReason.MethodDiagnostic method -> {
         header(APPLICATION_OWNER, "METHOD_DIAGNOSTIC", quote(run.representation().cfg().orElseThrow().request().profile().version()),
             quote(method.outcome().methodKey()));
         var diagnostic = method.outcome().diagnostics().get(method.position());
         diagnostics.origins(diagnostic.origins(), "  ");
-        diagnostics.related(diagnostic, occurrences.method(method.outcome().methodKey(), method.position()));
+        occurrences.relatedTo(method).forEach(this::related);
       }
       case RequestQualificationReason.ApplicationDiagnostic application -> {
         header(APPLICATION_OWNER, "APPLICATION_DIAGNOSTIC", "not-applicable", UNAVAILABLE);
         diagnostics.origins(application.diagnostic().origins(), "  ");
-        diagnostics.related(application.diagnostic(), occurrences.application(application.position()));
+        occurrences.relatedTo(application).forEach(this::related);
       }
     }
   }
 
   private void relatedMethod(MethodCfgOutcome method) {
-    for (var position = 0; position < method.diagnostics().size(); position++) {
-      diagnostics.related(method.diagnostics().get(position), occurrences.method(method.methodKey(), position));
-    }
+    occurrences.relatedTo(method).forEach(this::related);
+  }
+
+  private void related(AnalysisDiagnosticOccurrence occurrence) {
+    diagnostics.related(occurrence.diagnostic(), occurrences.positionOf(occurrence) + 1);
   }
 
   private void diagnosticOrigins(List<AnalysisDiagnostic> values) {

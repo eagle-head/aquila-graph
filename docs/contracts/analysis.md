@@ -144,6 +144,39 @@ failures retain their existing domain owners. See
 [RequestQualificationReason](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/RequestQualificationReason.java),
 and [AnalysisRun](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisRun.java).
 
+### Canonical diagnostic occurrences
+
+`AnalysisRun.diagnostics()` returns the assessment-owned `AnalysisDiagnostics` contract.
+It composes source events, rejected CFG-request events or method events in canonical
+source declaration order, then application events. Each `AnalysisDiagnosticOccurrence`
+retains its typed native owner and zero-based local slot; its diagnostic value is read
+from that owner. Equal values, equal keys, and repeated references remain separate
+occurrences. `values()` is a projection of this one sequence for value-only consumers.
+
+The catalog resolves source qualification reasons, request qualification reasons,
+CFG outcomes, method outcomes, and exact blocker slots to the same occurrence objects.
+Source and CFG retain authority over their assessments and native associations. Source
+reason evidence without an established diagnostic slot remains evidence and receives
+no invented occurrence. A source-level request reason relates to its source outcome's
+native event stream; its nested source reasons retain their more specific associations.
+
+Occurrences and reason/context lookups are scoped to the retained assessment by object
+identity, not diagnostic equality or key matching. A foreign occurrence, reason, or
+context is rejected even when its value is equal. An `AnalysisRun` accepting an equal
+representation retains the assessment's actual context owners and application slots.
+The catalog is derived immutable state and does not add a global identifier, change
+AST/CFG content identity, or introduce a persisted format.
+
+The CLI consumes the catalog and performs only display numbering and formatting of
+its relationships. It has no source counts, method offsets, or diagnostic aggregation
+policy. Completed-run eligibility and the Neo4j mapper consume the catalog's values;
+the existing ordered `HAS_DIAGNOSTIC` relationships remain the persistence contract.
+
+Sources: [AnalysisDiagnostics](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisDiagnostics.java),
+[AnalysisDiagnosticOccurrence](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisDiagnosticOccurrence.java),
+[AnalysisRun](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisRun.java),
+and [Neo4jEvidenceMapper](../../src/main/java/org.aquilagraph.repository/org/aquilagraph/repository/internal/neo4j/Neo4jEvidenceMapper.java).
+
 ### Target repository failure crossing
 
 The new application-owned AST port uses `AstResultRepositoryFactory.open(RepositoryOperationContext)`. The context contains `SAVE_AST` or `QUERY_AST` and the exact requested `AstIdentity`. The returned repository is owned by that single operation: `saveComplete` or `find` must match the context's kind and identity; no second subject or operation is accepted. The application closes every successfully acquired repository, including after work failure. Acquisition failures own cleanup of any accessible resources not transferred. This changes only the new AST port; the legacy factory and completed-run port keep their declared contracts.

@@ -3,12 +3,13 @@ package org.aquilagraph.cli;
 import java.util.Objects;
 import java.util.Optional;
 import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.AnalysisDiagnostics;
 import org.aquilagraph.application.ProgramRepresentation;
 import org.aquilagraph.identity.api.SoftwareVersion;
 
 /** Immutable command-line projection of an analysis run. */
 record AnalysisRunSummary(AnalysisRun run, String softwareVersionSignature, Optional<ProgramSummary> program,
-    DiagnosticOccurrences occurrences) {
+    AnalysisDiagnostics occurrences) {
   AnalysisRunSummary {
     Objects.requireNonNull(run, "run");
     Objects.requireNonNull(softwareVersionSignature, "softwareVersionSignature");
@@ -22,7 +23,7 @@ record AnalysisRunSummary(AnalysisRun run, String softwareVersionSignature, Opti
     var software = ast.capturedInput()
         .flatMap(snapshot -> ast.capturedEnvironment().map(environment -> SoftwareVersion.from(snapshot, environment)));
     return new AnalysisRunSummary(run, software.map(SoftwareVersion::signature).orElse("unavailable"),
-        ast.result().map(ignored -> ProgramSummary.from(run.representation())), DiagnosticOccurrences.from(run));
+        ast.result().map(ignored -> ProgramSummary.from(run.representation())), run.diagnostics());
   }
 
   record ProgramSummary(int typeCount, int methodCount, int analyzedMethodBodyCount, int controlFlowOperationCount,

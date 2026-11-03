@@ -1,6 +1,5 @@
 package org.aquilagraph.application;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -8,7 +7,6 @@ import org.aquilagraph.application.AnalysisRequestIdentity.ExistingSelection;
 import org.aquilagraph.application.AnalysisRequestIdentity.NotRequested;
 import org.aquilagraph.application.AnalysisRequestIdentity.ProductionSelection;
 import org.aquilagraph.cfg.api.CfgRequest;
-import org.aquilagraph.cfg.api.CfgState;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.JavaMethod;
 
@@ -26,7 +24,7 @@ import org.aquilagraph.source.api.JavaMethod;
  */
 public record AnalysisRun(AnalysisRequestIdentity identity, ProgramRepresentation representation, RequestQualification qualification,
     List<AnalysisDiagnostic> applicationDiagnostics) {
-  /** Checks qualification without replacing or copying either context's owner. */
+  /** Retains the assessment's exact owners after checking the supplied context values. */
   public AnalysisRun {
     Objects.requireNonNull(identity, "identity");
     Objects.requireNonNull(representation, "representation");
@@ -37,6 +35,7 @@ public record AnalysisRun(AnalysisRequestIdentity identity, ProgramRepresentatio
       throw new IllegalArgumentException("Analysis run must retain its source subject and actual context qualification");
     }
     applicationDiagnostics = List.copyOf(qualification.applicationDiagnostics());
+    representation = qualification.representation();
     validateSelection(identity, representation);
   }
 
@@ -68,22 +67,12 @@ public record AnalysisRun(AnalysisRequestIdentity identity, ProgramRepresentatio
   }
 
   /**
-   * Returns diagnostic occurrences in source, canonical method, then application order.
+   * Returns the admitted occurrence composition and exact native-cause correlations.
    *
-   * @return immutable presentation stream without value deduplication
+   * @return immutable diagnostic catalog belonging to the retained assessment
    */
-  public List<AnalysisDiagnostic> diagnostics() {
-    var result = new ArrayList<>(representation.ast().diagnostics());
-    representation.cfg().ifPresent(cfg -> {
-      if (cfg.state() == CfgState.REJECTED) {
-        result.addAll(cfg.diagnostics());
-      } else {
-        representation.ast().result().orElseThrow().program().methods().forEach(method -> cfg.methods().stream()
-            .filter(value -> value.methodKey().equals(method.methodKey())).forEach(value -> result.addAll(value.diagnostics())));
-      }
-    });
-    result.addAll(applicationDiagnostics);
-    return List.copyOf(result);
+  public AnalysisDiagnostics diagnostics() {
+    return qualification.diagnostics();
   }
 
   /**

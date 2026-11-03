@@ -49,7 +49,7 @@ class Neo4jEnumContextNeo4jIT {
     var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(InputSnapshot.fromSources(sourceRoot, List.of(source)),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
     var run = new SourceAnalysisFixture().analyze(input);
-    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().values().toString());
     try (var driver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
         var session = driver.session(SessionConfig.forDatabase(settings.database()))) {
       try {

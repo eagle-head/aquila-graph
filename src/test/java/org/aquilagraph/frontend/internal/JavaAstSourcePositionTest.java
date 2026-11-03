@@ -285,7 +285,7 @@ class JavaAstSourcePositionTest {
         assertTrue(rootReasons.getFirst().origins().isEmpty());
         assertTrue(input.program().types().isEmpty());
         assertTrue(run.completion() != AnalysisCompletion.COMPLETE);
-        assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(position.code())
+        assertTrue(run.diagnostics().values().stream().anyMatch(diagnostic -> diagnostic.code().equals(position.code())
             && diagnostic.message().contains("Example.java at source-file-root:0")));
       }
     }

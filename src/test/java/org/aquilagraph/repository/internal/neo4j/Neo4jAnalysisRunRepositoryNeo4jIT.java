@@ -63,7 +63,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
         "class Example { void execute(Exception failure) throws Exception { throw failure; } }");
     var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(sourceRoot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
     var run = new SourceAnalysisFixture().analyze(input);
-    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().values().toString());
     var graph = run.representation().cfg().orElseThrow().methods().stream()
         .filter(analysis -> run.representation().ast().result().orElseThrow().method(analysis.methodKey()).orElseThrow().name().equals("execute")).findFirst().orElseThrow().graph().orElseThrow();
     var thrown = graph.operationNodes().stream().filter(operation -> operation.kind() == OperationKind.THROW).findFirst().orElseThrow();

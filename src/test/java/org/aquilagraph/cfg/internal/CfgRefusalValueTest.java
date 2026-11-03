@@ -58,7 +58,7 @@ class CfgRefusalValueTest {
         throw new AssertionError("Existing source derivation must not acquire a producer");
       }, (ast, request) -> copiedOutcome).deriveExisting(AstOutcome.available(fixture.ast()), copiedOutcome.request());
       assertSame(fixture.ast(), run.representation().ast().result().orElseThrow());
-      assertEquals(refused.diagnostics(), run.diagnostics());
+      assertEquals(refused.diagnostics(), run.diagnostics().values());
       assertThrows(UnsupportedOperationException.class, () -> copy.blockers().clear());
       assertThrows(UnsupportedOperationException.class, () -> copy.diagnostics().clear());
     }));

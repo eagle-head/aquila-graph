@@ -74,7 +74,7 @@ class NestedDeclarationAnalysisTest {
     assertEquals(SyntaxKind.TYPE_DECLARATION, ast.node(methods.getLast().blockers().getFirst().occurrence().orElseThrow()).orElseThrow().syntaxKind());
     assertFalse(ast.body(complex).orElseThrow().root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.BREAK || node.syntaxKind() == SyntaxKind.CONTINUE).toList().isEmpty());
     assertEquals(CfgState.REJECTED, unknown.representation().cfg().orElseThrow().state());
-    assertTrue(unknown.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("control-flow.unknown-method")));
+    assertTrue(unknown.diagnostics().values().stream().anyMatch(diagnostic -> diagnostic.code().equals("control-flow.unknown-method")));
     assertEquals(ast, unknown.representation().ast().result().orElseThrow());
   }
 

@@ -72,11 +72,11 @@ class SourceAnalysisRunnerTest {
     assertEquals(CfgState.REJECTED, cfg.state());
     assertSame(cfg, ((RequestQualificationReason.Selection) run.qualification().reasons().getFirst()).outcome());
     assertEquals(List.of("control-flow.unknown-method", "control-flow.duplicate-selection", "control-flow.unknown-method",
-        "control-flow.unknown-method"), run.diagnostics().stream().map(value -> value.code()).toList());
+        "control-flow.unknown-method"), run.diagnostics().values().stream().map(value -> value.code()).toList());
     assertEquals(List.of(AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE, AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE,
         AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE, AnalysisOutcomeKind.CONTROL_FLOW_UNAVAILABLE),
-        run.diagnostics().stream().map(value -> value.outcomeKind()).toList());
-    assertEquals(cfg.diagnostics(), run.diagnostics());
+        run.diagnostics().values().stream().map(value -> value.outcomeKind()).toList());
+    assertEquals(cfg.diagnostics(), run.diagnostics().values());
     assertFalse(run.isPublishable());
     assertEquals(PublicationStatus.NOT_ELIGIBLE, stored.status());
     assertEquals(CommitKnowledge.NOT_STARTED, stored.knowledge());
@@ -262,7 +262,7 @@ class SourceAnalysisRunnerTest {
     assertEquals(List.of("control-flow.construction-failed"), cfg.diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
     var diagnostics = new ArrayList<>(ast.diagnostics());
     diagnostics.addAll(cfg.diagnostics());
-    assertEquals(diagnostics, run.diagnostics());
+    assertEquals(diagnostics, run.diagnostics().values());
   }
 
   @Test
@@ -376,7 +376,7 @@ class SourceAnalysisRunnerTest {
     assertEquals(CfgState.REJECTED, run.representation().cfg().orElseThrow().state());
     assertEquals(selection.methodKeys(), run.representation().cfg().orElseThrow().request().methodKeys());
     assertEquals(MethodCoverageState.REQUEST_REJECTED, run.methodCoverage(key).orElseThrow().state());
-    assertFalse(run.diagnostics().isEmpty());
+    assertFalse(run.diagnostics().values().isEmpty());
   }
 
   @Test
@@ -454,7 +454,7 @@ class SourceAnalysisRunnerTest {
     assertSame(cfg, run.representation().cfg().orElseThrow());
     assertEquals(MethodCfgState.NOT_APPLICABLE, method.state());
     assertTrue(method.graph().isEmpty());
-    assertEquals(diagnostics, run.diagnostics());
+    assertEquals(diagnostics, run.diagnostics().values());
     assertEquals(List.of(0, 1), reasons.stream().map(RequestQualificationReason.MethodDiagnostic::position).toList());
     assertTrue(reasons.stream().allMatch(reason -> reason.outcome() == method));
     assertSame(error, reasons.getFirst().outcome().diagnostics().get(reasons.getFirst().position()));

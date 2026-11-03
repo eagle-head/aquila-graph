@@ -92,8 +92,8 @@ final class AnalyzeCommandPresenter {
         .println("Method CFG: " + quote(method.methodKey()) + " " + run.methodCoverage(method.methodKey()).orElseThrow().state())));
     var diagnostics = new AnalysisDiagnosticRenderer(run, error);
     var occurrences = summary.occurrences();
-    for (var position = 0; position < occurrences.diagnostics().size(); position++) {
-      diagnostics.nativeEvent(occurrences.diagnostics().get(position), position + 1);
+    for (var occurrence : occurrences.occurrences()) {
+      diagnostics.nativeEvent(occurrence.diagnostic(), occurrences.positionOf(occurrence) + 1);
     }
     new AnalysisQualificationRenderer(summary, diagnostics, error).render();
   }

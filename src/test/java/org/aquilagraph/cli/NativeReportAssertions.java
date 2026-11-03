@@ -18,20 +18,20 @@ final class NativeReportAssertions {
 
   static List<String> assertNativeReport(AnalysisRun run, List<AnalysisDiagnostic> projected, CliStreams streams) {
     var summary = AnalysisRunSummary.from(run);
-    var events = summary.occurrences().diagnostics();
-    assertEquals(run.diagnostics(), events);
-    assertEquals(run.diagnostics().stream().map(value -> "Diagnostic: \"" + value.diagnosticKey() + "\"").toList(),
+    var events = summary.occurrences().values();
+    assertEquals(run.diagnostics().values(), events);
+    assertEquals(run.diagnostics().values().stream().map(value -> "Diagnostic: \"" + value.diagnosticKey() + "\"").toList(),
         streams.errorLines().stream().filter(line -> line.startsWith("Diagnostic: ")).toList());
-    assertEquals(run.diagnostics().stream().map(value -> "  Stage: " + value.stage()).toList(),
+    assertEquals(run.diagnostics().values().stream().map(value -> "  Stage: " + value.stage()).toList(),
         streams.errorLines().stream().filter(line -> line.startsWith("  Stage: ")).toList());
     assertEquals(IntStream.rangeClosed(1, events.size()).mapToObj(position -> "  Occurrence: " + position).toList(),
         streams.errorLines().stream().filter(line -> line.startsWith("  Occurrence: ")).toList());
     var lines = streams.errorLines();
-    assertEquals(run.diagnostics().stream().map(value -> "  Code: \"" + value.code() + "\"").toList(),
+    assertEquals(run.diagnostics().values().stream().map(value -> "  Code: \"" + value.code() + "\"").toList(),
         lines.stream().filter(line -> line.startsWith("  Code:")).toList());
-    assertEquals(run.diagnostics().stream().map(value -> "  Severity: " + value.severity()).toList(),
+    assertEquals(run.diagnostics().values().stream().map(value -> "  Severity: " + value.severity()).toList(),
         lines.stream().filter(line -> line.startsWith("  Severity:")).toList());
-    assertEquals(run.diagnostics().stream().map(value -> "  Cause: " + value.outcomeKind()).toList(),
+    assertEquals(run.diagnostics().values().stream().map(value -> "  Cause: " + value.outcomeKind()).toList(),
         lines.stream().filter(line -> line.startsWith("  Cause:")).toList());
     assertEquals(run.representation().ast().qualification().reasons().stream().map(reason -> "Qualification: SOURCE " + reason.category()).toList(),
         lines.stream().filter(line -> line.startsWith("Qualification: SOURCE ")).toList());

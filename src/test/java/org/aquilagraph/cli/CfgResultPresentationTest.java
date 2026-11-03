@@ -60,7 +60,7 @@ class CfgResultPresentationTest {
     assertTrue(streams.errorLines().contains("Qualification: CFG FAILED"));
     assertTrue(streams.errorLines().contains("  Failure type: \"java.lang.IllegalStateException\""));
     assertTrue(streams.errorLines().contains("  Failure message: \"construction\\nfailed\\t\\\"once\\\"\""));
-    assertTrue(streams.errorLines().contains("  Related diagnostic: \"" + run.diagnostics().getFirst().diagnosticKey() + "\" occurrence=1"));
+    assertTrue(streams.errorLines().contains("  Related diagnostic: \"" + run.diagnostics().values().getFirst().diagnosticKey() + "\" occurrence=1"));
   }
 
   @Test

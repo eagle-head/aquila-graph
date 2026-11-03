@@ -162,7 +162,7 @@ class JavaLanguageCompletionContractTest {
 
     // Assert
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
-    var compilerErrors = run.diagnostics().stream()
+    var compilerErrors = run.diagnostics().values().stream()
         .filter(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.COMPILER_ERROR).toList();
     assertEquals(List.of("compiler.err.illegal.start.of.type", "compiler.err.class.method.or.field.expected",
         "compiler.err.missing.meth.body.or.decl.abstract"), compilerErrors.stream().map(AnalysisDiagnostic::code).toList());
@@ -193,7 +193,7 @@ class JavaLanguageCompletionContractTest {
     var run = new SourceAnalysisFixture().analyze(analyze());
 
     // Assert
-    var diagnostic = run.diagnostics().stream()
+    var diagnostic = run.diagnostics().values().stream()
         .filter(candidate -> candidate.code().equals("frontend.unsupported-tree-kind.erroneous")).findFirst().orElseThrow();
     assertEquals(AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE, diagnostic.outcomeKind());
     assertEquals(DiagnosticStage.FRONTEND, diagnostic.stage());
@@ -329,9 +329,9 @@ class JavaLanguageCompletionContractTest {
     var run = new SourceAnalysisFixture().analyze(analyze());
 
     // Assert
-    assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals(ERRONEOUS_KIND_DIAGNOSTIC)
+    assertTrue(run.diagnostics().values().stream().anyMatch(diagnostic -> diagnostic.code().equals(ERRONEOUS_KIND_DIAGNOSTIC)
         && diagnostic.stage() == DiagnosticStage.FRONTEND));
-    var controlFlowDiagnostic = run.diagnostics().stream()
+    var controlFlowDiagnostic = run.diagnostics().values().stream()
         .filter(diagnostic -> diagnostic.code().equals("control-flow.source-unavailable")).findFirst().orElseThrow();
     assertEquals(DiagnosticStage.CONTROL_FLOW, controlFlowDiagnostic.stage());
     assertEquals(DiagnosticSeverity.ERROR, controlFlowDiagnostic.severity());

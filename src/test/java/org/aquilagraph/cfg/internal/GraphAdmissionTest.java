@@ -426,7 +426,7 @@ class GraphAdmissionTest {
     assertEquals(graph.identity(), method.graph().orElseThrow().identity());
     assertNotEquals(fixture.graph().identity(), graph.identity());
     assertTrue(ast.diagnostics().isEmpty());
-    assertEquals(diagnostics, run.diagnostics());
+    assertEquals(diagnostics, run.diagnostics().values());
     assertEquals(List.of(0, 1), reasons.stream().map(RequestQualificationReason.MethodDiagnostic::position).toList());
     assertTrue(reasons.stream().allMatch(reason -> reason.outcome() == method));
     assertSame(error, reasons.getFirst().outcome().diagnostics().get(reasons.getFirst().position()));

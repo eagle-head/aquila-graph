@@ -13,7 +13,7 @@ final class CompletedRunPublicationEligibility {
   static boolean accepts(AnalysisRun run) {
     if (run.completion() != AnalysisCompletion.COMPLETE || run.representation().ast().capturedEnvironment().isEmpty()
         || run.representation().cfg().filter(value -> value.state() == CfgState.COMPLETE).isEmpty()
-        || run.diagnostics().stream().anyMatch(AnalysisDiagnostic::isError)) {
+        || run.diagnostics().values().stream().anyMatch(AnalysisDiagnostic::isError)) {
       return false;
     }
     var ast = run.representation().ast().result().orElseThrow();
