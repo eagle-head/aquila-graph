@@ -84,7 +84,7 @@ class SourceAnalysisIntegrationTest {
     assertTrue(ast.diagnostics().isEmpty());
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
     assertEquals(List.of("control-flow.unsupported", "control-flow.unsupported"),
-        run.diagnostics().stream().map(value -> value.code()).toList());
+        run.diagnostics().values().stream().map(value -> value.code()).toList());
     assertEquals(List.of("(a) = 1", "(a) = 2"), blockers.stream().map(value -> value.diagnostic().origins().getFirst())
         .map(range -> snapshot.sourceFiles().getFirst().content().substring((int) range.startOffset(), (int) range.endOffsetExclusive())).toList());
     for (var blocker : blockers) {
@@ -114,7 +114,7 @@ class SourceAnalysisIntegrationTest {
     assertEquals(AnalysisCompletion.COMPLETE, run.completion());
     assertEquals(1, run.representation().ast().result().orElseThrow().program().methodCount());
     assertEquals(List.of(), run.representation().cfg().orElseThrow().methods());
-    assertFalse(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.isError()));
+    assertFalse(run.diagnostics().values().stream().anyMatch(diagnostic -> diagnostic.isError()));
   }
 
   @Test
@@ -179,7 +179,7 @@ class SourceAnalysisIntegrationTest {
 
     // Assert
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
-    assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.isError()));
+    assertTrue(run.diagnostics().values().stream().anyMatch(diagnostic -> diagnostic.isError()));
   }
 
   @Test
@@ -202,7 +202,7 @@ class SourceAnalysisIntegrationTest {
 
     // Assert
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
-    assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("frontend.unsupported-")));
+    assertTrue(run.diagnostics().values().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("frontend.unsupported-")));
   }
 
   @Test
@@ -222,15 +222,15 @@ class SourceAnalysisIntegrationTest {
 
     // Assert
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
-    var codes = run.diagnostics().stream().map(diagnostic -> diagnostic.code()).collect(Collectors.toSet());
+    var codes = run.diagnostics().values().stream().map(diagnostic -> diagnostic.code()).collect(Collectors.toSet());
     assertTrue(codes.contains("frontend.error-field-type"));
     assertTrue(codes.contains("frontend.error-parameter-type"));
     assertTrue(codes.contains("frontend.error-type"));
     assertTrue(codes.contains("frontend.error-reference"));
     assertTrue(codes.contains("control-flow.erroneous-evidence"));
-    assertTrue(run.diagnostics().stream().filter(diagnostic -> diagnostic.code().startsWith("frontend.error-"))
+    assertTrue(run.diagnostics().values().stream().filter(diagnostic -> diagnostic.code().startsWith("frontend.error-"))
         .allMatch(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE));
-    assertTrue(run.diagnostics().stream().filter(diagnostic -> diagnostic.code().equals("control-flow.erroneous-evidence"))
+    assertTrue(run.diagnostics().values().stream().filter(diagnostic -> diagnostic.code().equals("control-flow.erroneous-evidence"))
         .allMatch(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.ERRONEOUS_COMPILER_STATE));
   }
 

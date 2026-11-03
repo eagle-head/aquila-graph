@@ -290,8 +290,8 @@ class Neo4jStoredSurfaceContractTest {
     expected.edge("HAS_CONFIGURATION", environmentKey, configKey, "configuration");
     expectedDependencies(expected, environmentKey, "class-path", "HAS_CLASS_PATH_ENTRY", environment.classPath());
     expectedDependencies(expected, environmentKey, "module-path", "HAS_MODULE_PATH_ENTRY", environment.modulePath());
-    for (var position = 0; position < run.diagnostics().size(); position++) {
-      var diagnostic = run.diagnostics().get(position);
+    for (var position = 0; position < run.diagnostics().values().size(); position++) {
+      var diagnostic = run.diagnostics().values().get(position);
       expected.node("Diagnostic", diagnostic.diagnosticKey(), properties("code", diagnostic.code(), "stage", diagnostic.stage().name(),
           "severity", diagnostic.severity().name(), "message", diagnostic.message()));
       expected.edge("HAS_DIAGNOSTIC", runId, diagnostic.diagnosticKey(), Integer.toString(position), "position", position);

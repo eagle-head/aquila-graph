@@ -136,7 +136,7 @@ class CfgDiagnosticAdmissionTest {
         assertEquals(AnalysisCompletion.FAILED, run.completion());
         assertSame(fixture.ast(), run.representation().ast());
         assertSame(retained, run.representation().cfg().orElseThrow());
-        assertEquals(diagnostics, run.diagnostics());
+        assertEquals(diagnostics, run.diagnostics().values());
         assertSame(fixture.cause(), retained.methods().get(1).failure().orElseThrow());
         assertSame(original.methods().getFirst().graph().orElseThrow(), retained.methods().getFirst().graph().orElseThrow());
         assertTrue(retained.methods().get(1).graph().isEmpty());

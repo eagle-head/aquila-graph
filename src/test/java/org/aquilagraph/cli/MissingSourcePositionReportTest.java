@@ -46,7 +46,7 @@ class MissingSourcePositionReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
     assertNativeReport(run, projection, runStreams);
@@ -72,7 +72,7 @@ class MissingSourcePositionReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
     var rendered = assertNativeReport(run, projection, runStreams);
@@ -99,7 +99,7 @@ class MissingSourcePositionReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
     assertNativeReport(run, projection, runStreams);
@@ -126,7 +126,7 @@ class MissingSourcePositionReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().diagnostics();
+    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
     assertNativeReport(run, projection, runStreams);
@@ -159,7 +159,7 @@ class MissingSourcePositionReportTest {
     var summary = AnalysisRunSummary.from(run);
 
     // Assert
-    assertNativeReport(run, summary.occurrences().diagnostics(), runStreams);
+    assertNativeReport(run, summary.occurrences().values(), runStreams);
     assertEquals(AstCompletion.INCOMPLETE, ast.completion());
     assertEquals(AnalysisCompletion.PARTIAL, summary.run().completion());
     assertEquals(List.of(MethodCfgState.SOURCE_UNAVAILABLE, MethodCfgState.AVAILABLE),

@@ -944,7 +944,7 @@ class JavaConstructorSelectionTest {
   private static void assertCompleted(SyntaxAnalysisInput input) {
     assertTrue(input.diagnostics().stream().noneMatch(diagnostic -> diagnostic.isError()), input.diagnostics().toString());
     var run = new SourceAnalysisFixture().analyze(input);
-    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), run.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), run.diagnostics().values().toString());
   }
 
   private static MethodSyntax body(SyntaxAnalysisInput input, String name) {

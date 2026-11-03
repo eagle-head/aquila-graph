@@ -237,7 +237,7 @@ class JavaAstFrontendIntegrationTest {
 
     // Assert
     assertFalse(run.completion() == AnalysisCompletion.COMPLETE);
-    assertTrue(run.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
+    assertTrue(run.diagnostics().values().stream().anyMatch(diagnostic -> diagnostic.code().startsWith("compiler.err.")));
     assertTrue(result.aggregate().stream().flatMap(aggregate -> aggregate.roots().stream())
         .flatMap(root -> root.children(SyntaxRole.MODULE_DECLARATION).stream())
         .flatMap(module -> module.children(SyntaxRole.MODULE_DIRECTIVE).stream()).noneMatch(node -> node.value() instanceof SyntaxValue.Requires));

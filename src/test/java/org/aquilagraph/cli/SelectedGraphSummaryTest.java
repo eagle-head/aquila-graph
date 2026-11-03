@@ -35,7 +35,7 @@ class SelectedGraphSummaryTest {
 
     // Assert
     assertEquals(AnalysisCompletion.COMPLETE, run.completion());
-    assertTrue(run.diagnostics().isEmpty());
+    assertTrue(run.diagnostics().values().isEmpty());
     assertEquals(0, exitCode);
     assertEquals(new AnalysisRunSummary.ProgramSummary(1, 3, 3, 7, 13, 13), summary.program().orElseThrow());
     assertEquals("Run: " + run.identity().key() + System.lineSeparator()

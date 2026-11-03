@@ -38,9 +38,9 @@ class CalculatorAnalysisTest {
 
     // Assert
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
-    assertTrue(run.diagnostics().stream()
+    assertTrue(run.diagnostics().values().stream()
         .anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-field-initializer")));
-    assertTrue(run.diagnostics().stream()
+    assertTrue(run.diagnostics().values().stream()
         .anyMatch(diagnostic -> diagnostic.code().equals("frontend.unsupported-enum-constant-initialization")));
     assertEquals(3, run.representation().ast().capturedInput().orElseThrow().sourceFileCount());
     var representation = run.representation();

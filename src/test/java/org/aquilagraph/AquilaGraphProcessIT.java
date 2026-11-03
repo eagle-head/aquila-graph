@@ -503,11 +503,11 @@ class AquilaGraphProcessIT {
     var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     var run = runner.analyze(new AnalysisRequest(new SourceInput.Root(root), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_BOUNDED, Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE));
-    assertEquals(run.diagnostics().stream().map(diagnostic -> "Diagnostic: \"" + diagnostic.diagnosticKey() + "\"").toList(),
+    assertEquals(run.diagnostics().values().stream().map(diagnostic -> "Diagnostic: \"" + diagnostic.diagnosticKey() + "\"").toList(),
         result.error().lines().filter(line -> line.startsWith("Diagnostic:")).toList(), result.error());
-    assertEquals(run.diagnostics().stream().map(diagnostic -> "  Code: \"" + diagnostic.code() + "\"").toList(),
+    assertEquals(run.diagnostics().values().stream().map(diagnostic -> "  Code: \"" + diagnostic.code() + "\"").toList(),
         result.error().lines().filter(line -> line.startsWith("  Code:")).toList(), result.error());
-    assertEquals(run.diagnostics().stream().map(diagnostic -> "  Stage: " + diagnostic.stage()).toList(),
+    assertEquals(run.diagnostics().values().stream().map(diagnostic -> "  Stage: " + diagnostic.stage()).toList(),
         result.error().lines().filter(line -> line.startsWith("  Stage:")).toList(), result.error());
     assertEquals(run.representation().ast().qualification().reasons().stream().map(reason -> "Qualification: SOURCE " + reason.category()).toList(),
         result.error().lines().filter(line -> line.startsWith("Qualification: SOURCE ")).toList(), result.error());

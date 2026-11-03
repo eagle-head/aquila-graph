@@ -141,7 +141,7 @@ class AnalysisRunValueContractTest {
     // Assert
     assertSame(original.identity(), run.identity());
     assertSame(original.representation(), run.representation());
-    assertEquals(List.of(error, error), run.diagnostics());
+    assertEquals(List.of(error, error), run.diagnostics().values());
     assertEquals(AnalysisCompletion.FAILED, run.completion());
     var reasons = run.qualification().reasons().stream()
         .map(RequestQualificationReason.ApplicationDiagnostic.class::cast).toList();

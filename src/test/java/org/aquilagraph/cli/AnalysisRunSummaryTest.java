@@ -24,7 +24,7 @@ class AnalysisRunSummaryTest {
     assertSame(AnalysisCompletion.COMPLETE, summary.run().completion());
     assertEquals(25, summary.run().representation().ast().requestedConfiguration().orElseThrow().release().feature());
     assertEquals(1, summary.run().representation().ast().capturedInput().orElseThrow().sourceFileCount());
-    assertEquals(List.of(CliTestFixtures.warningDiagnostic()), summary.occurrences().diagnostics());
+    assertEquals(List.of(CliTestFixtures.warningDiagnostic()), summary.occurrences().values());
     var program = summary.program().orElseThrow();
     assertEquals(1, program.typeCount());
     assertEquals(1, program.methodCount());

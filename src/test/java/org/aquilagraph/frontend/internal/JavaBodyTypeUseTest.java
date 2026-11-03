@@ -42,7 +42,7 @@ class JavaBodyTypeUseTest {
     var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
-    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().values().toString());
     var sourceCreations = input.aggregate().orElseThrow().nodes().stream()
         .filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION).toList();
     assertEquals(2, sourceCreations.size());
@@ -86,7 +86,7 @@ class JavaBodyTypeUseTest {
     var run = new SourceAnalysisFixture().analyze(input);
 
     // Assert
-    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().toString());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().values().toString());
     var nodes = input.aggregate().orElseThrow().nodes();
     var local = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).findFirst().orElseThrow();
     var cast = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.TYPE_CAST).findFirst().orElseThrow();

@@ -185,7 +185,7 @@ class AnalyzeCommandTest {
     // Assert
     assertEquals(1, code);
     assertEquals(AnalysisCompletion.PARTIAL, run.get().completion());
-    assertEquals(List.of(), run.get().diagnostics());
+    assertEquals(List.of(), run.get().diagnostics().values());
     assertTrue(streams.outputLines().contains("Completion: PARTIAL"));
     assertTrue(streams.outputLines().contains("AST: INCOMPLETE"));
     assertTrue(streams.outputLines().contains("CFG: COMPLETE"));
