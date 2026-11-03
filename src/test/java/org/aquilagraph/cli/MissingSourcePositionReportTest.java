@@ -46,10 +46,9 @@ class MissingSourcePositionReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
     assertEquals(AstCompletion.INCOMPLETE, ast.completion());
     assertTrue(ast.bodyRef(method.methodKey()).isEmpty());
     assertTrue(blocker.occurrence().isPresent());
@@ -72,10 +71,9 @@ class MissingSourcePositionReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    var rendered = assertNativeReport(run, projection, runStreams);
+    var rendered = assertNativeReport(run, runStreams);
     assertTrue(rendered.contains("  Source occurrence: unavailable"));
     assertTrue(loop.origin().isEmpty());
     assertTrue(ast.occurrence(loop).isEmpty());
@@ -99,10 +97,9 @@ class MissingSourcePositionReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
     assertTrue(unsupported.origin().isEmpty());
     assertTrue(ast.occurrence(unsupported).isEmpty());
   }
@@ -126,10 +123,9 @@ class MissingSourcePositionReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
   }
 
@@ -159,7 +155,7 @@ class MissingSourcePositionReportTest {
     var summary = AnalysisRunSummary.from(run);
 
     // Assert
-    assertNativeReport(run, summary.occurrences().values(), runStreams);
+    assertNativeReport(run, runStreams);
     assertEquals(AstCompletion.INCOMPLETE, ast.completion());
     assertEquals(AnalysisCompletion.PARTIAL, summary.run().completion());
     assertEquals(List.of(MethodCfgState.SOURCE_UNAVAILABLE, MethodCfgState.AVAILABLE),

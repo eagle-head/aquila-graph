@@ -27,9 +27,9 @@ final class AnalysisQualificationRenderer {
   private final AnalysisDiagnosticRenderer diagnostics;
   private final PrintStream error;
 
-  AnalysisQualificationRenderer(AnalysisRunSummary summary, AnalysisDiagnosticRenderer diagnostics, PrintStream error) {
-    run = summary.run();
-    occurrences = summary.occurrences();
+  AnalysisQualificationRenderer(AnalysisRun run, AnalysisDiagnosticRenderer diagnostics, PrintStream error) {
+    this.run = run;
+    occurrences = run.diagnostics();
     this.diagnostics = diagnostics;
     this.error = error;
   }

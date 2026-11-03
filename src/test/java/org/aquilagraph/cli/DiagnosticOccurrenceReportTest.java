@@ -79,10 +79,9 @@ class DiagnosticOccurrenceReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
     assertEquals(3, run.diagnostics().values().size());
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
   }
@@ -106,10 +105,9 @@ class DiagnosticOccurrenceReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    var rendered = assertNativeReport(run, projection, runStreams);
+    var rendered = assertNativeReport(run, runStreams);
     var span = assignment.origin().orElseThrow();
     assertEquals(List.of(List.of("Qualification: CFG UNSUPPORTED", "  Profile: \"java-cfg-bounded/1\"",
         "  Subject: \"" + method.methodKey() + "\"", "  AST result: \"" + ast.identity().astResultKey() + "\"",
@@ -145,10 +143,9 @@ class DiagnosticOccurrenceReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    var rendered = assertNativeReport(run, projection, runStreams);
+    var rendered = assertNativeReport(run, runStreams);
     var related = relatedFromOwner(rendered, "SOURCE");
     assertFalse(related.isEmpty());
     assertTrue(related.stream().allMatch(line -> line.equals("  Related diagnostic: \"" + original.diagnostics().getFirst().diagnosticKey() + "\" occurrence=2")));
@@ -184,10 +181,9 @@ class DiagnosticOccurrenceReportTest {
 
           // Act
           CliTestFixtures.present(run, runStreams);
-          var projection = AnalysisRunSummary.from(run).occurrences().values();
 
           // Assert
-          var rendered = assertNativeReport(run, projection, runStreams);
+          var rendered = assertNativeReport(run, runStreams);
           assertTrue(rendered.contains("  Message: \"" + replacement.message() + "\""));
           assertEquals(List.of(replacement), ast.diagnostics());
           assertEquals(List.of(sourceDiagnostic), original.diagnostics());
@@ -216,13 +212,12 @@ class DiagnosticOccurrenceReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
     var catalog = run.diagnostics();
     var firstBlockerOccurrence = catalog.forBlocker(repeated, 0);
     var secondBlockerOccurrence = catalog.forBlocker(repeated, 1);
 
     // Assert
-    var rendered = assertNativeReport(run, projection, runStreams);
+    var rendered = assertNativeReport(run, runStreams);
     assertEquals(3, run.diagnostics().values().size());
     assertEquals(List.of(blocker.diagnostic(), blocker.diagnostic()), cfg.diagnostics());
     assertSame(catalog.occurrences().get(1), firstBlockerOccurrence);
@@ -285,7 +280,7 @@ class DiagnosticOccurrenceReportTest {
           var summary = AnalysisRunSummary.from(run);
 
           // Assert
-          assertNativeReport(run, summary.occurrences().values(), runStreams);
+          assertNativeReport(run, runStreams);
           assertEquals(AstCompletion.COMPLETE, ast.completion());
           assertEquals(List.of(diagnostic), ast.diagnostics());
           assertEquals(AnalysisCompletion.PARTIAL, summary.run().completion());
@@ -308,10 +303,9 @@ class DiagnosticOccurrenceReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
     assertEquals(original, run.diagnostics().values());
   }
 
@@ -328,10 +322,9 @@ class DiagnosticOccurrenceReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
   }
 
   @Test
@@ -346,10 +339,9 @@ class DiagnosticOccurrenceReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var projection = AnalysisRunSummary.from(run).occurrences().values();
 
     // Assert
-    assertNativeReport(run, projection, runStreams);
+    assertNativeReport(run, runStreams);
     assertEquals(3, run.diagnostics().values().size());
     assertEquals(List.of(graphDiagnostic, graphDiagnostic), run.applicationDiagnostics());
   }

@@ -1,7 +1,6 @@
 package org.aquilagraph.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -11,15 +10,12 @@ import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.RequestQualificationReason;
 import org.aquilagraph.cfg.api.CfgState;
 import org.aquilagraph.cfg.api.MethodCfgState;
-import org.aquilagraph.source.api.AnalysisDiagnostic;
 
 final class NativeReportAssertions {
   private NativeReportAssertions() {}
 
-  static List<String> assertNativeReport(AnalysisRun run, List<AnalysisDiagnostic> projected, CliStreams streams) {
-    var summary = AnalysisRunSummary.from(run);
-    var events = summary.occurrences().values();
-    assertEquals(run.diagnostics().values(), events);
+  static List<String> assertNativeReport(AnalysisRun run, CliStreams streams) {
+    var events = run.diagnostics().values();
     assertEquals(run.diagnostics().values().stream().map(value -> "Diagnostic: \"" + value.diagnosticKey() + "\"").toList(),
         streams.errorLines().stream().filter(line -> line.startsWith("Diagnostic: ")).toList());
     assertEquals(run.diagnostics().values().stream().map(value -> "  Stage: " + value.stage()).toList(),
@@ -65,8 +61,6 @@ final class NativeReportAssertions {
         lines.stream().filter(line -> line.startsWith("  Source occurrence:")).toList());
     assertEquals(blockers.stream().map(blocker -> "  Slot: \"" + blocker.slot() + "\"").toList(),
         lines.stream().filter(line -> line.startsWith("  Slot:")).toList());
-    assertSame(run, summary.run());
-    assertEquals(events, projected);
     return lines;
   }
 

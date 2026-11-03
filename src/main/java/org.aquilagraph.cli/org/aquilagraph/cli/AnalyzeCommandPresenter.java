@@ -5,6 +5,7 @@ import static org.aquilagraph.cli.AnalysisDiagnosticRenderer.quote;
 import java.io.PrintStream;
 import java.util.List;
 import java.util.Objects;
+import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.AnalysisRequestIdentity.ExistingSelection;
 import org.aquilagraph.application.AnalysisRequestIdentity.NotRequested;
 import org.aquilagraph.application.AnalysisRequestIdentity.ProductionSelection;
@@ -72,6 +73,18 @@ final class AnalyzeCommandPresenter {
     output.printf("Java source files: %d%n", ast.capturedInput().map(snapshot -> snapshot.sourceFileCount()).orElse(0));
     output.println("AST: " + ast.completion());
     output.println("AST profile: " + ast.profile().version());
+    printCfgSummary(run, output);
+    summary.program().ifPresent(program -> printProgramSummary(program, output));
+    printMethodCoverage(run, output);
+    var diagnostics = new AnalysisDiagnosticRenderer(run, error);
+    var occurrences = run.diagnostics();
+    for (var occurrence : occurrences.occurrences()) {
+      diagnostics.nativeEvent(occurrence.diagnostic(), occurrences.positionOf(occurrence) + 1);
+    }
+    new AnalysisQualificationRenderer(run, diagnostics, error).render();
+  }
+
+  private static void printCfgSummary(AnalysisRun run, PrintStream output) {
     var cfg = run.representation().cfg();
     output.println("CFG: " + cfg.map(value -> value.state().name())
         .orElse(run.identity().selection() instanceof NotRequested ? "NOT_REQUESTED" : "UNAVAILABLE"));
@@ -87,15 +100,16 @@ final class AnalyzeCommandPresenter {
       case ExistingSelection existing -> printSelection(existing.request().profile(), CfgSelection.Scope.METHODS,
           existing.request().astIdentity().astResultKey(), existing.request().methodKeys(), output);
     }
-    summary.program().ifPresent(program -> printProgramSummary(program, output));
-    ast.result().ifPresent(result -> result.program().methods().forEach(method -> output
-        .println("Method CFG: " + quote(method.methodKey()) + " " + run.methodCoverage(method.methodKey()).orElseThrow().state())));
-    var diagnostics = new AnalysisDiagnosticRenderer(run, error);
-    var occurrences = summary.occurrences();
-    for (var occurrence : occurrences.occurrences()) {
-      diagnostics.nativeEvent(occurrence.diagnostic(), occurrences.positionOf(occurrence) + 1);
-    }
-    new AnalysisQualificationRenderer(summary, diagnostics, error).render();
+  }
+
+  private static void printMethodCoverage(AnalysisRun run, PrintStream output) {
+    run.representation().ast().result().ifPresent(result -> {
+      for (var method : result.program().methods()) {
+        var methodKey = method.methodKey();
+        var coverage = run.methodCoverage(methodKey).orElseThrow();
+        output.println("Method CFG: " + quote(methodKey) + " " + coverage.state());
+      }
+    });
   }
 
   private static void printSelection(CfgProfile profile, CfgSelection.Scope scope, String binding, List<String> methods,
