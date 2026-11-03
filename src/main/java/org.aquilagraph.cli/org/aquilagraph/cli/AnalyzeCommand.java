@@ -2,6 +2,7 @@ package org.aquilagraph.cli;
 
 import java.io.PrintStream;
 import java.util.Objects;
+import org.aquilagraph.application.AnalysisDerivationException;
 import org.aquilagraph.application.port.AnalysisUseCase;
 import org.aquilagraph.identity.api.JavaRelease;
 
@@ -48,6 +49,12 @@ public final class AnalyzeCommand {
   /**
    * Executes one command invocation.
    *
+   * <p>
+   * The caller retains ownership of both streams and controls their closure. Output ordering is defined within each stream. Named input,
+   * environment, and repository failures are translated into CLI results. Other failures propagate with their primary, cause, and
+   * suppressed exceptions intact. An abrupt presentation failure may leave a partial report; external output delivery depends on the
+   * supplied streams.
+   *
    * @param arguments
    *          command-line arguments
    * @param output
@@ -55,6 +62,10 @@ public final class AnalyzeCommand {
    * @param error
    *          diagnostic stream
    * @return one of the declared exit codes
+   * @throws NullPointerException
+   *           if the argument array, an argument, or either stream is null
+   * @throws AnalysisDerivationException
+   *           if control-flow derivation fails abruptly, retaining source and derivation progress
    */
   public int run(String[] arguments, PrintStream output, PrintStream error) {
     Objects.requireNonNull(arguments, "arguments");
