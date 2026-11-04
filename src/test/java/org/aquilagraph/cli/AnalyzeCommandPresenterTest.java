@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRepositoryException;
 import org.aquilagraph.application.AnalysisRun;
@@ -11,7 +12,9 @@ import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.identity.api.SoftwareVersion;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Isolated;
 
+@Isolated("Temporarily changes the JVM format locale")
 class AnalyzeCommandPresenterTest {
   private final AnalyzeCommandPresenter presenter = new AnalyzeCommandPresenter();
 
@@ -188,6 +191,30 @@ class AnalyzeCommandPresenterTest {
     expectedError.add("error remains open");
     assertEquals(expectedOutput, streams.outputLines());
     assertEquals(expectedError, streams.errorLines());
+  }
+
+  @Test
+  void givenArabicNumberFormatLocale_whenCompletedOutcomeIsPresented_thenSummaryUsesCanonicalDecimalDigits() {
+    // Arrange
+    var run = CliTestFixtures.completedRunWithWarning();
+    var outcome = new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run));
+    var streams = new CliStreams();
+    var previousFormatLocale = Locale.getDefault(Locale.Category.FORMAT);
+
+    int code;
+    try {
+      Locale.setDefault(Locale.Category.FORMAT, Locale.forLanguageTag("ar-EG-u-nu-arab"));
+
+      // Act
+      code = presenter.present(outcome, streams.output(), streams.error());
+    } finally {
+      Locale.setDefault(Locale.Category.FORMAT, previousFormatLocale);
+    }
+
+    // Assert
+    assertEquals(AnalyzeCommand.EXIT_COMPLETED, code);
+    assertEquals(expectedOutput(run, "COMPLETE", "NOT_REQUESTED"), streams.outputLines());
+    assertEquals(expectedWarning(1), streams.errorLines());
   }
 
   private static List<String> expectedOutput(AnalysisRun run, String completion, String repository) {
