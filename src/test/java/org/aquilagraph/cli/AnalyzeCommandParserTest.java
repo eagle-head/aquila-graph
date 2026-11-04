@@ -245,4 +245,88 @@ class AnalyzeCommandParserTest {
       assertSame(PublicationIntent.DO_NOT_SAVE, parsed.arguments().publicationIntent());
     }
   }
+
+  @Test
+  void givenReleaseAndPersistenceInRemainingOrders_whenArgumentsAreParsed_thenTheSameArgumentsAreReturned() {
+    // Arrange
+    var sourceRoot = "source files";
+    var argumentOrders = new String[][] {
+        {sourceRoot, "--persist", "--release", "25"},
+        {"--release", "25", sourceRoot, "--persist"},
+        {"--persist", "--release", "25", sourceRoot}
+    };
+    var expected = new AnalyzeCommandArguments(Path.of(sourceRoot), JavaRelease.JAVA_25, PublicationIntent.SAVE_COMPLETED);
+
+    for (var arguments : argumentOrders) {
+      // Act
+      var result = parser.parse(arguments);
+
+      // Assert
+      assertEquals(expected, assertInstanceOf(AnalyzeCommandParser.Parsed.class, result).arguments(),
+          String.join(" ", arguments));
+    }
+  }
+
+  @Test
+  void givenUnsupportedReleaseAtNumericBoundaries_whenArgumentsAreParsed_thenReleaseIsReportedAsUnsupported() {
+    // Arrange
+    var unsupportedFeatures = new int[] {24, 0, Integer.MIN_VALUE, Integer.MAX_VALUE};
+
+    for (var feature : unsupportedFeatures) {
+      var token = Integer.toString(feature);
+
+      // Act
+      var result = parser.parse("source", "--release", token);
+
+      // Assert
+      assertEquals("Unsupported Java release: " + token + ". Supported releases: 25",
+          assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+    }
+  }
+
+  @Test
+  void givenEmptyPaddedOrUnderflowingReleaseToken_whenArgumentsAreParsed_thenUnchangedTokenIsReportedAsInvalid() {
+    // Arrange
+    var malformedTokens = new String[] {"", " 25 ", "-2147483649"};
+
+    for (var token : malformedTokens) {
+      // Act
+      var result = parser.parse("source", "--release", token);
+
+      // Assert
+      assertEquals("Invalid Java release: " + token, assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+    }
+  }
+
+  @Test
+  void givenSuccessfulParseWithBothOptions_whenParserIsReused_thenEachInvocationUsesItsOwnArguments() {
+    // Arrange
+    var first = parser.parse("first", "--release", "25", "--persist");
+    var expectedSecond = new AnalyzeCommandArguments(Path.of("second"), JavaRelease.JAVA_25, PublicationIntent.DO_NOT_SAVE);
+    var expectedThird = new AnalyzeCommandArguments(Path.of("third"), JavaRelease.JAVA_25, PublicationIntent.SAVE_COMPLETED);
+
+    // Act
+    var second = parser.parse("second");
+    var third = parser.parse("third", "--release", "25", "--persist");
+
+    // Assert
+    assertEquals(new AnalyzeCommandArguments(Path.of("first"), JavaRelease.JAVA_25, PublicationIntent.SAVE_COMPLETED),
+        assertInstanceOf(AnalyzeCommandParser.Parsed.class, first).arguments());
+    assertEquals(expectedSecond, assertInstanceOf(AnalyzeCommandParser.Parsed.class, second).arguments());
+    assertEquals(expectedThird, assertInstanceOf(AnalyzeCommandParser.Parsed.class, third).arguments());
+  }
+
+  @Test
+  void givenBothOptionsWithoutRoot_whenParserIsReused_thenRefusalLeavesTheNextInvocationIndependent() {
+    // Arrange
+    var missingRoot = parser.parse("--persist", "--release", "25");
+    var expected = new AnalyzeCommandArguments(Path.of("source"), JavaRelease.JAVA_25, PublicationIntent.DO_NOT_SAVE);
+
+    // Act
+    var result = parser.parse("source");
+
+    // Assert
+    assertEquals("Exactly one source root is required", assertInstanceOf(AnalyzeCommandParser.Rejected.class, missingRoot).message());
+    assertEquals(expected, assertInstanceOf(AnalyzeCommandParser.Parsed.class, result).arguments());
+  }
 }

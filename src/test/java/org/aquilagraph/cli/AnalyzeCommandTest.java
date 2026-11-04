@@ -6,7 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -342,5 +346,111 @@ class AnalyzeCommandTest {
     assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, code);
     assertEquals(List.of(), streams.outputLines());
     assertEquals(List.of("Analysis failed: compiler unavailable"), streams.errorLines());
+  }
+
+  @Test
+  void givenNamedFailureAndUsageRejection_whenCommandIsReused_thenOnlyValidInvocationsReachAnalysisWithFreshIntent() {
+    // Arrange
+    var failure = new AnalysisInputException("source unreadable", new IOException("unreadable"));
+    var execution = CliTestFixtures.withoutRepositoryRequest(CliTestFixtures.completedRun());
+    var useCase = new CapturingAnalysisUseCase(request -> {
+      if (request.publicationIntent() == PublicationIntent.SAVE_COMPLETED) {
+        throw failure;
+      }
+      return execution;
+    });
+    var command = new AnalyzeCommand(useCase);
+    var failed = new CliStreams();
+    var invalid = new CliStreams();
+    var completed = new CliStreams();
+
+    // Act
+    var failedCode = command.run(new String[] {"unreadable", "--persist"}, failed.output(), failed.error());
+    var invalidCode = command.run(new String[] {"--persist", "--unknown"}, invalid.output(), invalid.error());
+    var completedCode = command.run(new String[] {"readable"}, completed.output(), completed.error());
+
+    // Assert
+    assertEquals(AnalyzeCommand.EXIT_REJECTED, failedCode);
+    assertEquals(List.of(), failed.outputLines());
+    assertEquals(List.of("Input rejected: source unreadable"), failed.errorLines());
+    assertEquals(AnalyzeCommand.EXIT_REJECTED, invalidCode);
+    assertEquals(List.of(), invalid.outputLines());
+    assertEquals(List.of("Unknown option: --unknown", AnalyzeCommandParser.USAGE), invalid.errorLines());
+    assertEquals(AnalyzeCommand.EXIT_COMPLETED, completedCode);
+    assertTrue(completed.outputLines().contains("Completion: COMPLETE"));
+    assertEquals("Repository: NOT_REQUESTED", completed.outputLines().getLast());
+    assertEquals(List.of(), completed.errorLines());
+    assertEquals(List.of(new SourceInput.Root(Path.of("unreadable")), new SourceInput.Root(Path.of("readable"))),
+        useCase.requests().stream().map(AnalysisRequest::input).toList());
+    assertEquals(List.of(PublicationIntent.SAVE_COMPLETED, PublicationIntent.DO_NOT_SAVE),
+        useCase.requests().stream().map(AnalysisRequest::publicationIntent).toList());
+  }
+
+  @Test
+  void givenRejectedArguments_whenCommandRuns_thenCallerCanStillWriteToBothStreams() {
+    // Arrange
+    var command = new AnalyzeCommand(request -> { throw new AssertionError("Usage rejection must not invoke analysis"); });
+    var streams = new CliStreams();
+
+    // Act
+    var code = command.run(new String[] {"--unknown"}, streams.output(), streams.error());
+    streams.output().println("caller output");
+    streams.error().println("caller diagnostic");
+
+    // Assert
+    assertEquals(AnalyzeCommand.EXIT_REJECTED, code);
+    assertEquals(List.of("caller output"), streams.outputLines());
+    assertEquals(List.of("Unknown option: --unknown", AnalyzeCommandParser.USAGE, "caller diagnostic"), streams.errorLines());
+  }
+
+  @Test
+  void givenNamedFailureFromDiagnosticStream_whenCommandPresentsCompletedRun_thenExactFailureAndPartialReportRemain() {
+    // Arrange
+    var run = CliTestFixtures.completedRunWithWarning();
+    var execution = CliTestFixtures.withoutRepositoryRequest(run);
+    var useCase = new CapturingAnalysisUseCase(request -> execution);
+    var command = new AnalyzeCommand(useCase);
+    var streams = new CliStreams();
+    var diagnosticBytes = new ByteArrayOutputStream();
+    var lineSeparator = System.lineSeparator();
+    var diagnosticPrefix = String.join(lineSeparator, "Diagnostic: \"" + CliTestFixtures.warningDiagnostic().diagnosticKey() + "\"",
+        "  Occurrence: 1", "  Severity: WARNING", "  Stage: FRONTEND", "  Cause: OTHER_ANALYSIS_ERROR", "  Code: \"cli.warning\"")
+        + lineSeparator;
+    var failureOffset = diagnosticPrefix.getBytes(StandardCharsets.UTF_8).length;
+    var cause = new IOException("diagnostic sink failed");
+    var primary = new AnalysisEnvironmentException("presentation failed", cause);
+    var cleanup = new IllegalStateException("diagnostic sink cleanup failed");
+    primary.addSuppressed(cleanup);
+    var diagnosticSink = new OutputStream() {
+      private boolean failureRaised;
+
+      @Override
+      public void write(int value) {
+        if (!failureRaised && diagnosticBytes.size() == failureOffset) {
+          failureRaised = true;
+          throw primary;
+        }
+        diagnosticBytes.write(value);
+      }
+    };
+
+    try (var error = new PrintStream(diagnosticSink, true, StandardCharsets.UTF_8)) {
+      // Act
+      var observed = assertThrows(AnalysisEnvironmentException.class,
+          () -> command.run(new String[] {"source"}, streams.output(), error));
+      streams.output().println("caller output");
+      error.println("caller diagnostic");
+
+      // Assert
+      assertSame(primary, observed);
+      assertSame(cause, observed.getCause());
+      assertEquals(List.of(cleanup), List.of(observed.getSuppressed()));
+      assertEquals(1, useCase.requests().size());
+      var output = streams.outputLines();
+      assertTrue(output.contains("Completion: COMPLETE"));
+      var methodKey = run.representation().ast().result().orElseThrow().program().methods().getFirst().methodKey();
+      assertEquals(List.of("Method CFG: \"" + methodKey + "\" AVAILABLE", "caller output"), output.subList(output.size() - 2, output.size()));
+      assertEquals(diagnosticPrefix + "caller diagnostic" + lineSeparator, diagnosticBytes.toString(StandardCharsets.UTF_8));
+    }
   }
 }

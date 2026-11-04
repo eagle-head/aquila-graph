@@ -4,13 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.junit.jupiter.api.Test;
 import org.aquilagraph.application.AnalysisRepositoryException;
 import org.aquilagraph.application.port.RepositoryException;
+import org.junit.jupiter.api.Test;
 
 class AnalyzeCommandOutcomeTest {
   @Test
-  void givenValidOutcomeValues_whenOutcomesAreCreated_thenValuesAreRetained() {
+  void givenExecutionAndRepositoryFailure_whenOutcomesAreCreated_thenExactPayloadsAreRetained() {
     // Arrange
     var run = CliTestFixtures.completedRun();
     var execution = CliTestFixtures.withoutRepositoryRequest(run);
@@ -19,15 +19,42 @@ class AnalyzeCommandOutcomeTest {
     // Act
     var executed = new AnalyzeCommandOutcome.Executed(execution);
     var repositoryFailed = new AnalyzeCommandOutcome.RepositoryFailed(failure);
-    var inputRejected = new AnalyzeCommandOutcome.InputRejected("invalid input");
-    var environmentFailed = new AnalyzeCommandOutcome.EnvironmentFailed("compiler unavailable");
 
     // Assert
     assertSame(execution, executed.execution());
-    assertSame(run, repositoryFailed.failure().analysisRun());
-    assertEquals("database unavailable", repositoryFailed.failure().repositoryFailure().description());
-    assertEquals("invalid input", inputRejected.message());
-    assertEquals("compiler unavailable", environmentFailed.message());
+    var retainedFailure = repositoryFailed.failure();
+    assertSame(failure, retainedFailure);
+    assertSame(run, retainedFailure.analysisRun());
+    assertEquals("database unavailable", retainedFailure.repositoryFailure().description());
+  }
+
+  @Test
+  void givenFailureDescriptionsWithBoundaryWhitespace_whenOutcomesAreCreated_thenMessagesAreRetainedVerbatim() {
+    // Arrange
+    var inputDescription = "  invalid source path  ";
+    var environmentDescription = "\tcompiler unavailable  ";
+
+    // Act
+    var inputRejected = new AnalyzeCommandOutcome.InputRejected(inputDescription);
+    var environmentFailed = new AnalyzeCommandOutcome.EnvironmentFailed(environmentDescription);
+
+    // Assert
+    assertEquals(inputDescription, inputRejected.message());
+    assertEquals(environmentDescription, environmentFailed.message());
+  }
+
+  @Test
+  void givenEmptyFailureDescriptions_whenOutcomesAreCreated_thenMessagesRemainEmpty() {
+    // Arrange
+    var description = "";
+
+    // Act
+    var inputRejected = new AnalyzeCommandOutcome.InputRejected(description);
+    var environmentFailed = new AnalyzeCommandOutcome.EnvironmentFailed(description);
+
+    // Assert
+    assertEquals(description, inputRejected.message());
+    assertEquals(description, environmentFailed.message());
   }
 
   @Test

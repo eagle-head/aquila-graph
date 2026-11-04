@@ -31,23 +31,34 @@ class AnalyzeCommandExecutorTest {
   }
 
   @Test
-  void givenRepositoryFailure_whenCommandExecutes_thenRunAndFailureArePreserved() {
+  void givenRepositoryFailureWithSuppressedCleanup_whenCommandExecutes_thenExactFailureAndChainAreRetained() {
     // Arrange
     var run = CliTestFixtures.completedRun();
-    var failure = new RepositoryException("database unavailable", new IllegalStateException("offline"));
-    AnalysisUseCase useCase = request -> {
-      throw new AnalysisRepositoryException(run, failure);
-    };
-    var executor = new AnalyzeCommandExecutor(useCase);
+    var cause = new IllegalStateException("offline");
+    var repositoryFailure = new RepositoryException("database unavailable", cause);
+    var repositoryCleanup = new IllegalStateException("repository session close failed");
+    repositoryFailure.addSuppressed(repositoryCleanup);
+    var failure = new AnalysisRepositoryException(run, repositoryFailure);
+    var firstCleanup = new IllegalStateException("analysis cleanup failed");
+    var secondCleanup = new IllegalStateException("analysis context close failed");
+    failure.addSuppressed(firstCleanup);
+    failure.addSuppressed(secondCleanup);
+    var executor = new AnalyzeCommandExecutor(request -> {
+      throw failure;
+    });
 
     // Act
     var outcome = executor.execute(CliTestFixtures.arguments());
 
     // Assert
-    var repositoryFailed = assertInstanceOf(AnalyzeCommandOutcome.RepositoryFailed.class, outcome);
-    assertSame(run, repositoryFailed.failure().analysisRun());
-    assertSame(failure, repositoryFailed.failure().repositoryFailure());
-    assertEquals("database unavailable", repositoryFailed.failure().repositoryFailure().description());
+    var retained = assertInstanceOf(AnalyzeCommandOutcome.RepositoryFailed.class, outcome).failure();
+    assertSame(failure, retained);
+    assertSame(run, retained.analysisRun());
+    assertSame(repositoryFailure, retained.repositoryFailure());
+    assertEquals("database unavailable", retained.repositoryFailure().description());
+    assertSame(cause, retained.repositoryFailure().getCause());
+    assertEquals(List.of(repositoryCleanup), List.of(retained.repositoryFailure().getSuppressed()));
+    assertEquals(List.of(firstCleanup, secondCleanup), List.of(retained.getSuppressed()));
   }
 
   @Test
@@ -124,5 +135,65 @@ class AnalyzeCommandExecutorTest {
     assertSame(primary, observed);
     assertEquals(1, observed.getSuppressed().length);
     assertSame(cleanup, observed.getSuppressed()[0]);
+  }
+
+  @Test
+  void givenInputFailureWithNamedCauseAndSuppressedRepositoryFailure_whenCommandExecutes_thenInputDescriptionWins() {
+    // Arrange
+    var cause = new AnalysisEnvironmentException("compiler rejected the source");
+    var primary = new AnalysisInputException("source cannot be analyzed", cause);
+    var cleanup = new AnalysisRepositoryException(CliTestFixtures.completedRun(),
+        new RepositoryException("repository close failed", new IllegalStateException("close cause")));
+    primary.addSuppressed(cleanup);
+    var executor = new AnalyzeCommandExecutor(request -> {
+      throw primary;
+    });
+
+    // Act
+    var outcome = executor.execute(CliTestFixtures.arguments());
+
+    // Assert
+    var rejected = assertInstanceOf(AnalyzeCommandOutcome.InputRejected.class, outcome);
+    assertEquals("source cannot be analyzed", rejected.message());
+  }
+
+  @Test
+  void givenUnmatchedPrimaryWithNamedCause_whenCommandExecutes_thenExactPrimaryAndChainPropagate() {
+    // Arrange
+    var cause = new AnalysisInputException("nested input rejection", new IllegalArgumentException("invalid source"));
+    var primary = new IllegalStateException("unexpected analysis failure", cause);
+    var cleanup = new IllegalStateException("analysis close failed");
+    primary.addSuppressed(cleanup);
+    var executor = new AnalyzeCommandExecutor(request -> {
+      throw primary;
+    });
+
+    // Act
+    var observed = assertThrows(IllegalStateException.class, () -> executor.execute(CliTestFixtures.arguments()));
+
+    // Assert
+    assertSame(primary, observed);
+    assertSame(cause, observed.getCause());
+    assertEquals(List.of(cleanup), List.of(observed.getSuppressed()));
+  }
+
+  @Test
+  void givenFatalErrorWithNamedCauseAndSuppressedFailure_whenCommandExecutes_thenExactErrorAndChainPropagate() {
+    // Arrange
+    var cause = new AnalysisEnvironmentException("nested compiler failure");
+    var primary = new LinkageError("compiler linkage failed", cause);
+    var cleanup = new AnalysisInputException("source close failed", new IllegalArgumentException("invalid source"));
+    primary.addSuppressed(cleanup);
+    var executor = new AnalyzeCommandExecutor(request -> {
+      throw primary;
+    });
+
+    // Act
+    var observed = assertThrows(LinkageError.class, () -> executor.execute(CliTestFixtures.arguments()));
+
+    // Assert
+    assertSame(primary, observed);
+    assertSame(cause, observed.getCause());
+    assertEquals(List.of(cleanup), List.of(observed.getSuppressed()));
   }
 }
