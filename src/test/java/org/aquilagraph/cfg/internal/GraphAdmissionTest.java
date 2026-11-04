@@ -1,5 +1,6 @@
 package org.aquilagraph.cfg.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.cfg.api.MethodCfgState;
 import org.aquilagraph.cfg.api.MethodCfgOutcome;
 import org.aquilagraph.cfg.api.CfgState;
@@ -46,7 +47,6 @@ import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.internal.SourceAnalysisFixture;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.RequestQualificationReason;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
@@ -407,9 +407,7 @@ class GraphAdmissionTest {
         Optional.of(graph.body()), Optional.of(graph), List.of(), Optional.empty(), graph.diagnostics());
     var request = new CfgRequest(fixture.ast().identity(), List.of(graph.methodKey()), fixture.plan().profile());
     var cfg = new CfgOutcome(request, CfgState.PARTIAL, List.of(method), diagnostics);
-    var runner = new SourceAnalysisRunner(ignored -> {
-      throw new AssertionError("Existing source must not be produced again");
-    }, (source, invoked) -> cfg);
+    var runner = AnalysisCapabilities.existingSourceDerivation((source, invoked) -> cfg);
 
     // Act
     var run = runner.deriveExisting(ast, request);

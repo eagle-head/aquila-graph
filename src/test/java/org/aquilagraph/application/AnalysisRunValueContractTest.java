@@ -163,9 +163,7 @@ class AnalysisRunValueContractTest {
     var partial = TestAnalysisRuns.fromSource("class Example { int field = 1; int value() { return 1; } }");
     var ast = partial.representation().ast();
     var request = new CfgRequest(ast.result().orElseThrow().identity(), List.of("unknown"), CfgProfile.JAVA_BOUNDED);
-    var runner = new SourceAnalysisRunner(ignored -> {
-      throw new AssertionError("Existing source must not be produced again");
-    }, CfgDerivers.standard());
+    var runner = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard());
     var rejected = runner.deriveExisting(ast, request);
     var error = new AnalysisDiagnostic("provided:error", "provided.error", DiagnosticStage.FRONTEND, DiagnosticSeverity.ERROR,
         "Supplied application error", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);

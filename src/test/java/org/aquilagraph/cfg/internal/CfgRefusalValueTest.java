@@ -1,5 +1,6 @@
 package org.aquilagraph.cfg.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.cfg.api.CfgState;
 import org.aquilagraph.cfg.api.CfgOutcome;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -19,7 +20,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
@@ -43,8 +43,14 @@ class CfgRefusalValueTest {
   @Test
   void givenRealRefusal_whenPublicValuesAndApplicationRetainIt_thenOrderedCausesRemainObservable() {
     assertAll(PROFILES.stream().map(profile -> (Executable) () -> {
+      // Arrange
       var fixture = fixture(profile);
       var refused = fixture.outcome().methods().getFirst();
+      var copy = copy(refused, refused.state(), refused.diagnostics());
+      var copiedOutcome = new CfgOutcome(fixture.outcome().request(), CfgState.PARTIAL, List.of(copy), copy.diagnostics());
+      // Act
+      var run = AnalysisCapabilities.existingSourceDerivation((ast, request) -> copiedOutcome).deriveExisting(AstOutcome.available(fixture.ast()), copiedOutcome.request());
+      // Assert
       assertEquals(AstCompletion.COMPLETE, fixture.ast().completion());
       assertEquals(MethodCfgState.UNSUPPORTED, refused.state());
       assertEquals(2, refused.blockers().size());
@@ -52,11 +58,6 @@ class CfgRefusalValueTest {
           refused.blockers().stream().map(CfgBlocker::kind).toList());
       assertEquals(refused.blockers().stream().map(CfgBlocker::diagnostic).toList(), refused.diagnostics());
       assertTrue(refused.graph().isEmpty());
-      var copy = copy(refused, refused.state(), refused.diagnostics());
-      var copiedOutcome = new CfgOutcome(fixture.outcome().request(), CfgState.PARTIAL, List.of(copy), copy.diagnostics());
-      var run = new SourceAnalysisRunner(ignored -> {
-        throw new AssertionError("Existing source derivation must not acquire a producer");
-      }, (ast, request) -> copiedOutcome).deriveExisting(AstOutcome.available(fixture.ast()), copiedOutcome.request());
       assertSame(fixture.ast(), run.representation().ast().result().orElseThrow());
       assertEquals(refused.diagnostics(), run.diagnostics().values());
       assertThrows(UnsupportedOperationException.class, () -> copy.blockers().clear());

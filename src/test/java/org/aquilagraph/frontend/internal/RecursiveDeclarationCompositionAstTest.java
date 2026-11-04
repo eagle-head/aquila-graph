@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AnalysisComputationRequest;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -18,10 +21,7 @@ import java.util.Optional;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.CfgSelection;
-import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -52,7 +52,6 @@ import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxSourceContribution;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SourceExecutionTraversal;
 import org.aquilagraph.source.api.SyntaxSemanticRelation;
 import org.aquilagraph.source.api.SyntaxSemanticTarget.AnnotationApplication;
@@ -291,20 +290,19 @@ class RecursiveDeclarationCompositionAstTest {
     // Arrange
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), mixedSource())));
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var runner = new SourceAnalysisRunner(frontend, CfgDerivers.standard());
+    var runner = AnalysisCapabilities.computation(frontend, CfgDerivers.standard());
     var cause = new IllegalStateException("Supplied CFG construction failure");
 
     // Act
-    var absent = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        AstProfile.JAVA_SOURCE_UNITS, Optional.empty(), PublicationIntent.DO_NOT_SAVE));
-    var refused = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        AstProfile.JAVA_SOURCE_UNITS, Optional.of(new CfgSelection(List.of("type:Example#subject(java.lang.Object)"), CfgProfile.JAVA_BOUNDED)),
-        PublicationIntent.DO_NOT_SAVE));
+    var absent = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS), Optional.empty()));
+    var refused = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS), Optional.of(new CfgSelection(List.of("type:Example#subject(java.lang.Object)"), CfgProfile.JAVA_BOUNDED))));
     var ast = absent.representation().ast().result().orElseThrow();
     var nested = ast.program().methods().stream().filter(value -> value.name().equals("read")).findFirst().orElseThrow();
-    var failureRunner = new SourceAnalysisRunner(frontend, RecoverableCfgFailures.atMethod(nested.methodKey(), cause));
+    var failureRunner = AnalysisCapabilities.existingSourceDerivation(RecoverableCfgFailures.atMethod(nested.methodKey(), cause));
     var failed = failureRunner.deriveExisting(absent.representation().ast(), new CfgRequest(ast.identity(), List.of(nested.methodKey()), CfgProfile.JAVA_BOUNDED));
-    var selected = runner.deriveExisting(absent.representation().ast(), new CfgRequest(ast.identity(), List.of(nested.methodKey()), CfgProfile.JAVA_BOUNDED));
+    var selected = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(absent.representation().ast(), new CfgRequest(ast.identity(), List.of(nested.methodKey()), CfgProfile.JAVA_BOUNDED));
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, ast.completion(), details(ast));

@@ -9,12 +9,13 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
-import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.MethodCfgState;
 import org.aquilagraph.cfg.internal.RecoverableCfgFailures;
+import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
@@ -28,7 +29,6 @@ import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.AnnotationScalar;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.FeatureContextOutcome;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -130,14 +130,13 @@ class WrittenExpressionFidelityTest {
     var ast = AstOutcome.available(original);
     var selected = original.program().methods().stream().filter(method -> !method.name().equals("<init>"))
         .map(method -> method.methodKey()).toList();
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var runner = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard());
     var request = new CfgRequest(original.identity(), selected, CfgProfile.JAVA_WITHOUT_SWITCH_EXPRESSIONS);
     var minimum = original.program().methods().stream().filter(method -> method.name().equals("minimum")).findFirst().orElseThrow();
 
     // Act
     var run = runner.deriveExisting(ast, request);
-    var failed = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()),
-        RecoverableCfgFailures.atMethod(minimum.methodKey(), new IllegalStateException("Declared graph construction failure")))
+    var failed = AnalysisCapabilities.existingSourceDerivation(RecoverableCfgFailures.atMethod(minimum.methodKey(), new IllegalStateException("Declared graph construction failure")))
         .deriveExisting(ast, new CfgRequest(original.identity(), List.of(minimum.methodKey()), CfgProfile.JAVA_BOUNDED));
 
     // Assert

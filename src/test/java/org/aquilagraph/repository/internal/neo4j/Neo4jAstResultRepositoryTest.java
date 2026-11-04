@@ -1,6 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
+import org.aquilagraph.application.port.AstResultRepositoryFactory;
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 
 
@@ -25,7 +27,6 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import org.aquilagraph.application.AstLookupStatus;
 import org.aquilagraph.application.AstLookup;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.AstPublicationRequest;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationStatus;
@@ -65,15 +66,17 @@ class Neo4jAstResultRepositoryTest {
     var writer = new AstRepositoryDriverStub();
     var reader = new AstRepositoryDriverStub();
     reader.stored = new Neo4jAstResultCodec().map(outcome);
-    var retention = new AstRetentionService(context -> new Neo4jAstResultRepository(
-        (context.kind() == RepositoryOperationKind.SAVE_AST ? writer : reader).driver(), SessionConfig.defaultConfig(), context));
-    var noSave = new AstRetentionService(context -> {
+    AstResultRepositoryFactory repositories = context -> new Neo4jAstResultRepository(
+        (context.kind() == RepositoryOperationKind.SAVE_AST ? writer : reader).driver(), SessionConfig.defaultConfig(), context);
+    var query = AnalysisCapabilities.astQuery(repositories);
+    var retention = AnalysisCapabilities.astRetention(repositories);
+    var noSave = AnalysisCapabilities.astRetention(context -> {
       throw new AssertionError("Explicit no-save cannot acquire an adapter");
     });
     // Act
     var declined = noSave.retainAst(new AstPublicationRequest(outcome, PublicationIntent.DO_NOT_SAVE));
-    var publication = retention.retainAst(outcome);
-    var lookup = retention.findAst(original.identity());
+    var publication = retention.retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
+    var lookup = query.findAst(original.identity());
     // Assert
     assertEquals(PublicationStatus.NOT_REQUESTED, declined.status());
     assertEquals(CommitKnowledge.NOT_STARTED, declined.knowledge());
@@ -304,7 +307,7 @@ class Neo4jAstResultRepositoryTest {
       backend.closeFailure = new IllegalStateException("Read session cleanup failed");
       backend.failingClose = 0;
       backend.driverCloseFailure = new Neo4jException("Driver cleanup after read failed");
-      var retention = new AstRetentionService(new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings,
+      var retention = AnalysisCapabilities.astQuery(new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings,
           ignored -> backend.driver(), ignored -> SessionConfig.defaultConfig()));
 
       // Act

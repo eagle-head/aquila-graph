@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
@@ -53,7 +56,6 @@ import org.aquilagraph.source.api.SourceOwnerPath;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.PublicationStatus;
 import org.junit.jupiter.api.DynamicTest;
@@ -84,7 +86,7 @@ class ExecutionAttributionAdmissionTest {
               scope.invocations(), scope.staticAccesses(), scope.concatenations(), List.of())).toList();
           var supplied = new CopiedAstValues(values.snapshot(), values.sources(), values.bodies(), values.memberOrders(),
               values.associations(), values.declarationTypes(), scopes);
-          var publication = new AstRetentionService(context -> {
+          var publication = AnalysisCapabilities.astRetention(context -> {
             throw new AssertionError("Missing declaration-root attribution must prevent repository acquisition");
           });
 
@@ -95,7 +97,7 @@ class ExecutionAttributionAdmissionTest {
           var outcome = AstProductionAdmission.outcome(input, original.profile(), original.identity().semanticProductionRevision());
           var qualified = outcome.result().orElseThrow();
           var retained = AstCodec.decode(AstCodec.encode(qualified), qualified.identity());
-          var attempt = publication.retainAst(outcome);
+          var attempt = publication.retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
 
           // Assert
           assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());

@@ -7,8 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AstPublicationRequest;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationStatus;
@@ -30,12 +30,12 @@ class DeclarationAstEligibilityTest {
     var incomplete = DeclarationAstRetentionFixture.produce(directory, "Broken.java", "class Broken { int field = missing; }");
     var unavailable = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory, List.of()),
         DeclarationAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_UNITS);
-    var retention = new AstRetentionService(ignored -> { throw new AssertionError("No-save or ineligible input must not acquire a repository"); });
+    var retention = AnalysisCapabilities.astRetention(ignored -> { throw new AssertionError("No-save or ineligible input must not acquire a repository"); });
 
     // Act
     var noSave = retention.retainAst(new AstPublicationRequest(complete, PublicationIntent.DO_NOT_SAVE));
-    var partial = retention.retainAst(incomplete);
-    var absent = retention.retainAst(unavailable);
+    var partial = retention.retainAst(new AstPublicationRequest(incomplete, PublicationIntent.SAVE_COMPLETE_AST));
+    var absent = retention.retainAst(new AstPublicationRequest(unavailable, PublicationIntent.SAVE_COMPLETE_AST));
 
     // Assert
     DeclarationAstRetentionFixture.assertMixed(complete.result().orElseThrow());

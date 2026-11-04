@@ -9,10 +9,13 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
@@ -22,14 +25,10 @@ import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
-import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.CfgSelection;
-import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
-import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
@@ -163,13 +162,13 @@ class ExceptionAstTest {
         .map(variant -> DynamicTest.dynamicTest(variant.body(), () -> {
           // Arrange
           var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source(variant.body()))));
-          var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+          var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
           var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
           // Act
-          var astOnly = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration, AstProfile.JAVA_SOURCE_EXPANDED,
-              Optional.empty(), PublicationIntent.DO_NOT_SAVE));
-          var withCfg = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration, AstProfile.JAVA_SOURCE_EXPANDED,
-              Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE));
+          var astOnly = runner.analyze(new AnalysisComputationRequest(
+              new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_EXPANDED), Optional.empty()));
+          var withCfg = runner.analyze(new AnalysisComputationRequest(
+              new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_EXPANDED), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED))));
           var bounded = produce(source(variant.body()), AstProfile.JAVA_SOURCE_BOUNDED);
           // Assert
           var original = astOnly.representation().ast().result().orElseThrow();

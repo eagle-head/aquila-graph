@@ -11,7 +11,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
-import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -131,7 +131,7 @@ class JavaModifierCoverageTest {
     var result = outcome.result().orElseThrow();
     var selection = new CfgRequest(result.identity(), List.of("type:Open#supported()", "type:Open#subject()"), CfgProfile.JAVA_BOUNDED);
     var deriver = CfgDerivers.standard();
-    var runner = new SourceAnalysisRunner(frontend, deriver);
+    var runner = AnalysisCapabilities.existingSourceDerivation(deriver);
 
     // Act
     var direct = deriver.derive(result, selection);

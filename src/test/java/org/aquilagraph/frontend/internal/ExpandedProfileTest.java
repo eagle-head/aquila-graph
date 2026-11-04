@@ -13,10 +13,9 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisCompletion;
-import org.aquilagraph.application.AnalysisRequest;
-import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -36,7 +35,6 @@ import org.aquilagraph.source.api.AstProducer;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.JavaSourceKind;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.junit.jupiter.api.Test;
@@ -207,10 +205,10 @@ class ExpandedProfileTest {
   void givenExpandedApplicationRequest_whenDerivingExistingWithNativeRefusal_thenSourceQualificationAndContentStayUnchanged() {
     // Arrange
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var runner = new SourceAnalysisRunner(frontend, CfgDerivers.standard());
+    var runner = AnalysisCapabilities.computation(frontend, CfgDerivers.standard());
     var input = snapshot("class Stored { int choose(int x) { return switch (x) { default -> 7; }; } }");
-    var request = new AnalysisRequest(new SourceInput.Snapshot(input), configuration(), AstProfile.JAVA_SOURCE_EXPANDED,
-        Optional.empty(), PublicationIntent.DO_NOT_SAVE);
+    var request = new AnalysisComputationRequest(
+        new AstProductionRequest(input, configuration(), AstProfile.JAVA_SOURCE_EXPANDED), Optional.empty());
 
     // Act
     var sourceOnly = runner.analyze(request);
@@ -218,8 +216,8 @@ class ExpandedProfileTest {
     var source = ast.result().orElseThrow();
     var method = source.program().methods().stream().filter(value -> value.name().equals("choose")).findFirst().orElseThrow();
     var originalBytes = AstCodec.encode(source);
-    var supported = runner.deriveExisting(ast, new CfgRequest(source.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
-    var refused = runner.deriveExisting(ast,
+    var supported = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast, new CfgRequest(source.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
+    var refused = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast,
         new CfgRequest(source.identity(), List.of(method.methodKey()), CfgProfile.JAVA_WITHOUT_SWITCH_EXPRESSIONS));
 
     // Assert

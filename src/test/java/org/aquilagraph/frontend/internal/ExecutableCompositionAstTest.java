@@ -1,5 +1,9 @@
 package org.aquilagraph.frontend.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AnalysisComputationRequest;
+import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -17,12 +21,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 import org.aquilagraph.application.AnalysisCompletion;
-import org.aquilagraph.application.AnalysisRequest;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.CfgSelection;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationStatus;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -45,7 +46,6 @@ import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
-import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
@@ -256,18 +256,18 @@ class ExecutableCompositionAstTest {
     // Arrange
     var snapshot = snapshot(mixedSource());
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var runner = new SourceAnalysisRunner(frontend, CfgDerivers.standard());
+    var runner = AnalysisCapabilities.computation(frontend, CfgDerivers.standard());
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var cause = new IllegalStateException("Declared CFG construction failure");
 
     // Act
-    var astOnly = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration, AstProfile.JAVA_SOURCE_EXPANDED,
-        Optional.empty(), PublicationIntent.DO_NOT_SAVE));
-    var withCfg = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration, AstProfile.JAVA_SOURCE_EXPANDED,
-        Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE));
+    var astOnly = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_EXPANDED), Optional.empty()));
+    var withCfg = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_EXPANDED), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED))));
     var original = astOnly.representation().ast().result().orElseThrow();
     var method = original.program().methods().stream().filter(value -> value.name().equals("supported")).findFirst().orElseThrow();
-    var failureRunner = new SourceAnalysisRunner(frontend, RecoverableCfgFailures.atMethod(method.methodKey(), cause));
+    var failureRunner = AnalysisCapabilities.existingSourceDerivation(RecoverableCfgFailures.atMethod(method.methodKey(), cause));
     var failed = failureRunner.deriveExisting(astOnly.representation().ast(),
         new CfgRequest(original.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
 
@@ -344,12 +344,12 @@ class ExecutableCompositionAstTest {
         captured.associations(), captured.declarationTypes()));
     var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied),
         JavaCoverageTestSupport.emissions(original));
-    var retention = new AstRetentionService(ignored -> { throw new AssertionError("Incomplete source cannot acquire storage"); });
+    var retention = AnalysisCapabilities.astRetention(ignored -> { throw new AssertionError("Incomplete source cannot acquire storage"); });
 
     // Act
     var outcome = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
     var result = AstCodec.decode(AstCodec.encode(outcome.result().orElseThrow()), outcome.result().orElseThrow().identity());
-    var publication = retention.retainAst(outcome);
+    var publication = retention.retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
 
     // Assert
     assertEquals(2, invocationKeys.size());

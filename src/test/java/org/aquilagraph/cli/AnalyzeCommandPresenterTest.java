@@ -7,17 +7,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.AnalysisExecution;
-import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.CfgSelection;
 import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.identity.api.SoftwareVersion;
-import org.aquilagraph.source.api.SourceInput;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 
@@ -235,9 +235,9 @@ class AnalyzeCommandPresenterTest {
     var middle = methods.get(1).methodKey();
     var last = methods.get(2).methodKey();
     var selection = new CfgSelection(List.of(last, first), CfgProfile.JAVA_BOUNDED);
-    var request = new AnalysisRequest(new SourceInput.Snapshot(source.snapshot()), source.environment().compilerConfiguration(),
-        ast.profile(), Optional.of(selection), PublicationIntent.DO_NOT_SAVE);
-    var run = new SourceAnalysisRunner(ignored -> ast, CfgDerivers.standard()).analyze(request);
+    var request = new AnalysisComputationRequest(
+        new AstProductionRequest(source.snapshot(), source.environment().compilerConfiguration(), ast.profile()), Optional.of(selection));
+    var run = AnalysisCapabilities.computation(ignored -> ast, CfgDerivers.standard()).analyze(request);
     var outcome = new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run));
     var streams = new CliStreams();
 

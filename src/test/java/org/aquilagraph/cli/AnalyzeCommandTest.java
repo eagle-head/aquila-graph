@@ -17,14 +17,15 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.AnalysisDerivationException;
 import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.CfgSelection;
 import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgDerivationException;
@@ -38,6 +39,7 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.source.api.AnalysisEnvironmentException;
 import org.aquilagraph.source.api.AnalysisInputException;
 import org.aquilagraph.source.api.AstOutcome;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.DynamicTest;
@@ -68,9 +70,8 @@ class AnalyzeCommandTest {
 
           // Assert
           assertEquals(AnalyzeCommand.EXIT_COMPLETED, code);
-          assertEquals(List.of(new AnalysisRequest(new SourceInput.Root(directory.toAbsolutePath().normalize()),
-              CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED,
-              Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.SAVE_COMPLETED)), useCase.requests());
+          assertEquals(List.of(new AnalysisRequest(new AnalysisComputationRequest(
+              new AstProductionRequest(directory.toAbsolutePath().normalize(), CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED))), PublicationIntent.SAVE_COMPLETED)), useCase.requests());
           assertTrue(streams.outputLines().contains("Completion: COMPLETE"));
           assertEquals("Repository: SAVED", streams.outputLines().getLast());
           assertEquals(List.of(), streams.errorLines());
@@ -247,10 +248,10 @@ class AnalyzeCommandTest {
     assertEquals(0, code);
     assertEquals(1, useCase.requests().size());
     var request = useCase.requests().getFirst();
-    assertEquals(directory.toAbsolutePath().normalize(), ((SourceInput.Root) request.input()).path());
-    assertEquals(CompilerConfiguration.forRelease(JavaRelease.JAVA_25), request.configuration());
-    assertEquals(AstProfile.JAVA_SOURCE_BOUNDED, request.astProfile());
-    assertEquals(Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), request.cfgSelection());
+    assertEquals(directory.toAbsolutePath().normalize(), ((SourceInput.Root) request.computation().source().input()).path());
+    assertEquals(CompilerConfiguration.forRelease(JavaRelease.JAVA_25), request.computation().source().configuration());
+    assertEquals(AstProfile.JAVA_SOURCE_BOUNDED, request.computation().source().profile());
+    assertEquals(Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), request.computation().cfgSelection());
     assertEquals(PublicationIntent.DO_NOT_SAVE, request.publicationIntent());
     assertTrue(streams.outputLines().containsAll(List.of("Completion: COMPLETE", "Java release: 25", "Repository: NOT_REQUESTED")));
     assertEquals("still writable", streams.outputLines().getLast());
@@ -265,7 +266,7 @@ class AnalyzeCommandTest {
     var carrier = new AtomicReference<CfgDerivationException>();
     var cause = new IllegalStateException("construction interrupted");
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var runner = new SourceAnalysisRunner(request -> {
+    var runner = AnalysisCapabilities.computation(request -> {
       var produced = frontend.produce(request);
       source.set(produced);
       return produced;
@@ -378,7 +379,7 @@ class AnalyzeCommandTest {
     assertEquals("Repository: NOT_REQUESTED", completed.outputLines().getLast());
     assertEquals(List.of(), completed.errorLines());
     assertEquals(List.of(new SourceInput.Root(Path.of("unreadable")), new SourceInput.Root(Path.of("readable"))),
-        useCase.requests().stream().map(AnalysisRequest::input).toList());
+        useCase.requests().stream().map(request -> request.computation().source().input()).toList());
     assertEquals(List.of(PublicationIntent.SAVE_COMPLETED, PublicationIntent.DO_NOT_SAVE),
         useCase.requests().stream().map(AnalysisRequest::publicationIntent).toList());
   }

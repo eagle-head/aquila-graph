@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Optional;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgDerivationException;
+import org.aquilagraph.cfg.api.CfgDeriver;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.CfgState;
@@ -23,8 +24,8 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.io.TempDir;
@@ -56,6 +57,7 @@ class SourceAnalysisFailureTest {
   @Test
   void givenMatchingRealProgress_whenCrossingEitherApplicationEntry_thenSourceRequestProgressAndCauseRemainExact() {
     assertAll(PROFILES.stream().map(profile -> (Executable) () -> {
+      // Arrange
       var ast = produce(profile, 7);
       var result = ast.result().orElseThrow();
       var request = new CfgRequest(result.identity(), List.of(key(ast, "first"), key(ast, "second")), CfgProfile.JAVA_BOUNDED);
@@ -65,12 +67,16 @@ class SourceAnalysisFailureTest {
       var cause = new IllegalStateException("Construction observation");
       var carrier = new CfgDerivationException(request, prefix.methods(), cause);
       var observed = new ArrayList<CfgRequest>();
-      var runner = new SourceAnalysisRunner(ignored -> ast, (source, invoked) -> {
+      CfgDeriver cfgDeriver = (source, invoked) -> {
         observed.add(invoked);
         throw carrier;
-      });
-      var existing = assertThrows(AnalysisDerivationException.class, () -> runner.deriveExisting(ast, request));
+      };
+      var runner = AnalysisCapabilities.computation(ignored -> ast, cfgDeriver);
+      var derivation = AnalysisCapabilities.existingSourceDerivation(cfgDeriver);
+      // Act
+      var existing = assertThrows(AnalysisDerivationException.class, () -> derivation.deriveExisting(ast, request));
       var production = assertThrows(AnalysisDerivationException.class, () -> runner.analyze(productionRequest(ast, request)));
+      // Assert
       for (var failure : List.of(existing, production, new AnalysisDerivationException(ast, carrier))) {
         assertSame(ast, failure.ast());
         assertSame(carrier, failure.derivationFailure());
@@ -124,12 +130,14 @@ class SourceAnalysisFailureTest {
       var cause = new IllegalStateException("Construction observation");
       var carrier = new CfgDerivationException(unexpected, List.of(), cause);
       var observed = new ArrayList<CfgRequest>();
-      var runner = new SourceAnalysisRunner(ignored -> ast, (source, invoked) -> {
+      CfgDeriver cfgDeriver = (source, invoked) -> {
         observed.add(invoked);
         throw carrier;
-      });
+      };
+      var runner = AnalysisCapabilities.computation(ignored -> ast, cfgDeriver);
+      var derivation = AnalysisCapabilities.existingSourceDerivation(cfgDeriver);
       assertAll(
-          () -> assertViolation(carrier, cause, () -> runner.deriveExisting(ast, request)),
+          () -> assertViolation(carrier, cause, () -> derivation.deriveExisting(ast, request)),
           () -> assertViolation(carrier, cause, () -> runner.analyze(productionRequest(ast, request))));
       assertEquals(List.of(request, request), observed);
       assertEquals(AstCompletion.COMPLETE, ast.completion());
@@ -151,10 +159,9 @@ class SourceAnalysisFailureTest {
     return ast;
   }
 
-  private static AnalysisRequest productionRequest(AstOutcome ast, CfgRequest request) {
-    return new AnalysisRequest(new SourceInput.Snapshot(ast.capturedInput().orElseThrow()),
-        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), ast.profile(),
-        Optional.of(new CfgSelection(request.methodKeys(), request.profile())), PublicationIntent.DO_NOT_SAVE);
+  private static AnalysisComputationRequest productionRequest(AstOutcome ast, CfgRequest request) {
+    var source = new AstProductionRequest(ast.capturedInput().orElseThrow(), CompilerConfiguration.forRelease(JavaRelease.JAVA_25), ast.profile());
+    return new AnalysisComputationRequest(source, Optional.of(new CfgSelection(request.methodKeys(), request.profile())));
   }
 
   private static String key(AstOutcome ast, String name) {

@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.Test;
@@ -19,51 +20,58 @@ class AnalysisRequestTest {
     var sourceRoot = Path.of("sources", "main");
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
 
+    var source = new AstProductionRequest(sourceRoot, configuration, AstProfile.JAVA_SOURCE_BOUNDED);
+    var computation = new AnalysisComputationRequest(source, Optional.empty());
+
     // Act
-    var request = new AnalysisRequest(new SourceInput.Root(sourceRoot), configuration, AstProfile.JAVA_SOURCE_BOUNDED, Optional.empty(), PublicationIntent.SAVE_COMPLETED);
+    var request = new AnalysisRequest(computation, PublicationIntent.SAVE_COMPLETED);
 
     // Assert
-    assertEquals(sourceRoot.toAbsolutePath().normalize(), ((SourceInput.Root) request.input()).path());
-    assertSame(configuration, request.configuration());
+    assertEquals(sourceRoot.toAbsolutePath().normalize(), ((SourceInput.Root) request.computation().source().input()).path());
+    assertSame(configuration, request.computation().source().configuration());
+    assertSame(source, request.computation().source());
+    assertSame(computation, request.computation());
     assertEquals(PublicationIntent.SAVE_COMPLETED, request.publicationIntent());
   }
 
   @Test
-  void givenNullSourceRoot_whenRequestCreated_thenNullInputIsRejected() {
+  void givenMissingComputation_whenCreatingExecutionRequest_thenTheComputationIsRejected() {
     // Arrange
-    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+    var intent = PublicationIntent.DO_NOT_SAVE;
 
     // Act
-    var exception = assertThrows(NullPointerException.class,
-        () -> new AnalysisRequest(null, configuration, AstProfile.JAVA_SOURCE_BOUNDED, Optional.empty(), PublicationIntent.DO_NOT_SAVE));
+    var failure = assertThrows(NullPointerException.class, () -> new AnalysisRequest(null, intent));
 
     // Assert
-    assertEquals("input", exception.getMessage());
+    assertEquals("computation", failure.getMessage());
   }
 
   @Test
-  void givenNullCompilerConfiguration_whenRequestCreated_thenNullInputIsRejected() {
+  void givenMissingSourceOrSelection_whenCreatingComputationRequest_thenEachRequiredComponentIsRejected() {
     // Arrange
-    var sourceRoot = Path.of("sources");
+    var source = new AstProductionRequest(Path.of("sources"), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+        AstProfile.JAVA_SOURCE_BOUNDED);
 
     // Act
-    var exception = assertThrows(NullPointerException.class,
-        () -> new AnalysisRequest(new SourceInput.Root(sourceRoot), null, AstProfile.JAVA_SOURCE_BOUNDED, Optional.empty(), PublicationIntent.DO_NOT_SAVE));
+    var missingSource = assertThrows(NullPointerException.class, () -> new AnalysisComputationRequest(null, Optional.empty()));
+    var missingSelection = assertThrows(NullPointerException.class, () -> new AnalysisComputationRequest(source, null));
 
     // Assert
-    assertEquals("configuration", exception.getMessage());
+    assertEquals("source", missingSource.getMessage());
+    assertEquals("cfgSelection", missingSelection.getMessage());
   }
 
   @Test
-  void givenNullRepositoryPolicy_whenRequestCreated_thenNullInputIsRejected() {
+  void givenMissingIntent_whenCreatingExecutionRequest_thenTheIntentIsRejected() {
     // Arrange
-    var sourceRoot = Path.of("sources");
-    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+    var source = new AstProductionRequest(Path.of("sources"), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+        AstProfile.JAVA_SOURCE_BOUNDED);
+    var computation = new AnalysisComputationRequest(source, Optional.empty());
 
     // Act
-    var exception = assertThrows(NullPointerException.class, () -> new AnalysisRequest(new SourceInput.Root(sourceRoot), configuration, AstProfile.JAVA_SOURCE_BOUNDED, Optional.empty(), null));
+    var failure = assertThrows(NullPointerException.class, () -> new AnalysisRequest(computation, null));
 
     // Assert
-    assertEquals("publicationIntent", exception.getMessage());
+    assertEquals("publicationIntent", failure.getMessage());
   }
 }

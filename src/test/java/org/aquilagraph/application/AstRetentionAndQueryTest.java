@@ -18,6 +18,7 @@ import org.aquilagraph.application.ApplicationRepositoryOperationException.Bound
 import org.aquilagraph.application.ComputedPublicationSubject.Ast;
 import org.aquilagraph.application.ComputedPublicationSubject.Coordinated;
 import org.aquilagraph.application.port.AstResultRepository;
+import org.aquilagraph.application.port.AstResultRepositoryFactory;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.application.port.RepositoryOperationException;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
@@ -36,10 +37,11 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.testsupport.AnalysisExecutionFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class AstRetentionServiceTest {
+class AstRetentionAndQueryTest {
   @TempDir Path directory;
 
   @Test
@@ -49,14 +51,15 @@ class AstRetentionServiceTest {
     var original = ast.result().orElseThrow();
     var key = original.program().methods().stream().filter(method -> method.name().equals("value")).findFirst().orElseThrow().methodKey();
     var cause = new IllegalStateException("Declared construction observation");
-    var run = new SourceAnalysisRunner(ignored -> ast, RecoverableCfgFailures.atMethod(key, cause)).deriveExisting(ast,
+    var run = AnalysisCapabilities.existingSourceDerivation(RecoverableCfgFailures.atMethod(key, cause)).deriveExisting(ast,
         new CfgRequest(original.identity(), List.of(key), CfgProfile.JAVA_BOUNDED));
-    var retention = new AstRetentionService(ignored -> {
+    AstResultRepositoryFactory repositories = ignored -> {
       throw new AssertionError("Incomplete source must not acquire storage even when derivation fails");
-    });
+    };
 
     // Act
-    var publication = retention.retainAst(run);
+    var publication = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, repositories,
+        AnalysisExecutionFixture::unexpectedRunRepository).publication();
 
     // Assert
     assertEquals(AnalysisCompletion.FAILED, run.completion());
@@ -69,15 +72,17 @@ class AstRetentionServiceTest {
   @Test
   void givenExplicitNoSaveForCompleteOrIncompleteSource_whenRetaining_thenNoRepositoryIsAcquired() throws IOException {
     // Arrange
-    var retention = new AstRetentionService(ignored -> {
+    var retention = AnalysisCapabilities.astRetention(ignored -> {
       throw new AssertionError("Explicit no-save must not acquire a repository");
     });
     var complete = produce("class Stored { int value() { return 1; } }");
     var incomplete = produce("class Stored { void value() { while (false) {} } }");
 
-    // Act and Assert
     for (var ast : List.of(complete, incomplete)) {
+      // Act
       var result = retention.retainAst(new AstPublicationRequest(ast, PublicationIntent.DO_NOT_SAVE));
+
+      // Assert
       assertEquals(PublicationStatus.NOT_REQUESTED, result.status());
       assertEquals(CommitKnowledge.NOT_STARTED, result.knowledge());
       assertEquals(ast.result().orElseThrow().identity(), ((PublicationSubjectIdentity.Ast) result.subjectIdentity().orElseThrow()).identity());
@@ -91,7 +96,7 @@ class AstRetentionServiceTest {
     var ast = produce("class Stored { int value() { return 1; } }");
     var identity = ast.result().orElseThrow().identity();
     var events = new ArrayList<String>();
-    var retention = new AstRetentionService(context -> {
+    var retention = AnalysisCapabilities.astRetention(context -> {
       events.add("acquisition");
       assertEquals(RepositoryOperationContext.saveAst(identity), context);
       return new RepositoryStub(value -> {
@@ -103,7 +108,7 @@ class AstRetentionServiceTest {
     });
 
     // Act
-    var result = retention.retainAst(ast);
+    var result = retention.retainAst(new AstPublicationRequest(ast, PublicationIntent.SAVE_COMPLETE_AST));
 
     // Assert
     assertEquals(List.of("acquisition", "save", "close"), events);
@@ -119,13 +124,13 @@ class AstRetentionServiceTest {
     var incomplete = produce("class Stored { int field = 1; int value() { return 1; } }");
     var unavailable = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory, List.of()),
         configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
-    var retention = new AstRetentionService(ignored -> {
+    var retention = AnalysisCapabilities.astRetention(ignored -> {
       throw new AssertionError("Ineligible source must not acquire storage");
     });
 
     // Act
-    var partial = retention.retainAst(incomplete);
-    var absent = retention.retainAst(unavailable);
+    var partial = retention.retainAst(new AstPublicationRequest(incomplete, PublicationIntent.SAVE_COMPLETE_AST));
+    var absent = retention.retainAst(new AstPublicationRequest(unavailable, PublicationIntent.SAVE_COMPLETE_AST));
 
     // Assert
     assertEquals(PublicationStatus.NOT_ELIGIBLE, partial.status());
@@ -140,19 +145,18 @@ class AstRetentionServiceTest {
   void givenRejectedCfgWithIndependentlyCompleteAst_whenRetainingCoordinatedRun_thenSourceCanBeSavedWithoutChangingTheRun() throws IOException {
     // Arrange
     var ast = produce("class Stored { int value() { return 1; } }");
-    var runner = new SourceAnalysisRunner(ignored -> {
-      throw new AssertionError("Existing derivation must not produce source");
-    }, CfgDerivers.standard());
+    var runner = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard());
     var run = runner.deriveExisting(ast,
         new CfgRequest(ast.result().orElseThrow().identity(), List.of("unknown"), CfgProfile.JAVA_BOUNDED));
     var closes = new AtomicInteger();
-    var retention = new AstRetentionService(ignored -> new RepositoryStub(value -> assertSame(ast, value),
+    AstResultRepositoryFactory repositories = ignored -> new RepositoryStub(value -> assertSame(ast, value),
         identity -> {
           throw new AssertionError("Retention must not query");
-        }, closes::incrementAndGet));
+        }, closes::incrementAndGet);
 
     // Act
-    var result = retention.retainAst(run);
+    var result = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, repositories,
+        AnalysisExecutionFixture::unexpectedRunRepository).publication();
 
     // Assert
     assertEquals(AnalysisCompletion.REJECTED, run.completion());
@@ -169,15 +173,16 @@ class AstRetentionServiceTest {
     var source = ast.result().orElseThrow();
     var key = source.program().methods().stream().filter(method -> method.name().equals("value")).findFirst().orElseThrow().methodKey();
     var cause = new IllegalStateException("Declared construction observation");
-    var run = new SourceAnalysisRunner(ignored -> ast, RecoverableCfgFailures.atMethod(key, cause)).deriveExisting(ast,
+    var run = AnalysisCapabilities.existingSourceDerivation(RecoverableCfgFailures.atMethod(key, cause)).deriveExisting(ast,
         new CfgRequest(source.identity(), List.of(key), CfgProfile.JAVA_BOUNDED));
     var retained = new ArrayList<AstOutcome>();
-    var retention = new AstRetentionService(context -> new RepositoryStub(retained::add, requested -> {
+    AstResultRepositoryFactory repositories = context -> new RepositoryStub(retained::add, requested -> {
       throw new AssertionError("Publication must not query");
-    }, () -> {}));
+    }, () -> {});
 
     // Act
-    var outcome = retention.retainAst(run);
+    var outcome = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, repositories,
+        AnalysisExecutionFixture::unexpectedRunRepository).publication();
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, ast.completion());
@@ -199,7 +204,7 @@ class AstRetentionServiceTest {
     var primary = new RepositoryException("Unobserved save exit", new IllegalStateException("No save observation"));
     var close = new Neo4jRepositoryOperationException(requested, Neo4jRepositoryPhase.REPOSITORY_CLOSE, CommitKnowledge.KNOWN_COMMIT,
         new RepositoryException("Close observation", new IllegalStateException("Close failed")));
-    var retention = new AstRetentionService(context -> new RepositoryStub(value -> {
+    var retention = AnalysisCapabilities.astRetention(context -> new RepositoryStub(value -> {
       throw primary;
     }, identity -> {
       throw new AssertionError("Publication must not query");
@@ -208,7 +213,8 @@ class AstRetentionServiceTest {
     }));
 
     // Act
-    var failure = assertThrows(AnalysisPublicationException.class, () -> retention.retainAst(ast));
+    var failure = assertThrows(AnalysisPublicationException.class, () -> retention.retainAst(new AstPublicationRequest(ast,
+        PublicationIntent.SAVE_COMPLETE_AST)));
 
     // Assert
     assertSame(ast, assertInstanceOf(Ast.class, failure.subject()).outcome());
@@ -235,7 +241,7 @@ class AstRetentionServiceTest {
     var enclosingClose = new Neo4jRepositoryOperationException(context, Neo4jRepositoryPhase.REPOSITORY_CLOSE, CommitKnowledge.UNKNOWN,
         new RepositoryException("Enclosing close failed", new IllegalStateException("Close observation")));
     primary.addSuppressed(sessionClose);
-    var retention = new AstRetentionService(ignored -> new RepositoryStub(value -> {
+    var retention = AnalysisCapabilities.astRetention(ignored -> new RepositoryStub(value -> {
       throw primary;
     }, identity -> {
       throw new AssertionError("Publication must not query");
@@ -244,7 +250,7 @@ class AstRetentionServiceTest {
     }));
 
     // Act
-    var result = retention.retainAst(ast);
+    var result = retention.retainAst(new AstPublicationRequest(ast, PublicationIntent.SAVE_COMPLETE_AST));
 
     // Assert
     assertEquals(PublicationStatus.FAILED, result.status());
@@ -268,7 +274,7 @@ class AstRetentionServiceTest {
     var cleanup = new Neo4jRepositoryOperationException(context, Neo4jRepositoryPhase.REPOSITORY_CLOSE, CommitKnowledge.UNKNOWN,
         new RepositoryException("Close failed", new IllegalStateException("Cleanup observation")));
     var events = new ArrayList<String>();
-    var retention = new AstRetentionService(operation -> {
+    var retention = AnalysisCapabilities.astRetention(operation -> {
       assertEquals(context, operation);
       events.add("acquisition");
       return new RepositoryStub(value -> {
@@ -284,7 +290,7 @@ class AstRetentionServiceTest {
     });
 
     // Act
-    var outcome = retention.retainAst(ast);
+    var outcome = retention.retainAst(new AstPublicationRequest(ast, PublicationIntent.SAVE_COMPLETE_AST));
 
     // Assert
     assertEquals(List.of("acquisition", "save", "close"), events);
@@ -307,7 +313,7 @@ class AstRetentionServiceTest {
     var primary = new Neo4jRepositoryOperationException(context, Neo4jRepositoryPhase.MAPPING, CommitKnowledge.NOT_STARTED, effective);
     var cleanup = new Neo4jRepositoryOperationException(context, Neo4jRepositoryPhase.REPOSITORY_CLOSE, CommitKnowledge.NOT_STARTED,
         new RepositoryException("Close failed", new IllegalStateException("Cleanup observation")));
-    var retention = new AstRetentionService(ignored -> new RepositoryStub(value -> {
+    var retention = AnalysisCapabilities.astRetention(ignored -> new RepositoryStub(value -> {
       throw primary;
     }, identity -> {
       throw new AssertionError("Publication must not query");
@@ -316,7 +322,8 @@ class AstRetentionServiceTest {
     }));
 
     // Act
-    var failure = assertThrows(AnalysisPublicationException.class, () -> retention.retainAst(ast));
+    var failure = assertThrows(AnalysisPublicationException.class, () -> retention.retainAst(new AstPublicationRequest(ast,
+        PublicationIntent.SAVE_COMPLETE_AST)));
 
     // Assert
     assertSame(effective, failure.getCause());
@@ -331,19 +338,20 @@ class AstRetentionServiceTest {
   void givenCoordinatedRunAndUnmatchedFailure_whenRetaining_thenAbruptEnvelopeRetainsTheIdenticalRun() throws IOException {
     // Arrange
     var ast = produce("class Stored { int value() { return 1; } }");
-    var run = new SourceAnalysisRunner(ignored -> ast, CfgDerivers.standard()).deriveExisting(ast,
+    var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast,
         new CfgRequest(ast.result().orElseThrow().identity(), List.of(), CfgProfile.JAVA_BOUNDED));
     var primary = new Neo4jRepositoryOperationException(saveContext(ast), Neo4jRepositoryPhase.SCHEMA, CommitKnowledge.NOT_STARTED,
         new IllegalStateException("Schema observation"));
-    var retention = new AstRetentionService(ignored -> new RepositoryStub(value -> {
+    AstResultRepositoryFactory repositories = ignored -> new RepositoryStub(value -> {
       throw primary;
     }, identity -> {
       throw new AssertionError("Publication must not query");
     }, () -> {
-    }));
+    });
 
     // Act
-    var failure = assertThrows(AnalysisPublicationException.class, () -> retention.retainAst(run));
+    var failure = assertThrows(AnalysisPublicationException.class, () -> AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, repositories,
+        AnalysisExecutionFixture::unexpectedRunRepository).publication());
 
     // Assert
     assertSame(run, ((Coordinated) failure.subject()).run());
@@ -356,7 +364,7 @@ class AstRetentionServiceTest {
     // Arrange
     var ast = produce("class Stored { int value() { return 1; } }");
     var effective = new RepositoryException("Close failed", new IllegalStateException("Close observation"));
-    var retention = new AstRetentionService(ignored -> new RepositoryStub(value -> {
+    var retention = AnalysisCapabilities.astRetention(ignored -> new RepositoryStub(value -> {
     }, identity -> {
       throw new AssertionError("Publication must not query");
     }, () -> {
@@ -364,7 +372,7 @@ class AstRetentionServiceTest {
     }));
 
     // Act
-    var result = retention.retainAst(ast);
+    var result = retention.retainAst(new AstPublicationRequest(ast, PublicationIntent.SAVE_COMPLETE_AST));
 
     // Assert
     assertEquals(PublicationStatus.FAILED, result.status());
@@ -384,12 +392,12 @@ class AstRetentionServiceTest {
     var cleanup = new Neo4jRepositoryOperationException(saveContext(ast), Neo4jRepositoryPhase.ACQUISITION, CommitKnowledge.NOT_STARTED,
         new IllegalStateException("Partial-resource close observation"));
     primary.addSuppressed(cleanup);
-    var retention = new AstRetentionService(ignored -> {
+    var retention = AnalysisCapabilities.astRetention(ignored -> {
       throw primary;
     });
 
     // Act
-    var result = retention.retainAst(ast);
+    var result = retention.retainAst(new AstPublicationRequest(ast, PublicationIntent.SAVE_COMPLETE_AST));
 
     // Assert
     assertEquals(PublicationStatus.FAILED, result.status());
@@ -408,7 +416,7 @@ class AstRetentionServiceTest {
       var result = new AstLookup(identity, status, Optional.empty(),
           status == AstLookupStatus.INCOMPATIBLE ? Optional.of("unsupported-source-format") : Optional.empty());
       var events = new ArrayList<String>();
-      var retention = new AstRetentionService(context -> {
+      var queryCapability = AnalysisCapabilities.astQuery(context -> {
         assertEquals(RepositoryOperationContext.queryAst(identity), context);
         events.add("acquisition");
         return new RepositoryStub(value -> {
@@ -421,7 +429,7 @@ class AstRetentionServiceTest {
       });
 
       // Act
-      var found = retention.findAst(identity);
+      var found = queryCapability.findAst(identity);
 
       // Assert
       assertSame(result, found);
@@ -442,7 +450,7 @@ class AstRetentionServiceTest {
           new IllegalArgumentException("Read or admission observation"));
       var cleanup = new Neo4jRepositoryOperationException(context, Neo4jRepositoryPhase.REPOSITORY_CLOSE, CommitKnowledge.NOT_STARTED,
           new RepositoryException("Close failed", new IllegalStateException("Close observation")));
-      var retention = new AstRetentionService(ignored -> new RepositoryStub(value -> {
+      var queryCapability = AnalysisCapabilities.astQuery(ignored -> new RepositoryStub(value -> {
         throw new AssertionError("Query must not publish");
       }, requested -> {
         throw primary;
@@ -451,7 +459,7 @@ class AstRetentionServiceTest {
       }));
 
       // Act
-      var failure = assertThrows(RepositoryOperationException.class, () -> retention.findAst(identity));
+      var failure = assertThrows(RepositoryOperationException.class, () -> queryCapability.findAst(identity));
 
       // Assert
       assertSame(primary, failure);
@@ -475,7 +483,7 @@ class AstRetentionServiceTest {
           new IllegalArgumentException("Foreign operation observation"));
       var close = new IllegalStateException("Enclosing closure failed");
       var events = new ArrayList<String>();
-      var retention = new AstRetentionService(context -> {
+      var queryCapability = AnalysisCapabilities.astQuery(context -> {
         assertEquals(query, context);
         events.add("open");
         return new RepositoryStub(value -> {
@@ -491,7 +499,7 @@ class AstRetentionServiceTest {
       });
 
       // Act
-      var failure = assertThrows(ApplicationRepositoryOperationException.class, () -> retention.findAst(identity));
+      var failure = assertThrows(ApplicationRepositoryOperationException.class, () -> queryCapability.findAst(identity));
 
       // Assert
       assertEquals(query, failure.context());
@@ -517,14 +525,14 @@ class AstRetentionServiceTest {
     var ast = produce("class Stored { int value() { return 1; } }");
     var identity = ast.result().orElseThrow().identity();
     var effective = new RepositoryException("Close failed", new IllegalStateException("Close observation"));
-    var retention = new AstRetentionService(ignored -> new RepositoryStub(value -> {
+    var queryCapability = AnalysisCapabilities.astQuery(ignored -> new RepositoryStub(value -> {
       throw new AssertionError("Query must not publish");
     }, requested -> new AstLookup(identity, AstLookupStatus.FOUND, Optional.of(ast), Optional.empty()), () -> {
       throw effective;
     }));
 
     // Act
-    var failure = assertThrows(RepositoryOperationException.class, () -> retention.findAst(identity));
+    var failure = assertThrows(RepositoryOperationException.class, () -> queryCapability.findAst(identity));
 
     // Assert
     assertSame(effective, failure.effectivePrimary());
@@ -540,13 +548,13 @@ class AstRetentionServiceTest {
     var original = produce("class Stored {}").result().orElseThrow().identity();
     var foreign = produce("class Foreign {}").result().orElseThrow().identity();
     var events = new ArrayList<String>();
-    var retention = new AstRetentionService(context -> new RepositoryStub(value -> {
+    var queryCapability = AnalysisCapabilities.astQuery(context -> new RepositoryStub(value -> {
       throw new AssertionError("Lookup must not publish");
     }, requested -> new AstLookup(foreign, AstLookupStatus.NOT_FOUND, Optional.empty(), Optional.empty()),
         () -> events.add("close")));
 
     // Act
-    var failure = assertThrows(ApplicationRepositoryOperationException.class, () -> retention.findAst(original));
+    var failure = assertThrows(ApplicationRepositoryOperationException.class, () -> queryCapability.findAst(original));
 
     // Assert
     assertEquals(Boundary.VALIDATION, failure.boundary());
@@ -563,7 +571,7 @@ class AstRetentionServiceTest {
     var fatal = new AssertionError("Fatal work observation");
     var cleanup = new Neo4jRepositoryOperationException(saveContext(ast), Neo4jRepositoryPhase.REPOSITORY_CLOSE, CommitKnowledge.NOT_STARTED,
         new RepositoryException("Close failed", new IllegalStateException("Close observation")));
-    var retention = new AstRetentionService(ignored -> new RepositoryStub(value -> {
+    var retention = AnalysisCapabilities.astRetention(ignored -> new RepositoryStub(value -> {
       throw fatal;
     }, identity -> {
       throw new AssertionError("Publication must not query");
@@ -572,7 +580,8 @@ class AstRetentionServiceTest {
     }));
 
     // Act
-    var failure = assertThrows(AssertionError.class, () -> retention.retainAst(ast));
+    var failure = assertThrows(AssertionError.class, () -> retention.retainAst(new AstPublicationRequest(ast,
+        PublicationIntent.SAVE_COMPLETE_AST)));
 
     // Assert
     assertSame(fatal, failure);

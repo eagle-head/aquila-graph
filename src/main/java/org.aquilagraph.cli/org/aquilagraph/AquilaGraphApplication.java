@@ -1,9 +1,6 @@
 package org.aquilagraph;
 
-import org.aquilagraph.application.AnalysisApplicationService;
-import org.aquilagraph.application.AstRetentionService;
-import org.aquilagraph.application.CompletedRunPublicationService;
-import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cli.AnalyzeCommand;
 import org.aquilagraph.frontend.JavaFrontends;
@@ -24,12 +21,11 @@ public final class AquilaGraphApplication {
    */
   public static void main(String[] arguments) {
     var environment = System.getenv();
-    var analysisRunner = new SourceAnalysisRunner(JavaFrontends.standard(), CfgDerivers.standard());
-    var retention = new AstRetentionService(Neo4jRepositories.astResults(() -> Neo4jConnectionSettings.fromEnvironment(environment)));
-    var publication = new CompletedRunPublicationService(
+    var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
+    var execution = AnalysisCapabilities.execution(computation,
+        Neo4jRepositories.astResults(() -> Neo4jConnectionSettings.fromEnvironment(environment)),
         Neo4jRepositories.completedRuns(() -> Neo4jConnectionSettings.fromEnvironment(environment)));
-    var analysisService = new AnalysisApplicationService(analysisRunner, retention, publication);
-    var command = new AnalyzeCommand(analysisService, JavaRelease.JAVA_25);
+    var command = new AnalyzeCommand(execution, JavaRelease.JAVA_25);
     var exitCode = command.run(arguments, System.out, System.err);
     if (exitCode != AnalyzeCommand.EXIT_COMPLETED) {
       System.exit(exitCode);

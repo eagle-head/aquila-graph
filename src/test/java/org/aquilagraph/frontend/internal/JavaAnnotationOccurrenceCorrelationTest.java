@@ -9,17 +9,20 @@ import java.nio.file.Path;
 import java.util.Optional;
 import java.util.List;
 import java.util.stream.Stream;
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AnnotationScalar;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -30,7 +33,6 @@ import com.sun.source.tree.ClassTree;
 import com.sun.source.util.TreePath;
 import javax.lang.model.element.TypeElement;
 import javax.tools.ToolProvider;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.CommitKnowledge;
 import org.junit.jupiter.api.Test;
@@ -200,13 +202,13 @@ class JavaAnnotationOccurrenceCorrelationTest {
         DECLARATIONS + "@Tag(1) @Tag(2) @Tags({@Tag(3)}) class Invalid {}")));
     var request = new AstProductionRequest(new SourceInput.Snapshot(snapshot),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS);
-    var service = new AstRetentionService(ignored -> {
+    var service = AnalysisCapabilities.astRetention(ignored -> {
       throw new AssertionError("Incomplete annotation input must not acquire a repository");
     });
 
     // Act
     var outcome = new JavaFrontend(new JavaSourceLoader()).produce(request);
-    var publication = service.retainAst(outcome);
+    var publication = service.retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
 
     // Assert
     assertEquals(AstCompletion.INCOMPLETE, outcome.completion());

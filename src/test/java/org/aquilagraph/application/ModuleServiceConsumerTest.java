@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import org.aquilagraph.application.port.AstResultRepository;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -19,8 +20,8 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -33,10 +34,10 @@ class ModuleServiceConsumerTest {
     // Arrange
     var request = request(PublicationIntent.DO_NOT_SAVE);
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var runner = new SourceAnalysisRunner(frontend, CfgDerivers.standard());
-    var service = new AnalysisApplicationService(runner, retention(), new CompletedRunPublicationService(context -> {
+    var runner = AnalysisCapabilities.computation(frontend, CfgDerivers.standard());
+    var service = AnalysisCapabilities.execution(runner, ModuleServiceConsumerTest::unexpectedAstRepository, context -> {
       throw new AssertionError("No completed-run repository is required for these selections");
-    }));
+    });
     // Act
     var execution = service.execute(request);
     var ast = execution.run().representation().ast();
@@ -44,9 +45,9 @@ class ModuleServiceConsumerTest {
     var supported = result.program().methods().stream().filter(method -> method.name().equals("value")).findFirst().orElseThrow().methodKey();
     var refused = result.program().methods().stream().filter(method -> method.name().equals("lambda")).findFirst().orElseThrow().methodKey();
     var available = CfgDerivers.standard().derive(result, new CfgRequest(result.identity(), List.of(supported), CfgProfile.JAVA_BOUNDED));
-    var refusal = service.deriveExisting(ast, new CfgRequest(result.identity(), List.of(refused), CfgProfile.JAVA_BOUNDED));
+    var refusal = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast, new CfgRequest(result.identity(), List.of(refused), CfgProfile.JAVA_BOUNDED));
     var cause = new IllegalStateException("Controlled CFG construction failure");
-    var failed = new SourceAnalysisRunner(frontend, RecoverableCfgFailures.atMethod(supported, cause))
+    var failed = AnalysisCapabilities.existingSourceDerivation(RecoverableCfgFailures.atMethod(supported, cause))
         .deriveExisting(ast, new CfgRequest(result.identity(), List.of(supported), CfgProfile.JAVA_BOUNDED));
     var combined = service.execute(request(PublicationIntent.SAVE_COMPLETED));
     // Assert
@@ -61,7 +62,8 @@ class ModuleServiceConsumerTest {
     assertEquals(result.identity(), combined.run().representation().ast().result().orElseThrow().identity());
     assertEquals(PublicationStatus.NOT_ELIGIBLE, combined.publication().status());
     assertEquals(3, result.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.MODULE_TYPE_REFERENCE).count());
-    assertEquals(PublicationStatus.NOT_REQUESTED, retention().retainAst(new AstPublicationRequest(ast, PublicationIntent.DO_NOT_SAVE)).status());
+    assertEquals(PublicationStatus.NOT_REQUESTED, retention().retainAst(new AstPublicationRequest(ast,
+        PublicationIntent.DO_NOT_SAVE)).status());
   }
 
   @Test
@@ -69,12 +71,12 @@ class ModuleServiceConsumerTest {
     // Arrange
     var original = request(PublicationIntent.SAVE_COMPLETE_AST);
     var missing = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("module-info.java"), "module service.missing { uses missing.Service; }")));
-    var service = new AnalysisApplicationService(new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()),
-        retention(), run -> { throw new AssertionError("Combined publication was not requested"); });
+    var service = AnalysisCapabilities.execution(AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()), ModuleServiceConsumerTest::unexpectedAstRepository, run -> { throw new AssertionError("Combined publication was not requested"); });
     // Act
-    var execution = service.execute(new AnalysisRequest(new SourceInput.Snapshot(missing), original.configuration(), original.astProfile(), Optional.empty(), original.publicationIntent()));
-    var empty = service.execute(new AnalysisRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(directory, List.of())),
-        original.configuration(), original.astProfile(), Optional.empty(), original.publicationIntent()));
+    var execution = service.execute(new AnalysisRequest(new AnalysisComputationRequest(
+        new AstProductionRequest(missing, original.computation().source().configuration(), original.computation().source().profile()), Optional.empty()), original.publicationIntent()));
+    var empty = service.execute(new AnalysisRequest(new AnalysisComputationRequest(
+        new AstProductionRequest(InputSnapshot.fromSources(directory, List.of()), original.computation().source().configuration(), original.computation().source().profile()), Optional.empty()), original.publicationIntent()));
     // Assert
     assertEquals(AstCompletion.INCOMPLETE, execution.run().representation().ast().completion());
     assertEquals(PublicationStatus.NOT_ELIGIBLE, execution.publication().status());
@@ -83,8 +85,12 @@ class ModuleServiceConsumerTest {
     assertEquals(PublicationStatus.NOT_ELIGIBLE, empty.publication().status());
   }
 
-  private static AstRetentionService retention() {
-    return new AstRetentionService(context -> { throw new AssertionError("No AST repository may open for ineligible or unrequested publication"); });
+  private static AstRetention retention() {
+    return AnalysisCapabilities.astRetention(ModuleServiceConsumerTest::unexpectedAstRepository);
+  }
+
+  private static AstResultRepository unexpectedAstRepository(RepositoryOperationContext context) {
+    throw new AssertionError("No AST repository may open for " + context);
   }
 
   private AnalysisRequest request(PublicationIntent intent) {
@@ -92,7 +98,7 @@ class ModuleServiceConsumerTest {
         "module service.consumer { uses api.Service; provides api.Service with impl.Provider; }"),
         SourceFile.fromContent(Path.of("api/Service.java"), "package api; public interface Service {}"),
         SourceFile.fromContent(Path.of("impl/Provider.java"), "package impl; public class Provider implements api.Service { public int value() { return 7; } public Runnable lambda() { return () -> {}; } }")));
-    return new AnalysisRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        AstProfile.JAVA_SOURCE_MODULE_SERVICES, Optional.empty(), intent);
+    return new AnalysisRequest(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES), Optional.empty()), intent);
   }
 }

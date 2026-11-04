@@ -1,6 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
 import org.aquilagraph.repository.neo4j.Neo4jRepositories;
@@ -30,7 +32,6 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.AnalysisRun;
-import org.aquilagraph.application.CompletedRunPublicationService;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.cfg.api.OperationKind;
 import org.aquilagraph.frontend.internal.JavaFrontend;
@@ -42,6 +43,7 @@ import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.testsupport.AnalysisExecutionFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -384,11 +386,11 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
           establishedProjection = storedProjection(verificationSession, run.identity().key());
         }
         var delegatedDriver = closeSignalingDriver(actualDriver, phase, signal, events);
-        var publisher = new CompletedRunPublicationService(
-            context -> new Neo4jAnalysisRunRepository(delegatedDriver, sessionConfig, context, ignored -> projection));
+        AnalysisRunRepositoryFactory publisher = context -> new Neo4jAnalysisRunRepository(delegatedDriver, sessionConfig, context, ignored -> projection);
 
         // Act
-        var outcome = publisher.publish(run);
+        var outcome = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
+            AnalysisExecutionFixture::unexpectedAstRepository, publisher).publication();
 
         // Assert
         assertEquals(PublicationStatus.FAILED, outcome.status());

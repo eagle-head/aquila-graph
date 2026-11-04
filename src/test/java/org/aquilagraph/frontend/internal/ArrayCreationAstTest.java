@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -15,7 +18,6 @@ import java.util.Map;
 import java.util.IdentityHashMap;
 import java.util.Optional;
 import java.util.stream.Stream;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
@@ -242,7 +244,8 @@ class ArrayCreationAstTest {
     var outcome = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
     var result = outcome.result().orElseThrow();
     var decoded = AstCodec.decode(AstCodec.encode(result), result.identity());
-    var publication = new AstRetentionService(ignored -> { throw new AssertionError("Incomplete source cannot acquire storage"); }).retainAst(outcome);
+    var publication = AnalysisCapabilities.astRetention(ignored -> { throw new AssertionError("Incomplete source cannot acquire storage"); }).retainAst(new AstPublicationRequest(outcome,
+        PublicationIntent.SAVE_COMPLETE_AST));
 
     // Assert
     assertEquals(AstCompletion.INCOMPLETE, outcome.completion());

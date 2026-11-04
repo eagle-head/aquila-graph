@@ -34,6 +34,7 @@ import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
 import javax.tools.SimpleJavaFileObject;
 import javax.tools.ToolProvider;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.source.internal.SourceAnalysisFixture;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
@@ -58,7 +59,6 @@ import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgState;
 import org.aquilagraph.cfg.api.MethodCfgState;
-import org.aquilagraph.application.SourceAnalysisRunner;
 
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
@@ -111,9 +111,7 @@ class JavaAstSourcePositionTest {
 
       // Act
       var cfg = CfgDerivers.standard().derive(ast, request);
-      var run = new SourceAnalysisRunner(ignored -> {
-        throw new AssertionError("Existing derivation must not produce source");
-      }, CfgDerivers.standard()).deriveExisting(AstOutcome.available(ast), request);
+      var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(AstOutcome.available(ast), request);
 
       // Assert
       assertEquals(AstCompletion.INCOMPLETE, ast.completion());

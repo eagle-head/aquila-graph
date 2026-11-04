@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.admission.CoverageAdmission;
@@ -44,7 +47,6 @@ import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.api.JavaTypeReference;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
 import org.aquilagraph.source.api.SyntaxKind;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.PublicationStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -95,7 +97,7 @@ class StaticMemberEvidenceRetentionTest {
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
     var method = original.program().methods().stream().filter(value -> value.name().equals("read")).findFirst().orElseThrow();
     var members = original.body(method.methodKey()).orElseThrow().evidence().staticMembers();
-    var retention = new AstRetentionService(ignored -> {
+    var retention = AnalysisCapabilities.astRetention(ignored -> {
       throw new AssertionError("A missing required owner cannot acquire storage");
     });
     var incomplete = new ArrayList<AstResult>();
@@ -113,7 +115,8 @@ class StaticMemberEvidenceRetentionTest {
       }
     }
     var decoded = incomplete.stream().map(value -> AstCodec.decode(AstCodec.encode(value), value.identity())).toList();
-    var publications = decoded.stream().map(value -> retention.retainAst(AstOutcome.available(value))).toList();
+    var publications = decoded.stream().map(value -> retention.retainAst(new AstPublicationRequest(AstOutcome.available(value),
+        PublicationIntent.SAVE_COMPLETE_AST))).toList();
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());

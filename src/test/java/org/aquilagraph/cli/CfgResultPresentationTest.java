@@ -9,11 +9,10 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisCompletion;
-import org.aquilagraph.application.AnalysisRequest;
-import org.aquilagraph.application.AnalysisRun;
-import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.application.AnalysisComputationRequest;
+import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgOutcome;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -28,10 +27,10 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
-import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -44,7 +43,7 @@ class CfgResultPresentationTest {
     var ast = CliTestFixtures.produce("interface Example { static int run() { return 1; } }");
     var key = ast.result().orElseThrow().program().methods().getFirst().methodKey();
     var cause = new IllegalStateException("construction\nfailed\t\"once\"");
-    var runner = new SourceAnalysisRunner(request -> ast, RecoverableCfgFailures.atMethod(key, cause));
+    var runner = AnalysisCapabilities.existingSourceDerivation(RecoverableCfgFailures.atMethod(key, cause));
     var run = runner.deriveExisting(ast, new CfgRequest(ast.result().orElseThrow().identity(), List.of(key), CfgProfile.JAVA_BOUNDED));
     var streams = new CliStreams();
     // Act
@@ -68,8 +67,9 @@ class CfgResultPresentationTest {
     // Arrange
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), "interface Example { void absent(); static void run() {} }")));
     var runner = CliTestFixtures.runner();
-    var astOnly = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED, Optional.empty(), PublicationIntent.DO_NOT_SAVE));
-    var empty = runner.deriveExisting(astOnly.representation().ast(), new CfgRequest(astOnly.representation().ast().result().orElseThrow().identity(), List.of(), CfgProfile.JAVA_BOUNDED));
+    var astOnly = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED), Optional.empty()));
+    var empty = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(astOnly.representation().ast(), new CfgRequest(astOnly.representation().ast().result().orElseThrow().identity(), List.of(), CfgProfile.JAVA_BOUNDED));
     var absentStreams = new CliStreams();
     var emptyStreams = new CliStreams();
     // Act
@@ -92,9 +92,9 @@ class CfgResultPresentationTest {
     var profile = new CfgProfile("policy\r\n\"\\\t\u0001\u007f", "model\r\n\"\\\t\u0002");
     var foreign = CliTestFixtures.produce("interface Example { static void run() { return; } }");
     var request = new CfgRequest(foreign.result().orElseThrow().identity(), List.of(key, key, "unknown"), profile);
-    var run = CliTestFixtures.runner().deriveExisting(ast, request);
+    var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast, request);
     var streams = new CliStreams();
-    var sentinel = CliTestFixtures.runner().deriveExisting(ast,
+    var sentinel = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast,
         new CfgRequest(request.astIdentity(), List.of(), new CfgProfile("not-requested", "not-requested")));
     var literal = new CliStreams();
     // Act
@@ -126,7 +126,7 @@ class CfgResultPresentationTest {
         List.of(), Optional.empty(), List.of(diagnostic));
     var request = new CfgRequest(source.identity(), List.of(key), CfgProfile.JAVA_BOUNDED);
     var cfg = new CfgOutcome(request, CfgState.PARTIAL, List.of(method), List.of(diagnostic));
-    var run = new SourceAnalysisRunner(ignored -> ast, (input, selected) -> cfg).deriveExisting(ast, request);
+    var run = AnalysisCapabilities.existingSourceDerivation((input, selected) -> cfg).deriveExisting(ast, request);
     var streams = new CliStreams();
 
     // Act

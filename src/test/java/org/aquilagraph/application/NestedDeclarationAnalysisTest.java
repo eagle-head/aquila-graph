@@ -20,8 +20,8 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.junit.jupiter.api.Test;
@@ -48,9 +48,9 @@ class NestedDeclarationAnalysisTest {
           }
         }
         """)));
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
-    var request = new AnalysisRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        AstProfile.JAVA_SOURCE_NESTED, Optional.empty(), PublicationIntent.DO_NOT_SAVE);
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var request = new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_NESTED), Optional.empty());
 
     // Act
     var source = runner.analyze(request).representation().ast();
@@ -58,9 +58,9 @@ class NestedDeclarationAnalysisTest {
     var simple = ast.program().methods().stream().filter(method -> method.name().equals("simple")).findFirst().orElseThrow().methodKey();
     var complex = ast.program().methods().stream().filter(method -> method.name().equals("complex")).findFirst().orElseThrow().methodKey();
     var outer = ast.program().methods().stream().filter(method -> method.name().equals("outer")).findFirst().orElseThrow().methodKey();
-    var selected = runner.deriveExisting(source, new CfgRequest(ast.identity(), List.of(simple, complex, outer), CfgProfile.JAVA_BOUNDED));
+    var selected = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(source, new CfgRequest(ast.identity(), List.of(simple, complex, outer), CfgProfile.JAVA_BOUNDED));
     var methods = selected.representation().cfg().orElseThrow().methods();
-    var unknown = runner.deriveExisting(source, new CfgRequest(ast.identity(), List.of(simple + ":unknown"), CfgProfile.JAVA_BOUNDED));
+    var unknown = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(source, new CfgRequest(ast.identity(), List.of(simple + ":unknown"), CfgProfile.JAVA_BOUNDED));
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, source.completion(), source.diagnostics().toString());
@@ -87,9 +87,9 @@ class NestedDeclarationAnalysisTest {
           int subject() { return new Base(1) { int extra() { return 2; } }.extra(); }
         }
         """)));
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
-    var request = new AnalysisRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        AstProfile.JAVA_SOURCE_NESTED, Optional.empty(), PublicationIntent.DO_NOT_SAVE);
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var request = new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_NESTED), Optional.empty());
 
     // Act
     var source = runner.analyze(request).representation().ast();
@@ -98,7 +98,7 @@ class NestedDeclarationAnalysisTest {
     var subject = ast.program().methods().stream().filter(method -> method.name().equals("subject")).findFirst().orElseThrow();
     var body = ast.body(subject.methodKey()).orElseThrow();
     var creation = body.root().descendantsAndSelf().stream().filter(node -> !node.children(SyntaxRole.CLASS_BODY).isEmpty()).findFirst().orElseThrow();
-    var selected = runner.deriveExisting(source, new CfgRequest(ast.identity(), List.of(extra.methodKey()), CfgProfile.JAVA_BOUNDED));
+    var selected = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(source, new CfgRequest(ast.identity(), List.of(extra.methodKey()), CfgProfile.JAVA_BOUNDED));
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, source.completion(), source.diagnostics().toString());

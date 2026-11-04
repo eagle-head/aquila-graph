@@ -105,12 +105,12 @@ class AnalyzeCommandExecutorTest {
     assertSame(execution, assertInstanceOf(AnalyzeCommandOutcome.Executed.class, result).execution());
     assertEquals(1, useCase.requests().size());
     var request = useCase.requests().getFirst();
-    assertEquals(Path.of("target-source").toAbsolutePath().normalize(), ((SourceInput.Root) request.input()).path());
-    assertEquals(arguments.release(), request.configuration().release());
+    assertEquals(Path.of("target-source").toAbsolutePath().normalize(), ((SourceInput.Root) request.computation().source().input()).path());
+    assertEquals(arguments.release(), request.computation().source().configuration().release());
     assertEquals(arguments.publicationIntent(), request.publicationIntent());
-    assertEquals(List.of(), request.configuration().classPath());
-    assertEquals(List.of(), request.configuration().modulePath());
-    assertEquals(List.of(), request.configuration().options());
+    assertEquals(List.of(), request.computation().source().configuration().classPath());
+    assertEquals(List.of(), request.computation().source().configuration().modulePath());
+    assertEquals(List.of(), request.computation().source().configuration().options());
   }
 
   @Test

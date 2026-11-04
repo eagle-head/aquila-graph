@@ -13,11 +13,10 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisCompletion;
-import org.aquilagraph.application.AnalysisRequest;
-import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.RequestQualificationReason;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
@@ -26,10 +25,10 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.JavaSourceKind;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.api.SourceQualificationReason.Category;
 import org.aquilagraph.source.api.SourceQualificationReason.EvidenceRole;
@@ -46,11 +45,11 @@ class SourceQualificationTest {
       throws IOException {
     // Arrange
     var snapshot = snapshot("class Subject { void run() { try {} catch (IllegalArgumentException | IllegalStateException failure) {} } }");
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), (ast, request) -> {
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), (ast, request) -> {
       throw new AssertionError("Source-only qualification must not acquire CFG");
     });
-    var request = new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration(), AstProfile.JAVA_SOURCE_BOUNDED,
-        Optional.empty(), PublicationIntent.DO_NOT_SAVE);
+    var request = new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, configuration(), AstProfile.JAVA_SOURCE_BOUNDED), Optional.empty());
 
     // Act
     var run = runner.analyze(request);

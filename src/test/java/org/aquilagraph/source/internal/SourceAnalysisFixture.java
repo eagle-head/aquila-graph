@@ -1,5 +1,7 @@
 package org.aquilagraph.source.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
@@ -16,16 +18,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Locale;
 import java.util.stream.Collectors;
-import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.CfgSelection;
-import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.source.api.AstOutcome;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.SyntaxNode;
@@ -386,9 +385,8 @@ public final class SourceAnalysisFixture {
    * @return native run with all produced bodies selected
    */
   public AnalysisRun analyze(AstOutcome ast) {
-    var request = new AnalysisRequest(new SourceInput.Snapshot(ast.capturedInput().orElseThrow()),
-        ast.requestedConfiguration().orElseThrow(), ast.profile(), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)),
-        PublicationIntent.DO_NOT_SAVE);
-    return new SourceAnalysisRunner(ignored -> ast, CfgDerivers.standard()).analyze(request);
+    var source = new AstProductionRequest(ast.capturedInput().orElseThrow(), ast.requestedConfiguration().orElseThrow(), ast.profile());
+    var request = new AnalysisComputationRequest(source, Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)));
+    return AnalysisCapabilities.computation(ignored -> ast, CfgDerivers.standard()).analyze(request);
   }
 }

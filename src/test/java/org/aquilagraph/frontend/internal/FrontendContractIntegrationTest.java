@@ -10,7 +10,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -74,7 +74,7 @@ class FrontendContractIntegrationTest {
             """)));
     var request = new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_UNITS);
     var deriver = CfgDerivers.standard();
-    var consumer = new SourceAnalysisRunner(ignored -> { throw new AssertionError("Detached derivation must not produce source"); }, deriver);
+    var consumer = AnalysisCapabilities.existingSourceDerivation(deriver);
 
     // Act
     var outcome = frontend.produce(request);
@@ -172,7 +172,7 @@ class FrontendContractIntegrationTest {
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var request = new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS);
     var deriver = CfgDerivers.standard();
-    var consumer = new SourceAnalysisRunner(ignored -> { throw new AssertionError("Existing AST consumers must not reenter production"); }, deriver);
+    var consumer = AnalysisCapabilities.existingSourceDerivation(deriver);
 
     // Act
     var outcome = frontend.produce(request);

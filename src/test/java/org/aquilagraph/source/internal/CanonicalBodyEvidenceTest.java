@@ -1,5 +1,6 @@
 package org.aquilagraph.source.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.admission.CoverageAdmission;
@@ -18,7 +19,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -166,9 +166,7 @@ class CanonicalBodyEvidenceTest {
       assertEquals(useClassifications ? List.of(binary.nodeId(), binary.nodeId())
           : List.of(binary.requiredChild(SyntaxRole.LEFT_OPERAND).nodeId(), binary.requiredChild(SyntaxRole.RIGHT_OPERAND).nodeId()),
           expectedMethod.blockers().stream().map(value -> value.occurrence().orElseThrow().nodeKey()).toList());
-      var runner = new SourceAnalysisRunner(ignored -> {
-        throw new AssertionError("Existing-source refusal must not acquire a producer");
-      }, CfgDerivers.standard());
+      var runner = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard());
       var expectedRun = runner.deriveExisting(AstOutcome.available(original), request);
       for (var retained : List.of(permuted, decoded)) {
         var actual = CfgDerivers.standard().derive(retained, request);

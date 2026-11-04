@@ -91,7 +91,7 @@ class ProgramRepresentationTest {
     var ast = run.representation().ast();
     var bodyless = ast.result().orElseThrow().program().methods().stream().filter(method -> !method.hasBody()).findFirst().orElseThrow();
     // Act
-    var selected = new SourceAnalysisRunner(ignored -> ast, CfgDerivers.standard()).deriveExisting(ast,
+    var selected = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast,
         new CfgRequest(ast.result().orElseThrow().identity(), List.of(bodyless.methodKey()), CfgProfile.JAVA_BOUNDED));
     // Assert
     assertEquals(AnalysisCompletion.COMPLETE, selected.completion());

@@ -1,5 +1,9 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import org.aquilagraph.application.port.AstResultRepositoryFactory;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
 import org.aquilagraph.application.RepositoryOperationContext;
@@ -29,20 +33,17 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import org.aquilagraph.application.AnalysisApplicationService;
 import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisPublicationException;
 import org.aquilagraph.application.AnalysisRun;
-import org.aquilagraph.application.AstRetentionService;
-import org.aquilagraph.application.CompletedRunPublicationService;
 import org.aquilagraph.application.PublicationOutcome;
 import org.aquilagraph.application.ComputedPublicationSubject.Coordinated;
 import org.aquilagraph.application.PublicationStatus;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cli.AnalyzeCommand;
 import org.aquilagraph.frontend.JavaFrontends;
 import org.aquilagraph.application.port.RepositoryException;
+import org.aquilagraph.testsupport.AnalysisExecutionFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.Driver;
@@ -482,7 +483,7 @@ class Neo4jAnalysisRunRepositoryTest {
         var services = failingAcquisition(stage, Optional.of(signal), closed);
 
         // Act
-        var outcomes = Map.of(astContext, services.retention().retainAst(run), runContext, services.completed().publish(run));
+        var outcomes = Map.of(astContext, services.execute(run, PublicationIntent.SAVE_COMPLETE_AST), runContext, services.execute(run, PublicationIntent.SAVE_COMPLETED));
 
         // Assert
         for (var entry : outcomes.entrySet()) {
@@ -518,8 +519,8 @@ class Neo4jAnalysisRunRepositoryTest {
         var services = failingAcquisition(stage, signal, closed);
 
         // Act
-        var astFailure = assertThrows(AnalysisPublicationException.class, () -> services.retention().retainAst(run));
-        var runFailure = assertThrows(AnalysisPublicationException.class, () -> services.completed().publish(run));
+        var astFailure = assertThrows(AnalysisPublicationException.class, () -> services.execute(run, PublicationIntent.SAVE_COMPLETE_AST));
+        var runFailure = assertThrows(AnalysisPublicationException.class, () -> services.execute(run, PublicationIntent.SAVE_COMPLETED));
 
         // Assert
         for (var entry : Map.of(astContext, astFailure, runContext, runFailure).entrySet()) {
@@ -560,8 +561,8 @@ class Neo4jAnalysisRunRepositoryTest {
       assertEquals(AcquisitionStage.SESSION_CONFIGURATION, stage);
       return failAcquisition(signal);
     };
-    return new PublicationServices(new AstRetentionService(new Neo4jAstResultRepositoryFactory(settings, drivers, configurations)),
-        new CompletedRunPublicationService(Neo4jAnalysisRunRepository.factory(settings, drivers, configurations)));
+    return new PublicationServices(new Neo4jAstResultRepositoryFactory(settings, drivers, configurations),
+        Neo4jAnalysisRunRepository.factory(settings, drivers, configurations));
   }
 
   private static <T> T failAcquisition(Optional<RuntimeException> signal) {
@@ -571,7 +572,11 @@ class Neo4jAnalysisRunRepositoryTest {
     return null;
   }
 
-  private record PublicationServices(AstRetentionService retention, CompletedRunPublicationService completed) {}
+  private record PublicationServices(AstResultRepositoryFactory astRepositories, AnalysisRunRepositoryFactory runRepositories) {
+    PublicationOutcome execute(AnalysisRun run, PublicationIntent intent) {
+      return AnalysisExecutionFixture.executeComputed(run, intent, astRepositories, runRepositories).publication();
+    }
+  }
 
   private enum AcquisitionStage {
     SETTINGS, DRIVER, SESSION_CONFIGURATION;
@@ -590,14 +595,16 @@ class Neo4jAnalysisRunRepositoryTest {
     var primary = new IllegalArgumentException("Projection mapping rejected the value");
     var runDriver = new DriverDouble();
     var astDriver = new AstRepositoryDriverStub();
-    var retention = new AstRetentionService(context -> new Neo4jAstResultRepository(astDriver.driver(),
-        SessionConfig.defaultConfig(), context, new Neo4jAstResultCodec(), ignored -> { throw primary; }));
-    var completed = new CompletedRunPublicationService(context -> new Neo4jAnalysisRunRepository(runDriver.driver(),
-        SessionConfig.defaultConfig(), context, ignored -> { throw primary; }));
+    AstResultRepositoryFactory astRepositories = context -> new Neo4jAstResultRepository(astDriver.driver(),
+        SessionConfig.defaultConfig(), context, new Neo4jAstResultCodec(), ignored -> { throw primary; });
+    AnalysisRunRepositoryFactory completed = context -> new Neo4jAnalysisRunRepository(runDriver.driver(),
+        SessionConfig.defaultConfig(), context, ignored -> { throw primary; });
 
     // Act
-    var astFailure = assertThrows(AnalysisPublicationException.class, () -> retention.retainAst(run));
-    var runFailure = assertThrows(AnalysisPublicationException.class, () -> completed.publish(run));
+    var astFailure = assertThrows(AnalysisPublicationException.class, () -> AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, astRepositories,
+        AnalysisExecutionFixture::unexpectedRunRepository).publication());
+    var runFailure = assertThrows(AnalysisPublicationException.class, () -> AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
+        AnalysisExecutionFixture::unexpectedAstRepository, completed).publication());
 
     // Assert
     assertAbruptPublication(astContext, astFailure, run, Neo4jRepositoryPhase.MAPPING, CommitKnowledge.NOT_STARTED, primary);
@@ -616,11 +623,12 @@ class Neo4jAnalysisRunRepositoryTest {
     var projection = new Neo4jAnalysisRunMapper().map(foreign);
     var requested = RepositoryOperationContext.saveCompletedRun(run.identity().key());
     var backend = new DriverDouble();
-    var service = new CompletedRunPublicationService(context -> new Neo4jAnalysisRunRepository(backend.driver(),
-        SessionConfig.defaultConfig(), context, ignored -> projection));
+    AnalysisRunRepositoryFactory service = context -> new Neo4jAnalysisRunRepository(backend.driver(),
+        SessionConfig.defaultConfig(), context, ignored -> projection);
 
     // Act
-    var failure = assertThrows(AnalysisPublicationException.class, () -> service.publish(run));
+    var failure = assertThrows(AnalysisPublicationException.class, () -> AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
+        AnalysisExecutionFixture::unexpectedAstRepository, service).publication());
 
     // Assert
     var primary = assertInstanceOf(IllegalArgumentException.class, failure.getCause());
@@ -650,7 +658,7 @@ class Neo4jAnalysisRunRepositoryTest {
       var services = publications(runDriver, astDriver);
 
       // Act
-      var outcomes = Map.of(astContext, services.retention().retainAst(run), runContext, services.completed().publish(run));
+      var outcomes = Map.of(astContext, services.execute(run, PublicationIntent.SAVE_COMPLETE_AST), runContext, services.execute(run, PublicationIntent.SAVE_COMPLETED));
 
       // Assert
       for (var entry : outcomes.entrySet()) {
@@ -695,13 +703,19 @@ class Neo4jAnalysisRunRepositoryTest {
         failAt(phase, primary, runDriver, astDriver);
         var services = publications(runDriver, astDriver);
 
-        // Act and assert
         if (primary == declared) {
-          assertDeclaredPublication(astContext, services.retention().retainAst(run), phase, knowledge, declared);
-          assertDeclaredPublication(runContext, services.completed().publish(run), phase, knowledge, declared);
+          // Act
+          var astResult = services.execute(run, PublicationIntent.SAVE_COMPLETE_AST);
+          var runResult = services.execute(run, PublicationIntent.SAVE_COMPLETED);
+
+          // Assert
+          assertDeclaredPublication(astContext, astResult, phase, knowledge, declared);
+          assertDeclaredPublication(runContext, runResult, phase, knowledge, declared);
         } else {
-          var astFailure = assertThrows(AnalysisPublicationException.class, () -> services.retention().retainAst(run));
-          var runFailure = assertThrows(AnalysisPublicationException.class, () -> services.completed().publish(run));
+          // Act
+          var astFailure = assertThrows(AnalysisPublicationException.class, () -> services.execute(run, PublicationIntent.SAVE_COMPLETE_AST));
+          var runFailure = assertThrows(AnalysisPublicationException.class, () -> services.execute(run, PublicationIntent.SAVE_COMPLETED));
+          // Assert
           assertAbruptPublication(astContext, astFailure, run, phase, knowledge, primary);
           assertAbruptPublication(runContext, runFailure, run, phase, knowledge, primary);
         }
@@ -776,10 +790,10 @@ class Neo4jAnalysisRunRepositoryTest {
 
   private static PublicationServices publications(DriverDouble runDriver, AstRepositoryDriverStub astDriver) {
     return new PublicationServices(
-        new AstRetentionService(new Neo4jAstResultRepositoryFactory(Neo4jAnalysisRunRepositoryTest::settings,
-            ignored -> astDriver.driver(), ignored -> SessionConfig.defaultConfig())),
-        new CompletedRunPublicationService(Neo4jAnalysisRunRepository.factory(
-            Neo4jAnalysisRunRepositoryTest::settings, ignored -> runDriver.driver(), ignored -> SessionConfig.defaultConfig())));
+        new Neo4jAstResultRepositoryFactory(Neo4jAnalysisRunRepositoryTest::settings,
+            ignored -> astDriver.driver(), ignored -> SessionConfig.defaultConfig()),
+        Neo4jAnalysisRunRepository.factory(
+            Neo4jAnalysisRunRepositoryTest::settings, ignored -> runDriver.driver(), ignored -> SessionConfig.defaultConfig()));
   }
 
   @Test
@@ -793,8 +807,7 @@ class Neo4jAnalysisRunRepositoryTest {
     runDriver.acknowledgementFailure = signal;
     astDriver.writeFailure = signal;
     var services = publications(runDriver, astDriver);
-    var application = new AnalysisApplicationService(new SourceAnalysisRunner(JavaFrontends.standard(), CfgDerivers.standard()),
-        services.retention(), services.completed());
+    var application = AnalysisCapabilities.execution(AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard()), services.astRepositories(), services.runRepositories());
     var observed = new AtomicReference<AnalysisExecution>();
     var command = new AnalyzeCommand(request -> {
       var execution = application.execute(request);
@@ -813,7 +826,7 @@ class Neo4jAnalysisRunRepositoryTest {
     var execution = observed.get();
     var run = execution.run();
     var ast = run.representation().ast();
-    var astPublication = services.retention().retainAst(run);
+    var astPublication = services.execute(run, PublicationIntent.SAVE_COMPLETE_AST);
 
     // Assert
     var astContext = RepositoryOperationContext.saveAst(ast.result().orElseThrow().identity());
@@ -866,7 +879,7 @@ class Neo4jAnalysisRunRepositoryTest {
       var services = publications(runDriver, astDriver);
 
       // Act
-      var decisions = Map.of(astContext, services.retention().retainAst(run), runContext, services.completed().publish(run));
+      var decisions = Map.of(astContext, services.execute(run, PublicationIntent.SAVE_COMPLETE_AST), runContext, services.execute(run, PublicationIntent.SAVE_COMPLETED));
 
       // Assert
       for (var entry : decisions.entrySet()) {

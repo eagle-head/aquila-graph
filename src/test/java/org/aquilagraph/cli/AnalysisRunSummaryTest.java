@@ -8,10 +8,11 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisCompletion;
-import org.aquilagraph.application.AnalysisRequest;
+import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.MethodCoverageState;
-import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.CfgState;
@@ -21,8 +22,8 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SoftwareVersion;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.Test;
 
 class AnalysisRunSummaryTest {
@@ -75,11 +76,11 @@ class AnalysisRunSummaryTest {
     var file = SourceFile.fromContent(Path.of("Example.java"), "interface Example { void bodyless(); static void concrete() {} }");
     var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(file));
     var runner = CliTestFixtures.runner();
-    var sourceOnly = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot),
-        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED, Optional.empty(), PublicationIntent.DO_NOT_SAVE));
+    var sourceOnly = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED), Optional.empty()));
     var ast = sourceOnly.representation().ast();
     var identity = ast.result().orElseThrow().identity();
-    var selectedNone = runner.deriveExisting(ast, new CfgRequest(identity, List.of(), CfgProfile.JAVA_BOUNDED));
+    var selectedNone = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast, new CfgRequest(identity, List.of(), CfgProfile.JAVA_BOUNDED));
     var expectedProgram = new ProgramSummary(1, 2, 0, 0, 0, 0);
 
     // Act
@@ -111,7 +112,7 @@ class AnalysisRunSummaryTest {
     var refused = methods.stream().filter(method -> method.name().equals("refused")).findFirst().orElseThrow().methodKey();
     var unselected = methods.stream().filter(method -> method.name().equals("unselected")).findFirst().orElseThrow().methodKey();
     var request = new CfgRequest(source.identity(), List.of(available, refused), CfgProfile.JAVA_BOUNDED);
-    var run = CliTestFixtures.runner().deriveExisting(ast, request);
+    var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast, request);
 
     // Act
     var summary = AnalysisRunSummary.from(run);

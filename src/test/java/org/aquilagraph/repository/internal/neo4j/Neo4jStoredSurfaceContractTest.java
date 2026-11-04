@@ -12,11 +12,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.aquilagraph.application.AnalysisRequest;
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.CfgSelection;
-import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.EntryNode;
@@ -36,12 +35,12 @@ import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.identity.api.StableId;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
 import org.aquilagraph.source.api.JavaTypeIdentity;
 import org.aquilagraph.source.api.JavaTypeReference;
-import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -234,9 +233,9 @@ class Neo4jStoredSurfaceContractTest {
     var support = SourceFile.fromContent(Path.of("a", "Support.java"), "enum Mode { ; Mode() {} } class Implicit {}");
     var input = InputSnapshot.fromSources(root, List.of(main, support));
     var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, dependencies, modules, List.of("-Xlint:all"));
-    var request = new AnalysisRequest(new SourceInput.Snapshot(input), configuration, AstProfile.JAVA_SOURCE_BOUNDED,
-        Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE);
-    var original = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()).analyze(request);
+    var request = new AnalysisComputationRequest(
+        new AstProductionRequest(input, configuration, AstProfile.JAVA_SOURCE_BOUNDED), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)));
+    var original = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()).analyze(request);
     var origin = original.representation().ast().result().orElseThrow().program().types().stream()
         .filter(type -> type.qualifiedName().equals("Owner")).findFirst().orElseThrow().origins().getFirst();
     var warning = new AnalysisDiagnostic("diagnostic:source", "frontend.observation", DiagnosticStage.FRONTEND, DiagnosticSeverity.WARNING,

@@ -1,18 +1,43 @@
 package org.aquilagraph.application;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.aquilagraph.application.ComputedPublicationSubject.Coordinated;
 import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
 import org.aquilagraph.application.PublicationSubjectIdentity.CompletedRun;
+import org.aquilagraph.application.port.AnalysisRunRepository;
+import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import org.aquilagraph.application.port.AstResultRepository;
+import org.aquilagraph.application.port.AstResultRepositoryFactory;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.application.port.RepositoryOperationException;
 import org.aquilagraph.source.api.AstCompletion;
 
 /** Owns common eligibility, repository lifetime, and publication decisions. */
 final class PublicationCoordinator {
-  private PublicationCoordinator() {
+  private final AstResultRepositoryFactory astRepositories;
+  private final AnalysisRunRepositoryFactory runRepositories;
+
+  PublicationCoordinator(AstResultRepositoryFactory astRepositories, AnalysisRunRepositoryFactory runRepositories) {
+    this.astRepositories = Objects.requireNonNull(astRepositories, "astRepositories");
+    this.runRepositories = Objects.requireNonNull(runRepositories, "runRepositories");
+  }
+
+  PublicationOutcome apply(AnalysisRun run, PublicationIntent intent) {
+    var subject = new Coordinated(run);
+    return switch (intent) {
+      case DO_NOT_SAVE -> notRequested(subject);
+      case SAVE_COMPLETE_AST -> publishAst(subject, astRepositories);
+      case SAVE_COMPLETED ->
+        publish(subject, intent, runRepositories::open, repository -> repository.save(run), AnalysisRunRepository::close);
+    };
+  }
+
+  static PublicationOutcome publishAst(ComputedPublicationSubject subject, AstResultRepositoryFactory repositories) {
+    return publish(subject, PublicationIntent.SAVE_COMPLETE_AST, repositories::open, repository -> repository.saveComplete(subject.ast()),
+        AstResultRepository::close);
   }
 
   static PublicationOutcome notRequested(ComputedPublicationSubject subject) {
@@ -20,7 +45,7 @@ final class PublicationCoordinator {
         CommitKnowledge.NOT_STARTED, Optional.empty());
   }
 
-  static <R> PublicationOutcome publish(ComputedPublicationSubject subject, PublicationIntent intent,
+  private static <R> PublicationOutcome publish(ComputedPublicationSubject subject, PublicationIntent intent,
       Function<RepositoryOperationContext, R> acquire, Consumer<R> save, Consumer<R> close) {
     var identity = intent == PublicationIntent.SAVE_COMPLETED
         ? Optional.<PublicationSubjectIdentity>of(new CompletedRun(((Coordinated) subject).run().identity().key()))
