@@ -1,7 +1,6 @@
 package org.aquilagraph.cli;
 
 import java.util.Objects;
-import org.aquilagraph.application.AnalysisRepositoryException;
 import org.aquilagraph.source.api.AnalysisEnvironmentException;
 import org.aquilagraph.source.api.AnalysisInputException;
 import org.aquilagraph.application.port.AnalysisUseCase;
@@ -18,8 +17,6 @@ final class AnalyzeCommandExecutor {
     Objects.requireNonNull(arguments, "arguments");
     try {
       return new AnalyzeCommandOutcome.Executed(analysisUseCase.execute(arguments.toAnalysisRequest()));
-    } catch (AnalysisRepositoryException exception) {
-      return new AnalyzeCommandOutcome.RepositoryFailed(exception);
     } catch (AnalysisInputException exception) {
       return new AnalyzeCommandOutcome.InputRejected(exception.description());
     } catch (AnalysisEnvironmentException exception) {

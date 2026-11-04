@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import org.aquilagraph.application.AnalysisExecution;
-import org.aquilagraph.application.AnalysisRepositoryException;
 import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.CfgSelection;
@@ -86,7 +85,8 @@ class AnalyzeCommandPresenterTest {
     var streams = new CliStreams();
 
     // Act
-    var exitCode = presenter.present(new AnalyzeCommandOutcome.RepositoryFailed(new AnalysisRepositoryException(run, new RepositoryException("database unavailable", new IllegalStateException("offline")))), streams.output(),
+    var exitCode = presenter.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withFailedPublication(run,
+        new RepositoryException("database unavailable", new IllegalStateException("offline")))), streams.output(),
         streams.error());
 
     // Assert
@@ -261,7 +261,7 @@ class AnalyzeCommandPresenterTest {
     // Arrange
     var run = CliTestFixtures.completedRunWithWarning();
     var failure = new RepositoryException("database unavailable", new IllegalStateException("offline"));
-    var outcome = new AnalyzeCommandOutcome.RepositoryFailed(new AnalysisRepositoryException(run, failure));
+    var outcome = new AnalyzeCommandOutcome.Executed(CliTestFixtures.withFailedPublication(run, failure));
     var streams = new CliStreams();
     var expectedError = new ArrayList<>(expectedWarning(1));
     expectedError.add("Repository save failed: database unavailable");

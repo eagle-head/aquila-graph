@@ -1,6 +1,7 @@
 package org.aquilagraph.application;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -15,6 +16,8 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.aquilagraph.application.ApplicationRepositoryOperationException.Boundary;
+import org.aquilagraph.application.ComputedPublicationSubject.Coordinated;
 import org.aquilagraph.application.port.AnalysisRunRepository;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
 import org.aquilagraph.application.port.RepositoryException;
@@ -51,7 +54,7 @@ class AnalysisApplicationServiceTest {
       var opens = new AtomicInteger();
       var saves = new AtomicInteger();
       var closes = new AtomicInteger();
-      var service = service(run, () -> {
+      var service = service(run, context -> {
         opens.incrementAndGet();
         return new AnalysisRunRepository() {
           @Override
@@ -86,16 +89,17 @@ class AnalysisApplicationServiceTest {
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var run = TestAnalysisRuns.completed(temporaryDirectory, configuration);
     var primary = new RepositoryException("Opening failed", new IllegalStateException("No repository returned"));
-    var service = service(run, () -> { throw primary; });
+    var service = service(run, context -> { throw primary; });
 
     // Act
-    var failure = assertThrows(AnalysisRepositoryException.class,
-        () -> service.execute(request(temporaryDirectory, configuration, PublicationIntent.SAVE_COMPLETED)));
+    var execution = service.execute(request(temporaryDirectory, configuration, PublicationIntent.SAVE_COMPLETED));
 
     // Assert
-    assertEquals(run, failure.analysisRun());
-    assertSame(primary, failure.repositoryFailure());
-    assertEquals(0, primary.getSuppressed().length);
+    assertEquals(run, execution.run());
+    assertEquals(PublicationStatus.FAILED, execution.publication().status());
+    assertEquals(CommitKnowledge.NOT_STARTED, execution.publication().knowledge());
+    assertSame(primary, execution.publication().failure().orElseThrow().effectivePrimary());
+    assertEquals(0, execution.publication().failure().orElseThrow().carrier().getSuppressed().length);
   }
 
   @Test
@@ -105,7 +109,7 @@ class AnalysisApplicationServiceTest {
     var run = TestAnalysisRuns.completed(temporaryDirectory, configuration);
     var saved = new AtomicReference<AnalysisRun>();
     var primary = new RepositoryException("Close failed", new IllegalStateException("Driver close failed"));
-    var service = service(run, () -> new AnalysisRunRepository() {
+    var service = service(run, context -> new AnalysisRunRepository() {
       @Override
       public void save(AnalysisRun supplied) {
         saved.set(supplied);
@@ -118,14 +122,15 @@ class AnalysisApplicationServiceTest {
     });
 
     // Act
-    var failure = assertThrows(AnalysisRepositoryException.class,
-        () -> service.execute(request(temporaryDirectory, configuration, PublicationIntent.SAVE_COMPLETED)));
+    var execution = service.execute(request(temporaryDirectory, configuration, PublicationIntent.SAVE_COMPLETED));
 
     // Assert
     assertEquals(run, saved.get());
-    assertEquals(run, failure.analysisRun());
-    assertSame(primary, failure.repositoryFailure());
-    assertEquals(AnalysisCompletion.COMPLETE, failure.analysisRun().completion());
+    assertEquals(run, execution.run());
+    assertEquals(PublicationStatus.FAILED, execution.publication().status());
+    assertEquals(CommitKnowledge.KNOWN_COMMIT, execution.publication().knowledge());
+    assertSame(primary, execution.publication().failure().orElseThrow().effectivePrimary());
+    assertEquals(AnalysisCompletion.COMPLETE, execution.run().completion());
   }
 
   @Test
@@ -138,16 +143,19 @@ class AnalysisApplicationServiceTest {
     var service = failingService(run, primary, cleanup);
 
     // Act
-    var failure = assertThrows(IllegalStateException.class,
+    var failure = assertThrows(AnalysisPublicationException.class,
         () -> service.execute(request(temporaryDirectory, configuration, PublicationIntent.SAVE_COMPLETED)));
 
     // Assert
-    assertSame(primary, failure);
-    assertEquals(List.of(cleanup), List.of(failure.getSuppressed()));
+    assertSame(primary, failure.getCause());
+    assertTrue(failure.failure().knowledge().isEmpty());
+    var close = assertInstanceOf(ApplicationRepositoryOperationException.class, failure.failure().getSuppressed()[0]);
+    assertSame(cleanup, close.effectivePrimary());
+    assertTrue(close.knowledge().isEmpty());
   }
 
   @Test
-  void givenRepositorySavePrimaryAndUnmatchedCleanupFailure_whenRequestExecutes_thenRepositoryPrimaryRetainsSuppression() {
+  void givenRawRepositorySaveFailureAndUnmatchedCleanup_whenRequestExecutes_thenPublicationRemainsAbrupt() {
     // Arrange
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var run = TestAnalysisRuns.completed(temporaryDirectory, configuration);
@@ -156,17 +164,20 @@ class AnalysisApplicationServiceTest {
     var service = failingService(run, primary, cleanup);
 
     // Act
-    var failure = assertThrows(AnalysisRepositoryException.class,
+    var failure = assertThrows(AnalysisPublicationException.class,
         () -> service.execute(request(temporaryDirectory, configuration, PublicationIntent.SAVE_COMPLETED)));
 
     // Assert
-    assertSame(primary, failure.repositoryFailure());
-    assertEquals(run, failure.analysisRun());
-    assertEquals(List.of(cleanup), List.of(primary.getSuppressed()));
+    assertSame(primary, failure.getCause());
+    assertEquals(run, assertInstanceOf(Coordinated.class, failure.subject()).run());
+    assertTrue(failure.failure().knowledge().isEmpty());
+    var close = assertInstanceOf(ApplicationRepositoryOperationException.class, failure.failure().getSuppressed()[0]);
+    assertSame(cleanup, close.effectivePrimary());
+    assertTrue(close.knowledge().isEmpty());
   }
 
   private static AnalysisApplicationService failingService(AnalysisRun run, RuntimeException primary, RuntimeException cleanup) {
-    return service(run, () -> new AnalysisRunRepository() {
+    return service(run, context -> new AnalysisRunRepository() {
       @Override
       public void save(AnalysisRun supplied) {
         throw primary;
@@ -190,7 +201,7 @@ class AnalysisApplicationServiceTest {
     var repositoryOpened = new AtomicBoolean();
     var service =
         service(
-            () -> {
+            context -> {
               repositoryOpened.set(true);
               throw new AssertionError("Repository must not be opened");
             });
@@ -212,7 +223,7 @@ class AnalysisApplicationServiceTest {
     var repositoryOpened = new AtomicBoolean();
     var service =
         service(
-            () -> {
+            context -> {
               repositoryOpened.set(true);
               throw new AssertionError("Repository must not be opened");
             });
@@ -237,7 +248,7 @@ class AnalysisApplicationServiceTest {
     var repositoryClosed = new AtomicBoolean();
     var service =
         service(
-            () -> {
+            context -> {
               repositoryOpened.set(true);
               return
                 new AnalysisRunRepository() {
@@ -271,7 +282,7 @@ class AnalysisApplicationServiceTest {
     var requestConfiguration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var completedRun = TestAnalysisRuns.completed(temporaryDirectory, requestConfiguration);
     var repositoryOpened = new AtomicBoolean();
-    var service = service(completedRun, () -> {
+    var service = service(completedRun, context -> {
       repositoryOpened.set(true);
       throw new AssertionError("Repository must not be opened");
     });
@@ -293,7 +304,7 @@ class AnalysisApplicationServiceTest {
     var persistedRun = new AtomicReference<AnalysisRun>();
     var repositoryClosed = new AtomicBoolean();
     var service = service(completedRun,
-        () -> repository(persistedRun, repositoryClosed));
+        context -> repository(persistedRun, repositoryClosed));
 
     // Act
     var execution = service.execute(request(temporaryDirectory, requestConfiguration, PublicationIntent.SAVE_COMPLETED));
@@ -312,10 +323,10 @@ class AnalysisApplicationServiceTest {
     var completedRun = TestAnalysisRuns.completed(temporaryDirectory, requestConfiguration);
     var repositoryFailure = new RepositoryException("database unavailable", new IllegalStateException("connection refused"));
     var repositoryClosed = new AtomicBoolean();
-    var service = service(completedRun, () -> new AnalysisRunRepository() {
+    var service = service(completedRun, context -> new AnalysisRunRepository() {
       @Override
       public void save(AnalysisRun run) {
-        throw repositoryFailure;
+        throw new ApplicationRepositoryOperationException(context, Boundary.OPERATION, Optional.of(CommitKnowledge.UNKNOWN), repositoryFailure);
       }
 
       @Override
@@ -325,12 +336,13 @@ class AnalysisApplicationServiceTest {
     });
 
     // Act
-    var exception = assertThrows(AnalysisRepositoryException.class,
-        () -> service.execute(request(temporaryDirectory, requestConfiguration, PublicationIntent.SAVE_COMPLETED)));
+    var execution = service.execute(request(temporaryDirectory, requestConfiguration, PublicationIntent.SAVE_COMPLETED));
 
     // Assert
-    assertEquals(completedRun, exception.analysisRun());
-    assertSame(repositoryFailure, exception.repositoryFailure());
+    assertEquals(completedRun, execution.run());
+    assertEquals(PublicationStatus.FAILED, execution.publication().status());
+    assertEquals(CommitKnowledge.UNKNOWN, execution.publication().knowledge());
+    assertSame(repositoryFailure, execution.publication().failure().orElseThrow().effectivePrimary());
     assertTrue(repositoryClosed.get());
   }
 

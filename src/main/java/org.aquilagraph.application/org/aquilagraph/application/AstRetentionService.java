@@ -1,13 +1,12 @@
 package org.aquilagraph.application;
 
 import java.util.Objects;
-import java.util.Optional;
+import org.aquilagraph.application.ApplicationRepositoryOperationException.Boundary;
 import org.aquilagraph.application.ComputedPublicationSubject.Ast;
 import org.aquilagraph.application.ComputedPublicationSubject.Coordinated;
+import org.aquilagraph.application.port.AstResultRepository;
 import org.aquilagraph.application.port.AstResultRepositoryFactory;
-import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.identity.api.AstIdentity;
-import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 
 /** Independent complete-AST publication and exact query with lazy single-operation ownership. */
@@ -45,9 +44,7 @@ public final class AstRetentionService {
   public PublicationOutcome retainAst(AstPublicationRequest request) {
     Objects.requireNonNull(request, "request");
     if (request.intent() == PublicationIntent.DO_NOT_SAVE) {
-      return new PublicationOutcome(request.intent(),
-          request.ast().result().map(result -> new PublicationSubjectIdentity.Ast(result.identity())), PublicationStatus.NOT_REQUESTED,
-          CommitKnowledge.NOT_STARTED, Optional.empty());
+      return PublicationCoordinator.notRequested(new Ast(request.ast()));
     }
     return retainAst(request.ast());
   }
@@ -71,34 +68,22 @@ public final class AstRetentionService {
    * @return admitted, absent, or incompatible lookup
    */
   public AstLookup findAst(AstIdentity identity) {
-    var context = new RepositoryOperationContext(RepositoryOperationKind.QUERY_AST, identity);
-    try (var owned = new OwnedAstRepository(context)) {
-      owned.acquire(repositories);
-      return owned.find(identity);
-    }
+    var context = RepositoryOperationContext.queryAst(identity);
+    var owned = new OwnedRepository(context);
+    return owned.use(repositories::open, repository -> {
+      var result = owned.observe(Boundary.OPERATION, () -> repository.find(identity));
+      return owned.observe(Boundary.VALIDATION, () -> {
+        Objects.requireNonNull(result, "AST lookup");
+        if (!identity.equals(result.requestedIdentity())) {
+          throw new IllegalArgumentException("AST repository returned another requested identity");
+        }
+        return result;
+      });
+    }, AstResultRepository::close);
   }
 
   private PublicationOutcome publish(ComputedPublicationSubject subject) {
-    var ast = subject.ast();
-    var identity = ast.result().map(result -> result.identity());
-    var subjectIdentity = identity.<PublicationSubjectIdentity>map(PublicationSubjectIdentity.Ast::new);
-    if (ast.completion() != AstCompletion.COMPLETE) {
-      return new PublicationOutcome(PublicationIntent.SAVE_COMPLETE_AST, subjectIdentity, PublicationStatus.NOT_ELIGIBLE,
-          CommitKnowledge.NOT_STARTED, Optional.empty());
-    }
-    var context = new RepositoryOperationContext(RepositoryOperationKind.SAVE_AST, identity.orElseThrow());
-    try (var owned = new OwnedAstRepository(context)) {
-      owned.acquire(repositories);
-      owned.saveComplete(ast);
-    } catch (RepositoryOperationException exception) {
-      var failure = new PublicationFailure(exception);
-      if (exception.effectivePrimary() instanceof RepositoryException) {
-        return new PublicationOutcome(PublicationIntent.SAVE_COMPLETE_AST, subjectIdentity, PublicationStatus.FAILED, failure.knowledge(),
-            Optional.of(failure));
-      }
-      throw new AnalysisPublicationException(subject, failure);
-    }
-    return new PublicationOutcome(PublicationIntent.SAVE_COMPLETE_AST, subjectIdentity, PublicationStatus.SAVED,
-        CommitKnowledge.KNOWN_COMMIT, Optional.empty());
+    return PublicationCoordinator.publish(subject, PublicationIntent.SAVE_COMPLETE_AST, repositories::open,
+        repository -> repository.saveComplete(subject.ast()), AstResultRepository::close);
   }
 }

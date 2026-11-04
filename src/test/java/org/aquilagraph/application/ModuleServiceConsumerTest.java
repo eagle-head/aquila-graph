@@ -34,7 +34,7 @@ class ModuleServiceConsumerTest {
     var request = request(PublicationIntent.DO_NOT_SAVE);
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var runner = new SourceAnalysisRunner(frontend, CfgDerivers.standard());
-    var service = new AnalysisApplicationService(runner, retention(), new CompletedRunPublicationService(() -> {
+    var service = new AnalysisApplicationService(runner, retention(), new CompletedRunPublicationService(context -> {
       throw new AssertionError("No completed-run repository is required for these selections");
     }));
     // Act

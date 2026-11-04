@@ -1,8 +1,7 @@
 package org.aquilagraph.application;
 
 import java.util.Objects;
-import java.util.Optional;
-import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
+import org.aquilagraph.application.ComputedPublicationSubject.Coordinated;
 import org.aquilagraph.application.port.CompletedRunPublication;
 import org.aquilagraph.application.port.AnalysisUseCase;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -43,9 +42,7 @@ public final class AnalysisApplicationService implements AnalysisUseCase {
     Objects.requireNonNull(request, "request");
     var run = analysis.analyze(request);
     var publication = switch (request.publicationIntent()) {
-      case DO_NOT_SAVE ->
-        new PublicationOutcome(PublicationIntent.DO_NOT_SAVE, run.representation().ast().result().map(result -> new Ast(result.identity())),
-            PublicationStatus.NOT_REQUESTED, CommitKnowledge.NOT_STARTED, Optional.empty());
+      case DO_NOT_SAVE -> PublicationCoordinator.notRequested(new Coordinated(run));
       case SAVE_COMPLETE_AST -> retention.retainAst(run);
       case SAVE_COMPLETED -> completedRuns.publish(run);
     };

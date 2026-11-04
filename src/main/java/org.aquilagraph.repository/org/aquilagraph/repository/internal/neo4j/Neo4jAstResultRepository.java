@@ -6,17 +6,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import org.aquilagraph.application.AstLookup;
 import org.aquilagraph.application.AstLookupStatus;
-import org.aquilagraph.application.CommitKnowledge;
+import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
 import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.RepositoryOperationKind;
-import org.aquilagraph.application.RepositoryPhase;
 import org.aquilagraph.application.port.AstResultRepository;
-import org.aquilagraph.application.port.RepositoryOperationBoundary;
-import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.identity.api.AstIdentity;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
@@ -28,7 +25,6 @@ import org.neo4j.driver.Session;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.TransactionContext;
 import org.neo4j.driver.Values;
-import org.neo4j.driver.exceptions.Neo4jException;
 import org.neo4j.driver.exceptions.value.ValueException;
 
 /** One owned AST save or lookup with exact phase-bearing failures and conservative commit knowledge. */
@@ -41,7 +37,8 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
   private final RepositoryOperationContext context;
   private final Neo4jAstResultCodec codec;
   private final Function<AstOutcome, Neo4jAstProjection> projectionMapper;
-  private CommitKnowledge knowledge = CommitKnowledge.NOT_STARTED;
+  private final AstIdentity subjectIdentity;
+  private final Neo4jRepositoryOperation operation;
   private boolean operationStarted;
 
   Neo4jAstResultRepository(Driver driver, SessionConfig configuration, RepositoryOperationContext context) {
@@ -58,6 +55,11 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
     this.driver = Objects.requireNonNull(driver, "driver");
     sessionConfiguration = Objects.requireNonNull(configuration, "configuration");
     this.context = Objects.requireNonNull(context, "context");
+    if (!(context.subject() instanceof Ast ast)) {
+      throw new IllegalArgumentException("AST repository requires an AST operation");
+    }
+    subjectIdentity = ast.identity();
+    operation = new Neo4jRepositoryOperation(context, "Neo4j AST repository operation failed");
     this.codec = Objects.requireNonNull(codec, "codec");
     this.projectionMapper = Objects.requireNonNull(projectionMapper, "projectionMapper");
   }
@@ -70,35 +72,30 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
    */
   @Override
   public void saveComplete(AstOutcome outcome) {
-    observed(RepositoryPhase.VALIDATION, false, () -> {
+    operation.work(Neo4jRepositoryPhase.VALIDATION, () -> {
       begin(RepositoryOperationKind.SAVE_AST);
       if (Objects.requireNonNull(outcome, "outcome").completion() != AstCompletion.COMPLETE
-          || !context.astIdentity().equals(outcome.result().orElseThrow().identity())) {
+          || !subjectIdentity.equals(outcome.result().orElseThrow().identity())) {
         throw new IllegalArgumentException("AST save requires the operation's exact complete source subject");
       }
       return null;
     });
-    var projection = observed(RepositoryPhase.MAPPING, false, () -> {
+    var projection = operation.work(Neo4jRepositoryPhase.MAPPING, () -> {
       var mapped = Objects.requireNonNull(projectionMapper.apply(outcome), "AST projection");
-      if (!context.astIdentity().equals(mapped.identity())) {
+      if (!subjectIdentity.equals(mapped.identity())) {
         throw new IllegalArgumentException("AST projection differs from the operation's exact source subject");
       }
       return mapped;
     });
-    try (var owned = session(RepositoryPhase.SCHEMA, RepositoryPhase.SCHEMA_SESSION_CLOSE)) {
-      observed(RepositoryPhase.SCHEMA, true, () -> {
-        ensureSchema(owned.session);
-        return null;
-      });
-    }
-    try (var owned = session(RepositoryPhase.REPLACEMENT, RepositoryPhase.PUBLICATION_SESSION_CLOSE)) {
-      knowledge = CommitKnowledge.UNKNOWN;
-      observed(RepositoryPhase.REPLACEMENT, true, () -> owned.session.executeWrite(transaction -> {
-        Neo4jAstMaterialization.replace(transaction, projection);
-        return null;
-      }));
-      knowledge = CommitKnowledge.KNOWN_COMMIT;
-    }
+    operation.withSession(driver, sessionConfiguration, Neo4jRepositoryPhase.SCHEMA, Neo4jRepositoryPhase.SCHEMA_SESSION_CLOSE,
+        session -> operation.driverWork(Neo4jRepositoryPhase.SCHEMA, () -> {
+          ensureSchema(session);
+          return null;
+        }));
+    operation.replace(driver, sessionConfiguration, session -> session.executeWrite(transaction -> {
+      Neo4jAstMaterialization.replace(transaction, projection);
+      return null;
+    }));
   }
 
   /**
@@ -110,26 +107,25 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
    */
   @Override
   public AstLookup find(AstIdentity identity) {
-    observed(RepositoryPhase.VALIDATION, false, () -> {
+    operation.work(Neo4jRepositoryPhase.VALIDATION, () -> {
       begin(RepositoryOperationKind.QUERY_AST);
-      if (!context.astIdentity().equals(identity)) {
+      if (!subjectIdentity.equals(identity)) {
         throw new IllegalArgumentException("AST query differs from the operation's exact requested identity");
       }
       return null;
     });
-    try (var owned = session(RepositoryPhase.READ, RepositoryPhase.READ_SESSION_CLOSE)) {
-      var stored = observed(RepositoryPhase.READ, true, () -> owned.session.executeRead(transaction -> read(transaction, identity)));
-      return observed(RepositoryPhase.DECODE, false, () -> lookup(identity, stored));
-    }
+    return operation.withSession(driver, sessionConfiguration, Neo4jRepositoryPhase.READ, Neo4jRepositoryPhase.READ_SESSION_CLOSE,
+        session -> {
+          var stored = operation.driverWork(Neo4jRepositoryPhase.READ,
+              () -> session.executeRead(transaction -> read(transaction, identity)));
+          return operation.work(Neo4jRepositoryPhase.DECODE, () -> lookup(identity, stored));
+        });
   }
 
   /** Closes the owned driver while retaining prior replacement knowledge. */
   @Override
   public void close() {
-    observed(RepositoryPhase.REPOSITORY_CLOSE, true, () -> {
-      driver.close();
-      return null;
-    });
+    operation.closeDriver(driver, "Neo4j AST repository operation failed");
   }
 
   private void begin(RepositoryOperationKind kind) {
@@ -137,17 +133,6 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
       throw new IllegalArgumentException("An AST repository has one exact operation lifetime");
     }
     operationStarted = true;
-  }
-
-  private PhasedSession session(RepositoryPhase opening, RepositoryPhase closing) {
-    return observed(opening, true, () -> new PhasedSession(driver.session(sessionConfiguration), closing));
-  }
-
-  private <T> T observed(RepositoryPhase phase, boolean driverRegion, Supplier<T> action) {
-    return RepositoryOperationBoundary.observe(context, phase, () -> knowledge, action,
-        primary -> driverRegion && primary instanceof Neo4jException
-            ? new RepositoryException("Neo4j AST repository operation failed", primary)
-            : primary);
   }
 
   private static void ensureSchema(Session session) {
@@ -283,23 +268,5 @@ public final class Neo4jAstResultRepository implements AstResultRepository {
   }
 
   private record ReadRows<T>(List<T> values, Optional<RuntimeException> decodingFailure) {
-  }
-
-  private final class PhasedSession implements AutoCloseable {
-    private final Session session;
-    private final RepositoryPhase closingPhase;
-
-    private PhasedSession(Session session, RepositoryPhase closingPhase) {
-      this.session = Objects.requireNonNull(session, "session");
-      this.closingPhase = closingPhase;
-    }
-
-    @Override
-    public void close() {
-      observed(closingPhase, true, () -> {
-        session.close();
-        return null;
-      });
-    }
   }
 }

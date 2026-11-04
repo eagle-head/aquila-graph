@@ -29,7 +29,6 @@ final class AnalyzeCommandPresenter {
     Objects.requireNonNull(error, "error");
     return switch (outcome) {
       case AnalyzeCommandOutcome.Executed executed -> presentExecution(executed, output, error);
-      case AnalyzeCommandOutcome.RepositoryFailed failed -> presentRepositoryFailure(failed, output, error);
       case AnalyzeCommandOutcome.InputRejected rejected -> presentInputRejection(rejected, error);
       case AnalyzeCommandOutcome.EnvironmentFailed failed -> presentEnvironmentFailure(failed, error);
     };
@@ -39,19 +38,17 @@ final class AnalyzeCommandPresenter {
     var execution = outcome.execution();
     var summary = AnalysisRunSummary.from(execution.run());
     printSummary(summary, output, error);
-    output.println("Repository: " + execution.publication().status());
+    var publication = execution.publication();
+    output.println("Repository: " + publication.status());
+    if (publication.failure().isPresent()) {
+      error.println("Repository save failed: " + publication.failure().orElseThrow().effectivePrimary().description());
+      return AnalyzeCommand.EXIT_REPOSITORY_FAILED;
+    }
     return switch (summary.run().completion()) {
       case COMPLETE -> AnalyzeCommand.EXIT_COMPLETED;
       case PARTIAL, FAILED -> AnalyzeCommand.EXIT_INCOMPLETE;
       case REJECTED -> AnalyzeCommand.EXIT_REJECTED;
     };
-  }
-
-  private static int presentRepositoryFailure(AnalyzeCommandOutcome.RepositoryFailed outcome, PrintStream output, PrintStream error) {
-    printSummary(AnalysisRunSummary.from(outcome.failure().analysisRun()), output, error);
-    output.println("Repository: FAILED");
-    error.println("Repository save failed: " + outcome.failure().repositoryFailure().description());
-    return AnalyzeCommand.EXIT_REPOSITORY_FAILED;
   }
 
   private static int presentInputRejection(AnalyzeCommandOutcome.InputRejected outcome, PrintStream error) {

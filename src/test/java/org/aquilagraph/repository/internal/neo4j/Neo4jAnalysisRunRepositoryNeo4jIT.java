@@ -1,5 +1,12 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
+import org.aquilagraph.repository.neo4j.Neo4jRepositories;
+import org.aquilagraph.application.PublicationStatus;
+import org.aquilagraph.application.CommitKnowledge;
+import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 
 
@@ -22,7 +29,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.aquilagraph.application.AnalysisCompletion;
-import org.aquilagraph.application.AnalysisRepositoryException;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.CompletedRunPublicationService;
 import org.aquilagraph.application.port.RepositoryException;
@@ -70,7 +76,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
 
     try {
       // Act
-      try (var repository = new Neo4jAnalysisRunRepository(settings)) {
+      try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(RepositoryOperationContext.saveCompletedRun(run.identity().key()))) {
         repository.save(run);
       }
 
@@ -106,7 +112,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
     try {
       // Act
       var expectedPrimaryProjection = new Neo4jAnalysisRunMapper().map(primaryRun);
-      try (var repository = new Neo4jAnalysisRunRepository(settings)) {
+      try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(RepositoryOperationContext.saveCompletedRun(primaryRun.identity().key()))) {
         repository.save(primaryRun);
         repository.save(primaryRun);
         repository.save(independentRun);
@@ -267,7 +273,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
           var verificationSession = verificationDriver.session(sessionConfig)) {
         independentState = storedProjection(verificationSession, independentRun.identity().key());
       }
-      try (var repository = new Neo4jAnalysisRunRepository(settings)) {
+      try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(RepositoryOperationContext.saveCompletedRun(replacementRun.identity().key()))) {
         repository.save(replacementRun);
       }
       try (var verificationDriver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
@@ -277,7 +283,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
             + "RETURN count(*) AS count", Values.parameters("runId", primaryRun.identity().key())).single().get("count").asLong());
         assertEquals(independentState, storedProjection(verificationSession, independentRun.identity().key()));
       }
-      try (var repository = new Neo4jAnalysisRunRepository(settings)) {
+      try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(RepositoryOperationContext.saveCompletedRun(replacementRun.identity().key()))) {
         repository.save(replacementRun);
       }
       try (var verificationDriver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
@@ -292,8 +298,9 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
                   settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
           var failingRepository =
               new Neo4jAnalysisRunRepository(
-                  failingDriver, sessionConfig, ignored -> invalidProjection)) {
-        assertThrows(RepositoryException.class, () -> failingRepository.save(replacementRun));
+                  failingDriver, sessionConfig, RepositoryOperationContext.saveCompletedRun(replacementRun.identity().key()), ignored -> invalidProjection)) {
+        var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> failingRepository.save(replacementRun));
+        assertInstanceOf(RepositoryException.class, failure.effectivePrimary());
       }
       try (var verificationDriver =
               GraphDatabase.driver(
@@ -321,7 +328,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
 
     try {
       // Act
-      try (var repository = new Neo4jAnalysisRunRepository(settings)) {
+      try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(RepositoryOperationContext.saveCompletedRun(run.identity().key()))) {
         repository.save(run);
       }
 
@@ -369,7 +376,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
       var events = new ArrayList<String>();
       var signal = new Neo4jException("Close outcome signal");
       try (var actualDriver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()))) {
-        try (var repository = new Neo4jAnalysisRunRepository(settings)) {
+        try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(RepositoryOperationContext.saveCompletedRun(run.identity().key()))) {
           repository.save(run);
         }
         final StoredProjection establishedProjection;
@@ -378,14 +385,19 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
         }
         var delegatedDriver = closeSignalingDriver(actualDriver, phase, signal, events);
         var publisher = new CompletedRunPublicationService(
-            () -> new Neo4jAnalysisRunRepository(delegatedDriver, sessionConfig, ignored -> projection));
+            context -> new Neo4jAnalysisRunRepository(delegatedDriver, sessionConfig, context, ignored -> projection));
 
         // Act
-        var failure = assertThrows(AnalysisRepositoryException.class, () -> publisher.publish(run));
+        var outcome = publisher.publish(run);
 
         // Assert
-        assertSame(run, failure.analysisRun());
-        assertSame(signal, failure.repositoryFailure().getCause());
+        assertEquals(PublicationStatus.FAILED, outcome.status());
+        assertEquals(CommitKnowledge.KNOWN_COMMIT, outcome.knowledge());
+        var failure = outcome.failure().orElseThrow();
+        assertEquals(RepositoryOperationContext.saveCompletedRun(run.identity().key()), failure.carrier().context());
+        assertEquals(phase == CloseFailurePhase.DRIVER ? Neo4jRepositoryPhase.REPOSITORY_CLOSE : Neo4jRepositoryPhase.PUBLICATION_SESSION_CLOSE,
+            assertInstanceOf(Neo4jRepositoryOperationException.class, failure.carrier()).phase());
+        assertSame(signal, failure.effectivePrimary().getCause());
         assertEquals(List.of("schema.close", "publication.write.returned", "publication.close", "driver.close"), events);
         try (var verificationDriver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
             var verificationSession = verificationDriver.session(sessionConfig)) {

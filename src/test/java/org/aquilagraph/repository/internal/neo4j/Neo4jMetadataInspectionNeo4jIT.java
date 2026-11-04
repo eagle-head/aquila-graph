@@ -1,5 +1,9 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
+import org.aquilagraph.application.CommitKnowledge;
+import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -76,7 +80,8 @@ class Neo4jMetadataInspectionNeo4jIT {
       try {
         try (var seeding = new DriverWork(directUri, settings)) {
           seeding.call(() -> {
-            try (var repository = new Neo4jAnalysisRunRepository(seeding.driver, sessionConfig, mapper::map)) {
+            try (var repository = new Neo4jAnalysisRunRepository(seeding.driver, sessionConfig,
+                RepositoryOperationContext.saveCompletedRun(primary.identity().key()), mapper::map)) {
               repository.save(primary);
               repository.save(independent);
             }
@@ -93,15 +98,20 @@ class Neo4jMetadataInspectionNeo4jIT {
             var failing = new DriverWork(proxy.uri(), settings, proxy::disconnect)) {
           // Act
           var execution = assertThrows(ExecutionException.class, () -> failing.call(() -> {
-            try (var repository = new Neo4jAnalysisRunRepository(failing.driver, sessionConfig, mapper::map)) {
+            try (var repository = new Neo4jAnalysisRunRepository(failing.driver, sessionConfig,
+                RepositoryOperationContext.saveCompletedRun(replacement.identity().key()), mapper::map)) {
               repository.save(replacement);
             }
             return null;
           }));
 
           // Assert
-          var failure = assertInstanceOf(RepositoryException.class, execution.getCause());
-          assertInstanceOf(Neo4jException.class, failure.getCause());
+          var failure = assertInstanceOf(Neo4jRepositoryOperationException.class, execution.getCause());
+          assertEquals(Neo4jRepositoryPhase.SCHEMA, failure.phase());
+          assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge().orElseThrow());
+          assertEquals(RepositoryOperationContext.saveCompletedRun(replacement.identity().key()), failure.context());
+          assertInstanceOf(RepositoryException.class, failure.effectivePrimary());
+          assertInstanceOf(Neo4jException.class, failure.effectivePrimary().getCause());
           proxy.requireHealthyRelay();
           var observation = proxy.observation();
           System.out.println("BOLT_METADATA_INSPECTION_OBSERVATION=" + observation);

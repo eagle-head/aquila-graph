@@ -1,7 +1,6 @@
 package org.aquilagraph.application.port;
 
 import org.aquilagraph.application.RepositoryOperationContext;
-import org.aquilagraph.application.RepositoryOperationException;
 
 /** Lazy acquisition transferring one exact operation's repository ownership. */
 @FunctionalInterface

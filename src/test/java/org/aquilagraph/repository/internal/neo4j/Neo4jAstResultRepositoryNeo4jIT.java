@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import org.aquilagraph.repository.neo4j.Neo4jRepositories;
+import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 
 
@@ -29,8 +32,8 @@ import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.source.internal.SourceAnalysisFixture;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationStatus;
-import org.aquilagraph.application.RepositoryOperationException;
-import org.aquilagraph.application.RepositoryPhase;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.application.SourceAnalysisRunner;
 
 import org.aquilagraph.cfg.api.CfgProfile;
@@ -1333,13 +1336,16 @@ class Neo4jAstResultRepositoryNeo4jIT {
           + "SET result.formatVersion = 'future-source-format', result.payload = 'invalid-base64'",
           Values.parameters("scope", identity.astResultKey())).consume());
 
-      // Act and assert
-      assertEquals(AstLookupStatus.INCOMPATIBLE, retention.findAst(identity).status());
+      // Act
+      var incompatible = retention.findAst(identity);
       withSession(settings, session -> session.run("MATCH (result:AstEntity:AstResult {astResultKey: $scope}) "
           + "SET result.formatVersion = $format", Values.parameters("scope", identity.astResultKey(), "format", AstCodec.FORMAT_VERSION)).consume());
-      var failure = assertThrows(RepositoryOperationException.class, () -> retention.findAst(identity));
-      assertEquals(RepositoryPhase.DECODE, failure.phase());
-      assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge());
+      var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> retention.findAst(identity));
+
+      // Assert
+      assertEquals(AstLookupStatus.INCOMPATIBLE, incompatible.status());
+      assertEquals(Neo4jRepositoryPhase.DECODE, failure.phase());
+      assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge().orElseThrow());
       assertTrue(failure.effectivePrimary() instanceof IllegalArgumentException);
     } finally {
       deleteAst(settings, identity);
@@ -1362,7 +1368,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
     try {
       // Act
       retention.retainAst(ast);
-      try (var repository = new Neo4jAnalysisRunRepository(settings)) {
+      try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(RepositoryOperationContext.saveCompletedRun(completedRun.identity().key()))) {
         repository.save(completedRun);
         repository.save(completedRun);
       }
@@ -1433,11 +1439,11 @@ class Neo4jAstResultRepositoryNeo4jIT {
       });
 
       // Act
-      var failure = assertThrows(RepositoryOperationException.class, () -> retention.findAst(identity));
+      var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> retention.findAst(identity));
 
       // Assert
-      assertEquals(RepositoryPhase.DECODE, failure.phase());
-      assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge());
+      assertEquals(Neo4jRepositoryPhase.DECODE, failure.phase());
+      assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge().orElseThrow());
       assertTrue(failure.effectivePrimary() instanceof IllegalArgumentException);
     } finally {
       withSession(settings, session -> session.run("MATCH (alias {endpointAliasFor: $scope}) DETACH DELETE alias",
@@ -1463,11 +1469,11 @@ class Neo4jAstResultRepositoryNeo4jIT {
           Values.parameters("scope", identity.astResultKey())).consume());
 
       // Act
-      var failure = assertThrows(RepositoryOperationException.class, () -> retention.findAst(identity));
+      var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> retention.findAst(identity));
 
       // Assert
-      assertEquals(RepositoryPhase.DECODE, failure.phase());
-      assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge());
+      assertEquals(Neo4jRepositoryPhase.DECODE, failure.phase());
+      assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge().orElseThrow());
       assertTrue(failure.effectivePrimary() instanceof IllegalArgumentException);
     } finally {
       deleteAst(settings, identity);
@@ -1494,7 +1500,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
 
       // Assert
       assertEquals(PublicationStatus.FAILED, publication.status());
-      assertEquals(RepositoryPhase.SCHEMA, publication.failure().orElseThrow().phase());
+      assertEquals(Neo4jRepositoryPhase.SCHEMA, assertInstanceOf(Neo4jRepositoryOperationException.class, publication.failure().orElseThrow().carrier()).phase());
       assertEquals(CommitKnowledge.NOT_STARTED, publication.knowledge());
       assertEquals(AstLookupStatus.FOUND, lookup.status());
       assertArrayEquals(AstCodec.encode(ast.result().orElseThrow()), AstCodec.encode(lookup.outcome().orElseThrow().result().orElseThrow()));

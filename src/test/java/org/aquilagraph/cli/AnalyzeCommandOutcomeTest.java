@@ -4,28 +4,24 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.aquilagraph.application.AnalysisRepositoryException;
 import org.aquilagraph.application.port.RepositoryException;
 import org.junit.jupiter.api.Test;
 
 class AnalyzeCommandOutcomeTest {
   @Test
-  void givenExecutionAndRepositoryFailure_whenOutcomesAreCreated_thenExactPayloadsAreRetained() {
+  void givenExecutionWithPublicationFailure_whenOutcomeIsCreated_thenExactExecutionIsRetained() {
     // Arrange
     var run = CliTestFixtures.completedRun();
-    var execution = CliTestFixtures.withoutRepositoryRequest(run);
-    var failure = new AnalysisRepositoryException(run, new RepositoryException("database unavailable", new IllegalStateException("offline")));
+    var primary = new RepositoryException("database unavailable", new IllegalStateException("offline"));
+    var execution = CliTestFixtures.withFailedPublication(run, primary);
 
     // Act
     var executed = new AnalyzeCommandOutcome.Executed(execution);
-    var repositoryFailed = new AnalyzeCommandOutcome.RepositoryFailed(failure);
 
     // Assert
     assertSame(execution, executed.execution());
-    var retainedFailure = repositoryFailed.failure();
-    assertSame(failure, retainedFailure);
-    assertSame(run, retainedFailure.analysisRun());
-    assertEquals("database unavailable", retainedFailure.repositoryFailure().description());
+    assertSame(run, executed.execution().run());
+    assertSame(primary, executed.execution().publication().failure().orElseThrow().effectivePrimary());
   }
 
   @Test
@@ -60,18 +56,13 @@ class AnalyzeCommandOutcomeTest {
   @Test
   void givenNullOutcomeValue_whenOutcomeIsCreated_thenInvalidStateIsRejected() {
     // Arrange
-    var run = CliTestFixtures.completedRun();
-
     // Act
     var executedFailure = assertThrows(NullPointerException.class, () -> new AnalyzeCommandOutcome.Executed(null));
-    var runFailure = assertThrows(NullPointerException.class,
-        () -> new AnalyzeCommandOutcome.RepositoryFailed(null));
     var inputFailure = assertThrows(NullPointerException.class, () -> new AnalyzeCommandOutcome.InputRejected(null));
     var environmentFailure = assertThrows(NullPointerException.class, () -> new AnalyzeCommandOutcome.EnvironmentFailed(null));
 
     // Assert
     assertEquals("execution", executedFailure.getMessage());
-    assertEquals("failure", runFailure.getMessage());
     assertEquals("message", inputFailure.getMessage());
     assertEquals("message", environmentFailure.getMessage());
   }

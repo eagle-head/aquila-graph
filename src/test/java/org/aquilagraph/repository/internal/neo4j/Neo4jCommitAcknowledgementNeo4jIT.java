@@ -1,11 +1,10 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -34,7 +33,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import org.aquilagraph.application.AnalysisRepositoryException;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.AstLookupStatus;
 import org.aquilagraph.application.AstRetentionService;
@@ -43,8 +41,7 @@ import org.aquilagraph.application.CompletedRunPublicationService;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
 import org.aquilagraph.application.RepositoryOperationContext;
-import org.aquilagraph.application.RepositoryOperationKind;
-import org.aquilagraph.application.RepositoryPhase;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.AstIdentity;
@@ -107,7 +104,8 @@ class Neo4jCommitAcknowledgementNeo4jIT {
       try {
         try (var seeding = new DriverWork(directUri, settings)) {
           seeding.call(() -> {
-            try (var repository = new Neo4jAnalysisRunRepository(seeding.driver, sessionConfig, mapper::map)) {
+            try (var repository = new Neo4jAnalysisRunRepository(seeding.driver, sessionConfig,
+                RepositoryOperationContext.saveCompletedRun(primary.identity().key()), mapper::map)) {
               repository.save(primary);
               repository.save(independent);
             }
@@ -123,16 +121,19 @@ class Neo4jCommitAcknowledgementNeo4jIT {
         try (var proxy = new BoltCommitAcknowledgementProxy(target);
             var publication = new DriverWork(proxy.uri(), settings, proxy::disconnect)) {
           var publicationService = new CompletedRunPublicationService(
-              () -> new Neo4jAnalysisRunRepository(publication.driver, sessionConfig, mapper::map));
+              context -> new Neo4jAnalysisRunRepository(publication.driver, sessionConfig, context, mapper::map));
           proxy.arm();
 
           // Act
-          var executionFailure = assertThrows(ExecutionException.class, () -> publication.call(() -> publicationService.publish(replacement)));
+          var outcome = publication.call(() -> publicationService.publish(replacement));
 
           // Assert
-          var failure = assertInstanceOf(AnalysisRepositoryException.class, executionFailure.getCause());
-          assertSame(replacement, failure.analysisRun());
-          assertInstanceOf(Neo4jException.class, failure.repositoryFailure().getCause());
+          assertEquals(PublicationStatus.FAILED, outcome.status());
+          assertEquals(CommitKnowledge.UNKNOWN, outcome.knowledge());
+          var failure = outcome.failure().orElseThrow();
+          assertEquals(RepositoryOperationContext.saveCompletedRun(replacement.identity().key()), failure.carrier().context());
+          assertEquals(Neo4jRepositoryPhase.REPLACEMENT, assertInstanceOf(Neo4jRepositoryOperationException.class, failure.carrier()).phase());
+          assertInstanceOf(Neo4jException.class, failure.effectivePrimary().getCause());
           proxy.requireHealthyRelay();
           var observation = proxy.observation();
           System.out.println("BOLT_COMMIT_ACKNOWLEDGEMENT_OBSERVATION=" + observation);
@@ -166,7 +167,7 @@ class Neo4jCommitAcknowledgementNeo4jIT {
     var independent = astFixture("Independent" + UUID.randomUUID().toString().replace("-", ""), sourceRoot.resolve("independent"));
     var identity = replacement.result().orElseThrow().identity();
     var independentIdentity = independent.result().orElseThrow().identity();
-    var context = new RepositoryOperationContext(RepositoryOperationKind.SAVE_AST, identity);
+    var context = RepositoryOperationContext.saveAst(identity);
     var codec = new Neo4jAstResultCodec();
     var replacementProjection = codec.map(replacement);
     System.out.println("AST_TRANSPORT_PROJECTION_SIZES=" + replacementProjection.nodes().stream()
@@ -181,7 +182,7 @@ class Neo4jCommitAcknowledgementNeo4jIT {
         for (var outcome : List.of(previous, independent)) {
           try (var seeding = new DriverWork(directUri, settings)) {
             seeding.call(() -> {
-              var saveContext = new RepositoryOperationContext(RepositoryOperationKind.SAVE_AST, outcome.result().orElseThrow().identity());
+              var saveContext = RepositoryOperationContext.saveAst(outcome.result().orElseThrow().identity());
               try (var repository = new Neo4jAstResultRepository(seeding.driver, sessionConfig, saveContext)) {
                 repository.saveComplete(outcome);
               }
@@ -206,10 +207,10 @@ class Neo4jCommitAcknowledgementNeo4jIT {
           assertEquals(PublicationStatus.FAILED, outcome.status());
           assertEquals(CommitKnowledge.UNKNOWN, outcome.knowledge());
           assertEquals(Optional.of(new Ast(identity)), outcome.subjectIdentity());
-          var failure = outcome.failure().orElseThrow().carrier();
+          var failure = assertInstanceOf(Neo4jRepositoryOperationException.class, outcome.failure().orElseThrow().carrier());
           assertEquals(context, failure.context());
-          assertEquals(RepositoryPhase.REPLACEMENT, failure.phase());
-          assertEquals(CommitKnowledge.UNKNOWN, failure.knowledge());
+          assertEquals(Neo4jRepositoryPhase.REPLACEMENT, failure.phase());
+          assertEquals(CommitKnowledge.UNKNOWN, failure.knowledge().orElseThrow());
           assertInstanceOf(Neo4jException.class, failure.effectivePrimary().getCause());
           proxy.requireHealthyRelay();
           var observation = proxy.observation();
@@ -223,7 +224,7 @@ class Neo4jCommitAcknowledgementNeo4jIT {
           assertEquals(independentBefore, storedAstState(verification.driver, sessionConfig, independentIdentity));
         }
         try (var querying = new DriverWork(directUri, settings)) {
-          var queryContext = new RepositoryOperationContext(RepositoryOperationKind.QUERY_AST, identity);
+          var queryContext = RepositoryOperationContext.queryAst(identity);
           var lookup = querying.call(() -> {
             try (var repository = new Neo4jAstResultRepository(querying.driver, sessionConfig, queryContext)) {
               return repository.find(identity);
@@ -258,7 +259,7 @@ class Neo4jCommitAcknowledgementNeo4jIT {
     var independent = astFixture("Independent" + UUID.randomUUID().toString().replace("-", ""), sourceRoot.resolve("independent"));
     var identity = replacement.result().orElseThrow().identity();
     var independentIdentity = independent.result().orElseThrow().identity();
-    var context = new RepositoryOperationContext(RepositoryOperationKind.SAVE_AST, identity);
+    var context = RepositoryOperationContext.saveAst(identity);
     var replacementCallbacks = new AtomicInteger();
     var codec = new Neo4jAstResultCodec();
     assertEquals(previous.result().orElseThrow().identity(), identity);
@@ -269,7 +270,7 @@ class Neo4jCommitAcknowledgementNeo4jIT {
         for (var outcome : List.of(previous, independent)) {
           try (var seeding = new DriverWork(directUri, settings)) {
             seeding.call(() -> {
-              var saveContext = new RepositoryOperationContext(RepositoryOperationKind.SAVE_AST, outcome.result().orElseThrow().identity());
+              var saveContext = RepositoryOperationContext.saveAst(outcome.result().orElseThrow().identity());
               try (var repository = new Neo4jAstResultRepository(seeding.driver, sessionConfig, saveContext)) {
                 repository.saveComplete(outcome);
               }
@@ -294,9 +295,9 @@ class Neo4jCommitAcknowledgementNeo4jIT {
           assertEquals(PublicationStatus.FAILED, outcome.status());
           assertEquals(CommitKnowledge.UNKNOWN, outcome.knowledge());
           assertEquals(Optional.of(new Ast(identity)), outcome.subjectIdentity());
-          var failure = outcome.failure().orElseThrow().carrier();
+          var failure = assertInstanceOf(Neo4jRepositoryOperationException.class, outcome.failure().orElseThrow().carrier());
           assertEquals(context, failure.context());
-          assertEquals(RepositoryPhase.REPLACEMENT, failure.phase());
+          assertEquals(Neo4jRepositoryPhase.REPLACEMENT, failure.phase());
           var serverFailure = assertInstanceOf(Neo4jException.class, failure.effectivePrimary().getCause());
           assertEquals("Neo.ClientError.Statement.ArithmeticError", serverFailure.code());
           assertEquals(1, replacementCallbacks.get());

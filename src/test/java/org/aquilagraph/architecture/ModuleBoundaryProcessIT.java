@@ -81,6 +81,11 @@ class ModuleBoundaryProcessIT {
         .map(ModuleDescriptor.Exports::source).collect(Collectors.toSet()));
     assertEquals(Set.of("org.aquilagraph.repository.neo4j"), descriptors.get("org.aquilagraph.repository").exports().stream()
         .map(ModuleDescriptor.Exports::source).collect(Collectors.toSet()));
+    var application = descriptors.get("org.aquilagraph.application");
+    assertEquals(Set.of("org.aquilagraph.application", "org.aquilagraph.application.port"),
+        application.exports().stream().filter(value -> !value.isQualified()).map(ModuleDescriptor.Exports::source).collect(Collectors.toSet()));
+    assertEquals(Set.of("org.aquilagraph.repository"), application.exports().stream()
+        .filter(value -> value.source().equals("org.aquilagraph.application.internal.repository")).findFirst().orElseThrow().targets());
     assertTrue(descriptors.get("org.aquilagraph.cli").exports().isEmpty());
   }
 
@@ -92,8 +97,10 @@ class ModuleBoundaryProcessIT {
         + "return ast.aggregate().nodes().size() + graph.nodes().size(); } }";
     var forbidden = List.of("org.aquilagraph.source.admission.SyntaxAnalysisInput", "org.aquilagraph.source.retention.AstCodec",
         "org.aquilagraph.source.internal.AdmittedAstResult", "org.aquilagraph.cfg.internal.ControlFlowGraphBuilder",
-        "org.aquilagraph.frontend.internal.JavaFrontend", "org.aquilagraph.repository.internal.neo4j.Neo4jAnalysisRunRepository");
-    var requirements = List.of("org.aquilagraph.source", "org.aquilagraph.cfg", "org.aquilagraph.frontend", "org.aquilagraph.repository");
+        "org.aquilagraph.frontend.internal.JavaFrontend", "org.aquilagraph.repository.internal.neo4j.Neo4jAnalysisRunRepository",
+        "org.aquilagraph.application.internal.repository.RepositoryOperationBoundary");
+    var requirements = List.of("org.aquilagraph.source", "org.aquilagraph.cfg", "org.aquilagraph.frontend", "org.aquilagraph.repository",
+        "org.aquilagraph.application");
 
     for (var type : forbidden) {
       // Act

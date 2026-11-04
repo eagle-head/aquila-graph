@@ -22,9 +22,8 @@ import org.aquilagraph.application.AstLookup;
 import org.aquilagraph.application.AstLookupStatus;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.RepositoryOperationContext;
-import org.aquilagraph.application.RepositoryOperationException;
-import org.aquilagraph.application.RepositoryOperationKind;
-import org.aquilagraph.application.RepositoryPhase;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstContractException;
@@ -280,20 +279,20 @@ class Neo4jAstRecordContractTest {
 
   private static AstLookup find(AstIdentity identity, AstRepositoryDriverStub driver) {
     try (var repository = new Neo4jAstResultRepository(driver.driver(), SessionConfig.defaultConfig(),
-        new RepositoryOperationContext(RepositoryOperationKind.QUERY_AST, identity))) {
+        RepositoryOperationContext.queryAst(identity))) {
       return repository.find(identity);
     }
   }
 
-  private static RepositoryOperationException reject(Fixture fixture, AstRepositoryDriverStub driver) {
-    return assertThrows(RepositoryOperationException.class, () -> find(fixture.original().identity(), driver));
+  private static Neo4jRepositoryOperationException reject(Fixture fixture, AstRepositoryDriverStub driver) {
+    return assertThrows(Neo4jRepositoryOperationException.class, () -> find(fixture.original().identity(), driver));
   }
 
-  private static void assertFailure(Fixture fixture, AstRepositoryDriverStub driver, RepositoryOperationException failure,
+  private static void assertFailure(Fixture fixture, AstRepositoryDriverStub driver, Neo4jRepositoryOperationException failure,
       Class<? extends IllegalArgumentException> primaryType, String message) {
-    assertEquals(new RepositoryOperationContext(RepositoryOperationKind.QUERY_AST, fixture.original().identity()), failure.context());
-    assertEquals(RepositoryPhase.DECODE, failure.phase());
-    assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge());
+    assertEquals(RepositoryOperationContext.queryAst(fixture.original().identity()), failure.context());
+    assertEquals(Neo4jRepositoryPhase.DECODE, failure.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge().orElseThrow());
     assertInstanceOf(primaryType, failure.effectivePrimary());
     assertTrue(failure.effectivePrimary().getMessage().contains(message), failure.effectivePrimary().toString());
     assertEquals(0, failure.getSuppressed().length);
