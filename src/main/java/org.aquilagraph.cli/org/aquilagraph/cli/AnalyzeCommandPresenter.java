@@ -11,6 +11,7 @@ import org.aquilagraph.application.AnalysisRequestIdentity.NotRequested;
 import org.aquilagraph.application.AnalysisRequestIdentity.ProductionSelection;
 import org.aquilagraph.application.CfgSelection;
 import org.aquilagraph.cfg.api.CfgProfile;
+import org.aquilagraph.cli.AnalysisRunSummary.ProgramSummary;
 
 /** Renders CLI outcomes and assigns their process exit codes. */
 final class AnalyzeCommandPresenter {
@@ -66,11 +67,11 @@ final class AnalyzeCommandPresenter {
   private static void printSummary(AnalysisRunSummary summary, PrintStream output, PrintStream error) {
     var run = summary.run();
     var ast = run.representation().ast();
-    output.printf("Run: %s%n", run.identity().key());
-    output.printf("Software version: %s%n", summary.softwareVersionSignature());
-    output.printf("Completion: %s%n", run.completion());
-    output.printf("Java release: %d%n", ast.requestedConfiguration().orElseThrow().release().feature());
-    output.printf("Java source files: %d%n", ast.capturedInput().map(snapshot -> snapshot.sourceFileCount()).orElse(0));
+    output.println("Run: " + run.identity().key());
+    output.println("Software version: " + summary.softwareVersionSignature());
+    output.println("Completion: " + run.completion());
+    output.println("Java release: " + ast.requestedConfiguration().orElseThrow().release().feature());
+    output.println("Java source files: " + ast.capturedInput().map(snapshot -> snapshot.sourceFileCount()).orElse(0));
     output.println("AST: " + ast.completion());
     output.println("AST profile: " + ast.profile().version());
     printCfgSummary(run, output);
@@ -121,12 +122,12 @@ final class AnalyzeCommandPresenter {
     methods.forEach(method -> output.println("Selected method: " + quote(method)));
   }
 
-  private static void printProgramSummary(AnalysisRunSummary.ProgramSummary summary, PrintStream output) {
-    output.printf("Java types: %d%n", summary.typeCount());
-    output.printf("Java methods: %d%n", summary.methodCount());
-    output.printf("Analyzed method bodies: %d%n", summary.analyzedMethodBodyCount());
-    output.printf("CFG operations: %d%n", summary.controlFlowOperationCount());
-    output.printf("CFG nodes: %d%n", summary.controlFlowNodeCount());
-    output.printf("CFG edges: %d%n", summary.controlFlowEdgeCount());
+  private static void printProgramSummary(ProgramSummary summary, PrintStream output) {
+    output.println("Java types: " + summary.typeCount());
+    output.println("Java methods: " + summary.methodCount());
+    output.println("Analyzed method bodies: " + summary.analyzedMethodBodyCount());
+    output.println("CFG operations: " + summary.controlFlowOperationCount());
+    output.println("CFG nodes: " + summary.controlFlowNodeCount());
+    output.println("CFG edges: " + summary.controlFlowEdgeCount());
   }
 }

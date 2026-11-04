@@ -55,12 +55,12 @@ Admit exactly one root and at most one of each option. Missing, malformed, overf
 | Usage rejection | None | Rejection message, then usage | 2 |
 | Named input failure | None | `Input rejected: {description}` | 2 |
 | Named environment failure | None | `Analysis failed: {description}` | 1 |
-| Returned `COMPLETE` run; printed `COMPLETED` | Summary, then repository status | Ordered diagnostics | 0 |
-| Returned `PARTIAL` or `FAILED` run; printed `INCOMPLETE` | Summary, then repository status | Ordered diagnostics | 1 |
-| Returned `REJECTED` run | Summary, then repository status | Ordered diagnostics | 2 |
-| Named repository failure | Retained completed-run summary | Ordered diagnostics, then `Repository save failed: {description}` | 3 |
+| Returned `COMPLETE` run | Summary, then repository status | Ordered diagnostics and qualification reasons | 0 |
+| Returned `PARTIAL` or `FAILED` run | Summary, then repository status | Ordered diagnostics and qualification reasons | 1 |
+| Returned `REJECTED` run | Summary, then repository status | Ordered diagnostics and qualification reasons | 2 |
+| Named repository failure | Retained completed-run summary, then `Repository: FAILED` | Ordered diagnostics and qualification reasons, then `Repository save failed: {description}` | 3 |
 
-A summary prints `Run`, `Software version`, `Completion`, `Java release`, and `Java source files` in that order. Representation presence adds `Java types`, `Java methods`, `Analyzed method bodies`, `CFG operations`, `CFG nodes`, and `CFG edges`. Each diagnostic is printed as `{severity} {stage} {code}: {message}`. Normal execution then prints `Repository: {status}`; repository failure prints no status line.[5]
+The [structured CLI report](../tasks/cli-analysis-results/native-cli-results.md#successor-observable-contract) defines the fields, order, and quoting for each stream.[5]
 
 `AnalyzeCommand.run` borrows its streams and returns an integer. The process entry requests `System.exit` only for a normally returned nonzero result. These calls promise neither successful external output delivery nor ordering between separately observed streams. Abrupt presentation may leave earlier output without a complete report.[5]
 

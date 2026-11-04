@@ -88,27 +88,24 @@ final class AnalysisQualificationRenderer {
         header(APPLICATION_OWNER, "SELECTION", quote(outcome.request().profile().version()),
             quote(outcome.request().astIdentity().astResultKey()));
         diagnosticOrigins(outcome.diagnostics());
-        occurrences.relatedTo(selection).forEach(this::related);
       }
       case RequestQualificationReason.Method method -> {
         header(APPLICATION_OWNER, "METHOD", quote(run.representation().cfg().orElseThrow().request().profile().version()),
             quote(method.outcome().methodKey()));
         diagnosticOrigins(method.outcome().diagnostics());
-        occurrences.relatedTo(method).forEach(this::related);
       }
       case RequestQualificationReason.MethodDiagnostic method -> {
         header(APPLICATION_OWNER, "METHOD_DIAGNOSTIC", quote(run.representation().cfg().orElseThrow().request().profile().version()),
             quote(method.outcome().methodKey()));
         var diagnostic = method.outcome().diagnostics().get(method.position());
         diagnostics.origins(diagnostic.origins(), "  ");
-        occurrences.relatedTo(method).forEach(this::related);
       }
       case RequestQualificationReason.ApplicationDiagnostic application -> {
         header(APPLICATION_OWNER, "APPLICATION_DIAGNOSTIC", "not-applicable", UNAVAILABLE);
         diagnostics.origins(application.diagnostic().origins(), "  ");
-        occurrences.relatedTo(application).forEach(this::related);
       }
     }
+    occurrences.relatedTo(reason).forEach(this::related);
   }
 
   private void relatedMethod(MethodCfgOutcome method) {
