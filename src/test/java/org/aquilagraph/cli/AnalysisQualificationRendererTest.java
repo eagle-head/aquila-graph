@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
 import java.util.List;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisRun;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.api.CfgOutcome;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -56,8 +56,7 @@ class AnalysisQualificationRendererTest {
     var first = selectionDiagnostic("Unknown declaration", new SourceSpan(file.sourceFileKey(), 1, 3));
     var second = selectionDiagnostic("Duplicate declaration", new SourceSpan(file.sourceFileKey(), 4, 4));
     var request = new CfgRequest(result.identity(), List.of("unknown", "unknown"), CfgProfile.JAVA_BOUNDED);
-    var runner = new SourceAnalysisRunner(ignored -> ast,
-        (source, selected) -> new CfgOutcome(selected, CfgState.REJECTED, List.of(), List.of(first, second, first)));
+    var runner = AnalysisCapabilities.existingSourceDerivation((source, selected) -> new CfgOutcome(selected, CfgState.REJECTED, List.of(), List.of(first, second, first)));
     var run = runner.deriveExisting(ast, request);
     var streams = new CliStreams();
     var renderer = renderer(run, streams);
@@ -90,8 +89,8 @@ class AnalysisQualificationRendererTest {
     var result = ast.result().orElseThrow();
     var method = result.program().methods().getFirst().methodKey();
     var request = new CfgRequest(result.identity(), List.of(method), CfgProfile.JAVA_BOUNDED);
-    var absent = new SourceAnalysisRunner(ignored -> ast, RecoverableCfgFailures.atMethod(method, new IllegalStateException()));
-    var empty = new SourceAnalysisRunner(ignored -> ast, RecoverableCfgFailures.atMethod(method, new IllegalStateException("")));
+    var absent = AnalysisCapabilities.existingSourceDerivation(RecoverableCfgFailures.atMethod(method, new IllegalStateException()));
+    var empty = AnalysisCapabilities.existingSourceDerivation(RecoverableCfgFailures.atMethod(method, new IllegalStateException("")));
     var absentStreams = new CliStreams();
     var emptyStreams = new CliStreams();
     var absentRenderer = renderer(absent.deriveExisting(ast, request), absentStreams);

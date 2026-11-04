@@ -13,8 +13,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.aquilagraph.application.AnalysisRequestIdentity.ExistingSelection;
 import org.aquilagraph.application.AnalysisRequestIdentity.ProductionSelection;
+import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgDerivationException;
 import org.aquilagraph.cfg.api.CfgProfile;
@@ -32,17 +34,61 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
-import org.aquilagraph.source.api.SourceInput;
+import org.aquilagraph.testsupport.AnalysisExecutionFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class SourceAnalysisRunnerTest {
+class AnalysisComputationTest {
   @TempDir Path directory;
+
+  @Test
+  void givenExplicitSourceRequestWithoutSelection_whenComputing_thenTheProducerReceivesTheOriginalAndCfgIsAbsent() {
+    // Arrange
+    var snapshot = InputSnapshot.fromSources(directory,
+        List.of(SourceFile.fromContent(Path.of("Stored.java"), "class Stored { int value() { return 1; } }")));
+    var source = new AstProductionRequest(snapshot, configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
+    var frontend = new JavaFrontend(new JavaSourceLoader());
+    var supplied = new AtomicReference<AstProductionRequest>();
+    var computation = AnalysisCapabilities.computation(request -> {
+      supplied.set(request);
+      return frontend.produce(request);
+    }, (ast, selection) -> {
+      throw new AssertionError("Absent selection must not invoke CFG derivation");
+    });
+
+    // Act
+    var run = computation.analyze(new AnalysisComputationRequest(source, Optional.empty()));
+
+    // Assert
+    assertSame(source, supplied.get());
+    assertEquals(AnalysisOperation.AST_ONLY, run.identity().operation());
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion());
+    assertEquals(AstCompletion.COMPLETE, run.representation().ast().completion());
+    assertTrue(run.representation().cfg().isEmpty());
+  }
+
+  @Test
+  void givenNullMethodKeyOrPreboundAllBodies_whenCreatingSelection_thenEachInvalidInputIsRejected() {
+    // Arrange
+    var keys = new ArrayList<String>();
+    keys.add(null);
+    var profile = CfgProfile.JAVA_BOUNDED;
+
+    // Act
+    var nullKey = assertThrows(NullPointerException.class, () -> new CfgSelection(keys, profile));
+    var prebound = assertThrows(IllegalArgumentException.class,
+        () -> new CfgSelection(List.of("type:Stored#value()"), profile, CfgSelection.Scope.ALL_BODIES));
+
+    // Assert
+    assertEquals(NullPointerException.class, nullKey.getClass());
+    assertEquals("All-body selection cannot supply method keys before production", prebound.getMessage());
+  }
 
   @Test
   void givenRealSourceAndInvalidSelection_whenAnalyzing_thenExplicitRequestCausesPreserveAstAndPreventRepositoryAcquisition() {
@@ -50,16 +96,18 @@ class SourceAnalysisRunnerTest {
     var snapshot = InputSnapshot.fromSources(directory,
         List.of(SourceFile.fromContent(Path.of("Stored.java"), "class Stored { int value() { return 1; } }")));
     var selection = new CfgSelection(List.of("unknown", "unknown", ""), CfgProfile.JAVA_BOUNDED);
-    var request = new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration(), AstProfile.JAVA_SOURCE_BOUNDED,
-        Optional.of(selection), PublicationIntent.SAVE_COMPLETED);
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
-    var publication = new CompletedRunPublicationService(context -> {
+    var request = new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, configuration(), AstProfile.JAVA_SOURCE_BOUNDED), Optional.of(selection));
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    AnalysisRunRepositoryFactory publication = context -> {
       throw new AssertionError("Rejected control flow must not acquire a repository");
-    });
+    };
 
     // Act
-    var run = runner.analyze(request);
-    var stored = publication.publish(run);
+    var execution = AnalysisCapabilities.execution(runner, AnalysisExecutionFixture::unexpectedAstRepository, publication)
+        .execute(new AnalysisRequest(request, PublicationIntent.SAVE_COMPLETED));
+    var run = execution.run();
+    var stored = execution.publication();
 
     // Assert
     var ast = run.representation().ast().result().orElseThrow();
@@ -90,14 +138,14 @@ class SourceAnalysisRunnerTest {
     var unexpected = CfgDerivers.standard().derive(ast.result().orElseThrow(),
         new CfgRequest(ast.result().orElseThrow().identity(), List.of(key(ast, "second")), CfgProfile.JAVA_BOUNDED));
     var observedRequests = new ArrayList<CfgRequest>();
-    var runner = new SourceAnalysisRunner(ignored -> ast, (source, request) -> {
+    var runner = AnalysisCapabilities.computation(ignored -> ast, (source, request) -> {
       observedRequests.add(request);
       return unexpected;
     });
 
     // Act
     var failure = assertThrows(IllegalStateException.class,
-        () -> runner.analyze(request(ast, Optional.of(selection), PublicationIntent.DO_NOT_SAVE)));
+        () -> runner.analyze(request(ast, Optional.of(selection))));
 
     // Assert
     assertEquals("CFG port returned a different requested identity or selection", failure.getMessage());
@@ -113,13 +161,13 @@ class SourceAnalysisRunnerTest {
     var ast = produce("interface Stored { int absent(); static int first() { return 1; } default int second() { return 2; } }");
     var selection = CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED);
     var produced = new AtomicInteger();
-    var runner = new SourceAnalysisRunner(ignored -> {
+    var runner = AnalysisCapabilities.computation(ignored -> {
       produced.incrementAndGet();
       return ast;
     }, CfgDerivers.standard());
 
     // Act
-    var run = runner.analyze(request(ast, Optional.of(selection), PublicationIntent.DO_NOT_SAVE));
+    var run = runner.analyze(request(ast, Optional.of(selection)));
     var binding = (ProductionSelection) run.identity().selection();
     var cfg = run.representation().cfg().orElseThrow();
 
@@ -154,9 +202,7 @@ class SourceAnalysisRunnerTest {
     var result = ast.result().orElseThrow();
     var selected = List.of(key(ast, "absent"), key(ast, "available"), key(ast, "refused"));
     var request = new CfgRequest(result.identity(), selected, CfgProfile.JAVA_WITHOUT_SWITCH_EXPRESSIONS);
-    var runner = new SourceAnalysisRunner(ignored -> {
-      throw new AssertionError("Existing derivation must not produce source");
-    }, CfgDerivers.standard());
+    var runner = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard());
 
     // Act
     var run = runner.deriveExisting(ast, request);
@@ -198,10 +244,10 @@ class SourceAnalysisRunnerTest {
     var ast = produce("class Stored { int first() { return 1; } int second() { return 2; } int third() { return 3; } }");
     var selection = new CfgSelection(List.of(key(ast, "first"), key(ast, "second"), key(ast, "third")), CfgProfile.JAVA_BOUNDED);
     var cause = new IllegalStateException("Declared construction observation");
-    var runner = new SourceAnalysisRunner(ignored -> ast, RecoverableCfgFailures.atMethod(key(ast, "second"), cause));
+    var runner = AnalysisCapabilities.computation(ignored -> ast, RecoverableCfgFailures.atMethod(key(ast, "second"), cause));
 
     // Act
-    var run = runner.analyze(request(ast, Optional.of(selection), PublicationIntent.DO_NOT_SAVE));
+    var run = runner.analyze(request(ast, Optional.of(selection)));
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, ast.completion());
@@ -225,9 +271,7 @@ class SourceAnalysisRunnerTest {
     var request = new CfgRequest(ast.result().orElseThrow().identity(), List.of(key(ast, "first"), key(ast, "second"), key(ast, "third")),
         CfgProfile.JAVA_BOUNDED);
     var cause = new IllegalStateException("Declared construction observation");
-    var runner = new SourceAnalysisRunner(ignored -> {
-      throw new AssertionError("Existing derivation must not produce source");
-    }, RecoverableCfgFailures.atMethod(key(ast, "second"), cause));
+    var runner = AnalysisCapabilities.existingSourceDerivation(RecoverableCfgFailures.atMethod(key(ast, "second"), cause));
 
     // Act
     var run = runner.deriveExisting(ast, request);
@@ -270,13 +314,13 @@ class SourceAnalysisRunnerTest {
     // Arrange
     var ast = produce("class Stored { int value() { return 1; } }");
     var calls = new AtomicInteger();
-    var runner = new SourceAnalysisRunner(request -> ast, (source, request) -> {
+    var runner = AnalysisCapabilities.computation(request -> ast, (source, request) -> {
       calls.incrementAndGet();
       throw new AssertionError("AST-only analysis must not derive control flow");
     });
 
     // Act
-    var run = runner.analyze(request(ast, Optional.empty(), PublicationIntent.DO_NOT_SAVE));
+    var run = runner.analyze(request(ast, Optional.empty()));
 
     // Assert
     assertSame(ast, run.representation().ast());
@@ -292,9 +336,7 @@ class SourceAnalysisRunnerTest {
     // Arrange
     var ast = produce("abstract class Stored { abstract int absent(); int value() { return 1; } }");
     var request = new CfgRequest(ast.result().orElseThrow().identity(), List.of(key(ast, "absent")), CfgProfile.JAVA_BOUNDED);
-    var runner = new SourceAnalysisRunner(ignored -> {
-      throw new AssertionError("Existing source derivation must not acquire a producer");
-    }, CfgDerivers.standard());
+    var runner = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard());
 
     // Act
     var run = runner.deriveExisting(ast, request);
@@ -315,12 +357,12 @@ class SourceAnalysisRunnerTest {
     var ast = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory, List.of()),
         configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
     var selection = new CfgSelection(List.of("missing", "missing", ""), CfgProfile.JAVA_BOUNDED);
-    var runner = new SourceAnalysisRunner(ignored -> ast, (source, request) -> {
+    var runner = AnalysisCapabilities.computation(ignored -> ast, (source, request) -> {
       throw new AssertionError("Unavailable production must not call a deriver");
     });
 
     // Act
-    var run = runner.analyze(request(ast, Optional.of(selection), PublicationIntent.SAVE_COMPLETE_AST));
+    var run = runner.analyze(request(ast, Optional.of(selection)));
 
     // Assert
     assertSame(ast, run.representation().ast());
@@ -341,9 +383,7 @@ class SourceAnalysisRunnerTest {
     var unavailable = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory, List.of()),
         configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
     var request = new CfgRequest(available.result().orElseThrow().identity(), List.of(key(available, "value")), CfgProfile.JAVA_BOUNDED);
-    var runner = new SourceAnalysisRunner(ignored -> {
-      throw new AssertionError("Existing derivation must not produce source");
-    }, (source, ignored) -> {
+    var runner = AnalysisCapabilities.existingSourceDerivation((source, ignored) -> {
       throw new AssertionError("Unavailable source must not derive");
     });
 
@@ -365,10 +405,10 @@ class SourceAnalysisRunnerTest {
     var ast = produce("class Stored { int value() { return 1; } }");
     var key = key(ast, "value");
     var selection = new CfgSelection(List.of(key, key, "unknown"), CfgProfile.JAVA_BOUNDED);
-    var runner = new SourceAnalysisRunner(ignored -> ast, CfgDerivers.standard());
+    var runner = AnalysisCapabilities.computation(ignored -> ast, CfgDerivers.standard());
 
     // Act
-    var run = runner.analyze(request(ast, Optional.of(selection), PublicationIntent.DO_NOT_SAVE));
+    var run = runner.analyze(request(ast, Optional.of(selection)));
 
     // Assert
     assertSame(ast, run.representation().ast());
@@ -383,19 +423,24 @@ class SourceAnalysisRunnerTest {
   void givenPublicationIntentAndSelectionVariants_whenComputingIdentity_thenOnlyRepresentedSourceAndSelectionChangeTheKey() throws IOException {
     // Arrange
     var ast = produce("class Stored { int value() { return 1; } }");
-    var runner = new SourceAnalysisRunner(ignored -> ast, CfgDerivers.standard());
+    var runner = AnalysisCapabilities.computation(ignored -> ast, CfgDerivers.standard());
     var empty = Optional.of(new CfgSelection(List.of(), CfgProfile.JAVA_BOUNDED));
+    var astOnly = request(ast, Optional.empty());
+    var execution = AnalysisCapabilities.execution(runner, AnalysisExecutionFixture::unexpectedAstRepository,
+        AnalysisExecutionFixture::unexpectedRunRepository);
 
     // Act
-    var noSave = runner.analyze(request(ast, Optional.empty(), PublicationIntent.DO_NOT_SAVE));
-    var save = runner.analyze(request(ast, Optional.empty(), PublicationIntent.SAVE_COMPLETE_AST));
-    var selectedEmpty = runner.analyze(request(ast, empty, PublicationIntent.DO_NOT_SAVE));
-    var existingEmpty = runner.deriveExisting(ast,
+    var noSave = execution.execute(new AnalysisRequest(astOnly, PublicationIntent.DO_NOT_SAVE));
+    var save = execution.execute(new AnalysisRequest(astOnly, PublicationIntent.SAVE_COMPLETED));
+    var selectedEmpty = runner.analyze(request(ast, empty));
+    var existingEmpty = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast,
         new CfgRequest(ast.result().orElseThrow().identity(), List.of(), CfgProfile.JAVA_BOUNDED));
 
     // Assert
-    assertEquals(noSave.identity().key(), save.identity().key());
-    assertNotEquals(noSave.identity().key(), selectedEmpty.identity().key());
+    assertEquals(PublicationStatus.NOT_REQUESTED, noSave.publication().status());
+    assertEquals(PublicationStatus.NOT_ELIGIBLE, save.publication().status());
+    assertEquals(noSave.run().identity().key(), save.run().identity().key());
+    assertNotEquals(noSave.run().identity().key(), selectedEmpty.identity().key());
     assertNotEquals(selectedEmpty.identity().key(), existingEmpty.identity().key());
     assertEquals(AnalysisCompletion.COMPLETE, selectedEmpty.completion());
     assertTrue(selectedEmpty.qualification().reasons().isEmpty());
@@ -410,7 +455,7 @@ class SourceAnalysisRunnerTest {
     var request = new CfgRequest(ast.result().orElseThrow().identity(), List.of(key(ast, "value")), CfgProfile.JAVA_BOUNDED);
     var cause = new IllegalStateException("Declared construction observation");
     var cfgFailure = new CfgDerivationException(request, List.of(), cause);
-    var runner = new SourceAnalysisRunner(ignored -> ast, (source, ignored) -> {
+    var runner = AnalysisCapabilities.existingSourceDerivation((source, ignored) -> {
       throw cfgFailure;
     });
 
@@ -439,9 +484,7 @@ class SourceAnalysisRunnerTest {
         List.of(), Optional.empty(), diagnostics);
     var request = new CfgRequest(result.identity(), List.of(key), CfgProfile.JAVA_BOUNDED);
     var cfg = new CfgOutcome(request, CfgState.PARTIAL, List.of(method), diagnostics);
-    var runner = new SourceAnalysisRunner(ignored -> {
-      throw new AssertionError("Existing source must not be produced again");
-    }, (source, invoked) -> cfg);
+    var runner = AnalysisCapabilities.existingSourceDerivation((source, invoked) -> cfg);
 
     // Act
     var run = runner.deriveExisting(ast, request);
@@ -467,9 +510,9 @@ class SourceAnalysisRunnerTest {
         List.of(SourceFile.fromContent(Path.of("Stored.java"), source))), configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
   }
 
-  private static AnalysisRequest request(AstOutcome ast, Optional<CfgSelection> selection, PublicationIntent publication) {
-    return new AnalysisRequest(new SourceInput.Snapshot(ast.capturedInput().orElseThrow()), configuration(),
-        AstProfile.JAVA_SOURCE_BOUNDED, selection, publication);
+  private static AnalysisComputationRequest request(AstOutcome ast, Optional<CfgSelection> selection) {
+    var source = new AstProductionRequest(ast.capturedInput().orElseThrow(), configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
+    return new AnalysisComputationRequest(source, selection);
   }
 
   private static CompilerConfiguration configuration() {

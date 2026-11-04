@@ -1,5 +1,7 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -15,16 +17,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 import org.aquilagraph.application.AnalysisCompletion;
-import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AstLookupStatus;
 import org.aquilagraph.application.AstPublicationRequest;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -109,28 +108,28 @@ class SourceContractCompositionTest {
         + "Object make() { return new Box(1); } String literal() { return \"prefix\" + " + spelling + "; } "
         + "int refused() { java.util.function.IntSupplier next = () -> 1; return next.getAsInt(); } }";
     var input = request(source);
-    var runner = new SourceAnalysisRunner(JavaFrontends.standard(), CfgDerivers.standard());
+    var runner = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
     var write = new AstRepositoryDriverStub();
-    var retention = new AstRetentionService(context ->
+    var retention = AnalysisCapabilities.astRetention(context ->
         new Neo4jAstResultRepository(write.driver(), SessionConfig.defaultConfig(), context));
-    var noSave = new AstRetentionService(context -> {
+    var noSave = AnalysisCapabilities.astRetention(context -> {
       throw new AssertionError("No-save must not acquire storage");
     });
 
     // Act
-    var analysis = runner.analyze(new AnalysisRequest(input.input(), input.configuration(), input.profile(),
-        Optional.empty(), PublicationIntent.DO_NOT_SAVE));
+    var analysis = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(input.input(), input.configuration(), input.profile()), Optional.empty()));
     var outcome = analysis.representation().ast();
     var original = outcome.result().orElseThrow();
     var unrequested = noSave.retainAst(new AstPublicationRequest(outcome, PublicationIntent.DO_NOT_SAVE));
     var publication = retention.retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
     var read = new AstRepositoryDriverStub();
     read.stored = new Neo4jAstResultCodec().map(outcome);
-    var lookup = new AstRetentionService(context ->
+    var lookup = AnalysisCapabilities.astQuery(context ->
         new Neo4jAstResultRepository(read.driver(), SessionConfig.defaultConfig(), context)).findAst(original.identity());
     var retained = lookup.outcome().orElseThrow().result().orElseThrow();
     var refused = retained.program().methods().stream().filter(method -> method.name().equals("refused")).findFirst().orElseThrow();
-    var derived = runner.deriveExisting(AstOutcome.available(retained),
+    var derived = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(AstOutcome.available(retained),
         new CfgRequest(retained.identity(), List.of(refused.methodKey()), CfgProfile.JAVA_BOUNDED));
 
     // Assert
@@ -181,16 +180,16 @@ class SourceContractCompositionTest {
   @Test
   void givenClosedMixedSource_whenApplicationDerivesSupportedAndRefusedMethods_thenSourceQualificationStaysIndependent() {
     // Arrange
-    var runner = new SourceAnalysisRunner(JavaFrontends.standard(), CfgDerivers.standard());
+    var runner = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
     var input = request(SOURCE);
 
     // Act
-    var astOnly = runner.analyze(new AnalysisRequest(input.input(), input.configuration(), input.profile(),
-        Optional.empty(), PublicationIntent.DO_NOT_SAVE));
+    var astOnly = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(input.input(), input.configuration(), input.profile()), Optional.empty()));
     var original = astOnly.representation().ast().result().orElseThrow();
     var decoded = AstCodec.decode(AstCodec.encode(original), original.identity());
     var selected = List.of(typeKey("Sample") + "#supported(int)", typeKey("Sample") + "#refused(int)");
-    var run = runner.deriveExisting(AstOutcome.available(decoded),
+    var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(AstOutcome.available(decoded),
         new CfgRequest(decoded.identity(), selected, CfgProfile.JAVA_BOUNDED));
 
     // Assert
@@ -216,11 +215,11 @@ class SourceContractCompositionTest {
     var outcome = produce();
     var identity = outcome.result().orElseThrow().identity();
     var write = new AstRepositoryDriverStub();
-    var retention = new AstRetentionService(context ->
+    var retention = AnalysisCapabilities.astRetention(context ->
         new Neo4jAstResultRepository(write.driver(), SessionConfig.defaultConfig(), context));
     var read = new AstRepositoryDriverStub();
     read.stored = new Neo4jAstResultCodec().map(outcome);
-    var lookupService = new AstRetentionService(context ->
+    var lookupService = AnalysisCapabilities.astQuery(context ->
         new Neo4jAstResultRepository(read.driver(), SessionConfig.defaultConfig(), context));
 
     // Act
@@ -245,7 +244,7 @@ class SourceContractCompositionTest {
   void givenCompleteMixedSourceWithoutSaveIntent_whenRetentionIsRequested_thenNoStorageIsAcquired() {
     // Arrange
     var outcome = produce();
-    var retention = new AstRetentionService(context -> {
+    var retention = AnalysisCapabilities.astRetention(context -> {
       throw new AssertionError("No-save must not acquire storage");
     });
 
@@ -265,7 +264,7 @@ class SourceContractCompositionTest {
     var driver = new AstRepositoryDriverStub();
     var cause = new Neo4jException("Controlled driver read failure");
     driver.readFailure = cause;
-    var retention = new AstRetentionService(context ->
+    var retention = AnalysisCapabilities.astQuery(context ->
         new Neo4jAstResultRepository(driver.driver(), SessionConfig.defaultConfig(), context));
 
     // Act
@@ -286,7 +285,7 @@ class SourceContractCompositionTest {
     // Arrange
     var original = produce().result().orElseThrow();
     var other = JavaFrontends.standard().produce(request(SOURCE.replace("0x1_0L", "0x2_0L"))).result().orElseThrow();
-    var runner = new SourceAnalysisRunner(JavaFrontends.standard(), CfgDerivers.standard());
+    var runner = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard());
 
     // Act
     var failure = assertThrows(AstContractException.class, () -> AstCodec.decode(AstCodec.encode(original), other.identity()));
@@ -317,7 +316,7 @@ class SourceContractCompositionTest {
           // Arrange
           var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Sample.java"), SOURCE),
               SourceFile.fromContent(Path.of("Invalid.java"), variant.source())));
-          var retention = new AstRetentionService(context -> {
+          var retention = AnalysisCapabilities.astRetention(context -> {
             throw new AssertionError("Incomplete source must not acquire storage");
           });
 
@@ -326,7 +325,7 @@ class SourceContractCompositionTest {
               CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES));
           var original = outcome.result().orElseThrow();
           var decoded = AstCodec.decode(AstCodec.encode(original), original.identity());
-          var publication = retention.retainAst(outcome);
+          var publication = retention.retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
 
           // Assert
           assertEquals(AstCompletion.INCOMPLETE, outcome.completion());

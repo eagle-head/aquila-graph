@@ -20,6 +20,7 @@ import org.aquilagraph.application.ApplicationRepositoryOperationException.Bound
 import org.aquilagraph.application.ComputedPublicationSubject.Coordinated;
 import org.aquilagraph.application.port.AnalysisRunRepository;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import org.aquilagraph.application.port.AnalysisUseCase;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
@@ -29,13 +30,39 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.SourceInput;
+import org.aquilagraph.testsupport.AnalysisExecutionFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class AnalysisApplicationServiceTest {
+class AnalysisUseCaseTest {
   @TempDir Path temporaryDirectory;
+
+  @Test
+  void givenAbruptCfgFailure_whenExecutingEitherSaveIntent_thenTheOriginalFailurePrecedesRepositoryAcquisition() {
+    // Arrange
+    var snapshot = InputSnapshot.fromSources(temporaryDirectory,
+        List.of(SourceFile.fromContent(Path.of("Example.java"), "interface Example { static int value() { return 1; } }")));
+    var source = new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED);
+    var request = new AnalysisComputationRequest(source, Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)));
+    var primary = new IllegalStateException("Unexpected CFG invocation failure");
+    var computation = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), (ast, selection) -> {
+      throw primary;
+    });
+    var execution = AnalysisCapabilities.execution(computation, AnalysisExecutionFixture::unexpectedAstRepository,
+        AnalysisExecutionFixture::unexpectedRunRepository);
+
+    // Act
+    var astFailure = assertThrows(IllegalStateException.class,
+        () -> execution.execute(new AnalysisRequest(request, PublicationIntent.SAVE_COMPLETE_AST)));
+    var runFailure = assertThrows(IllegalStateException.class,
+        () -> execution.execute(new AnalysisRequest(request, PublicationIntent.SAVE_COMPLETED)));
+
+    // Assert
+    assertSame(primary, astFailure);
+    assertSame(primary, runFailure);
+  }
 
   @Test
   void givenEveryCompletionAndSaveIntent_whenRequestExecutes_thenAllSixEligibilityRowsArePreserved() {
@@ -176,7 +203,7 @@ class AnalysisApplicationServiceTest {
     assertTrue(close.knowledge().isEmpty());
   }
 
-  private static AnalysisApplicationService failingService(AnalysisRun run, RuntimeException primary, RuntimeException cleanup) {
+  private static AnalysisUseCase failingService(AnalysisRun run, RuntimeException primary, RuntimeException cleanup) {
     return service(run, context -> new AnalysisRunRepository() {
       @Override
       public void save(AnalysisRun supplied) {
@@ -360,32 +387,31 @@ class AnalysisApplicationServiceTest {
     };
   }
 
-  private static AnalysisApplicationService service(AnalysisRunRepositoryFactory repositoryFactory) {
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+  private static AnalysisUseCase service(AnalysisRunRepositoryFactory repositoryFactory) {
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     return application(runner, repositoryFactory);
   }
-  private static AnalysisApplicationService service(AnalysisRun run, AnalysisRunRepositoryFactory factory) {
-    return application(new SourceAnalysisRunner(ignored -> run.representation().ast(),
-        (ast, request) -> run.representation().cfg().orElseThrow()), factory);
+  private static AnalysisUseCase service(AnalysisRun run, AnalysisRunRepositoryFactory factory) {
+    return application(AnalysisCapabilities.computation(ignored -> run.representation().ast(), (ast, request) -> run.representation().cfg().orElseThrow()), factory);
   }
 
-  private static AnalysisApplicationService application(SourceAnalysisRunner runner, AnalysisRunRepositoryFactory factory) {
-    return new AnalysisApplicationService(runner, new AstRetentionService(context -> {
+  private static AnalysisUseCase application(AnalysisComputation runner, AnalysisRunRepositoryFactory factory) {
+    return AnalysisCapabilities.execution(runner, context -> {
       throw new AssertionError("Independent AST storage must not open");
-    }), new CompletedRunPublicationService(factory));
+    }, factory);
   }
 
   private static AnalysisRequest request(Path root, CompilerConfiguration configuration, PublicationIntent intent) {
-    return new AnalysisRequest(new SourceInput.Root(root), configuration, AstProfile.JAVA_SOURCE_BOUNDED,
-        Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), intent);
+    return new AnalysisRequest(new AnalysisComputationRequest(
+        new AstProductionRequest(root, configuration, AstProfile.JAVA_SOURCE_BOUNDED), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED))), intent);
   }
 
   private static AnalysisRun partialRun(Path root) {
     var input = InputSnapshot.fromSources(root, List.of(SourceFile.fromContent(Path.of("Partial.java"),
         "class Partial { void run() { while (true) {} } }")));
-    return new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()).analyze(
-        new AnalysisRequest(new SourceInput.Snapshot(input), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-            AstProfile.JAVA_SOURCE_BOUNDED, Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE));
+    return AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()).analyze(
+        new AnalysisComputationRequest(
+            new AstProductionRequest(input, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED))));
   }
 
 }

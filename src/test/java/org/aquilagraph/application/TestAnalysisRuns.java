@@ -11,8 +11,8 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.SourceInput;
 
 final class TestAnalysisRuns {
   private TestAnalysisRuns() {}
@@ -35,8 +35,9 @@ final class TestAnalysisRuns {
   }
 
   private static AnalysisRun analyze(Path root, CompilerConfiguration configuration, List<SourceFile> sources) {
-    var request = new AnalysisRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(root, sources)), configuration,
-        AstProfile.JAVA_SOURCE_BOUNDED, Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE);
-    return new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()).analyze(request);
+    var snapshot = InputSnapshot.fromSources(root, sources);
+    var source = new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_BOUNDED);
+    var request = new AnalysisComputationRequest(source, Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)));
+    return AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()).analyze(request);
   }
 }

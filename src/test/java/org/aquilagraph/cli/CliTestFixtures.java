@@ -5,20 +5,19 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import org.aquilagraph.application.AnalysisApplicationService;
+import org.aquilagraph.application.AnalysisComputation;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRun;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.CommitKnowledge;
-import org.aquilagraph.application.CompletedRunPublicationService;
 import org.aquilagraph.application.PublicationFailure;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationOutcome;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.PublicationSubjectIdentity;
 import org.aquilagraph.application.RepositoryOperationContext;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import org.aquilagraph.application.port.AnalysisUseCase;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgBlocker;
@@ -109,14 +108,12 @@ final class CliTestFixtures {
     return produce(snapshot, profile);
   }
 
-  static SourceAnalysisRunner runner() {
-    return new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+  static AnalysisComputation runner() {
+    return AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
   }
 
-  static AnalysisApplicationService service(SourceAnalysisRunner runner, AnalysisRunRepositoryFactory repositories) {
-    return new AnalysisApplicationService(runner,
-        new AstRetentionService(context -> { throw new AssertionError("AST repository must not open"); }),
-        new CompletedRunPublicationService(repositories));
+  static AnalysisUseCase service(AnalysisComputation runner, AnalysisRunRepositoryFactory repositories) {
+    return AnalysisCapabilities.execution(runner, context -> { throw new AssertionError("AST repository must not open"); }, repositories);
   }
 
   static AnalysisRunRepositoryFactory repositoriesMustNotOpen() {
@@ -129,7 +126,7 @@ final class CliTestFixtures {
         Optional.empty(), List.of(blocker), Optional.empty(), List.of(blocker.diagnostic()));
     var cfg = new CfgOutcome(request, CfgState.PARTIAL, List.of(method), method.diagnostics());
     var outcome = AstOutcome.available(ast);
-    return new SourceAnalysisRunner(ignored -> outcome, (source, selected) -> cfg).deriveExisting(outcome, request);
+    return AnalysisCapabilities.existingSourceDerivation((source, selected) -> cfg).deriveExisting(outcome, request);
   }
 
   static int present(AnalysisRun run, CliStreams streams) {

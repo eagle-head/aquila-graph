@@ -1,5 +1,9 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -35,9 +39,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.AstLookupStatus;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.CommitKnowledge;
-import org.aquilagraph.application.CompletedRunPublicationService;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
 import org.aquilagraph.application.RepositoryOperationContext;
@@ -57,6 +59,7 @@ import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.testsupport.AnalysisExecutionFixture;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -120,12 +123,12 @@ class Neo4jCommitAcknowledgementNeo4jIT {
 
         try (var proxy = new BoltCommitAcknowledgementProxy(target);
             var publication = new DriverWork(proxy.uri(), settings, proxy::disconnect)) {
-          var publicationService = new CompletedRunPublicationService(
-              context -> new Neo4jAnalysisRunRepository(publication.driver, sessionConfig, context, mapper::map));
+          AnalysisRunRepositoryFactory publicationService = context -> new Neo4jAnalysisRunRepository(publication.driver, sessionConfig, context, mapper::map);
           proxy.arm();
 
           // Act
-          var outcome = publication.call(() -> publicationService.publish(replacement));
+          var outcome = publication.call(() -> AnalysisExecutionFixture.executeComputed(replacement, PublicationIntent.SAVE_COMPLETED,
+              AnalysisExecutionFixture::unexpectedAstRepository, publicationService).publication());
 
           // Assert
           assertEquals(PublicationStatus.FAILED, outcome.status());
@@ -197,11 +200,12 @@ class Neo4jCommitAcknowledgementNeo4jIT {
 
         try (var proxy = new BoltCommitAcknowledgementProxy(target);
             var publication = new DriverWork(proxy.uri(), settings, proxy::disconnect)) {
-          var retention = new AstRetentionService(operation -> new Neo4jAstResultRepository(publication.driver, sessionConfig, operation));
+          var retention = AnalysisCapabilities.astRetention(operation -> new Neo4jAstResultRepository(publication.driver, sessionConfig, operation));
           proxy.arm();
 
           // Act
-          var outcome = publication.call(() -> retention.retainAst(replacement));
+          var outcome = publication.call(() -> retention.retainAst(new AstPublicationRequest(replacement,
+              PublicationIntent.SAVE_COMPLETE_AST)));
 
           // Assert
           assertEquals(PublicationStatus.FAILED, outcome.status());
@@ -286,10 +290,11 @@ class Neo4jCommitAcknowledgementNeo4jIT {
         try (var proxy = new BoltCommitAcknowledgementProxy(target);
             var publication = new DriverWork(proxy.uri(), settings, proxy::disconnect)) {
           var failingDriver = rejectAfterReplacement(publication.driver, replacementCallbacks);
-          var retention = new AstRetentionService(operation -> new Neo4jAstResultRepository(failingDriver, sessionConfig, operation));
+          var retention = AnalysisCapabilities.astRetention(operation -> new Neo4jAstResultRepository(failingDriver, sessionConfig, operation));
 
           // Act
-          var outcome = publication.call(() -> retention.retainAst(replacement));
+          var outcome = publication.call(() -> retention.retainAst(new AstPublicationRequest(replacement,
+              PublicationIntent.SAVE_COMPLETE_AST)));
 
           // Assert
           assertEquals(PublicationStatus.FAILED, outcome.status());

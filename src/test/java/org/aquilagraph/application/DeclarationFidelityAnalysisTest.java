@@ -18,8 +18,8 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -33,14 +33,14 @@ class DeclarationFidelityAnalysisTest {
     // Arrange
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
         "class Example { ; int simple() { return 5; } ; int complex() { int n = 0; while(n < 2) { n++; } return n; } ; }")));
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
-    var request = new AnalysisRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        AstProfile.JAVA_SOURCE_DECLARATIONS, Optional.empty(), PublicationIntent.DO_NOT_SAVE);
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var request = new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_DECLARATIONS), Optional.empty());
     // Act
     var source = runner.analyze(request).representation().ast();
     var ast = source.result().orElseThrow();
     var methods = ast.program().methods().stream().filter(method -> method.sourceDeclared()).toList();
-    var selected = runner.deriveExisting(source,
+    var selected = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(source,
         new CfgRequest(ast.identity(), methods.stream().map(method -> method.methodKey()).toList(), CfgProfile.JAVA_BOUNDED));
     // Assert
     assertEquals(AstCompletion.COMPLETE, ast.completion(), ast.diagnostics().toString());

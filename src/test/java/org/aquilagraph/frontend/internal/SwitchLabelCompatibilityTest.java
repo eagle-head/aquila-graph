@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Stream;
-import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -16,13 +16,13 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.SourceQualificationReason;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -55,7 +55,7 @@ class SwitchLabelCompatibilityTest {
               .filter(method -> method.name().equals(name)).findFirst().orElseThrow().methodKey()).toList();
           var selection = new CfgRequest(decoded.identity(), methods, CfgProfile.JAVA_BOUNDED);
           var direct = CfgDerivers.standard().derive(decoded, selection);
-          var coordinated = new SourceAnalysisRunner(frontend, CfgDerivers.standard())
+          var coordinated = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard())
               .deriveExisting(AstOutcome.available(decoded), selection);
           var restrictive = CfgDerivers.standard().derive(decoded,
               new CfgRequest(decoded.identity(), methods, CfgProfile.JAVA_WITHOUT_SWITCH_EXPRESSIONS));

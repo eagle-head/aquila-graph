@@ -155,35 +155,90 @@ class ModuleDependencyBoundaryTest {
   }
 
   @Test
-  void givenNamedConsumerAndCompiledApplicationModule_whenCompilingClients_thenPublicPortsAreAvailableAndSupportIsRestricted(
+  void givenNamedConsumerAndCompiledApplication_whenComposingCapabilities_thenOnlyPublicContractsAreAccessible(
       @TempDir Path directory) throws Exception {
     // Arrange
     var modules = Path.of("target/classes").toAbsolutePath();
     var annotations = Path.of(NullMarked.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+    var modulePath = modules + File.pathSeparator + annotations;
     var descriptor = ModuleFinder.of(modules).find(PREFIX + "application").orElseThrow().descriptor();
     var exports = descriptor.exports().stream().collect(Collectors.toMap(ModuleDescriptor.Exports::source, value -> value));
     var supportPackage = PREFIX + "application.internal.repository";
-    var module = Files.writeString(directory.resolve("module-info.java"), "module publication.consumer { requires org.aquilagraph.application; }");
+    var module = Files.writeString(directory.resolve("module-info.java"), "module analysis.consumer { requires org.aquilagraph.application; }");
     var source = directory.resolve("Client.java");
     var classes = directory.resolve("classes");
+    var publicClient = """
+        import org.aquilagraph.application.AnalysisCapabilities;
+        import org.aquilagraph.application.AnalysisComputation;
+        import org.aquilagraph.application.AstQuery;
+        import org.aquilagraph.application.AstRetention;
+        import org.aquilagraph.application.ExistingSourceDerivation;
+        import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+        import org.aquilagraph.application.port.AnalysisUseCase;
+        import org.aquilagraph.application.port.AstResultRepositoryFactory;
+        import org.aquilagraph.application.port.RepositoryOperationException;
+        import org.aquilagraph.cfg.api.CfgDeriver;
+        import org.aquilagraph.source.api.AstProducer;
+
+        final class Client {
+          AnalysisComputation compute(AstProducer producer, CfgDeriver deriver) {
+            return AnalysisCapabilities.computation(producer, deriver);
+          }
+          ExistingSourceDerivation derive(CfgDeriver deriver) {
+            return AnalysisCapabilities.existingSourceDerivation(deriver);
+          }
+          AstRetention retain(AstResultRepositoryFactory factory) {
+            return AnalysisCapabilities.astRetention(factory);
+          }
+          AstQuery query(AstResultRepositoryFactory factory) {
+            return AnalysisCapabilities.astQuery(factory);
+          }
+          AnalysisUseCase execute(AnalysisComputation computation, AstResultRepositoryFactory ast,
+              AnalysisRunRepositoryFactory runs) {
+            return AnalysisCapabilities.execution(computation, ast, runs);
+          }
+          RepositoryOperationException diagnostic;
+        }
+        """;
+    var hiddenTypes = List.of("SourceComputation", "EstablishedSourceDerivation", "StandaloneAstRetention",
+        "RetainedAstQuery", "AnalysisExecutionCoordinator", "PublicationCoordinator", "CfgInvocation");
+    var retiredTypes = List.of("AnalysisApplicationService", "SourceAnalysisRunner", "AstRetentionService",
+        "CompletedRunPublicationService", "port.CompletedRunPublication");
+    var applicationPackage = PREFIX + "application.";
 
     // Act
-    var publicAccess = compileClient(module, source, classes, modules + File.pathSeparator + annotations,
-        "org.aquilagraph.application.port.RepositoryOperationException");
-    var deniedAccess = compileClient(module, source, classes, modules + File.pathSeparator + annotations,
-        supportPackage + ".RepositoryOperationBoundary");
+    var publicAccess = compileClient(module, source, classes, modulePath, publicClient);
+    var hiddenAccess = compileClient(module, source, classes, modulePath, clientImporting(applicationPackage, hiddenTypes));
+    var retiredAccess = compileClient(module, source, classes, modulePath, clientImporting(applicationPackage, retiredTypes));
+    var supportAccess = compileClient(module, source, classes, modulePath,
+        clientImporting(supportPackage + ".", List.of("RepositoryOperationBoundary")));
 
     // Assert
     assertEquals(Set.of(PREFIX + "repository"), exports.get(supportPackage).targets());
     assertEquals(0, publicAccess.status(), publicAccess.diagnostics());
-    assertEquals(1, deniedAccess.status(), deniedAccess.diagnostics());
-    assertTrue(deniedAccess.diagnostics().contains("compiler.err.package.not.visible"), deniedAccess.diagnostics());
-    assertTrue(deniedAccess.diagnostics().contains(supportPackage), deniedAccess.diagnostics());
+    assertEquals(1, hiddenAccess.status(), hiddenAccess.diagnostics());
+    for (var type : hiddenTypes) {
+      assertTrue(hiddenAccess.diagnostics().contains("compiler.err.not.def.public.cant.access: " + applicationPackage + type),
+          hiddenAccess.diagnostics());
+    }
+    assertEquals(1, retiredAccess.status(), retiredAccess.diagnostics());
+    for (var type : retiredTypes) {
+      var simpleName = type.substring(type.lastIndexOf('.') + 1);
+      assertTrue(retiredAccess.diagnostics().contains("compiler.err.cant.resolve.location: kindname.class, " + simpleName),
+          retiredAccess.diagnostics());
+    }
+    assertEquals(1, supportAccess.status(), supportAccess.diagnostics());
+    assertTrue(supportAccess.diagnostics().contains("compiler.err.package.not.visible"), supportAccess.diagnostics());
+    assertTrue(supportAccess.diagnostics().contains(supportPackage), supportAccess.diagnostics());
   }
 
-  private static CompilerResult compileClient(Path module, Path source, Path classes, String modulePath, String type) throws IOException {
-    var simpleName = type.substring(type.lastIndexOf('.') + 1);
-    Files.writeString(source, "import " + type + "; final class Client { " + simpleName + " evidence; }");
+  private static String clientImporting(String packagePrefix, List<String> types) {
+    return types.stream().map(type -> "import " + packagePrefix + type + ";")
+        .collect(Collectors.joining("\n", "", "\nfinal class Client {}"));
+  }
+
+  private static CompilerResult compileClient(Path module, Path source, Path classes, String modulePath, String client) throws IOException {
+    Files.writeString(source, client);
     var compiler = ToolProvider.getSystemJavaCompiler();
     var diagnostics = new StringWriter();
     try (var manager = compiler.getStandardFileManager(null, null, null)) {

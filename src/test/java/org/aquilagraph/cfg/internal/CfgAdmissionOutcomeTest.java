@@ -1,5 +1,6 @@
 package org.aquilagraph.cfg.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -13,7 +14,6 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Optional;
 import org.aquilagraph.application.AnalysisCompletion;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.MethodCfgOutcome;
@@ -101,9 +101,7 @@ class CfgAdmissionOutcomeTest {
       var admission = CfgAdmission.assess(ast, method.methodKey(), profile);
       var outcome = CfgDerivers.standard().derive(ast, request);
       var refused = outcome.methods().getFirst();
-      var run = new SourceAnalysisRunner(ignored -> {
-        throw new AssertionError("Existing derivation must not produce source");
-      }, CfgDerivers.standard()).deriveExisting(AstOutcome.available(ast), request);
+      var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(AstOutcome.available(ast), request);
 
       // Assert: summary expectations do not depend on enum ordinals or source order.
       var expectedKinds = new ArrayList<MethodCfgState>();

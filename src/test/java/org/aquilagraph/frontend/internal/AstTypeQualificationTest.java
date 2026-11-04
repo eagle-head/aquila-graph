@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -13,7 +16,6 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.cfg.CfgDerivers;
@@ -92,9 +94,9 @@ class AstTypeQualificationTest {
     assertTrue(semanticBlocker.evidenceDiagnostic().isEmpty());
     assertEquals(decoded.bodyRef(method.methodKey()), cfg.methods().getFirst().body());
     assertEquals(cfg.methods().getFirst().blockers().stream().map(blocker -> blocker.diagnostic()).toList(), cfg.diagnostics());
-    var publication = new AstRetentionService(ignored -> {
+    var publication = AnalysisCapabilities.astRetention(ignored -> {
       throw new AssertionError("Incomplete source must not acquire a repository");
-    }).retainAst(outcome);
+    }).retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
     assertEquals(PublicationStatus.NOT_ELIGIBLE, publication.status());
     assertEquals(CommitKnowledge.NOT_STARTED, publication.knowledge());
   }

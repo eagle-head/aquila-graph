@@ -4,18 +4,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import org.aquilagraph.application.AnalysisRequest;
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.CfgSelection;
-import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.SourceInput;
 import java.util.Optional;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -500,9 +499,9 @@ class AquilaGraphProcessIT {
   }
 
   private static void assertNativeReport(PackagedAnalyzerProcess.Result result, Path root) {
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
-    var run = runner.analyze(new AnalysisRequest(new SourceInput.Root(root), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        AstProfile.JAVA_SOURCE_BOUNDED, Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE));
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var run = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(root, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED))));
     assertEquals(run.diagnostics().values().stream().map(diagnostic -> "Diagnostic: \"" + diagnostic.diagnosticKey() + "\"").toList(),
         result.error().lines().filter(line -> line.startsWith("Diagnostic:")).toList(), result.error());
     assertEquals(run.diagnostics().values().stream().map(diagnostic -> "  Code: \"" + diagnostic.code() + "\"").toList(),

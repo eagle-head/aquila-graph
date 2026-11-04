@@ -15,9 +15,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.AnalysisRun;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgBlocker;
 import org.aquilagraph.cfg.api.CfgOutcome;
@@ -205,7 +205,7 @@ class DiagnosticOccurrenceReportTest {
     var methods = originalCfg.methods().stream().map(method -> method.equals(refused) ? repeated : method).toList();
     var cfg = new CfgOutcome(originalCfg.request(), originalCfg.state(), methods,
         methods.stream().flatMap(method -> method.diagnostics().stream()).toList());
-    var runner = new SourceAnalysisRunner(ignored -> ast, (source, request) -> cfg);
+    var runner = AnalysisCapabilities.existingSourceDerivation((source, request) -> cfg);
     var run = runner.deriveExisting(ast, cfg.request());
 
     var runStreams = new CliStreams();
@@ -372,7 +372,7 @@ class DiagnosticOccurrenceReportTest {
     var ast = AstResultAdmission.admit(new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(),
         Optional.of(aggregate), List.of(error), coverage), original.profile(), original.identity().semanticProductionRevision());
     var outcome = AstOutcome.available(ast);
-    var run = new SourceAnalysisRunner(ignored -> outcome, CfgDerivers.standard())
+    var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard())
         .deriveExisting(outcome, new CfgRequest(ast.identity(), List.of(), CfgProfile.JAVA_BOUNDED));
     var streams = new CliStreams();
 
@@ -402,7 +402,7 @@ class DiagnosticOccurrenceReportTest {
     var methods = ast.result().orElseThrow().program().methods();
     var first = methods.getFirst().methodKey();
     var second = methods.getLast().methodKey();
-    var run = CliTestFixtures.runner().deriveExisting(ast, new CfgRequest(ast.result().orElseThrow().identity(), List.of(second, first), CfgProfile.JAVA_BOUNDED));
+    var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast, new CfgRequest(ast.result().orElseThrow().identity(), List.of(second, first), CfgProfile.JAVA_BOUNDED));
     var cfg = run.representation().cfg().orElseThrow();
     var streams = new CliStreams();
     // Act
@@ -460,7 +460,7 @@ class DiagnosticOccurrenceReportTest {
     var method = new MethodCfgOutcome(source.identity(), key, blocker.kind(), source.bodyRef(key), Optional.empty(), List.of(blocker), Optional.empty(), List.of(primary));
     var request = new CfgRequest(source.identity(), List.of(key), CfgProfile.JAVA_BOUNDED);
     var cfg = new CfgOutcome(request, CfgState.PARTIAL, List.of(method), List.of(primary));
-    var run = new SourceAnalysisRunner(ignored -> ast, (input, selected) -> cfg).deriveExisting(ast, request);
+    var run = AnalysisCapabilities.existingSourceDerivation((input, selected) -> cfg).deriveExisting(ast, request);
     var streams = new CliStreams();
     // Act
     CliTestFixtures.present(run, streams);

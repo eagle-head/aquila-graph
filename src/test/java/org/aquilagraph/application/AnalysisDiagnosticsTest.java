@@ -74,6 +74,30 @@ class AnalysisDiagnosticsTest {
   }
 
   @Test
+  void givenAdmittedSourceAndExactMethodRequest_whenDerivingExisting_thenTheGraphAndQualificationRetainTheirOwners() {
+    // Arrange
+    var source = TestAnalysisRuns.fromSource("class Example { int value() { return 1; } }").representation().ast();
+    var ast = source.result().orElseThrow();
+    var key = ast.program().methods().getFirst().methodKey();
+    var request = new CfgRequest(ast.identity(), List.of(key), CfgProfile.JAVA_BOUNDED);
+    var derivation = derivation();
+    // Act
+    var run = derivation.deriveExisting(source, request);
+    // Assert
+    assertSame(source, run.representation().ast());
+    assertEquals(AnalysisOperation.DERIVE_EXISTING, run.identity().operation());
+    assertEquals(new AnalysisRequestIdentity.ExistingSelection(request), run.identity().selection());
+    var cfg = run.representation().cfg().orElseThrow();
+    assertSame(request, cfg.request());
+    var graph = cfg.methods().getFirst().graph().orElseThrow();
+    assertEquals(ast.identity(), graph.identity().astIdentity());
+    assertEquals(key, graph.methodKey());
+    assertEquals(CfgState.COMPLETE, cfg.state());
+    assertEquals(List.of(), run.qualification().reasons());
+    assertEquals(List.of(), run.diagnostics().occurrences());
+  }
+
+  @Test
   void givenReversedMethodSelection_whenComposed_thenCanonicalOrderAndBlockerRelationsShareTheSameOccurrences() {
     // Arrange
     var source = TestAnalysisRuns.fromSource("""
@@ -86,7 +110,7 @@ class AnalysisDiagnosticsTest {
     var keys = ast.program().methods().stream().map(method -> method.methodKey()).toList();
     var request = new CfgRequest(ast.identity(), keys.reversed(), CfgProfile.JAVA_BOUNDED);
     // Act
-    var run = runner().deriveExisting(source, request);
+    var run = derivation().deriveExisting(source, request);
     var catalog = run.diagnostics();
     var cfg = run.representation().cfg().orElseThrow();
     var first = cfg.methods().getLast();
@@ -115,7 +139,7 @@ class AnalysisDiagnosticsTest {
   void givenSourceReasonsAndRejectedSelection_whenComposed_thenEachOwnerUsesItsNativeSlotsBeforeApplicationEvents() {
     // Arrange
     var source = TestAnalysisRuns.fromSource("class Example { int field = 1; int value() { return 1; } }").representation().ast();
-    var rejected = runner().deriveExisting(source,
+    var rejected = derivation().deriveExisting(source,
         new CfgRequest(source.result().orElseThrow().identity(), List.of("missing"), CfgProfile.JAVA_BOUNDED));
     var error = diagnostic("application", "Application error", DiagnosticStage.INPUT, DiagnosticSeverity.ERROR);
     // Act
@@ -162,7 +186,7 @@ class AnalysisDiagnosticsTest {
     var cfg = new CfgOutcome(new CfgRequest(ast.identity(), List.of(key), CfgProfile.JAVA_BOUNDED), CfgState.PARTIAL,
         List.of(method), values);
     // Act
-    var run = new SourceAnalysisRunner(ignored -> source, (ignored, request) -> cfg).deriveExisting(source, cfg.request());
+    var run = AnalysisCapabilities.existingSourceDerivation((ignored, request) -> cfg).deriveExisting(source, cfg.request());
     var catalog = run.diagnostics();
     // Assert
     assertEquals(values, catalog.values());
@@ -222,10 +246,8 @@ class AnalysisDiagnosticsTest {
     assertTrue(failure.getMessage().contains("canonical source declarations"));
   }
 
-  private static SourceAnalysisRunner runner() {
-    return new SourceAnalysisRunner(ignored -> {
-      throw new AssertionError("Existing source must not be produced again");
-    }, CfgDerivers.standard());
+  private static ExistingSourceDerivation derivation() {
+    return AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard());
   }
 
   private static AnalysisDiagnostic diagnostic(String key, String message, DiagnosticStage stage, DiagnosticSeverity severity) {

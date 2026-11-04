@@ -1,5 +1,9 @@
 package org.aquilagraph.frontend.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AnalysisComputationRequest;
+import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -15,12 +19,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 import org.aquilagraph.application.AnalysisCompletion;
-import org.aquilagraph.application.AnalysisRequest;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.CfgSelection;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationStatus;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.MethodCfgState;
@@ -35,7 +36,6 @@ import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.JavaTypeCategory;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
@@ -114,12 +114,12 @@ class AssertionMonitorAstTest {
   void givenExpandedAssertionMonitorRequest_whenCfgIsSelected_thenCompleteSourceContentSurvivesRealRefusal() throws IOException {
     // Arrange
     var snapshot = snapshot("class Example { void subject(Object lock, boolean flag) { assert flag; synchronized (lock) {} } }");
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     // Act
-    var astOnly = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration(), AstProfile.JAVA_SOURCE_EXPANDED,
-        Optional.empty(), PublicationIntent.DO_NOT_SAVE));
-    var selected = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration(), AstProfile.JAVA_SOURCE_EXPANDED,
-        Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE));
+    var astOnly = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, configuration(), AstProfile.JAVA_SOURCE_EXPANDED), Optional.empty()));
+    var selected = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, configuration(), AstProfile.JAVA_SOURCE_EXPANDED), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED))));
     // Assert
     assertEquals(AnalysisCompletion.COMPLETE, astOnly.completion());
     assertEquals(AnalysisCompletion.PARTIAL, selected.completion());
@@ -198,7 +198,8 @@ class AssertionMonitorAstTest {
     // Act
     var outcome = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
     var decoded = AstCodec.decode(AstCodec.encode(outcome.result().orElseThrow()), outcome.result().orElseThrow().identity());
-    var publication = new AstRetentionService(ignored -> { throw new AssertionError("Incomplete source cannot acquire storage"); }).retainAst(outcome);
+    var publication = AnalysisCapabilities.astRetention(ignored -> { throw new AssertionError("Incomplete source cannot acquire storage"); }).retainAst(new AstPublicationRequest(outcome,
+        PublicationIntent.SAVE_COMPLETE_AST));
     // Assert
     assertEquals(AstCompletion.INCOMPLETE, decoded.completion());
     assertEquals(PublicationStatus.NOT_ELIGIBLE, publication.status());

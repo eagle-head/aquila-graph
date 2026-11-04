@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AnalysisComputationRequest;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -16,11 +19,8 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
-import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.CfgSelection;
-import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.identity.api.CompilerConfiguration;
@@ -39,7 +39,6 @@ import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxType;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.FeatureContextOutcome;
 import org.aquilagraph.source.api.CoveragePropertyValue.State;
@@ -209,11 +208,13 @@ class PatternAstTest {
     // Arrange
     var source = "class Example { boolean subject(Object value) { return value instanceof String text && text.length() > 0; } }";
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     // Act
-    var astOnly = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration, AstProfile.JAVA_SOURCE_EXPANDED, Optional.empty(), PublicationIntent.DO_NOT_SAVE));
-    var selected = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration, AstProfile.JAVA_SOURCE_EXPANDED, Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE));
+    var astOnly = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_EXPANDED), Optional.empty()));
+    var selected = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_EXPANDED), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED))));
     // Assert
     assertEquals(AnalysisCompletion.COMPLETE, astOnly.completion());
     assertEquals(AnalysisCompletion.PARTIAL, selected.completion());

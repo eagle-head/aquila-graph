@@ -1,5 +1,9 @@
 package org.aquilagraph.frontend.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AnalysisComputationRequest;
+import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -33,14 +37,10 @@ import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
 import org.aquilagraph.source.api.JavaTypeStructure;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.PublicationStatus;
-import org.aquilagraph.application.SourceAnalysisRunner;
-import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.CfgSelection;
 import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
@@ -320,7 +320,8 @@ class LambdaAstTest {
     // Act
     var outcome = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
     var decoded = AstCodec.decode(AstCodec.encode(outcome.result().orElseThrow()), outcome.result().orElseThrow().identity());
-    var publication = new AstRetentionService(ignored -> { throw new AssertionError("Incomplete source cannot acquire storage"); }).retainAst(outcome);
+    var publication = AnalysisCapabilities.astRetention(ignored -> { throw new AssertionError("Incomplete source cannot acquire storage"); }).retainAst(new AstPublicationRequest(outcome,
+        PublicationIntent.SAVE_COMPLETE_AST));
     // Assert
     assertEquals(AstCompletion.INCOMPLETE, decoded.completion());
     assertEquals(PublicationStatus.NOT_ELIGIBLE, publication.status());
@@ -333,13 +334,13 @@ class LambdaAstTest {
     // Arrange
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
         "class Example { Runnable subject() { return () -> {}; } }")));
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     // Act
-    var astOnly = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration, AstProfile.JAVA_SOURCE_EXPANDED,
-        Optional.empty(), PublicationIntent.DO_NOT_SAVE));
-    var selected = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration, AstProfile.JAVA_SOURCE_EXPANDED,
-        Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE));
+    var astOnly = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_EXPANDED), Optional.empty()));
+    var selected = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_EXPANDED), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED))));
     // Assert
     assertEquals(AnalysisCompletion.COMPLETE, astOnly.completion());
     assertEquals(AnalysisCompletion.PARTIAL, selected.completion());
@@ -564,7 +565,8 @@ class LambdaAstTest {
           // Act
           var outcome = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
           var result = AstCodec.decode(AstCodec.encode(outcome.result().orElseThrow()), outcome.result().orElseThrow().identity());
-          var publication = new AstRetentionService(ignored -> { throw new AssertionError("Incomplete source cannot acquire storage"); }).retainAst(outcome);
+          var publication = AnalysisCapabilities.astRetention(ignored -> { throw new AssertionError("Incomplete source cannot acquire storage"); }).retainAst(new AstPublicationRequest(outcome,
+              PublicationIntent.SAVE_COMPLETE_AST));
           // Assert
           assertEquals(AstCompletion.INCOMPLETE, result.completion());
           assertEquals(returnType, lambdas(result).getFirst().value(SyntaxValue.Lambda.class).returnType());

@@ -9,7 +9,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Comparator;
 import java.util.stream.Stream;
-import org.aquilagraph.application.SourceAnalysisRunner;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.frontend.JavaFrontends;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
@@ -19,12 +19,12 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxChild;
@@ -53,7 +53,7 @@ class SourceFidelityIntegrationTest {
               .filter(method -> method.name().equals(name)).findFirst().orElseThrow().methodKey()).toList();
           // Act
           var decoded = AstCodec.decode(bytes, original.identity());
-          var run = new SourceAnalysisRunner(JavaFrontends.standard(), CfgDerivers.standard()).deriveExisting(AstOutcome.available(decoded),
+          var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(AstOutcome.available(decoded),
               new CfgRequest(decoded.identity(), methods, CfgProfile.JAVA_WITHOUT_SWITCH_EXPRESSIONS));
           // Assert
           SourceCompositionFixture.assertComposition(original, escaped);
@@ -101,7 +101,7 @@ class SourceFidelityIntegrationTest {
         .min(Comparator.comparingLong(node -> node.origin().orElseThrow().startOffset())).orElseThrow();
     var statements = conditional.requiredChild(SyntaxRole.THEN_BRANCH).children();
     var refused = decoded.program().methods().stream().filter(method -> method.name().equals("refused")).findFirst().orElseThrow();
-    var selected = new SourceAnalysisRunner(frontend, CfgDerivers.standard()).deriveExisting(AstOutcome.available(decoded),
+    var selected = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(AstOutcome.available(decoded),
         new CfgRequest(decoded.identity(), List.of(refused.methodKey()), CfgProfile.JAVA_WITHOUT_SWITCH_EXPRESSIONS));
     // Assert
     assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
@@ -227,7 +227,7 @@ class SourceFidelityIntegrationTest {
         .filter(method -> method.name().equals(name)).findFirst().orElseThrow().methodKey()).toList();
     var cfgRequest = new CfgRequest(original.identity(), methods, CfgProfile.JAVA_WITHOUT_SWITCH_EXPRESSIONS);
     var direct = CfgDerivers.standard().derive(decoded, cfgRequest);
-    var coordinated = new SourceAnalysisRunner(frontend, CfgDerivers.standard()).deriveExisting(AstOutcome.available(decoded), cfgRequest);
+    var coordinated = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(AstOutcome.available(decoded), cfgRequest);
 
     // Assert
     SourceFidelityFixture.assertFaithful(original);

@@ -13,7 +13,9 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import org.aquilagraph.application.AstRetentionService;
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
@@ -58,8 +60,9 @@ class PreparedConsumerNeo4jIT {
     assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.toString());
     assertTrue(outcome.qualification().reasons().isEmpty());
     var original = outcome.result().orElseThrow();
-    var service = new AstRetentionService(Neo4jRepositories.astResults(() -> settings));
-    assertEquals(PublicationStatus.SAVED, service.retainAst(outcome).status());
+    var service = AnalysisCapabilities.astRetention(Neo4jRepositories.astResults(() -> settings));
+    assertEquals(PublicationStatus.SAVED, service.retainAst(new AstPublicationRequest(outcome,
+        PublicationIntent.SAVE_COMPLETE_AST)).status());
     try {
       // Act
       var first = query(consumer, settings, original.identity(), "first");

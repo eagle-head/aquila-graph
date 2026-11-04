@@ -1,11 +1,12 @@
 package org.aquilagraph.retention.consumer;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AstQuery;
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import org.aquilagraph.application.AstLookupStatus;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.repository.neo4j.Neo4jRepositories;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -26,8 +27,8 @@ public final class RetainedAstQueryProcess {
     }
     var identity = AstIdentity.fromContent(arguments[0], arguments[1], arguments[2], arguments[3], arguments[4]);
     var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
-    var service = new AstRetentionService(Neo4jRepositories.astResults(() -> settings));
-    var lookup = service.findAst(identity);
+    AstQuery query = AnalysisCapabilities.astQuery(Neo4jRepositories.astResults(() -> settings));
+    var lookup = query.findAst(identity);
     if (lookup.status() != AstLookupStatus.FOUND) { throw new IllegalStateException("Expected retained source: " + lookup.status()); }
     var retained = lookup.outcome().orElseThrow().result().orElseThrow();
     if (arguments.length > 6 && !"-".equals(arguments[6])) {

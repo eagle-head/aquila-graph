@@ -18,8 +18,8 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
@@ -33,15 +33,16 @@ class EnumInitializationAnalysisTest {
   void givenConstantArgumentsAndSeparateBodyMethods_whenApplicationDerivesSelectedMethods_thenSourceRemainsCompleteAcrossCfgRefusal() throws IOException {
     // Arrange
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), "enum Example { FIRST(Math.abs(-2)) { int simple() { return 5; } int complex() { int n = 0; while(n < 2) { n++; } return n; } }; Example(int n) {} }")));
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
-    var request = new AnalysisRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION, Optional.empty(), PublicationIntent.DO_NOT_SAVE);
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var request = new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION), Optional.empty());
 
     // Act
     var source = runner.analyze(request).representation().ast();
     var ast = source.result().orElseThrow();
     var simple = ast.program().methods().stream().filter(method -> method.name().equals("simple")).findFirst().orElseThrow();
     var complex = ast.program().methods().stream().filter(method -> method.name().equals("complex")).findFirst().orElseThrow();
-    var selected = runner.deriveExisting(source, new CfgRequest(ast.identity(), List.of(simple.methodKey(), complex.methodKey()), CfgProfile.JAVA_BOUNDED));
+    var selected = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(source, new CfgRequest(ast.identity(), List.of(simple.methodKey(), complex.methodKey()), CfgProfile.JAVA_BOUNDED));
     var methods = selected.representation().cfg().orElseThrow().methods();
 
     // Assert

@@ -15,10 +15,14 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AnalysisComputationRequest;
+import org.aquilagraph.application.AstPublicationRequest;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
@@ -34,15 +38,11 @@ import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.MethodCfgState;
 import org.aquilagraph.cfg.api.OperationKind;
 import org.aquilagraph.cfg.api.CfgState;
-import org.aquilagraph.application.AnalysisRequest;
-import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.application.CfgSelection;
 import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.cfg.internal.RecoverableCfgFailures;
-import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SourceOwnerPath;
 import org.aquilagraph.identity.api.SourceSpan;
@@ -64,7 +64,7 @@ class MemberInitializationAstTest {
     // Arrange
     var source = "class Example { ; static int field = Math.abs(-1); static { field = 2; } ; }";
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
-    var publication = new AstRetentionService(context -> {
+    var publication = AnalysisCapabilities.astRetention(context -> {
       throw new AssertionError("Incomplete source must not acquire a repository");
     });
 
@@ -73,7 +73,7 @@ class MemberInitializationAstTest {
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_INITIALIZATION);
     var original = outcome.result().orElseThrow();
     var retained = AstCodec.decode(AstCodec.encode(original), original.identity());
-    var attempt = publication.retainAst(outcome);
+    var attempt = publication.retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
     var type = retained.aggregate().roots().getFirst().children(SyntaxRole.TYPE_DECLARATION).getFirst();
     var field = type.children(SyntaxRole.MEMBER).getFirst();
     var block = type.children(SyntaxRole.MEMBER).getLast();
@@ -224,7 +224,7 @@ class MemberInitializationAstTest {
           var source = test.source();
           var start = source.indexOf(test.marker()) + test.offset();
           var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
-          var publication = new AstRetentionService(context -> {
+          var publication = AnalysisCapabilities.astRetention(context -> {
             throw new AssertionError("Incomplete compact source must not acquire a repository");
           });
 
@@ -233,7 +233,7 @@ class MemberInitializationAstTest {
               CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_INITIALIZATION);
           var original = outcome.result().orElseThrow();
           var retained = AstCodec.decode(AstCodec.encode(original), original.identity());
-          var attempt = publication.retainAst(outcome);
+          var attempt = publication.retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
           var root = retained.aggregate().roots().getFirst();
           var field = root.children(SyntaxRole.COMPACT_MEMBER).getFirst();
           var scope = retained.aggregate().executionSyntax("type:Example#field:field").orElseThrow();
@@ -661,13 +661,13 @@ class MemberInitializationAstTest {
     // Arrange
     var source = "class Example { int field=41; static { int staticLocal=42; } { int instanceLocal=43; } Object input=\"abc\"; boolean matched=input instanceof String value && value.length()>0; int subject() { return 7; } }";
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
 
     // Act
-    var absent = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        AstProfile.JAVA_SOURCE_INITIALIZATION, Optional.empty(), PublicationIntent.DO_NOT_SAVE));
-    var run = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        AstProfile.JAVA_SOURCE_INITIALIZATION, Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE));
+    var absent = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_INITIALIZATION), Optional.empty()));
+    var run = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_INITIALIZATION), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED))));
 
     // Assert
     var result = run.representation().ast().result().orElseThrow();
@@ -701,14 +701,13 @@ class MemberInitializationAstTest {
     // Arrange
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
         "class Example { int field = Math.abs(-1); { field++; } int subject() { for (int i=0;i<1;i++) { field++; } return field; } }")));
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
 
     // Act
-    var withoutCfg = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        AstProfile.JAVA_SOURCE_INITIALIZATION, Optional.empty(), PublicationIntent.DO_NOT_SAVE));
-    var refusedCfg = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        AstProfile.JAVA_SOURCE_INITIALIZATION, Optional.of(new CfgSelection(List.of("type:Example#subject()"), CfgProfile.JAVA_BOUNDED)),
-        PublicationIntent.DO_NOT_SAVE));
+    var withoutCfg = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_INITIALIZATION), Optional.empty()));
+    var refusedCfg = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_INITIALIZATION), Optional.of(new CfgSelection(List.of("type:Example#subject()"), CfgProfile.JAVA_BOUNDED))));
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, withoutCfg.representation().ast().completion());
@@ -725,12 +724,11 @@ class MemberInitializationAstTest {
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
         "class Example { int field = 1; { field++; } int subject() { return field; } }")));
     var cause = new IllegalStateException("Controlled construction failure");
-    var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), RecoverableCfgFailures.atMethod("type:Example#subject()", cause));
+    var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), RecoverableCfgFailures.atMethod("type:Example#subject()", cause));
 
     // Act
-    var run = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(snapshot),
-        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_INITIALIZATION,
-        Optional.of(new CfgSelection(List.of("type:Example#subject()"), CfgProfile.JAVA_BOUNDED)), PublicationIntent.DO_NOT_SAVE));
+    var run = runner.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_INITIALIZATION), Optional.of(new CfgSelection(List.of("type:Example#subject()"), CfgProfile.JAVA_BOUNDED))));
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, run.representation().ast().completion());

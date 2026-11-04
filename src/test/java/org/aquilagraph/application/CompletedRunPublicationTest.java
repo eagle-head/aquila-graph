@@ -18,6 +18,7 @@ import org.aquilagraph.application.ComputedPublicationSubject.Coordinated;
 import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
 import org.aquilagraph.application.PublicationSubjectIdentity.CompletedRun;
 import org.aquilagraph.application.port.AnalysisRunRepository;
+import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
@@ -31,30 +32,32 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstOutcome;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.JavaMethod;
-import org.aquilagraph.source.api.SourceInput;
+import org.aquilagraph.testsupport.AnalysisExecutionFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class CompletedRunPublicationServiceTest {
+class CompletedRunPublicationTest {
   @TempDir Path directory;
 
   @Test
   void givenAstOnlyOrPartialSelection_whenCompletedPublicationIsRequested_thenRepositoryIsNeverAcquired() throws IOException {
     // Arrange
     var ast = produce("class Stored { int value() { return 1; } }");
-    var runner = runner(ast);
-    var astOnly = runner.analyze(new AnalysisRequest(new SourceInput.Snapshot(ast.capturedInput().orElseThrow()), configuration(),
-        AstProfile.JAVA_SOURCE_BOUNDED, Optional.empty(), PublicationIntent.SAVE_COMPLETED));
-    var selectedEmpty = runner.deriveExisting(ast, new CfgRequest(ast.result().orElseThrow().identity(), List.of(), CfgProfile.JAVA_BOUNDED));
-    var publisher = new CompletedRunPublicationService(context -> {
+    var computation = AnalysisCapabilities.computation(ignored -> ast, CfgDerivers.standard());
+    var astOnly = computation.analyze(new AnalysisComputationRequest(
+        new AstProductionRequest(ast.capturedInput().orElseThrow(), configuration(), AstProfile.JAVA_SOURCE_BOUNDED), Optional.empty()));
+    var selectedEmpty = derivation().deriveExisting(ast, new CfgRequest(ast.result().orElseThrow().identity(), List.of(), CfgProfile.JAVA_BOUNDED));
+    AnalysisRunRepositoryFactory publisher = context -> {
       throw new AssertionError("Incomplete body coverage must not acquire a repository");
-    });
+    };
 
     for (var run : List.of(astOnly, selectedEmpty)) {
       // Act
-      var publication = publisher.publish(run);
+      var publication = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
+          AnalysisExecutionFixture::unexpectedAstRepository, publisher).publication();
 
       // Assert
       assertEquals(AnalysisCompletion.COMPLETE, run.completion());
@@ -74,16 +77,17 @@ class CompletedRunPublicationServiceTest {
     var run = fullRun(produce("class Stored { int value() { return 1; } }"));
     var events = new ArrayList<String>();
     var stored = new ArrayList<AnalysisRun>();
-    var publisher = new CompletedRunPublicationService(context -> {
+    AnalysisRunRepositoryFactory publisher = context -> {
       events.add("open");
       return new RepositoryStub(value -> {
         events.add("save");
         stored.add(value);
       }, () -> events.add("close"));
-    });
+    };
 
     // Act
-    var publication = publisher.publish(run);
+    var publication = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
+        AnalysisExecutionFixture::unexpectedAstRepository, publisher).publication();
 
     // Assert
     assertEquals(List.of("open", "save", "close"), events);
@@ -102,15 +106,16 @@ class CompletedRunPublicationServiceTest {
     var cleanup = new RepositoryException("Close observation", new IllegalArgumentException("Cleanup observation"));
     var context = RepositoryOperationContext.saveCompletedRun(run.identity().key());
     var carrier = new ApplicationRepositoryOperationException(context, Boundary.OPERATION, Optional.of(CommitKnowledge.KNOWN_NONCOMMIT), primary);
-    var publisher = new CompletedRunPublicationService(requested -> new RepositoryStub(value -> {
+    AnalysisRunRepositoryFactory publisher = requested -> new RepositoryStub(value -> {
       assertEquals(context, requested);
       throw carrier;
     }, () -> {
       throw cleanup;
-    }));
+    });
 
     // Act
-    var outcome = publisher.publish(run);
+    var outcome = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
+        AnalysisExecutionFixture::unexpectedAstRepository, publisher).publication();
 
     // Assert
     assertSame(run, new AnalysisExecution(run, outcome).run());
@@ -130,14 +135,15 @@ class CompletedRunPublicationServiceTest {
     var run = fullRun(produce("interface Stored { int value(); }"));
     var primary = new IllegalArgumentException("Unmatched work observation");
     var cleanup = new RepositoryException("Close observation", new IllegalStateException("Cleanup observation"));
-    var publisher = new CompletedRunPublicationService(context -> new RepositoryStub(value -> {
+    AnalysisRunRepositoryFactory publisher = context -> new RepositoryStub(value -> {
       throw primary;
     }, () -> {
       throw cleanup;
-    }));
+    });
 
     // Act
-    var failure = assertThrows(AnalysisPublicationException.class, () -> publisher.publish(run));
+    var failure = assertThrows(AnalysisPublicationException.class, () -> AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
+        AnalysisExecutionFixture::unexpectedAstRepository, publisher).publication());
 
     // Assert
     assertSame(primary, failure.getCause());
@@ -159,14 +165,15 @@ class CompletedRunPublicationServiceTest {
         Neo4jRepositoryPhase.REPLACEMENT, CommitKnowledge.KNOWN_COMMIT,
         new RepositoryException("Foreign save observation", new IllegalStateException("Driver observation")));
     var cleanup = new RepositoryException("Close observation", new IllegalStateException("Cleanup observation"));
-    var publisher = new CompletedRunPublicationService(context -> new RepositoryStub(value -> {
+    AnalysisRunRepositoryFactory publisher = context -> new RepositoryStub(value -> {
       throw foreign;
     }, () -> {
       throw cleanup;
-    }));
+    });
 
     // Act
-    var failure = assertThrows(AnalysisPublicationException.class, () -> publisher.publish(run));
+    var failure = assertThrows(AnalysisPublicationException.class, () -> AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
+        AnalysisExecutionFixture::unexpectedAstRepository, publisher).publication());
 
     // Assert
     assertSame(run, assertInstanceOf(Coordinated.class, failure.subject()).run());
@@ -188,14 +195,15 @@ class CompletedRunPublicationServiceTest {
     var primary = new RepositoryException("Write observation", new IllegalStateException("Driver observation"));
     var carrier = new Neo4jRepositoryOperationException(RepositoryOperationContext.saveCompletedRun(run.identity().key()),
         Neo4jRepositoryPhase.REPLACEMENT, CommitKnowledge.UNKNOWN, primary);
-    var publisher = new CompletedRunPublicationService(context -> new RepositoryStub(value -> {
+    AnalysisRunRepositoryFactory publisher = context -> new RepositoryStub(value -> {
       throw carrier;
     }, () -> {
       throw fatal;
-    }));
+    });
 
     // Act
-    var publication = publisher.publish(run);
+    var publication = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
+        AnalysisExecutionFixture::unexpectedAstRepository, publisher).publication();
 
     // Assert
     assertEquals(PublicationStatus.FAILED, publication.status());
@@ -284,12 +292,12 @@ class CompletedRunPublicationServiceTest {
   }
 
   private static AnalysisRun fullRun(AstOutcome ast) {
-    return runner(ast).deriveExisting(ast, new CfgRequest(ast.result().orElseThrow().identity(), ast.result().orElseThrow().program()
+    return derivation().deriveExisting(ast, new CfgRequest(ast.result().orElseThrow().identity(), ast.result().orElseThrow().program()
         .methods().stream().filter(JavaMethod::hasBody).map(JavaMethod::methodKey).toList(), CfgProfile.JAVA_BOUNDED));
   }
 
-  private static SourceAnalysisRunner runner(AstOutcome ast) {
-    return new SourceAnalysisRunner(ignored -> ast, CfgDerivers.standard());
+  private static ExistingSourceDerivation derivation() {
+    return AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard());
   }
 
   private static CompilerConfiguration configuration() {

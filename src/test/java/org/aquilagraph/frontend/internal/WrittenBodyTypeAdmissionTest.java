@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -14,7 +17,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
@@ -213,10 +215,11 @@ class WrittenBodyTypeAdmissionTest {
     assertTrue(changedNodes.getFirst().children(role).isEmpty());
     assertEquals(AstCompletion.INCOMPLETE, admitted.completion());
     assertEquals(AstCompletion.INCOMPLETE, decoded.completion());
-    var retention = new AstRetentionService(ignored -> {
+    var retention = AnalysisCapabilities.astRetention(ignored -> {
       throw new AssertionError("Incomplete written body types must not acquire a repository");
     });
-    assertEquals(PublicationStatus.NOT_ELIGIBLE, retention.retainAst(AstOutcome.available(decoded)).status());
+    assertEquals(PublicationStatus.NOT_ELIGIBLE, retention.retainAst(new AstPublicationRequest(AstOutcome.available(decoded),
+        PublicationIntent.SAVE_COMPLETE_AST)).status());
   }
 
   private static CopiedAstValues omitTypeTarget(JavaAstAggregate aggregate, SyntaxKind kind, SyntaxRole role) {
