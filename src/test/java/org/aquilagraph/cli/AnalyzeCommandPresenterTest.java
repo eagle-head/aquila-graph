@@ -2,15 +2,23 @@ package org.aquilagraph.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRepositoryException;
+import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.CfgSelection;
 import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.application.port.RepositoryException;
+import org.aquilagraph.cfg.CfgDerivers;
+import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.identity.api.SoftwareVersion;
+import org.aquilagraph.source.api.SourceInput;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 
@@ -215,6 +223,56 @@ class AnalyzeCommandPresenterTest {
     assertEquals(AnalyzeCommand.EXIT_COMPLETED, code);
     assertEquals(expectedOutput(run, "COMPLETE", "NOT_REQUESTED"), streams.outputLines());
     assertEquals(expectedWarning(1), streams.errorLines());
+  }
+
+  @Test
+  void givenProductionWithReversedExplicitSelection_whenPresented_thenSelectionAndCoverageUseTheirOwnOrders() throws IOException {
+    // Arrange
+    var ast = CliTestFixtures.produce("interface Example { static void first() {} static void middle() {} static void last() {} }");
+    var source = ast.result().orElseThrow();
+    var methods = source.program().methods();
+    var first = methods.get(0).methodKey();
+    var middle = methods.get(1).methodKey();
+    var last = methods.get(2).methodKey();
+    var selection = new CfgSelection(List.of(last, first), CfgProfile.JAVA_BOUNDED);
+    var request = new AnalysisRequest(new SourceInput.Snapshot(source.snapshot()), source.environment().compilerConfiguration(),
+        ast.profile(), Optional.of(selection), PublicationIntent.DO_NOT_SAVE);
+    var run = new SourceAnalysisRunner(ignored -> ast, CfgDerivers.standard()).analyze(request);
+    var outcome = new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run));
+    var streams = new CliStreams();
+
+    // Act
+    var code = presenter.present(outcome, streams.output(), streams.error());
+
+    // Assert
+    assertEquals(AnalyzeCommand.EXIT_COMPLETED, code);
+    assertEquals(List.of("Run: " + run.identity().key(), "Software version: " + source.identity().softwareSignature(),
+        "Completion: COMPLETE", "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: java-source-bounded/1",
+        "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"", "CFG selection: METHODS",
+        "CFG binding: " + source.identity().astResultKey(), "Selected method: \"" + last + "\"", "Selected method: \"" + first + "\"",
+        "Java types: 1", "Java methods: 3", "Analyzed method bodies: 2", "CFG operations: 0", "CFG nodes: 4", "CFG edges: 2",
+        "Method CFG: \"" + first + "\" AVAILABLE", "Method CFG: \"" + middle + "\" NOT_REQUESTED",
+        "Method CFG: \"" + last + "\" AVAILABLE", "Repository: NOT_REQUESTED"), streams.outputLines());
+    assertEquals(List.of(), streams.errorLines());
+  }
+
+  @Test
+  void givenRepositoryFailureAfterCompletedRunWithWarning_whenPresented_thenFailureStatusAndDiagnosticFollowTheirReports() {
+    // Arrange
+    var run = CliTestFixtures.completedRunWithWarning();
+    var failure = new RepositoryException("database unavailable", new IllegalStateException("offline"));
+    var outcome = new AnalyzeCommandOutcome.RepositoryFailed(new AnalysisRepositoryException(run, failure));
+    var streams = new CliStreams();
+    var expectedError = new ArrayList<>(expectedWarning(1));
+    expectedError.add("Repository save failed: database unavailable");
+
+    // Act
+    var code = presenter.present(outcome, streams.output(), streams.error());
+
+    // Assert
+    assertEquals(AnalyzeCommand.EXIT_REPOSITORY_FAILED, code);
+    assertEquals(expectedOutput(run, "COMPLETE", "FAILED"), streams.outputLines());
+    assertEquals(expectedError, streams.errorLines());
   }
 
   private static List<String> expectedOutput(AnalysisRun run, String completion, String repository) {
