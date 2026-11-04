@@ -11,6 +11,7 @@
   <disallow pkg="javax.lang.model" />
   <disallow pkg="javax.tools" />
   <disallow pkg="org.neo4j" />
+  <disallow pkg="org.aquilagraph.application.internal.repository" />
   <allow pkg=".*" regex="true" />
   <subpackage name="build">
     <allow pkg="java" />
@@ -81,6 +82,7 @@
     <disallow pkg="org.aquilagraph.source.retention" />
   </subpackage>
   <subpackage name="application">
+    <allow pkg="org.aquilagraph.application.internal.repository" />
     <allow pkg="org.aquilagraph.cfg.api" />
     <disallow pkg="org.aquilagraph.cfg" />
     <disallow pkg="org.aquilagraph.source.admission" />
@@ -113,14 +115,16 @@
         <allow class="org.aquilagraph.application.AstLookupStatus" />
         <allow class="org.aquilagraph.application.CommitKnowledge" />
         <allow class="org.aquilagraph.application.RepositoryOperationContext" />
-        <allow class="org.aquilagraph.application.RepositoryOperationException" />
+        <allow pkg="org.aquilagraph.application.internal.repository" />
         <allow class="org.aquilagraph.application.RepositoryOperationKind" />
-        <allow class="org.aquilagraph.application.RepositoryPhase" />
+        <allow class="org.aquilagraph.application.PublicationSubjectIdentity.Ast" />
         <allow pkg="org.aquilagraph.application.port" />
         <allow pkg="org.neo4j" />
       </subpackage>
     </subpackage>
     <subpackage name="neo4j">
+      <allow class="org.aquilagraph.application.CommitKnowledge" />
+      <allow class="org.aquilagraph.application.RepositoryOperationContext" />
       <allow pkg="org.aquilagraph.application.port" />
     </subpackage>
   </subpackage>

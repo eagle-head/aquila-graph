@@ -11,7 +11,7 @@ import org.aquilagraph.application.PublicationSubjectIdentity.CompletedRun;
  * @param intent
  *          explicit retained publication intent
  * @param subjectIdentity
- *          exact identity when an eligible or available subject exists
+ *          exact completed-run request key for SAVE_COMPLETED, otherwise the AST identity when available
  * @param status
  *          independent publication decision
  * @param knowledge
@@ -34,13 +34,13 @@ public record PublicationOutcome(PublicationIntent intent, Optional<PublicationS
         || ((status == PublicationStatus.NOT_REQUESTED || status == PublicationStatus.NOT_ELIGIBLE)
             && knowledge != CommitKnowledge.NOT_STARTED)
         || ((intent == PublicationIntent.DO_NOT_SAVE) != (status == PublicationStatus.NOT_REQUESTED))
-        || (intent == PublicationIntent.SAVE_COMPLETE_AST && subjectIdentity.filter(value -> !(value instanceof Ast)).isPresent())
-        || (intent == PublicationIntent.SAVE_COMPLETED && subjectIdentity.filter(value -> !(value instanceof CompletedRun)).isPresent())
-        || (status == PublicationStatus.FAILED && intent != PublicationIntent.SAVE_COMPLETE_AST)) {
+        || (intent != PublicationIntent.SAVE_COMPLETED && subjectIdentity.filter(value -> !(value instanceof Ast)).isPresent())
+        || (intent == PublicationIntent.SAVE_COMPLETED && subjectIdentity.filter(CompletedRun.class::isInstance).isEmpty())) {
       throw new IllegalArgumentException("Publication fields contradict its intent or observed operation state");
     }
     failure.ifPresent(value -> {
-      if (value.knowledge() != knowledge || !subjectIdentity.equals(Optional.of(new Ast(value.carrier().context().astIdentity())))) {
+      var context = value.carrier().context();
+      if (value.knowledge() != knowledge || !subjectIdentity.equals(Optional.of(context.subject()))) {
         throw new IllegalArgumentException("Publication failure must retain its exact attempted subject and knowledge");
       }
     });

@@ -6,4 +6,5 @@ module org.aquilagraph.application {
   requires transitive org.aquilagraph.cfg;
   exports org.aquilagraph.application;
   exports org.aquilagraph.application.port;
+  exports org.aquilagraph.application.internal.repository to org.aquilagraph.repository;
 }

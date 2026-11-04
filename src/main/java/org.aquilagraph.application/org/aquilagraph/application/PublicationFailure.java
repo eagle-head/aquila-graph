@@ -4,24 +4,30 @@ import java.io.InvalidObjectException;
 import java.io.ObjectInputStream;
 import java.io.Serial;
 import java.util.Objects;
+import org.aquilagraph.application.port.RepositoryException;
+import org.aquilagraph.application.port.RepositoryOperationException;
 
-/** Full primary and ordered cleanup evidence in an explicit exceptional cause envelope. */
+/** Declared publication failure with its primary and ordered cleanup evidence. */
 public final class PublicationFailure extends RuntimeException {
   @Serial
   private static final long serialVersionUID = 1L;
 
   /**
-   * Preserves the original operation carrier as the exact exceptional cause.
+   * Preserves an admitted save failure with authoritative replacement knowledge.
    *
    * @param carrier
-   *          exact primary carrier and every retained suppressed cleanup
+   *          original save carrier and its suppressed cleanup
    */
   public PublicationFailure(RepositoryOperationException carrier) {
-    super("AST publication failed", Objects.requireNonNull(carrier, "carrier"));
+    super("Publication failed", Objects.requireNonNull(carrier, "carrier"));
+    if (carrier.context().kind() == RepositoryOperationKind.QUERY_AST || carrier.knowledge().isEmpty()
+        || !(carrier.effectivePrimary() instanceof RepositoryException)) {
+      throw new IllegalArgumentException("Publication failure requires a declared save failure and replacement knowledge");
+    }
   }
 
   /**
-   * Returns the exact primary operation carrier and its ordered cleanup evidence.
+   * Returns the typed operation detail and ordered cleanup evidence.
    *
    * @return original operation carrier
    */
@@ -30,39 +36,33 @@ public final class PublicationFailure extends RuntimeException {
   }
 
   /**
-   * Returns the exact effective primary used for outward classification.
+   * Returns the declared primary used for classification.
    *
-   * @return original effective runtime failure
+   * @return original effective repository failure
    */
-  public RuntimeException effectivePrimary() {
-    return carrier().effectivePrimary();
+  public RepositoryException effectivePrimary() {
+    if (carrier().effectivePrimary() instanceof RepositoryException primary) {
+      return primary;
+    }
+    throw new IllegalStateException("Publication failure requires a declared repository primary");
   }
 
   /**
-   * Returns primary failure's creating boundary.
+   * Returns the operation-wide replacement knowledge.
    *
-   * @return retained primary phase
-   */
-  public RepositoryPhase phase() {
-    return carrier().phase();
-  }
-
-  /**
-   * Returns retained operation-wide subject replacement knowledge.
-   *
-   * @return conservative replacement observation
+   * @return authoritative replacement observation
    */
   public CommitKnowledge knowledge() {
-    return carrier().knowledge();
+    return carrier().knowledge().orElseThrow();
   }
 
   /**
-   * Rejects native restoration outside exact operation admission.
+   * Rejects native restoration without an admitted save failure.
    *
    * @param input
    *          serialization stream
    * @throws InvalidObjectException
-   *           always, because exact operation admission is required
+   *           always, because declared publication failure requires an admitted save observation
    */
   @Serial
   private void readObject(ObjectInputStream input) throws InvalidObjectException {

@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
 import java.util.List;
-import org.aquilagraph.application.AnalysisRepositoryException;
 import org.aquilagraph.application.port.AnalysisUseCase;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.source.api.AnalysisEnvironmentException;
@@ -38,27 +37,24 @@ class AnalyzeCommandExecutorTest {
     var repositoryFailure = new RepositoryException("database unavailable", cause);
     var repositoryCleanup = new IllegalStateException("repository session close failed");
     repositoryFailure.addSuppressed(repositoryCleanup);
-    var failure = new AnalysisRepositoryException(run, repositoryFailure);
     var firstCleanup = new IllegalStateException("analysis cleanup failed");
     var secondCleanup = new IllegalStateException("analysis context close failed");
-    failure.addSuppressed(firstCleanup);
-    failure.addSuppressed(secondCleanup);
-    var executor = new AnalyzeCommandExecutor(request -> {
-      throw failure;
-    });
+    var execution = CliTestFixtures.withFailedPublication(run, repositoryFailure, firstCleanup, secondCleanup);
+    var executor = new AnalyzeCommandExecutor(request -> execution);
 
     // Act
     var outcome = executor.execute(CliTestFixtures.arguments());
 
     // Assert
-    var retained = assertInstanceOf(AnalyzeCommandOutcome.RepositoryFailed.class, outcome).failure();
-    assertSame(failure, retained);
-    assertSame(run, retained.analysisRun());
-    assertSame(repositoryFailure, retained.repositoryFailure());
-    assertEquals("database unavailable", retained.repositoryFailure().description());
-    assertSame(cause, retained.repositoryFailure().getCause());
-    assertEquals(List.of(repositoryCleanup), List.of(retained.repositoryFailure().getSuppressed()));
-    assertEquals(List.of(firstCleanup, secondCleanup), List.of(retained.getSuppressed()));
+    var retained = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, outcome).execution();
+    assertSame(execution, retained);
+    assertSame(run, retained.run());
+    var failure = retained.publication().failure().orElseThrow();
+    assertSame(repositoryFailure, failure.effectivePrimary());
+    assertEquals("database unavailable", failure.effectivePrimary().description());
+    assertSame(cause, failure.effectivePrimary().getCause());
+    assertEquals(List.of(repositoryCleanup), List.of(failure.effectivePrimary().getSuppressed()));
+    assertEquals(List.of(firstCleanup, secondCleanup), List.of(failure.carrier().getSuppressed()));
   }
 
   @Test
@@ -121,8 +117,7 @@ class AnalyzeCommandExecutorTest {
   void givenUnmatchedPrimaryWithSuppressedRepositoryFailure_whenCommandExecutes_thenPrimaryRemainsAbrupt() {
     // Arrange
     var primary = new IllegalStateException("unmatched primary");
-    var cleanup = new AnalysisRepositoryException(CliTestFixtures.completedRun(),
-        new RepositoryException("close failed", new IllegalStateException("close cause")));
+    var cleanup = new RepositoryException("close failed", new IllegalStateException("close cause"));
     primary.addSuppressed(cleanup);
     var executor = new AnalyzeCommandExecutor(request -> {
       throw primary;
@@ -142,8 +137,7 @@ class AnalyzeCommandExecutorTest {
     // Arrange
     var cause = new AnalysisEnvironmentException("compiler rejected the source");
     var primary = new AnalysisInputException("source cannot be analyzed", cause);
-    var cleanup = new AnalysisRepositoryException(CliTestFixtures.completedRun(),
-        new RepositoryException("repository close failed", new IllegalStateException("close cause")));
+    var cleanup = new RepositoryException("repository close failed", new IllegalStateException("close cause"));
     primary.addSuppressed(cleanup);
     var executor = new AnalyzeCommandExecutor(request -> {
       throw primary;

@@ -1,9 +1,12 @@
 package org.aquilagraph.architecture;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.File;
 import java.io.IOException;
+import java.io.StringWriter;
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -15,6 +18,7 @@ import java.lang.classfile.attribute.PermittedSubclassesAttribute;
 import java.lang.classfile.attribute.RuntimeInvisibleAnnotationsAttribute;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.ModuleDesc;
+import java.lang.module.ModuleDescriptor;
 import java.lang.module.ModuleFinder;
 import java.lang.reflect.AccessFlag;
 import java.nio.file.Files;
@@ -28,10 +32,13 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.cfg.internal.JavaCfgDeriver;
+import javax.tools.ToolProvider;
+import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
+import org.junit.jupiter.api.io.TempDir;
 
 class ModuleDependencyBoundaryTest {
   private static final String PREFIX = "org.aquilagraph.";
@@ -45,7 +52,7 @@ class ModuleDependencyBoundaryTest {
       "frontend", Set.of(PREFIX + "identity.api", PREFIX + "source.api", PREFIX + "source.admission"),
       "application", Set.of(PREFIX + "identity.api", PREFIX + "source.api", PREFIX + "cfg.api"),
       "repository", Set.of(PREFIX + "identity.api", PREFIX + "source.api", PREFIX + "source.retention", PREFIX + "cfg.api",
-          PREFIX + "application", PREFIX + "application.port"),
+          PREFIX + "application", PREFIX + "application.port", PREFIX + "application.internal.repository"),
       "cli", PUBLIC_PACKAGES);
   private static final Set<String> BASE_TYPES = platformTypes("java.base");
   private static final Set<String> COMPILER_TYPES = publicCompilerTypes();
@@ -146,6 +153,48 @@ class ModuleDependencyBoundaryTest {
               .contains("forbidden annotation " + UnapprovedMetadata.class.getName()));
         })).toList();
   }
+
+  @Test
+  void givenNamedConsumerAndCompiledApplicationModule_whenCompilingClients_thenPublicPortsAreAvailableAndSupportIsRestricted(
+      @TempDir Path directory) throws Exception {
+    // Arrange
+    var modules = Path.of("target/classes").toAbsolutePath();
+    var annotations = Path.of(NullMarked.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+    var descriptor = ModuleFinder.of(modules).find(PREFIX + "application").orElseThrow().descriptor();
+    var exports = descriptor.exports().stream().collect(Collectors.toMap(ModuleDescriptor.Exports::source, value -> value));
+    var supportPackage = PREFIX + "application.internal.repository";
+    var module = Files.writeString(directory.resolve("module-info.java"), "module publication.consumer { requires org.aquilagraph.application; }");
+    var source = directory.resolve("Client.java");
+    var classes = directory.resolve("classes");
+
+    // Act
+    var publicAccess = compileClient(module, source, classes, modules + File.pathSeparator + annotations,
+        "org.aquilagraph.application.port.RepositoryOperationException");
+    var deniedAccess = compileClient(module, source, classes, modules + File.pathSeparator + annotations,
+        supportPackage + ".RepositoryOperationBoundary");
+
+    // Assert
+    assertEquals(Set.of(PREFIX + "repository"), exports.get(supportPackage).targets());
+    assertEquals(0, publicAccess.status(), publicAccess.diagnostics());
+    assertEquals(1, deniedAccess.status(), deniedAccess.diagnostics());
+    assertTrue(deniedAccess.diagnostics().contains("compiler.err.package.not.visible"), deniedAccess.diagnostics());
+    assertTrue(deniedAccess.diagnostics().contains(supportPackage), deniedAccess.diagnostics());
+  }
+
+  private static CompilerResult compileClient(Path module, Path source, Path classes, String modulePath, String type) throws IOException {
+    var simpleName = type.substring(type.lastIndexOf('.') + 1);
+    Files.writeString(source, "import " + type + "; final class Client { " + simpleName + " evidence; }");
+    var compiler = ToolProvider.getSystemJavaCompiler();
+    var diagnostics = new StringWriter();
+    try (var manager = compiler.getStandardFileManager(null, null, null)) {
+      var accepted = compiler.getTask(diagnostics, manager, null,
+          List.of("-proc:none", "-XDrawDiagnostics", "--module-path", modulePath, "-d", classes.toString()), null,
+          manager.getJavaFileObjects(module, source)).call();
+      return new CompilerResult(Boolean.TRUE.equals(accepted) ? 0 : 1, diagnostics.toString());
+    }
+  }
+
+  private record CompilerResult(int status, String diagnostics) {}
 
   private static List<String> violations(String module, String owner, Set<String> permits, ClassfileDependencies.References references) {
     var result = new ArrayList<String>();

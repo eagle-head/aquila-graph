@@ -47,9 +47,8 @@ import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.RepositoryOperationContext;
-import org.aquilagraph.application.RepositoryOperationException;
-import org.aquilagraph.application.RepositoryOperationKind;
-import org.aquilagraph.application.RepositoryPhase;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
@@ -122,7 +121,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
         SourceFile.fromContent(Path.of("sample/Example.java"), "package sample; public class Example { public int value() { return 7; } }")));
     var settings = settings();
     var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
-    var completed = new CompletedRunPublicationService(() -> new Neo4jAnalysisRunRepository(settings));
+    var completed = new CompletedRunPublicationService(Neo4jRepositories.completedRuns(() -> settings));
     var application = new AnalysisApplicationService(runner, retention(settings), completed);
     var request = new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration, AstProfile.JAVA_SOURCE_MODULE_SERVICES,
         Optional.empty(), PublicationIntent.SAVE_COMPLETE_AST);
@@ -847,7 +846,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
 
       // Act
       var replaced = retention(settings).retainAst(current);
-      try (var repository = new Neo4jAnalysisRunRepository(settings)) {
+      try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(RepositoryOperationContext.saveCompletedRun(run.identity().key()))) {
         repository.save(run);
         repository.save(run);
       }
@@ -944,14 +943,14 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
                 "malformed", Base64.getEncoder().encodeToString(new byte[]{1, 2, 3}))).single().get("changed").asLong() > 0));
 
             // Act
-            var failure = assertThrows(RepositoryOperationException.class, () -> retention(settings).findAst(identity));
+            var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> retention(settings).findAst(identity));
             var replacement = retention(settings).retainAst(ast);
             var lookup = retention(settings).findAst(identity);
 
             // Assert
-            assertEquals(new RepositoryOperationContext(RepositoryOperationKind.QUERY_AST, identity), failure.context());
-            assertEquals(RepositoryPhase.DECODE, failure.phase());
-            assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge());
+            assertEquals(RepositoryOperationContext.queryAst(identity), failure.context());
+            assertEquals(Neo4jRepositoryPhase.DECODE, failure.phase());
+            assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge().orElseThrow());
       assertTrue(failure.effectivePrimary() instanceof IllegalArgumentException);
             assertEquals(PublicationStatus.SAVED, replacement.status());
             assertEquals(AstLookupStatus.FOUND, lookup.status());

@@ -1,7 +1,7 @@
 package org.aquilagraph.repository.neo4j;
 
 import java.util.function.Supplier;
-import org.aquilagraph.application.port.AnalysisRunRepository;
+import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
 import org.aquilagraph.application.port.AstResultRepositoryFactory;
 import org.aquilagraph.repository.internal.neo4j.Neo4jAnalysisRunRepository;
 import org.aquilagraph.repository.internal.neo4j.Neo4jAstResultRepositoryFactory;
@@ -23,13 +23,13 @@ public final class Neo4jRepositories {
   }
 
   /**
-   * Opens storage for completed analysis runs.
+   * Creates lazy acquisition for completed analysis runs.
    *
    * @param settings
-   *          validated connection settings
-   * @return owned repository, which the caller closes
+   *          deferred connection settings
+   * @return contextual factory for caller-owned storage
    */
-  public static AnalysisRunRepository completedRuns(Neo4jConnectionSettings settings) {
-    return new Neo4jAnalysisRunRepository(settings);
+  public static AnalysisRunRepositoryFactory completedRuns(Supplier<Neo4jConnectionSettings> settings) {
+    return Neo4jAnalysisRunRepository.factory(settings);
   }
 }

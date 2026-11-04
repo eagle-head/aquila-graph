@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.AnalysisDerivationException;
-import org.aquilagraph.application.AnalysisRepositoryException;
+import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.CfgSelection;
@@ -208,15 +208,12 @@ class AnalyzeCommandTest {
     // Arrange
     Files.writeString(directory.resolve("Example.java"), "interface Example { static void run() {} }");
     var cause = new RepositoryException("database unavailable", new IllegalStateException("offline"));
-    var service = CliTestFixtures.service(CliTestFixtures.runner(), () -> { throw cause; });
-    var failure = new AtomicReference<AnalysisRepositoryException>();
+    var service = CliTestFixtures.service(CliTestFixtures.runner(), context -> { throw cause; });
+    var execution = new AtomicReference<AnalysisExecution>();
     var command = new AnalyzeCommand(request -> {
-      try {
-        return service.execute(request);
-      } catch (AnalysisRepositoryException exception) {
-        failure.set(exception);
-        throw exception;
-      }
+      var result = service.execute(request);
+      execution.set(result);
+      return result;
     });
     var streams = new CliStreams();
 
@@ -225,8 +222,8 @@ class AnalyzeCommandTest {
 
     // Assert
     assertEquals(3, code);
-    assertSame(cause, failure.get().repositoryFailure());
-    assertEquals(AnalysisCompletion.COMPLETE, failure.get().analysisRun().completion());
+    assertSame(cause, execution.get().publication().failure().orElseThrow().effectivePrimary());
+    assertEquals(AnalysisCompletion.COMPLETE, execution.get().run().completion());
     assertTrue(streams.outputLines().contains("Completion: COMPLETE"));
     assertEquals("Repository: FAILED", streams.outputLines().getLast());
     assertEquals(List.of("Repository save failed: database unavailable"), streams.errorLines());
@@ -302,7 +299,7 @@ class AnalyzeCommandTest {
   void givenUnmatchedPrimaryWithSuppressedRepositoryFailure_whenActualCommandRuns_thenPrimaryAndSuppressedEvidenceEscape() {
     // Arrange
     var primary = new IllegalStateException("unmatched primary");
-    var suppressed = new AnalysisRepositoryException(CliTestFixtures.completedRun(), new RepositoryException("close failed", new IllegalStateException("close cause")));
+    var suppressed = new RepositoryException("close failed", new IllegalStateException("close cause"));
     primary.addSuppressed(suppressed);
     var command = new AnalyzeCommand(request -> { throw primary; });
     var streams = new CliStreams();

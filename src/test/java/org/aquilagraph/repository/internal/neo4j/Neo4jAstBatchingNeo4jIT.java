@@ -19,9 +19,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.RepositoryOperationContext;
-import org.aquilagraph.application.RepositoryOperationException;
-import org.aquilagraph.application.RepositoryOperationKind;
-import org.aquilagraph.application.RepositoryPhase;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
@@ -68,18 +67,18 @@ class Neo4jAstBatchingNeo4jIT {
     var uncommitted = new AtomicLong();
     var driver = failingDriver(GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password())),
         identity.astResultKey(), scalarKeys, injected, batches, uncommitted);
-    var context = new RepositoryOperationContext(RepositoryOperationKind.SAVE_AST, identity);
+    var context = RepositoryOperationContext.saveAst(identity);
 
     // Act
-    RepositoryOperationException failure;
+    Neo4jRepositoryOperationException failure;
     try (var repository = new Neo4jAstResultRepository(driver, SessionConfig.forDatabase(settings.database()), context)) {
-      failure = assertThrows(RepositoryOperationException.class, () -> repository.saveComplete(ast));
+      failure = assertThrows(Neo4jRepositoryOperationException.class, () -> repository.saveComplete(ast));
     }
 
     // Assert
     assertTrue(uncommitted.get() > 512, "The failure must follow actual uncommitted database writes");
-    assertEquals(RepositoryPhase.REPLACEMENT, failure.phase());
-    assertEquals(CommitKnowledge.UNKNOWN, failure.knowledge());
+    assertEquals(Neo4jRepositoryPhase.REPLACEMENT, failure.phase());
+    assertEquals(CommitKnowledge.UNKNOWN, failure.knowledge().orElseThrow());
     assertSame(injected, failure.effectivePrimary());
     try (var observer = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
         var session = observer.session(SessionConfig.forDatabase(settings.database()))) {

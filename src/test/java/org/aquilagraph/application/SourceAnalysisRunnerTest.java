@@ -53,7 +53,7 @@ class SourceAnalysisRunnerTest {
     var request = new AnalysisRequest(new SourceInput.Snapshot(snapshot), configuration(), AstProfile.JAVA_SOURCE_BOUNDED,
         Optional.of(selection), PublicationIntent.SAVE_COMPLETED);
     var runner = new SourceAnalysisRunner(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
-    var publication = new CompletedRunPublicationService(() -> {
+    var publication = new CompletedRunPublicationService(context -> {
       throw new AssertionError("Rejected control flow must not acquire a repository");
     });
 

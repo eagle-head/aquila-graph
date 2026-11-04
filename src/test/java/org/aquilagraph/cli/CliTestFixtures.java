@@ -11,12 +11,15 @@ import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.CompletedRunPublicationService;
+import org.aquilagraph.application.PublicationFailure;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationOutcome;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.PublicationSubjectIdentity;
+import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgBlocker;
 import org.aquilagraph.cfg.api.CfgOutcome;
@@ -31,6 +34,8 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AstOutcome;
@@ -115,7 +120,7 @@ final class CliTestFixtures {
   }
 
   static AnalysisRunRepositoryFactory repositoriesMustNotOpen() {
-    return () -> { throw new AssertionError("Repository must not open"); };
+    return context -> { throw new AssertionError("Repository must not open"); };
   }
 
   static AnalysisRun withRefusal(AstResult ast, CfgBlocker blocker) {
@@ -130,6 +135,17 @@ final class CliTestFixtures {
   static int present(AnalysisRun run, CliStreams streams) {
     return new AnalyzeCommandPresenter().present(new AnalyzeCommandOutcome.Executed(withoutRepositoryRequest(run)),
         streams.output(), streams.error());
+  }
+
+  static AnalysisExecution withFailedPublication(AnalysisRun run, RepositoryException primary, Throwable... cleanup) {
+    var context = RepositoryOperationContext.saveCompletedRun(run.identity().key());
+    var carrier = new Neo4jRepositoryOperationException(context, Neo4jRepositoryPhase.REPLACEMENT, CommitKnowledge.UNKNOWN, primary);
+    for (var failure : cleanup) {
+      carrier.addSuppressed(failure);
+    }
+    var publication = new PublicationOutcome(PublicationIntent.SAVE_COMPLETED, Optional.of(context.subject()), PublicationStatus.FAILED,
+        CommitKnowledge.UNKNOWN, Optional.of(new PublicationFailure(carrier)));
+    return new AnalysisExecution(run, publication);
   }
 
   static AnalysisExecution withoutRepositoryRequest(AnalysisRun run) {

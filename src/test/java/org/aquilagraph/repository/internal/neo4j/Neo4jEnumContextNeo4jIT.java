@@ -1,5 +1,7 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import org.aquilagraph.repository.neo4j.Neo4jRepositories;
+import org.aquilagraph.application.RepositoryOperationContext;
 
 
 import org.aquilagraph.source.api.AstProfile;
@@ -54,7 +56,7 @@ class Neo4jEnumContextNeo4jIT {
         var session = driver.session(SessionConfig.forDatabase(settings.database()))) {
       try {
         // Act
-        try (var repository = new Neo4jAnalysisRunRepository(settings)) {
+        try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(RepositoryOperationContext.saveCompletedRun(run.identity().key()))) {
           repository.save(run);
         }
 

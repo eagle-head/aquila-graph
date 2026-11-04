@@ -1,6 +1,6 @@
 package org.aquilagraph.application;
 
-/** Conservative knowledge of replacement of the exact AST subject, excluding schema effects. */
+/** Authoritative knowledge about replacement of the exact publication subject, excluding schema effects. */
 public enum CommitKnowledge {
   /** No subject replacement has started. */
   NOT_STARTED,

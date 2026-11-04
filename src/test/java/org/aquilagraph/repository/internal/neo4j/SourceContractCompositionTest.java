@@ -1,5 +1,6 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -21,8 +22,8 @@ import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationStatus;
-import org.aquilagraph.application.RepositoryOperationException;
-import org.aquilagraph.application.RepositoryPhase;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
@@ -268,14 +269,14 @@ class SourceContractCompositionTest {
         new Neo4jAstResultRepository(driver.driver(), SessionConfig.defaultConfig(), context));
 
     // Act
-    var failure = assertThrows(RepositoryOperationException.class,
+    var failure = assertThrows(Neo4jRepositoryOperationException.class,
         () -> retention.findAst(outcome.result().orElseThrow().identity()));
 
     // Assert
-    assertEquals(RepositoryPhase.READ, failure.phase());
-    assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge());
+    assertEquals(Neo4jRepositoryPhase.READ, failure.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge().orElseThrow());
     assertSame(cause, failure.effectivePrimary().getCause());
-    assertEquals(outcome.result().orElseThrow().identity(), failure.context().astIdentity());
+    assertEquals(outcome.result().orElseThrow().identity(), ((Ast) failure.context().subject()).identity());
     assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
     assertFacts(outcome.result().orElseThrow());
   }

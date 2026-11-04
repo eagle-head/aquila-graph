@@ -1,14 +1,14 @@
 package org.aquilagraph.application.port;
 
 import org.aquilagraph.application.AstLookup;
-import org.aquilagraph.application.RepositoryOperationException;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.source.api.AstOutcome;
 
 /** Single-operation complete source retention and exact lookup, independent of graphs. */
 public interface AstResultRepository extends AutoCloseable {
   /**
-   * Saves one exact intrinsically complete source outcome under the acquired SAVE_AST context.
+   * Saves one exact intrinsically complete source outcome under the acquired SAVE_AST context. Normal return acknowledges replacement and
+   * completion of the save's internal cleanup.
    *
    * @param outcome
    *          intrinsically complete source subject

@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import org.aquilagraph.repository.neo4j.Neo4jRepositories;
+import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 
 
@@ -25,8 +28,8 @@ import org.aquilagraph.application.AstRetentionService;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationStatus;
-import org.aquilagraph.application.RepositoryOperationException;
-import org.aquilagraph.application.RepositoryPhase;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.application.SourceAnalysisRunner;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
@@ -146,7 +149,7 @@ class Neo4jExecutableAstRetentionNeo4jIT {
 
       // Act
       var replacement = retention(settings).retainAst(mixed);
-      try (var repository = new Neo4jAnalysisRunRepository(settings)) {
+      try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(RepositoryOperationContext.saveCompletedRun(legacyRun.identity().key()))) {
         repository.save(legacyRun);
         repository.save(legacyRun);
       }
@@ -242,7 +245,7 @@ class Neo4jExecutableAstRetentionNeo4jIT {
           .single().get("changed").asLong() > 0));
 
       // Act
-      var failure = assertThrows(RepositoryOperationException.class, () -> retention(settings).findAst(original.identity()));
+      var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> retention(settings).findAst(original.identity()));
       var repaired = retention(settings).retainAst(ast);
       withSession(settings, session -> {
         var invalidLabels = session.run("MATCH (node:AstEntity {astResultKey: $scope}) WHERE size(labels(node)) <> 2 "
@@ -252,8 +255,8 @@ class Neo4jExecutableAstRetentionNeo4jIT {
       var retrieved = retention(settings).findAst(original.identity()).outcome().orElseThrow().result().orElseThrow();
 
       // Assert
-      assertEquals(RepositoryPhase.DECODE, failure.phase());
-      assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge());
+      assertEquals(Neo4jRepositoryPhase.DECODE, failure.phase());
+      assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge().orElseThrow());
       assertTrue(failure.effectivePrimary() instanceof IllegalArgumentException);
       assertArrayEquals(bytes, AstCodec.encode(original));
       assertEquals(PublicationStatus.SAVED, repaired.status());
@@ -314,7 +317,7 @@ class Neo4jExecutableAstRetentionNeo4jIT {
             + "WITH child LIMIT 1 SET child:AstResult RETURN child.key AS key", parameters).single().get("key").asString();
         assertTrue(!original.identity().astResultKey().equals(displaced));
       });
-      assertThrows(RepositoryOperationException.class, () -> retention(settings).findAst(original.identity()));
+      assertThrows(Neo4jRepositoryOperationException.class, () -> retention(settings).findAst(original.identity()));
       assertMaterialization(settings, neighbor);
 
       // Act
@@ -322,7 +325,7 @@ class Neo4jExecutableAstRetentionNeo4jIT {
 
       // Assert
       assertEquals(PublicationStatus.SAVED, publication.status(), () -> publication.failure()
-          .map(failure -> failure.phase() + ": " + failure.effectivePrimary() + ": " + failure.effectivePrimary().getCause()).orElse("No failure"));
+          .map(failure -> assertInstanceOf(Neo4jRepositoryOperationException.class, failure.carrier()).phase() + ": " + failure.effectivePrimary() + ": " + failure.effectivePrimary().getCause()).orElse("No failure"));
       var retrieved = retention(settings).findAst(original.identity()).outcome().orElseThrow().result().orElseThrow();
       assertEquals(original.aggregate(), retrieved.aggregate());
       assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retrieved));
@@ -378,7 +381,7 @@ class Neo4jExecutableAstRetentionNeo4jIT {
             + "REMOVE relation.astResultKey RETURN count(relation) AS changed",
             Values.parameters("scope", projection.identity().astResultKey(), "key", link.key())).single().get("changed").asInt());
       });
-      assertThrows(RepositoryOperationException.class, () -> retention(settings).findAst(projection.identity()));
+      assertThrows(Neo4jRepositoryOperationException.class, () -> retention(settings).findAst(projection.identity()));
 
       // Act
       var publication = retention(settings).retainAst(ast);
@@ -414,14 +417,14 @@ class Neo4jExecutableAstRetentionNeo4jIT {
         session.run("MATCH (source)-[relation:AST_FIELD {astResultKey: $scope}]->(target) WITH source, relation, target LIMIT 1 "
             + "CREATE (source)-[duplicate:AST_FIELD]->(target) SET duplicate = properties(relation)", parameters).consume();
       });
-      assertThrows(RepositoryOperationException.class, () -> retention(settings).findAst(original.identity()));
+      assertThrows(Neo4jRepositoryOperationException.class, () -> retention(settings).findAst(original.identity()));
 
       // Act
       var publication = retention(settings).retainAst(ast);
 
       // Assert
       assertEquals(PublicationStatus.SAVED, publication.status(), () -> publication.failure()
-          .map(failure -> failure.phase() + ": " + failure.effectivePrimary() + ": " + failure.effectivePrimary().getCause()).orElse("No failure"));
+          .map(failure -> assertInstanceOf(Neo4jRepositoryOperationException.class, failure.carrier()).phase() + ": " + failure.effectivePrimary() + ": " + failure.effectivePrimary().getCause()).orElse("No failure"));
       withSession(settings, session -> {
         var invalidLabels = session.run("MATCH (node:AstEntity {astResultKey: $scope}) WHERE size(labels(node)) <> 2 "
             + "RETURN node.key AS key, labels(node) AS labels", Values.parameters("scope", original.identity().astResultKey())).list();
@@ -450,7 +453,7 @@ class Neo4jExecutableAstRetentionNeo4jIT {
             : "MATCH ()-[relation {astResultKey: $scope}]->() WHERE relation.position = 1 SET relation.position = toFloat(relation.position) RETURN count(relation) AS changed";
         assertTrue(session.run(mutation, Values.parameters("scope", original.identity().astResultKey())).single().get("changed").asLong() > 0);
       });
-      var corruption = assertThrows(RepositoryOperationException.class, () -> retention(settings).findAst(original.identity()));
+      var corruption = assertThrows(Neo4jRepositoryOperationException.class, () -> retention(settings).findAst(original.identity()));
 
       // Act
       var publication = retention(settings).retainAst(ast);
@@ -458,7 +461,7 @@ class Neo4jExecutableAstRetentionNeo4jIT {
       var retrieved = lookup.outcome().orElseThrow().result().orElseThrow();
 
       // Assert
-      assertEquals(RepositoryPhase.DECODE, corruption.phase());
+      assertEquals(Neo4jRepositoryPhase.DECODE, corruption.phase());
       assertEquals(PublicationStatus.SAVED, publication.status());
       assertEquals(AstLookupStatus.FOUND, lookup.status());
       assertEquals(original.aggregate(), retrieved.aggregate());
