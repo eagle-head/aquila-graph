@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.aquilagraph.application.PublicationStatus;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,6 +45,7 @@ class AquilaGraphPersistenceNeo4jIT {
           var sourceRoot = Files.createDirectories(caseDirectory.resolve("sources"));
           Files.writeString(sourceRoot.resolve(className + ".java"),
               "class " + className + " { int value(int input) { return input + " + literal + "; } }");
+          var expectedOutput = PackagedAnalysisSummary.expectedOutput(sourceRoot, PublicationStatus.SAVED);
 
           // Act
           var result = new PackagedAnalyzerProcess(caseDirectory).run(List.of(), Neo4jIntegration.environment(), sourceRoot, "--release", "25", "--persist");
@@ -55,9 +57,7 @@ class AquilaGraphPersistenceNeo4jIT {
           assertTrue(result.completed(), result.error());
           assertEquals(0, result.exitCode(), result.error());
           assertEquals("", result.error());
-          assertEquals("Completion: COMPLETE", result.output().lines().toList().get(2));
-          assertTrue(result.output().lines().toList().containsAll(List.of("AST: COMPLETE", "AST profile: java-source-bounded/1", "CFG: COMPLETE")), result.output());
-          assertTrue(result.output().endsWith("Repository: SAVED" + System.lineSeparator()), result.output());
+          assertEquals(expectedOutput, result.output());
           assertEquals(List.of(Map.of("completion", "COMPLETE", "type", className, "method", "value", "parameter", "input",
               "literal", literal, "literalType", "INT", "resultType", "INT")), session.run("""
               MATCH (run:AnalysisRun {runId: $runId})-[:HAS_PROGRAM]->(program:Program)

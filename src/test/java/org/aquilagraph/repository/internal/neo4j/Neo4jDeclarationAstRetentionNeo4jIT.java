@@ -139,9 +139,20 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       // Act
       var firstRead = query(settings).findAst(original.identity());
       var oldSave = retention(settings).retainAst(new AstPublicationRequest(historical, PublicationIntent.SAVE_COMPLETE_AST));
-      var replacement = retention(settings).retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
       var runSave = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
           AnalysisExecutionFixture::unexpectedAstRepository, completed).publication();
+      assertEquals(PublicationStatus.SAVED, runSave.status(), run.diagnostics().values().toString());
+      var replacement = retention(settings).retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
+      assertEquals(PublicationStatus.SAVED, replacement.status());
+      withSession(settings, session -> {
+        var stored = session.run("MATCH (run:AnalysisRun {runId: $runId})-[:ANALYZED_SOFTWARE]->"
+            + "(:SoftwareVersion {runId: $runId})-[:HAS_ENVIRONMENT]->"
+            + "(environment:AnalysisEnvironmentSnapshot {runId: $runId}) "
+            + "RETURN run.completion AS completion, environment.environmentDigest AS digest",
+            Values.parameters("runId", run.identity().key())).single();
+        assertEquals("COMPLETE", stored.get("completion").asString());
+        assertEquals(original.environment().environmentDigest(), stored.get("digest").asString());
+      });
       var runReplacement = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
           AnalysisExecutionFixture::unexpectedAstRepository, completed).publication();
       Files.delete(dependency);
@@ -153,8 +164,6 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       assertEquals(AstLookupStatus.FOUND, firstRead.status());
       assertEquals(original.environment(), firstRead.outcome().orElseThrow().result().orElseThrow().environment());
       assertEquals(PublicationStatus.SAVED, oldSave.status());
-      assertEquals(PublicationStatus.SAVED, replacement.status());
-      assertEquals(PublicationStatus.SAVED, runSave.status(), run.diagnostics().values().toString());
       assertEquals(PublicationStatus.SAVED, runReplacement.status());
       assertEquals(EnvironmentIdentityScheme.MODULE_SEMANTICS, retained.environment().identityScheme());
       assertEquals(List.of(new ModuleCandidate(".", "alpha", Optional.empty(), ModuleNameOrigin.FILENAME)),

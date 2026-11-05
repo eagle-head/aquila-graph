@@ -1,6 +1,6 @@
 # Aquila Graph
 
-Aquila Graph analyzes Java source and produces a program representation and a control-flow graph for each accepted concrete method body. It can publish completed analysis runs to Neo4j. The current language release is Java 25, with the bounded source profile described in the [Java analysis design](docs/design/java-analysis.md#supported-source-profile).
+Aquila Graph analyzes Java source and produces a program representation and a control-flow graph for each accepted concrete method body. It can publish completed analysis runs to Neo4j. The current language release is Java 25, with the bounded source profile described in the [Java analysis design](docs/design/java-analysis.md#supported-source-profiles).
 
 ## Build and run
 
@@ -51,7 +51,7 @@ Unsupported constructs block completion. The analyzer does not execute the analy
 
 ## References
 
-- [SourceAnalysisRunner](src/main/java/org/aquilagraph/application/SourceAnalysisRunner.java), independent port coordination; [AnalysisQualification](src/main/java/org/aquilagraph/application/AnalysisQualification.java), request completion; [CompletedRunPublicationService](src/main/java/org/aquilagraph/application/CompletedRunPublicationService.java), publication eligibility and closure.
-- [AnalyzeCommandParser](src/main/java/org/aquilagraph/cli/AnalyzeCommandParser.java), `parse`; [AnalyzeCommandPresenter](src/main/java/org/aquilagraph/cli/AnalyzeCommandPresenter.java), outcome presentation.
-- [JavaRelease](src/main/java/org/aquilagraph/identity/api/JavaRelease.java), supported feature releases; [project build](pom.xml), toolchain and packaging configuration.
-- [Neo4jAnalysisRunMapper](src/main/java/org/aquilagraph/repository/neo4j/Neo4jAnalysisRunMapper.java), durable publication surface.
+- [AnalysisCapabilities](src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisCapabilities.java), independent computation, derivation, retention, query, and execution inputs; [AnalysisQualification](src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisQualification.java), request completion; [PublicationCoordinator](src/main/java/org.aquilagraph.application/org/aquilagraph/application/PublicationCoordinator.java), shared publication eligibility and closure.
+- [AnalyzeCommandParser](src/main/java/org.aquilagraph.cli/org/aquilagraph/cli/AnalyzeCommandParser.java), `parse`; [AnalyzeCommandPresenter](src/main/java/org.aquilagraph.cli/org/aquilagraph/cli/AnalyzeCommandPresenter.java), outcome presentation.
+- [JavaRelease](src/main/java/org.aquilagraph.identity/org/aquilagraph/identity/api/JavaRelease.java), supported feature releases; [project build](pom.xml), toolchain and packaging configuration.
+- [Neo4jAnalysisRunMapper](src/main/java/org.aquilagraph.repository/org/aquilagraph/repository/internal/neo4j/Neo4jAnalysisRunMapper.java), durable publication surface.

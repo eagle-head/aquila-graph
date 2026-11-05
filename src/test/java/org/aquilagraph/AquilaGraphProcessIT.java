@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.CfgSelection;
+import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.frontend.internal.JavaFrontend;
@@ -448,6 +449,7 @@ class AquilaGraphProcessIT {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
     Files.writeString(sourceRoot.resolve("Supported.java"), "class Supported { int value() { return 1; } }");
+    var expectedOutput = PackagedAnalysisSummary.expectedOutput(sourceRoot, PublicationStatus.FAILED);
 
     // Act
     var result = new PackagedAnalyzerProcess(temporaryDirectory).run(List.of(), Map.of("AQUILA_GRAPH_NEO4J_PASSWORD", "", "NEO4J_PASSWORD", ""), sourceRoot, "--persist");
@@ -455,8 +457,7 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed());
     assertEquals(3, result.exitCode(), result.error());
-    assertTrue(result.output().lines().toList().contains("Completion: COMPLETE"), result.output());
-    assertTrue(result.output().endsWith("Repository: FAILED" + System.lineSeparator()), result.output());
+    assertEquals(expectedOutput, result.output());
     assertEquals("Repository save failed: Invalid Neo4j repository configuration" + System.lineSeparator(), result.error());
   }
 
