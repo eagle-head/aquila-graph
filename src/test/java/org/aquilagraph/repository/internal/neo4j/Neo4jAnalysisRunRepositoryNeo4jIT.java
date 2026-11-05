@@ -1,9 +1,13 @@
 package org.aquilagraph.repository.internal.neo4j;
 
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AstLookupStatus;
+import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.application.AstQuery;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
-import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
 import org.aquilagraph.repository.neo4j.Neo4jRepositories;
 import org.aquilagraph.application.PublicationStatus;
@@ -15,34 +19,37 @@ import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstProductionRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.PublicationSubjectIdentity.CompletedRun;
+import org.aquilagraph.repository.internal.neo4j.Neo4jCloseObservation.Phase;
+import org.aquilagraph.repository.internal.neo4j.StoredPublication.Namespace;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.cfg.api.OperationKind;
 import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.source.internal.SourceAnalysisFixture;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.testsupport.AnalysisExecutionFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -50,7 +57,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.aquilagraph.testsupport.Neo4jIntegration;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
-import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.SessionConfig;
@@ -105,8 +111,8 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
     var independentSourceRoot = Files.createDirectories(temporaryDirectory.resolve("independent"));
     var independentRun = completedRun(independentSourceRoot, "Independent" + UUID.randomUUID().toString().replace("-", ""));
     var sessionConfig = SessionConfig.forDatabase(settings.database());
-    final StoredProjection replacementState;
-    final StoredProjection independentState;
+    final StoredPublication replacementState;
+    final StoredPublication independentState;
     var replacementWarning = new AnalysisDiagnostic("diagnostic:replacement-warning", "publication.replacement-warning",
         DiagnosticStage.FRONTEND, DiagnosticSeverity.WARNING, "Replacement warning", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
     var replacementRun = AnalysisRun.create(primaryRun.identity(), primaryRun.representation(), List.of(replacementWarning));
@@ -364,99 +370,143 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
   }
 
   @Test
-  void givenAcknowledgedNeo4jCommit_whenLaterCloseSignalsFailure_thenApplicationRetainsRunAndStoredProjection()
+  void givenDistinctStoredRuns_whenReplacementCommitsBeforeCloseFails_thenKnownCommitAndReplacementSurvive()
       throws IOException {
     // Arrange
     var settings = Neo4jIntegration.settings();
     var sessionConfig = SessionConfig.forDatabase(settings.database());
-    var phases = List.of(CloseFailurePhase.PUBLICATION_SESSION, CloseFailurePhase.DRIVER);
+    var mapper = new Neo4jAnalysisRunMapper();
 
-    for (var phase : phases) {
+    for (var phase : Phase.values()) {
       var sourceRoot = Files.createDirectories(temporaryDirectory.resolve(phase.name()));
-      var run = completedRun(sourceRoot, "PublishedSample" + UUID.randomUUID().toString().replace("-", ""));
-      var projection = new Neo4jAnalysisRunMapper().map(run);
+      var original = completedRun(sourceRoot, "PublishedSample" + UUID.randomUUID().toString().replace("-", ""));
+      var independentRoot = Files.createDirectory(sourceRoot.resolve("independent"));
+      var independent = completedRun(independentRoot, "Independent" + UUID.randomUUID().toString().replace("-", ""));
+      var previous = withPublicationWarning(original, "previous");
+      var run = withPublicationWarning(original, "replacement");
+      var expectedReplacement = expectedProjection(mapper.map(run));
+      var runId = run.identity().key();
+      var independentId = independent.identity().key();
+      var context = RepositoryOperationContext.saveCompletedRun(runId);
       var events = new ArrayList<String>();
       var signal = new Neo4jException("Close outcome signal");
       try (var actualDriver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()))) {
-        try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(RepositoryOperationContext.saveCompletedRun(run.identity().key()))) {
-          repository.save(run);
+        try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(context)) {
+          repository.save(previous);
+          repository.save(independent);
         }
-        final StoredProjection establishedProjection;
+        final StoredPublication establishedProjection;
+        final StoredPublication independentProjection;
         try (var verificationSession = actualDriver.session(sessionConfig)) {
-          establishedProjection = storedProjection(verificationSession, run.identity().key());
+          establishedProjection = storedProjection(verificationSession, runId);
+          independentProjection = storedProjection(verificationSession, independentId);
+          assertEquals(expectedProjection(mapper.map(previous)), establishedProjection);
+          assertEquals(expectedProjection(mapper.map(independent)), independentProjection);
+          assertNotEquals(establishedProjection, expectedReplacement);
         }
-        var delegatedDriver = closeSignalingDriver(actualDriver, phase, signal, events);
-        AnalysisRunRepositoryFactory publisher = context -> new Neo4jAnalysisRunRepository(delegatedDriver, sessionConfig, context, ignored -> projection);
+        var delegatedDriver = Neo4jCloseObservation.signalPublicationClose(actualDriver, phase, signal, events);
+        AnalysisRunRepositoryFactory publisher = operation -> new Neo4jAnalysisRunRepository(delegatedDriver, sessionConfig, operation, mapper::map);
 
         // Act
-        var outcome = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
-            AnalysisExecutionFixture::unexpectedAstRepository, publisher).publication();
+        var execution = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
+            AnalysisExecutionFixture::unexpectedAstRepository, publisher);
 
         // Assert
+        var outcome = execution.publication();
+        assertSame(run, execution.run());
         assertEquals(PublicationStatus.FAILED, outcome.status());
         assertEquals(CommitKnowledge.KNOWN_COMMIT, outcome.knowledge());
+        assertEquals(new CompletedRun(runId), outcome.subjectIdentity().orElseThrow());
         var failure = outcome.failure().orElseThrow();
-        assertEquals(RepositoryOperationContext.saveCompletedRun(run.identity().key()), failure.carrier().context());
-        assertEquals(phase == CloseFailurePhase.DRIVER ? Neo4jRepositoryPhase.REPOSITORY_CLOSE : Neo4jRepositoryPhase.PUBLICATION_SESSION_CLOSE,
+        assertEquals(context, failure.carrier().context());
+        assertEquals(phase.repositoryPhase(),
             assertInstanceOf(Neo4jRepositoryOperationException.class, failure.carrier()).phase());
         assertSame(signal, failure.effectivePrimary().getCause());
         assertEquals(List.of("schema.close", "publication.write.returned", "publication.close", "driver.close"), events);
         try (var verificationDriver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
             var verificationSession = verificationDriver.session(sessionConfig)) {
-          assertEquals(projection.nodes().size(), nodeCount(verificationSession, run.identity().key()));
-          assertEquals(projection.relationships().size(), verificationSession.run(
-              "MATCH (:AnalysisEntity {runId: $runId})-[relation]->() WHERE relation.runId = $runId RETURN count(relation) AS count",
-              Values.parameters("runId", run.identity().key())).single().get("count").asLong());
-          assertEquals(establishedProjection, storedProjection(verificationSession, run.identity().key()));
+          assertEquals(expectedReplacement, storedProjection(verificationSession, runId));
+          assertEquals(independentProjection, storedProjection(verificationSession, independentId));
         }
       } finally {
-        cleanup(settings, List.of(run.identity().key()));
+        cleanup(settings, List.of(runId, independentId));
       }
     }
   }
 
-  private enum CloseFailurePhase {
-    PUBLICATION_SESSION, DRIVER
-  }
+  @Test
+  void givenAstAndRunForTheSameSource_whenEachIsReplaced_thenTheOtherNamespacePreservesItsValues() throws IOException {
+    // Arrange
+    var settings = Neo4jIntegration.settings();
+    var sourceRoot = Files.createDirectory(temporaryDirectory.resolve("original"));
+    var original = completedRun(sourceRoot, "SharedSource");
+    var originalAst = original.representation().ast();
+    var originalResult = originalAst.result().orElseThrow();
+    var identity = originalResult.identity();
+    var replacementRoot = Files.createDirectory(temporaryDirectory.resolve("replacement"));
+    var replacementAst = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
+        InputSnapshot.fromSources(replacementRoot, originalResult.snapshot().sourceFiles()),
+        originalAst.requestedConfiguration().orElseThrow(), originalAst.profile()));
+    var replacementResult = replacementAst.result().orElseThrow();
+    assertEquals(identity, replacementResult.identity());
+    assertNotEquals(originalResult.snapshot(), replacementResult.snapshot());
 
-  private static Driver closeSignalingDriver(Driver actual, CloseFailurePhase phase, Neo4jException signal, List<String> events) {
-    var sessionCount = new AtomicInteger();
-    return (Driver) Proxy.newProxyInstance(Driver.class.getClassLoader(), new Class<?>[] {Driver.class}, (proxy, method, arguments) -> {
-      if (method.getName().equals("session")) {
-        var session = (Session) invoke(actual, method, arguments);
-        var publication = sessionCount.incrementAndGet() == 2;
-        return Proxy.newProxyInstance(Session.class.getClassLoader(), new Class<?>[] {Session.class},
-            (sessionProxy, sessionMethod, sessionArguments) -> {
-              var result = invoke(session, sessionMethod, sessionArguments);
-              if (sessionMethod.getName().equals("executeWrite")) {
-                events.add("publication.write.returned");
-              }
-              if (sessionMethod.getName().equals("close")) {
-                events.add(publication ? "publication.close" : "schema.close");
-                if (publication && phase == CloseFailurePhase.PUBLICATION_SESSION) {
-                  throw signal;
-                }
-              }
-              return result;
-            });
-      }
-      var result = invoke(actual, method, arguments);
-      if (method.getName().equals("close")) {
-        events.add("driver.close");
-        if (phase == CloseFailurePhase.DRIVER) {
-          throw signal;
+    var previousRun = withPublicationWarning(original, "previous");
+    var replacementRun = withPublicationWarning(original, "replacement");
+    var runId = previousRun.identity().key();
+    var mapper = new Neo4jAnalysisRunMapper();
+    var expectedPrevious = expectedProjection(mapper.map(previousRun));
+    var expectedReplacement = expectedProjection(mapper.map(replacementRun));
+    assertNotEquals(expectedPrevious, expectedReplacement);
+    var astRepositories = Neo4jRepositories.astResults(() -> settings);
+    var retention = AnalysisCapabilities.astRetention(astRepositories);
+    var query = AnalysisCapabilities.astQuery(astRepositories);
+    var runRepositories = Neo4jRepositories.completedRuns(() -> settings);
+    try (var driver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
+        var session = driver.session(SessionConfig.forDatabase(settings.database()))) {
+      try {
+        assertEquals(PublicationStatus.SAVED, retention.retainAst(
+            new AstPublicationRequest(originalAst, PublicationIntent.SAVE_COMPLETE_AST)).status());
+        try (var repository = runRepositories.open(RepositoryOperationContext.saveCompletedRun(runId))) {
+          repository.save(previousRun);
         }
+        assertRetainedAst(query, originalAst);
+        assertEquals(expectedPrevious, storedProjection(session, runId));
+
+        // Act
+        var astPublication = retention.retainAst(new AstPublicationRequest(replacementAst, PublicationIntent.SAVE_COMPLETE_AST));
+        var runAfterAstReplacement = storedProjection(session, runId);
+        assertEquals(PublicationStatus.SAVED, astPublication.status());
+        assertRetainedAst(query, replacementAst);
+        var runPublication = AnalysisExecutionFixture.executeComputed(replacementRun, PublicationIntent.SAVE_COMPLETED,
+            AnalysisExecutionFixture::unexpectedAstRepository, runRepositories).publication();
+
+        // Assert
+        assertEquals(expectedPrevious, runAfterAstReplacement);
+        assertEquals(PublicationStatus.SAVED, runPublication.status());
+        assertEquals(expectedReplacement, storedProjection(session, runId));
+        assertRetainedAst(query, replacementAst);
+      } finally {
+        Neo4jIntegration.discardAstFixture(session, identity.astResultKey());
       }
-      return result;
-    });
+    } finally {
+      cleanup(settings, List.of(runId));
+    }
   }
 
-  private static Object invoke(Object target, Method method, Object[] arguments) throws Throwable {
-    try {
-      return method.invoke(target, arguments);
-    } catch (InvocationTargetException exception) {
-      throw exception.getCause();
-    }
+  private static void assertRetainedAst(AstQuery query, AstOutcome expected) {
+    var expectedResult = expected.result().orElseThrow();
+    var lookup = query.findAst(expectedResult.identity());
+    assertEquals(AstLookupStatus.FOUND, lookup.status());
+    var actual = lookup.outcome().orElseThrow().result().orElseThrow();
+    assertEquals(expectedResult.snapshot(), actual.snapshot());
+    assertArrayEquals(AstCodec.encode(expectedResult), AstCodec.encode(actual));
+  }
+
+  private static AnalysisRun withPublicationWarning(AnalysisRun run, String state) {
+    var warning = new AnalysisDiagnostic("diagnostic:publication-" + state, "publication." + state, DiagnosticStage.FRONTEND,
+        DiagnosticSeverity.WARNING, "Publication warning: " + state, List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+    return AnalysisRun.create(run.identity(), run.representation(), List.of(warning));
   }
 
   private static AnalysisRun completedRun(Path sourceRoot, String typeName) throws IOException {
@@ -496,17 +546,14 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
         .asLong();
   }
 
-  private record StoredProjection(List<Map<String, Object>> nodes, List<Map<String, Object>> relationships) {
+  private static StoredPublication expectedProjection(Neo4jGraphProjection projection) {
+    return Namespace.RUN.expected(projection.runId(), projection.nodes(), projection.relationships());
   }
 
-  private static StoredProjection storedProjection(Session session, String runId) {
-    var nodes = session.run("MATCH (n:AnalysisEntity {runId: $runId}) "
-        + "RETURN labels(n) AS labels, properties(n) AS properties ORDER BY n.key",
-        Values.parameters("runId", runId)).list(record -> record.asMap());
-    var relationships = session.run("MATCH (source:AnalysisEntity {runId: $runId})-[relation]->(target:AnalysisEntity) "
-        + "WHERE relation.runId = $runId RETURN source.key AS sourceKey, target.key AS targetKey, type(relation) AS type, "
-        + "properties(relation) AS properties ORDER BY relation.key", Values.parameters("runId", runId)).list(record -> record.asMap());
-    return new StoredProjection(nodes, relationships);
+  private static StoredPublication storedProjection(Session session, String runId) {
+    var parameters = Values.parameters("scope", runId);
+    return StoredPublication.fromRecords(session.run(Namespace.RUN.nodesQuery(), parameters).list(),
+        session.run(Namespace.RUN.relationshipsQuery(), parameters).list());
   }
 
   private static void cleanup(Neo4jConnectionSettings settings, List<String> runIds) {
