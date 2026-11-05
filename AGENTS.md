@@ -10,6 +10,13 @@
 
 These instructions apply to the entire directory tree rooted at this file. More specific `AGENTS.md` or `AGENTS.override.md` files in descendant directories may add to or override these rules for their own scope.
 
+## Diagrams Directory: Explicit Requests Only
+
+- Exclude `diagrams/` and all of its contents from every task and analysis unless the user explicitly and directly requests work on that directory or its contents.
+- Do not consult, inspect, review, validate, render, modify, or use that directory as evidence or architectural authority during other work. Exclude it from repository searches and analysis; ignore incidental results from it.
+- References to `diagrams/` in other documents, architecture-related work, and changes to code or documentation do not authorize diagram work or require diagram synchronization.
+- The diagram-specific rules below apply only after an explicit and direct user request about `diagrams/` or its contents. They never require consulting the directory during unrelated work.
+
 ## CodeGraph Location
 
 - Keep the CodeGraph index at `D:\Projects\aquila-graph\aquila-graph\.codegraph`; use `D:\Projects\aquila-graph\aquila-graph` as the CodeGraph project path.
@@ -38,7 +45,7 @@ These instructions apply to the entire directory tree rooted at this file. More 
 
 - Before accepting changed code or tests, regenerate JaCoCo coverage for the final candidate with the `coverage` build target. This is an acceptance requirement, not a command to rerun the complete unit suite after each intermediate correction. Follow the [validation cadence](docs/build-quality.md#validation-cadence) and [coverage freshness procedure](docs/build-quality.md#coverage-freshness).
 
-## Diagram Paths and Filenames
+## Diagram Paths and Filenames (Explicit Requests Only)
 
 - Treat every diagram path as one semantic identifier composed of its directories and filename.
 - Use directories to identify the diagram category or modeling scope, and use the filename only for the distinct subject represented within that context.
@@ -46,7 +53,7 @@ These instructions apply to the entire directory tree rooted at this file. More 
 - Choose the destination directory before naming a new or renamed diagram, then evaluate the filename in the context of the complete target path.
 - Example: use `diagrams/use-case/aquila-graph-priority.puml`, not `diagrams/use-case/aquila-graph-priority-use-case-diagram.puml`.
 
-## Diagram Navigation
+## Diagram Navigation (Explicit Requests Only)
 
 - Before creating, selecting, reviewing, or modifying a diagram, consult the [diagram index](D:/Projects/aquila-graph/aquila-graph/diagrams/README.md).
 - Use the routing triggers in the index to identify the appropriate view, its model, and its companion documentation.
@@ -56,7 +63,7 @@ These instructions apply to the entire directory tree rooted at this file. More 
 ## Repository Content
 
 - Keep versioned documentation limited to current contracts, design decisions, build and deployment instructions, navigation, and outstanding product requirements.
-- Keep one canonical source for each diagram. Put generated previews and exports under ignored build output such as `target/diagrams/`.
+- For explicitly requested diagram work, keep one canonical source for each diagram. Put generated previews and exports under ignored build output such as `target/diagrams/`.
 - Use Git history for previous source and model versions. Do not commit source snapshots, copied repository trees, review packets, session logs, or repeated historical exports.
 - When removing or consolidating documentation, preserve applicable contracts and outstanding requirements in their owning documents and update inbound links.
 
