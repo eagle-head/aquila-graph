@@ -21,6 +21,8 @@ import org.neo4j.driver.Values;
 final class AstRepositoryDriverStub {
   final List<String> events = new ArrayList<>();
   final List<String> queries = new ArrayList<>();
+  final List<Statement> statements = new ArrayList<>();
+  private final List<Record> constraints;
   private int sessions;
   int attempts = 1;
   int failingClose = -1;
@@ -32,9 +34,27 @@ final class AstRepositoryDriverStub {
   RuntimeException nodeStreamFailure;
   boolean malformedNodeRecords;
   String version = "absent";
+  String lockedAstSubject;
   Neo4jAstProjection stored;
   UnaryOperator<List<Map<String, Object>>> nodeRows = UnaryOperator.identity();
   UnaryOperator<List<Map<String, Object>>> relationshipRows = UnaryOperator.identity();
+
+  AstRepositoryDriverStub() {
+    this(List.of(constraint("ast_entity_identity", "AstEntity", List.of("astResultKey", "key")),
+        constraint("ast_result_identity", "AstResult", List.of("astResultKey"))));
+  }
+
+  private AstRepositoryDriverStub(List<Record> constraints) {
+    this.constraints = constraints;
+  }
+
+  static AstRepositoryDriverStub completedRuns() {
+    return new AstRepositoryDriverStub(List.of(constraint("analysis_entity_identity", "AnalysisEntity", List.of("runId", "key")),
+        constraint("analysis_run_identity", "AnalysisRun", List.of("runId"))));
+  }
+
+  record Statement(String query, Value parameters) {
+  }
 
   Driver driver() {
     return proxy(Driver.class, (ignored, method, arguments) -> switch (method.getName()) {
@@ -55,7 +75,7 @@ final class AstRepositoryDriverStub {
         var query = (String) arguments[0];
         queries.add(query);
         if (schemaFailure != null) { throw schemaFailure; }
-        yield result(query.startsWith("SHOW CONSTRAINTS") ? constraints() : List.of());
+        yield result(query.startsWith("SHOW CONSTRAINTS") ? constraints : List.of());
       }
       case "executeWrite" -> {
         events.add("write.begin");
@@ -83,6 +103,7 @@ final class AstRepositoryDriverStub {
       if (!method.getName().equals("run")) { throw new AssertionError(method.getName()); }
       var query = (String) arguments[0];
       queries.add(query);
+      statements.add(new Statement(query, arguments.length > 1 ? Values.value(arguments[1]) : Values.value(Map.of())));
       if (query.contains("RETURN properties(result)") && readFailure != null) { throw readFailure; }
       var rows = query.contains("RETURN properties(result)") && !version.equals("absent")
           ? List.of(record(Map.of("properties", Map.of("formatVersion", version)))) : List.<Record>of();
@@ -90,7 +111,11 @@ final class AstRepositoryDriverStub {
         rows = ((Value) arguments[1]).get("nodes").asList(value -> value.asMap()).stream()
             .map(node -> record(Map.of("key", node.get("key"), "address", "node/" + node.get("key")))).toList();
       }
-      if (stored != null) {
+      if (lockedAstSubject != null && query.contains("RETURN elementId(entity) AS address")) {
+        var key = lockedAstSubject;
+        rows = List.of(record(Map.of("key", key, "address", "node/" + key, "labels", List.of("AstEntity"),
+            "properties", Map.of("key", key, "astResultKey", key))));
+      } else if (stored != null) {
         if (query.contains("RETURN properties(result)")) {
           rows = List.of(record(Map.of("properties", stored.root().properties())));
         } else if (query.contains("labels(entity)")) {
@@ -144,11 +169,6 @@ final class AstRepositoryDriverStub {
       case "get" -> Values.value(properties.get((String) arguments[0]));
       default -> throw new AssertionError("Unexpected record operation: " + method.getName());
     });
-  }
-
-  private static List<Record> constraints() {
-    return List.of(constraint("ast_entity_identity", "AstEntity", List.of("astResultKey", "key")),
-        constraint("ast_result_identity", "AstResult", List.of("astResultKey")));
   }
 
   private static Record constraint(String name, String label, List<String> properties) {
