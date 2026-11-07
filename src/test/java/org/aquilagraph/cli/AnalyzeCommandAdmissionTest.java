@@ -34,10 +34,10 @@ class AnalyzeCommandAdmissionTest {
           var streams = new CliStreams();
 
           // Act
-          var code = command.run(example.tokens().toArray(String[]::new), streams.output(), streams.error());
+          var code = new CommandRunner(command).run(example.tokens().toArray(String[]::new), CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode();
 
           // Assert
-          assertEquals(AnalyzeCommand.EXIT_REJECTED, code);
+          assertEquals(CommandExitPolicy.EXIT_REJECTED, code);
           assertEquals(List.of(), useCase.requests());
           assertEquals("", streams.outputText());
           assertEquals(List.of(example.message(), AnalyzeCommandParser.USAGE), streams.errorLines());
@@ -52,11 +52,11 @@ class AnalyzeCommandAdmissionTest {
     var streams = new CliStreams();
 
     // Act
-    var arguments = assertThrows(NullPointerException.class, () -> command.run(null, streams.output(), streams.error()));
-    var output = assertThrows(NullPointerException.class, () -> command.run(new String[] {"source"}, null, streams.error()));
-    var error = assertThrows(NullPointerException.class, () -> command.run(new String[] {"source"}, streams.output(), null));
+    var arguments = assertThrows(NullPointerException.class, () -> new CommandRunner(command).run(null, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode());
+    var output = assertThrows(NullPointerException.class, () -> new CommandRunner(command).run(new String[] {"source"}, null, CommandDestination.printStream(streams.error())).exitCode());
+    var error = assertThrows(NullPointerException.class, () -> new CommandRunner(command).run(new String[] {"source"}, CommandDestination.printStream(streams.output()), null).exitCode());
     var token = assertThrows(NullPointerException.class,
-        () -> command.run(new String[] {"--unknown", null}, streams.output(), streams.error()));
+        () -> new CommandRunner(command).run(new String[] {"--unknown", null}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode());
 
     // Assert
     assertEquals("arguments", arguments.getMessage());

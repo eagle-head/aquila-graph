@@ -135,9 +135,9 @@ final class CliTestFixtures {
 
   static int present(AnalyzeCommandOutcome outcome, CliStreams streams) {
     var prepared = prepared(outcome);
-    streams.output().print(prepared.output());
-    streams.error().print(prepared.error());
-    return AnalyzeCommand.semanticExitCode(outcome);
+    var emission = new CommandOutputEmitter().emit(outcome, prepared, CommandDestination.printStream(streams.output()),
+        CommandDestination.printStream(streams.error()));
+    return new CommandInvocation(outcome, emission).exitCode();
   }
 
   static PreparedCommandOutput prepared(AnalyzeCommandOutcome outcome) {

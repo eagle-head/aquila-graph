@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.aquilagraph.application.AnalysisExecution;
@@ -26,7 +27,7 @@ import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.port.AnalysisRunRepository;
 import org.aquilagraph.application.port.AnalysisUseCase;
-import org.aquilagraph.cli.CommandPreparationException.Phase;
+import org.aquilagraph.cli.CommandPresentationException.Phase;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.source.api.AnalysisInputException;
 import org.junit.jupiter.api.Test;
@@ -39,7 +40,7 @@ class CommandPreparationFailureTest {
   void givenAcknowledgedPublicationInIsolatedRepository_whenEachPreparationCollaborationFails_thenOriginalOutcomeSurvivesWithZeroChannelOperations()
       throws IOException {
     // Arrange
-    for (var phase : Phase.values()) {
+    for (var phase : List.of(Phase.PROJECTION, Phase.COMPOSITION, Phase.FORMATTING)) {
       var root = Files.createDirectory(directory.resolve(phase.name()));
       Files.writeString(root.resolve("Example.java"), "interface Example { static void run() {} }");
       var saves = new AtomicInteger();
@@ -61,13 +62,15 @@ class CommandPreparationFailureTest {
       var interactions = new AtomicInteger();
       try (var output = channel(interactions); var error = channel(interactions)) {
         // Act
-        var failure = assertThrows(CommandPreparationException.class,
-            () -> command.run(new String[] {root.toString(), "--persist"}, output, error));
+        var failure = assertThrows(CommandPresentationException.class,
+            () -> new CommandRunner(command).run(new String[] {root.toString(), "--persist"}, CommandDestination.printStream(output), CommandDestination.printStream(error)).exitCode());
 
         // Assert
         assertSame(cause, failure.getCause());
         assertEquals(phase, failure.phase());
         assertFalse(failure.reportEmissionStarted());
+        assertEquals(Optional.empty(), failure.channel());
+        assertEquals(Optional.empty(), failure.progress());
         var retained = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, failure.outcome());
         assertSame(observed.get(), retained.execution());
         assertEquals(PublicationStatus.SAVED, retained.execution().publication().status());
@@ -85,13 +88,13 @@ class CommandPreparationFailureTest {
   void givenFatalFailureAtEachPreparationCollaboration_whenCommandRuns_thenOriginalAbruptFamilyEscapesWithoutChannelOperations() {
     // Arrange
     var execution = CliTestFixtures.withoutRepositoryRequest(CliTestFixtures.completedRun());
-    for (var phase : Phase.values()) {
+    for (var phase : List.of(Phase.PROJECTION, Phase.COMPOSITION, Phase.FORMATTING)) {
       var fatal = new AssertionError("preparation interrupted");
       var command = failingCommand(request -> execution, phase, fatal);
       var interactions = new AtomicInteger();
       try (var output = channel(interactions); var error = channel(interactions)) {
         // Act
-        var observed = assertThrows(AssertionError.class, () -> command.run(new String[] {"source"}, output, error));
+        var observed = assertThrows(AssertionError.class, () -> new CommandRunner(command).run(new String[] {"source"}, CommandDestination.printStream(output), CommandDestination.printStream(error)).exitCode());
 
         // Assert
         assertSame(fatal, observed);
@@ -127,7 +130,7 @@ class CommandPreparationFailureTest {
       throws IOException {
     // Arrange
     var outcome = new AnalyzeCommandOutcome.UsageRejected(new ArgumentRejection.RootCount(0));
-    var failure = new CommandPreparationException(outcome, Phase.FORMATTING, new IllegalStateException("formatter"));
+    var failure = new CommandPresentationException(outcome, Phase.FORMATTING, new IllegalStateException("formatter"));
     var bytes = new ByteArrayOutputStream();
     try (var output = new ObjectOutputStream(bytes)) { output.writeObject(failure); }
 
@@ -136,7 +139,7 @@ class CommandPreparationFailureTest {
       var observed = assertThrows(InvalidObjectException.class, input::readObject);
 
       // Assert
-      assertEquals("Preparation failure requires an established command outcome", observed.getMessage());
+      assertEquals("Presentation failure requires an established command outcome", observed.getMessage());
       assertSame(outcome, failure.outcome());
     }
   }

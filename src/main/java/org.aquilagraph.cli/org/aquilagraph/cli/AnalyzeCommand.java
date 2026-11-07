@@ -1,6 +1,5 @@
 package org.aquilagraph.cli;
 
-import java.io.PrintStream;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Future.State;
@@ -10,19 +9,10 @@ import org.aquilagraph.application.AnalysisDerivationException;
 import org.aquilagraph.application.AnalysisPublicationException;
 import org.aquilagraph.application.port.AnalysisUseCase;
 import org.aquilagraph.identity.api.JavaRelease;
-import org.aquilagraph.cli.CommandPreparationException.Phase;
+import org.aquilagraph.cli.CommandPresentationException.Phase;
 
-/** Coordinates one command-line analysis request from parsing through presentation. */
+/** Establishes output-independent command outcomes and prepares their complete presentation. */
 public final class AnalyzeCommand {
-  /** Exit code for a completed analysis and any requested repository save. */
-  public static final int EXIT_COMPLETED = 0;
-  /** Exit code for an analysis that produced an incomplete result. */
-  public static final int EXIT_INCOMPLETE = 1;
-  /** Exit code for rejected input or arguments. */
-  public static final int EXIT_REJECTED = 2;
-  /** Exit code for a completed analysis whose repository save failed. */
-  public static final int EXIT_REPOSITORY_FAILED = 3;
-
   private final AnalyzeCommandParser parser;
   private final AnalyzeCommandExecutor executor;
   private final CommandReportProjector projector;
@@ -110,66 +100,9 @@ public final class AnalyzeCommand {
       if (failure instanceof Error fatal) {
         throw fatal;
       }
-      throw new CommandPreparationException(outcome, phase, failure);
+      throw new CommandPresentationException(outcome, phase, failure);
     }
     return observation.resultNow();
   }
 
-  /**
-   * Executes one command invocation.
-   *
-   * <p>
-   * The caller retains ownership of both streams and controls their closure. Output ordering is defined within each stream. The command
-   * translates named input and environment failures and presents returned publication failures with their analysis summary. Abrupt failures
-   * propagate with their causes and suppressed exceptions. Both payloads are fully prepared before any CLI-owned channel operation.
-   * Preparation failure retains the outcome and phase without report emission. Destination runtime failures remain abrupt and may leave
-   * partial output. External delivery depends on the supplied streams.
-   *
-   * @param arguments
-   *          command-line arguments
-   * @param output
-   *          standard result stream
-   * @param error
-   *          diagnostic stream
-   * @return one of the declared exit codes
-   * @throws NullPointerException
-   *           if the argument array, an argument, or either stream is null
-   * @throws AnalysisDerivationException
-   *           if control-flow derivation fails abruptly, retaining source and derivation progress
-   * @throws AnalysisPublicationException
-   *           if publication fails abruptly, retaining the computed result and operation evidence
-   */
-  public int run(String[] arguments, PrintStream output, PrintStream error) {
-    Objects.requireNonNull(arguments, "arguments");
-    Objects.requireNonNull(output, "output");
-    Objects.requireNonNull(error, "error");
-
-    var outcome = execute(arguments);
-    var prepared = prepare(outcome);
-    if (!prepared.output().isEmpty()) {
-      output.print(prepared.output());
-    }
-    if (!prepared.error().isEmpty()) {
-      error.print(prepared.error());
-    }
-    return semanticExitCode(outcome);
-  }
-
-  static int semanticExitCode(AnalyzeCommandOutcome outcome) {
-    return switch (outcome) {
-      case AnalyzeCommandOutcome.UsageRejected _ -> EXIT_REJECTED;
-      case AnalyzeCommandOutcome.InputRejected _ -> EXIT_REJECTED;
-      case AnalyzeCommandOutcome.EnvironmentFailed _ -> EXIT_INCOMPLETE;
-      case AnalyzeCommandOutcome.Executed executed -> {
-        if (executed.execution().publication().failure().isPresent()) {
-          yield EXIT_REPOSITORY_FAILED;
-        }
-        yield switch (executed.execution().run().completion()) {
-          case COMPLETE -> EXIT_COMPLETED;
-          case PARTIAL, FAILED -> EXIT_INCOMPLETE;
-          case REJECTED -> EXIT_REJECTED;
-        };
-      }
-    };
-  }
 }

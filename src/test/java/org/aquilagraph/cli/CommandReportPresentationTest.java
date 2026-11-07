@@ -38,7 +38,7 @@ class CommandReportPresentationTest {
     var exitCode = CliTestFixtures.present(outcome, streams);
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_COMPLETED, exitCode);
+    assertEquals(CommandExitPolicy.EXIT_COMPLETED, exitCode);
     assertEquals(expectedOutput(run, "COMPLETE", "NOT_REQUESTED"), streams.outputLines());
     assertEquals(expectedWarning(1), streams.errorLines());
   }
@@ -54,7 +54,7 @@ class CommandReportPresentationTest {
     var exitCode = CliTestFixtures.present(new AnalyzeCommandOutcome.Executed(execution), streams);
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
+    assertEquals(CommandExitPolicy.EXIT_INCOMPLETE, exitCode);
     assertEquals(expectedOutput(run, "FAILED", "NOT_ELIGIBLE"), streams.outputLines());
     assertEquals(1, streams.errorLines().stream().filter(line -> line.equals("Diagnostic: \"" + CliTestFixtures.errorDiagnostic().diagnosticKey() + "\"")).count());
     assertEquals(true, streams.errorLines().contains("Qualification: APPLICATION APPLICATION_DIAGNOSTIC"));
@@ -71,7 +71,7 @@ class CommandReportPresentationTest {
     var exitCode = CliTestFixtures.present(new AnalyzeCommandOutcome.Executed(execution), streams);
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
+    assertEquals(CommandExitPolicy.EXIT_REJECTED, exitCode);
     assertEquals(List.of("Run: \"" + run.identity().key() + "\"", "Software version: unavailable", "Completion: REJECTED",
         "Java release: 25", "Java source files: 0", "AST: UNAVAILABLE", "AST profile: \"java-source-bounded/1\"",
         "CFG: UNAVAILABLE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"",
@@ -91,7 +91,7 @@ class CommandReportPresentationTest {
         new RepositoryException("database unavailable", new IllegalStateException("offline")))), streams);
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_REPOSITORY_FAILED, exitCode);
+    assertEquals(CommandExitPolicy.EXIT_REPOSITORY_FAILED, exitCode);
     assertEquals("Completion: COMPLETE", streams.outputLines().get(2));
     assertEquals(ReportTextExpectations.publicationFailure(run, "org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException", "not-applicable", "UNKNOWN"), streams.errorLines());
   }
@@ -105,7 +105,7 @@ class CommandReportPresentationTest {
     var exitCode = CliTestFixtures.present(new AnalyzeCommandOutcome.InputRejected(new AnalysisInputException("source unreadable", new IOException("input"))), streams);
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
+    assertEquals(CommandExitPolicy.EXIT_REJECTED, exitCode);
     assertEquals(List.of(), streams.outputLines());
     assertEquals(ReportTextExpectations.namedInput("source unreadable", "java.io.IOException", "input"), streams.errorLines());
   }
@@ -119,7 +119,7 @@ class CommandReportPresentationTest {
     var exitCode = CliTestFixtures.present(new AnalyzeCommandOutcome.EnvironmentFailed(new AnalysisEnvironmentException("compiler unavailable")), streams);
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
+    assertEquals(CommandExitPolicy.EXIT_INCOMPLETE, exitCode);
     assertEquals(List.of(), streams.outputLines());
     assertEquals(ReportTextExpectations.namedEnvironment("compiler unavailable"), streams.errorLines());
   }
@@ -134,7 +134,7 @@ class CommandReportPresentationTest {
     var exitCode = CliTestFixtures.present(rejection, streams);
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
+    assertEquals(CommandExitPolicy.EXIT_REJECTED, exitCode);
     assertEquals(List.of("Exactly one source root is required", AnalyzeCommandParser.USAGE), streams.errorLines());
   }
 
@@ -220,7 +220,7 @@ class CommandReportPresentationTest {
     }
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_COMPLETED, code);
+    assertEquals(CommandExitPolicy.EXIT_COMPLETED, code);
     assertEquals(expectedOutput(run, "COMPLETE", "NOT_REQUESTED"), streams.outputLines());
     assertEquals(expectedWarning(1), streams.errorLines());
   }
@@ -245,7 +245,7 @@ class CommandReportPresentationTest {
     var code = CliTestFixtures.present(outcome, streams);
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_COMPLETED, code);
+    assertEquals(CommandExitPolicy.EXIT_COMPLETED, code);
     var expectedOutput = new ArrayList<>(List.of("Run: \"" + run.identity().key() + "\"", "Software version: \"" + source.identity().softwareSignature() + "\"",
         "Completion: COMPLETE", "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: \"java-source-bounded/1\"",
         "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"", "CFG selection: METHODS",
@@ -272,7 +272,7 @@ class CommandReportPresentationTest {
     var code = CliTestFixtures.present(outcome, streams);
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_REPOSITORY_FAILED, code);
+    assertEquals(CommandExitPolicy.EXIT_REPOSITORY_FAILED, code);
     assertEquals(expectedOutput(run, "COMPLETE", "FAILED"), streams.outputLines());
     assertEquals(expectedError, streams.errorLines());
   }

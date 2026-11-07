@@ -41,8 +41,13 @@ import org.aquilagraph.application.ComputedPublicationSubject.Coordinated;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cli.AnalyzeCommand;
+import org.aquilagraph.cli.CommandExitPolicy;
+import org.aquilagraph.cli.CommandDestination;
+import org.aquilagraph.cli.CommandRunner;
+import org.aquilagraph.cli.CommandInvocation;
+import org.aquilagraph.cli.ChannelEmission;
 import org.aquilagraph.cli.AnalyzeCommandOutcome;
-import org.aquilagraph.cli.CommandPreparationException;
+import org.aquilagraph.cli.CommandPresentationException;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.source.api.AnalysisInputException;
 import org.aquilagraph.frontend.JavaFrontends;
@@ -117,13 +122,15 @@ class Neo4jAnalysisRunRepositoryTest {
     // Act
     try (var stdout = new PrintStream(output, true, StandardCharsets.UTF_8);
         var stderr = new PrintStream(error, true, StandardCharsets.UTF_8)) {
-      var failure = assertThrows(CommandPreparationException.class,
-          () -> command.run(new String[] {temporaryDirectory.toString(), "--persist"}, stdout, stderr));
+      var failure = assertThrows(CommandPresentationException.class,
+          () -> new CommandRunner(command).run(new String[] {temporaryDirectory.toString(), "--persist"}, CommandDestination.printStream(stdout), CommandDestination.printStream(stderr)).exitCode());
 
       // Assert
       assertSame(fault, failure.getCause());
-      assertEquals(CommandPreparationException.Phase.PROJECTION, failure.phase());
+      assertEquals(CommandPresentationException.Phase.PROJECTION, failure.phase());
       assertFalse(failure.reportEmissionStarted());
+      assertEquals(Optional.empty(), failure.channel());
+      assertEquals(Optional.empty(), failure.progress());
       var retained = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, failure.outcome());
       assertSame(original.get(), retained.execution());
       assertEquals(CommitKnowledge.KNOWN_COMMIT, retained.execution().publication().knowledge());
@@ -889,12 +896,12 @@ class Neo4jAnalysisRunRepositoryTest {
     });
     var output = new ByteArrayOutputStream();
     var error = new ByteArrayOutputStream();
-    final int exit;
+    final CommandInvocation invocation;
 
     // Act
     try (var stdout = new PrintStream(output, false, StandardCharsets.UTF_8);
         var stderr = new PrintStream(error, false, StandardCharsets.UTF_8)) {
-      exit = command.run(new String[] {temporaryDirectory.toString(), "--persist"}, stdout, stderr);
+      invocation = new CommandRunner(command).run(new String[] {temporaryDirectory.toString(), "--persist"}, CommandDestination.printStream(stdout), CommandDestination.printStream(stderr));
     }
     var execution = observed.get();
     var run = execution.run();
@@ -919,7 +926,10 @@ class Neo4jAnalysisRunRepositoryTest {
     assertTrue(astDriver.events.contains("callback.return"));
     assertEquals(List.of("schema.close", "publication.close", "driver.close"), runDriver.effects);
     assertEquals("driver.close", astDriver.events.getLast());
-    assertEquals(AnalyzeCommand.EXIT_REPOSITORY_FAILED, exit);
+    assertEquals(CommandExitPolicy.EXIT_REPOSITORY_FAILED, invocation.exitCode());
+    assertSame(execution, assertInstanceOf(AnalyzeCommandOutcome.Executed.class, invocation.outcome()).execution());
+    assertEquals(ChannelEmission.Status.COMPLETED, invocation.emission().output());
+    assertEquals(ChannelEmission.Status.COMPLETED, invocation.emission().error());
     var lines = output.toString(StandardCharsets.UTF_8).lines().toList();
     var identity = ast.result().orElseThrow().identity();
     var methodKey = ast.result().orElseThrow().program().methods().getFirst().methodKey();

@@ -23,6 +23,10 @@ import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cli.AdapterFailureDetail;
 import org.aquilagraph.cli.AnalyzeCommand;
+import org.aquilagraph.cli.CommandDestination;
+import org.aquilagraph.cli.CommandRunner;
+import org.aquilagraph.cli.CommandInvocation;
+import org.aquilagraph.cli.ChannelEmission;
 import org.aquilagraph.cli.AnalyzeCommandOutcome;
 import org.aquilagraph.frontend.JavaFrontends;
 import org.aquilagraph.identity.api.JavaRelease;
@@ -60,16 +64,18 @@ class Neo4jFailureDetailProjectorTest {
     }, JavaRelease.JAVA_25, details);
     var output = new ByteArrayOutputStream();
     var error = new ByteArrayOutputStream();
-    final int exit;
+    final CommandInvocation invocation;
 
     // Act
     try (var stdout = new PrintStream(output, true, StandardCharsets.UTF_8); var stderr = new PrintStream(error, true, StandardCharsets.UTF_8)) {
-      exit = command.run(new String[] {directory.toString(), "--persist"}, stdout, stderr);
+      invocation = new CommandRunner(command).run(new String[] {directory.toString(), "--persist"}, CommandDestination.printStream(stdout), CommandDestination.printStream(stderr));
     }
-    var outcome = command.execute(new String[] {directory.toString(), "--persist"});
+    var outcome = invocation.outcome();
 
     // Assert
-    assertEquals(3, exit);
+    assertEquals(3, invocation.exitCode());
+    assertEquals(ChannelEmission.Status.COMPLETED, invocation.emission().output());
+    assertEquals(ChannelEmission.Status.COMPLETED, invocation.emission().error());
     var observed = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, outcome);
     assertSame(returned.get(), observed.execution());
     assertEquals(Optional.of(new AdapterFailureDetail("Neo4j", "REPLACEMENT")), details.project(carrier.get()));
