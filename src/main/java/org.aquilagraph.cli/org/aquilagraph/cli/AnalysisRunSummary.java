@@ -2,41 +2,50 @@ package org.aquilagraph.cli;
 
 import java.util.Objects;
 import java.util.Optional;
-import org.aquilagraph.application.AnalysisRun;
-import org.aquilagraph.application.ProgramRepresentation;
+import java.util.List;
+import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.application.AnalysisRequestIdentity;
+import org.aquilagraph.application.MethodCoverageState;
+import org.aquilagraph.cfg.api.CfgState;
+import org.aquilagraph.identity.api.AstIdentity;
+import org.aquilagraph.identity.api.BodyRef;
+import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SoftwareVersion;
+import org.aquilagraph.source.api.AstCompletion;
+import org.aquilagraph.source.api.AstProfile;
 
-/** Immutable command-line projection of an analysis run. */
-record AnalysisRunSummary(AnalysisRun run, String softwareVersionSignature, Optional<ProgramSummary> program) {
+/** Detached run identity, independent qualifications and actual graph metrics. */
+record AnalysisRunSummary(AnalysisRequestIdentity identity, AnalysisCompletion completion, Optional<SoftwareVersion> software,
+    Optional<JavaRelease> release, int sourceFileCount, AstCompletion sourceState, AstProfile sourceProfile, Optional<CfgState> cfgState,
+    Optional<ProgramSummary> program, List<MethodCoverage> methods) {
   AnalysisRunSummary {
-    Objects.requireNonNull(run, "run");
-    Objects.requireNonNull(softwareVersionSignature, "softwareVersionSignature");
+    Objects.requireNonNull(identity, "identity");
+    Objects.requireNonNull(completion, "completion");
+    Objects.requireNonNull(software, "software");
+    Objects.requireNonNull(release, "release");
+    Objects.requireNonNull(sourceState, "sourceState");
+    Objects.requireNonNull(sourceProfile, "sourceProfile");
+    Objects.requireNonNull(cfgState, "cfgState");
     Objects.requireNonNull(program, "program");
-  }
-
-  static AnalysisRunSummary from(AnalysisRun run) {
-    Objects.requireNonNull(run, "run");
-    var ast = run.representation().ast();
-    var software = ast.capturedInput()
-        .flatMap(snapshot -> ast.capturedEnvironment().map(environment -> SoftwareVersion.from(snapshot, environment)));
-    return new AnalysisRunSummary(run, software.map(SoftwareVersion::signature).orElse("unavailable"),
-        ast.result().map(ignored -> ProgramSummary.from(run.representation())));
+    methods = List.copyOf(methods);
   }
 
   record ProgramSummary(int typeCount, int methodCount, int analyzedMethodBodyCount, int controlFlowOperationCount,
       int controlFlowNodeCount, int controlFlowEdgeCount) {
-    static ProgramSummary from(ProgramRepresentation representation) {
-      var operationCount = 0;
-      var nodeCount = 0;
-      var edgeCount = 0;
-      var graphs = representation.cfg().stream().flatMap(cfg -> cfg.methods().stream()).flatMap(method -> method.graph().stream()).toList();
-      for (var graph : graphs) {
-        operationCount += graph.operationNodes().size();
-        nodeCount += graph.nodeCount();
-        edgeCount += graph.edges().size();
-      }
-      var program = representation.ast().result().orElseThrow().program();
-      return new ProgramSummary(program.types().size(), program.methodCount(), graphs.size(), operationCount, nodeCount, edgeCount);
+  }
+
+  record MethodDescriptor(AstIdentity astIdentity, String methodKey, Optional<BodyRef> body) {
+    MethodDescriptor {
+      Objects.requireNonNull(astIdentity, "astIdentity");
+      Objects.requireNonNull(methodKey, "methodKey");
+      Objects.requireNonNull(body, "body");
+    }
+  }
+
+  record MethodCoverage(MethodDescriptor method, MethodCoverageState state) {
+    MethodCoverage {
+      Objects.requireNonNull(method, "method");
+      Objects.requireNonNull(state, "state");
     }
   }
 }

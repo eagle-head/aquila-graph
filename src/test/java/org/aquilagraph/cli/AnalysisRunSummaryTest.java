@@ -33,16 +33,16 @@ class AnalysisRunSummaryTest {
     var run = CliTestFixtures.completedRunWithWarning();
 
     // Act
-    var summary = AnalysisRunSummary.from(run);
+    var summary = CliTestFixtures.report(run).analysis();
 
     // Assert
-    assertSame(run, summary.run());
-    assertEquals(run.identity().key(), summary.run().identity().key());
-    assertEquals(SoftwareVersion.from(run.representation().ast().capturedInput().orElseThrow(), run.representation().ast().capturedEnvironment().orElseThrow()).signature(), summary.softwareVersionSignature());
-    assertSame(AnalysisCompletion.COMPLETE, summary.run().completion());
-    assertEquals(25, summary.run().representation().ast().requestedConfiguration().orElseThrow().release().feature());
-    assertEquals(1, summary.run().representation().ast().capturedInput().orElseThrow().sourceFileCount());
-    assertEquals(List.of(CliTestFixtures.warningDiagnostic()), summary.run().diagnostics().values());
+    assertEquals(run.identity(), summary.identity());
+    assertEquals(run.identity().key(), summary.identity().key());
+    assertEquals(SoftwareVersion.from(run.representation().ast().capturedInput().orElseThrow(), run.representation().ast().capturedEnvironment().orElseThrow()).signature(), summary.software().orElseThrow().signature());
+    assertSame(AnalysisCompletion.COMPLETE, summary.completion());
+    assertEquals(25, summary.release().orElseThrow().feature());
+    assertEquals(1, summary.sourceFileCount());
+    assertEquals(List.of(CliTestFixtures.warningDiagnostic().diagnosticKey()), CliTestFixtures.report(run).diagnostics().stream().map(diagnostic -> diagnostic.value().key()).toList());
     var program = summary.program().orElseThrow();
     assertEquals(1, program.typeCount());
     assertEquals(1, program.methodCount());
@@ -58,7 +58,7 @@ class AnalysisRunSummaryTest {
     var run = CliTestFixtures.analyze("interface Example { static void first() {} void bodyless(); static int second() { return 1; } }");
     var graphs = run.representation().cfg().orElseThrow().methods().stream().flatMap(method -> method.graph().stream()).toList();
     // Act
-    var summary = AnalysisRunSummary.from(run).program().orElseThrow();
+    var summary = CliTestFixtures.report(run).analysis().program().orElseThrow();
 
     // Assert
     assertEquals(1, summary.typeCount());
@@ -84,16 +84,16 @@ class AnalysisRunSummaryTest {
     var expectedProgram = new ProgramSummary(1, 2, 0, 0, 0, 0);
 
     // Act
-    var sourceOnlySummary = AnalysisRunSummary.from(sourceOnly);
-    var emptySelectionSummary = AnalysisRunSummary.from(selectedNone);
+    var sourceOnlySummary = CliTestFixtures.report(sourceOnly).analysis();
+    var emptySelectionSummary = CliTestFixtures.report(selectedNone).analysis();
 
     // Assert
     assertEquals(Optional.empty(), sourceOnly.representation().cfg());
     assertEquals(CfgState.COMPLETE, selectedNone.representation().cfg().orElseThrow().state());
     assertEquals(Optional.of(expectedProgram), sourceOnlySummary.program());
     assertEquals(Optional.of(expectedProgram), emptySelectionSummary.program());
-    assertEquals(identity.softwareSignature(), sourceOnlySummary.softwareVersionSignature());
-    assertEquals(identity.softwareSignature(), emptySelectionSummary.softwareVersionSignature());
+    assertEquals(identity.softwareSignature(), sourceOnlySummary.software().orElseThrow().signature());
+    assertEquals(identity.softwareSignature(), emptySelectionSummary.software().orElseThrow().signature());
   }
 
   @Test
@@ -115,7 +115,7 @@ class AnalysisRunSummaryTest {
     var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast, request);
 
     // Act
-    var summary = AnalysisRunSummary.from(run);
+    var summary = CliTestFixtures.report(run).analysis();
 
     // Assert
     assertEquals(CfgState.PARTIAL, run.representation().cfg().orElseThrow().state());
@@ -133,10 +133,10 @@ class AnalysisRunSummaryTest {
     var expectedSignature = SoftwareVersion.from(ast.capturedInput().orElseThrow(), ast.capturedEnvironment().orElseThrow()).signature();
 
     // Act
-    var summary = AnalysisRunSummary.from(run);
+    var summary = CliTestFixtures.report(run).analysis();
 
     // Assert
     assertEquals(Optional.empty(), summary.program());
-    assertEquals(expectedSignature, summary.softwareVersionSignature());
+    assertEquals(expectedSignature, summary.software().orElseThrow().signature());
   }
 }

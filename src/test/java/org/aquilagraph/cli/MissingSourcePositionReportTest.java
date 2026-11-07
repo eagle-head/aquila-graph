@@ -152,12 +152,12 @@ class MissingSourcePositionReportTest {
 
     // Act
     CliTestFixtures.present(run, runStreams);
-    var summary = AnalysisRunSummary.from(run);
+    var summary = CliTestFixtures.report(run).analysis();
 
     // Assert
     assertNativeReport(run, runStreams);
     assertEquals(AstCompletion.INCOMPLETE, ast.completion());
-    assertEquals(AnalysisCompletion.PARTIAL, summary.run().completion());
+    assertEquals(AnalysisCompletion.PARTIAL, summary.completion());
     assertEquals(List.of(MethodCfgState.SOURCE_UNAVAILABLE, MethodCfgState.AVAILABLE),
         run.representation().cfg().orElseThrow().methods().stream().map(value -> value.state()).toList());
     assertEquals(1, summary.program().orElseThrow().analyzedMethodBodyCount());

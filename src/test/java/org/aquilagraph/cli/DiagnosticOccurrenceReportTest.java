@@ -54,6 +54,40 @@ import org.junit.jupiter.api.TestFactory;
 
 class DiagnosticOccurrenceReportTest {
   @Test
+  void givenRealSourceRestrictionAndRejectedMethodSelection_whenReported_thenCompleteNativeBlocksKeepDistinctOwnersAndPositions()
+      throws IOException {
+    // Arrange
+    var ast = CliTestFixtures.produce("interface Example { static void run() { class Local {} } }");
+    var source = ast.result().orElseThrow();
+    var request = new CfgRequest(source.identity(), List.of("missing"), CfgProfile.JAVA_BOUNDED);
+    var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast, request);
+    var sourceEvent = ast.diagnostics().getFirst();
+    var requestEvent = run.representation().cfg().orElseThrow().diagnostics().getFirst();
+    var span = sourceEvent.origins().getFirst();
+    var streams = new CliStreams();
+
+    // Act
+    CliTestFixtures.present(run, streams);
+    var report = CliTestFixtures.report(run);
+
+    // Assert
+    assertEquals(CfgState.REJECTED, run.representation().cfg().orElseThrow().state());
+    assertEquals(List.of(sourceEvent, requestEvent), run.diagnostics().values());
+    assertEquals(new ReportDiagnostic.Owner.Source(run.identity().source()), report.diagnostics().getFirst().owner());
+    assertEquals(new ReportDiagnostic.Owner.Request(request), report.diagnostics().getLast().owner());
+    var lines = assertNativeReport(run, streams);
+    assertEquals(List.of(
+        "Diagnostic: \"" + sourceEvent.diagnosticKey() + "\"", "  Occurrence: 1", "  Owner: SOURCE", "  Native position: 0",
+        "  Severity: ERROR", "  Stage: FRONTEND", "  Cause: " + sourceEvent.outcomeKind(), "  Code: \"" + sourceEvent.code() + "\"",
+        "  Message: \"" + sourceEvent.message() + "\"",
+        "  Origin: \"" + span.sourceFileKey() + "\" file=\"Example.java\" range=[" + span.startOffset() + "," + span.endOffsetExclusive() + ")",
+        "Diagnostic: \"" + requestEvent.diagnosticKey() + "\"", "  Occurrence: 2", "  Owner: CFG_REQUEST", "  Native position: 0",
+        "  Severity: ERROR", "  Stage: CONTROL_FLOW", "  Cause: " + requestEvent.outcomeKind(), "  Code: \"" + requestEvent.code() + "\"",
+        "  Message: \"" + requestEvent.message() + "\"", "  Origins: unavailable"),
+        lines.stream().takeWhile(line -> !line.startsWith("Qualification: ")).toList());
+  }
+
+  @Test
   void givenWarningSharingTheUnsupportedSourceProtocol_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible()
       throws IOException {
     // Arrange
@@ -111,6 +145,7 @@ class DiagnosticOccurrenceReportTest {
     var span = assignment.origin().orElseThrow();
     assertEquals(List.of(List.of("Qualification: CFG UNSUPPORTED", "  Profile: \"java-cfg-bounded/1\"",
         "  Subject: \"" + method.methodKey() + "\"", "  AST result: \"" + ast.identity().astResultKey() + "\"",
+        "  Body: WRITTEN", "  Body occurrence: \"" + ast.bodyRef(method.methodKey()).orElseThrow().sourceOccurrenceKey().orElseThrow() + "\"",
         "  Source occurrence: \"" + ast.occurrence(assignment).orElseThrow().nodeKey() + "\"", "  Slot: \"assignment.target\"",
         "  Origin: \"" + span.sourceFileKey() + "\" file=\"Example.java\" range=[" + span.startOffset() + "," + span.endOffsetExclusive() + ")",
         "  Related diagnostic: \"cfg:assignment-target\" occurrence=1")), qualificationBlocks(rendered, "CFG"));
@@ -277,13 +312,13 @@ class DiagnosticOccurrenceReportTest {
 
           // Act
           CliTestFixtures.present(run, runStreams);
-          var summary = AnalysisRunSummary.from(run);
+          var summary = CliTestFixtures.report(run).analysis();
 
           // Assert
           assertNativeReport(run, runStreams);
           assertEquals(AstCompletion.COMPLETE, ast.completion());
           assertEquals(List.of(diagnostic), ast.diagnostics());
-          assertEquals(AnalysisCompletion.PARTIAL, summary.run().completion());
+          assertEquals(AnalysisCompletion.PARTIAL, summary.completion());
         }));
   }
 
@@ -377,8 +412,7 @@ class DiagnosticOccurrenceReportTest {
     var streams = new CliStreams();
 
     // Act
-    new AnalyzeCommandPresenter().present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)),
-        streams.output(), streams.error());
+    CliTestFixtures.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)), streams);
 
     // Assert
     var ownerReason = ast.qualification().reasons().stream().filter(reason -> reason.role() == EvidenceRole.STATIC_OWNER).findFirst().orElseThrow();
@@ -389,9 +423,9 @@ class DiagnosticOccurrenceReportTest {
     assertEquals(List.of("Diagnostic: \"source:owner\""), lines.stream().filter(line -> line.startsWith("Diagnostic:")).toList());
     var index = lines.indexOf("  Evidence diagnostic: \"source:owner\"");
     assertTrue(index >= 0);
-    assertEquals(List.of("  Evidence diagnostic: \"source:owner\"", "    Severity: ERROR", "    Stage: FRONTEND",
+    assertEquals(List.of("  Evidence diagnostic: \"source:owner\"", "    Evidence role: STATIC_OWNER", "    Severity: ERROR", "    Stage: FRONTEND",
         "    Cause: OTHER_ANALYSIS_ERROR", "    Code: \"source.owner\"", "    Message: \"Supplied owner error\"", "    Origins: unavailable"),
-        lines.subList(index, index + 7));
+        lines.subList(index, index + 8));
     assertEquals(1, lines.stream().filter(line -> line.contains("Occurrence:")).count());
   }
 
@@ -405,14 +439,46 @@ class DiagnosticOccurrenceReportTest {
     var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(ast, new CfgRequest(ast.result().orElseThrow().identity(), List.of(second, first), CfgProfile.JAVA_BOUNDED));
     var cfg = run.representation().cfg().orElseThrow();
     var streams = new CliStreams();
+    var source = ast.result().orElseThrow();
+    var firstBlocker = cfg.methods().getLast().blockers().getFirst();
+    var secondBlocker = cfg.methods().getFirst().blockers().getFirst();
+    var firstSpan = firstBlocker.diagnostic().origins().getFirst();
+    var secondSpan = secondBlocker.diagnostic().origins().getFirst();
+    var firstOrigin = "  Origin: \"" + firstSpan.sourceFileKey() + "\" file=\"Example.java\" range=[" + firstSpan.startOffset() + "," + firstSpan.endOffsetExclusive() + ")";
+    var secondOrigin = "  Origin: \"" + secondSpan.sourceFileKey() + "\" file=\"Example.java\" range=[" + secondSpan.startOffset() + "," + secondSpan.endOffsetExclusive() + ")";
     // Act
     CliTestFixtures.present(run, streams);
     // Assert
     assertTrue(streams.outputLines().containsAll(List.of("Completion: PARTIAL", "AST: COMPLETE", "CFG: PARTIAL")));
+    assertNativeReport(run, streams);
     assertEquals(List.of(cfg.methods().getLast().diagnostics().getFirst(), cfg.methods().getFirst().diagnostics().getFirst()), run.diagnostics().values());
     assertEquals(run.diagnostics().values().stream().map(diagnostic -> "Diagnostic: \"" + diagnostic.diagnosticKey() + "\"").toList(), streams.errorLines().stream().filter(line -> line.startsWith("Diagnostic:")).toList());
     assertEquals(List.of("  Subject: \"" + second + "\"", "  Subject: \"" + first + "\"", "  Subject: \"" + second + "\"", "  Subject: \"" + first + "\""), streams.errorLines().stream().filter(line -> line.startsWith("  Subject:")).toList());
     assertEquals(List.of("  Related diagnostic: \"" + cfg.methods().getFirst().diagnostics().getFirst().diagnosticKey() + "\" occurrence=2", "  Related diagnostic: \"" + cfg.methods().getLast().diagnostics().getFirst().diagnosticKey() + "\" occurrence=1", "  Related diagnostic: \"" + cfg.methods().getFirst().diagnostics().getFirst().diagnosticKey() + "\" occurrence=2", "  Related diagnostic: \"" + cfg.methods().getLast().diagnostics().getFirst().diagnosticKey() + "\" occurrence=1"), streams.errorLines().stream().filter(line -> line.startsWith("  Related diagnostic:")).toList());
+    assertEquals(List.of(
+        List.of("Qualification: CFG UNSUPPORTED", "  Profile: \"java-cfg-bounded/1\"", "  Subject: \"" + second + "\"",
+            "  AST result: \"" + source.identity().astResultKey() + "\"", "  Body: WRITTEN",
+            "  Body occurrence: \"" + source.bodyRef(second).orElseThrow().sourceOccurrenceKey().orElseThrow() + "\"",
+            "  Source occurrence: \"" + secondBlocker.occurrence().orElseThrow().nodeKey() + "\"",
+            "  Slot: \"" + secondBlocker.slot() + "\"", secondOrigin,
+            "  Related diagnostic: \"" + secondBlocker.diagnostic().diagnosticKey() + "\" occurrence=2"),
+        List.of("Qualification: CFG UNSUPPORTED", "  Profile: \"java-cfg-bounded/1\"", "  Subject: \"" + first + "\"",
+            "  AST result: \"" + source.identity().astResultKey() + "\"", "  Body: WRITTEN",
+            "  Body occurrence: \"" + source.bodyRef(first).orElseThrow().sourceOccurrenceKey().orElseThrow() + "\"",
+            "  Source occurrence: \"" + firstBlocker.occurrence().orElseThrow().nodeKey() + "\"",
+            "  Slot: \"" + firstBlocker.slot() + "\"", firstOrigin,
+            "  Related diagnostic: \"" + firstBlocker.diagnostic().diagnosticKey() + "\" occurrence=1")),
+        qualificationBlocks(streams.errorLines(), "CFG"));
+    assertEquals(List.of(
+        List.of("Qualification: APPLICATION METHOD", "  Profile: \"java-cfg-bounded/1\"", "  Subject: \"" + second + "\"",
+            "  AST result: \"" + source.identity().astResultKey() + "\"", "  Body: WRITTEN",
+            "  Body occurrence: \"" + source.bodyRef(second).orElseThrow().sourceOccurrenceKey().orElseThrow() + "\"", secondOrigin,
+            "  Related diagnostic: \"" + secondBlocker.diagnostic().diagnosticKey() + "\" occurrence=2"),
+        List.of("Qualification: APPLICATION METHOD", "  Profile: \"java-cfg-bounded/1\"", "  Subject: \"" + first + "\"",
+            "  AST result: \"" + source.identity().astResultKey() + "\"", "  Body: WRITTEN",
+            "  Body occurrence: \"" + source.bodyRef(first).orElseThrow().sourceOccurrenceKey().orElseThrow() + "\"", firstOrigin,
+            "  Related diagnostic: \"" + firstBlocker.diagnostic().diagnosticKey() + "\" occurrence=1")),
+        qualificationBlocks(streams.errorLines(), "APPLICATION"));
   }
 
   @Test

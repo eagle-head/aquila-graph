@@ -18,9 +18,9 @@ final class AnalyzeCommandExecutor {
     try {
       return new AnalyzeCommandOutcome.Executed(analysisUseCase.execute(arguments.toAnalysisRequest()));
     } catch (AnalysisInputException exception) {
-      return new AnalyzeCommandOutcome.InputRejected(exception.description());
+      return new AnalyzeCommandOutcome.InputRejected(exception);
     } catch (AnalysisEnvironmentException exception) {
-      return new AnalyzeCommandOutcome.EnvironmentFailed(exception.description());
+      return new AnalyzeCommandOutcome.EnvironmentFailed(exception);
     }
   }
 }

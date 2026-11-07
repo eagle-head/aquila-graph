@@ -70,7 +70,7 @@ class AnalyzeCommandExecutorTest {
 
     // Assert
     var rejected = assertInstanceOf(AnalyzeCommandOutcome.InputRejected.class, outcome);
-    assertEquals("source unreadable", rejected.message());
+    assertEquals("source unreadable", rejected.failure().description());
   }
 
   @Test
@@ -86,7 +86,7 @@ class AnalyzeCommandExecutorTest {
 
     // Assert
     var failed = assertInstanceOf(AnalyzeCommandOutcome.EnvironmentFailed.class, outcome);
-    assertEquals("compiler unavailable", failed.message());
+    assertEquals("compiler unavailable", failed.failure().description());
   }
 
   @Test
@@ -148,7 +148,7 @@ class AnalyzeCommandExecutorTest {
 
     // Assert
     var rejected = assertInstanceOf(AnalyzeCommandOutcome.InputRejected.class, outcome);
-    assertEquals("source cannot be analyzed", rejected.message());
+    assertEquals("source cannot be analyzed", rejected.failure().description());
   }
 
   @Test

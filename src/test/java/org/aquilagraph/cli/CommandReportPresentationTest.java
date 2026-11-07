@@ -3,6 +3,8 @@ package org.aquilagraph.cli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
+import org.aquilagraph.source.api.AnalysisInputException;
+import org.aquilagraph.source.api.AnalysisEnvironmentException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -22,8 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 
 @Isolated("Temporarily changes the JVM format locale")
-class AnalyzeCommandPresenterTest {
-  private final AnalyzeCommandPresenter presenter = new AnalyzeCommandPresenter();
+class CommandReportPresentationTest {
+
 
   @Test
   void givenCompletedExecution_whenOutcomeIsPresented_thenProgramSummaryAndDiagnosticAreRendered() {
@@ -33,7 +35,7 @@ class AnalyzeCommandPresenterTest {
     var streams = new CliStreams();
 
     // Act
-    var exitCode = presenter.present(outcome, streams.output(), streams.error());
+    var exitCode = CliTestFixtures.present(outcome, streams);
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_COMPLETED, exitCode);
@@ -49,7 +51,7 @@ class AnalyzeCommandPresenterTest {
     var streams = new CliStreams();
 
     // Act
-    var exitCode = presenter.present(new AnalyzeCommandOutcome.Executed(execution), streams.output(), streams.error());
+    var exitCode = CliTestFixtures.present(new AnalyzeCommandOutcome.Executed(execution), streams);
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
@@ -66,14 +68,14 @@ class AnalyzeCommandPresenterTest {
     var streams = new CliStreams();
 
     // Act
-    var exitCode = presenter.present(new AnalyzeCommandOutcome.Executed(execution), streams.output(), streams.error());
+    var exitCode = CliTestFixtures.present(new AnalyzeCommandOutcome.Executed(execution), streams);
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
-    assertEquals(List.of("Run: " + run.identity().key(), "Software version: unavailable", "Completion: REJECTED",
-        "Java release: 25", "Java source files: 0", "AST: UNAVAILABLE", "AST profile: java-source-bounded/1",
+    assertEquals(List.of("Run: \"" + run.identity().key() + "\"", "Software version: unavailable", "Completion: REJECTED",
+        "Java release: 25", "Java source files: 0", "AST: UNAVAILABLE", "AST profile: \"java-source-bounded/1\"",
         "CFG: UNAVAILABLE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"",
-        "CFG selection: ALL_BODIES", "CFG binding: UNBOUND", "Repository: NOT_REQUESTED"), streams.outputLines());
+        "CFG selection: ALL_BODIES", "CFG binding: UNBOUND", "Repository: NOT_REQUESTED", "Publication intent: DO_NOT_SAVE", "Publication subject: unavailable", "Commit knowledge: NOT_STARTED"), streams.outputLines());
     assertEquals(1, streams.errorLines().stream().filter(line -> line.equals("Diagnostic: \"" + CliTestFixtures.errorDiagnostic().diagnosticKey() + "\"")).count());
     assertEquals(true, streams.errorLines().contains("Qualification: APPLICATION APPLICATION_DIAGNOSTIC"));
   }
@@ -85,14 +87,13 @@ class AnalyzeCommandPresenterTest {
     var streams = new CliStreams();
 
     // Act
-    var exitCode = presenter.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withFailedPublication(run,
-        new RepositoryException("database unavailable", new IllegalStateException("offline")))), streams.output(),
-        streams.error());
+    var exitCode = CliTestFixtures.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withFailedPublication(run,
+        new RepositoryException("database unavailable", new IllegalStateException("offline")))), streams);
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_REPOSITORY_FAILED, exitCode);
     assertEquals("Completion: COMPLETE", streams.outputLines().get(2));
-    assertEquals(List.of("Repository save failed: database unavailable"), streams.errorLines());
+    assertEquals(ReportTextExpectations.publicationFailure(run, "org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException", "not-applicable", "UNKNOWN"), streams.errorLines());
   }
 
   @Test
@@ -101,12 +102,12 @@ class AnalyzeCommandPresenterTest {
     var streams = new CliStreams();
 
     // Act
-    var exitCode = presenter.present(new AnalyzeCommandOutcome.InputRejected("source unreadable"), streams.output(), streams.error());
+    var exitCode = CliTestFixtures.present(new AnalyzeCommandOutcome.InputRejected(new AnalysisInputException("source unreadable", new IOException("input"))), streams);
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
     assertEquals(List.of(), streams.outputLines());
-    assertEquals(List.of("Input rejected: source unreadable"), streams.errorLines());
+    assertEquals(ReportTextExpectations.namedInput("source unreadable", "java.io.IOException", "input"), streams.errorLines());
   }
 
   @Test
@@ -115,22 +116,22 @@ class AnalyzeCommandPresenterTest {
     var streams = new CliStreams();
 
     // Act
-    var exitCode = presenter.present(new AnalyzeCommandOutcome.EnvironmentFailed("compiler unavailable"), streams.output(), streams.error());
+    var exitCode = CliTestFixtures.present(new AnalyzeCommandOutcome.EnvironmentFailed(new AnalysisEnvironmentException("compiler unavailable")), streams);
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
     assertEquals(List.of(), streams.outputLines());
-    assertEquals(List.of("Analysis failed: compiler unavailable"), streams.errorLines());
+    assertEquals(ReportTextExpectations.namedEnvironment("compiler unavailable"), streams.errorLines());
   }
 
   @Test
   void givenParserRejection_whenOutcomeIsPresented_thenMessageAndUsageAreRendered() {
     // Arrange
     var streams = new CliStreams();
-    var rejection = new AnalyzeCommandParser.Rejected("Exactly one source root is required");
+    var rejection = new AnalyzeCommandOutcome.UsageRejected(new ArgumentRejection.RootCount(0));
 
     // Act
-    var exitCode = presenter.present(rejection, streams.error());
+    var exitCode = CliTestFixtures.present(rejection, streams);
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
@@ -154,11 +155,11 @@ class AnalyzeCommandPresenterTest {
     for (var row : rows) {
       var streams = new CliStreams();
       // Act
-      var code = presenter.present(new AnalyzeCommandOutcome.Executed(row.execution()), streams.output(), streams.error());
+      var code = CliTestFixtures.present(new AnalyzeCommandOutcome.Executed(row.execution()), streams);
 
       // Assert
       assertEquals(row.exitCode(), code);
-      assertEquals("Repository: " + row.repositoryText(), streams.outputLines().getLast());
+      assertEquals("Repository: " + row.repositoryText(), streams.outputLines().get(streams.outputLines().size() - (row.repositoryText().equals("NOT_REQUESTED") && row.execution().run().representation().ast().result().isPresent() ? 9 : 4)));
       assertEquals("Completion: " + row.execution().run().completion(), streams.outputLines().get(2));
     }
   }
@@ -172,8 +173,7 @@ class AnalyzeCommandPresenterTest {
     var streams = new CliStreams();
 
     // Act
-    var code = presenter.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)),
-        streams.output(), streams.error());
+    var code = CliTestFixtures.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)), streams);
 
     // Assert
     assertEquals(0, code);
@@ -188,7 +188,7 @@ class AnalyzeCommandPresenterTest {
     var run = CliTestFixtures.completedRunWithWarning();
     var streams = new CliStreams();
     // Act
-    var code = presenter.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)), streams.output(), streams.error());
+    var code = CliTestFixtures.present(new AnalyzeCommandOutcome.Executed(CliTestFixtures.withoutRepositoryRequest(run)), streams);
     streams.output().println("output remains open");
     streams.error().println("error remains open");
     // Assert
@@ -214,7 +214,7 @@ class AnalyzeCommandPresenterTest {
       Locale.setDefault(Locale.Category.FORMAT, Locale.forLanguageTag("ar-EG-u-nu-arab"));
 
       // Act
-      code = presenter.present(outcome, streams.output(), streams.error());
+      code = CliTestFixtures.present(outcome, streams);
     } finally {
       Locale.setDefault(Locale.Category.FORMAT, previousFormatLocale);
     }
@@ -242,17 +242,19 @@ class AnalyzeCommandPresenterTest {
     var streams = new CliStreams();
 
     // Act
-    var code = presenter.present(outcome, streams.output(), streams.error());
+    var code = CliTestFixtures.present(outcome, streams);
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_COMPLETED, code);
-    assertEquals(List.of("Run: " + run.identity().key(), "Software version: " + source.identity().softwareSignature(),
-        "Completion: COMPLETE", "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: java-source-bounded/1",
+    var expectedOutput = new ArrayList<>(List.of("Run: \"" + run.identity().key() + "\"", "Software version: \"" + source.identity().softwareSignature() + "\"",
+        "Completion: COMPLETE", "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: \"java-source-bounded/1\"",
         "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"", "CFG selection: METHODS",
-        "CFG binding: " + source.identity().astResultKey(), "Selected method: \"" + last + "\"", "Selected method: \"" + first + "\"",
+        "CFG binding: \"" + source.identity().astResultKey() + "\"", "Selected method: \"" + last + "\"", "Selected method: \"" + first + "\"",
         "Java types: 1", "Java methods: 3", "Analyzed method bodies: 2", "CFG operations: 0", "CFG nodes: 4", "CFG edges: 2",
         "Method CFG: \"" + first + "\" AVAILABLE", "Method CFG: \"" + middle + "\" NOT_REQUESTED",
-        "Method CFG: \"" + last + "\" AVAILABLE", "Repository: NOT_REQUESTED"), streams.outputLines());
+        "Method CFG: \"" + last + "\" AVAILABLE", "Repository: NOT_REQUESTED"));
+    expectedOutput.addAll(ReportTextExpectations.noPublication(run));
+    assertEquals(expectedOutput, streams.outputLines());
     assertEquals(List.of(), streams.errorLines());
   }
 
@@ -264,10 +266,10 @@ class AnalyzeCommandPresenterTest {
     var outcome = new AnalyzeCommandOutcome.Executed(CliTestFixtures.withFailedPublication(run, failure));
     var streams = new CliStreams();
     var expectedError = new ArrayList<>(expectedWarning(1));
-    expectedError.add("Repository save failed: database unavailable");
+    expectedError.addAll(ReportTextExpectations.publicationFailure(run, "org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException", "not-applicable", "UNKNOWN"));
 
     // Act
-    var code = presenter.present(outcome, streams.output(), streams.error());
+    var code = CliTestFixtures.present(outcome, streams);
 
     // Assert
     assertEquals(AnalyzeCommand.EXIT_REPOSITORY_FAILED, code);
@@ -278,17 +280,19 @@ class AnalyzeCommandPresenterTest {
   private static List<String> expectedOutput(AnalysisRun run, String completion, String repository) {
     var ast = run.representation().ast().result().orElseThrow();
     var key = ast.program().methods().getFirst().methodKey();
-    return List.of("Run: " + run.identity().key(), "Software version: " + SoftwareVersion.from(ast.snapshot(), ast.environment()).signature(),
-        "Completion: " + completion, "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: java-source-bounded/1",
+    var result = new ArrayList<>(List.of("Run: \"" + run.identity().key() + "\"", "Software version: \"" + SoftwareVersion.from(ast.snapshot(), ast.environment()).signature() + "\"",
+        "Completion: " + completion, "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: \"java-source-bounded/1\"",
         "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"", "CFG selection: ALL_BODIES",
-        "CFG binding: " + ast.identity().astResultKey(), "Selected method: \"" + key + "\"", "Java types: 1", "Java methods: 1",
+        "CFG binding: \"" + ast.identity().astResultKey() + "\"", "Selected method: \"" + key + "\"", "Java types: 1", "Java methods: 1",
         "Analyzed method bodies: 1", "CFG operations: 0", "CFG nodes: 2", "CFG edges: 1", "Method CFG: \"" + key + "\" AVAILABLE",
-        "Repository: " + repository);
+        "Repository: " + repository));
+    result.addAll(repository.equals("NOT_REQUESTED") ? ReportTextExpectations.noPublication(run) : ReportTextExpectations.completedPublication(run, repository.equals("SAVED") ? "KNOWN_COMMIT" : repository.equals("FAILED") ? "UNKNOWN" : "NOT_STARTED"));
+    return result;
   }
 
   private static List<String> expectedWarning(int occurrence) {
     return List.of("Diagnostic: \"" + CliTestFixtures.warningDiagnostic().diagnosticKey() + "\"", "  Occurrence: " + occurrence,
-        "  Severity: WARNING", "  Stage: FRONTEND", "  Cause: OTHER_ANALYSIS_ERROR", "  Code: \"cli.warning\"",
+        "  Owner: APPLICATION", "  Native position: " + (occurrence - 1), "  Severity: WARNING", "  Stage: FRONTEND", "  Cause: OTHER_ANALYSIS_ERROR", "  Code: \"cli.warning\"",
         "  Message: \"analysis warning\"", "  Origins: unavailable");
   }
 

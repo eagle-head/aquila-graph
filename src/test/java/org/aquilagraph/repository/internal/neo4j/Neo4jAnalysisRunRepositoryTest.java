@@ -41,6 +41,10 @@ import org.aquilagraph.application.ComputedPublicationSubject.Coordinated;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cli.AnalyzeCommand;
+import org.aquilagraph.cli.AnalyzeCommandOutcome;
+import org.aquilagraph.cli.CommandPreparationException;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.source.api.AnalysisInputException;
 import org.aquilagraph.frontend.JavaFrontends;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.testsupport.AnalysisExecutionFixture;
@@ -60,6 +64,75 @@ import org.neo4j.driver.summary.ResultSummary;
 
 class Neo4jAnalysisRunRepositoryTest {
   @TempDir Path temporaryDirectory;
+
+  @Test
+  void givenUnacknowledgedDriverDoubleWrite_whenOutputIndependentCommandExecutes_thenPublicOutcomeRetainsExactRepositoryObservation()
+      throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("Example.java"), "interface Example { static void run() {} }");
+    var runDriver = new DriverDouble();
+    var astDriver = new AstRepositoryDriverStub();
+    var signal = new Neo4jException("Managed write observation");
+    runDriver.acknowledgementFailure = signal;
+    var repositories = publications(runDriver, astDriver);
+    var application = AnalysisCapabilities.execution(AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard()),
+        repositories.astRepositories(), repositories.runRepositories());
+    var command = new AnalyzeCommand(application);
+
+    // Act
+    var outcome = command.execute(temporaryDirectory.toString(), "--persist");
+
+    // Assert
+    var execution = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, outcome).execution();
+    var publication = execution.publication();
+    assertEquals(PublicationStatus.FAILED, publication.status());
+    assertEquals(CommitKnowledge.UNKNOWN, publication.knowledge());
+    assertEquals(RepositoryOperationContext.saveCompletedRun(execution.run().identity().key()), publication.failure().orElseThrow().carrier().context());
+    assertSame(signal, publication.failure().orElseThrow().effectivePrimary().getCause());
+    assertEquals(1, runDriver.attempts.size());
+    assertEquals(List.of("schema.close", "publication.close", "driver.close"), runDriver.effects);
+  }
+
+  @Test
+  void givenAcknowledgedDriverDoubleWriteAndProjectionFault_whenCommandRuns_thenCrossPackageContextRetainsKnownCommitAndOriginalFailure()
+      throws IOException {
+    // Arrange
+    Files.writeString(temporaryDirectory.resolve("Example.java"), "interface Example { static void run() {} }");
+    var runDriver = new DriverDouble();
+    var astDriver = new AstRepositoryDriverStub();
+    runDriver.driverCloseFailure = new Neo4jException("Driver closure observation");
+    var repositories = publications(runDriver, astDriver);
+    var application = AnalysisCapabilities.execution(AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard()),
+        repositories.astRepositories(), repositories.runRepositories());
+    var original = new AtomicReference<AnalysisExecution>();
+    var fault = new AnalysisInputException("Projection observation", new IOException("detail"));
+    var command = new AnalyzeCommand(request -> {
+      var execution = application.execute(request);
+      original.set(execution);
+      return execution;
+    }, JavaRelease.JAVA_25, carrier -> { throw fault; });
+    var output = new ByteArrayOutputStream();
+    var error = new ByteArrayOutputStream();
+
+    // Act
+    try (var stdout = new PrintStream(output, true, StandardCharsets.UTF_8);
+        var stderr = new PrintStream(error, true, StandardCharsets.UTF_8)) {
+      var failure = assertThrows(CommandPreparationException.class,
+          () -> command.run(new String[] {temporaryDirectory.toString(), "--persist"}, stdout, stderr));
+
+      // Assert
+      assertSame(fault, failure.getCause());
+      assertEquals(CommandPreparationException.Phase.PROJECTION, failure.phase());
+      assertFalse(failure.reportEmissionStarted());
+      var retained = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, failure.outcome());
+      assertSame(original.get(), retained.execution());
+      assertEquals(CommitKnowledge.KNOWN_COMMIT, retained.execution().publication().knowledge());
+      assertEquals(PublicationStatus.FAILED, retained.execution().publication().status());
+      assertEquals(1, runDriver.attempts.size());
+      assertEquals(0, output.size());
+      assertEquals(0, error.size());
+    }
+  }
 
   @Test
   void givenDriverCreationFailure_whenRepositoryOpens_thenNoDriverCleanupIsInvented() {
@@ -848,10 +921,27 @@ class Neo4jAnalysisRunRepositoryTest {
     assertEquals("driver.close", astDriver.events.getLast());
     assertEquals(AnalyzeCommand.EXIT_REPOSITORY_FAILED, exit);
     var lines = output.toString(StandardCharsets.UTF_8).lines().toList();
-    assertEquals("Run: " + run.identity().key(), lines.getFirst());
-    assertTrue(lines.contains("Completion: COMPLETE"));
-    assertEquals("Repository: FAILED", lines.getLast());
-    assertEquals(List.of("Repository save failed: Neo4j repository save failed"), error.toString(StandardCharsets.UTF_8).lines().toList());
+    var identity = ast.result().orElseThrow().identity();
+    var methodKey = ast.result().orElseThrow().program().methods().getFirst().methodKey();
+    assertEquals(List.of("Run: \"" + run.identity().key() + "\"", "Software version: \"" + identity.softwareSignature() + "\"",
+        "Completion: COMPLETE", "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: \"java-source-bounded/1\"",
+        "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"", "CFG selection: ALL_BODIES",
+        "CFG binding: \"" + identity.astResultKey() + "\"", "Selected method: \"" + methodKey + "\"", "Java types: 1", "Java methods: 1",
+        "Analyzed method bodies: 1", "CFG operations: 0", "CFG nodes: 2", "CFG edges: 1", "Method CFG: \"" + methodKey + "\" AVAILABLE",
+        "Repository: FAILED", "Publication intent: SAVE_COMPLETED", "Publication subject: COMPLETED_RUN \"" + run.identity().key() + "\"",
+        "Commit knowledge: UNKNOWN"), lines);
+    assertEquals(List.of("Repository save failed: \"Neo4j repository save failed\"", "Failure reference: 1",
+        "Failure: 1", "  Type: \"org.aquilagraph.application.PublicationFailure\"", "  Message: \"Publication failed\"",
+        "  Cause: 2", "  Carrier: 2", "  Effective primary: 3", "  Suppressed: none", "  Operation: not-applicable",
+        "Failure: 2", "  Type: \"org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException\"", "  Message: \"Repository operation failed\"",
+        "  Cause: 3", "  Carrier: not-applicable", "  Effective primary: 3", "  Suppressed: none", "  Operation: SAVE_COMPLETED_RUN",
+        "  Operation subject: COMPLETED_RUN \"" + run.identity().key() + "\"", "  Commit knowledge: UNKNOWN", "  Application boundary: not-applicable",
+        "  Adapter: not-applicable", "  Adapter phase: not-applicable",
+        "Failure: 3", "  Type: \"org.aquilagraph.application.port.RepositoryException\"", "  Message: \"Neo4j repository save failed\"",
+        "  Cause: 4", "  Carrier: not-applicable", "  Effective primary: not-applicable", "  Suppressed: none", "  Operation: not-applicable",
+        "Failure: 4", "  Type: \"org.neo4j.driver.exceptions.Neo4jException\"", "  Message: \"Managed write was not acknowledged\"",
+        "  Cause: unavailable", "  Carrier: not-applicable", "  Effective primary: not-applicable", "  Suppressed: none", "  Operation: not-applicable"),
+        error.toString(StandardCharsets.UTF_8).lines().toList());
   }
 
   @Test

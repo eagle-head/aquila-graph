@@ -130,8 +130,24 @@ final class CliTestFixtures {
   }
 
   static int present(AnalysisRun run, CliStreams streams) {
-    return new AnalyzeCommandPresenter().present(new AnalyzeCommandOutcome.Executed(withoutRepositoryRequest(run)),
-        streams.output(), streams.error());
+    return present(new AnalyzeCommandOutcome.Executed(withoutRepositoryRequest(run)), streams);
+  }
+
+  static int present(AnalyzeCommandOutcome outcome, CliStreams streams) {
+    var prepared = prepared(outcome);
+    streams.output().print(prepared.output());
+    streams.error().print(prepared.error());
+    return AnalyzeCommand.semanticExitCode(outcome);
+  }
+
+  static PreparedCommandOutput prepared(AnalyzeCommandOutcome outcome) {
+    var report = new CommandReportProjector(failure -> Optional.empty()).project(outcome);
+    return new CommandTextRenderer(System.lineSeparator()).render(new CommandDocumentComposer().compose(report));
+  }
+
+  static CommandReport.Executed report(AnalysisRun run) {
+    return (CommandReport.Executed) new CommandReportProjector(failure -> Optional.empty())
+        .project(new AnalyzeCommandOutcome.Executed(withoutRepositoryRequest(run)));
   }
 
   static AnalysisExecution withFailedPublication(AnalysisRun run, RepositoryException primary, Throwable... cleanup) {
