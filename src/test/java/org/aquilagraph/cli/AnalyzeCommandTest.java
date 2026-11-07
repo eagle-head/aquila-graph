@@ -1,6 +1,7 @@
 package org.aquilagraph.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -67,10 +68,10 @@ class AnalyzeCommandTest {
           var streams = new CliStreams();
 
           // Act
-          var code = command.run(tokens.toArray(String[]::new), streams.output(), streams.error());
+          var code = new CommandRunner(command).run(tokens.toArray(String[]::new), CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode();
 
           // Assert
-          assertEquals(AnalyzeCommand.EXIT_COMPLETED, code);
+          assertEquals(CommandExitPolicy.EXIT_COMPLETED, code);
           assertEquals(List.of(new AnalysisRequest(new AnalysisComputationRequest(
               new AstProductionRequest(directory.toAbsolutePath().normalize(), CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED))), PublicationIntent.SAVE_COMPLETED)), useCase.requests());
           assertTrue(streams.outputLines().contains("Completion: COMPLETE"));
@@ -88,13 +89,10 @@ class AnalyzeCommandTest {
 
     // Act
     var exitCode =
-        command.run(
-            new String[] {directory.toString()},
-            streams.output(),
-            streams.error());
+        new CommandRunner(command).run(new String[] {directory.toString()}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode();
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
+    assertEquals(CommandExitPolicy.EXIT_INCOMPLETE, exitCode);
     assertTrue(streams.outputText().contains("Completion: PARTIAL"));
     assertTrue(streams.outputText().contains("Java release: 25"));
     assertTrue(
@@ -112,13 +110,10 @@ class AnalyzeCommandTest {
 
     // Act
     var exitCode =
-        command.run(
-            new String[] {directory.toString(), "--release", "25"},
-            streams.output(),
-            streams.error());
+        new CommandRunner(command).run(new String[] {directory.toString(), "--release", "25"}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode();
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
+    assertEquals(CommandExitPolicy.EXIT_INCOMPLETE, exitCode);
     assertTrue(streams.outputText().contains("Java release: 25"));
     assertTrue(streams.errorText()
         .contains("Qualification: SOURCE PROFILE_RESTRICTION"));
@@ -135,13 +130,10 @@ class AnalyzeCommandTest {
 
     // Act
     var exitCode =
-        command.run(
-            new String[] {directory.toString(), "--release", "25"},
-            streams.output(),
-            streams.error());
+        new CommandRunner(command).run(new String[] {directory.toString(), "--release", "25"}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode();
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
+    assertEquals(CommandExitPolicy.EXIT_REJECTED, exitCode);
     assertEquals("", streams.outputText());
     assertTrue(streams.errorText().contains("Input rejected:"));
     assertTrue(streams.errorText().contains(malformedSource.toString().replace("\\", "\\\\")));
@@ -158,13 +150,10 @@ class AnalyzeCommandTest {
 
     // Act
     var exitCode =
-        command.run(
-            new String[] {directory.toString(), "--release", "25", "--persist"},
-            streams.output(),
-            streams.error());
+        new CommandRunner(command).run(new String[] {directory.toString(), "--release", "25", "--persist"}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode();
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, exitCode);
+    assertEquals(CommandExitPolicy.EXIT_INCOMPLETE, exitCode);
     assertTrue(streams.outputText().contains("Completion: PARTIAL"));
     assertTrue(streams.outputText().contains("Repository: NOT_ELIGIBLE"));
     assertTrue(streams.errorText()
@@ -186,7 +175,7 @@ class AnalyzeCommandTest {
     });
 
     // Act
-    var code = command.run(new String[] {directory.toString()}, streams.output(), streams.error());
+    var code = new CommandRunner(command).run(new String[] {directory.toString()}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode();
 
     // Assert
     assertEquals(1, code);
@@ -220,7 +209,7 @@ class AnalyzeCommandTest {
     var streams = new CliStreams();
 
     // Act
-    var code = command.run(new String[] {directory.toString(), "--persist"}, streams.output(), streams.error());
+    var code = new CommandRunner(command).run(new String[] {directory.toString(), "--persist"}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode();
 
     // Assert
     assertEquals(3, code);
@@ -241,7 +230,7 @@ class AnalyzeCommandTest {
     var streams = new CliStreams();
 
     // Act
-    var code = command.run(new String[] {directory.resolve("child").resolve("..").toString(), "--release", "25"}, streams.output(), streams.error());
+    var code = new CommandRunner(command).run(new String[] {directory.resolve("child").resolve("..").toString(), "--release", "25"}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode();
     streams.output().println("still writable");
     streams.error().println("still writable");
 
@@ -282,7 +271,7 @@ class AnalyzeCommandTest {
 
     // Act
     var observed = assertThrows(AnalysisDerivationException.class,
-        () -> command.run(new String[] {directory.toString(), "--persist"}, streams.output(), streams.error()));
+        () -> new CommandRunner(command).run(new String[] {directory.toString(), "--persist"}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode());
 
     // Assert
     assertSame(source.get(), observed.ast());
@@ -306,7 +295,7 @@ class AnalyzeCommandTest {
     var command = new AnalyzeCommand(request -> { throw primary; });
     var streams = new CliStreams();
     // Act
-    var observed = assertThrows(IllegalStateException.class, () -> command.run(new String[] {"source"}, streams.output(), streams.error()));
+    var observed = assertThrows(IllegalStateException.class, () -> new CommandRunner(command).run(new String[] {"source"}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode());
     // Assert
     assertSame(primary, observed);
     assertEquals(1, observed.getSuppressed().length);
@@ -323,10 +312,10 @@ class AnalyzeCommandTest {
     var streams = new CliStreams();
 
     // Act
-    var code = command.run(new String[] {"source"}, streams.output(), streams.error());
+    var code = new CommandRunner(command).run(new String[] {"source"}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode();
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_REJECTED, code);
+    assertEquals(CommandExitPolicy.EXIT_REJECTED, code);
     assertEquals(List.of(), streams.outputLines());
     assertEquals(ReportTextExpectations.namedInput("source unreadable", "java.io.IOException", "unreadable"), streams.errorLines());
   }
@@ -339,10 +328,10 @@ class AnalyzeCommandTest {
     var streams = new CliStreams();
 
     // Act
-    var code = command.run(new String[] {"source"}, streams.output(), streams.error());
+    var code = new CommandRunner(command).run(new String[] {"source"}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode();
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, code);
+    assertEquals(CommandExitPolicy.EXIT_INCOMPLETE, code);
     assertEquals(List.of(), streams.outputLines());
     assertEquals(ReportTextExpectations.namedEnvironment("compiler unavailable"), streams.errorLines());
   }
@@ -364,18 +353,19 @@ class AnalyzeCommandTest {
     var completed = new CliStreams();
 
     // Act
-    var failedCode = command.run(new String[] {"unreadable", "--persist"}, failed.output(), failed.error());
-    var invalidCode = command.run(new String[] {"--persist", "--unknown"}, invalid.output(), invalid.error());
-    var completedCode = command.run(new String[] {"readable"}, completed.output(), completed.error());
+    var runner = new CommandRunner(command);
+    var failedCode = runner.run(new String[] {"unreadable", "--persist"}, CommandDestination.printStream(failed.output()), CommandDestination.printStream(failed.error())).exitCode();
+    var invalidCode = runner.run(new String[] {"--persist", "--unknown"}, CommandDestination.printStream(invalid.output()), CommandDestination.printStream(invalid.error())).exitCode();
+    var completedCode = runner.run(new String[] {"readable"}, CommandDestination.printStream(completed.output()), CommandDestination.printStream(completed.error())).exitCode();
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_REJECTED, failedCode);
+    assertEquals(CommandExitPolicy.EXIT_REJECTED, failedCode);
     assertEquals(List.of(), failed.outputLines());
     assertEquals(ReportTextExpectations.namedInput("source unreadable", "java.io.IOException", "unreadable"), failed.errorLines());
-    assertEquals(AnalyzeCommand.EXIT_REJECTED, invalidCode);
+    assertEquals(CommandExitPolicy.EXIT_REJECTED, invalidCode);
     assertEquals(List.of(), invalid.outputLines());
     assertEquals(List.of("Unknown option: \"--unknown\"", AnalyzeCommandParser.USAGE), invalid.errorLines());
-    assertEquals(AnalyzeCommand.EXIT_COMPLETED, completedCode);
+    assertEquals(CommandExitPolicy.EXIT_COMPLETED, completedCode);
     assertTrue(completed.outputLines().contains("Completion: COMPLETE"));
     assertEquals(ReportTextExpectations.noPublication(execution.run()), completed.outputLines().subList(completed.outputLines().size() - 8, completed.outputLines().size()));
     assertEquals(List.of(), completed.errorLines());
@@ -392,12 +382,12 @@ class AnalyzeCommandTest {
     var streams = new CliStreams();
 
     // Act
-    var code = command.run(new String[] {"--unknown"}, streams.output(), streams.error());
+    var code = new CommandRunner(command).run(new String[] {"--unknown"}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error())).exitCode();
     streams.output().println("caller output");
     streams.error().println("caller diagnostic");
 
     // Assert
-    assertEquals(AnalyzeCommand.EXIT_REJECTED, code);
+    assertEquals(CommandExitPolicy.EXIT_REJECTED, code);
     assertEquals(List.of("caller output"), streams.outputLines());
     assertEquals(List.of("Unknown option: \"--unknown\"", AnalyzeCommandParser.USAGE, "caller diagnostic"), streams.errorLines());
   }
@@ -435,15 +425,19 @@ class AnalyzeCommandTest {
 
     try (var error = new PrintStream(diagnosticSink, true, StandardCharsets.UTF_8)) {
       // Act
-      var observed = assertThrows(AnalysisEnvironmentException.class,
-          () -> command.run(new String[] {"source"}, streams.output(), error));
+      var observed = assertThrows(CommandPresentationException.class,
+          () -> new CommandRunner(command).run(new String[] {"source"}, CommandDestination.printStream(streams.output()), CommandDestination.printStream(error)).exitCode());
       streams.output().println("caller output");
       error.println("caller diagnostic");
 
       // Assert
-      assertSame(primary, observed);
-      assertSame(cause, observed.getCause());
-      assertEquals(List.of(cleanup), List.of(observed.getSuppressed()));
+      assertSame(primary, observed.getCause());
+      assertSame(cause, observed.getCause().getCause());
+      assertEquals(List.of(cleanup), List.of(observed.getCause().getSuppressed()));
+      assertEquals(CommandPresentationException.Phase.WRITE, observed.phase());
+      assertEquals(Optional.of(OutputChannel.STDERR), observed.channel());
+      assertSame(execution, assertInstanceOf(AnalyzeCommandOutcome.Executed.class, observed.outcome()).execution());
+      assertEquals(ChannelEmission.Status.COMPLETED, observed.progress().orElseThrow().output());
       assertEquals(1, useCase.requests().size());
       var output = streams.outputLines();
       assertTrue(output.contains("Completion: COMPLETE"));

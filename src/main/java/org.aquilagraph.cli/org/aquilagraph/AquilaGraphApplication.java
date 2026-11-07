@@ -3,6 +3,9 @@ package org.aquilagraph;
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cli.AnalyzeCommand;
+import org.aquilagraph.cli.CommandExitPolicy;
+import org.aquilagraph.cli.CommandDestination;
+import org.aquilagraph.cli.CommandRunner;
 import org.aquilagraph.frontend.JavaFrontends;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.repository.neo4j.Neo4jRepositories;
@@ -26,8 +29,9 @@ public final class AquilaGraphApplication {
         Neo4jRepositories.astResults(() -> Neo4jConnectionSettings.fromEnvironment(environment)),
         Neo4jRepositories.completedRuns(() -> Neo4jConnectionSettings.fromEnvironment(environment)));
     var command = new AnalyzeCommand(execution, JavaRelease.JAVA_25, new Neo4jFailureDetailProjector());
-    var exitCode = command.run(arguments, System.out, System.err);
-    if (exitCode != AnalyzeCommand.EXIT_COMPLETED) {
+    var exitCode = new CommandRunner(command)
+        .run(arguments, CommandDestination.printStream(System.out), CommandDestination.printStream(System.err)).exitCode();
+    if (exitCode != CommandExitPolicy.EXIT_COMPLETED) {
       System.exit(exitCode);
     }
   }
