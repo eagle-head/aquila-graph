@@ -22,7 +22,7 @@ class AnalyzeCommandParserTest {
     var result = parser.parse(arguments);
 
     // Assert
-    assertEquals("Exactly one source root is required", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+    assertEquals(new ArgumentRejection.RootCount(0), assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).reason());
   }
 
   @Test
@@ -34,7 +34,7 @@ class AnalyzeCommandParserTest {
     var result = parser.parse(arguments);
 
     // Assert
-    assertEquals("Unsupported Java release: 26. Supported releases: 25", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+    assertEquals(new ArgumentRejection.UnsupportedRelease("26", 26), assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).reason());
   }
 
   @Test
@@ -46,7 +46,7 @@ class AnalyzeCommandParserTest {
     var result = parser.parse(arguments);
 
     // Assert
-    assertEquals("Invalid Java release: latest", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+    assertEquals(new ArgumentRejection.MalformedRelease("latest"), assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).reason());
   }
 
   @Test
@@ -58,7 +58,7 @@ class AnalyzeCommandParserTest {
     var result = parser.parse(arguments);
 
     // Assert
-    assertEquals("--release requires a Java feature-release number", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+    assertEquals(ArgumentRejection.MissingRelease.INSTANCE, assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).reason());
   }
 
   @Test
@@ -70,7 +70,7 @@ class AnalyzeCommandParserTest {
     var result = parser.parse(arguments);
 
     // Assert
-    assertEquals("--release may be supplied only once", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+    assertEquals(new ArgumentRejection.DuplicateOption("--release"), assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).reason());
   }
 
   @Test
@@ -113,7 +113,7 @@ class AnalyzeCommandParserTest {
 
     // Assert
     var rejected = assertInstanceOf(AnalyzeCommandParser.Rejected.class, result);
-    assertEquals("--release requires a Java feature-release number", rejected.message());
+    assertEquals(ArgumentRejection.MissingRelease.INSTANCE, rejected.reason());
   }
 
   @Test
@@ -126,7 +126,7 @@ class AnalyzeCommandParserTest {
 
     // Assert
     var rejected = assertInstanceOf(AnalyzeCommandParser.Rejected.class, result);
-    assertEquals("--persist may be supplied only once", rejected.message());
+    assertEquals(new ArgumentRejection.DuplicateOption("--persist"), rejected.reason());
   }
 
   @Test
@@ -139,7 +139,7 @@ class AnalyzeCommandParserTest {
 
     // Assert
     var rejected = assertInstanceOf(AnalyzeCommandParser.Rejected.class, result);
-    assertEquals("Unknown option: --unknown", rejected.message());
+    assertEquals(new ArgumentRejection.UnknownOption("--unknown"), rejected.reason());
   }
 
   @Test
@@ -152,7 +152,7 @@ class AnalyzeCommandParserTest {
 
     // Assert
     var rejected = assertInstanceOf(AnalyzeCommandParser.Rejected.class, result);
-    assertEquals("Invalid source root: " + invalidPath, rejected.message());
+    assertEquals(new ArgumentRejection.InvalidRoot(invalidPath), rejected.reason());
   }
 
   @Test
@@ -165,7 +165,7 @@ class AnalyzeCommandParserTest {
 
     // Assert
     var rejected = assertInstanceOf(AnalyzeCommandParser.Rejected.class, result);
-    assertEquals("Exactly one source root is required", rejected.message());
+    assertEquals(new ArgumentRejection.RootCount(2), rejected.reason());
   }
 
   @Test
@@ -189,7 +189,7 @@ class AnalyzeCommandParserTest {
     var result = parser.parse(arguments);
 
     // Assert
-    assertEquals("Unknown option: --unknown", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+    assertEquals(new ArgumentRejection.UnknownOption("--unknown"), assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).reason());
   }
 
   @Test
@@ -201,7 +201,7 @@ class AnalyzeCommandParserTest {
     var result = parser.parse(arguments);
 
     // Assert
-    assertEquals("--release may be supplied only once", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+    assertEquals(new ArgumentRejection.DuplicateOption("--release"), assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).reason());
   }
 
   @Test
@@ -213,7 +213,7 @@ class AnalyzeCommandParserTest {
     var result = parser.parse(arguments);
 
     // Assert
-    assertEquals("Invalid Java release: 2147483648", assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+    assertEquals(new ArgumentRejection.MalformedRelease("2147483648"), assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).reason());
   }
 
   @Test
@@ -226,7 +226,7 @@ class AnalyzeCommandParserTest {
       var result = parser.parse("source", unknownToken);
 
       // Assert
-      assertEquals("Unknown option: " + unknownToken, assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+      assertEquals(new ArgumentRejection.UnknownOption(unknownToken), assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).reason());
     }
   }
 
@@ -279,8 +279,8 @@ class AnalyzeCommandParserTest {
       var result = parser.parse("source", "--release", token);
 
       // Assert
-      assertEquals("Unsupported Java release: " + token + ". Supported releases: 25",
-          assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+      assertEquals(new ArgumentRejection.UnsupportedRelease(token, feature),
+          assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).reason());
     }
   }
 
@@ -294,7 +294,7 @@ class AnalyzeCommandParserTest {
       var result = parser.parse("source", "--release", token);
 
       // Assert
-      assertEquals("Invalid Java release: " + token, assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).message());
+      assertEquals(new ArgumentRejection.MalformedRelease(token), assertInstanceOf(AnalyzeCommandParser.Rejected.class, result).reason());
     }
   }
 
@@ -326,7 +326,7 @@ class AnalyzeCommandParserTest {
     var result = parser.parse("source");
 
     // Assert
-    assertEquals("Exactly one source root is required", assertInstanceOf(AnalyzeCommandParser.Rejected.class, missingRoot).message());
+    assertEquals(new ArgumentRejection.RootCount(0), assertInstanceOf(AnalyzeCommandParser.Rejected.class, missingRoot).reason());
     assertEquals(expected, assertInstanceOf(AnalyzeCommandParser.Parsed.class, result).arguments());
   }
 }

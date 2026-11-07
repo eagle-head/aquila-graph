@@ -109,7 +109,7 @@ class CfgResultPresentationTest {
     assertEquals(1, streams.outputLines().stream().filter(line -> line.startsWith("CFG profile:")).count());
     assertEquals(1, streams.outputLines().stream().filter(line -> line.startsWith("CFG graph model:")).count());
     assertEquals(List.of("Selected method: \"" + key + "\"", "Selected method: \"" + key + "\"", "Selected method: \"unknown\""), streams.outputLines().stream().filter(line -> line.startsWith("Selected method:")).toList());
-    assertTrue(streams.outputLines().contains("CFG binding: " + request.astIdentity().astResultKey()));
+    assertTrue(streams.outputLines().contains("CFG binding: \"" + request.astIdentity().astResultKey() + "\""));
     assertTrue(streams.errorLines().contains("Qualification: CFG REJECTED"));
     assertTrue(literal.outputLines().containsAll(List.of("CFG profile: \"not-requested\"", "CFG graph model: \"not-requested\"")));
   }
@@ -136,10 +136,10 @@ class CfgResultPresentationTest {
     assertEquals(1, code);
     assertEquals(AnalysisCompletion.PARTIAL, run.completion());
     assertTrue(streams.outputLines().contains("Method CFG: \"" + key + "\" NOT_APPLICABLE"));
-    assertEquals(List.of("Diagnostic: \"cfg:bodyless\"", "  Occurrence: 1", "  Severity: ERROR", "  Stage: CONTROL_FLOW",
+    assertEquals(List.of("Diagnostic: \"cfg:bodyless\"", "  Occurrence: 1", "  Owner: CFG_METHOD", "  Native position: 0", "  Owner method: \"" + key + "\"", "  Severity: ERROR", "  Stage: CONTROL_FLOW",
         "  Cause: CONTROL_FLOW_UNAVAILABLE", "  Code: \"control-flow.notice\"", "  Message: \"Supplied bodyless method error\"",
         "  Origins: unavailable", "Qualification: APPLICATION METHOD_DIAGNOSTIC", "  Profile: \"java-cfg-bounded/1\"",
-        "  Subject: \"" + key + "\"", "  Origins: unavailable", "  Related diagnostic: \"cfg:bodyless\" occurrence=1"), streams.errorLines());
+        "  Subject: \"" + key + "\"", "  AST result: \"" + source.identity().astResultKey() + "\"", "  Body: unavailable", "  Origins: unavailable", "  Related diagnostic: \"cfg:bodyless\" occurrence=1"), streams.errorLines());
     assertEquals(List.of(), method.blockers());
   }
 }

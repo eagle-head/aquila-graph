@@ -45,19 +45,19 @@ class AquilaGraphPersistenceNeo4jIT {
           var sourceRoot = Files.createDirectories(caseDirectory.resolve("sources"));
           Files.writeString(sourceRoot.resolve(className + ".java"),
               "class " + className + " { int value(int input) { return input + " + literal + "; } }");
-          var expectedOutput = PackagedAnalysisSummary.expectedOutput(sourceRoot, PublicationStatus.SAVED);
+          var expectedOutput = PackagedAnalysisSummary.expected(sourceRoot, PublicationStatus.SAVED);
 
           // Act
           var result = new PackagedAnalyzerProcess(caseDirectory).run(List.of(), Neo4jIntegration.environment(), sourceRoot, "--release", "25", "--persist");
-          var runId = result.output().lines().filter(line -> line.startsWith("Run: ")).map(line -> line.substring("Run: ".length()))
-              .findFirst().orElseThrow(() -> new AssertionError("Missing run identity: " + result.output() + result.error()));
+          var runId = result.output().lines().filter(line -> line.startsWith("Run: \"")).findFirst().orElseThrow()
+              .transform(line -> line.substring("Run: \"".length(), line.length() - 1));
           runIds.add(runId);
 
           // Assert
           assertTrue(result.completed(), result.error());
           assertEquals(0, result.exitCode(), result.error());
           assertEquals("", result.error());
-          assertEquals(expectedOutput, result.output());
+          assertEquals(expectedOutput.output(), result.output());
           assertEquals(List.of(Map.of("completion", "COMPLETE", "type", className, "method", "value", "parameter", "input",
               "literal", literal, "literalType", "INT", "resultType", "INT")), session.run("""
               MATCH (run:AnalysisRun {runId: $runId})-[:HAS_PROGRAM]->(program:Program)

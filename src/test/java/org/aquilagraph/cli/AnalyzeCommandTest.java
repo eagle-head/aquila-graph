@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -73,7 +74,7 @@ class AnalyzeCommandTest {
           assertEquals(List.of(new AnalysisRequest(new AnalysisComputationRequest(
               new AstProductionRequest(directory.toAbsolutePath().normalize(), CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED))), PublicationIntent.SAVE_COMPLETED)), useCase.requests());
           assertTrue(streams.outputLines().contains("Completion: COMPLETE"));
-          assertEquals("Repository: SAVED", streams.outputLines().getLast());
+          assertEquals(List.of("Repository: SAVED", "Publication intent: SAVE_COMPLETED", "Publication subject: COMPLETED_RUN \"" + run.identity().key() + "\"", "Commit knowledge: KNOWN_COMMIT"), streams.outputLines().subList(streams.outputLines().size() - 4, streams.outputLines().size()));
           assertEquals(List.of(), streams.errorLines());
         }));
   }
@@ -143,7 +144,7 @@ class AnalyzeCommandTest {
     assertEquals(AnalyzeCommand.EXIT_REJECTED, exitCode);
     assertEquals("", streams.outputText());
     assertTrue(streams.errorText().contains("Input rejected:"));
-    assertTrue(streams.errorText().contains(malformedSource.toString()));
+    assertTrue(streams.errorText().contains(malformedSource.toString().replace("\\", "\\\\")));
     assertFalse(streams.errorText().contains("Analysis failed:"));
   }
 
@@ -226,8 +227,8 @@ class AnalyzeCommandTest {
     assertSame(cause, execution.get().publication().failure().orElseThrow().effectivePrimary());
     assertEquals(AnalysisCompletion.COMPLETE, execution.get().run().completion());
     assertTrue(streams.outputLines().contains("Completion: COMPLETE"));
-    assertEquals("Repository: FAILED", streams.outputLines().getLast());
-    assertEquals(List.of("Repository save failed: database unavailable"), streams.errorLines());
+    assertEquals(List.of("Repository: FAILED", "Publication intent: SAVE_COMPLETED", "Publication subject: COMPLETED_RUN \"" + execution.get().run().identity().key() + "\"", "Commit knowledge: NOT_STARTED"), streams.outputLines().subList(streams.outputLines().size() - 4, streams.outputLines().size()));
+    assertEquals(ReportTextExpectations.publicationFailure(execution.get().run(), "org.aquilagraph.application.ApplicationRepositoryOperationException", "ACQUISITION", "NOT_STARTED"), streams.errorLines());
   }
 
   @Test
@@ -327,7 +328,7 @@ class AnalyzeCommandTest {
     // Assert
     assertEquals(AnalyzeCommand.EXIT_REJECTED, code);
     assertEquals(List.of(), streams.outputLines());
-    assertEquals(List.of("Input rejected: source unreadable"), streams.errorLines());
+    assertEquals(ReportTextExpectations.namedInput("source unreadable", "java.io.IOException", "unreadable"), streams.errorLines());
   }
 
   @Test
@@ -343,7 +344,7 @@ class AnalyzeCommandTest {
     // Assert
     assertEquals(AnalyzeCommand.EXIT_INCOMPLETE, code);
     assertEquals(List.of(), streams.outputLines());
-    assertEquals(List.of("Analysis failed: compiler unavailable"), streams.errorLines());
+    assertEquals(ReportTextExpectations.namedEnvironment("compiler unavailable"), streams.errorLines());
   }
 
   @Test
@@ -370,13 +371,13 @@ class AnalyzeCommandTest {
     // Assert
     assertEquals(AnalyzeCommand.EXIT_REJECTED, failedCode);
     assertEquals(List.of(), failed.outputLines());
-    assertEquals(List.of("Input rejected: source unreadable"), failed.errorLines());
+    assertEquals(ReportTextExpectations.namedInput("source unreadable", "java.io.IOException", "unreadable"), failed.errorLines());
     assertEquals(AnalyzeCommand.EXIT_REJECTED, invalidCode);
     assertEquals(List.of(), invalid.outputLines());
-    assertEquals(List.of("Unknown option: --unknown", AnalyzeCommandParser.USAGE), invalid.errorLines());
+    assertEquals(List.of("Unknown option: \"--unknown\"", AnalyzeCommandParser.USAGE), invalid.errorLines());
     assertEquals(AnalyzeCommand.EXIT_COMPLETED, completedCode);
     assertTrue(completed.outputLines().contains("Completion: COMPLETE"));
-    assertEquals("Repository: NOT_REQUESTED", completed.outputLines().getLast());
+    assertEquals(ReportTextExpectations.noPublication(execution.run()), completed.outputLines().subList(completed.outputLines().size() - 8, completed.outputLines().size()));
     assertEquals(List.of(), completed.errorLines());
     assertEquals(List.of(new SourceInput.Root(Path.of("unreadable")), new SourceInput.Root(Path.of("readable"))),
         useCase.requests().stream().map(request -> request.computation().source().input()).toList());
@@ -398,7 +399,7 @@ class AnalyzeCommandTest {
     // Assert
     assertEquals(AnalyzeCommand.EXIT_REJECTED, code);
     assertEquals(List.of("caller output"), streams.outputLines());
-    assertEquals(List.of("Unknown option: --unknown", AnalyzeCommandParser.USAGE, "caller diagnostic"), streams.errorLines());
+    assertEquals(List.of("Unknown option: \"--unknown\"", AnalyzeCommandParser.USAGE, "caller diagnostic"), streams.errorLines());
   }
 
   @Test
@@ -412,7 +413,7 @@ class AnalyzeCommandTest {
     var diagnosticBytes = new ByteArrayOutputStream();
     var lineSeparator = System.lineSeparator();
     var diagnosticPrefix = String.join(lineSeparator, "Diagnostic: \"" + CliTestFixtures.warningDiagnostic().diagnosticKey() + "\"",
-        "  Occurrence: 1", "  Severity: WARNING", "  Stage: FRONTEND", "  Cause: OTHER_ANALYSIS_ERROR", "  Code: \"cli.warning\"")
+        "  Occurrence: 1", "  Owner: APPLICATION", "  Native position: 0", "  Severity: WARNING", "  Stage: FRONTEND", "  Cause: OTHER_ANALYSIS_ERROR", "  Code: \"cli.warning\"")
         + lineSeparator;
     var failureOffset = diagnosticPrefix.getBytes(StandardCharsets.UTF_8).length;
     var cause = new IOException("diagnostic sink failed");
@@ -447,7 +448,10 @@ class AnalyzeCommandTest {
       var output = streams.outputLines();
       assertTrue(output.contains("Completion: COMPLETE"));
       var methodKey = run.representation().ast().result().orElseThrow().program().methods().getFirst().methodKey();
-      assertEquals(List.of("Method CFG: \"" + methodKey + "\" AVAILABLE", "caller output"), output.subList(output.size() - 2, output.size()));
+      assertTrue(output.contains("Method CFG: \"" + methodKey + "\" AVAILABLE"));
+      var expectedSuffix = new ArrayList<>(ReportTextExpectations.noPublication(run));
+      expectedSuffix.add("caller output");
+      assertEquals(expectedSuffix, output.subList(output.size() - expectedSuffix.size(), output.size()));
       assertEquals(diagnosticPrefix + "caller diagnostic" + lineSeparator, diagnosticBytes.toString(StandardCharsets.UTF_8));
     }
   }

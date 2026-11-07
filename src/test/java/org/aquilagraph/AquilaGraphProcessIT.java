@@ -57,7 +57,7 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed(), result.error());
     assertEquals(0, result.exitCode(), result.error());
-    assertTrue(result.output().contains("Software version: " + software), result.output());
+    assertTrue(result.output().contains("Software version: \"" + software + "\""), result.output());
     assertTrue(result.output().lines().toList().contains("Completion: COMPLETE"), result.output());
     assertTrue(result.output().contains("Repository: NOT_REQUESTED"), result.output());
     assertEquals("", result.error());
@@ -315,7 +315,8 @@ class AquilaGraphProcessIT {
     assertTrue(result.completed(), result.error());
     assertEquals(1, result.exitCode(), result.error());
     assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
-    assertTrue(result.output().endsWith("Repository: NOT_REQUESTED" + System.lineSeparator()), result.output());
+    assertTrue(result.output().lines().toList().contains("Repository: NOT_REQUESTED"), result.output());
+    assertTrue(result.output().endsWith("Commit knowledge: NOT_STARTED" + System.lineSeparator()), result.output());
     assertNativeReport(result, sourceRoot);
   }
 
@@ -439,7 +440,8 @@ class AquilaGraphProcessIT {
     assertTrue(result.completed());
     assertEquals(0, result.exitCode(), result.error());
     assertTrue(result.output().lines().toList().contains("Completion: COMPLETE"), result.output());
-    assertTrue(result.output().endsWith("Repository: NOT_REQUESTED" + System.lineSeparator()), result.output());
+    assertTrue(result.output().lines().toList().contains("Repository: NOT_REQUESTED"), result.output());
+    assertTrue(result.output().endsWith("Commit knowledge: NOT_STARTED" + System.lineSeparator()), result.output());
     assertEquals("", result.error());
   }
 
@@ -449,7 +451,7 @@ class AquilaGraphProcessIT {
     // Arrange
     var sourceRoot = Files.createDirectories(temporaryDirectory.resolve("sources"));
     Files.writeString(sourceRoot.resolve("Supported.java"), "class Supported { int value() { return 1; } }");
-    var expectedOutput = PackagedAnalysisSummary.expectedOutput(sourceRoot, PublicationStatus.FAILED);
+    var expectedOutput = PackagedAnalysisSummary.expected(sourceRoot, PublicationStatus.FAILED);
 
     // Act
     var result = new PackagedAnalyzerProcess(temporaryDirectory).run(List.of(), Map.of("AQUILA_GRAPH_NEO4J_PASSWORD", "", "NEO4J_PASSWORD", ""), sourceRoot, "--persist");
@@ -457,8 +459,8 @@ class AquilaGraphProcessIT {
     // Assert
     assertTrue(result.completed());
     assertEquals(3, result.exitCode(), result.error());
-    assertEquals(expectedOutput, result.output());
-    assertEquals("Repository save failed: Invalid Neo4j repository configuration" + System.lineSeparator(), result.error());
+    assertEquals(expectedOutput.output(), result.output());
+    assertEquals(PackagedAnalysisSummary.invalidConfigurationError(expectedOutput.runId()), result.error());
   }
 
   @Test
@@ -475,7 +477,8 @@ class AquilaGraphProcessIT {
     assertTrue(result.completed());
     assertEquals(1, result.exitCode(), result.error());
     assertTrue(result.output().lines().toList().contains("Completion: PARTIAL"), result.output());
-    assertTrue(result.output().endsWith("Repository: NOT_ELIGIBLE" + System.lineSeparator()), result.output());
+    assertTrue(result.output().lines().toList().contains("Repository: NOT_ELIGIBLE"), result.output());
+    assertTrue(result.output().endsWith("Commit knowledge: NOT_STARTED" + System.lineSeparator()), result.output());
     assertTrue(result.error().contains("Qualification: SOURCE PROFILE_RESTRICTION"), result.error());
     assertFalse(result.error().contains("Repository save failed:"), result.error());
   }
@@ -494,7 +497,8 @@ class AquilaGraphProcessIT {
     assertEquals(2, result.exitCode(), result.error());
     assertTrue(result.output().lines().toList().contains("Completion: REJECTED"), result.output());
     assertTrue(result.output().contains("Java source files: 0"), result.output());
-    assertTrue(result.output().endsWith("Repository: NOT_ELIGIBLE" + System.lineSeparator()), result.output());
+    assertTrue(result.output().lines().toList().contains("Repository: NOT_ELIGIBLE"), result.output());
+    assertTrue(result.output().endsWith("Commit knowledge: NOT_STARTED" + System.lineSeparator()), result.output());
     assertFalse(result.output().contains("Java types:"), result.output());
     assertFalse(result.error().contains("Repository save failed:"), result.error());
   }

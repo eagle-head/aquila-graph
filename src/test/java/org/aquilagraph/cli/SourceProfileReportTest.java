@@ -101,11 +101,11 @@ class SourceProfileReportTest {
 
           // Act
           CliTestFixtures.present(run, runStreams);
-          var summary = AnalysisRunSummary.from(run);
+          var summary = CliTestFixtures.report(run).analysis();
 
           // Assert
           assertNativeReport(run, runStreams);
-          assertEquals(AnalysisCompletion.COMPLETE, summary.run().completion());
+          assertEquals(AnalysisCompletion.COMPLETE, summary.completion());
         }));
   }
 

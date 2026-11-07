@@ -41,10 +41,10 @@ final class AnalyzeCommandParser {
 
   private static TokenResult parseRelease(ArgumentCursor cursor, ParseState state) {
     if (state.hasExplicitRelease()) {
-      return rejected(RELEASE_OPTION + " may be supplied only once");
+      return rejected(new ArgumentRejection.DuplicateOption(RELEASE_OPTION));
     }
     if (!cursor.hasNext() || cursor.peek().startsWith("--")) {
-      return rejected(RELEASE_OPTION + " requires a Java feature-release number");
+      return rejected(ArgumentRejection.MissingRelease.INSTANCE);
     }
 
     var value = cursor.next();
@@ -52,18 +52,18 @@ final class AnalyzeCommandParser {
     try {
       feature = Integer.parseInt(value);
     } catch (NumberFormatException exception) {
-      return rejected("Invalid Java release: " + value);
+      return rejected(new ArgumentRejection.MalformedRelease(value));
     }
 
     if (!JavaRelease.supportsFeature(feature)) {
-      return rejected(JavaRelease.unsupportedFeatureMessage(feature));
+      return rejected(new ArgumentRejection.UnsupportedRelease(value, feature));
     }
     state.useRelease(JavaRelease.fromFeature(feature));
     return Accepted.INSTANCE;
   }
 
-  private static Rejected rejected(String message) {
-    return new Rejected(message);
+  private static Rejected rejected(ArgumentRejection reason) {
+    return new Rejected(reason);
   }
 
   sealed interface Result permits Parsed, Rejected {
@@ -82,9 +82,9 @@ final class AnalyzeCommandParser {
     }
   }
 
-  record Rejected(String message) implements Result, TokenResult {
+  record Rejected(ArgumentRejection reason) implements Result, TokenResult {
     Rejected {
-      Objects.requireNonNull(message, "message");
+      Objects.requireNonNull(reason, "reason");
     }
   }
 
@@ -128,7 +128,7 @@ final class AnalyzeCommandParser {
 
     TokenResult enablePersistence() {
       if (persistenceEnabled) {
-        return rejected(PERSIST_OPTION + " may be supplied only once");
+        return rejected(new ArgumentRejection.DuplicateOption(PERSIST_OPTION));
       }
       persistenceEnabled = true;
       return Accepted.INSTANCE;
@@ -136,7 +136,7 @@ final class AnalyzeCommandParser {
 
     TokenResult acceptPositionalOrUnknown(String token) {
       if (token.startsWith("--")) {
-        return rejected("Unknown option: " + token);
+        return rejected(new ArgumentRejection.UnknownOption(token));
       }
       positionalArguments.add(token);
       return Accepted.INSTANCE;
@@ -153,14 +153,14 @@ final class AnalyzeCommandParser {
 
     Result finish() {
       if (positionalArguments.size() != REQUIRED_SOURCE_ROOT_COUNT) {
-        return new Rejected("Exactly one source root is required");
+        return rejected(new ArgumentRejection.RootCount(positionalArguments.size()));
       }
       try {
         var savePolicy = persistenceEnabled ? PublicationIntent.SAVE_COMPLETED : PublicationIntent.DO_NOT_SAVE;
         var sourceRoot = Objects.requireNonNull(Path.of(positionalArguments.getFirst()), "sourceRoot");
         return new Parsed(new AnalyzeCommandArguments(sourceRoot, release, savePolicy));
       } catch (InvalidPathException exception) {
-        return new Rejected("Invalid source root: " + exception.getInput());
+        return rejected(new ArgumentRejection.InvalidRoot(exception.getInput()));
       }
     }
   }

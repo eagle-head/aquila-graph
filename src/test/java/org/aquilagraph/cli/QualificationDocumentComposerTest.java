@@ -19,7 +19,7 @@ import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
 import org.junit.jupiter.api.Test;
 
-class AnalysisQualificationRendererTest {
+class QualificationDocumentComposerTest {
   @Test
   void givenIncompleteSourceWithTwoNativeDiagnostics_whenQualificationIsRendered_thenApplicationSourceLinksBothOccurrences() {
     // Arrange
@@ -32,10 +32,9 @@ class AnalysisQualificationRendererTest {
     var ast = run.representation().ast();
     var sourceDiagnostics = ast.diagnostics();
     var streams = new CliStreams();
-    var renderer = renderer(run, streams);
 
     // Act
-    renderer.render();
+    presentQualifications(run, streams);
 
     // Assert
     assertEquals(2, sourceDiagnostics.size());
@@ -59,13 +58,12 @@ class AnalysisQualificationRendererTest {
     var runner = AnalysisCapabilities.existingSourceDerivation((source, selected) -> new CfgOutcome(selected, CfgState.REJECTED, List.of(), List.of(first, second, first)));
     var run = runner.deriveExisting(ast, request);
     var streams = new CliStreams();
-    var renderer = renderer(run, streams);
     var subject = "  Subject: \"" + result.identity().astResultKey() + "\"";
     var firstOrigin = "  Origin: \"" + file.sourceFileKey() + "\" file=\"Example.java\" range=[1,3)";
     var secondOrigin = "  Origin: \"" + file.sourceFileKey() + "\" file=\"Example.java\" range=[4,4)";
 
     // Act
-    renderer.render();
+    presentQualifications(run, streams);
 
     // Assert
     assertEquals(List.of(
@@ -93,12 +91,12 @@ class AnalysisQualificationRendererTest {
     var empty = AnalysisCapabilities.existingSourceDerivation(RecoverableCfgFailures.atMethod(method, new IllegalStateException("")));
     var absentStreams = new CliStreams();
     var emptyStreams = new CliStreams();
-    var absentRenderer = renderer(absent.deriveExisting(ast, request), absentStreams);
-    var emptyRenderer = renderer(empty.deriveExisting(ast, request), emptyStreams);
+    var absentRun = absent.deriveExisting(ast, request);
+    var emptyRun = empty.deriveExisting(ast, request);
 
     // Act
-    absentRenderer.render();
-    emptyRenderer.render();
+    presentQualifications(absentRun, absentStreams);
+    presentQualifications(emptyRun, emptyStreams);
 
     // Assert
     assertEquals(List.of("  Failure message: unavailable"),
@@ -107,8 +105,12 @@ class AnalysisQualificationRendererTest {
         emptyStreams.errorLines().stream().filter(line -> line.startsWith("  Failure message: ")).toList());
   }
 
-  private static AnalysisQualificationRenderer renderer(AnalysisRun run, CliStreams streams) {
-    return new AnalysisQualificationRenderer(run, new AnalysisDiagnosticRenderer(run, streams.error()), streams.error());
+  private static void presentQualifications(AnalysisRun run, CliStreams streams) {
+    var report = CliTestFixtures.report(run);
+    var composer = new QualificationDocumentComposer();
+    var nodes = report.qualifications().stream().<ReportDocument.Node>map(reason -> composer.compose(reason, report.diagnostics(), report.failures())).toList();
+    var document = new ReportDocument(new ReportDocument.Section(List.of()), new ReportDocument.Section(nodes));
+    streams.error().print(new CommandTextRenderer(System.lineSeparator()).render(document).error());
   }
 
   private static AnalysisDiagnostic selectionDiagnostic(String message, SourceSpan origin) {
