@@ -2,7 +2,6 @@ package org.aquilagraph.build;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.Properties;
 import java.util.List;
 import java.util.UUID;
@@ -41,9 +40,7 @@ record InvocationContext(Path root, Path directory, Path toolRoot, String nonce,
       throw new IOException("Local build invocation belongs to another canonical root or nonce");
     }
     return new InvocationContext(canonical, directory, Path.of(BuildFiles.required(record, TOOL_ROOT_PROPERTY)).toRealPath(), nonce,
-        new ProcessIdentity(Long.parseLong(BuildFiles.required(record, "owner.pid")),
-            Instant.parse(BuildFiles.required(record, "owner.started"))),
-        BuildFiles.required(record, OWNER_NAMESPACE));
+        ProcessIdentity.read(record, "owner."), BuildFiles.required(record, OWNER_NAMESPACE));
   }
 
   static InvocationContext observation(Properties intent) throws IOException {
@@ -64,8 +61,7 @@ record InvocationContext(Path root, Path directory, Path toolRoot, String nonce,
     result.setProperty(ROOT_PROPERTY, root.toString());
     result.setProperty(TOOL_ROOT_PROPERTY, toolRoot.toString());
     result.setProperty("nonce", nonce);
-    result.setProperty("owner.pid", Long.toString(owner.pid()));
-    result.setProperty("owner.started", owner.started().toString());
+    owner.write(result, "owner.");
     result.setProperty("owner.platform", System.getProperty("os.name"));
     result.setProperty(OWNER_NAMESPACE, namespace);
     result.setProperty("launcher.java.home", System.getProperty("java.home"));
@@ -78,6 +74,7 @@ record InvocationContext(Path root, Path directory, Path toolRoot, String nonce,
   }
 
   static void requireIdentity(Properties expected, Properties record) throws IOException {
+    ProcessIdentity.requireNativeIdentity(expected, record, "owner.");
     var names = new ArrayList<>(List.of(ROOT_PROPERTY, TOOL_ROOT_PROPERTY, "nonce", "owner.pid", "owner.started"));
     if (expected.containsKey(OWNER_NAMESPACE)) {
       names.add(OWNER_NAMESPACE);

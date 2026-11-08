@@ -5,7 +5,6 @@ import java.io.Closeable;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.UUID;
 
 /** Atomic complete ownership claims complement native locks across process namespaces. */
@@ -25,8 +24,7 @@ final class ActiveLease {
         throw new IOException(
             "Another process namespace owns unresolved build resources; reconcile the recorded owner on its operating system");
       }
-      var identity = new ProcessIdentity(Long.parseLong(BuildFiles.required(old, "owner.pid")),
-          Instant.parse(BuildFiles.required(old, "owner.started")));
+      var identity = ProcessIdentity.read(old, "owner.");
       if (identity.liveProcess().isPresent()) {
         throw new IOException("Another live local build owner has unresolved resources; mutation is refused");
       }
@@ -58,6 +56,7 @@ final class ActiveLease {
 
   static void require(InvocationContext context) throws IOException {
     var claim = BuildFiles.read(context.root().resolve(".build-state/active-owner.properties"));
+    ProcessIdentity.requireNativeIdentity(context.properties(), claim, "owner.");
     if (!context.namespace().equals(ProcessIdentity.namespace())
         || !context.namespace().equals(BuildFiles.required(claim, "owner.namespace"))) {
       throw new IOException("The active filesystem claim belongs to another process namespace");

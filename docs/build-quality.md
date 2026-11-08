@@ -216,6 +216,35 @@ Until then, report them as deferred, not passed; their nonexecution does not
 block delivery within the revised development scope. A failure in an executed
 check still requires an honest failed result and a correction within its scope.
 
+## Local Build Process Identity
+
+New Linux process records identify a birth by PID, boot identity and native
+start ticks. Wall-clock start time remains diagnostic metadata; it is not the
+comparison key when native birth evidence is present. Invocation ownership,
+source-launch acknowledgments and resource journals preserve these coordinates
+through the shared [ProcessIdentity](../config/build/org/aquilagraph/build/ProcessIdentity.java)
+reader/writer. Missing or malformed native fields fail closed. Epoch-only records
+remain readable with their original exact timestamp comparison; native birth
+evidence is never inferred for an older record. If a legacy Linux timestamp
+differs while its PID is live, the ambiguous identity refuses verification;
+it cannot certify process exit. Windows retains its existing PID/creation-time
+identity.
+
+The Linux [start-time field](https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html)
+is measured from boot in clock ticks. The kernel's
+[boot identity](https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html#random)
+remains fixed after its first retrieval. These coordinates avoid the per-JVM boot
+epoch conversion used by [OpenJDK's Linux ProcessHandle implementation](https://github.com/openjdk/jdk25u/blob/master/src/java.base/linux/native/libjava/ProcessHandleImpl_linux.c).
+The [native reader](../config/build/org/aquilagraph/build/LinuxProcessStart.java)
+validates the recorded PID and handles parentheses in the process command.
+
+[ProcessIdentityTest](../src/test/java/org/aquilagraph/build/ProcessIdentityTest.java)
+and [LinuxProcessStartTest](../src/test/java/org/aquilagraph/build/LinuxProcessStartTest.java)
+cover exact birth comparison, persistence, refusal and controlled native-file
+inputs. [LinuxProcessIdentityProcessIT](../src/test/java/org/aquilagraph/build/LinuxProcessIdentityProcessIT.java)
+observes the live Linux owner with controlled shifted JVM metadata; it remains a
+separately authorized process integration, not isolated evidence of a real host.
+
 ## Identity API Verification
 
 Maven temporary files remain under the working directory's `target` through

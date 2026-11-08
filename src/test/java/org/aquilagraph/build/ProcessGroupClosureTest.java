@@ -32,7 +32,8 @@ class ProcessGroupClosureTest {
     var nonce = UUID.randomUUID().toString();
     var context = new InvocationContext(root, root.resolve(".build-state/invocations").resolve(nonce), root, nonce,
         ProcessIdentity.observe(ProcessHandle.current()), ProcessIdentity.namespace());
-    var journal = BuildJournal.reserve(context, "git-inspection");
+    BuildFiles.write(context.directory().resolve("invocation.properties"), context.properties());
+    var journal = NativeJournalFixtures.windowsGroup(context, "git-inspection");
     var intent = BuildFiles.read(journal.directory().resolve("intent.properties"));
     intent.setProperty("containment.kind", "unrecognized-group");
     BuildFiles.write(journal.directory().resolve("intent.properties"), intent);

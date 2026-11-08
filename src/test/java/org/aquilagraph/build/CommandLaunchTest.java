@@ -34,6 +34,7 @@ class CommandLaunchTest {
 
       // Assert
       assertSame(platform.closureFailure.orElseThrow(), failure);
+      assertEquals(1, platform.stops);
       assertFalse(Files.exists(fixture.journal.directory().resolve("closed.properties")));
       assertFalse(Files.exists(fixture.command.directory().resolve("closed.properties")));
       assertThrows(IOException.class, fixture.lease::close);
@@ -59,6 +60,7 @@ class CommandLaunchTest {
 
       // Assert
       assertSame(primary, failure);
+      assertEquals(1, platform.stops);
       assertEquals(1, failure.getSuppressed().length);
       assertInstanceOf(IOException.class, failure.getSuppressed()[0]);
       assertEquals(1, platform.creations);
@@ -83,6 +85,7 @@ class CommandLaunchTest {
       });
 
       // Assert
+      assertEquals(1, platform.stops);
       assertEquals(1, failure.getSuppressed().length);
       assertInstanceOf(IOException.class, failure.getSuppressed()[0]);
       assertEquals(0, platform.creations);
@@ -146,7 +149,7 @@ class CommandLaunchTest {
       var root = directory.toRealPath();
       lease = BuildLease.acquire(new BuildRequest(root, Path.of("").toRealPath(), root.resolve("mvnw"), BuildOperation.TEST, List.of()));
       journal = BuildJournal.reserve(lease.context(), "command-launcher");
-      command = BuildJournal.reserve(lease.context(), "maven-wrapper");
+      command = NativeJournalFixtures.windowsGroup(lease.context(), "maven-wrapper");
       journal.recordCommand(command.reservation());
       launch = new CommandLaunch(lease, Optional.empty(), journal, command, platform);
     }
@@ -181,6 +184,7 @@ class CommandLaunchTest {
     private final Optional<IOException> startupFailure;
     private final Process process;
     private int creations;
+    private int stops;
     private Optional<IOException> closureFailure = Optional.empty();
 
     private Platform(Optional<IOException> startupFailure, Process process) {
@@ -199,6 +203,11 @@ class CommandLaunchTest {
 
     @Override
     public void requireAvailable() {
+    }
+
+    @Override
+    public void stopObserved() {
+      stops++;
     }
 
     @Override

@@ -156,7 +156,7 @@ class WindowsJobKeeperTest {
     var holder = WindowsJobKeeper.acknowledgement(context, keeper, acknowledgement, launcher);
 
     // Assert
-    assertEquals(ProcessIdentity.observe(ProcessHandle.current()), holder);
+    assertEquals(new ProcessIdentity(ProcessHandle.current().pid(), ProcessHandle.current().info().startInstant().orElseThrow()), holder);
     var intent = BuildFiles.read(keeper.directory().resolve("intent.properties"));
     assertEquals("job-keeper", intent.getProperty("kind"));
     assertEquals("java,java.exe,cmd,cmd.exe", intent.getProperty("intended.images"));
@@ -185,7 +185,7 @@ class WindowsJobKeeperTest {
       assertFalse(Files.exists(keeper.directory().resolve("acknowledged.properties")));
       assertFalse(Files.exists(keeper.directory().resolve("closed.properties")));
     }
-    assertEquals(ProcessIdentity.observe(ProcessHandle.current()),
+    assertEquals(new ProcessIdentity(ProcessHandle.current().pid(), ProcessHandle.current().info().startInstant().orElseThrow()),
         WindowsJobKeeper.acknowledgement(context, keeper, original, launcher));
   }
 
