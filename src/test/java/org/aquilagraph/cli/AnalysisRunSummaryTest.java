@@ -3,6 +3,7 @@ package org.aquilagraph.cli;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -94,6 +95,44 @@ class AnalysisRunSummaryTest {
     assertEquals(Optional.of(expectedProgram), emptySelectionSummary.program());
     assertEquals(identity.softwareSignature(), sourceOnlySummary.software().orElseThrow().signature());
     assertEquals(identity.softwareSignature(), emptySelectionSummary.software().orElseThrow().signature());
+    assertEquals(List.of(MethodCoverageState.NOT_REQUESTED, MethodCoverageState.NOT_REQUESTED),
+        sourceOnlySummary.methods().stream().map(method -> method.state()).toList());
+    assertEquals(sourceOnlySummary.methods(), emptySelectionSummary.methods());
+    assertFalse(sourceOnlySummary.identity().equals(emptySelectionSummary.identity()));
+  }
+
+  @Test
+  void givenReversedOrRejectedSelection_whenTheRealReportIsProjected_thenCanonicalCoverageAndExactRequestProvenanceRemain() throws IOException {
+    // Arrange
+    var ast = CliTestFixtures.produce("interface Example { void bodyless(); static int first() { return 1; } static int second() { return 2; } }");
+    var source = ast.result().orElseThrow();
+    var canonical = source.program().methods().stream().map(method -> method.methodKey()).toList();
+    var first = canonical.get(1);
+    var second = canonical.get(2);
+    var reversed = new CfgRequest(source.identity(), List.of(second, first), CfgProfile.JAVA_BOUNDED);
+    var rejected = new CfgRequest(source.identity(), List.of(second, second), CfgProfile.JAVA_BOUNDED);
+    var derivation = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard());
+    var reversedRun = derivation.deriveExisting(ast, reversed);
+    var rejectedRun = derivation.deriveExisting(ast, rejected);
+
+    // Act
+    var reversedSummary = CliTestFixtures.report(reversedRun).analysis();
+    var rejectedSummary = CliTestFixtures.report(rejectedRun).analysis();
+
+    // Assert
+    assertSame(reversed, reversedRun.representation().cfg().orElseThrow().request());
+    assertSame(rejected, rejectedRun.representation().cfg().orElseThrow().request());
+    assertSame(reversedRun.identity(), reversedSummary.identity());
+    assertSame(rejectedRun.identity(), rejectedSummary.identity());
+    assertEquals(canonical, reversedSummary.methods().stream().map(method -> method.method().methodKey()).toList());
+    assertEquals(canonical, rejectedSummary.methods().stream().map(method -> method.method().methodKey()).toList());
+    assertEquals(List.of(MethodCoverageState.NOT_REQUESTED, MethodCoverageState.AVAILABLE, MethodCoverageState.AVAILABLE),
+        reversedSummary.methods().stream().map(method -> method.state()).toList());
+    assertEquals(List.of(MethodCoverageState.NOT_REQUESTED, MethodCoverageState.NOT_REQUESTED, MethodCoverageState.REQUEST_REJECTED),
+        rejectedSummary.methods().stream().map(method -> method.state()).toList());
+    assertEquals(CfgState.REJECTED, rejectedSummary.cfgState().orElseThrow());
+    assertEquals(0, rejectedSummary.program().orElseThrow().analyzedMethodBodyCount());
+    assertTrue(rejectedRun.representation().cfg().orElseThrow().methods().isEmpty());
   }
 
   @Test

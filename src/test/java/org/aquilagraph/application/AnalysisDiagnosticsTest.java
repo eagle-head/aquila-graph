@@ -217,16 +217,26 @@ class AnalysisDiagnosticsTest {
     // Arrange
     var original = TestAnalysisRuns.fromSource("interface Example { static int value(int x) { (x) = 1; return x; } }");
     var cfg = original.representation().cfg().orElseThrow();
-    var copiedCfg = new CfgOutcome(cfg.request(), cfg.state(), cfg.methods(), cfg.diagnostics());
+    var copiedMethods = cfg.methods().stream().map(method -> new MethodCfgOutcome(method.astIdentity(), method.methodKey(), method.state(),
+        method.body(), method.graph(), method.blockers(), method.failure(), method.diagnostics())).toList();
+    var copiedCfg = new CfgOutcome(cfg.request(), cfg.state(), copiedMethods, cfg.diagnostics());
     var copied = new ProgramRepresentation(original.representation().ast(), Optional.of(copiedCfg));
     // Act
     var run = new AnalysisRun(original.identity(), copied, original.qualification(), original.applicationDiagnostics());
+    var nativeMethod = cfg.methods().getFirst();
+    var coverage = run.methodCoverage(nativeMethod.methodKey()).orElseThrow();
     // Assert
     assertEquals(copied, run.representation());
     assertSame(original.representation(), run.representation());
     assertSame(original.diagnostics(), run.diagnostics());
+    assertEquals(nativeMethod, copiedMethods.getFirst());
+    assertNotSame(nativeMethod, copiedMethods.getFirst());
+    assertSame(original.representation().ast().result().orElseThrow().method(nativeMethod.methodKey()).orElseThrow(), coverage.declaration());
+    assertSame(nativeMethod, coverage.cfg().orElseThrow());
+    assertEquals(run.diagnostics().relatedTo(nativeMethod), run.diagnostics().relatedTo(coverage.cfg().orElseThrow()));
     assertEquals(run.diagnostics().occurrences(), run.diagnostics().relatedTo(run.representation().cfg().orElseThrow()));
     assertThrows(IllegalArgumentException.class, () -> run.diagnostics().relatedTo(copiedCfg));
+    assertThrows(IllegalArgumentException.class, () -> run.diagnostics().relatedTo(copiedMethods.getFirst()));
   }
 
   @Test
