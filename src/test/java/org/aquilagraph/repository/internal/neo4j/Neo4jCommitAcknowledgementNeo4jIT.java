@@ -1,53 +1,37 @@
 package org.aquilagraph.repository.internal.neo4j;
 
-import org.aquilagraph.application.AnalysisCapabilities;
-import org.aquilagraph.application.AstPublicationRequest;
-import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
-import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
-import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
+import static org.aquilagraph.repository.internal.neo4j.Neo4jPublicationObservation.await;
+import static org.aquilagraph.repository.internal.neo4j.Neo4jPublicationObservation.directUri;
+import static org.aquilagraph.repository.internal.neo4j.Neo4jPublicationObservation.loopbackTarget;
+import static org.aquilagraph.repository.internal.neo4j.Neo4jPublicationObservation.observationConfig;
+import static org.aquilagraph.repository.internal.neo4j.Neo4jPublicationObservation.storedState;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
-import java.net.Inet4Address;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AstLookupStatus;
+import org.aquilagraph.application.AstPublicationRequest;
 import org.aquilagraph.application.CommitKnowledge;
+import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
 import org.aquilagraph.application.RepositoryOperationContext;
-import org.aquilagraph.repository.internal.neo4j.Neo4jCloseObservation.Phase;
-import org.aquilagraph.repository.internal.neo4j.StoredPublication.Namespace;
-import org.aquilagraph.repository.neo4j.Neo4jRepositories;
-import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.AstIdentity;
@@ -55,23 +39,23 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.identity.api.StableId;
-import org.aquilagraph.source.api.AnalysisDiagnostic;
-import org.aquilagraph.source.api.AnalysisOutcomeKind;
+import org.aquilagraph.repository.internal.neo4j.Neo4jCloseObservation.Phase;
+import org.aquilagraph.repository.internal.neo4j.Neo4jPublicationObservation.DriverWork;
+import org.aquilagraph.repository.internal.neo4j.Neo4jPublicationObservation.SessionOwner;
+import org.aquilagraph.repository.internal.neo4j.StoredPublication.Namespace;
+import org.aquilagraph.repository.neo4j.Neo4jRepositories;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
+import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.DiagnosticSeverity;
-import org.aquilagraph.source.api.DiagnosticStage;
-import org.aquilagraph.testsupport.AnalysisExecutionFixture;
+import org.aquilagraph.testsupport.Neo4jIntegration;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.aquilagraph.testsupport.Neo4jIntegration;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
-import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
@@ -84,80 +68,8 @@ import org.neo4j.driver.exceptions.Neo4jException;
 @ExtendWith(Neo4jIntegration.class)
 @Tag("persistence")
 class Neo4jCommitAcknowledgementNeo4jIT {
-  private static final int DRIVER_WAIT_SECONDS = 10;
-  private static final int PUBLICATION_WAIT_SECONDS = 30;
-  private static final int WORKER_STOP_SECONDS = 5;
 
   @TempDir Path sourceRoot;
-
-  @Test
-  void givenCommitResponseWithheldOnLoopbackBolt_whenPublicationFails_thenDirectQueriesObserveWholeReplacementAndIndependentRun()
-      throws Exception {
-    // Arrange
-    var settings = Neo4jIntegration.settings();
-    var target = loopbackTarget(settings.uri());
-    var directUri = directUri(target);
-    var sessionConfig = SessionConfig.forDatabase(settings.database());
-    var primary = completedFixture("Acknowledgement" + UUID.randomUUID().toString().replace("-", ""), "previous");
-    var independent = completedFixture("Independent" + UUID.randomUUID().toString().replace("-", ""), "independent");
-    var replacement = withWarning(primary, "replacement");
-    var mapper = new Neo4jAnalysisRunMapper();
-    var expectedReplacement = expectedState(mapper.map(replacement));
-    var runIds = List.of(primary.identity().key(), independent.identity().key());
-
-    try (var verification = new DriverWork(directUri, settings)) {
-      await(verification.driver.verifyConnectivityAsync());
-      try {
-        try (var seeding = new DriverWork(directUri, settings)) {
-          seeding.call(() -> {
-            try (var repository = new Neo4jAnalysisRunRepository(seeding.driver, sessionConfig,
-                RepositoryOperationContext.saveCompletedRun(primary.identity().key()), mapper::map)) {
-              repository.save(primary);
-              repository.save(independent);
-            }
-            return null;
-          });
-        }
-        var prior = storedState(verification.driver, sessionConfig, primary.identity().key());
-        var independentBefore = storedState(verification.driver, sessionConfig, independent.identity().key());
-        assertEquals(expectedState(mapper.map(primary)), prior);
-        assertEquals(expectedState(mapper.map(independent)), independentBefore);
-        assertNotEquals(prior, expectedReplacement);
-
-        try (var proxy = new BoltCommitAcknowledgementProxy(target);
-            var publication = new DriverWork(proxy.uri(), settings, proxy::disconnect)) {
-          AnalysisRunRepositoryFactory publicationService = context -> new Neo4jAnalysisRunRepository(publication.driver, sessionConfig, context, mapper::map);
-          proxy.arm();
-
-          // Act
-          var outcome = publication.call(() -> AnalysisExecutionFixture.executeComputed(replacement, PublicationIntent.SAVE_COMPLETED,
-              AnalysisExecutionFixture::unexpectedAstRepository, publicationService).publication());
-
-          // Assert
-          assertEquals(PublicationStatus.FAILED, outcome.status());
-          assertEquals(CommitKnowledge.UNKNOWN, outcome.knowledge());
-          var failure = outcome.failure().orElseThrow();
-          assertEquals(RepositoryOperationContext.saveCompletedRun(replacement.identity().key()), failure.carrier().context());
-          assertEquals(Neo4jRepositoryPhase.REPLACEMENT, assertInstanceOf(Neo4jRepositoryOperationException.class, failure.carrier()).phase());
-          assertInstanceOf(Neo4jException.class, failure.effectivePrimary().getCause());
-          proxy.requireHealthyRelay();
-          var observation = proxy.observation();
-          System.out.println("BOLT_COMMIT_ACKNOWLEDGEMENT_OBSERVATION=" + observation);
-          assertNotEquals("not negotiated", observation.negotiatedVersion());
-          assertEquals(1, observation.beginMessages());
-          assertEquals(1, observation.commitMessages());
-          assertEquals(1, observation.withheldCommitSuccesses());
-          assertEquals(0, observation.forwardedCommitResponses());
-          var observedReplacement = storedState(verification.driver, sessionConfig, primary.identity().key());
-          assertEquals(expectedReplacement, observedReplacement);
-          assertNotEquals(prior, observedReplacement);
-          assertEquals(independentBefore, storedState(verification.driver, sessionConfig, independent.identity().key()));
-        }
-      } finally {
-        cleanup(verification.driver, sessionConfig, runIds);
-      }
-    }
-  }
 
   @Test
   void givenAstCommitResponseWithheld_whenRetentionFails_thenExactReplacementIsDurableWhileCommitKnowledgeRemainsUnknown()
@@ -529,156 +441,6 @@ class Neo4jCommitAcknowledgementNeo4jIT {
       await(session.value.runAsync("MATCH (entity:AstEntity) WHERE entity.astResultKey IN $scopes "
           + "CALL (entity) { DETACH DELETE entity } IN TRANSACTIONS OF 1000 ROWS",
           Values.parameters("scopes", identities.stream().map(AstIdentity::astResultKey).toList())).thenCompose(cursor -> cursor.consumeAsync()));
-    }
-  }
-
-  private AnalysisRun completedFixture(String typeName, String warningCode) {
-    var source = "class " + typeName + " { int value(int input) { return input; } }";
-    return withWarning(RepositoryTestRuns.analyze(sourceRoot, typeName + ".java", source), warningCode);
-  }
-
-  private static AnalysisRun withWarning(AnalysisRun run, String suffix) {
-    var origin = run.representation().ast().result().orElseThrow().program().types().getFirst().origins().getFirst();
-    var warning = new AnalysisDiagnostic(StableId.sha256("diagnostic", run.identity().key(), suffix), "publication.acknowledgement." + suffix,
-        DiagnosticStage.FRONTEND, DiagnosticSeverity.WARNING, "Supplied publication warning: " + suffix, List.of(origin),
-        AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
-    return AnalysisRun.create(run.identity(), run.representation(), List.of(warning));
-  }
-
-  private static InetSocketAddress loopbackTarget(URI uri) throws IOException {
-    if ((!"bolt".equals(uri.getScheme()) && !"neo4j".equals(uri.getScheme())) || uri.getHost() == null || uri.getUserInfo() != null) {
-      throw new IllegalArgumentException("The acknowledgement test requires configured unencrypted loopback Bolt");
-    }
-    var addresses = InetAddress.getAllByName(uri.getHost());
-    for (var address : addresses) {
-      if (!address.isLoopbackAddress()) {
-        throw new IllegalArgumentException("The acknowledgement test cannot target a nonloopback backend");
-      }
-    }
-    if (addresses.length == 0) {
-      throw new IOException("The configured local Bolt host has no resolved loopback address");
-    }
-    var port = uri.getPort() < 0 ? 7687 : uri.getPort();
-    var address = Arrays.stream(addresses).filter(Inet4Address.class::isInstance).findFirst().orElse(addresses[0]);
-    return new InetSocketAddress(address, port);
-  }
-
-  private static URI directUri(InetSocketAddress target) throws URISyntaxException {
-    return new URI("bolt", null, target.getAddress().getHostAddress(), target.getPort(), null, null, null);
-  }
-
-  private static Config observationConfig() {
-    return Config.builder().withoutEncryption().withMaxTransactionRetryTime(0, TimeUnit.MILLISECONDS).withMaxConnectionPoolSize(1)
-        .withConnectionTimeout(DRIVER_WAIT_SECONDS, TimeUnit.SECONDS).withConnectionAcquisitionTimeout(DRIVER_WAIT_SECONDS, TimeUnit.SECONDS)
-        .withEventLoopThreads(2).withTelemetryDisabled(true).build();
-  }
-
-  private static StoredPublication expectedState(Neo4jGraphProjection projection) {
-    return Namespace.RUN.expected(projection.runId(), projection.nodes(), projection.relationships());
-  }
-
-  private static StoredPublication storedState(Driver driver, SessionConfig configuration, String runId) throws IOException {
-    return storedState(driver, configuration, Namespace.RUN, runId);
-  }
-
-  private static StoredPublication storedState(Driver driver, SessionConfig configuration, Namespace namespace, String scope) throws IOException {
-    try (var session = new SessionOwner(driver.session(AsyncSession.class, configuration))) {
-      var parameters = Values.parameters("scope", scope);
-      var nodes = await(session.value.runAsync(namespace.nodesQuery(), parameters).thenCompose(cursor -> cursor.listAsync()));
-      var relationships = await(session.value.runAsync(namespace.relationshipsQuery(), parameters).thenCompose(cursor -> cursor.listAsync()));
-      return StoredPublication.fromRecords(nodes, relationships);
-    }
-  }
-
-  private static void cleanup(Driver driver, SessionConfig configuration, List<String> runIds) throws IOException {
-    try (var session = new SessionOwner(driver.session(AsyncSession.class, configuration))) {
-      await(session.value.runAsync("MATCH (entity:AnalysisEntity) WHERE entity.runId IN $runIds DETACH DELETE entity",
-          Values.parameters("runIds", runIds)).thenCompose(cursor -> cursor.consumeAsync()));
-    }
-  }
-
-  private static <T> T await(CompletionStage<T> stage) throws IOException {
-    try {
-      return stage.toCompletableFuture().get(DRIVER_WAIT_SECONDS, TimeUnit.SECONDS);
-    } catch (InterruptedException exception) {
-      Thread.currentThread().interrupt();
-      throw new IOException("Interrupted while awaiting an owned Neo4j operation", exception);
-    } catch (ExecutionException exception) {
-      throw new IOException("An owned Neo4j operation failed", exception);
-    } catch (TimeoutException exception) {
-      throw new IOException("An owned Neo4j operation did not return within the observation bound", exception);
-    }
-  }
-
-  private static final class DriverWork implements AutoCloseable {
-    private final Driver driver;
-    private final Runnable disconnect;
-    private final ExecutorService worker = Executors.newSingleThreadExecutor(action -> {
-      var thread = new Thread(action, "neo4j-publication-observation");
-      thread.setDaemon(true);
-      return thread;
-    });
-
-    private DriverWork(URI uri, Neo4jConnectionSettings settings) {
-      this(uri, settings, () -> { });
-    }
-
-    private DriverWork(URI uri, Neo4jConnectionSettings settings, Runnable disconnect) {
-      this.disconnect = disconnect;
-      driver = GraphDatabase.driver(uri, AuthTokens.basic(settings.username(), settings.password()), observationConfig());
-    }
-
-    private <T> T call(Callable<T> action) throws ExecutionException, IOException {
-      try {
-        return worker.submit(action).get(PUBLICATION_WAIT_SECONDS, TimeUnit.SECONDS);
-      } catch (InterruptedException exception) {
-        Thread.currentThread().interrupt();
-        throw new IOException("Interrupted while awaiting the owned repository call", exception);
-      } catch (TimeoutException exception) {
-        throw new IOException("The owned repository call exceeded its observation bound", exception);
-      }
-    }
-
-    @Override
-    public void close() throws IOException {
-      disconnect.run();
-      try (var _ = new WorkerShutdown(worker)) {
-        await(driver.closeAsync());
-      }
-    }
-  }
-
-  private static final class WorkerShutdown implements AutoCloseable {
-    private final ExecutorService worker;
-
-    private WorkerShutdown(ExecutorService worker) {
-      this.worker = worker;
-    }
-
-    @Override
-    public void close() throws IOException {
-      worker.shutdownNow();
-      try {
-        if (!worker.awaitTermination(WORKER_STOP_SECONDS, TimeUnit.SECONDS)) {
-          throw new IOException("The owned repository worker did not terminate within the bound");
-        }
-      } catch (InterruptedException exception) {
-        Thread.currentThread().interrupt();
-        throw new IOException("Interrupted while awaiting owned repository worker termination", exception);
-      }
-    }
-  }
-
-  private static final class SessionOwner implements AutoCloseable {
-    private final AsyncSession value;
-
-    private SessionOwner(AsyncSession value) {
-      this.value = value;
-    }
-
-    @Override
-    public void close() throws IOException {
-      await(value.closeAsync());
     }
   }
 

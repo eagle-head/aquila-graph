@@ -59,6 +59,16 @@ public final class OwnedProcess implements AutoCloseable {
     return process.toHandle();
   }
 
+  /** Closes the parent's read handle so child stdout writes reach an actual broken pipe. */
+  public void closeOutputReader() throws IOException {
+    process.getInputStream().close();
+  }
+
+  /** Closes the parent's read handle so child stderr writes reach an actual broken pipe. */
+  public void closeErrorReader() throws IOException {
+    process.getErrorStream().close();
+  }
+
   private void rememberDescendants() {
     process.descendants().forEach(descendants::add);
     for (var descendant : new ArrayList<>(descendants)) {

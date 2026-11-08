@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.Nullable;
 
 /** Owns a single loopback Bolt connection whose selected commit response is withheld. */
-final class BoltCommitAcknowledgementProxy implements AutoCloseable {
+public final class BoltCommitAcknowledgementProxy implements AutoCloseable {
   private static final int SOCKET_TIMEOUT_MILLIS = 20_000;
   private static final int SHUTDOWN_SECONDS = 5;
   private static final int MAX_MESSAGE_BYTES = 1_048_576;
@@ -62,7 +62,7 @@ final class BoltCommitAcknowledgementProxy implements AutoCloseable {
   private final AtomicInteger withheldSuccesses = new AtomicInteger();
   private final AtomicInteger forwardedCommitResponses = new AtomicInteger();
 
-  BoltCommitAcknowledgementProxy(InetSocketAddress target) throws IOException {
+  public BoltCommitAcknowledgementProxy(InetSocketAddress target) throws IOException {
     if (target.isUnresolved() || !target.getAddress().isLoopbackAddress()) {
       throw new IllegalArgumentException("The Bolt acknowledgement proxy requires a resolved loopback target");
     }
@@ -83,7 +83,7 @@ final class BoltCommitAcknowledgementProxy implements AutoCloseable {
     relays.submit(this::acceptConnection);
   }
 
-  URI uri() {
+  public URI uri() {
     return URI.create("bolt://127.0.0.1:" + listener.getLocalPort());
   }
 
@@ -93,11 +93,11 @@ final class BoltCommitAcknowledgementProxy implements AutoCloseable {
     }
   }
 
-  Observation observation() {
+  public Observation observation() {
     return new Observation(negotiatedVersion.get(), begins.get(), commits.get(), withheldSuccesses.get(), forwardedCommitResponses.get());
   }
 
-  void requireHealthyRelay() throws IOException {
+  public void requireHealthyRelay() throws IOException {
     var failure = relayFailure.get();
     if (failure != null) {
       throw new IOException("The Bolt relay failed", failure);
@@ -447,7 +447,7 @@ final class BoltCommitAcknowledgementProxy implements AutoCloseable {
     return bytes;
   }
 
-  record Observation(String negotiatedVersion, int beginMessages, int commitMessages, int withheldCommitSuccesses,
+  public record Observation(String negotiatedVersion, int beginMessages, int commitMessages, int withheldCommitSuccesses,
       int forwardedCommitResponses) {
   }
 
