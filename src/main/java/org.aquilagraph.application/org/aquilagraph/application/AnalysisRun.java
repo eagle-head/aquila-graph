@@ -96,7 +96,7 @@ public record AnalysisRun(AnalysisRequestIdentity identity, ProgramRepresentatio
         case ProductionSelection production -> production.methodKeys().contains(methodKey);
         case ExistingSelection existing -> existing.request().methodKeys().contains(methodKey);
       };
-      var state = outcome.map(value -> MethodCoverageState.valueOf(value.state().name()))
+      var state = outcome.map(value -> MethodCoverageState.fromCfg(value.state()))
           .orElse(selected ? MethodCoverageState.REQUEST_REJECTED : MethodCoverageState.NOT_REQUESTED);
       return new MethodCoverage(method, state, outcome);
     });

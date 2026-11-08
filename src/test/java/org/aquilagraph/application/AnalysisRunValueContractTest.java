@@ -50,9 +50,9 @@ class AnalysisRunValueContractTest {
   }
 
   @Test
-  void givenEquivalentAndDifferentNativeContexts_whenComparingAssessments_thenEqualityAndHashingFollowTheCapturedContext() {
+  void givenEquivalentAndDifferentNativeContexts_whenQueryingCoverage_thenEqualityAndHashingStillFollowTheCapturedContext() {
     // Arrange
-    var run = TestAnalysisRuns.completed();
+    var run = TestAnalysisRuns.fromSource("interface Example { static int value() { return 1; } }");
     var representation = run.representation();
     var error = new AnalysisDiagnostic("diagnostic:application", "application.error", DiagnosticStage.FRONTEND,
         DiagnosticSeverity.ERROR, "Application error", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
@@ -63,11 +63,21 @@ class AnalysisRunValueContractTest {
     var equal = RequestQualification.assess(representation, List.of());
     var changedDiagnostic = RequestQualification.assess(representation, List.of(error));
     var changedContext = RequestQualification.assess(sourceOnly, List.of());
+    var beforeQueries = first.hashCode();
+    var nativeMethod = representation.ast().result().orElseThrow().program().methods().getFirst();
+    var assessedRun = new AnalysisRun(run.identity(), representation, first, List.of());
+    var coverage = assessedRun.methodCoverage(nativeMethod.methodKey()).orElseThrow();
+    var unknown = assessedRun.methodCoverage("unknown-canonical-method");
 
     // Assert
     assertTrue(first.equals(first));
     assertEquals(first, equal);
     assertEquals(first.hashCode(), equal.hashCode());
+    assertEquals(beforeQueries, first.hashCode());
+    assertSame(nativeMethod, coverage.declaration());
+    assertSame(representation.cfg().orElseThrow().methods().getFirst(), coverage.cfg().orElseThrow());
+    assertEquals(MethodCoverageState.AVAILABLE, coverage.state());
+    assertTrue(unknown.isEmpty());
     assertFalse(first.equals(null));
     assertFalse(first.equals("assessment"));
     assertFalse(first.equals(changedDiagnostic));

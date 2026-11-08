@@ -27,7 +27,7 @@ Database integration tests manage their own memory-limited container and discard
 
 ## Results and limits
 
-The command reports source, declaration, and graph counts on standard output and diagnostics on standard error. Exit codes are `0` for completed analysis, `1` for incomplete analysis or a named environment failure, `2` for rejected input or usage, and `3` for a named repository failure. The [analysis contract](docs/contracts/analysis.md#command-line-results) defines the exact boundaries.
+The command reports source, declaration, and graph counts on standard output and diagnostics on standard error. Exit codes are `0` for completed analysis and requested publication without observed output failure, `1` for incomplete analysis or a named environment failure, `2` for rejected input or usage, `3` for a named repository failure, and `4` for semantic success followed by observed output failure. Semantic exits `1`, `2`, and `3` retain precedence over output failure. The [analysis contract](docs/contracts/analysis.md#command-line-results) defines the exact boundaries.
 
 Unsupported constructs block completion. The analyzer does not execute the analyzed program, run annotation processors, provide whole-program analysis, or accept bytecode as an input. Completed-run publication and explicit AST retention have separate [contracts](docs/contracts/analysis.md#target-publication-and-retention). The [Java AST epics](docs/epics/java-ast-epics.md) define the current expansion round; the [roadmap](docs/roadmap.md) retains open prerequisites.
 
@@ -52,6 +52,6 @@ Unsupported constructs block completion. The analyzer does not execute the analy
 ## References
 
 - [AnalysisCapabilities](src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisCapabilities.java), independent computation, derivation, retention, query, and execution inputs; [AnalysisQualification](src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisQualification.java), request completion; [PublicationCoordinator](src/main/java/org.aquilagraph.application/org/aquilagraph/application/PublicationCoordinator.java), shared publication eligibility and closure.
-- [AnalyzeCommandParser](src/main/java/org.aquilagraph.cli/org/aquilagraph/cli/AnalyzeCommandParser.java), `parse`; [AnalyzeCommandPresenter](src/main/java/org.aquilagraph.cli/org/aquilagraph/cli/AnalyzeCommandPresenter.java), outcome presentation.
+- [AnalyzeCommandParser](src/main/java/org.aquilagraph.cli/org/aquilagraph/cli/AnalyzeCommandParser.java), `parse`; [CommandRunner](src/main/java/org.aquilagraph.cli/org/aquilagraph/cli/CommandRunner.java), `run`; [CommandInvocation](src/main/java/org.aquilagraph.cli/org/aquilagraph/cli/CommandInvocation.java), retained outcome and emission observations; [CommandExitPolicy](src/main/java/org.aquilagraph.cli/org/aquilagraph/cli/CommandExitPolicy.java), exit classification.
 - [JavaRelease](src/main/java/org.aquilagraph.identity/org/aquilagraph/identity/api/JavaRelease.java), supported feature releases; [project build](pom.xml), toolchain and packaging configuration.
 - [Neo4jAnalysisRunMapper](src/main/java/org.aquilagraph.repository/org/aquilagraph/repository/internal/neo4j/Neo4jAnalysisRunMapper.java), durable publication surface.

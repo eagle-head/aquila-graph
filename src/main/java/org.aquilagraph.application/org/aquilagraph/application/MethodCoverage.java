@@ -22,8 +22,9 @@ public record MethodCoverage(JavaMethod declaration, MethodCoverageState state, 
     Objects.requireNonNull(state, "state");
     Objects.requireNonNull(cfg, "cfg");
     var absent = state == MethodCoverageState.NOT_REQUESTED || state == MethodCoverageState.REQUEST_REJECTED;
-    if (absent == cfg.isPresent() || cfg
-        .filter(value -> !value.methodKey().equals(declaration.methodKey()) || !value.state().name().equals(state.name())).isPresent()) {
+    if (absent == cfg.isPresent()
+        || cfg.filter(value -> !value.methodKey().equals(declaration.methodKey()) || MethodCoverageState.fromCfg(value.state()) != state)
+            .isPresent()) {
       throw new IllegalArgumentException("Method coverage must reflect its canonical declaration's actual selected outcome");
     }
   }
