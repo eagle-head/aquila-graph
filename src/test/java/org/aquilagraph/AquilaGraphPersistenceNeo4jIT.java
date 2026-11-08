@@ -7,13 +7,16 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.aquilagraph.application.PublicationStatus;
+import org.aquilagraph.repository.internal.neo4j.BoltCommitAcknowledgementProxy;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,6 +31,48 @@ import org.neo4j.driver.Values;
 @Tag("persistence")
 class AquilaGraphPersistenceNeo4jIT {
   @TempDir Path temporaryDirectory;
+
+  @Test
+  void givenCommittedPublication_whenNativeOutputPipeIsClosed_thenStoredEffectSurvivesWithoutAnotherPublication() throws Exception {
+    // Arrange
+    var settings = Neo4jIntegration.settings();
+    var root = Files.createDirectories(temporaryDirectory.resolve("committed-source"));
+    var className = "ReportedArithmetic" + UUID.randomUUID().toString().replace("-", "");
+    Files.writeString(root.resolve(className + ".java"),
+        "class " + className + " { int value(int input) { return input + 13; } }");
+    var expected = PackagedAnalysisSummary.expected(root, PublicationStatus.SAVED);
+    try (var proxy = new BoltCommitAcknowledgementProxy(new InetSocketAddress(settings.uri().getHost(), settings.uri().getPort()));
+        var driver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
+        var session = driver.session(SessionConfig.forDatabase(settings.database()))) {
+      var environment = new HashMap<String, String>(Neo4jIntegration.environment());
+      environment.put("AQUILA_GRAPH_NEO4J_URI", proxy.uri().toString());
+      try {
+        // Act
+        var result = new PackagedAnalyzerProcess(temporaryDirectory.resolve("process")).run(
+            PackagedAnalyzerProcess.ClosedReader.OUTPUT, List.of(), environment, root, "--persist");
+
+        // Assert
+        assertTrue(result.completed(), result.error());
+        assertEquals(4, result.exitCode(), result.error());
+        assertEquals("", result.error());
+        proxy.requireHealthyRelay();
+        assertEquals(1, proxy.observation().beginMessages());
+        assertEquals(1, proxy.observation().commitMessages());
+        assertEquals(1, proxy.observation().forwardedCommitResponses());
+        assertEquals(0, proxy.observation().withheldCommitSuccesses());
+        assertEquals(List.of(Map.of("completion", "COMPLETE", "type", className, "literal", "13")), session.run("""
+            MATCH (run:AnalysisRun {runId: $runId})-[:HAS_PROGRAM]->(program:Program)-[:DECLARES_TYPE]->(type:JavaType)
+            MATCH (program)-[:HAS_METHOD_ANALYSIS]->(:MethodAnalysis)-[:HAS_CFG]->(graph:ControlFlowGraph)
+            MATCH (graph)-[:HAS_NODE]->(:OperationNode {kind: 'BINARY', detail: 'PLUS'})
+                  -[:USES_VALUE {position: 1}]->(literal:FlowValue {literal: '13'})
+            RETURN run.completion AS completion, type.qualifiedName AS type, literal.literal AS literal
+            """, Values.parameters("runId", expected.runId())).list(record -> record.asMap()));
+      } finally {
+        session.run("MATCH (entity:AnalysisEntity {runId: $runId}) DETACH DELETE entity",
+            Values.parameters("runId", expected.runId())).consume();
+      }
+    }
+  }
 
   @Test
   void givenCommunityDatabase_whenPackagedProcessesPersistDistinctPrograms_thenCommittedSemanticContentCanBeRead()

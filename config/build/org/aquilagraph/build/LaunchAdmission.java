@@ -2,7 +2,6 @@ package org.aquilagraph.build;
 
 import java.io.IOException;
 import java.nio.file.Files;
-import java.time.Instant;
 
 /** A mutation permit belongs to one acknowledged live ancestor under the root lease. */
 final class LaunchAdmission {
@@ -20,8 +19,7 @@ final class LaunchAdmission {
       throw new IOException("The source launcher does not have the owner's mutation permit");
     }
     var record = BuildFiles.read(journal.directory().resolve("acknowledged.properties"));
-    var launcher = new ProcessIdentity(Long.parseLong(BuildFiles.required(record, "pid")),
-        Instant.parse(BuildFiles.required(record, "started")));
+    var launcher = ProcessIdentity.read(record, "");
     if (launcher.liveProcess().isEmpty()) {
       throw new IOException("The acknowledged source launcher is no longer alive");
     }

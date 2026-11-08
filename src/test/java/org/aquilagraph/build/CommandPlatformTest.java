@@ -29,10 +29,11 @@ class CommandPlatformTest {
     // Arrange
     for (var failJob : List.of(false, true)) {
       var context = context();
-      var command = BuildJournal.reserve(context, "git-inspection");
+      var command = NativeJournalFixtures.windowsGroup(context, "git-inspection");
       var keeper = WindowsJobKeeper.reserve(context, command);
       var keeperDirectory = keeperDirectory(context);
       var obstruction = Files.createDirectory(keeperDirectory.resolve("closed.properties"));
+      var expectedReadFailure = assertThrows(IOException.class, () -> Files.readAllBytes(obstruction));
       var releases = new ArrayList<Long>();
       try (var arena = Arena.ofConfined()) {
         var job = job(arena, releases, failJob);
@@ -42,7 +43,8 @@ class CommandPlatformTest {
         var failure = assertThrows(IOException.class, platform::close);
 
         // Assert
-        assertTrue(failure.getMessage().contains(obstruction.toString()));
+        assertEquals(expectedReadFailure.getClass(), failure.getClass());
+        assertEquals(expectedReadFailure.getMessage(), failure.getMessage());
         assertEquals(List.of(1L), releases);
         assertEquals(failJob ? 1 : 0, failure.getSuppressed().length);
         if (failJob) {
@@ -59,7 +61,7 @@ class CommandPlatformTest {
   void givenCompletedKeeperAndOwnedJob_whenThePlatformCloses_thenBothResourcesCompleteWithoutAProcessLaunch() throws Exception {
     // Arrange
     var context = context();
-    var command = BuildJournal.reserve(context, "git-inspection");
+    var command = NativeJournalFixtures.windowsGroup(context, "git-inspection");
     var keeper = WindowsJobKeeper.reserve(context, command);
     BuildJournal.open(context, keeperDirectory(context).getFileName().toString()).closeWithoutLaunch();
     var releases = new ArrayList<Long>();

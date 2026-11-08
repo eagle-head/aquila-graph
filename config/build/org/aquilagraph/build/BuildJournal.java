@@ -40,7 +40,6 @@ final class BuildJournal {
   private static final String WINDOWS_JOB = "windows-job";
   private static final String LINUX_SCOPE = "systemd-user-scope";
   private static final String RESOURCES_DIRECTORY = "resources";
-  private static final String STARTED_PROPERTY = "started";
   private static final String CLOSED_RECORD = "closed.properties";
   private final InvocationContext context;
   private final Path resourceDirectory;
@@ -57,13 +56,23 @@ final class BuildJournal {
   }
 
   static BuildJournal reserve(InvocationContext context, String kind) throws IOException {
+    return reserve(context, kind, ProcessGroup::record);
+  }
+
+  /** Records the native containment boundary before a process can be created. */
+  @FunctionalInterface
+  interface ContainmentRecorder {
+    void record(Properties intent) throws IOException;
+  }
+
+  static BuildJournal reserve(InvocationContext context, String kind, ContainmentRecorder containment) throws IOException {
     var resourceDirectory = context.directory().resolve(RESOURCES_DIRECTORY).resolve(UUID.randomUUID().toString());
     var journal = new BuildJournal(context, resourceDirectory);
     var intent = context.properties();
     intent.setProperty(RESERVATION_PROPERTY, name(resourceDirectory));
     intent.setProperty(KIND, kind);
     if (List.of(MAVEN_WRAPPER, GIT_INSPECTION).contains(kind)) {
-      ProcessGroup.record(intent);
+      containment.record(intent);
     }
     intent.setProperty("intended.images", switch (kind) {
       case COMMAND_LAUNCHER -> "java,java.exe";
@@ -308,12 +317,11 @@ final class BuildJournal {
     if (observed.isPresent()) {
       var identity = observed.orElseThrow();
       var file = resourceDirectory.resolve("process-" + identity.pid() + ".properties");
-      if (Files.exists(file) && identity.started().toString().equals(BuildFiles.read(file).getProperty(STARTED_PROPERTY))) {
+      if (Files.exists(file) && identity.equals(ProcessIdentity.read(BuildFiles.read(file), ""))) {
         return;
       }
       var record = context.properties();
-      record.setProperty("pid", Long.toString(identity.pid()));
-      record.setProperty(STARTED_PROPERTY, identity.started().toString());
+      identity.write(record, "");
       BuildFiles.write(file, record);
     }
   }
@@ -327,8 +335,7 @@ final class BuildJournal {
     var record = context.properties();
     var identity = ProcessIdentity.observe(ProcessHandle.current());
     record.setProperty(RESERVATION_PROPERTY, reservation());
-    record.setProperty("pid", Long.toString(identity.pid()));
-    record.setProperty(STARTED_PROPERTY, identity.started().toString());
+    identity.write(record, "");
     return record;
   }
 
@@ -392,8 +399,7 @@ final class BuildJournal {
       for (var entry : entries) {
         var record = BuildFiles.read(entry);
         requireRecord(record);
-        result.add(new ProcessIdentity(Long.parseLong(BuildFiles.required(record, "pid")),
-            Instant.parse(BuildFiles.required(record, STARTED_PROPERTY))));
+        result.add(ProcessIdentity.read(record, ""));
       }
     }
     return List.copyOf(result);
@@ -497,8 +503,7 @@ final class BuildJournal {
     }
     if (!ProcessIdentity.namespace().equals(invocationRecord.getProperty(OWNER_NAMESPACE))) {
       var historical = new InvocationContext(root, invocation, root, BuildFiles.required(invocationRecord, "nonce"),
-          new ProcessIdentity(Long.parseLong(BuildFiles.required(invocationRecord, "owner.pid")),
-              Instant.parse(BuildFiles.required(invocationRecord, "owner.started"))),
+          ProcessIdentity.read(invocationRecord, "owner."),
           invocationRecord.getProperty(OWNER_NAMESPACE, invocationRecord.getProperty("owner.platform", "")));
       try (var entries = Files.newDirectoryStream(resources)) {
         for (var resource : entries) {

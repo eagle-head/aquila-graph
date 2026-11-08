@@ -11,6 +11,8 @@ interface CommandPlatform extends Closeable {
 
   void requireAvailable() throws IOException;
 
+  void stopObserved() throws IOException;
+
   static CommandPlatform local(InvocationContext context, BuildJournal command) {
     return new Native(context, command, Optional.empty(), Optional.empty());
   }
@@ -45,6 +47,11 @@ interface CommandPlatform extends Closeable {
       if (keeper.isPresent()) {
         keeper.orElseThrow().requireAvailable();
       }
+    }
+
+    @Override
+    public void stopObserved() throws IOException {
+      command.stopObserved();
     }
 
     @Override

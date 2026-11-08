@@ -237,7 +237,7 @@ class BuildJournalClosureTest {
     // Arrange
     var context = context();
     for (var field : List.of("kind", "containment.kind")) {
-      var journal = BuildJournal.reserve(context, "git-inspection");
+      var journal = NativeJournalFixtures.windowsGroup(context, "git-inspection");
       var file = journal.directory().resolve("intent.properties");
       var intent = BuildFiles.read(file);
       intent.setProperty(field, "unknown");
@@ -256,7 +256,7 @@ class BuildJournalClosureTest {
   void givenNativeFinalClosureWithoutGroupEvidence_whenReleasing_thenTheFinalMarkerCannotReplaceNativeProof() throws Exception {
     // Arrange
     var context = context();
-    var journal = BuildJournal.reserve(context, "git-inspection");
+    var journal = NativeJournalFixtures.windowsGroup(context, "git-inspection");
     var record = context.properties();
     record.setProperty("closed", Instant.now().toString());
     record.setProperty("reason", "native containment and all recorded process identities were observed closed");
@@ -293,5 +293,27 @@ class BuildJournalClosureTest {
         ProcessIdentity.observe(ProcessHandle.current()), ProcessIdentity.namespace());
     BuildFiles.write(context.directory().resolve("invocation.properties"), context.properties());
     return context;
+  }
+
+  @Test
+  void givenARecordedLinuxInvocationWithoutClosure_whenItsUnlaunchedResourceCloses_thenTheOwnerStillRequiresNativeInvocationProof() throws Exception {
+    // Arrange
+    var context = context();
+    var slice = "aquila-" + context.nonce().replace("-", "") + ".slice";
+    var journal = BuildJournal.reserve(context, "git-inspection", intent -> {
+      intent.setProperty("containment.kind", "systemd-user-scope");
+      intent.setProperty("containment.slice", slice);
+      intent.setProperty("containment.invocation.slice", slice);
+    });
+
+    // Act
+    journal.closeWithoutLaunch();
+    var failure = assertThrows(IOException.class, () -> BuildJournal.requireClosed(context));
+
+    // Assert
+    assertTrue(journal.closed());
+    assertTrue(failure.getMessage().contains("unresolved native invocation slice"));
+    assertFalse(Files.exists(context.directory().resolve("native-closed.properties")));
+    assertFalse(Files.exists(context.directory().resolve("owner-closed.properties")));
   }
 }

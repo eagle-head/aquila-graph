@@ -387,8 +387,7 @@ class AquilaGraphProcessIT {
     assertTrue(result.completed(), "The packaged analyzer process did not finish within 30 seconds: " + result.output());
     assertEquals(2, result.exitCode(), result.output());
     assertEquals("", result.output());
-    assertTrue(result.error().contains("Input rejected:"), result.error());
-    assertTrue(result.error().contains("Malformed.java"), result.error());
+    assertEquals(PackagedFailureExpectations.malformedUtf8(sourceRoot.resolve("Malformed.java")), result.error());
   }
 
   @Test
@@ -422,8 +421,7 @@ class AquilaGraphProcessIT {
     assertTrue(result.completed());
     assertEquals(1, result.exitCode(), result.error());
     assertEquals("", result.output());
-    assertTrue(result.error().startsWith("Analysis failed:"), result.error());
-    assertFalse(result.error().contains("Usage:"), result.error());
+    assertEquals(PackagedFailureExpectations.missingCompiler(), result.error());
   }
 
   @Test

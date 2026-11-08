@@ -8,7 +8,7 @@ Use JDK 25 and the checked-in Maven Wrapper. Toolchain requirements and all buil
 
 From the repository root:
 
-| Purpose | Windows PowerShell | Linux and macOS |
+| Purpose | Windows PowerShell | Linux |
 | --- | --- | --- |
 | Run unit tests | `.\Invoke-Build.ps1 test` | `make test` |
 | Package and run process integration tests | `.\Invoke-Build.ps1 integration-test` | `make integration-test` |

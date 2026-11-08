@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 
 /** Shared observations of durable invocation closure and exact process absence. */
 final class BuildResourceAssertions {
@@ -18,7 +17,7 @@ final class BuildResourceAssertions {
         try (var identities = Files.newDirectoryStream(intent.getParent(), "process-*.properties")) {
           for (var file : identities) {
             var record = BuildFiles.read(file);
-            assertTrue(new ProcessIdentity(Long.parseLong(record.getProperty("pid")), Instant.parse(record.getProperty("started"))).liveProcess().isEmpty(), file.toString());
+            assertTrue(ProcessIdentity.read(record, "").liveProcess().isEmpty(), file.toString());
           }
         }
       }

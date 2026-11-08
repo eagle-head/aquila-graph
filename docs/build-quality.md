@@ -20,6 +20,10 @@ through the `**/package-info*` pattern.
 
 ## Required Toolchain
 
+Required build and validation platforms are Windows and Linux, as defined by the
+[repository platform rule](../AGENTS.md#supported-validation-platforms). macOS is
+outside the project objectives and acceptance scope.
+
 - JDK 25, selected through Maven Toolchains when the Maven runtime does not already match.
 - Maven 3.9.16, provided by the checked-in Maven Wrapper.
 - The Maven Wrapper distribution is pinned by SHA-256 in
@@ -85,7 +89,7 @@ a whole-suite runtime certification of isolation.
 The Makefile and PowerShell script use the checked-in Wrapper, which enforces the Maven version and
 distribution checksum:
 
-| Purpose | Linux and macOS | Windows PowerShell |
+| Purpose | Linux | Windows PowerShell |
 | --- | --- | --- |
 | Compile | `make compile` | `.\Invoke-Build.ps1 compile` |
 | Run development `*Test` tests when verification is requested | `make test` | `.\Invoke-Build.ps1 test` |
@@ -99,7 +103,7 @@ distribution checksum:
 The following commands remain available for a later explicit decision. Their
 presence is not authorization to execute them during development or task closure.
 
-| Deferred scope | Linux and macOS | Windows PowerShell |
+| Deferred scope | Linux | Windows PowerShell |
 | --- | --- | --- |
 | Packaged/native process integrations | `make integration-test` | `.\Invoke-Build.ps1 integration-test` |
 | All real integrations, including Neo4j | `make integration-test-neo4j` | `.\Invoke-Build.ps1 integration-test-neo4j` |
@@ -199,7 +203,7 @@ and [`Makefile`](../Makefile), with the agent configured in [`pom.xml`](../pom.x
 
 After removals, validate the complete active isolated scope at the later
 development acceptance step. Use focused checks for intermediate corrections.
-`make coverage` on Linux/macOS or `.\Invoke-Build.ps1 coverage` on Windows runs
+`make coverage` on Linux or `.\Invoke-Build.ps1 coverage` on Windows runs
 that complete scope with fresh JaCoCo reports, so a separate unit run is redundant.
 Preserve static quality gates and their separate results. A removal does not
 expand the user's current execution authorization.
@@ -211,6 +215,35 @@ selection, including process, database, packaged-consumer and lifecycle cases.
 Until then, report them as deferred, not passed; their nonexecution does not
 block delivery within the revised development scope. A failure in an executed
 check still requires an honest failed result and a correction within its scope.
+
+## Local Build Process Identity
+
+New Linux process records identify a birth by PID, boot identity and native
+start ticks. Wall-clock start time remains diagnostic metadata; it is not the
+comparison key when native birth evidence is present. Invocation ownership,
+source-launch acknowledgments and resource journals preserve these coordinates
+through the shared [ProcessIdentity](../config/build/org/aquilagraph/build/ProcessIdentity.java)
+reader/writer. Missing or malformed native fields fail closed. Epoch-only records
+remain readable with their original exact timestamp comparison; native birth
+evidence is never inferred for an older record. If a legacy Linux timestamp
+differs while its PID is live, the ambiguous identity refuses verification;
+it cannot certify process exit. Windows retains its existing PID/creation-time
+identity.
+
+The Linux [start-time field](https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html)
+is measured from boot in clock ticks. The kernel's
+[boot identity](https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html#random)
+remains fixed after its first retrieval. These coordinates avoid the per-JVM boot
+epoch conversion used by [OpenJDK's Linux ProcessHandle implementation](https://github.com/openjdk/jdk25u/blob/master/src/java.base/linux/native/libjava/ProcessHandleImpl_linux.c).
+The [native reader](../config/build/org/aquilagraph/build/LinuxProcessStart.java)
+validates the recorded PID and handles parentheses in the process command.
+
+[ProcessIdentityTest](../src/test/java/org/aquilagraph/build/ProcessIdentityTest.java)
+and [LinuxProcessStartTest](../src/test/java/org/aquilagraph/build/LinuxProcessStartTest.java)
+cover exact birth comparison, persistence, refusal and controlled native-file
+inputs. [LinuxProcessIdentityProcessIT](../src/test/java/org/aquilagraph/build/LinuxProcessIdentityProcessIT.java)
+observes the live Linux owner with controlled shifted JVM metadata; it remains a
+separately authorized process integration, not isolated evidence of a real host.
 
 ## Identity API Verification
 

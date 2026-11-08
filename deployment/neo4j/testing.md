@@ -2,7 +2,7 @@
 
 ## Commands and portable resource budgets
 
-Run `make integration-test-neo4j` on Linux and macOS, or
+Run `make integration-test-neo4j` on Linux, or
 `.\Invoke-Build.ps1 integration-test-neo4j` on Windows. Docker must be available.
 The tests start their own pinned Community Neo4j with a generated password and
 a dynamically allocated Bolt port. Existing application connection variables do
@@ -67,7 +67,7 @@ Run unit tests with fresh JaCoCo coverage on Windows:
 .\Invoke-Build.ps1 coverage -MavenFlags @('-B', '--no-transfer-progress', '-Phigh-capacity-tests')
 ```
 
-On Linux and macOS, use
+On Linux, use
 `make coverage MAVEN_FLAGS='-B --no-transfer-progress -Phigh-capacity-tests'`.
 This target runs the complete unit suite and generates a new JaCoCo report,
 following the [coverage freshness contract](../../docs/build-quality.md#coverage-freshness).
@@ -81,7 +81,7 @@ once. Their combined container memory limit is 24 GiB; the three test JVMs add u
 to 6 GiB of maximum heap, before Maven, native memory, and child consumers. Use
 `.\Invoke-Build.ps1 integration-test-neo4j -MavenFlags @('-B', '--no-transfer-progress', '-Phigh-capacity-tests')`
 on Windows or `make integration-test-neo4j MAVEN_FLAGS='-B --no-transfer-progress -Phigh-capacity-tests'`
-on Linux and macOS for that final group.
+on Linux for that final group.
 
 For the local 64 GiB Windows host, the initial experimental WSL budget is 20
 logical processors and 28 GiB. These are global WSL settings, applied at VM
@@ -135,7 +135,7 @@ $env:AQUILA_GRAPH_TEST_PRESERVE_DATA = 'true'
 Remove-Item Env:AQUILA_GRAPH_TEST_PRESERVE_DATA
 ```
 
-On Linux or macOS:
+On Linux:
 
 ```sh
 AQUILA_GRAPH_TEST_PRESERVE_DATA=true make integration-test-neo4j

@@ -7,7 +7,6 @@ import java.nio.file.NoSuchFileException;
 import java.util.Properties;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Optional;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -104,8 +103,7 @@ final class CommandLaunch implements AutoCloseable {
         TimeUnit.MILLISECONDS.sleep(25);
       }
     }
-    var identity = new ProcessIdentity(Long.parseLong(BuildFiles.required(record, "pid")),
-        Instant.parse(BuildFiles.required(record, "started")));
+    var identity = ProcessIdentity.read(record, "");
     if (!identity.equals(ProcessIdentity.observe(child.toHandle()))) {
       throw new IOException("Source launcher acknowledgement differs from the created process identity");
     }
@@ -179,7 +177,7 @@ final class CommandLaunch implements AutoCloseable {
       if (state == State.CLOSED) {
         return;
       }
-      try (var _ = ProcessStreams.closing(process); var _ = platform; Closeable _ = command::stopObserved) {
+      try (var _ = ProcessStreams.closing(process); var _ = platform; Closeable _ = platform::stopObserved) {
         if (process.isPresent()) {
           ProcessClosure.close(process.orElseThrow(), Duration.ofSeconds(10));
           journal.observe(process.orElseThrow().toHandle());

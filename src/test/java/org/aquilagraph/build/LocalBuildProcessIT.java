@@ -11,7 +11,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -201,7 +200,7 @@ class LocalBuildProcessIT {
     try (var process = OwnedProcess.start(fixture.builder("compile").redirectOutput(log.toFile()))) {
       await(fixture.root().resolve("active.properties"), process, log);
       var active = BuildFiles.read(fixture.root().resolve("active.properties"));
-      var identity = new ProcessIdentity(Long.parseLong(active.getProperty("pid")), Instant.parse(active.getProperty("started")));
+      var identity = ProcessIdentity.read(active, "");
 
       // Act
       var contender = fixture.run("compile");
@@ -310,7 +309,7 @@ class LocalBuildProcessIT {
         acknowledgement = selected.orElseThrow(() -> new IOException("The exact source-launcher reservation is required"));
       }
       var record = BuildFiles.read(acknowledgement);
-      var launcher = new ProcessIdentity(Long.parseLong(record.getProperty("pid")), Instant.parse(record.getProperty("started")));
+      var launcher = ProcessIdentity.read(record, "");
 
       // Act
       launcher.liveProcess().orElseThrow().destroyForcibly();
@@ -414,7 +413,7 @@ class LocalBuildProcessIT {
         assertTrue(owner.await(Duration.ofSeconds(60)), Files.readString(log));
         assertTrue(Files.exists(marker), Files.readString(log));
         var record = BuildFiles.read(marker);
-        var identity = new ProcessIdentity(Long.parseLong(record.getProperty("pid")), Instant.parse(record.getProperty("started")));
+        var identity = ProcessIdentity.read(record, "");
         descendant = Optional.of(identity);
 
         // Assert
@@ -519,7 +518,7 @@ class LocalBuildProcessIT {
       try {
         assertTrue(owner.await(Duration.ofSeconds(60)), Files.readString(log));
         var record = BuildFiles.read(fixture.root().resolve("descendant.properties"));
-        var identity = new ProcessIdentity(Long.parseLong(record.getProperty("pid")), Instant.parse(record.getProperty("started")));
+        var identity = ProcessIdentity.read(record, "");
         descendant = Optional.of(identity);
 
         // Assert
