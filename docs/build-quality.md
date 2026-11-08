@@ -20,6 +20,10 @@ through the `**/package-info*` pattern.
 
 ## Required Toolchain
 
+Required build and validation platforms are Windows and Linux, as defined by the
+[repository platform rule](../AGENTS.md#supported-validation-platforms). macOS is
+outside the project objectives and acceptance scope.
+
 - JDK 25, selected through Maven Toolchains when the Maven runtime does not already match.
 - Maven 3.9.16, provided by the checked-in Maven Wrapper.
 - The Maven Wrapper distribution is pinned by SHA-256 in
@@ -85,7 +89,7 @@ a whole-suite runtime certification of isolation.
 The Makefile and PowerShell script use the checked-in Wrapper, which enforces the Maven version and
 distribution checksum:
 
-| Purpose | Linux and macOS | Windows PowerShell |
+| Purpose | Linux | Windows PowerShell |
 | --- | --- | --- |
 | Compile | `make compile` | `.\Invoke-Build.ps1 compile` |
 | Run development `*Test` tests when verification is requested | `make test` | `.\Invoke-Build.ps1 test` |
@@ -99,7 +103,7 @@ distribution checksum:
 The following commands remain available for a later explicit decision. Their
 presence is not authorization to execute them during development or task closure.
 
-| Deferred scope | Linux and macOS | Windows PowerShell |
+| Deferred scope | Linux | Windows PowerShell |
 | --- | --- | --- |
 | Packaged/native process integrations | `make integration-test` | `.\Invoke-Build.ps1 integration-test` |
 | All real integrations, including Neo4j | `make integration-test-neo4j` | `.\Invoke-Build.ps1 integration-test-neo4j` |
@@ -199,7 +203,7 @@ and [`Makefile`](../Makefile), with the agent configured in [`pom.xml`](../pom.x
 
 After removals, validate the complete active isolated scope at the later
 development acceptance step. Use focused checks for intermediate corrections.
-`make coverage` on Linux/macOS or `.\Invoke-Build.ps1 coverage` on Windows runs
+`make coverage` on Linux or `.\Invoke-Build.ps1 coverage` on Windows runs
 that complete scope with fresh JaCoCo reports, so a separate unit run is redundant.
 Preserve static quality gates and their separate results. A removal does not
 expand the user's current execution authorization.

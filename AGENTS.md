@@ -31,9 +31,16 @@ These instructions apply to the entire directory tree rooted at this file. More 
 - Chat and other conversational responses have no fixed language. Respond in the language and regional variety used by the user unless the user requests another language. Preserve established technical terms when translating them would be inaccurate, ambiguous, or unnatural.
 - Preserve non-English text in repository content only when it is a load-bearing external value, such as an exact protocol field, quoted source passage, legal name, or compatibility fixture. Explain the exception in United States English within the relevant repository content.
 
+## Supported Validation Platforms
+
+- Windows and Linux are the project's required build, integration, and acceptance platforms.
+- macOS is outside the project's objectives, implementation commitments, validation campaigns, and acceptance criteria because no macOS machine is available.
+- Do not add macOS obligations, retain macOS as pending verification, or block a task or epic on missing macOS evidence. Generic non-Windows code and command compatibility do not establish a macOS support commitment.
+- Reintroduce macOS only after an explicit user decision confirms an actual available host and defines the intended scope. Update the owning contracts before making or verifying any macOS claim.
+
 ## Platform-Specific Build Commands
 
-- When showing repository build commands, use `make <target>` for Linux and macOS and `.\Invoke-Build.ps1 <target>` for Windows.
+- When showing repository build commands, use `make <target>` for Linux and `.\Invoke-Build.ps1 <target>` for Windows.
 - Use the [build quality guide](docs/build-quality.md#commands) for the available targets and their validation responsibilities.
 
 ## Validation After Removals
