@@ -32,6 +32,7 @@ final class AstRepositoryDriverStub {
   RuntimeException closeFailure;
   RuntimeException driverCloseFailure;
   RuntimeException nodeStreamFailure;
+  RuntimeException relationshipStreamFailure;
   boolean malformedNodeRecords;
   String version = "absent";
   String lockedAstSubject;
@@ -141,7 +142,10 @@ final class AstRepositoryDriverStub {
       if (query.contains("RETURN count(entity)")) {
         rows = List.of(record(Map.of("count", 0L)));
       }
-      return result(rows, query.contains("labels(entity)") ? nodeStreamFailure : null);
+      if (query.contains("labels(entity)")) {
+        return result(rows, nodeStreamFailure);
+      }
+      return result(rows, query.contains("type(relation)") ? relationshipStreamFailure : null);
     });
   }
 
