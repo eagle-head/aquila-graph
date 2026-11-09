@@ -27,7 +27,10 @@ import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRequest;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.CfgSelection;
+import org.aquilagraph.application.MethodCoverage;
+import org.aquilagraph.application.MethodCoverageState;
 import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.application.RequestQualificationReason;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgDerivationException;
@@ -192,6 +195,84 @@ class AnalyzeCommandTest {
         streams.errorLines().subList(applicationReason, applicationReason + 3));
     assertFalse(streams.errorLines().stream().anyMatch(line -> line.startsWith("Diagnostic:")));
     assertFalse(streams.errorLines().stream().anyMatch(line -> line.contains("frontend.unsupported-tree-kind.union-type")));
+  }
+
+  @Test
+  void givenBodylessAvailableAndRefusedMethods_whenCliAnalyzesAllBodies_thenExactSummaryAndNativeOwnersSurvive() throws IOException {
+    // Arrange
+    Files.writeString(directory.resolve("Example.java"), """
+        interface Example {
+          void bodyless();
+          static int available() { return 1; }
+          static int refused(int value) { (value) = 1; return value; }
+        }
+        """);
+    var runner = new CommandRunner(new AnalyzeCommand(
+        CliTestFixtures.service(CliTestFixtures.runner(), CliTestFixtures.repositoriesMustNotOpen())));
+    var streams = new CliStreams();
+
+    // Act
+    var invocation = runner.run(new String[] {directory.toString()}, CommandDestination.printStream(streams.output()),
+        CommandDestination.printStream(streams.error()));
+
+    // Assert
+    assertEquals(1, invocation.exitCode());
+    var run = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, invocation.outcome()).execution().run();
+    var coverage = run.methodCoverages();
+    var ast = run.representation().ast().result().orElseThrow();
+    var declarations = ast.program().methods();
+    var keys = declarations.stream().map(method -> method.methodKey()).toList();
+    assertEquals(List.of("bodyless", "available", "refused"), declarations.stream().map(method -> method.name()).toList());
+    assertEquals(List.of(MethodCoverageState.NOT_REQUESTED, MethodCoverageState.AVAILABLE, MethodCoverageState.UNSUPPORTED),
+        coverage.stream().map(MethodCoverage::state).toList());
+    var cfg = run.representation().cfg().orElseThrow();
+    var selected = keys.subList(1, 3);
+    assertEquals(selected, cfg.request().methodKeys());
+    assertEquals(CfgProfile.JAVA_BOUNDED, cfg.request().profile());
+    for (var index = 0; index < keys.size(); index++) {
+      var row = coverage.get(index);
+      assertSame(declarations.get(index), row.declaration());
+      assertEquals(row, run.methodCoverage(keys.get(index)).orElseThrow());
+    }
+    assertTrue(coverage.getFirst().cfg().isEmpty());
+    assertSame(cfg.methods().getFirst(), coverage.get(1).cfg().orElseThrow());
+    assertSame(cfg.methods().getLast(), coverage.getLast().cfg().orElseThrow());
+    var refusal = cfg.methods().getLast();
+    var reason = assertInstanceOf(RequestQualificationReason.Method.class, run.qualification().reasons().getFirst());
+    assertSame(refusal, reason.outcome());
+    var occurrence = run.diagnostics().occurrences().getFirst();
+    assertSame(refusal.diagnostics().getFirst(), run.diagnostics().values().getFirst());
+    assertEquals(List.of(occurrence), run.diagnostics().relatedTo(reason));
+    var expectedOutput = new ArrayList<>(List.of("Run: \"" + run.identity().key() + "\"",
+        "Software version: \"" + ast.identity().softwareSignature() + "\"",
+        "Completion: PARTIAL", "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: \"java-source-bounded/1\"",
+        "CFG: PARTIAL", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"", "CFG selection: ALL_BODIES",
+        "CFG binding: \"" + ast.identity().astResultKey() + "\"", "Selected method: \"" + keys.get(1) + "\"",
+        "Selected method: \"" + keys.get(2) + "\"", "Java types: 1", "Java methods: 3", "Analyzed method bodies: 1",
+        "CFG operations: 2", "CFG nodes: 4", "CFG edges: 3", "Method CFG: \"" + keys.getFirst() + "\" NOT_REQUESTED",
+        "Method CFG: \"" + keys.get(1) + "\" AVAILABLE", "Method CFG: \"" + keys.get(2) + "\" UNSUPPORTED",
+        "Repository: NOT_REQUESTED"));
+    expectedOutput.addAll(ReportTextExpectations.noPublication(run));
+    assertEquals(String.join(System.lineSeparator(), expectedOutput) + System.lineSeparator(), streams.outputText());
+    var blocker = refusal.blockers().getFirst();
+    var diagnostic = refusal.diagnostics().getFirst();
+    var span = diagnostic.origins().getFirst();
+    var origin = "  Origin: \"" + span.sourceFileKey() + "\" file=\"Example.java\" range=[" + span.startOffset()
+        + "," + span.endOffsetExclusive() + ")";
+    var link = "  Related diagnostic: \"" + diagnostic.diagnosticKey() + "\" occurrence=1";
+    var methodHeader = List.of("  Profile: \"java-cfg-bounded/1\"", "  Subject: \"" + keys.getLast() + "\"",
+        "  AST result: \"" + ast.identity().astResultKey() + "\"", "  Body: WRITTEN",
+        "  Body occurrence: \"" + ast.bodyRef(keys.getLast()).orElseThrow().sourceOccurrenceKey().orElseThrow() + "\"");
+    var expectedError = new ArrayList<>(List.of("Diagnostic: \"" + diagnostic.diagnosticKey() + "\"", "  Occurrence: 1",
+        "  Owner: CFG_METHOD", "  Native position: 0", "  Owner method: \"" + keys.getLast() + "\"", "  Severity: ERROR",
+        "  Stage: CONTROL_FLOW", "  Cause: CONTROL_FLOW_UNAVAILABLE", "  Code: \"" + diagnostic.code() + "\"",
+        "  Message: \"" + diagnostic.message() + "\"", origin, "Qualification: CFG UNSUPPORTED"));
+    expectedError.addAll(methodHeader);
+    expectedError.addAll(List.of("  Source occurrence: \"" + blocker.occurrence().orElseThrow().nodeKey() + "\"",
+        "  Slot: \"" + blocker.slot() + "\"", origin, link, "Qualification: APPLICATION METHOD"));
+    expectedError.addAll(methodHeader);
+    expectedError.addAll(List.of(origin, link));
+    assertEquals(String.join(System.lineSeparator(), expectedError) + System.lineSeparator(), streams.errorText());
   }
 
   @Test
