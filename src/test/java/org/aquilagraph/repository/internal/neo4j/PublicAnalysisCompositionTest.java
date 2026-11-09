@@ -38,6 +38,8 @@ import org.aquilagraph.application.AstPublicationRequest;
 import org.aquilagraph.application.CfgSelection;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.ComputedPublicationSubject.Coordinated;
+import org.aquilagraph.application.MethodCoverage;
+import org.aquilagraph.application.MethodCoverageState;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationOutcome;
 import org.aquilagraph.application.PublicationStatus;
@@ -336,6 +338,57 @@ class PublicAnalysisCompositionTest {
   }
 
   @Test
+  void givenRecoverableCfgFailure_whenCoordinatingCompleteAstRetention_thenAdapterWritesSourceAndRunKeepsFailedCoverage() {
+    // Arrange
+    var cause = new IllegalStateException("Controlled CFG construction failure");
+    var driver = new AstRepositoryDriverStub();
+    var reader = new AstRepositoryDriverStub();
+    var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), (ast, selection) -> {
+      driver.lockedAstSubject = ast.identity().astResultKey();
+      return RecoverableCfgFailures.atMethod(selection.methodKeys().getFirst(), cause).derive(ast, selection);
+    });
+    var execution = AnalysisCapabilities.execution(computation, astRepository(driver), NO_RUN_STORAGE);
+    var request = new AnalysisComputationRequest(source("interface Sample { static int value() { return 1; } }"),
+        Optional.of(CfgSelection.allBodies(CFG)));
+
+    // Act
+    var saved = execution.execute(new AnalysisRequest(request, PublicationIntent.SAVE_COMPLETE_AST));
+    var run = saved.run();
+    var coverage = run.methodCoverages();
+    var ast = run.representation().ast();
+    var result = ast.result().orElseThrow();
+    reader.stored = writtenAst(result.identity(), driver);
+    var lookup = AnalysisCapabilities.astQuery(astRepository(reader)).findAst(result.identity());
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, ast.completion());
+    assertEquals(AnalysisCompletion.FAILED, run.completion());
+    assertEquals(List.of(MethodCoverageState.FAILED), coverage.stream().map(MethodCoverage::state).toList());
+    var method = result.program().methods().getFirst();
+    var failed = run.representation().cfg().orElseThrow().methods().getFirst();
+    assertSame(method, coverage.getFirst().declaration());
+    assertEquals(coverage.getFirst(), run.methodCoverage(method.methodKey()).orElseThrow());
+    assertSame(failed, coverage.getFirst().cfg().orElseThrow());
+    assertSame(cause, failed.failure().orElseThrow());
+    var reason = assertInstanceOf(RequestQualificationReason.Method.class, run.qualification().reasons().getFirst());
+    assertSame(failed, reason.outcome());
+    assertSame(failed.diagnostics().getFirst(), run.diagnostics().values().getFirst());
+    assertEquals(List.of(run.diagnostics().occurrences().getFirst()), run.diagnostics().relatedTo(reason));
+    assertPublication(saved.publication(), PublicationIntent.SAVE_COMPLETE_AST, Optional.of(new Ast(result.identity())),
+        PublicationStatus.SAVED, CommitKnowledge.KNOWN_COMMIT);
+    assertEquals(Map.of("scope", result.identity().astResultKey()), driver.statements.getFirst().parameters().asMap());
+    assertTrue(driver.events.contains("write.acknowledged"));
+    assertEquals("driver.close", driver.events.getLast());
+    assertTrue(driver.queries.stream().noneMatch(query -> query.contains(":AnalysisEntity")));
+    assertEquals(AstLookupStatus.FOUND, lookup.status());
+    assertEquals(result.identity(), lookup.requestedIdentity());
+    var retained = lookup.outcome().orElseThrow().result().orElseThrow();
+    assertEquals(result.identity(), retained.identity());
+    assertArrayEquals(AstCodec.encode(result), AstCodec.encode(retained));
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), reader.events);
+  }
+
+  @Test
   void givenDeclaredCfgConstructionConditions_whenDerivingEstablishedSource_thenReturnedFailureAndAbruptProgressKeepNativeOwners() {
     // Arrange
     var ast = JavaFrontends.standard().produce(source(BRANCHING));
@@ -382,6 +435,46 @@ class PublicAnalysisCompositionTest {
     assertSame(request, interrupted.derivationFailure().request());
     assertSame(cause, interrupted.derivationFailure().getCause());
     assertEquals(expectedProgress, interrupted.derivationFailure().completedMethods());
+  }
+
+  @Test
+  void givenAbruptDerivationWithCompleteAst_whenCoordinatingAstRetention_thenExactFailureEscapesBeforePublication() {
+    // Arrange
+    var produced = new AtomicReference<AstOutcome>();
+    var carrier = new AtomicReference<CfgDerivationException>();
+    var cause = new IllegalStateException("Controlled abrupt CFG construction failure");
+    var computation = AnalysisCapabilities.computation(input -> {
+      var ast = JavaFrontends.standard().produce(input);
+      produced.set(ast);
+      return ast;
+    }, (ast, selection) -> {
+      var prefix = new CfgRequest(ast.identity(), List.of(selection.methodKeys().getFirst()), selection.profile());
+      var progress = CfgDerivers.standard().derive(ast, prefix).methods();
+      var failure = new CfgDerivationException(selection, progress, cause);
+      carrier.set(failure);
+      throw failure;
+    });
+    var execution = AnalysisCapabilities.execution(computation, NO_AST_STORAGE, NO_RUN_STORAGE);
+    var request = new AnalysisRequest(new AnalysisComputationRequest(source(BRANCHING), Optional.of(CfgSelection.allBodies(CFG))),
+        PublicationIntent.SAVE_COMPLETE_AST);
+
+    // Act
+    var interrupted = assertThrows(AnalysisDerivationException.class, () -> execution.execute(request));
+
+    // Assert
+    var ast = produced.get();
+    assertSame(ast, interrupted.ast());
+    assertEquals(AstCompletion.COMPLETE, ast.completion());
+    assertSame(carrier.get(), interrupted.derivationFailure());
+    assertSame(cause, interrupted.derivationFailure().getCause());
+    var result = ast.result().orElseThrow();
+    var first = methodKey(ast, "choose");
+    assertEquals(new CfgRequest(result.identity(), List.of(first, methodKey(ast, "fallback")), CFG), carrier.get().request());
+    var progress = carrier.get().completedMethods();
+    assertEquals(1, progress.size());
+    assertEquals(first, progress.getFirst().methodKey());
+    assertEquals(MethodCfgState.AVAILABLE, progress.getFirst().state());
+    assertEquals(result.bodyRef(first).orElseThrow(), progress.getFirst().graph().orElseThrow().body());
   }
 
   @Test
