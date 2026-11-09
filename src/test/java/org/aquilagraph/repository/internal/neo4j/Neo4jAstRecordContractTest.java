@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.function.UnaryOperator;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
+import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AstLookup;
 import org.aquilagraph.application.AstLookupStatus;
 import org.aquilagraph.application.CommitKnowledge;
@@ -37,6 +39,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.SessionConfig;
+import org.neo4j.driver.exceptions.Neo4jException;
 
 class Neo4jAstRecordContractTest {
   @TempDir Path directory;
@@ -221,6 +224,145 @@ class Neo4jAstRecordContractTest {
   }
 
   @Test
+  void givenUnsupportedFormatAndContradictoryProfileWithMalformedPayload_whenQuerying_thenFormatPrecedesInterpretation()
+      throws IOException {
+    // Arrange
+    var fixture = fixture();
+    var identity = fixture.original().identity();
+    var unsupported = "java-source/99";
+    var projection = withRootProperty(fixture.projection(), "formatVersion", unsupported);
+    projection = withRootProperty(projection, "astProfileVersion", "java-source-expanded/99");
+    projection = withRootProperty(projection, "payload", "invalid-base64!");
+    var driver = supplied(projection);
+    assertNotEquals(identity.astProfileVersion(), projection.root().properties().get("astProfileVersion"));
+
+    // Act
+    var lookup = query(identity, driver);
+
+    // Assert
+    assertEquals(identity, lookup.requestedIdentity());
+    assertEquals(AstLookupStatus.INCOMPATIBLE, lookup.status());
+    assertEquals(unsupported, lookup.unsupportedFormat().orElseThrow());
+    assertTrue(lookup.outcome().isEmpty());
+    assertEquals(1, driver.queries.size());
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
+    assertOriginal(fixture);
+  }
+
+  @Test
+  void givenMatchingUnsupportedProfileAndMalformedRows_whenQuerying_thenRequiredReadsPrecedeIncompatibleAdmission()
+      throws IOException {
+    // Arrange
+    var fixture = fixture();
+    var projection = unsupportedProfileRoot(fixture);
+    var identity = projection.identity();
+    var driver = supplied(projection);
+    driver.malformedNodeRecords = true;
+    assertEquals(identity.astProfileVersion(), projection.root().properties().get("astProfileVersion"));
+
+    // Act
+    var lookup = query(identity, driver);
+
+    // Assert
+    assertEquals(identity, lookup.requestedIdentity());
+    assertEquals(AstLookupStatus.INCOMPATIBLE, lookup.status());
+    assertEquals(identity.astProfileVersion(), lookup.unsupportedFormat().orElseThrow());
+    assertTrue(lookup.outcome().isEmpty());
+    assertTrue(driver.queries.stream().anyMatch(statement -> statement.contains("labels(entity)")));
+    assertTrue(driver.queries.stream().anyMatch(statement -> statement.contains("type(relation)")));
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
+    assertOriginal(fixture);
+  }
+
+  @Test
+  void givenMatchingUnsupportedProfileAndLaterStreamFailure_whenQuerying_thenReadFailurePreventsIncompatibleAdmission()
+      throws IOException {
+    // Arrange
+    var fixture = fixture();
+    var projection = unsupportedProfileRoot(fixture);
+    var identity = projection.identity();
+    var driver = supplied(projection);
+    driver.malformedNodeRecords = true;
+    var primary = new Neo4jException("Read failed after malformed source rows");
+    driver.nodeStreamFailure = primary;
+    assertEquals(identity.astProfileVersion(), projection.root().properties().get("astProfileVersion"));
+
+    // Act
+    var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> query(identity, driver));
+
+    // Assert
+    assertEquals(RepositoryOperationContext.queryAst(identity), failure.context());
+    assertEquals(Neo4jRepositoryPhase.READ, failure.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge().orElseThrow());
+    assertSame(primary, failure.effectivePrimary().getCause());
+    assertEquals(0, failure.getSuppressed().length);
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
+    assertOriginal(fixture);
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenMissingOrBlankFormatMetadata_whenQuerying_thenEachRequiredFormatFailurePreventsNormalLookup()
+      throws IOException {
+    // Arrange
+    var fixture = fixture();
+    var partitions = List.of("Missing", "Empty", "Whitespace");
+
+    // Act
+    var observations = partitions.stream().map(partition -> DynamicTest.dynamicTest(
+        "given" + partition + "FormatMetadata_whenQuerying_thenRequiredFormatFailurePreventsNormalLookup", () -> {
+          // Arrange
+          var root = fixture.projection().root();
+          var properties = new HashMap<>(root.properties());
+          if (partition.equals("Missing")) {
+            properties.remove("formatVersion");
+          } else {
+            properties.put("formatVersion", partition.equals("Empty") ? "" : " \t\n");
+          }
+          var nodes = new ArrayList<>(fixture.projection().nodes());
+          nodes.set(nodes.indexOf(root), new Neo4jNode(root.key(), root.label(), properties));
+          var driver = supplied(new Neo4jAstProjection(fixture.original().identity(), nodes, fixture.projection().relationships()));
+
+          // Act
+          var failure = assertThrows(Neo4jRepositoryOperationException.class,
+              () -> query(fixture.original().identity(), driver));
+
+          // Assert
+          assertFailure(fixture, driver, failure, IllegalArgumentException.class, "explicit format version");
+          assertEquals(1, driver.queries.size());
+        }));
+
+    // Assert
+    return observations;
+  }
+
+  @Test
+  void givenUnsupportedProfileAndRelationshipStreamTailFailure_whenQuerying_thenExactReadFailurePreventsIncompatibility()
+      throws IOException {
+    // Arrange
+    var fixture = fixture();
+    var projection = unsupportedProfileWithRelationship(fixture);
+    var identity = projection.identity();
+    var driver = supplied(projection);
+    driver.malformedNodeRecords = true;
+    var primary = new Neo4jException("Read failed after a source relationship row");
+    driver.relationshipStreamFailure = primary;
+    assertEquals(identity.astProfileVersion(), projection.root().properties().get("astProfileVersion"));
+    assertEquals(1, projection.relationships().size());
+
+    // Act
+    var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> query(identity, driver));
+
+    // Assert
+    assertEquals(RepositoryOperationContext.queryAst(identity), failure.context());
+    assertEquals(Neo4jRepositoryPhase.READ, failure.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge().orElseThrow());
+    assertSame(primary, failure.effectivePrimary().getCause());
+    assertEquals(0, failure.getSuppressed().length);
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
+    assertOriginal(fixture);
+  }
+
+  @Test
   void givenNoStoredSubject_whenFinding_thenAbsenceRetainsTheRequestedIdentity() throws IOException {
     // Arrange
     var fixture = fixture();
@@ -282,6 +424,46 @@ class Neo4jAstRecordContractTest {
         RepositoryOperationContext.queryAst(identity))) {
       return repository.find(identity);
     }
+  }
+
+  private static AstLookup query(AstIdentity identity, AstRepositoryDriverStub driver) {
+    return AnalysisCapabilities.astQuery(context -> new Neo4jAstResultRepository(driver.driver(), SessionConfig.defaultConfig(), context))
+        .findAst(identity);
+  }
+
+  private static Neo4jAstProjection unsupportedProfileRoot(Fixture fixture) {
+    var original = fixture.original().identity();
+    var identity = AstIdentity.fromContent(original.softwareSignature(), original.sourceModelVersion(), "java-source-expanded/99",
+        original.semanticProductionRevision(), original.canonicalContentDigest());
+    var properties = new HashMap<>(fixture.projection().root().properties());
+    properties.put("key", identity.astResultKey());
+    properties.put("astResultKey", identity.astResultKey());
+    properties.put("astProfileVersion", identity.astProfileVersion());
+    return new Neo4jAstProjection(identity, List.of(new Neo4jNode(identity.astResultKey(), "AstResult", properties)), List.of());
+  }
+
+  private static Neo4jAstProjection unsupportedProfileWithRelationship(Fixture fixture) {
+    var unsupported = unsupportedProfileRoot(fixture);
+    var identity = unsupported.identity();
+    var original = fixture.projection();
+    var rootKey = original.root().key();
+    var relationship = original.relationships().stream()
+        .filter(value -> !rootKey.equals(value.sourceKey()) && !rootKey.equals(value.targetKey())).findFirst().orElseThrow();
+    var nodes = new ArrayList<>(unsupported.nodes());
+    for (var node : original.nodes()) {
+      if (node.key().equals(relationship.sourceKey()) || node.key().equals(relationship.targetKey())) {
+        nodes.add(new Neo4jNode(node.key(), node.label(), scopedProperties(node.properties(), identity)));
+      }
+    }
+    var link = new Neo4jRelationship(relationship.key(), relationship.type(), relationship.sourceKey(), relationship.targetKey(),
+        scopedProperties(relationship.properties(), identity));
+    return new Neo4jAstProjection(identity, nodes, List.of(link));
+  }
+
+  private static Map<String, Object> scopedProperties(Map<String, Object> original, AstIdentity identity) {
+    var properties = new HashMap<>(original);
+    properties.put("astResultKey", identity.astResultKey());
+    return properties;
   }
 
   private static Neo4jRepositoryOperationException reject(Fixture fixture, AstRepositoryDriverStub driver) {

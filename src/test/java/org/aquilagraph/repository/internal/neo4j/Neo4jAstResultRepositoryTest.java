@@ -630,6 +630,40 @@ class Neo4jAstResultRepositoryTest {
   }
 
   @Test
+  void givenQueryAcquisitionAndPartialDriverCloseFailures_whenFinding_thenExactOperationAndBothCausesSurvive() throws IOException {
+    // Arrange
+    var ast = produce();
+    var identity = ast.result().orElseThrow().identity();
+    var operationContext = RepositoryOperationContext.queryAst(identity);
+    var backend = new AstRepositoryDriverStub();
+    var primary = new IllegalArgumentException("Query configuration failed");
+    var cleanup = new Neo4jException("Partial query driver close failed");
+    backend.driverCloseFailure = cleanup;
+    var factory = new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings, ignored -> backend.driver(), ignored -> {
+      throw primary;
+    });
+    var query = AnalysisCapabilities.astQuery(factory);
+
+    // Act
+    var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> query.findAst(identity));
+
+    // Assert
+    assertEquals(operationContext, failure.context());
+    assertEquals(Neo4jRepositoryPhase.ACQUISITION, failure.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge().orElseThrow());
+    var declared = assertInstanceOf(RepositoryException.class, failure.effectivePrimary());
+    assertSame(primary, declared.getCause());
+    assertEquals(1, failure.getSuppressed().length);
+    var closure = assertInstanceOf(Neo4jRepositoryOperationException.class, failure.getSuppressed()[0]);
+    assertEquals(operationContext, closure.context());
+    assertEquals(Neo4jRepositoryPhase.REPOSITORY_CLOSE, closure.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, closure.knowledge().orElseThrow());
+    assertSame(cleanup, assertInstanceOf(RepositoryException.class, closure.effectivePrimary()).getCause());
+    assertEquals(List.of("driver.close"), backend.events);
+    assertTrue(backend.queries.isEmpty());
+  }
+
+  @Test
   void givenMalformedStreamedNode_whenReadCompletes_thenContentFailureRetainsDecodePhase() throws IOException {
     // Arrange
     var ast = produce();
