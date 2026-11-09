@@ -1,5 +1,7 @@
 package org.aquilagraph.application;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -7,6 +9,7 @@ import org.aquilagraph.application.AnalysisRequestIdentity.ExistingSelection;
 import org.aquilagraph.application.AnalysisRequestIdentity.NotRequested;
 import org.aquilagraph.application.AnalysisRequestIdentity.ProductionSelection;
 import org.aquilagraph.cfg.api.CfgRequest;
+import org.aquilagraph.cfg.api.MethodCfgOutcome;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.JavaMethod;
 
@@ -88,18 +91,41 @@ public record AnalysisRun(AnalysisRequestIdentity identity, ProgramRepresentatio
     }
     var declaration = representation.ast().result().flatMap(ast -> ast.method(methodKey));
     return declaration.map(method -> {
-      var cfg = representation.cfg();
-      var outcome = cfg.stream().flatMap(value -> value.methods().stream()).filter(value -> value.methodKey().equals(methodKey))
-          .findFirst();
-      var selected = switch (identity.selection()) {
-        case NotRequested _ -> false;
-        case ProductionSelection production -> production.methodKeys().contains(methodKey);
-        case ExistingSelection existing -> existing.request().methodKeys().contains(methodKey);
-      };
-      var state = outcome.map(value -> MethodCoverageState.fromCfg(value.state()))
-          .orElse(selected ? MethodCoverageState.REQUEST_REJECTED : MethodCoverageState.NOT_REQUESTED);
-      return new MethodCoverage(method, state, outcome);
+      var outcome = representation.cfg().stream().flatMap(value -> value.methods().stream())
+          .filter(value -> value.methodKey().equals(methodKey)).findFirst();
+      return coverage(method, outcome, selectedMethodKeys().contains(methodKey));
     });
+  }
+
+  /**
+   * Resolves coverage for every canonical declaration using the run's retained source and derivation results.
+   *
+   * @return an immutable list in canonical declaration order, empty when there is no admitted source
+   */
+  public List<MethodCoverage> methodCoverages() {
+    return representation.ast().result().map(ast -> {
+      var outcomes = new HashMap<String, MethodCfgOutcome>();
+      representation.cfg().ifPresent(cfg -> cfg.methods().forEach(outcome -> outcomes.put(outcome.methodKey(), outcome)));
+      var selected = new HashSet<>(selectedMethodKeys());
+      return ast.program().methods().stream().map(method -> {
+        var key = method.methodKey();
+        return coverage(method, Optional.ofNullable(outcomes.get(key)), selected.contains(key));
+      }).toList();
+    }).orElseGet(List::of);
+  }
+
+  private List<String> selectedMethodKeys() {
+    return switch (identity.selection()) {
+      case NotRequested _ -> List.of();
+      case ProductionSelection production -> production.methodKeys();
+      case ExistingSelection existing -> existing.request().methodKeys();
+    };
+  }
+
+  private static MethodCoverage coverage(JavaMethod method, Optional<MethodCfgOutcome> outcome, boolean selected) {
+    var state = outcome.map(value -> MethodCoverageState.fromCfg(value.state()))
+        .orElse(selected ? MethodCoverageState.REQUEST_REJECTED : MethodCoverageState.NOT_REQUESTED);
+    return new MethodCoverage(method, state, outcome);
   }
 
   private static void validateSelection(AnalysisRequestIdentity identity, ProgramRepresentation representation) {

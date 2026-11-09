@@ -17,6 +17,8 @@ import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.CfgState;
+import org.aquilagraph.cli.AnalysisRunSummary.MethodCoverage;
+import org.aquilagraph.cli.AnalysisRunSummary.MethodDescriptor;
 import org.aquilagraph.cli.AnalysisRunSummary.ProgramSummary;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
@@ -109,6 +111,9 @@ class AnalysisRunSummaryTest {
     var canonical = source.program().methods().stream().map(method -> method.methodKey()).toList();
     var first = canonical.get(1);
     var second = canonical.get(2);
+    var bodyless = new MethodDescriptor(source.identity(), canonical.getFirst(), Optional.empty());
+    var firstBody = new MethodDescriptor(source.identity(), first, Optional.of(source.bodyRef(first).orElseThrow()));
+    var secondBody = new MethodDescriptor(source.identity(), second, Optional.of(source.bodyRef(second).orElseThrow()));
     var reversed = new CfgRequest(source.identity(), List.of(second, first), CfgProfile.JAVA_BOUNDED);
     var rejected = new CfgRequest(source.identity(), List.of(second, second), CfgProfile.JAVA_BOUNDED);
     var derivation = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard());
@@ -118,18 +123,22 @@ class AnalysisRunSummaryTest {
     // Act
     var reversedSummary = CliTestFixtures.report(reversedRun).analysis();
     var rejectedSummary = CliTestFixtures.report(rejectedRun).analysis();
+    var reversedPoint = canonical.stream().map(key -> reversedRun.methodCoverage(key).orElseThrow().state()).toList();
+    var rejectedPoint = canonical.stream().map(key -> rejectedRun.methodCoverage(key).orElseThrow().state()).toList();
 
     // Assert
     assertSame(reversed, reversedRun.representation().cfg().orElseThrow().request());
     assertSame(rejected, rejectedRun.representation().cfg().orElseThrow().request());
     assertSame(reversedRun.identity(), reversedSummary.identity());
     assertSame(rejectedRun.identity(), rejectedSummary.identity());
-    assertEquals(canonical, reversedSummary.methods().stream().map(method -> method.method().methodKey()).toList());
-    assertEquals(canonical, rejectedSummary.methods().stream().map(method -> method.method().methodKey()).toList());
-    assertEquals(List.of(MethodCoverageState.NOT_REQUESTED, MethodCoverageState.AVAILABLE, MethodCoverageState.AVAILABLE),
-        reversedSummary.methods().stream().map(method -> method.state()).toList());
-    assertEquals(List.of(MethodCoverageState.NOT_REQUESTED, MethodCoverageState.NOT_REQUESTED, MethodCoverageState.REQUEST_REJECTED),
-        rejectedSummary.methods().stream().map(method -> method.state()).toList());
+    assertEquals(List.of(new MethodCoverage(bodyless, MethodCoverageState.NOT_REQUESTED),
+        new MethodCoverage(firstBody, MethodCoverageState.AVAILABLE), new MethodCoverage(secondBody, MethodCoverageState.AVAILABLE)),
+        reversedSummary.methods());
+    assertEquals(List.of(new MethodCoverage(bodyless, MethodCoverageState.NOT_REQUESTED),
+        new MethodCoverage(firstBody, MethodCoverageState.NOT_REQUESTED), new MethodCoverage(secondBody, MethodCoverageState.REQUEST_REJECTED)),
+        rejectedSummary.methods());
+    assertEquals(reversedPoint, reversedSummary.methods().stream().map(MethodCoverage::state).toList());
+    assertEquals(rejectedPoint, rejectedSummary.methods().stream().map(MethodCoverage::state).toList());
     assertEquals(CfgState.REJECTED, rejectedSummary.cfgState().orElseThrow());
     assertEquals(0, rejectedSummary.program().orElseThrow().analyzedMethodBodyCount());
     assertTrue(rejectedRun.representation().cfg().orElseThrow().methods().isEmpty());
@@ -177,5 +186,6 @@ class AnalysisRunSummaryTest {
     // Assert
     assertEquals(Optional.empty(), summary.program());
     assertEquals(expectedSignature, summary.software().orElseThrow().signature());
+    assertEquals(List.of(), summary.methods());
   }
 }

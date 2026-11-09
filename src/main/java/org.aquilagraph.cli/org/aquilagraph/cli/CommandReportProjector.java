@@ -93,11 +93,11 @@ class CommandReportProjector {
             graphs.stream().mapToInt(graph -> graph.operationNodes().size()).sum(),
             graphs.stream().mapToInt(graph -> graph.nodeCount()).sum(), graphs.stream().mapToInt(graph -> graph.edges().size()).sum());
       });
-      var methods = ast.result().stream().flatMap(result -> result.program().methods().stream()).map(method -> {
-        var source = ast.result().orElseThrow();
-        var descriptor = new MethodDescriptor(source.identity(), method.methodKey(), source.bodyRef(method.methodKey()));
-        return new MethodCoverage(descriptor, run.methodCoverage(method.methodKey()).orElseThrow().state());
-      }).toList();
+      var methods = ast.result().map(source -> run.methodCoverages().stream().map(coverage -> {
+        var key = coverage.declaration().methodKey();
+        var descriptor = new MethodDescriptor(source.identity(), key, source.bodyRef(key));
+        return new MethodCoverage(descriptor, coverage.state());
+      }).toList()).orElseGet(List::of);
       return new AnalysisRunSummary(run.identity(), run.completion(), software,
           ast.requestedConfiguration().map(configuration -> configuration.release()),
           ast.capturedInput().map(snapshot -> snapshot.sourceFileCount()).orElse(0), ast.completion(), ast.profile(),

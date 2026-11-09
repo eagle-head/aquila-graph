@@ -35,14 +35,18 @@ class MethodCoverageTest {
     var ast = source.result().orElseThrow();
     var expectations = expectations(source);
     var constructed = new ArrayList<MethodCoverage>();
-    var queried = new ArrayList<MethodCoverage>();
+    var point = new ArrayList<MethodCoverage>();
+    var collective = new ArrayList<MethodCoverage>();
 
     // Act
     for (var expectation : expectations) {
       var outcome = expectation.outcome();
       var declaration = ast.method(outcome.methodKey()).orElseThrow();
       constructed.add(new MethodCoverage(declaration, expectation.state(), Optional.of(outcome)));
-      queried.add(run(source, outcome).methodCoverage(outcome.methodKey()).orElseThrow());
+      var run = run(source, outcome);
+      point.add(run.methodCoverage(outcome.methodKey()).orElseThrow());
+      collective.add(run.methodCoverages().stream().filter(value -> value.declaration().methodKey().equals(outcome.methodKey()))
+          .findFirst().orElseThrow());
     }
 
     // Assert
@@ -50,13 +54,15 @@ class MethodCoverageTest {
     for (var index = 0; index < expectations.size(); index++) {
       var expectation = expectations.get(index);
       var declaration = ast.method(expectation.outcome().methodKey()).orElseThrow();
-      for (var coverage : List.of(constructed.get(index), queried.get(index))) {
+      for (var coverage : List.of(constructed.get(index), point.get(index), collective.get(index))) {
         assertEquals(expectation.state(), coverage.state());
         assertSame(declaration, coverage.declaration());
         assertSame(expectation.outcome(), coverage.cfg().orElseThrow());
       }
-      assertEquals(constructed.get(index), queried.get(index));
-      assertEquals(constructed.get(index).hashCode(), queried.get(index).hashCode());
+      assertEquals(constructed.get(index), point.get(index));
+      assertEquals(constructed.get(index), collective.get(index));
+      assertEquals(constructed.get(index).hashCode(), point.get(index).hashCode());
+      assertEquals(constructed.get(index).hashCode(), collective.get(index).hashCode());
     }
   }
 
@@ -191,10 +197,13 @@ class MethodCoverageTest {
         new CfgRequest(ast.identity(), List.of(selected), incompatible));
     var derivation = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard());
     var runs = new ArrayList<AnalysisRun>();
+    var coverages = new ArrayList<List<MethodCoverage>>();
 
     // Act
     for (var request : requests) {
-      runs.add(derivation.deriveExisting(source, request));
+      var run = derivation.deriveExisting(source, request);
+      runs.add(run);
+      coverages.add(run.methodCoverages());
     }
 
     // Assert
@@ -208,6 +217,11 @@ class MethodCoverageTest {
       assertEquals(MethodCoverageState.REQUEST_REJECTED, run.methodCoverage(selected).orElseThrow().state());
       assertEquals(MethodCoverageState.NOT_REQUESTED, run.methodCoverage(unselected).orElseThrow().state());
       assertFalse(run.methodCoverage(selected).orElseThrow().cfg().isPresent());
+      var rows = coverages.get(index);
+      assertEquals(ast.program().methods(), rows.stream().map(MethodCoverage::declaration).toList());
+      assertEquals(List.of(MethodCoverageState.NOT_REQUESTED, MethodCoverageState.REQUEST_REJECTED, MethodCoverageState.NOT_REQUESTED),
+          rows.stream().map(MethodCoverage::state).toList());
+      assertTrue(rows.stream().allMatch(row -> row.cfg().isEmpty()));
     }
   }
 
@@ -222,6 +236,7 @@ class MethodCoverageTest {
     // Act
     var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(source, request);
     var coverage = run.methodCoverage(bodyless.methodKey()).orElseThrow();
+    var collective = run.methodCoverages();
 
     // Assert
     assertFalse(bodyless.hasBody());
@@ -229,6 +244,7 @@ class MethodCoverageTest {
     assertSame(bodyless, coverage.declaration());
     assertEquals(MethodCoverageState.REQUEST_REJECTED, coverage.state());
     assertTrue(coverage.cfg().isEmpty());
+    assertEquals(coverage, collective.getFirst());
   }
 
   @Test
@@ -245,12 +261,14 @@ class MethodCoverageTest {
     // Act
     var run = derivation.deriveExisting(unavailable, request);
     var coverage = run.methodCoverage(key);
+    var collective = run.methodCoverages();
 
     // Assert
     assertTrue(unavailable.result().isEmpty());
     assertSame(request, ((ExistingSelection) run.identity().selection()).request());
     assertTrue(run.representation().cfg().isEmpty());
     assertTrue(coverage.isEmpty());
+    assertEquals(List.of(), collective);
   }
 
   private static AstOutcome source() {
