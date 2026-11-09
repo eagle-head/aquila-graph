@@ -213,27 +213,44 @@ class AnalysisDiagnosticsTest {
   }
 
   @Test
-  void givenEqualCopiedRepresentation_whenRetainingAssessment_thenTheRunUsesItsAssessedNativeOwners() {
+  void givenEqualCopiedRepresentation_whenQueryingCoverage_thenAssessedNativeOwnersAndValueIdentityRemain() {
     // Arrange
     var original = TestAnalysisRuns.fromSource("interface Example { static int value(int x) { (x) = 1; return x; } }");
     var cfg = original.representation().cfg().orElseThrow();
     var copiedMethods = cfg.methods().stream().map(method -> new MethodCfgOutcome(method.astIdentity(), method.methodKey(), method.state(),
         method.body(), method.graph(), method.blockers(), method.failure(), method.diagnostics())).toList();
     var copiedCfg = new CfgOutcome(cfg.request(), cfg.state(), copiedMethods, cfg.diagnostics());
+    var ast = original.representation().ast().result().orElseThrow();
     var copied = new ProgramRepresentation(original.representation().ast(), Optional.of(copiedCfg));
+    var nativeMethod = cfg.methods().getFirst();
+    var nativeDeclaration = ast.method(nativeMethod.methodKey()).orElseThrow();
+    var runHash = original.hashCode();
+    var qualificationHash = original.qualification().hashCode();
+
     // Act
     var run = new AnalysisRun(original.identity(), copied, original.qualification(), original.applicationDiagnostics());
-    var nativeMethod = cfg.methods().getFirst();
     var coverage = run.methodCoverage(nativeMethod.methodKey()).orElseThrow();
+    var collective = run.methodCoverages();
+    var repeated = run.methodCoverages();
+
     // Assert
     assertEquals(copied, run.representation());
     assertSame(original.representation(), run.representation());
     assertSame(original.diagnostics(), run.diagnostics());
     assertEquals(nativeMethod, copiedMethods.getFirst());
     assertNotSame(nativeMethod, copiedMethods.getFirst());
-    assertSame(original.representation().ast().result().orElseThrow().method(nativeMethod.methodKey()).orElseThrow(), coverage.declaration());
-    assertSame(nativeMethod, coverage.cfg().orElseThrow());
-    assertEquals(run.diagnostics().relatedTo(nativeMethod), run.diagnostics().relatedTo(coverage.cfg().orElseThrow()));
+    assertEquals(List.of(coverage), collective);
+    assertEquals(collective, repeated);
+    for (var row : List.of(coverage, collective.getFirst(), repeated.getFirst())) {
+      assertSame(nativeDeclaration, row.declaration());
+      assertSame(nativeMethod, row.cfg().orElseThrow());
+      assertEquals(run.diagnostics().relatedTo(nativeMethod), run.diagnostics().relatedTo(row.cfg().orElseThrow()));
+    }
+    assertThrows(UnsupportedOperationException.class, collective::clear);
+    assertEquals(original, run);
+    assertEquals(runHash, run.hashCode());
+    assertEquals(qualificationHash, run.qualification().hashCode());
+    assertEquals(original.isPublishable(), run.isPublishable());
     assertEquals(run.diagnostics().occurrences(), run.diagnostics().relatedTo(run.representation().cfg().orElseThrow()));
     assertThrows(IllegalArgumentException.class, () -> run.diagnostics().relatedTo(copiedCfg));
     assertThrows(IllegalArgumentException.class, () -> run.diagnostics().relatedTo(copiedMethods.getFirst()));

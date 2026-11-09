@@ -275,6 +275,7 @@ class AnalysisComputationTest {
 
     // Act
     var run = runner.deriveExisting(ast, request);
+    var coverage = run.methodCoverages();
 
     // Assert
     assertEquals(AstCompletion.INCOMPLETE, ast.completion());
@@ -286,6 +287,15 @@ class AnalysisComputationTest {
         .map(RequestQualificationReason.Method.class::cast).filter(reason -> reason.outcome().state() == MethodCfgState.FAILED).toList();
     assertEquals(1, failed.size());
     assertSame(cause, failed.getFirst().outcome().failure().orElseThrow());
+    assertEquals(ast.result().orElseThrow().program().methods(), coverage.stream().map(MethodCoverage::declaration).toList());
+    assertEquals(List.of(MethodCoverageState.NOT_REQUESTED, MethodCoverageState.AVAILABLE, MethodCoverageState.FAILED,
+        MethodCoverageState.AVAILABLE),
+        coverage.stream().map(MethodCoverage::state).toList());
+    assertTrue(coverage.getFirst().cfg().isEmpty());
+    var outcomes = run.representation().cfg().orElseThrow().methods();
+    for (var index = 0; index < outcomes.size(); index++) {
+      assertSame(outcomes.get(index), coverage.get(index + 1).cfg().orElseThrow());
+    }
     assertEquals(ast.completion() == AstCompletion.INCOMPLETE,
         run.qualification().reasons().stream().anyMatch(RequestQualificationReason.Source.class::isInstance));
     assertConstructionProgress(ast, run, cause);
