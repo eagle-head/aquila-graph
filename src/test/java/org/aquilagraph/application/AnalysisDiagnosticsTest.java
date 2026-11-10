@@ -12,6 +12,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.aquilagraph.application.AnalysisDiagnosticOccurrence.Owner;
+import org.aquilagraph.application.RequestQualificationReason.Method;
+import org.aquilagraph.application.RequestQualificationReason.MethodDiagnostic;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgOutcome;
 import org.aquilagraph.cfg.api.CfgProfile;
@@ -173,28 +175,40 @@ class AnalysisDiagnosticsTest {
   }
 
   @Test
-  void givenBodylessMethodWithWarningAndRepeatedErrors_whenComposed_thenQualificationResolvesOnlyItsExactErrorSlots() {
+  void givenReversedSelectionWithFailedAndBodylessMethods_whenComposed_thenReasonsAndOccurrencesRetainTheirOwnOrder() {
     // Arrange
-    var source = TestAnalysisRuns.fromSource("interface Example { void absent(); }").representation().ast();
+    var source = TestAnalysisRuns.fromSource("interface Example { void absent(); static void compute() {} }").representation().ast();
     var ast = source.result().orElseThrow();
-    var key = ast.program().methods().getFirst().methodKey();
+    var bodylessKey = ast.program().methods().getFirst().methodKey();
+    var failedKey = ast.program().methods().getLast().methodKey();
     var warning = diagnostic("shared", "Warning", DiagnosticStage.CONTROL_FLOW, DiagnosticSeverity.WARNING);
     var error = diagnostic("shared", "Error", DiagnosticStage.CONTROL_FLOW, DiagnosticSeverity.ERROR);
-    var values = List.of(warning, error, error);
-    var method = new MethodCfgOutcome(ast.identity(), key, MethodCfgState.NOT_APPLICABLE, Optional.empty(), Optional.empty(),
-        List.of(), Optional.empty(), values);
-    var cfg = new CfgOutcome(new CfgRequest(ast.identity(), List.of(key), CfgProfile.JAVA_BOUNDED), CfgState.PARTIAL,
-        List.of(method), values);
+    var bodyless = new MethodCfgOutcome(ast.identity(), bodylessKey, MethodCfgState.NOT_APPLICABLE, Optional.empty(), Optional.empty(),
+        List.of(), Optional.empty(), List.of(warning, error, error));
+    var failed = new MethodCfgOutcome(ast.identity(), failedKey, MethodCfgState.FAILED, ast.bodyRef(failedKey), Optional.empty(),
+        List.of(), Optional.of(new IllegalStateException("Declared construction failure")), List.of(error));
+    var request = new CfgRequest(ast.identity(), List.of(failedKey, bodylessKey), CfgProfile.JAVA_BOUNDED);
+    var cfg = new CfgOutcome(request, CfgState.PARTIAL, List.of(failed, bodyless), List.of(error, warning, error, error));
+
     // Act
-    var run = AnalysisCapabilities.existingSourceDerivation((ignored, request) -> cfg).deriveExisting(source, cfg.request());
+    var run = AnalysisCapabilities.existingSourceDerivation((ignored, invoked) -> cfg).deriveExisting(source, request);
     var catalog = run.diagnostics();
+    var reasons = run.qualification().reasons();
+    var occurrences = catalog.occurrences();
+
     // Assert
-    assertEquals(values, catalog.values());
-    assertEquals(AnalysisCompletion.PARTIAL, run.completion());
-    assertEquals(List.of(1, 2), run.qualification().reasons().stream().flatMap(reason -> catalog.relatedTo(reason).stream())
+    assertEquals(AnalysisCompletion.FAILED, run.completion());
+    assertEquals(List.of(new Method(failed), new MethodDiagnostic(bodyless, 1), new MethodDiagnostic(bodyless, 2)), reasons);
+    assertEquals(List.of(warning, error, error, error), catalog.values());
+    assertEquals(List.of(0, 1, 2, 0), occurrences.stream().map(AnalysisDiagnosticOccurrence::localPosition).toList());
+    assertEquals(List.of(3, 1, 2), reasons.stream().flatMap(reason -> catalog.relatedTo(reason).stream())
         .map(catalog::positionOf).toList());
-    assertEquals(catalog.occurrences(), catalog.relatedTo(method));
-    assertThrows(IllegalArgumentException.class, () -> catalog.forBlocker(method, 0));
+    var bodylessOccurrences = occurrences.subList(0, 3);
+    assertEquals(bodylessOccurrences, catalog.relatedTo(bodyless));
+    assertTrue(bodylessOccurrences.stream().allMatch(occurrence -> occurrence.owner() instanceof Owner.Method owner
+        && owner.outcome() == bodyless));
+    assertSame(failed, assertInstanceOf(Owner.Method.class, occurrences.getLast().owner()).outcome());
+    assertThrows(IllegalArgumentException.class, () -> catalog.forBlocker(bodyless, 0));
     assertThrows(IllegalArgumentException.class, () -> new Owner.Request(cfg));
   }
 

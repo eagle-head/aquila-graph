@@ -2,6 +2,7 @@ package org.aquilagraph.application;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.aquilagraph.application.RequestQualificationReason.ApplicationDiagnostic;
+import org.aquilagraph.application.RequestQualificationReason.Source;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -189,6 +192,31 @@ class AnalysisRunValueContractTest {
         new RequestQualificationReason.ApplicationDiagnostic(run.applicationDiagnostics(), 1)), run.qualification().reasons());
     assertSame(request, run.representation().cfg().orElseThrow().request());
     assertFalse(run.isPublishable());
+  }
+
+  @Test
+  void givenUnavailableSourceAndApplicationError_whenComposed_thenRejectionRetainsBothNativeCauses() {
+    // Arrange
+    var unavailable = TestAnalysisRuns.rejected();
+    var source = unavailable.representation().ast();
+    var error = new AnalysisDiagnostic("provided:error", "provided.error", DiagnosticStage.FRONTEND, DiagnosticSeverity.ERROR,
+        "Supplied application error", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
+
+    // Act
+    var run = AnalysisRun.create(unavailable.identity(), unavailable.representation(), List.of(error));
+    var reasons = run.qualification().reasons();
+
+    // Assert
+    assertEquals(AstCompletion.UNAVAILABLE, source.completion());
+    assertEquals(AnalysisCompletion.REJECTED, run.completion());
+    assertEquals(List.of(new Source(source), new ApplicationDiagnostic(run.applicationDiagnostics(), 0)), reasons);
+    assertSame(source, assertInstanceOf(Source.class, reasons.getFirst()).outcome());
+    assertSame(error, assertInstanceOf(ApplicationDiagnostic.class, reasons.getLast()).diagnostic());
+    var catalog = run.diagnostics();
+    assertEquals(catalog.occurrences().subList(0, source.diagnostics().size()), catalog.relatedTo(reasons.getFirst()));
+    assertSame(error, catalog.values().getLast());
+    assertEquals(List.of(catalog.occurrences().getLast()), catalog.relatedTo(reasons.getLast()));
+    assertThrows(UnsupportedOperationException.class, reasons::clear);
   }
 
   @Test
