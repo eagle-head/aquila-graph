@@ -2,15 +2,15 @@ package org.aquilagraph.application;
 
 import java.util.Objects;
 import org.aquilagraph.application.ApplicationRepositoryOperationException.Boundary;
-import org.aquilagraph.application.port.AstResultRepository;
-import org.aquilagraph.application.port.AstResultRepositoryFactory;
+import org.aquilagraph.application.port.AstQueryRepository;
+import org.aquilagraph.application.port.AstQueryRepositoryFactory;
 import org.aquilagraph.identity.api.AstIdentity;
 
 /** Owns the repository scope and returned identity check for an exact lookup. */
 final class RetainedAstQuery implements AstQuery {
-  private final AstResultRepositoryFactory repositories;
+  private final AstQueryRepositoryFactory repositories;
 
-  RetainedAstQuery(AstResultRepositoryFactory repositories) {
+  RetainedAstQuery(AstQueryRepositoryFactory repositories) {
     this.repositories = Objects.requireNonNull(repositories, "repositories");
   }
 
@@ -27,6 +27,6 @@ final class RetainedAstQuery implements AstQuery {
         }
         return result;
       });
-    }, AstResultRepository::close);
+    }, AstQueryRepository::close);
   }
 }

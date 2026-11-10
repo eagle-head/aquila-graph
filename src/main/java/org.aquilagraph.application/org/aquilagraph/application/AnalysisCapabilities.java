@@ -2,7 +2,8 @@ package org.aquilagraph.application;
 
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
 import org.aquilagraph.application.port.AnalysisUseCase;
-import org.aquilagraph.application.port.AstResultRepositoryFactory;
+import org.aquilagraph.application.port.AstQueryRepositoryFactory;
+import org.aquilagraph.application.port.AstRetentionRepositoryFactory;
 import org.aquilagraph.cfg.api.CfgDeriver;
 import org.aquilagraph.source.api.AstProducer;
 
@@ -41,7 +42,7 @@ public enum AnalysisCapabilities {
    *          lazy AST repository factory
    * @return independent AST retention
    */
-  public static AstRetention astRetention(AstResultRepositoryFactory repositories) {
+  public static AstRetention astRetention(AstRetentionRepositoryFactory repositories) {
     return new StandaloneAstRetention(repositories);
   }
 
@@ -52,7 +53,7 @@ public enum AnalysisCapabilities {
    *          lazy AST repository factory
    * @return independent AST query
    */
-  public static AstQuery astQuery(AstResultRepositoryFactory repositories) {
+  public static AstQuery astQuery(AstQueryRepositoryFactory repositories) {
     return new RetainedAstQuery(repositories);
   }
 
@@ -67,7 +68,7 @@ public enum AnalysisCapabilities {
    *          lazy completed-run repository factory
    * @return coordinated analysis use case
    */
-  public static AnalysisUseCase execution(AnalysisComputation computation, AstResultRepositoryFactory astRepositories,
+  public static AnalysisUseCase execution(AnalysisComputation computation, AstRetentionRepositoryFactory astRepositories,
       AnalysisRunRepositoryFactory runRepositories) {
     return new AnalysisExecutionCoordinator(computation, new PublicationCoordinator(astRepositories, runRepositories));
   }

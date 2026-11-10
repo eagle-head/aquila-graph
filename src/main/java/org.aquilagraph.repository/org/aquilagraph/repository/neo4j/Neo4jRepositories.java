@@ -2,7 +2,8 @@ package org.aquilagraph.repository.neo4j;
 
 import java.util.function.Supplier;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
-import org.aquilagraph.application.port.AstResultRepositoryFactory;
+import org.aquilagraph.application.port.AstQueryRepositoryFactory;
+import org.aquilagraph.application.port.AstRetentionRepositoryFactory;
 import org.aquilagraph.repository.internal.neo4j.Neo4jAnalysisRunRepository;
 import org.aquilagraph.repository.internal.neo4j.Neo4jAstResultRepositoryFactory;
 
@@ -12,14 +13,25 @@ public final class Neo4jRepositories {
   }
 
   /**
-   * Creates lazy acquisition for exact retained-AST operations.
+   * Creates lazy acquisition for complete AST retention.
    *
    * @param settings
    *          deferred connection settings
-   * @return operation-scoped repository factory
+   * @return save-scoped repository factory
    */
-  public static AstResultRepositoryFactory astResults(Supplier<Neo4jConnectionSettings> settings) {
-    return new Neo4jAstResultRepositoryFactory(settings);
+  public static AstRetentionRepositoryFactory astRetention(Supplier<Neo4jConnectionSettings> settings) {
+    return new Neo4jAstResultRepositoryFactory(settings)::openRetention;
+  }
+
+  /**
+   * Creates lazy acquisition for exact retained AST lookup.
+   *
+   * @param settings
+   *          deferred connection settings
+   * @return query-scoped repository factory
+   */
+  public static AstQueryRepositoryFactory astQuery(Supplier<Neo4jConnectionSettings> settings) {
+    return new Neo4jAstResultRepositoryFactory(settings)::openQuery;
   }
 
   /**

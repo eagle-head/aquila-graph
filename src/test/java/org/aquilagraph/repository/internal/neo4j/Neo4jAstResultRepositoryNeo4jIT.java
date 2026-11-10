@@ -1204,7 +1204,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
 
     try {
       // Act
-      var publication = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, Neo4jRepositories.astResults(() -> settings),
+      var publication = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, Neo4jRepositories.astRetention(() -> settings),
           AnalysisExecutionFixture::unexpectedRunRepository).publication();
       var lookup = query(settings).findAst(original.identity());
 
@@ -1245,7 +1245,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
 
     try {
       // Act
-      var publication = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, Neo4jRepositories.astResults(() -> settings),
+      var publication = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, Neo4jRepositories.astRetention(() -> settings),
           AnalysisExecutionFixture::unexpectedRunRepository).publication();
       var lookup = query(settings).findAst(original.identity());
 
@@ -1317,7 +1317,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
 
     try {
       // Act
-      var publication = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, Neo4jRepositories.astResults(() -> settings),
+      var publication = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, Neo4jRepositories.astRetention(() -> settings),
           AnalysisExecutionFixture::unexpectedRunRepository).publication();
       var lookup = query(settings).findAst(identity);
 
@@ -1537,11 +1537,11 @@ class Neo4jAstResultRepositoryNeo4jIT {
   }
 
   private static AstQuery query(Neo4jConnectionSettings settings) {
-    return AnalysisCapabilities.astQuery(Neo4jRepositories.astResults(() -> settings));
+    return AnalysisCapabilities.astQuery(Neo4jRepositories.astQuery(() -> settings));
   }
 
   private static AstRetention retention(Neo4jConnectionSettings settings) {
-    return AnalysisCapabilities.astRetention(new Neo4jAstResultRepositoryFactory(() -> settings));
+    return AnalysisCapabilities.astRetention(Neo4jRepositories.astRetention(() -> settings));
   }
 
   private static void deleteAst(Neo4jConnectionSettings settings, AstIdentity identity) {

@@ -125,7 +125,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     var settings = settings();
     var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     AnalysisRunRepositoryFactory completed = Neo4jRepositories.completedRuns(() -> settings);
-    var application = AnalysisCapabilities.execution(runner, Neo4jRepositories.astResults(() -> settings), completed);
+    var application = AnalysisCapabilities.execution(runner, Neo4jRepositories.astRetention(() -> settings), completed);
     var request = new AnalysisRequest(new AnalysisComputationRequest(
         new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_MODULE_SERVICES), Optional.empty()), PublicationIntent.SAVE_COMPLETE_AST);
     var historical = AstOutcome.available(HistoricalAstFixtures.read(20));
@@ -227,7 +227,8 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
         SourceFile.fromContent(Path.of("model/Payload.java"), "package model; @api.Mark public class Payload<T extends Comparable<T>> { public T echo(T value) { return value; } public int supported() { return 9; } public Runnable lambda() { return () -> {}; } public Object boxed() { return 4; } public Class<?> literal() { return String.class; } }")));
     var settings = settings();
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var application = AnalysisCapabilities.execution(AnalysisCapabilities.computation(frontend, CfgDerivers.standard()), Neo4jRepositories.astResults(() -> settings), run -> { throw new AssertionError("Combined publication is not requested"); });
+    var application = AnalysisCapabilities.execution(AnalysisCapabilities.computation(frontend, CfgDerivers.standard()),
+        Neo4jRepositories.astRetention(() -> settings), AnalysisExecutionFixture::unexpectedRunRepository);
     var request = new AnalysisRequest(new AnalysisComputationRequest(
         new AstProductionRequest(snapshot, matchingConfiguration, AstProfile.JAVA_SOURCE_MODULE_SERVICES), Optional.empty()), PublicationIntent.SAVE_COMPLETE_AST);
 
@@ -696,7 +697,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       assertEquals(0, process.exitValue(), diagnostics);
       assertEquals(Files.readString(expectedSource), Files.readString(output));
       System.out.println("Independent query process " + process.pid() + " completed with exit " + process.exitValue());
-      var found = AnalysisCapabilities.astQuery(Neo4jRepositories.astResults(() -> settings)).findAst(identity).outcome().orElseThrow().result().orElseThrow();
+      var found = query(settings).findAst(identity).outcome().orElseThrow().result().orElseThrow();
       assertArrayEquals(AstCodec.encode(original), AstCodec.encode(found));
       return found;
     } finally {
@@ -771,7 +772,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     try {
       // Act
       var before = query(settings).findAst(original.identity());
-      var publication = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, Neo4jRepositories.astResults(() -> settings),
+      var publication = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, Neo4jRepositories.astRetention(() -> settings),
           AnalysisExecutionFixture::unexpectedRunRepository).publication();
       var lookup = query(settings).findAst(original.identity());
       var retained = lookup.outcome().orElseThrow().result().orElseThrow();
@@ -991,11 +992,11 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   }
 
   private static AstQuery query(Neo4jConnectionSettings settings) {
-    return AnalysisCapabilities.astQuery(Neo4jRepositories.astResults(() -> settings));
+    return AnalysisCapabilities.astQuery(Neo4jRepositories.astQuery(() -> settings));
   }
 
   private static AstRetention retention(Neo4jConnectionSettings settings) {
-    return AnalysisCapabilities.astRetention(new Neo4jAstResultRepositoryFactory(() -> settings));
+    return AnalysisCapabilities.astRetention(Neo4jRepositories.astRetention(() -> settings));
   }
 
   private static void assertMaterialization(Neo4jConnectionSettings settings, AstOutcome ast) {

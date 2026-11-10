@@ -171,16 +171,23 @@ class ModuleDependencyBoundaryTest {
         import org.aquilagraph.application.AnalysisCapabilities;
         import org.aquilagraph.application.AnalysisComputation;
         import org.aquilagraph.application.AnalysisRun;
+        import org.aquilagraph.application.AstLookup;
         import org.aquilagraph.application.PublicationEligibility;
         import org.aquilagraph.application.PublicationEligibility.Impediment;
         import org.aquilagraph.application.AstQuery;
         import org.aquilagraph.application.AstRetention;
         import org.aquilagraph.application.ExistingSourceDerivation;
+        import org.aquilagraph.application.RepositoryOperationContext;
         import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
         import org.aquilagraph.application.port.AnalysisUseCase;
-        import org.aquilagraph.application.port.AstResultRepositoryFactory;
+        import org.aquilagraph.application.port.AstQueryRepository;
+        import org.aquilagraph.application.port.AstQueryRepositoryFactory;
+        import org.aquilagraph.application.port.AstRetentionRepository;
+        import org.aquilagraph.application.port.AstRetentionRepositoryFactory;
         import org.aquilagraph.application.port.RepositoryOperationException;
         import org.aquilagraph.cfg.api.CfgDeriver;
+        import org.aquilagraph.identity.api.AstIdentity;
+        import org.aquilagraph.source.api.AstOutcome;
         import org.aquilagraph.source.api.AstProducer;
 
         final class Client {
@@ -190,15 +197,25 @@ class ModuleDependencyBoundaryTest {
           ExistingSourceDerivation derive(CfgDeriver deriver) {
             return AnalysisCapabilities.existingSourceDerivation(deriver);
           }
-          AstRetention retain(AstResultRepositoryFactory factory) {
+          AstRetention retain(AstRetentionRepositoryFactory factory) {
             return AnalysisCapabilities.astRetention(factory);
           }
-          AstQuery query(AstResultRepositoryFactory factory) {
+          AstQuery query(AstQueryRepositoryFactory factory) {
             return AnalysisCapabilities.astQuery(factory);
           }
-          AnalysisUseCase execute(AnalysisComputation computation, AstResultRepositoryFactory ast,
+          AnalysisUseCase execute(AnalysisComputation computation, AstRetentionRepositoryFactory ast,
               AnalysisRunRepositoryFactory runs) {
             return AnalysisCapabilities.execution(computation, ast, runs);
+          }
+          void save(AstRetentionRepositoryFactory factory, AstOutcome outcome, AstIdentity identity) {
+            try (AstRetentionRepository repository = factory.open(RepositoryOperationContext.saveAst(identity))) {
+              repository.saveComplete(outcome);
+            }
+          }
+          AstLookup lookup(AstQueryRepositoryFactory factory, AstIdentity identity) {
+            try (AstQueryRepository repository = factory.open(RepositoryOperationContext.queryAst(identity))) {
+              return repository.find(identity);
+            }
           }
           PublicationEligibility publicationEligibility(AnalysisRun run) {
             return run.publicationEligibility();
@@ -210,14 +227,19 @@ class ModuleDependencyBoundaryTest {
           RepositoryOperationException diagnostic;
         }
         """;
+    var crossedOperations = publicClient
+        .replace("repository.saveComplete(outcome);", "repository.find(identity);")
+        .replace("return repository.find(identity);", "repository.saveComplete(null); return null;");
     var hiddenTypes = List.of("SourceComputation", "EstablishedSourceDerivation", "StandaloneAstRetention",
         "RetainedAstQuery", "AnalysisExecutionCoordinator", "PublicationCoordinator", "CfgInvocation");
     var retiredTypes = List.of("AnalysisApplicationService", "SourceAnalysisRunner", "AstRetentionService",
-        "CompletedRunPublicationService", "port.CompletedRunPublication");
+        "CompletedRunPublicationService", "port.CompletedRunPublication", "port.AstResultRepository",
+        "port.AstResultRepositoryFactory");
     var applicationPackage = PREFIX + "application.";
 
     // Act
     var publicAccess = compileClient(module, source, classes, modulePath, publicClient);
+    var crossedAccess = compileClient(module, source, classes, modulePath, crossedOperations);
     var hiddenAccess = compileClient(module, source, classes, modulePath, clientImporting(applicationPackage, hiddenTypes));
     var retiredAccess = compileClient(module, source, classes, modulePath, clientImporting(applicationPackage, retiredTypes));
     var supportAccess = compileClient(module, source, classes, modulePath,
@@ -226,6 +248,9 @@ class ModuleDependencyBoundaryTest {
     // Assert
     assertEquals(Set.of(PREFIX + "repository"), exports.get(supportPackage).targets());
     assertEquals(0, publicAccess.status(), publicAccess.diagnostics());
+    assertEquals(1, crossedAccess.status(), crossedAccess.diagnostics());
+    assertTrue(crossedAccess.diagnostics().contains("kindname.method, find,"), crossedAccess.diagnostics());
+    assertTrue(crossedAccess.diagnostics().contains("kindname.method, saveComplete,"), crossedAccess.diagnostics());
     assertEquals(1, hiddenAccess.status(), hiddenAccess.diagnostics());
     for (var type : hiddenTypes) {
       assertTrue(hiddenAccess.diagnostics().contains("compiler.err.not.def.public.cant.access: " + applicationPackage + type),

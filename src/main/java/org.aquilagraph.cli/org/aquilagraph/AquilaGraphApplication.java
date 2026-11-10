@@ -26,7 +26,7 @@ public final class AquilaGraphApplication {
     var environment = System.getenv();
     var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
     var execution = AnalysisCapabilities.execution(computation,
-        Neo4jRepositories.astResults(() -> Neo4jConnectionSettings.fromEnvironment(environment)),
+        Neo4jRepositories.astRetention(() -> Neo4jConnectionSettings.fromEnvironment(environment)),
         Neo4jRepositories.completedRuns(() -> Neo4jConnectionSettings.fromEnvironment(environment)));
     var command = new AnalyzeCommand(execution, JavaRelease.JAVA_25, new Neo4jFailureDetailProjector());
     var exitCode = new CommandRunner(command)

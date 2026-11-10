@@ -2,7 +2,6 @@ package org.aquilagraph.repository.internal.neo4j;
 
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
-import org.aquilagraph.application.port.AstResultRepositoryFactory;
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 
 
@@ -43,6 +42,7 @@ import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstContractException;
@@ -66,10 +66,8 @@ class Neo4jAstResultRepositoryTest {
     var writer = new AstRepositoryDriverStub();
     var reader = new AstRepositoryDriverStub();
     reader.stored = new Neo4jAstResultCodec().map(outcome);
-    AstResultRepositoryFactory repositories = context -> new Neo4jAstResultRepository(
-        (context.kind() == RepositoryOperationKind.SAVE_AST ? writer : reader).driver(), SessionConfig.defaultConfig(), context);
-    var query = AnalysisCapabilities.astQuery(repositories);
-    var retention = AnalysisCapabilities.astRetention(repositories);
+    var query = AnalysisCapabilities.astQuery(factory(reader)::openQuery);
+    var retention = AnalysisCapabilities.astRetention(factory(writer)::openRetention);
     var noSave = AnalysisCapabilities.astRetention(context -> {
       throw new AssertionError("Explicit no-save cannot acquire an adapter");
     });
@@ -82,13 +80,105 @@ class Neo4jAstResultRepositoryTest {
     assertEquals(CommitKnowledge.NOT_STARTED, declined.knowledge());
     assertEquals(PublicationStatus.SAVED, publication.status());
     assertEquals(CommitKnowledge.KNOWN_COMMIT, publication.knowledge());
+    assertEquals(Optional.of(new Ast(original.identity())), publication.subjectIdentity());
     assertEquals(AstLookupStatus.FOUND, lookup.status());
+    assertEquals(original.identity(), lookup.requestedIdentity());
     var decoded = lookup.outcome().orElseThrow().result().orElseThrow();
     SourceCompositionFixture.assertComposition(decoded, true);
     SourceCompositionFixture.assertRoundTrip(original, decoded);
     assertEquals(List.of("session.open:0", "session.close:0", "session.open:1", "write.begin", "callback.return",
         "write.acknowledged", "session.close:1", "driver.close"), writer.events);
     assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), reader.events);
+  }
+
+  @Test
+  void givenAcknowledgedAstAndSecondSchemaFailure_whenRetainingTwice_thenEachAcquisitionKeepsItsOwnSubjectAndKnowledge() throws IOException {
+    // Arrange
+    var original = produce();
+    var next = produce("Other.java", "class Other {}");
+    var nextContext = context(next, RepositoryOperationKind.SAVE_AST);
+    var writer = new AstRepositoryDriverStub();
+    var rejected = new AstRepositoryDriverStub();
+    var schemaFailure = new Neo4jException("Schema observation failed");
+    rejected.schemaFailure = schemaFailure;
+    var backends = List.of(writer, rejected).iterator();
+    var factory = new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings, ignored -> backends.next().driver(),
+        ignored -> SessionConfig.defaultConfig());
+    var retention = AnalysisCapabilities.astRetention(factory::openRetention);
+
+    // Act
+    var saved = retention.retainAst(new AstPublicationRequest(original, PublicationIntent.SAVE_COMPLETE_AST));
+    var failed = retention.retainAst(new AstPublicationRequest(next, PublicationIntent.SAVE_COMPLETE_AST));
+
+    // Assert
+    assertEquals(PublicationStatus.SAVED, saved.status());
+    assertEquals(CommitKnowledge.KNOWN_COMMIT, saved.knowledge());
+    assertEquals(Optional.of(context(original, RepositoryOperationKind.SAVE_AST).subject()), saved.subjectIdentity());
+    assertEquals(PublicationStatus.FAILED, failed.status());
+    assertEquals(CommitKnowledge.NOT_STARTED, failed.knowledge());
+    assertEquals(Optional.of(nextContext.subject()), failed.subjectIdentity());
+    var observation = assertInstanceOf(Neo4jRepositoryOperationException.class, failed.failure().orElseThrow().carrier());
+    assertEquals(nextContext, observation.context());
+    assertEquals(Neo4jRepositoryPhase.SCHEMA, observation.phase());
+    assertSame(schemaFailure, assertInstanceOf(RepositoryException.class, observation.effectivePrimary()).getCause());
+    assertEquals("driver.close", writer.events.getLast());
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), rejected.events);
+  }
+
+  @Test
+  void givenSuccessfulLookupAndSecondReadFailure_whenQueryingTwice_thenEachAcquisitionKeepsItsOwnIdentityAndClosure() throws IOException {
+    // Arrange
+    var original = produce();
+    var originalIdentity = original.result().orElseThrow().identity();
+    var nextIdentity = produce("Other.java", "class Other {}").result().orElseThrow().identity();
+    var reader = new AstRepositoryDriverStub();
+    reader.stored = new Neo4jAstResultCodec().map(original);
+    var rejected = new AstRepositoryDriverStub();
+    var readFailure = new Neo4jException("Second read failed");
+    rejected.readFailure = readFailure;
+    var backends = List.of(reader, rejected).iterator();
+    var factory = new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings, ignored -> backends.next().driver(),
+        ignored -> SessionConfig.defaultConfig());
+    var query = AnalysisCapabilities.astQuery(factory::openQuery);
+
+    // Act
+    var found = query.findAst(originalIdentity);
+    var failed = assertThrows(Neo4jRepositoryOperationException.class, () -> query.findAst(nextIdentity));
+
+    // Assert
+    assertEquals(AstLookupStatus.FOUND, found.status());
+    assertEquals(originalIdentity, found.requestedIdentity());
+    assertEquals(originalIdentity, found.outcome().orElseThrow().result().orElseThrow().identity());
+    assertEquals(RepositoryOperationContext.queryAst(nextIdentity), failed.context());
+    assertEquals(Optional.of(CommitKnowledge.NOT_STARTED), failed.knowledge());
+    assertEquals(Neo4jRepositoryPhase.READ, failed.phase());
+    assertSame(readFailure, assertInstanceOf(RepositoryException.class, failed.effectivePrimary()).getCause());
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), reader.events);
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), rejected.events);
+  }
+
+  @Test
+  void givenExactIncompleteAst_whenSavingThroughAcquiredRetention_thenValidationRejectsBeforeAnySession() throws IOException {
+    // Arrange
+    var incomplete = produce("Incomplete.java", "class Incomplete { int field = 1; }");
+    var backend = new AstRepositoryDriverStub();
+    var requested = context(incomplete, RepositoryOperationKind.SAVE_AST);
+    var factory = factory(backend);
+
+    // Act
+    Neo4jRepositoryOperationException failure;
+    try (var repository = factory.openRetention(requested)) {
+      failure = assertThrows(Neo4jRepositoryOperationException.class, () -> repository.saveComplete(incomplete));
+    }
+
+    // Assert
+    assertEquals(AstCompletion.INCOMPLETE, incomplete.completion());
+    assertEquals(requested, failure.context());
+    assertEquals(Neo4jRepositoryPhase.VALIDATION, failure.phase());
+    assertEquals(Optional.of(CommitKnowledge.NOT_STARTED), failure.knowledge());
+    assertInstanceOf(IllegalArgumentException.class, failure.effectivePrimary());
+    assertEquals(List.of("driver.close"), backend.events);
+    assertTrue(backend.queries.isEmpty());
   }
 
   @Test
@@ -307,11 +397,10 @@ class Neo4jAstResultRepositoryTest {
       backend.closeFailure = new IllegalStateException("Read session cleanup failed");
       backend.failingClose = 0;
       backend.driverCloseFailure = new Neo4jException("Driver cleanup after read failed");
-      var retention = AnalysisCapabilities.astQuery(new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings,
-          ignored -> backend.driver(), ignored -> SessionConfig.defaultConfig()));
+      var query = AnalysisCapabilities.astQuery(factory(backend)::openQuery);
 
       // Act
-      var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> retention.findAst(identity));
+      var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> query.findAst(identity));
 
       // Assert
       assertEquals(operationContext, failure.context());
@@ -463,30 +552,35 @@ class Neo4jAstResultRepositoryTest {
   }
 
   @Test
-  void givenDifferentAstSubject_whenSavingOrQuerying_thenExactValidationPrecedesAnySession() throws IOException {
+  void givenDifferentAstSubject_whenAttemptingAndRetryingSaveOrQuery_thenBothFailBeforeOpeningSessions() throws IOException {
+    // Arrange
     var ast = produce();
     var foreign = produce("Other.java", "class Other {}");
+    var identity = ast.result().orElseThrow().identity();
     var foreignIdentity = foreign.result().orElseThrow().identity();
-    var operations = Map.<RepositoryOperationKind, Consumer<Neo4jAstResultRepository>>of(
-        RepositoryOperationKind.SAVE_AST, repository -> repository.saveComplete(foreign),
-        RepositoryOperationKind.QUERY_AST, repository -> repository.find(foreignIdentity));
-    for (var entry : operations.entrySet()) {
-      // Arrange
-      var backend = new AstRepositoryDriverStub();
-      var requested = context(ast, entry.getKey());
-
+    var saveContext = RepositoryOperationContext.saveAst(identity);
+    var queryContext = RepositoryOperationContext.queryAst(identity);
+    var writer = new AstRepositoryDriverStub();
+    var reader = new AstRepositoryDriverStub();
+    try (var retention = factory(writer).openRetention(saveContext);
+        var query = factory(reader).openQuery(queryContext)) {
       // Act
-      var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> {
-        try (var repository = repository(ast, entry.getKey(), backend)) {
-          entry.getValue().accept(repository);
-        }
-      });
+      var wrongSave = assertThrows(Neo4jRepositoryOperationException.class, () -> retention.saveComplete(foreign));
+      var retrySave = assertThrows(Neo4jRepositoryOperationException.class, () -> retention.saveComplete(ast));
+      var wrongQuery = assertThrows(Neo4jRepositoryOperationException.class, () -> query.find(foreignIdentity));
+      var retryQuery = assertThrows(Neo4jRepositoryOperationException.class, () -> query.find(identity));
 
       // Assert
-      assertEquals(requested, failure.context());
-      assertEquals(Neo4jRepositoryPhase.VALIDATION, failure.phase());
-      assertEquals(Optional.of(CommitKnowledge.NOT_STARTED), failure.knowledge());
-      assertInstanceOf(IllegalArgumentException.class, failure.effectivePrimary());
+      for (var entry : Map.of(saveContext, List.of(wrongSave, retrySave), queryContext, List.of(wrongQuery, retryQuery)).entrySet()) {
+        for (var failure : entry.getValue()) {
+          assertEquals(entry.getKey(), failure.context());
+          assertEquals(Neo4jRepositoryPhase.VALIDATION, failure.phase());
+          assertEquals(Optional.of(CommitKnowledge.NOT_STARTED), failure.knowledge());
+          assertInstanceOf(IllegalArgumentException.class, failure.effectivePrimary());
+        }
+      }
+    }
+    for (var backend : List.of(writer, reader)) {
       assertEquals(List.of("driver.close"), backend.events);
       assertTrue(backend.queries.isEmpty());
     }
@@ -615,7 +709,7 @@ class Neo4jAstResultRepositoryTest {
     var context = context(ast, RepositoryOperationKind.SAVE_AST);
 
     // Act
-    var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> factory.open(context));
+    var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> factory.openRetention(context));
 
     // Assert
     assertEquals(Neo4jRepositoryPhase.ACQUISITION, failure.phase());
@@ -642,7 +736,7 @@ class Neo4jAstResultRepositoryTest {
     var factory = new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings, ignored -> backend.driver(), ignored -> {
       throw primary;
     });
-    var query = AnalysisCapabilities.astQuery(factory);
+    var query = AnalysisCapabilities.astQuery(factory::openQuery);
 
     // Act
     var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> query.findAst(identity));
@@ -718,6 +812,11 @@ class Neo4jAstResultRepositoryTest {
 
   private static Neo4jAstResultRepository repository(AstOutcome ast, RepositoryOperationKind kind, AstRepositoryDriverStub backend) {
     return new Neo4jAstResultRepository(backend.driver(), SessionConfig.defaultConfig(), context(ast, kind));
+  }
+
+  private static Neo4jAstResultRepositoryFactory factory(AstRepositoryDriverStub backend) {
+    return new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings, ignored -> backend.driver(),
+        ignored -> SessionConfig.defaultConfig());
   }
 
   private static Neo4jConnectionSettings settings() {

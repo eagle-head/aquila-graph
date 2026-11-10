@@ -6,13 +6,13 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.RepositoryOperationKind;
-import org.aquilagraph.application.port.AstResultRepository;
-import org.aquilagraph.application.port.AstResultRepositoryFactory;
+import org.aquilagraph.application.port.AstQueryRepository;
+import org.aquilagraph.application.port.AstRetentionRepository;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.SessionConfig;
 
 /** Lazy acquisition that retains ownership of partial resources until repository transfer. */
-public final class Neo4jAstResultRepositoryFactory implements AstResultRepositoryFactory {
+public final class Neo4jAstResultRepositoryFactory {
   private final Neo4jRepositoryAcquisition acquisition;
 
   /**
@@ -31,17 +31,31 @@ public final class Neo4jAstResultRepositoryFactory implements AstResultRepositor
   }
 
   /**
-   * Acquires and transfers a repository for one exact operation.
+   * Acquires and transfers a repository for one complete AST save.
    *
    * @param context
-   *          exact subject and operation
+   *          SAVE_AST and its exact source subject
    * @return transferred owned repository
    */
-  @Override
-  public AstResultRepository open(RepositoryOperationContext context) {
+  public AstRetentionRepository openRetention(RepositoryOperationContext context) {
+    return acquire(context, RepositoryOperationKind.SAVE_AST);
+  }
+
+  /**
+   * Acquires and transfers a repository for one exact AST lookup.
+   *
+   * @param context
+   *          QUERY_AST and its exact source subject
+   * @return transferred owned repository
+   */
+  public AstQueryRepository openQuery(RepositoryOperationContext context) {
+    return acquire(context, RepositoryOperationKind.QUERY_AST);
+  }
+
+  private Neo4jAstResultRepository acquire(RepositoryOperationContext context, RepositoryOperationKind kind) {
     Objects.requireNonNull(context, "context");
-    if (context.kind() == RepositoryOperationKind.SAVE_COMPLETED_RUN) {
-      throw new IllegalArgumentException("AST repository requires an AST operation");
+    if (context.kind() != kind) {
+      throw new IllegalArgumentException("AST repository requires " + kind);
     }
     return acquisition.open(context, (driver, config) -> new Neo4jAstResultRepository(driver, config, context));
   }

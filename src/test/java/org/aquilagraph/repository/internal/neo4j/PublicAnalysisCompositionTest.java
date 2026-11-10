@@ -49,7 +49,7 @@ import org.aquilagraph.application.PublicationSubjectIdentity.CompletedRun;
 import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.RequestQualificationReason;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
-import org.aquilagraph.application.port.AstResultRepositoryFactory;
+import org.aquilagraph.application.port.AstRetentionRepositoryFactory;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgDerivationException;
@@ -95,7 +95,7 @@ class PublicAnalysisCompositionTest {
   private static final CompilerConfiguration CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
   private static final AstProfile PROFILE = AstProfile.JAVA_SOURCE_MODULE_SERVICES;
   private static final CfgProfile CFG = CfgProfile.JAVA_BOUNDED;
-  private static final AstResultRepositoryFactory NO_AST_STORAGE = context -> {
+  private static final AstRetentionRepositoryFactory NO_AST_STORAGE = context -> {
     throw new AssertionError("Unexpected AST repository acquisition: " + context);
   };
   private static final AnalysisRunRepositoryFactory NO_RUN_STORAGE = context -> {
@@ -143,10 +143,10 @@ class PublicAnalysisCompositionTest {
     var original = outcome.result().orElseThrow();
     var identity = original.identity();
     write.lockedAstSubject = identity.astResultKey();
-    var publication = AnalysisCapabilities.astRetention(astRepository(write))
+    var publication = AnalysisCapabilities.astRetention(astFactory(write)::openRetention)
         .retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
     read.stored = writtenAst(identity, write);
-    var lookup = AnalysisCapabilities.astQuery(astRepository(read)).findAst(identity);
+    var lookup = AnalysisCapabilities.astQuery(astFactory(read)::openQuery).findAst(identity);
     var retainedOutcome = lookup.outcome().orElseThrow();
     var retained = retainedOutcome.result().orElseThrow();
     var method = methodKey(outcome, "choose");
@@ -307,7 +307,7 @@ class PublicAnalysisCompositionTest {
         }
         """);
     var driver = new AstRepositoryDriverStub();
-    var execution = AnalysisCapabilities.execution(computation, astRepository(driver), NO_RUN_STORAGE);
+    var execution = AnalysisCapabilities.execution(computation, astFactory(driver)::openRetention, NO_RUN_STORAGE);
     var request = new AnalysisComputationRequest(source, Optional.of(CfgSelection.allBodies(CFG)));
 
     // Act
@@ -347,7 +347,7 @@ class PublicAnalysisCompositionTest {
       driver.lockedAstSubject = ast.identity().astResultKey();
       return RecoverableCfgFailures.atMethod(selection.methodKeys().getFirst(), cause).derive(ast, selection);
     });
-    var execution = AnalysisCapabilities.execution(computation, astRepository(driver), NO_RUN_STORAGE);
+    var execution = AnalysisCapabilities.execution(computation, astFactory(driver)::openRetention, NO_RUN_STORAGE);
     var request = new AnalysisComputationRequest(source("interface Sample { static int value() { return 1; } }"),
         Optional.of(CfgSelection.allBodies(CFG)));
 
@@ -358,7 +358,7 @@ class PublicAnalysisCompositionTest {
     var ast = run.representation().ast();
     var result = ast.result().orElseThrow();
     reader.stored = writtenAst(result.identity(), driver);
-    var lookup = AnalysisCapabilities.astQuery(astRepository(reader)).findAst(result.identity());
+    var lookup = AnalysisCapabilities.astQuery(astFactory(reader)::openQuery).findAst(result.identity());
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, ast.completion());
@@ -537,8 +537,8 @@ class PublicAnalysisCompositionTest {
     incompatible.version = "java-source/unsupported";
 
     // Act
-    var missing = AnalysisCapabilities.astQuery(astRepository(absent)).findAst(identity);
-    var unsupported = AnalysisCapabilities.astQuery(astRepository(incompatible)).findAst(identity);
+    var missing = AnalysisCapabilities.astQuery(astFactory(absent)::openQuery).findAst(identity);
+    var unsupported = AnalysisCapabilities.astQuery(astFactory(incompatible)::openQuery).findAst(identity);
 
     // Assert
     assertEquals(new AstLookup(identity, AstLookupStatus.NOT_FOUND, Optional.empty(), Optional.empty()), missing);
@@ -571,11 +571,11 @@ class PublicAnalysisCompositionTest {
 
     // Act
     var invalidRows = assertThrows(Neo4jRepositoryOperationException.class,
-        () -> AnalysisCapabilities.astQuery(astRepository(malformed)).findAst(identity));
+        () -> AnalysisCapabilities.astQuery(astFactory(malformed)::openQuery).findAst(identity));
     var invalidIdentity = assertThrows(Neo4jRepositoryOperationException.class,
-        () -> AnalysisCapabilities.astQuery(astRepository(foreign)).findAst(identity));
+        () -> AnalysisCapabilities.astQuery(astFactory(foreign)::openQuery).findAst(identity));
     var failedClose = assertThrows(Neo4jRepositoryOperationException.class,
-        () -> AnalysisCapabilities.astQuery(astRepository(unclosed)).findAst(identity));
+        () -> AnalysisCapabilities.astQuery(astFactory(unclosed)::openQuery).findAst(identity));
 
     // Assert
     assertNotEquals(identity, foreign.stored.identity());
@@ -616,7 +616,7 @@ class PublicAnalysisCompositionTest {
     driver.stored = new Neo4jAstResultCodec().map(AstOutcome.available(original));
 
     // Act
-    var found = AnalysisCapabilities.astQuery(astRepository(driver)).findAst(identity);
+    var found = AnalysisCapabilities.astQuery(astFactory(driver)::openQuery).findAst(identity);
     var retained = found.outcome().orElseThrow().result().orElseThrow();
 
     // Assert
@@ -635,7 +635,7 @@ class PublicAnalysisCompositionTest {
         List.of(SourceFile.fromContent(Path.of("Sample.java"), content))), CONFIGURATION, PROFILE);
   }
 
-  private static AstResultRepositoryFactory astRepository(AstRepositoryDriverStub driver) {
+  private static Neo4jAstResultRepositoryFactory astFactory(AstRepositoryDriverStub driver) {
     return new Neo4jAstResultRepositoryFactory(PublicAnalysisCompositionTest::settings,
         ignored -> driver.driver(), ignored -> SessionConfig.defaultConfig());
   }

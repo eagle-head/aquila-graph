@@ -9,18 +9,18 @@ import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
 import org.aquilagraph.application.PublicationSubjectIdentity.CompletedRun;
 import org.aquilagraph.application.port.AnalysisRunRepository;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
-import org.aquilagraph.application.port.AstResultRepository;
-import org.aquilagraph.application.port.AstResultRepositoryFactory;
+import org.aquilagraph.application.port.AstRetentionRepository;
+import org.aquilagraph.application.port.AstRetentionRepositoryFactory;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.application.port.RepositoryOperationException;
 import org.aquilagraph.source.api.AstCompletion;
 
 /** Owns common eligibility, repository lifetime, and publication decisions. */
 final class PublicationCoordinator {
-  private final AstResultRepositoryFactory astRepositories;
+  private final AstRetentionRepositoryFactory astRepositories;
   private final AnalysisRunRepositoryFactory runRepositories;
 
-  PublicationCoordinator(AstResultRepositoryFactory astRepositories, AnalysisRunRepositoryFactory runRepositories) {
+  PublicationCoordinator(AstRetentionRepositoryFactory astRepositories, AnalysisRunRepositoryFactory runRepositories) {
     this.astRepositories = Objects.requireNonNull(astRepositories, "astRepositories");
     this.runRepositories = Objects.requireNonNull(runRepositories, "runRepositories");
   }
@@ -35,9 +35,9 @@ final class PublicationCoordinator {
     };
   }
 
-  static PublicationOutcome publishAst(ComputedPublicationSubject subject, AstResultRepositoryFactory repositories) {
+  static PublicationOutcome publishAst(ComputedPublicationSubject subject, AstRetentionRepositoryFactory repositories) {
     return publish(subject, PublicationIntent.SAVE_COMPLETE_AST, repositories::open, repository -> repository.saveComplete(subject.ast()),
-        AstResultRepository::close);
+        AstRetentionRepository::close);
   }
 
   static PublicationOutcome notRequested(ComputedPublicationSubject subject) {

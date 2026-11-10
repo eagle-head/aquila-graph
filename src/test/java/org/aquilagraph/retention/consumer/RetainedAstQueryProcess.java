@@ -27,7 +27,7 @@ public final class RetainedAstQueryProcess {
     }
     var identity = AstIdentity.fromContent(arguments[0], arguments[1], arguments[2], arguments[3], arguments[4]);
     var settings = Neo4jConnectionSettings.fromEnvironment(System.getenv());
-    AstQuery query = AnalysisCapabilities.astQuery(Neo4jRepositories.astResults(() -> settings));
+    AstQuery query = AnalysisCapabilities.astQuery(Neo4jRepositories.astQuery(() -> settings));
     var lookup = query.findAst(identity);
     if (lookup.status() != AstLookupStatus.FOUND) { throw new IllegalStateException("Expected retained source: " + lookup.status()); }
     var retained = lookup.outcome().orElseThrow().result().orElseThrow();

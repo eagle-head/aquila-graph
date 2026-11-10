@@ -387,9 +387,8 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
     var expectedPrevious = expectedProjection(mapper.map(previousRun));
     var expectedReplacement = expectedProjection(mapper.map(replacementRun));
     assertNotEquals(expectedPrevious, expectedReplacement);
-    var astRepositories = Neo4jRepositories.astResults(() -> settings);
-    var retention = AnalysisCapabilities.astRetention(astRepositories);
-    var query = AnalysisCapabilities.astQuery(astRepositories);
+    var retention = AnalysisCapabilities.astRetention(Neo4jRepositories.astRetention(() -> settings));
+    var query = AnalysisCapabilities.astQuery(Neo4jRepositories.astQuery(() -> settings));
     var runRepositories = Neo4jRepositories.completedRuns(() -> settings);
     try (var driver = GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
         var session = driver.session(SessionConfig.forDatabase(settings.database()))) {

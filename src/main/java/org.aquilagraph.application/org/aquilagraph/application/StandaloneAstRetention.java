@@ -2,13 +2,13 @@ package org.aquilagraph.application;
 
 import java.util.Objects;
 import org.aquilagraph.application.ComputedPublicationSubject.Ast;
-import org.aquilagraph.application.port.AstResultRepositoryFactory;
+import org.aquilagraph.application.port.AstRetentionRepositoryFactory;
 
 /** Applies publication policy to the standalone source subject. */
 final class StandaloneAstRetention implements AstRetention {
-  private final AstResultRepositoryFactory repositories;
+  private final AstRetentionRepositoryFactory repositories;
 
-  StandaloneAstRetention(AstResultRepositoryFactory repositories) {
+  StandaloneAstRetention(AstRetentionRepositoryFactory repositories) {
     this.repositories = Objects.requireNonNull(repositories, "repositories");
   }
 

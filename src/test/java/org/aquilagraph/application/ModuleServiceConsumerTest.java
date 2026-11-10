@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import org.aquilagraph.application.port.AstResultRepository;
+import org.aquilagraph.application.port.AstRetentionRepository;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
@@ -89,7 +89,7 @@ class ModuleServiceConsumerTest {
     return AnalysisCapabilities.astRetention(ModuleServiceConsumerTest::unexpectedAstRepository);
   }
 
-  private static AstResultRepository unexpectedAstRepository(RepositoryOperationContext context) {
+  private static AstRetentionRepository unexpectedAstRepository(RepositoryOperationContext context) {
     throw new AssertionError("No AST repository may open for " + context);
   }
 
