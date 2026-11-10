@@ -170,6 +170,9 @@ class ModuleDependencyBoundaryTest {
     var publicClient = """
         import org.aquilagraph.application.AnalysisCapabilities;
         import org.aquilagraph.application.AnalysisComputation;
+        import org.aquilagraph.application.AnalysisRun;
+        import org.aquilagraph.application.PublicationEligibility;
+        import org.aquilagraph.application.PublicationEligibility.Impediment;
         import org.aquilagraph.application.AstQuery;
         import org.aquilagraph.application.AstRetention;
         import org.aquilagraph.application.ExistingSourceDerivation;
@@ -196,6 +199,13 @@ class ModuleDependencyBoundaryTest {
           AnalysisUseCase execute(AnalysisComputation computation, AstResultRepositoryFactory ast,
               AnalysisRunRepositoryFactory runs) {
             return AnalysisCapabilities.execution(computation, ast, runs);
+          }
+          PublicationEligibility publicationEligibility(AnalysisRun run) {
+            return run.publicationEligibility();
+          }
+          boolean missingSource(AnalysisRun run) {
+            PublicationEligibility assessment = run.publicationEligibility();
+            return !assessment.eligible() && assessment.impediments().contains(Impediment.SOURCE_UNAVAILABLE);
           }
           RepositoryOperationException diagnostic;
         }

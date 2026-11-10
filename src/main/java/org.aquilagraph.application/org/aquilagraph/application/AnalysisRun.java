@@ -153,6 +153,16 @@ public record AnalysisRun(AnalysisRequestIdentity identity, ProgramRepresentatio
    * @return eligibility for completed-run publication
    */
   public boolean isPublishable() {
-    return CompletedRunPublicationEligibility.accepts(this);
+    return publicationEligibility().eligible();
+  }
+
+  /**
+   * Explains completed-run publication eligibility using only retained run facts. This query acquires no repository and performs no source
+   * production or control-flow derivation.
+   *
+   * @return immutable assessment with all applicable impediments in declaration order
+   */
+  public PublicationEligibility publicationEligibility() {
+    return CompletedRunPublicationEligibility.assess(this);
   }
 }
