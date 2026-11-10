@@ -60,7 +60,7 @@ class PreparedConsumerNeo4jIT {
     assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.toString());
     assertTrue(outcome.qualification().reasons().isEmpty());
     var original = outcome.result().orElseThrow();
-    var service = AnalysisCapabilities.astRetention(Neo4jRepositories.astResults(() -> settings));
+    var service = AnalysisCapabilities.astRetention(Neo4jRepositories.astRetention(() -> settings));
     assertEquals(PublicationStatus.SAVED, service.retainAst(new AstPublicationRequest(outcome,
         PublicationIntent.SAVE_COMPLETE_AST)).status());
     try {

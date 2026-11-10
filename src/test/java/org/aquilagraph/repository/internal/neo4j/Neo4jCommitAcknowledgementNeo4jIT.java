@@ -165,8 +165,8 @@ class Neo4jCommitAcknowledgementNeo4jIT {
     var settings = Neo4jIntegration.settings();
     var sessionConfig = SessionConfig.forDatabase(settings.database());
     var directUri = directUri(loopbackTarget(settings.uri()));
-    var retention = AnalysisCapabilities.astRetention(Neo4jRepositories.astResults(() -> settings));
-    var query = AnalysisCapabilities.astQuery(Neo4jRepositories.astResults(() -> settings));
+    var retention = AnalysisCapabilities.astRetention(Neo4jRepositories.astRetention(() -> settings));
+    var query = AnalysisCapabilities.astQuery(Neo4jRepositories.astQuery(() -> settings));
     var codec = new Neo4jAstResultCodec();
     for (var phase : Phase.values()) {
       var root = sourceRoot.resolve(phase.name());

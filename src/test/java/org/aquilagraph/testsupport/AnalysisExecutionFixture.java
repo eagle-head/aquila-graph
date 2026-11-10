@@ -12,8 +12,8 @@ import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.port.AnalysisRunRepository;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
-import org.aquilagraph.application.port.AstResultRepository;
-import org.aquilagraph.application.port.AstResultRepositoryFactory;
+import org.aquilagraph.application.port.AstRetentionRepository;
+import org.aquilagraph.application.port.AstRetentionRepositoryFactory;
 import org.aquilagraph.source.api.AstProductionRequest;
 
 /** Exercises coordinated publication with a fixed result from the computation port. */
@@ -21,7 +21,7 @@ public final class AnalysisExecutionFixture {
   private AnalysisExecutionFixture() {}
 
   public static AnalysisExecution executeComputed(AnalysisRun run, PublicationIntent intent,
-      AstResultRepositoryFactory astRepositories, AnalysisRunRepositoryFactory runRepositories) {
+      AstRetentionRepositoryFactory astRepositories, AnalysisRunRepositoryFactory runRepositories) {
     var ast = run.representation().ast();
     var source = new AstProductionRequest(ast.capturedInput().orElseThrow(), ast.requestedConfiguration().orElseThrow(), ast.profile());
     Optional<CfgSelection> selection = run.identity().selection() instanceof ProductionSelection produced
@@ -31,7 +31,7 @@ public final class AnalysisExecutionFixture {
     return AnalysisCapabilities.execution(ignored -> run, astRepositories, runRepositories).execute(request);
   }
 
-  public static AstResultRepository unexpectedAstRepository(RepositoryOperationContext context) {
+  public static AstRetentionRepository unexpectedAstRepository(RepositoryOperationContext context) {
     throw new AssertionError("Unexpected AST repository acquisition for " + context);
   }
 

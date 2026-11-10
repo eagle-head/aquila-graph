@@ -17,8 +17,9 @@ import java.util.function.Function;
 import org.aquilagraph.application.ApplicationRepositoryOperationException.Boundary;
 import org.aquilagraph.application.ComputedPublicationSubject.Ast;
 import org.aquilagraph.application.ComputedPublicationSubject.Coordinated;
-import org.aquilagraph.application.port.AstResultRepository;
-import org.aquilagraph.application.port.AstResultRepositoryFactory;
+import org.aquilagraph.application.port.AstQueryRepository;
+import org.aquilagraph.application.port.AstRetentionRepository;
+import org.aquilagraph.application.port.AstRetentionRepositoryFactory;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.application.port.RepositoryOperationException;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
@@ -53,7 +54,7 @@ class AstRetentionAndQueryTest {
     var cause = new IllegalStateException("Declared construction observation");
     var run = AnalysisCapabilities.existingSourceDerivation(RecoverableCfgFailures.atMethod(key, cause)).deriveExisting(ast,
         new CfgRequest(original.identity(), List.of(key), CfgProfile.JAVA_BOUNDED));
-    AstResultRepositoryFactory repositories = ignored -> {
+    AstRetentionRepositoryFactory repositories = ignored -> {
       throw new AssertionError("Incomplete source must not acquire storage even when derivation fails");
     };
 
@@ -99,11 +100,9 @@ class AstRetentionAndQueryTest {
     var retention = AnalysisCapabilities.astRetention(context -> {
       events.add("acquisition");
       assertEquals(RepositoryOperationContext.saveAst(identity), context);
-      return new RepositoryStub(value -> {
+      return new RetentionRepository(value -> {
         assertSame(ast, value);
         events.add("save");
-      }, ignored -> {
-        throw new AssertionError("Publication must not query");
       }, () -> events.add("close"));
     });
 
@@ -149,10 +148,7 @@ class AstRetentionAndQueryTest {
     var run = runner.deriveExisting(ast,
         new CfgRequest(ast.result().orElseThrow().identity(), List.of("unknown"), CfgProfile.JAVA_BOUNDED));
     var closes = new AtomicInteger();
-    AstResultRepositoryFactory repositories = ignored -> new RepositoryStub(value -> assertSame(ast, value),
-        identity -> {
-          throw new AssertionError("Retention must not query");
-        }, closes::incrementAndGet);
+    AstRetentionRepositoryFactory repositories = ignored -> new RetentionRepository(value -> assertSame(ast, value), closes::incrementAndGet);
 
     // Act
     var result = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, repositories,
@@ -176,9 +172,7 @@ class AstRetentionAndQueryTest {
     var run = AnalysisCapabilities.existingSourceDerivation(RecoverableCfgFailures.atMethod(key, cause)).deriveExisting(ast,
         new CfgRequest(source.identity(), List.of(key), CfgProfile.JAVA_BOUNDED));
     var retained = new ArrayList<AstOutcome>();
-    AstResultRepositoryFactory repositories = context -> new RepositoryStub(retained::add, requested -> {
-      throw new AssertionError("Publication must not query");
-    }, () -> {});
+    AstRetentionRepositoryFactory repositories = context -> new RetentionRepository(retained::add, () -> {});
 
     // Act
     var outcome = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETE_AST, repositories,
@@ -204,10 +198,8 @@ class AstRetentionAndQueryTest {
     var primary = new RepositoryException("Unobserved save exit", new IllegalStateException("No save observation"));
     var close = new Neo4jRepositoryOperationException(requested, Neo4jRepositoryPhase.REPOSITORY_CLOSE, CommitKnowledge.KNOWN_COMMIT,
         new RepositoryException("Close observation", new IllegalStateException("Close failed")));
-    var retention = AnalysisCapabilities.astRetention(context -> new RepositoryStub(value -> {
+    var retention = AnalysisCapabilities.astRetention(context -> new RetentionRepository(value -> {
       throw primary;
-    }, identity -> {
-      throw new AssertionError("Publication must not query");
     }, () -> {
       throw close;
     }));
@@ -241,10 +233,8 @@ class AstRetentionAndQueryTest {
     var enclosingClose = new Neo4jRepositoryOperationException(context, Neo4jRepositoryPhase.REPOSITORY_CLOSE, CommitKnowledge.UNKNOWN,
         new RepositoryException("Enclosing close failed", new IllegalStateException("Close observation")));
     primary.addSuppressed(sessionClose);
-    var retention = AnalysisCapabilities.astRetention(ignored -> new RepositoryStub(value -> {
+    var retention = AnalysisCapabilities.astRetention(ignored -> new RetentionRepository(value -> {
       throw primary;
-    }, identity -> {
-      throw new AssertionError("Publication must not query");
     }, () -> {
       throw enclosingClose;
     }));
@@ -277,12 +267,10 @@ class AstRetentionAndQueryTest {
     var retention = AnalysisCapabilities.astRetention(operation -> {
       assertEquals(context, operation);
       events.add("acquisition");
-      return new RepositoryStub(value -> {
+      return new RetentionRepository(value -> {
         assertSame(ast, value);
         events.add("save");
         throw primary;
-      }, identity -> {
-        throw new AssertionError("Publication must not query");
       }, () -> {
         events.add("close");
         throw cleanup;
@@ -313,10 +301,8 @@ class AstRetentionAndQueryTest {
     var primary = new Neo4jRepositoryOperationException(context, Neo4jRepositoryPhase.MAPPING, CommitKnowledge.NOT_STARTED, effective);
     var cleanup = new Neo4jRepositoryOperationException(context, Neo4jRepositoryPhase.REPOSITORY_CLOSE, CommitKnowledge.NOT_STARTED,
         new RepositoryException("Close failed", new IllegalStateException("Cleanup observation")));
-    var retention = AnalysisCapabilities.astRetention(ignored -> new RepositoryStub(value -> {
+    var retention = AnalysisCapabilities.astRetention(ignored -> new RetentionRepository(value -> {
       throw primary;
-    }, identity -> {
-      throw new AssertionError("Publication must not query");
     }, () -> {
       throw cleanup;
     }));
@@ -342,10 +328,8 @@ class AstRetentionAndQueryTest {
         new CfgRequest(ast.result().orElseThrow().identity(), List.of(), CfgProfile.JAVA_BOUNDED));
     var primary = new Neo4jRepositoryOperationException(saveContext(ast), Neo4jRepositoryPhase.SCHEMA, CommitKnowledge.NOT_STARTED,
         new IllegalStateException("Schema observation"));
-    AstResultRepositoryFactory repositories = ignored -> new RepositoryStub(value -> {
+    AstRetentionRepositoryFactory repositories = ignored -> new RetentionRepository(value -> {
       throw primary;
-    }, identity -> {
-      throw new AssertionError("Publication must not query");
     }, () -> {
     });
 
@@ -364,9 +348,7 @@ class AstRetentionAndQueryTest {
     // Arrange
     var ast = produce("class Stored { int value() { return 1; } }");
     var effective = new RepositoryException("Close failed", new IllegalStateException("Close observation"));
-    var retention = AnalysisCapabilities.astRetention(ignored -> new RepositoryStub(value -> {
-    }, identity -> {
-      throw new AssertionError("Publication must not query");
+    var retention = AnalysisCapabilities.astRetention(ignored -> new RetentionRepository(value -> {
     }, () -> {
       throw effective;
     }));
@@ -419,9 +401,7 @@ class AstRetentionAndQueryTest {
       var queryCapability = AnalysisCapabilities.astQuery(context -> {
         assertEquals(RepositoryOperationContext.queryAst(identity), context);
         events.add("acquisition");
-        return new RepositoryStub(value -> {
-          throw new AssertionError("Lookup must not publish");
-        }, requested -> {
+        return new QueryRepository(requested -> {
           assertEquals(identity, requested);
           events.add("find");
           return result;
@@ -450,9 +430,7 @@ class AstRetentionAndQueryTest {
           new IllegalArgumentException("Read or admission observation"));
       var cleanup = new Neo4jRepositoryOperationException(context, Neo4jRepositoryPhase.REPOSITORY_CLOSE, CommitKnowledge.NOT_STARTED,
           new RepositoryException("Close failed", new IllegalStateException("Close observation")));
-      var queryCapability = AnalysisCapabilities.astQuery(ignored -> new RepositoryStub(value -> {
-        throw new AssertionError("Query must not publish");
-      }, requested -> {
+      var queryCapability = AnalysisCapabilities.astQuery(ignored -> new QueryRepository(requested -> {
         throw primary;
       }, () -> {
         throw cleanup;
@@ -486,9 +464,7 @@ class AstRetentionAndQueryTest {
       var queryCapability = AnalysisCapabilities.astQuery(context -> {
         assertEquals(query, context);
         events.add("open");
-        return new RepositoryStub(value -> {
-          throw new AssertionError("Lookup must not publish");
-        }, requested -> {
+        return new QueryRepository(requested -> {
           assertEquals(identity, requested);
           events.add("find");
           throw primary;
@@ -525,11 +501,10 @@ class AstRetentionAndQueryTest {
     var ast = produce("class Stored { int value() { return 1; } }");
     var identity = ast.result().orElseThrow().identity();
     var effective = new RepositoryException("Close failed", new IllegalStateException("Close observation"));
-    var queryCapability = AnalysisCapabilities.astQuery(ignored -> new RepositoryStub(value -> {
-      throw new AssertionError("Query must not publish");
-    }, requested -> new AstLookup(identity, AstLookupStatus.FOUND, Optional.of(ast), Optional.empty()), () -> {
-      throw effective;
-    }));
+    var queryCapability = AnalysisCapabilities.astQuery(ignored -> new QueryRepository(
+        requested -> new AstLookup(identity, AstLookupStatus.FOUND, Optional.of(ast), Optional.empty()), () -> {
+          throw effective;
+        }));
 
     // Act
     var failure = assertThrows(RepositoryOperationException.class, () -> queryCapability.findAst(identity));
@@ -543,14 +518,52 @@ class AstRetentionAndQueryTest {
   }
 
   @Test
+  void givenNullRequestedIdentity_whenFinding_thenArgumentAdmissionFailsBeforeAcquisition() {
+    // Arrange
+    var query = AnalysisCapabilities.astQuery(context -> {
+      throw new AssertionError("Invalid query input cannot acquire a repository");
+    });
+
+    // Act
+    var failure = assertThrows(NullPointerException.class, () -> query.findAst(null));
+
+    // Assert
+    assertEquals(0, failure.getSuppressed().length);
+  }
+
+  @Test
+  void givenRepositoryReturnsNoLookupValue_whenFinding_thenValidationFailsBeforeEnclosingClose() throws IOException {
+    // Arrange
+    var identity = produce("class Stored {}").result().orElseThrow().identity();
+    var closeFailure = new IllegalStateException("Query close failed");
+    var query = AnalysisCapabilities.astQuery(ignored -> new QueryRepository(requested -> null, () -> {
+      throw closeFailure;
+    }));
+
+    // Act
+    var failure = assertThrows(ApplicationRepositoryOperationException.class, () -> query.findAst(identity));
+
+    // Assert
+    assertEquals(Boundary.VALIDATION, failure.boundary());
+    assertEquals(RepositoryOperationContext.queryAst(identity), failure.context());
+    assertEquals(Optional.of(CommitKnowledge.NOT_STARTED), failure.knowledge());
+    assertInstanceOf(NullPointerException.class, failure.effectivePrimary());
+    assertEquals(1, failure.getSuppressed().length);
+    var cleanup = assertInstanceOf(ApplicationRepositoryOperationException.class, failure.getSuppressed()[0]);
+    assertEquals(Boundary.CLOSURE, cleanup.boundary());
+    assertEquals(failure.context(), cleanup.context());
+    assertEquals(failure.knowledge(), cleanup.knowledge());
+    assertSame(closeFailure, cleanup.effectivePrimary());
+  }
+
+  @Test
   void givenLookupWithAnotherRequestedIdentity_whenFinding_thenApplicationValidationRemainsTypedAndAbrupt() throws IOException {
     // Arrange
     var original = produce("class Stored {}").result().orElseThrow().identity();
     var foreign = produce("class Foreign {}").result().orElseThrow().identity();
     var events = new ArrayList<String>();
-    var queryCapability = AnalysisCapabilities.astQuery(context -> new RepositoryStub(value -> {
-      throw new AssertionError("Lookup must not publish");
-    }, requested -> new AstLookup(foreign, AstLookupStatus.NOT_FOUND, Optional.empty(), Optional.empty()),
+    var queryCapability = AnalysisCapabilities.astQuery(context -> new QueryRepository(
+        requested -> new AstLookup(foreign, AstLookupStatus.NOT_FOUND, Optional.empty(), Optional.empty()),
         () -> events.add("close")));
 
     // Act
@@ -565,16 +578,41 @@ class AstRetentionAndQueryTest {
   }
 
   @Test
+  void givenSameQueryFailureFromFindAndClose_whenFinding_thenExactCarrierSurvivesWithoutSelfSuppression() throws IOException {
+    // Arrange
+    var identity = produce("class Stored {}").result().orElseThrow().identity();
+    var context = RepositoryOperationContext.queryAst(identity);
+    var cause = new IllegalStateException("Query work failed");
+    var shared = new Neo4jRepositoryOperationException(context, Neo4jRepositoryPhase.READ, CommitKnowledge.NOT_STARTED, cause);
+    var closes = new AtomicInteger();
+    var query = AnalysisCapabilities.astQuery(ignored -> new QueryRepository(requested -> {
+      throw shared;
+    }, () -> {
+      closes.incrementAndGet();
+      throw shared;
+    }));
+
+    // Act
+    var failure = assertThrows(RepositoryOperationException.class, () -> query.findAst(identity));
+
+    // Assert
+    assertSame(shared, failure);
+    assertSame(cause, failure.effectivePrimary());
+    assertEquals(context, failure.context());
+    assertEquals(Optional.of(CommitKnowledge.NOT_STARTED), failure.knowledge());
+    assertEquals(0, failure.getSuppressed().length);
+    assertEquals(1, closes.get());
+  }
+
+  @Test
   void givenFatalPrimaryAndRuntimeCleanupFailure_whenRetaining_thenFatalFamilyAndApplicableCleanupEvidenceArePreserved() throws IOException {
     // Arrange
     var ast = produce("class Stored { int value() { return 1; } }");
     var fatal = new AssertionError("Fatal work observation");
     var cleanup = new Neo4jRepositoryOperationException(saveContext(ast), Neo4jRepositoryPhase.REPOSITORY_CLOSE, CommitKnowledge.NOT_STARTED,
         new RepositoryException("Close failed", new IllegalStateException("Close observation")));
-    var retention = AnalysisCapabilities.astRetention(ignored -> new RepositoryStub(value -> {
+    var retention = AnalysisCapabilities.astRetention(ignored -> new RetentionRepository(value -> {
       throw fatal;
-    }, identity -> {
-      throw new AssertionError("Publication must not query");
     }, () -> {
       throw cleanup;
     }));
@@ -601,13 +639,20 @@ class AstRetentionAndQueryTest {
     return RepositoryOperationContext.saveAst(ast.result().orElseThrow().identity());
   }
 
-  private record RepositoryStub(Consumer<AstOutcome> save, Function<AstIdentity, AstLookup> lookup, Runnable cleanup)
-      implements AstResultRepository {
+  private record RetentionRepository(Consumer<AstOutcome> save, Runnable cleanup)
+      implements AstRetentionRepository {
     @Override
     public void saveComplete(AstOutcome outcome) {
       save.accept(outcome);
     }
 
+    @Override
+    public void close() {
+      cleanup.run();
+    }
+  }
+
+  private record QueryRepository(Function<AstIdentity, AstLookup> lookup, Runnable cleanup) implements AstQueryRepository {
     @Override
     public AstLookup find(AstIdentity identity) {
       return lookup.apply(identity);

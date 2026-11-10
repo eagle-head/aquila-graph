@@ -10,16 +10,14 @@ import java.util.Optional;
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.AnalysisRequest;
-import org.aquilagraph.application.AstLookup;
 import org.aquilagraph.application.CfgSelection;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.PublicationIntent;
-import org.aquilagraph.application.port.AstResultRepository;
+import org.aquilagraph.application.port.AstRetentionRepository;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.internal.RecoverableCfgFailures;
 import org.aquilagraph.frontend.JavaFrontends;
-import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.source.api.AstOutcome;
@@ -39,13 +37,12 @@ class PublicationFailureReportTest {
       var cfgFailure = new IllegalStateException("CFG construction", shared);
       var repositoryFailure = new RepositoryException("AST save failed", shared);
       var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), RecoverableCfgFailures.atMethod(methodKey, cfgFailure));
-      var useCase = AnalysisCapabilities.execution(computation, context -> new AstResultRepository() {
+      var useCase = AnalysisCapabilities.execution(computation, context -> new AstRetentionRepository() {
         @Override public void saveComplete(AstOutcome outcome) {
           if (knowledge == CommitKnowledge.UNKNOWN) {
             throw new Neo4jRepositoryOperationException(context, Neo4jRepositoryPhase.REPLACEMENT, knowledge, repositoryFailure);
           }
         }
-        @Override public AstLookup find(AstIdentity identity) { throw new AssertionError("Unexpected lookup"); }
         @Override public void close() {
           if (knowledge == CommitKnowledge.KNOWN_COMMIT) {
             throw new Neo4jRepositoryOperationException(context, Neo4jRepositoryPhase.REPOSITORY_CLOSE, knowledge, repositoryFailure);

@@ -11,7 +11,8 @@ import org.aquilagraph.application.AstLookupStatus;
 import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
 import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.RepositoryOperationKind;
-import org.aquilagraph.application.port.AstResultRepository;
+import org.aquilagraph.application.port.AstQueryRepository;
+import org.aquilagraph.application.port.AstRetentionRepository;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.source.api.AstCompletion;
@@ -28,7 +29,7 @@ import org.neo4j.driver.Values;
 import org.neo4j.driver.exceptions.value.ValueException;
 
 /** One owned AST save or lookup with exact phase-bearing failures and conservative commit knowledge. */
-public final class Neo4jAstResultRepository implements AstResultRepository {
+final class Neo4jAstResultRepository implements AstRetentionRepository, AstQueryRepository {
   private static final int REQUIRED_ROOT_COUNT = 1;
   private static final String PROPERTIES_FIELD = "properties";
   private static final String SCOPE_PARAMETER = "scope";

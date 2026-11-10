@@ -3,7 +3,7 @@ package org.aquilagraph.repository.internal.neo4j;
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
-import org.aquilagraph.application.port.AstResultRepositoryFactory;
+import org.aquilagraph.application.port.AstRetentionRepositoryFactory;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
 import org.aquilagraph.application.RepositoryOperationContext;
@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -531,21 +532,32 @@ class Neo4jAnalysisRunRepositoryTest {
   }
 
   @Test
-  void givenForeignOperationKinds_whenOpeningEitherFactory_thenRejectionPrecedesSettingsResolution() throws IOException {
+  void givenForeignOperationKinds_whenOpeningEachFactory_thenRejectionPrecedesSettingsResolution() throws IOException {
     // Arrange
     var run = completedRun();
     var identity = run.representation().ast().result().orElseThrow().identity();
+    var saveAst = RepositoryOperationContext.saveAst(identity);
+    var queryAst = RepositoryOperationContext.queryAst(identity);
+    var saveRun = RepositoryOperationContext.saveCompletedRun(run.identity().key());
+    var settingsResolutions = new AtomicInteger();
     Supplier<Neo4jConnectionSettings> settings = () -> {
+      settingsResolutions.incrementAndGet();
       throw new AssertionError("An inadmissible operation cannot resolve settings");
     };
-    var astFactory = Neo4jRepositories.astResults(settings);
+    var retentionFactory = Neo4jRepositories.astRetention(settings);
+    var queryFactory = Neo4jRepositories.astQuery(settings);
     var runFactory = Neo4jRepositories.completedRuns(settings);
 
-    // Act and assert
-    assertThrows(IllegalArgumentException.class,
-        () -> astFactory.open(RepositoryOperationContext.saveCompletedRun(run.identity().key())));
-    assertThrows(IllegalArgumentException.class, () -> runFactory.open(RepositoryOperationContext.saveAst(identity)));
-    assertThrows(IllegalArgumentException.class, () -> runFactory.open(RepositoryOperationContext.queryAst(identity)));
+    // Act
+    assertThrows(IllegalArgumentException.class, () -> retentionFactory.open(queryAst));
+    assertThrows(IllegalArgumentException.class, () -> retentionFactory.open(saveRun));
+    assertThrows(IllegalArgumentException.class, () -> queryFactory.open(saveAst));
+    assertThrows(IllegalArgumentException.class, () -> queryFactory.open(saveRun));
+    assertThrows(IllegalArgumentException.class, () -> runFactory.open(saveAst));
+    assertThrows(IllegalArgumentException.class, () -> runFactory.open(queryAst));
+
+    // Assert
+    assertEquals(0, settingsResolutions.get());
   }
 
   @Test
@@ -641,7 +653,7 @@ class Neo4jAnalysisRunRepositoryTest {
       assertEquals(AcquisitionStage.SESSION_CONFIGURATION, stage);
       return failAcquisition(signal);
     };
-    return new PublicationServices(new Neo4jAstResultRepositoryFactory(settings, drivers, configurations),
+    return new PublicationServices(new Neo4jAstResultRepositoryFactory(settings, drivers, configurations)::openRetention,
         Neo4jAnalysisRunRepository.factory(settings, drivers, configurations));
   }
 
@@ -652,7 +664,7 @@ class Neo4jAnalysisRunRepositoryTest {
     return null;
   }
 
-  private record PublicationServices(AstResultRepositoryFactory astRepositories, AnalysisRunRepositoryFactory runRepositories) {
+  private record PublicationServices(AstRetentionRepositoryFactory astRepositories, AnalysisRunRepositoryFactory runRepositories) {
     PublicationOutcome execute(AnalysisRun run, PublicationIntent intent) {
       return AnalysisExecutionFixture.executeComputed(run, intent, astRepositories, runRepositories).publication();
     }
@@ -675,7 +687,7 @@ class Neo4jAnalysisRunRepositoryTest {
     var primary = new IllegalArgumentException("Projection mapping rejected the value");
     var runDriver = new DriverDouble();
     var astDriver = new AstRepositoryDriverStub();
-    AstResultRepositoryFactory astRepositories = context -> new Neo4jAstResultRepository(astDriver.driver(),
+    AstRetentionRepositoryFactory astRepositories = context -> new Neo4jAstResultRepository(astDriver.driver(),
         SessionConfig.defaultConfig(), context, new Neo4jAstResultCodec(), ignored -> { throw primary; });
     AnalysisRunRepositoryFactory completed = context -> new Neo4jAnalysisRunRepository(runDriver.driver(),
         SessionConfig.defaultConfig(), context, ignored -> { throw primary; });
@@ -871,7 +883,7 @@ class Neo4jAnalysisRunRepositoryTest {
   private static PublicationServices publications(DriverDouble runDriver, AstRepositoryDriverStub astDriver) {
     return new PublicationServices(
         new Neo4jAstResultRepositoryFactory(Neo4jAnalysisRunRepositoryTest::settings,
-            ignored -> astDriver.driver(), ignored -> SessionConfig.defaultConfig()),
+            ignored -> astDriver.driver(), ignored -> SessionConfig.defaultConfig())::openRetention,
         Neo4jAnalysisRunRepository.factory(
             Neo4jAnalysisRunRepositoryTest::settings, ignored -> runDriver.driver(), ignored -> SessionConfig.defaultConfig()));
   }
