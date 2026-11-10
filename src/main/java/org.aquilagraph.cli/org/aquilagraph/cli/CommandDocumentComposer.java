@@ -39,8 +39,12 @@ class CommandDocumentComposer {
         error.add(new Field("", token(AnalyzeCommandParser.USAGE)));
       }
       case CommandReport.Failed failed -> {
-        error.add(
-            new Field(failed.kind() == CommandReport.FailureKind.INPUT ? "Input rejected" : "Analysis failed", text(failed.description())));
+        var label = switch (failed.kind()) {
+          case INPUT -> "Input rejected";
+          case ENVIRONMENT -> "Analysis failed";
+          case PUBLICATION -> "Publication aborted";
+        };
+        error.add(new Field(label, text(failed.description())));
         error.add(new Field("Failure reference", number(failed.failureReference())));
       }
       case CommandReport.Executed executed -> {

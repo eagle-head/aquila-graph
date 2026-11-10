@@ -1,6 +1,7 @@
 package org.aquilagraph.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -11,6 +12,7 @@ import java.io.Serial;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.concurrent.atomic.AtomicReference;
 import org.aquilagraph.application.AnalysisPublicationException;
 import org.aquilagraph.application.ApplicationRepositoryOperationException.Boundary;
 import org.aquilagraph.application.CommitKnowledge;
@@ -19,6 +21,7 @@ import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.application.port.RepositoryOperationException;
+import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.testsupport.AnalysisExecutionFixture;
 import org.junit.jupiter.api.Test;
 
@@ -203,6 +206,83 @@ class FailureGraphContractTest {
     assertEquals(wrapper.context(), observation.context());
     assertEquals(Optional.of(Boundary.ACQUISITION), observation.boundary());
     assertEquals(Optional.of(CommitKnowledge.NOT_STARTED), observation.knowledge());
+  }
+
+  @Test
+  void givenAbruptPublicationWithSharedAndCyclicFailures_whenThrowablesChangeAfterCapture_thenRunnerEmitsOnlyDetachedEvidence() {
+    // Arrange
+    var run = CliTestFixtures.completedRun();
+    var originalMessage = "primary\n\"quoted\"";
+    var primary = new MutableMessageFailure(originalMessage);
+    var shared = new IllegalStateException("shared");
+    var leaf = new IllegalStateException("leaf");
+    primary.initCause(shared);
+    shared.initCause(primary);
+    primary.addSuppressed(shared);
+    primary.addSuppressed(shared);
+    primary.addSuppressed(leaf);
+    var publication = assertThrows(AnalysisPublicationException.class, () -> AnalysisExecutionFixture.executeComputed(run,
+        PublicationIntent.SAVE_COMPLETED, AnalysisExecutionFixture::unexpectedAstRepository, context -> { throw primary; }));
+    var report = new AtomicReference<CommandReport>();
+    var added = new IllegalStateException("added after capture");
+    var composer = new CommandDocumentComposer() {
+      @Override
+      ReportDocument compose(CommandReport captured) {
+        report.set(captured);
+        primary.message = "changed after capture";
+        leaf.initCause(added);
+        publication.failure().addSuppressed(added);
+        return super.compose(captured);
+      }
+    };
+    var command = new AnalyzeCommand(new AnalyzeCommandParser(JavaRelease.JAVA_25),
+        new AnalyzeCommandExecutor(request -> { throw publication; }), new CommandReportProjector(failure -> Optional.empty()),
+        composer, new CommandTextRenderer("\r\n"));
+    var runner = new CommandRunner(command);
+    var streams = new CliStreams();
+    try (var output = streams.output(); var error = streams.error()) {
+      // Act
+      var observed = assertThrows(AnalysisPublicationException.class, () -> runner.run(new String[] {"source", "--persist"},
+          CommandDestination.printStream(output), CommandDestination.printStream(error)));
+
+      // Assert
+      assertSame(publication, observed);
+      assertEquals("changed after capture", primary.getMessage());
+      assertSame(added, leaf.getCause());
+      assertSame(added, publication.failure().getSuppressed()[0]);
+      var captured = assertInstanceOf(CommandReport.Failed.class, report.get());
+      assertEquals(CommandReport.FailureKind.PUBLICATION, captured.kind());
+      var graph = captured.failures();
+      assertEquals(5, graph.nodes().size());
+      assertEquals(OptionalInt.of(5), graph.node(captured.failureReference()).carrier());
+      assertEquals(OptionalInt.of(2), graph.node(captured.failureReference()).effectivePrimary());
+      assertEquals(Optional.of(originalMessage), graph.node(2).message());
+      assertEquals(OptionalInt.of(3), graph.node(2).cause());
+      assertEquals(OptionalInt.of(2), graph.node(3).cause());
+      assertEquals(List.of(3, 3, 4), graph.node(2).suppressed());
+      assertEquals(OptionalInt.empty(), graph.node(4).cause());
+      assertEquals(List.of(), graph.node(5).suppressed());
+      assertEquals("", streams.outputText());
+      assertTrue(streams.errorLines().contains("  Message: \"primary\\n\\\"quoted\\\"\""));
+      assertEquals(2L, streams.errorLines().stream().filter("  Suppressed: 3"::equals).count());
+      assertEquals(String.join("\r\n", streams.errorLines()) + "\r\n", streams.errorText());
+      assertTrue(streams.errorLines().stream().noneMatch(line -> line.contains("after capture")));
+    }
+  }
+
+  private static final class MutableMessageFailure extends RuntimeException {
+    @Serial
+    private static final long serialVersionUID = 1L;
+    private String message;
+
+    MutableMessageFailure(String message) {
+      this.message = message;
+    }
+
+    @Override
+    public String getMessage() {
+      return message;
+    }
   }
 
   private static final class ObservedOperationFailure extends RepositoryOperationException {

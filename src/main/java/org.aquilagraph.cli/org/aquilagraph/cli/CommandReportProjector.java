@@ -11,6 +11,7 @@ import java.util.stream.IntStream;
 import org.aquilagraph.application.AnalysisDiagnosticOccurrence;
 import org.aquilagraph.application.AnalysisDiagnostics;
 import org.aquilagraph.application.AnalysisExecution;
+import org.aquilagraph.application.AnalysisPublicationException;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationStatus;
@@ -53,6 +54,13 @@ class CommandReportProjector {
           failed.failure().description(), failures.capture(failed.failure()), failures.catalog());
       case AnalyzeCommandOutcome.Executed executed -> new RunProjection(executed.execution().run(), failures).project(executed.execution());
     };
+  }
+
+  CommandReport project(AnalysisPublicationException publication) {
+    Objects.requireNonNull(publication, "publication");
+    var failures = new FailureGraphCapture(failureDetails);
+    return new CommandReport.Failed(CommandReport.FailureKind.PUBLICATION, Objects.requireNonNull(publication.getMessage()),
+        failures.capture(publication), failures.catalog());
   }
 
   private static final class RunProjection {
