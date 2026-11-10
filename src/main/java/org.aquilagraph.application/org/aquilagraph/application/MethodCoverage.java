@@ -16,7 +16,7 @@ import org.aquilagraph.source.api.JavaMethod;
  *          optional established per-method derivation
  */
 public record MethodCoverage(JavaMethod declaration, MethodCoverageState state, Optional<MethodCfgOutcome> cfg) {
-  /** Prevents a coverage query from attaching another declaration's result. */
+  /** Requires any CFG result to match the declaration key, coverage state, and body facts. */
   public MethodCoverage {
     Objects.requireNonNull(declaration, "declaration");
     Objects.requireNonNull(state, "state");
@@ -27,5 +27,6 @@ public record MethodCoverage(JavaMethod declaration, MethodCoverageState state, 
             .isPresent()) {
       throw new IllegalArgumentException("Method coverage must reflect its canonical declaration's actual selected outcome");
     }
+    cfg.ifPresent(outcome -> MethodOutcomeAdmission.requireCompatibleBody(declaration, outcome));
   }
 }
