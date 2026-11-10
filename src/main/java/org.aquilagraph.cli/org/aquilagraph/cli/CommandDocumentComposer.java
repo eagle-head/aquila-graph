@@ -12,11 +12,14 @@ import org.aquilagraph.application.AnalysisRequestIdentity.ExistingSelection;
 import org.aquilagraph.application.AnalysisRequestIdentity.NotRequested;
 import org.aquilagraph.application.AnalysisRequestIdentity.ProductionSelection;
 import org.aquilagraph.application.CfgSelection;
+import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cli.ReportDocument.Absence;
 import org.aquilagraph.cli.ReportDocument.Field;
 import org.aquilagraph.cli.ReportDocument.Node;
 import org.aquilagraph.cli.ReportDocument.Section;
+import org.aquilagraph.cli.ReportDocument.Sequence;
 import org.aquilagraph.cli.ReportDocument.Value;
 import org.aquilagraph.identity.api.JavaRelease;
 
@@ -50,6 +53,16 @@ class CommandDocumentComposer {
         PublicationDocumentComposer.subject("Publication", publication.subject(), output);
         output.add(
             new Field("Commit knowledge", publication.knowledge().map(knowledge -> token(knowledge.name())).orElse(Absence.UNAVAILABLE)));
+        if (publication.intent() == PublicationIntent.SAVE_COMPLETED && publication.status() == PublicationStatus.NOT_ELIGIBLE) {
+          var reasons = new ArrayList<Value>();
+          for (var impediment : publication.impediments()) {
+            if (!reasons.isEmpty()) {
+              reasons.add(token(", "));
+            }
+            reasons.add(token(impediment.name()));
+          }
+          output.add(new Field("Publication impediments", new Sequence(reasons)));
+        }
         publication.failureReference().ifPresent(reference -> {
           error.add(new Field("Repository save failed", text(publication.failureDescription().orElseThrow())));
           error.add(new Field("Failure reference", number(reference)));

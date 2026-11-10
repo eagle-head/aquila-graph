@@ -159,7 +159,9 @@ class CommandReportPresentationTest {
 
       // Assert
       assertEquals(row.exitCode(), code);
-      assertEquals("Repository: " + row.repositoryText(), streams.outputLines().get(streams.outputLines().size() - (row.repositoryText().equals("NOT_REQUESTED") && row.execution().run().representation().ast().result().isPresent() ? 9 : 4)));
+      var publicationFields = row.repositoryText().equals("NOT_ELIGIBLE") ? 5
+          : row.repositoryText().equals("NOT_REQUESTED") && row.execution().run().representation().ast().result().isPresent() ? 9 : 4;
+      assertEquals("Repository: " + row.repositoryText(), streams.outputLines().get(streams.outputLines().size() - publicationFields));
       assertEquals("Completion: " + row.execution().run().completion(), streams.outputLines().get(2));
     }
   }
@@ -287,6 +289,9 @@ class CommandReportPresentationTest {
         "Analyzed method bodies: 1", "CFG operations: 0", "CFG nodes: 2", "CFG edges: 1", "Method CFG: \"" + key + "\" AVAILABLE",
         "Repository: " + repository));
     result.addAll(repository.equals("NOT_REQUESTED") ? ReportTextExpectations.noPublication(run) : ReportTextExpectations.completedPublication(run, repository.equals("SAVED") ? "KNOWN_COMMIT" : repository.equals("FAILED") ? "UNKNOWN" : "NOT_STARTED"));
+    if (repository.equals("NOT_ELIGIBLE")) {
+      result.add("Publication impediments: RUN_NOT_COMPLETE, ERROR_DIAGNOSTICS");
+    }
     return result;
   }
 

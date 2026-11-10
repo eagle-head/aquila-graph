@@ -23,6 +23,15 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.AnalysisComputationRequest;
+import org.aquilagraph.application.PublicationEligibility.Impediment;
+import org.aquilagraph.cfg.CfgDerivers;
+import org.aquilagraph.cfg.api.CfgProfile;
+import org.aquilagraph.cfg.api.CfgRequest;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.CompilerConfiguration;
@@ -448,6 +457,42 @@ class Neo4jAnalysisRunMapperTest {
 
     // Assert
     assertEquals("Only completed analysis runs may be stored", exception.getMessage());
+  }
+
+  @Test
+  void givenCompleteSourceWithFullOrIncompleteSelection_whenMapping_thenAdmissionAgreesWithPublicEligibility() {
+    // Arrange
+    var request = new AstProductionRequest(InputSnapshot.fromSources(temporaryDirectory, List.of(SourceFile.fromContent(
+        Path.of("Example.java"), "interface Example { static int first() { return 1; } static int second() { return 2; } }"))),
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED);
+    var ast = new JavaFrontend(new JavaSourceLoader()).produce(request);
+    var result = ast.result().orElseThrow();
+    var keys = result.program().methods().stream().filter(JavaMethod::hasBody).map(JavaMethod::methodKey).toList();
+    var derivation = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard());
+    var full = derivation.deriveExisting(ast, new CfgRequest(result.identity(), keys, CfgProfile.JAVA_BOUNDED));
+    var partial = derivation.deriveExisting(ast, new CfgRequest(result.identity(), keys.subList(0, 1), CfgProfile.JAVA_BOUNDED));
+    var empty = derivation.deriveExisting(ast, new CfgRequest(result.identity(), List.of(), CfgProfile.JAVA_BOUNDED));
+    var absent = AnalysisCapabilities.computation(ignored -> ast, CfgDerivers.standard())
+        .analyze(new AnalysisComputationRequest(request, Optional.empty()));
+    var mapper = new Neo4jAnalysisRunMapper();
+
+    // Act
+    var projection = mapper.map(full);
+    var partialFailure = assertThrows(IllegalArgumentException.class, () -> mapper.map(partial));
+    var emptyFailure = assertThrows(IllegalArgumentException.class, () -> mapper.map(empty));
+    var absentFailure = assertThrows(IllegalArgumentException.class, () -> mapper.map(absent));
+
+    // Assert
+    assertTrue(full.publicationEligibility().eligible());
+    assertEquals(List.of(), full.publicationEligibility().impediments());
+    assertTrue(projection.nodes().stream().anyMatch(node -> node.label().equals("AnalysisRun")
+        && node.key().equals(full.identity().key())));
+    assertEquals(List.of(Impediment.BODY_COVERAGE_INCOMPLETE), partial.publicationEligibility().impediments());
+    assertEquals(List.of(Impediment.BODY_COVERAGE_INCOMPLETE), empty.publicationEligibility().impediments());
+    assertEquals(List.of(Impediment.CFG_NOT_COMPLETE), absent.publicationEligibility().impediments());
+    assertEquals("Only completed analysis runs may be stored", partialFailure.getMessage());
+    assertEquals(partialFailure.getMessage(), emptyFailure.getMessage());
+    assertEquals(partialFailure.getMessage(), absentFailure.getMessage());
   }
 
   private Path completedSourceRoot(String directoryName) throws IOException {

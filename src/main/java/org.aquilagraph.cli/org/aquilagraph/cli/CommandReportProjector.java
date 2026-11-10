@@ -12,6 +12,8 @@ import org.aquilagraph.application.AnalysisDiagnosticOccurrence;
 import org.aquilagraph.application.AnalysisDiagnostics;
 import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRun;
+import org.aquilagraph.application.PublicationIntent;
+import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.RequestQualificationReason;
 import org.aquilagraph.cfg.api.CfgOutcome;
 import org.aquilagraph.cfg.api.CfgState;
@@ -78,7 +80,10 @@ class CommandReportProjector {
           : OptionalInt.of(failures.capture(publication.failure().orElseThrow()));
       var observation = new CommandReport.Publication(publication.intent(), publication.subjectIdentity(), publication.status(),
           Optional.of(publication.knowledge()), failureReference,
-          publication.failure().map(value -> value.effectivePrimary().description()));
+          publication.failure().map(value -> value.effectivePrimary().description()),
+          publication.intent() == PublicationIntent.SAVE_COMPLETED && publication.status() == PublicationStatus.NOT_ELIGIBLE
+              ? run.publicationEligibility().impediments()
+              : List.of());
       return new CommandReport.Executed(summary, diagnostics, qualifications, observation, failures.catalog());
     }
 

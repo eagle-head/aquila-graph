@@ -5,6 +5,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import org.aquilagraph.application.CommitKnowledge;
+import org.aquilagraph.application.PublicationEligibility.Impediment;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.PublicationSubjectIdentity;
@@ -61,7 +62,8 @@ sealed interface CommandReport {
   }
 
   record Publication(PublicationIntent intent, Optional<PublicationSubjectIdentity> subject, PublicationStatus status,
-      Optional<CommitKnowledge> knowledge, OptionalInt failureReference, Optional<String> failureDescription) {
+      Optional<CommitKnowledge> knowledge, OptionalInt failureReference, Optional<String> failureDescription,
+      List<Impediment> impediments) {
     public Publication {
       Objects.requireNonNull(intent, "intent");
       Objects.requireNonNull(subject, "subject");
@@ -69,6 +71,7 @@ sealed interface CommandReport {
       Objects.requireNonNull(knowledge, "knowledge");
       Objects.requireNonNull(failureReference, "failureReference");
       Objects.requireNonNull(failureDescription, "failureDescription");
+      impediments = List.copyOf(impediments);
     }
   }
 }
