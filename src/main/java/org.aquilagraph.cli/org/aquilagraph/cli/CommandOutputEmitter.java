@@ -22,12 +22,27 @@ final class CommandOutputEmitter {
     return new CommandEmission(stdout, stderr);
   }
 
+  CommandEmission emitDiagnostics(PreparedCommandOutput prepared, CommandDestination error) {
+    return new CommandEmission(Status.UNUSED, observe(prepared.error(), error));
+  }
+
   private static ChannelEmission initial(String text) {
     return text.isEmpty() ? Status.UNUSED : Status.UNATTEMPTED;
   }
 
   private static ChannelEmission emit(AnalyzeCommandOutcome outcome, OutputChannel channel, String text, CommandDestination destination,
       CommandEmission progress) {
+    var observation = observe(text, destination);
+    if (observation instanceof AbruptFailure failure) {
+      var retained = channel == OutputChannel.STDOUT
+          ? new CommandEmission(failure, progress.error())
+          : new CommandEmission(progress.output(), failure);
+      throw new CommandPresentationException(outcome, failure.phase(), failure.cause(), Optional.of(channel), Optional.of(retained));
+    }
+    return observation;
+  }
+
+  private static ChannelEmission observe(String text, CommandDestination destination) {
     var attempt = new EmissionAttempt();
     var observation = new FutureTask<ChannelEmission>(() -> {
       try {
@@ -42,11 +57,7 @@ final class CommandOutputEmitter {
       if (failure instanceof Error fatal) {
         throw fatal;
       }
-      var interrupted = new AbruptFailure(attempt.phase(), failure);
-      var retained = channel == OutputChannel.STDOUT
-          ? new CommandEmission(interrupted, progress.error())
-          : new CommandEmission(progress.output(), interrupted);
-      throw new CommandPresentationException(outcome, attempt.phase(), failure, Optional.of(channel), Optional.of(retained));
+      return new AbruptFailure(attempt.phase(), failure);
     }
     return observation.resultNow();
   }

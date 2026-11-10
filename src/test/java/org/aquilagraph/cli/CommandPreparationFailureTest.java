@@ -22,14 +22,17 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.aquilagraph.application.AnalysisExecution;
+import org.aquilagraph.application.AnalysisPublicationException;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.CommitKnowledge;
+import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationStatus;
 import org.aquilagraph.application.port.AnalysisRunRepository;
 import org.aquilagraph.application.port.AnalysisUseCase;
 import org.aquilagraph.cli.CommandPresentationException.Phase;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.source.api.AnalysisInputException;
+import org.aquilagraph.testsupport.AnalysisExecutionFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -103,11 +106,102 @@ class CommandPreparationFailureTest {
     }
   }
 
+  @Test
+  void givenAbruptPublication_whenEachPreparationPhaseFailsNonfatally_thenOriginalAndSecondarySurviveWithoutDestinationOperations() {
+    for (var phase : List.of(Phase.PROJECTION, Phase.COMPOSITION, Phase.FORMATTING)) {
+      // Arrange
+      var publication = abruptPublication();
+      var secondary = new IllegalStateException("diagnostic preparation failed");
+      var command = failingCommand(request -> { throw publication; }, phase, secondary);
+      var interactions = new AtomicInteger();
+      try (var output = channel(interactions); var error = channel(interactions)) {
+        var runner = new CommandRunner(command);
+        var result = CommandDestination.printStream(output);
+        var diagnostic = CommandDestination.printStream(error);
+
+        // Act
+        var failure = assertThrows(PublicationDiagnosticException.class,
+            () -> runner.run(new String[] {"source", "--persist"}, result, diagnostic));
+
+        // Assert
+        assertSame(publication, failure.publicationFailure());
+        assertEquals(phase, failure.phase());
+        assertEquals(Optional.empty(), failure.channel());
+        assertEquals(Optional.empty(), failure.progress());
+        assertSame(secondary, failure.presentationFailure().orElseThrow());
+        assertSame(secondary, failure.getCause());
+        assertEquals(0, interactions.get());
+        assertEquals(0, publication.getSuppressed().length);
+        assertEquals(0, publication.failure().getSuppressed().length);
+        assertEquals(0, secondary.getSuppressed().length);
+      }
+    }
+  }
+
+  @Test
+  void givenAbruptPublication_whenEachPreparationPhaseThrowsAnError_thenTheSameErrorEscapesWithoutDestinationOperations() {
+    for (var phase : List.of(Phase.PROJECTION, Phase.COMPOSITION, Phase.FORMATTING)) {
+      // Arrange
+      var publication = abruptPublication();
+      var fatal = new AssertionError("diagnostic preparation interrupted");
+      var command = failingCommand(request -> { throw publication; }, phase, fatal);
+      var interactions = new AtomicInteger();
+      try (var output = channel(interactions); var error = channel(interactions)) {
+        var runner = new CommandRunner(command);
+        var result = CommandDestination.printStream(output);
+        var diagnostic = CommandDestination.printStream(error);
+
+        // Act
+        var failure = assertThrows(AssertionError.class, () -> runner.run(new String[] {"source", "--persist"}, result, diagnostic));
+
+        // Assert
+        assertSame(fatal, failure);
+        assertEquals(0, interactions.get());
+        assertEquals(0, fatal.getSuppressed().length);
+      }
+    }
+  }
+
+  @Test
+  void givenPublicationDiagnosticFailureWithTransientOperationalContext_whenNativeSerializationRestoresIt_thenRestorationIsRejected()
+      throws IOException {
+    // Arrange
+    var publication = abruptPublication();
+    var secondary = new IllegalStateException("diagnostic composition failed");
+    var runner = new CommandRunner(failingCommand(request -> { throw publication; }, Phase.COMPOSITION, secondary));
+    var interactions = new AtomicInteger();
+    var bytes = new ByteArrayOutputStream();
+    try (var output = channel(interactions); var error = channel(interactions); var archive = new ObjectOutputStream(bytes)) {
+      var failure = assertThrows(PublicationDiagnosticException.class, () -> runner.run(new String[] {"source", "--persist"},
+          CommandDestination.printStream(output), CommandDestination.printStream(error)));
+      archive.writeObject(failure);
+    }
+
+    try (var input = new ObjectInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+      // Act
+      var failure = assertThrows(InvalidObjectException.class, input::readObject);
+
+      // Assert
+      assertEquals("Publication diagnostic failure requires its original publication context", failure.getMessage());
+    }
+  }
+
+  private static AnalysisPublicationException abruptPublication() {
+    var run = CliTestFixtures.completedRun();
+    var primary = new IllegalStateException("repository acquisition interrupted");
+    return assertThrows(AnalysisPublicationException.class, () -> AnalysisExecutionFixture.executeComputed(run,
+        PublicationIntent.SAVE_COMPLETED, AnalysisExecutionFixture::unexpectedAstRepository, context -> { throw primary; }));
+  }
+
   private static AnalyzeCommand failingCommand(AnalysisUseCase execution, Phase phase, Throwable failure) {
     var projector = new CommandReportProjector(ignored -> Optional.empty()) {
       @Override CommandReport project(AnalyzeCommandOutcome outcome) {
         if (phase == Phase.PROJECTION) { fail(failure); }
         return super.project(outcome);
+      }
+      @Override CommandReport project(AnalysisPublicationException publication) {
+        if (phase == Phase.PROJECTION) { fail(failure); }
+        return super.project(publication);
       }
     };
     var composer = new CommandDocumentComposer() {
@@ -154,6 +248,11 @@ class CommandPreparationFailureTest {
       @Override public void write(int value) { interactions.incrementAndGet(); }
       @Override public void flush() { interactions.incrementAndGet(); }
       @Override public void close() { interactions.incrementAndGet(); }
-    }, true, StandardCharsets.UTF_8);
+    }, true, StandardCharsets.UTF_8) {
+      @Override public boolean checkError() {
+        interactions.incrementAndGet();
+        return super.checkError();
+      }
+    };
   }
 }

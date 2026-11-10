@@ -11,7 +11,7 @@ import org.aquilagraph.application.port.AnalysisUseCase;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.cli.CommandPresentationException.Phase;
 
-/** Establishes output-independent command outcomes and prepares their complete presentation. */
+/** Establishes output-independent command outcomes and prepares complete reports or abrupt diagnostics. */
 public final class AnalyzeCommand {
   private final AnalyzeCommandParser parser;
   private final AnalyzeCommandExecutor executor;
@@ -87,12 +87,23 @@ public final class AnalyzeCommand {
   }
 
   PreparedCommandOutput prepare(AnalyzeCommandOutcome outcome) {
-    var report = prepare(outcome, Phase.PROJECTION, () -> projector.project(outcome));
-    var document = prepare(outcome, Phase.COMPOSITION, () -> composer.compose(report));
-    return prepare(outcome, Phase.FORMATTING, () -> renderer.render(document));
+    return prepare(new EstablishedOutcome(outcome));
   }
 
-  private static <T> T prepare(AnalyzeCommandOutcome outcome, Phase phase, Supplier<T> action) {
+  PreparedCommandOutput preparePublicationDiagnostics(AnalysisPublicationException publication) {
+    return prepare(new AbruptPublication(publication));
+  }
+
+  private PreparedCommandOutput prepare(PresentationSubject subject) {
+    var report = prepare(subject, Phase.PROJECTION, () -> switch (subject) {
+      case EstablishedOutcome established -> projector.project(established.outcome());
+      case AbruptPublication abrupt -> projector.project(abrupt.publication());
+    });
+    var document = prepare(subject, Phase.COMPOSITION, () -> composer.compose(report));
+    return prepare(subject, Phase.FORMATTING, () -> renderer.render(document));
+  }
+
+  private static <T> T prepare(PresentationSubject subject, Phase phase, Supplier<T> action) {
     var observation = new FutureTask<T>(action::get);
     observation.run();
     if (observation.state() == State.FAILED) {
@@ -100,9 +111,20 @@ public final class AnalyzeCommand {
       if (failure instanceof Error fatal) {
         throw fatal;
       }
-      throw new CommandPresentationException(outcome, phase, failure);
+      switch (subject) {
+        case EstablishedOutcome established -> throw new CommandPresentationException(established.outcome(), phase, failure);
+        case AbruptPublication abrupt -> throw new PublicationDiagnosticException(abrupt.publication(), phase, failure);
+      }
     }
     return observation.resultNow();
   }
 
+  private sealed interface PresentationSubject permits EstablishedOutcome, AbruptPublication {
+  }
+
+  private record EstablishedOutcome(AnalyzeCommandOutcome outcome) implements PresentationSubject {
+  }
+
+  private record AbruptPublication(AnalysisPublicationException publication) implements PresentationSubject {
+  }
 }

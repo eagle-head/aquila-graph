@@ -25,7 +25,7 @@ sealed interface CommandReport {
   }
 
   enum FailureKind {
-    INPUT, ENVIRONMENT
+    INPUT, ENVIRONMENT, PUBLICATION
   }
 
   record Failed(FailureKind kind, String description, int failureReference, FailureCatalog failures) implements CommandReport {
