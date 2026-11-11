@@ -13,6 +13,7 @@ import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import org.aquilagraph.application.port.AnalysisUseCase;
 import org.aquilagraph.cli.AnalyzeCommand;
 import org.aquilagraph.cli.AnalyzeCommandOutcome;
 import org.aquilagraph.cli.ChannelEmission;
@@ -25,6 +26,10 @@ import org.aquilagraph.testsupport.AnalysisExecutionFixture;
 /** Composes the bootstrap's reporting collaborators around a live publication fixture. */
 public final class CliPublicationReporting {
   private CliPublicationReporting() {}
+
+  public static CommandRunner runner(AnalysisUseCase application) {
+    return new CommandRunner(new AnalyzeCommand(application, JavaRelease.JAVA_25, new Neo4jFailureDetailProjector()));
+  }
 
   public static Result run(AnalysisRun run, AnalysisRunRepositoryFactory repositories,
       AtomicReference<AnalysisExecution> returned) {
@@ -39,11 +44,11 @@ public final class CliPublicationReporting {
   private static Result observe(AnalysisRun run, AnalysisRunRepositoryFactory repositories,
       AtomicReference<AnalysisExecution> returned, boolean failOutput) {
     var application = AnalysisCapabilities.execution(ignored -> run, AnalysisExecutionFixture::unexpectedAstRepository, repositories);
-    var command = new AnalyzeCommand(request -> {
+    var runner = runner(request -> {
       var execution = application.execute(request);
       returned.set(execution);
       return execution;
-    }, JavaRelease.JAVA_25, new Neo4jFailureDetailProjector());
+    });
     var attemptedOutput = new StringWriter();
     var error = new StringWriter();
     var signal = new IOException("Controlled reporting write failure");
@@ -56,7 +61,7 @@ public final class CliPublicationReporting {
       @Override public void close() { throw new AssertionError("Borrowed output must not close"); }
     } : attemptedOutput;
     var root = run.representation().ast().capturedInput().orElseThrow().sourceRoot();
-    var invocation = new CommandRunner(command).run(new String[] {root.toString(), "--persist"},
+    var invocation = runner.run(new String[] {root.toString(), "--persist"},
         CommandDestination.throwingWriter(output), CommandDestination.throwingWriter(error));
     assertSame(returned.get(), assertInstanceOf(AnalyzeCommandOutcome.Executed.class, invocation.outcome()).execution());
     if (failOutput) {
