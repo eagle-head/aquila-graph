@@ -302,6 +302,20 @@ retain the separate [integration scope](#development-verification-scope).
 These are configured checks, not executions performed by this document;
 domain behavior, persistence, and implementation acceptance require their own evidence.
 
+The generated Eclipse projects under `target/editor/` attach canonical sources
+through repository-relative linked resources. Named modules use Eclipse project
+references for module dependencies. The test and build projects use linked
+resources for class folders and the owned Maven cache, so Windows and Linux
+preparation can share the same editor model. The
+[`validate-editor-model` execution](../pom.xml) runs after product compilation
+in test and quality lifecycles. [Editor model validation](../config/build/org/aquilagraph/build/EditorModelValidation.java)
+rejects missing source owners, unresolved sources or dependencies, host-specific
+paths, duplicate source ownership, and shared editor compilation output.
+This gate verifies generated configuration. Actual editor import and diagnostics
+require observation in the IDE. Eclipse documents the
+[path variables](https://help.eclipse.org/latest/topic/org.eclipse.platform.doc.user/concepts/cpathvars.htm)
+used by portable linked resources.
+
 [`SourceFile`](../src/main/java/org.aquilagraph.identity/org/aquilagraph/identity/api/SourceFile.java)
 admits normalized rootless relative paths that remain below the source root.
 Its validation independently rejects absolute paths, root-relative paths, and
@@ -362,6 +376,7 @@ repository does not configure remote CI.
 | SpotBugs | Inspect compiled production bytecode at maximum effort and low confidence threshold. |
 | Maven Dependency Analyzer | Reject used-but-undeclared and declared-but-unused production dependencies. |
 | Maven Javadoc | Reject malformed or incomplete public API documentation through full doclint. |
+| Editor model validation | Require canonical Java source ownership and resolvable portable editor classpaths after product compilation. |
 | JaCoCo | Measure unit-test coverage and produce HTML, XML, and CSV reports on demand. |
 | License Maven Plugin | Reject missing or non-allowlisted production dependency licenses. |
 | CycloneDX | Produce JSON and XML production SBOMs in `target/`. |

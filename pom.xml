@@ -981,6 +981,22 @@
             </configuration>
           </execution>
           <execution>
+            <id>validate-editor-model</id>
+            <phase>process-classes</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>java</executable>
+              <environmentVariables>
+                <AQUILA_BUILD_EFFECTIVE_GOALS>goals=${session.goals}</AQUILA_BUILD_EFFECTIVE_GOALS>
+              </environmentVariables>
+              <arguments>
+                <argument>--enable-native-access=ALL-UNNAMED</argument>
+                <argument>${project.basedir}/config/build/org/aquilagraph/build/EditorModelValidation.java</argument>
+                <argument>${project.basedir}</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
             <id>analyze-duplication</id>
             <phase>verify</phase>
             <goals>
@@ -1378,33 +1394,24 @@ ${test.sources}</echo>
             </goals>
             <configuration>
               <target>
-                <pathconvert property="editor.toolsDirectory" dirsep="/">
-                  <path location="${build.tools.outputDirectory}" />
-                </pathconvert>
                 <pathconvert property="editor.tool.libraries" pathsep="" dirsep="/">
                   <path location="${org.jspecify:jspecify:jar}" />
-                  <globmapper from="*" to="&lt;classpathentry kind=&quot;lib&quot; path=&quot;*&quot; /&gt;" />
-                </pathconvert>
-                <pathconvert property="editor.testSourceDirectory" dirsep="/">
-                  <path location="${project.build.testSourceDirectory}" />
-                </pathconvert>
-                <pathconvert property="editor.classesDirectory" dirsep="/">
-                  <path location="${project.build.outputDirectory}" />
-                </pathconvert>
-                <pathconvert property="editor.baseDirectory" dirsep="/">
-                  <path location="${project.basedir}" />
+                  <chainedmapper>
+                    <globmapper from="${settings.localRepository}/*.jar" to="libraries/*.jar" handledirsep="true" />
+                    <globmapper from="*" to="&lt;classpathentry kind=&quot;lib&quot; path=&quot;*&quot; /&gt;" />
+                  </chainedmapper>
                 </pathconvert>
                 <pathconvert property="editor.compile.libraries" pathsep="" dirsep="/">
                   <path refid="maven.compile.classpath" />
                   <chainedmapper>
-                    <globmapper from="*.jar" to="*.jar" />
+                    <globmapper from="${settings.localRepository}/*.jar" to="libraries/*.jar" handledirsep="true" />
                     <globmapper from="*" to="&lt;classpathentry kind=&quot;lib&quot; path=&quot;*&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" />
                   </chainedmapper>
                 </pathconvert>
                 <pathconvert property="editor.test.libraries" pathsep="" dirsep="/">
                   <path refid="maven.test.classpath" />
                   <chainedmapper>
-                    <globmapper from="*.jar" to="*.jar" />
+                    <globmapper from="${settings.localRepository}/*.jar" to="libraries/*.jar" handledirsep="true" />
                     <globmapper from="*" to="&lt;classpathentry kind=&quot;lib&quot; path=&quot;*&quot; /&gt;" />
                   </chainedmapper>
                 </pathconvert>
@@ -1434,15 +1441,15 @@ ${test.sources}</echo>
                     <copy file="${project.basedir}/config/eclipse/org.eclipse.jdt.core.prefs" todir="${project.build.directory}/editor/@{name}/.settings" overwrite="true" />
                   </sequential>
                 </macrodef>
-                <editor-project name="aquila-graph-build" source="${editor.baseDirectory}/config/build" dependencies="" libraries="${editor.tool.libraries}" sources="&lt;classpathentry kind=&quot;src&quot; path=&quot;checks&quot; /&gt;" links="&lt;link&gt;&lt;name&gt;checks&lt;/name&gt;&lt;type&gt;2&lt;/type&gt;&lt;location&gt;${editor.baseDirectory}/config/build-checks&lt;/location&gt;&lt;/link&gt;" />
-                <editor-project name="org.aquilagraph.identity" source="${editor.baseDirectory}/src/main/java/org.aquilagraph.identity" dependencies="" libraries="${editor.compile.libraries}" />
-                <editor-project name="org.aquilagraph.source" source="${editor.baseDirectory}/src/main/java/org.aquilagraph.source" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
-                <editor-project name="org.aquilagraph.cfg" source="${editor.baseDirectory}/src/main/java/org.aquilagraph.cfg" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
-                <editor-project name="org.aquilagraph.frontend" source="${editor.baseDirectory}/src/main/java/org.aquilagraph.frontend" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
-                <editor-project name="org.aquilagraph.application" source="${editor.baseDirectory}/src/main/java/org.aquilagraph.application" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
-                <editor-project name="org.aquilagraph.repository" source="${editor.baseDirectory}/src/main/java/org.aquilagraph.repository" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.application&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
-                <editor-project name="org.aquilagraph.cli" source="${editor.baseDirectory}/src/main/java/org.aquilagraph.cli" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.frontend&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.application&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.repository&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
-                <editor-project name="aquila-graph-tests" source="${editor.testSourceDirectory}" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.identity&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.source&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.cfg&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.frontend&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.application&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.repository&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.classesDirectory}/org.aquilagraph.cli&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;${editor.toolsDirectory}&quot; /&gt;" libraries="${editor.test.libraries}" />
+                <editor-project name="aquila-graph-build" source="config/build" dependencies="" libraries="${editor.tool.libraries}" sources="&lt;classpathentry kind=&quot;src&quot; path=&quot;checks&quot; /&gt;" links="&lt;link&gt;&lt;name&gt;checks&lt;/name&gt;&lt;type&gt;2&lt;/type&gt;&lt;locationURI&gt;PARENT-3-PROJECT_LOC/config/build-checks&lt;/locationURI&gt;&lt;/link&gt;" />
+                <editor-project name="org.aquilagraph.identity" source="src/main/java/org.aquilagraph.identity" dependencies="" libraries="${editor.compile.libraries}" />
+                <editor-project name="org.aquilagraph.source" source="src/main/java/org.aquilagraph.source" dependencies="&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
+                <editor-project name="org.aquilagraph.cfg" source="src/main/java/org.aquilagraph.cfg" dependencies="&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
+                <editor-project name="org.aquilagraph.frontend" source="src/main/java/org.aquilagraph.frontend" dependencies="&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
+                <editor-project name="org.aquilagraph.application" source="src/main/java/org.aquilagraph.application" dependencies="&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
+                <editor-project name="org.aquilagraph.repository" source="src/main/java/org.aquilagraph.repository" dependencies="&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.application&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
+                <editor-project name="org.aquilagraph.cli" source="src/main/java/org.aquilagraph.cli" dependencies="&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.frontend&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.application&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.repository&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
+                <editor-project name="aquila-graph-tests" source="src/test/java" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.identity&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.source&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.cfg&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.frontend&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.application&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.repository&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.cli&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;build-tools&quot; /&gt;" libraries="${editor.test.libraries}" />
                 <copy file="${project.basedir}/config/eclipse/aquila-graph.code-workspace" todir="${project.build.directory}/editor" overwrite="true" />
               </target>
             </configuration>

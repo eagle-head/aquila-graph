@@ -10,7 +10,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.io.StringWriter;
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +21,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.aquilagraph.CliPublicationReporting;
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.AnalysisComputationRequest;
@@ -40,6 +43,7 @@ import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.ComputedPublicationSubject.Coordinated;
 import org.aquilagraph.application.MethodCoverage;
 import org.aquilagraph.application.MethodCoverageState;
+import org.aquilagraph.application.PublicationEligibility.Impediment;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.PublicationOutcome;
 import org.aquilagraph.application.PublicationStatus;
@@ -49,6 +53,7 @@ import org.aquilagraph.application.PublicationSubjectIdentity.CompletedRun;
 import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.RequestQualificationReason;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import org.aquilagraph.application.port.AnalysisUseCase;
 import org.aquilagraph.application.port.AstRetentionRepositoryFactory;
 import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.cfg.CfgDerivers;
@@ -57,6 +62,11 @@ import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.MethodCfgState;
 import org.aquilagraph.cfg.internal.RecoverableCfgFailures;
+import org.aquilagraph.cli.AnalyzeCommandOutcome;
+import org.aquilagraph.cli.ChannelEmission;
+import org.aquilagraph.cli.CommandDestination;
+import org.aquilagraph.cli.CommandExitPolicy;
+import org.aquilagraph.cli.CommandInvocation;
 import org.aquilagraph.frontend.JavaFrontends;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.CompilerConfiguration;
@@ -205,34 +215,57 @@ class PublicAnalysisCompositionTest {
   }
 
   @Test
-  void givenTheSameBranchingSelection_whenExecutedWithoutSavingAndWithRunPublication_thenExactGraphsAreWrittenOnlyInTheRunScope() {
+  void givenBranchingSource_whenCliPublishesAndAstIsQueriedIndependently_thenBothConsumersPreserveExactGraphIdentity()
+      throws IOException {
     // Arrange
+    Files.writeString(directory.resolve("Sample.java"), BRANCHING);
     var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
-    var request = new AnalysisComputationRequest(source(BRANCHING), Optional.of(CfgSelection.allBodies(CFG)));
+    var cliSource = new AstProductionRequest(directory, CONFIGURATION, AstProfile.JAVA_SOURCE_BOUNDED);
+    var request = new AnalysisComputationRequest(cliSource, Optional.of(CfgSelection.allBodies(CFG)));
     var noStorage = AnalysisCapabilities.execution(computation, NO_AST_STORAGE, NO_RUN_STORAGE);
     var driver = AstRepositoryDriverStub.completedRuns();
     var publisher = AnalysisCapabilities.execution(computation, NO_AST_STORAGE, runRepository(driver));
+    var astWrite = new AstRepositoryDriverStub();
+    var astRead = new AstRepositoryDriverStub();
+    var output = new StringWriter();
+    var error = new StringWriter();
 
     // Act
     var unsaved = noStorage.execute(new AnalysisRequest(request, PublicationIntent.DO_NOT_SAVE));
-    var saved = publisher.execute(new AnalysisRequest(request, PublicationIntent.SAVE_COMPLETED));
+    var invocation = runPersistingCommand(publisher, output, error);
+    var saved = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, invocation.outcome()).execution();
+    var ast = saved.run().representation().ast();
+    var identity = ast.result().orElseThrow().identity();
+    astWrite.lockedAstSubject = identity.astResultKey();
+    var retained = AnalysisCapabilities.astRetention(astFactory(astWrite)::openRetention)
+        .retainAst(new AstPublicationRequest(ast, PublicationIntent.SAVE_COMPLETE_AST));
+    astRead.stored = writtenAst(identity, astWrite);
+    var lookup = AnalysisCapabilities.astQuery(astFactory(astRead)::openQuery).findAst(identity);
+    var retainedAst = lookup.outcome().orElseThrow();
+    var method = methodKey(ast, "choose");
+    var rederived = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard())
+        .deriveExisting(retainedAst, new CfgRequest(identity, List.of(method), CFG));
 
     // Assert
+    assertEquals(CommandExitPolicy.EXIT_COMPLETED, invocation.exitCode());
+    assertEquals(ChannelEmission.Status.COMPLETED, invocation.emission().output());
+    assertEquals("", error.toString());
     assertEquals(AnalysisCompletion.COMPLETE, saved.run().completion());
+    assertTrue(saved.run().publicationEligibility().eligible());
     assertTrue(saved.run().qualification().reasons().isEmpty());
     assertEquals(unsaved.run().identity(), saved.run().identity());
     assertEquals(unsaved.run().diagnostics().values(), saved.run().diagnostics().values());
     var runKey = saved.run().identity().key();
-    var astKey = saved.run().representation().ast().result().orElseThrow().identity().astResultKey();
+    var astKey = identity.astResultKey();
     assertNotEquals(astKey, runKey);
     assertPublication(unsaved.publication(), PublicationIntent.DO_NOT_SAVE,
-        Optional.of(new Ast(saved.run().representation().ast().result().orElseThrow().identity())), PublicationStatus.NOT_REQUESTED,
+        Optional.of(new Ast(identity)), PublicationStatus.NOT_REQUESTED,
         CommitKnowledge.NOT_STARTED);
     assertPublication(saved.publication(), PublicationIntent.SAVE_COMPLETED, Optional.of(new CompletedRun(runKey)), PublicationStatus.SAVED,
         CommitKnowledge.KNOWN_COMMIT);
     assertCompletedRunWrites(new Neo4jAnalysisRunMapper().map(saved.run()), driver.statements);
     assertTrue(driver.queries.stream().noneMatch(query -> query.contains(":AstEntity")));
-    var graphs = saved.run().representation().cfg().orElseThrow().methods().stream().map(method -> method.graph().orElseThrow()).toList();
+    var graphs = saved.run().representation().cfg().orElseThrow().methods().stream().map(outcome -> outcome.graph().orElseThrow()).toList();
     var expectedGraphs = graphs.stream().map(graph -> graph.graphId()).sorted().toList();
     assertEquals(2, expectedGraphs.size());
     var writtenGraphs = driver.statements.stream().filter(statement -> statement.query()
@@ -240,12 +273,13 @@ class PublicAnalysisCompositionTest {
     assertEquals(expectedGraphs, writtenGraphs.stream().map(row -> row.get("key").asString()).sorted().toList());
     for (var row : writtenGraphs) {
       var graph = graphs.stream().filter(candidate -> candidate.graphId().equals(row.get("key").asString())).findFirst().orElseThrow();
-      var identity = graph.identity();
-      assertEquals(Map.of("key", graph.graphId(), "runId", runKey, "astResultKey", identity.astIdentity().astResultKey(),
-          "methodKey", graph.methodKey(), "cfgProfileVersion", identity.cfgProfileVersion(), "graphModelVersion", identity.graphModelVersion(),
-          "canonicalContentDigest", identity.canonicalContentDigest(), "sourceOccurrenceKey", graph.body().sourceOccurrenceKey().orElseThrow()),
+      var graphIdentity = graph.identity();
+      assertEquals(Map.of("key", graph.graphId(), "runId", runKey, "astResultKey", graphIdentity.astIdentity().astResultKey(),
+          "methodKey", graph.methodKey(), "cfgProfileVersion", graphIdentity.cfgProfileVersion(), "graphModelVersion",
+          graphIdentity.graphModelVersion(), "canonicalContentDigest", graphIdentity.canonicalContentDigest(),
+          "sourceOccurrenceKey", graph.body().sourceOccurrenceKey().orElseThrow()),
           row.asMap());
-      assertEquals(astKey, identity.astIdentity().astResultKey());
+      assertEquals(astKey, graphIdentity.astIdentity().astResultKey());
     }
     var methodKeysByAnalysis = driver.statements.stream()
         .filter(statement -> statement.query().startsWith(RUN_NODE_CREATE + "MethodAnalysis`)"))
@@ -257,6 +291,113 @@ class PublicAnalysisCompositionTest {
     assertEquals(graphs.stream().collect(Collectors.toMap(graph -> graph.graphId(), graph -> graph.methodKey())), graphLinks);
     assertEquals(List.of("session.open:0", "session.close:0", "session.open:1", "write.begin", "callback.return",
         "write.acknowledged", "session.close:1", "driver.close"), driver.events);
+    assertPublication(retained, PublicationIntent.SAVE_COMPLETE_AST, Optional.of(new Ast(identity)), PublicationStatus.SAVED,
+        CommitKnowledge.KNOWN_COMMIT);
+    assertEquals(AstLookupStatus.FOUND, lookup.status());
+    assertEquals(identity, lookup.requestedIdentity());
+    assertEquals(identity, retainedAst.result().orElseThrow().identity());
+    assertEquals("driver.close", astWrite.events.getLast());
+    assertEquals("driver.close", astRead.events.getLast());
+    assertEquals(AnalysisCompletion.COMPLETE, rederived.completion());
+    var chosen = graphs.stream().filter(graph -> graph.methodKey().equals(method)).findFirst().orElseThrow();
+    assertEquals(chosen.identity(), rederived.representation().cfg().orElseThrow().methods().getFirst().graph().orElseThrow().identity());
+    assertTrue(output.toString().lines().toList().containsAll(List.of(
+        "Completion: COMPLETE", "Method CFG: \"" + method + "\" AVAILABLE",
+        "Repository: SAVED", "Publication subject: COMPLETED_RUN \"" + runKey + "\"",
+        "Commit knowledge: KNOWN_COMMIT")), output.toString());
+  }
+
+  @Test
+  void givenCompleteSourceWithRefusedCfg_whenCliRequestsPublication_thenRefusalKeepsItsQualificationAndAcquiresNothing()
+      throws IOException {
+    // Arrange
+    Files.writeString(directory.resolve("Sample.java"),
+        "interface Sample { static int run(int value) { (value) = 1; return value; } }");
+    var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
+    var execution = AnalysisCapabilities.execution(computation, NO_AST_STORAGE, NO_RUN_STORAGE);
+    var output = new StringWriter();
+    var error = new StringWriter();
+
+    // Act
+    var invocation = runPersistingCommand(execution, output, error);
+
+    // Assert
+    var observed = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, invocation.outcome()).execution();
+    var run = observed.run();
+    var ast = run.representation().ast();
+    assertEquals(AstCompletion.COMPLETE, ast.completion());
+    assertEquals(AnalysisCompletion.PARTIAL, run.completion());
+    assertFalse(run.isPublishable());
+    assertEquals(List.of(Impediment.RUN_NOT_COMPLETE, Impediment.CFG_NOT_COMPLETE, Impediment.ERROR_DIAGNOSTICS),
+        run.publicationEligibility().impediments());
+    var reason = assertInstanceOf(RequestQualificationReason.Method.class, run.qualification().reasons().getFirst());
+    assertSame(run.representation().cfg().orElseThrow().methods().getFirst(), reason.outcome());
+    assertEquals(List.of(MethodCoverageState.UNSUPPORTED), run.methodCoverages().stream().map(MethodCoverage::state).toList());
+    assertPublication(observed.publication(), PublicationIntent.SAVE_COMPLETED, Optional.of(new CompletedRun(run.identity().key())),
+        PublicationStatus.NOT_ELIGIBLE, CommitKnowledge.NOT_STARTED);
+    assertEquals(CommandExitPolicy.EXIT_INCOMPLETE, invocation.exitCode());
+    assertTrue(output.toString().lines().toList().containsAll(List.of(
+        "Completion: PARTIAL", "Method CFG: \"" + methodKey(ast, "run") + "\" UNSUPPORTED",
+        "Repository: NOT_ELIGIBLE", "Publication impediments: RUN_NOT_COMPLETE, CFG_NOT_COMPLETE, ERROR_DIAGNOSTICS")),
+        output.toString());
+    assertTrue(error.toString().lines().anyMatch("  Severity: ERROR"::equals), error.toString());
+  }
+
+  @Test
+  void givenUnmatchedAdapterWriteAndCleanupFailures_whenCliPublishes_thenTheAbruptExitReportsExactOrderedEvidence()
+      throws IOException {
+    // Arrange
+    Files.writeString(directory.resolve("Sample.java"), BRANCHING);
+    var driver = AstRepositoryDriverStub.completedRuns();
+    var primary = new IllegalStateException("Unmatched \"write\"\nobservation");
+    var sessionCleanup = new IllegalStateException("Session cleanup observation");
+    var driverCleanup = new IllegalStateException("Driver cleanup observation");
+    driver.writeFailure = primary;
+    driver.failingClose = 1;
+    driver.closeFailure = sessionCleanup;
+    driver.driverCloseFailure = driverCleanup;
+    var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
+    var execution = AnalysisCapabilities.execution(computation, NO_AST_STORAGE, runRepository(driver));
+    var original = new AtomicReference<AnalysisPublicationException>();
+    AnalysisUseCase observedExecution = request -> {
+      try {
+        return execution.execute(request);
+      } catch (AnalysisPublicationException failure) {
+        original.set(failure);
+        throw failure;
+      }
+    };
+    var output = new StringWriter();
+    var error = new StringWriter();
+
+    // Act
+    var failure = assertThrows(AnalysisPublicationException.class, () -> runPersistingCommand(observedExecution, output, error));
+
+    // Assert
+    assertSame(original.get(), failure);
+    assertSame(primary, failure.getCause());
+    var run = assertInstanceOf(Coordinated.class, failure.subject()).run();
+    assertTrue(run.publicationEligibility().eligible());
+    var context = RepositoryOperationContext.saveCompletedRun(run.identity().key());
+    assertEquals(context, failure.context());
+    assertEquals(run.identity().key(), driver.statements.getFirst().parameters().get("runId").asString());
+    var carrier = assertInstanceOf(Neo4jRepositoryOperationException.class, failure.failure());
+    assertEquals(Neo4jRepositoryPhase.REPLACEMENT, carrier.phase());
+    assertEquals(Optional.of(CommitKnowledge.UNKNOWN), carrier.knowledge());
+    var cleanup = List.of(carrier.getSuppressed());
+    assertEquals(2, cleanup.size());
+    assertSame(sessionCleanup, assertInstanceOf(Neo4jRepositoryOperationException.class, cleanup.getFirst()).effectivePrimary());
+    assertSame(driverCleanup, assertInstanceOf(Neo4jRepositoryOperationException.class, cleanup.getLast()).effectivePrimary());
+    assertEquals(List.of("session.open:0", "session.close:0", "session.open:1", "write.begin", "callback.return",
+        "session.close:1", "driver.close"), driver.events);
+    assertEquals("", output.toString());
+    var diagnostic = error.toString();
+    assertTrue(diagnostic.startsWith("Publication aborted: "), diagnostic);
+    assertTrue(diagnostic.contains("  Message: \"Unmatched \\\"write\\\"\\nobservation\""), diagnostic);
+    assertTrue(diagnostic.contains("  Operation subject: COMPLETED_RUN \"" + run.identity().key() + "\""), diagnostic);
+    assertTrue(diagnostic.lines().anyMatch("  Commit knowledge: UNKNOWN"::equals), diagnostic);
+    assertEquals(List.of("  Adapter phase: \"REPLACEMENT\"", "  Adapter phase: \"PUBLICATION_SESSION_CLOSE\"",
+        "  Adapter phase: \"REPOSITORY_CLOSE\""), diagnostic.lines().filter(line -> line.startsWith("  Adapter phase:")).toList());
   }
 
   @Test
@@ -633,6 +774,11 @@ class PublicAnalysisCompositionTest {
   private AstProductionRequest source(String content) {
     return new AstProductionRequest(InputSnapshot.fromSources(directory,
         List.of(SourceFile.fromContent(Path.of("Sample.java"), content))), CONFIGURATION, PROFILE);
+  }
+
+  private CommandInvocation runPersistingCommand(AnalysisUseCase execution, StringWriter output, StringWriter error) {
+    return CliPublicationReporting.runner(execution).run(new String[] {directory.toString(), "--persist"},
+        CommandDestination.throwingWriter(output), CommandDestination.throwingWriter(error));
   }
 
   private static Neo4jAstResultRepositoryFactory astFactory(AstRepositoryDriverStub driver) {

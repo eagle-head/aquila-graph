@@ -6,7 +6,10 @@
   <buildSpec />
   <natures><nature>org.eclipse.jdt.core.javanature</nature></natures>
   <linkedResources>
-    <link><name>source</name><type>2</type><location>@SOURCE@</location></link>
+    <link><name>source</name><type>2</type><locationURI>PARENT-3-PROJECT_LOC/@SOURCE@</locationURI></link>
+    <link><name>classes</name><type>2</type><locationURI>PARENT-3-PROJECT_LOC/target/classes</locationURI></link>
+    <link><name>libraries</name><type>2</type><locationURI>PARENT-3-PROJECT_LOC/target/maven-repository</locationURI></link>
+    <link><name>build-tools</name><type>2</type><locationURI>PARENT-3-PROJECT_LOC/target/build-tool-classes</locationURI></link>
     @LINKS@
   </linkedResources>
 </projectDescription>
