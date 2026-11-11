@@ -14,6 +14,7 @@ import org.aquilagraph.application.AnalysisExecution;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
 import org.aquilagraph.application.port.AnalysisUseCase;
+import org.aquilagraph.application.port.AstRetentionRepositoryFactory;
 import org.aquilagraph.cli.AnalyzeCommand;
 import org.aquilagraph.cli.AnalyzeCommandOutcome;
 import org.aquilagraph.cli.ChannelEmission;
@@ -29,6 +30,10 @@ public final class CliPublicationReporting {
 
   public static CommandRunner runner(AnalysisUseCase application) {
     return new CommandRunner(new AnalyzeCommand(application, JavaRelease.JAVA_25, new Neo4jFailureDetailProjector()));
+  }
+
+  public static CommandRunner runner(AstRetentionRepositoryFactory astRetention, AnalysisRunRepositoryFactory completedRuns) {
+    return AquilaGraphApplication.commandRunner(astRetention, completedRuns);
   }
 
   public static Result run(AnalysisRun run, AnalysisRunRepositoryFactory repositories,

@@ -1,6 +1,8 @@
 package org.aquilagraph;
 
 import org.aquilagraph.application.AnalysisCapabilities;
+import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
+import org.aquilagraph.application.port.AstRetentionRepositoryFactory;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cli.AnalyzeCommand;
 import org.aquilagraph.cli.CommandExitPolicy;
@@ -24,15 +26,18 @@ public final class AquilaGraphApplication {
    */
   public static void main(String[] arguments) {
     var environment = System.getenv();
-    var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
-    var execution = AnalysisCapabilities.execution(computation,
-        Neo4jRepositories.astRetention(() -> Neo4jConnectionSettings.fromEnvironment(environment)),
+    var runner = commandRunner(Neo4jRepositories.astRetention(() -> Neo4jConnectionSettings.fromEnvironment(environment)),
         Neo4jRepositories.completedRuns(() -> Neo4jConnectionSettings.fromEnvironment(environment)));
-    var command = new AnalyzeCommand(execution, JavaRelease.JAVA_25, new Neo4jFailureDetailProjector());
-    var exitCode = new CommandRunner(command)
-        .run(arguments, CommandDestination.printStream(System.out), CommandDestination.printStream(System.err)).exitCode();
+    var exitCode = runner.run(arguments, CommandDestination.printStream(System.out), CommandDestination.printStream(System.err)).exitCode();
     if (exitCode != CommandExitPolicy.EXIT_COMPLETED) {
       System.exit(exitCode);
     }
+  }
+
+  static CommandRunner commandRunner(AstRetentionRepositoryFactory astRetention, AnalysisRunRepositoryFactory completedRuns) {
+    // The CLI inherits the JVM host's logging configuration for every command.
+    var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
+    var execution = AnalysisCapabilities.execution(computation, astRetention, completedRuns);
+    return new CommandRunner(new AnalyzeCommand(execution, JavaRelease.JAVA_25, new Neo4jFailureDetailProjector()));
   }
 }

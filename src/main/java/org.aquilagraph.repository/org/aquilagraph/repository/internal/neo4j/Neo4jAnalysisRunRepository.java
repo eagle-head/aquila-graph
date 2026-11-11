@@ -1,29 +1,28 @@
 package org.aquilagraph.repository.internal.neo4j;
 
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import org.aquilagraph.application.port.AnalysisRunRepository;
 import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.RepositoryOperationKind;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
+import org.neo4j.driver.AuthToken;
 import org.neo4j.driver.Driver;
+import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 
 /** Neo4j repository for storing completed analysis runs atomically. */
 public final class Neo4jAnalysisRunRepository implements AnalysisRunRepository {
-  private static final List<Logger> NEO4J_LOGGERS = List.of(Logger.getLogger("org.neo4j.driver"),
-      Logger.getLogger("org.neo4j.bolt.connection"));
-
   private final Driver driver;
   private final SessionConfig sessionConfig;
   private final Function<AnalysisRun, Neo4jGraphProjection> mapper;
@@ -39,12 +38,19 @@ public final class Neo4jAnalysisRunRepository implements AnalysisRunRepository {
    * @return contextual factory for reusable completed-run storage
    */
   public static AnalysisRunRepositoryFactory factory(Supplier<Neo4jConnectionSettings> settings) {
-    return factory(settings, Neo4jAnalysisRunRepository::createDriver, value -> SessionConfig.forDatabase(value.database()));
+    return factory(settings, GraphDatabase::driver);
+  }
+
+  static AnalysisRunRepositoryFactory factory(Supplier<Neo4jConnectionSettings> settings, BiFunction<URI, AuthToken, Driver> createDriver) {
+    return factory(new Neo4jRepositoryAcquisition(settings, createDriver));
   }
 
   static AnalysisRunRepositoryFactory factory(Supplier<Neo4jConnectionSettings> settings, Function<Neo4jConnectionSettings, Driver> drivers,
       Function<Neo4jConnectionSettings, SessionConfig> configurations) {
-    var acquisition = new Neo4jRepositoryAcquisition(settings, drivers, configurations);
+    return factory(new Neo4jRepositoryAcquisition(settings, drivers, configurations));
+  }
+
+  private static AnalysisRunRepositoryFactory factory(Neo4jRepositoryAcquisition acquisition) {
     var mapper = new Neo4jAnalysisRunMapper();
     return context -> {
       if (Objects.requireNonNull(context, "context").kind() != RepositoryOperationKind.SAVE_COMPLETED_RUN) {
@@ -119,11 +125,6 @@ public final class Neo4jAnalysisRunRepository implements AnalysisRunRepository {
             + "WHERE name IN $names RETURN name, type, entityType, labelsOrTypes, properties",
         Values.parameters("names", List.of("analysis_entity_identity", "analysis_run_identity"))).list();
     Neo4jSchema.requireIdentityConstraints(definitions);
-  }
-
-  private static Driver createDriver(Neo4jConnectionSettings settings) {
-    NEO4J_LOGGERS.forEach(logger -> logger.setLevel(Level.WARNING));
-    return Neo4jRepositoryAcquisition.connect(settings);
   }
 
   /** Closes the driver with the last attempted save observation or acquisition context. */

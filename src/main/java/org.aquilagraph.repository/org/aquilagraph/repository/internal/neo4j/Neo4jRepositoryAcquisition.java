@@ -1,5 +1,6 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import java.net.URI;
 import java.util.Objects;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -8,9 +9,9 @@ import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.internal.repository.RepositoryOperationBoundary;
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
+import org.neo4j.driver.AuthToken;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
-import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.SessionConfig;
 
 /** Acquires connection resources and closes the driver until a repository takes ownership. */
@@ -18,6 +19,10 @@ final class Neo4jRepositoryAcquisition {
   private final Supplier<Neo4jConnectionSettings> settings;
   private final Function<Neo4jConnectionSettings, Driver> drivers;
   private final Function<Neo4jConnectionSettings, SessionConfig> configurations;
+
+  Neo4jRepositoryAcquisition(Supplier<Neo4jConnectionSettings> settings, BiFunction<URI, AuthToken, Driver> createDriver) {
+    this(settings, value -> connect(value, createDriver), value -> SessionConfig.forDatabase(value.database()));
+  }
 
   Neo4jRepositoryAcquisition(Supplier<Neo4jConnectionSettings> settings, Function<Neo4jConnectionSettings, Driver> drivers,
       Function<Neo4jConnectionSettings, SessionConfig> configurations) {
@@ -35,7 +40,7 @@ final class Neo4jRepositoryAcquisition {
     }, driver -> operation.closeDriver(driver, "Neo4j partial driver shutdown failed"));
   }
 
-  static Driver connect(Neo4jConnectionSettings settings) {
-    return GraphDatabase.driver(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
+  private static Driver connect(Neo4jConnectionSettings settings, BiFunction<URI, AuthToken, Driver> createDriver) {
+    return createDriver.apply(settings.uri(), AuthTokens.basic(settings.username(), settings.password()));
   }
 }

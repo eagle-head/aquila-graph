@@ -56,6 +56,7 @@ import org.aquilagraph.application.port.RepositoryException;
 import org.aquilagraph.testsupport.AnalysisExecutionFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.neo4j.driver.AuthToken;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.Result;
@@ -150,7 +151,7 @@ class Neo4jAnalysisRunRepositoryTest {
 
     // Act
     var failure = assertThrows(Neo4jRepositoryOperationException.class,
-        () -> Neo4jAnalysisRunRepository.factory(() -> settings, ignored -> { throw primary; }, ignored -> SessionConfig.defaultConfig()).open(acquisition()));
+        () -> Neo4jAnalysisRunRepository.factory(() -> settings, (uri, auth) -> { throw primary; }).open(acquisition()));
 
     // Assert
     assertSame(primary, failure.effectivePrimary());
@@ -216,6 +217,29 @@ class Neo4jAnalysisRunRepositoryTest {
     assertSame(primary, failure);
     assertEquals(List.of("driver.close"), backend.effects);
     assertFalse(backend.publicationStarted);
+  }
+
+  @Test
+  void givenSameFatalErrorInPartialSetupAndCleanup_whenRepositoryOpens_thenDriverClosesOnceAndErrorIdentitySurvives() {
+    // Arrange
+    var primary = new AssertionError("Shared setup and cleanup failure");
+    var closes = new AtomicInteger();
+    var driver = proxy(Driver.class, (method, arguments) -> {
+      assertEquals("close", method);
+      closes.incrementAndGet();
+      throw primary;
+    });
+    var factory = Neo4jAnalysisRunRepository.factory(Neo4jAnalysisRunRepositoryTest::settings, ignored -> driver, ignored -> {
+      throw primary;
+    });
+
+    // Act
+    var failure = assertThrows(AssertionError.class, () -> factory.open(acquisition()));
+
+    // Assert
+    assertSame(primary, failure);
+    assertEquals(0, failure.getSuppressed().length);
+    assertEquals(1, closes.get());
   }
 
   @Test
@@ -638,23 +662,22 @@ class Neo4jAnalysisRunRepositoryTest {
 
   private static PublicationServices failingAcquisition(AcquisitionStage stage, Optional<RuntimeException> signal, List<String> closed) {
     Supplier<Neo4jConnectionSettings> settings = () -> stage == AcquisitionStage.SETTINGS ? failAcquisition(signal) : settings();
-    Function<Neo4jConnectionSettings, Driver> drivers = ignored -> {
-      if (stage == AcquisitionStage.DRIVER) {
-        return failAcquisition(signal);
-      }
-      assertEquals(AcquisitionStage.SESSION_CONFIGURATION, stage);
-      return proxy(Driver.class, (method, arguments) -> {
+    if (stage == AcquisitionStage.SESSION_CONFIGURATION) {
+      Function<Neo4jConnectionSettings, Driver> drivers = ignored -> proxy(Driver.class, (method, arguments) -> {
         assertEquals("close", method);
         closed.add(method);
         return null;
       });
-    };
-    Function<Neo4jConnectionSettings, SessionConfig> configurations = ignored -> {
-      assertEquals(AcquisitionStage.SESSION_CONFIGURATION, stage);
+      Function<Neo4jConnectionSettings, SessionConfig> configurations = ignored -> failAcquisition(signal);
+      return new PublicationServices(new Neo4jAstResultRepositoryFactory(settings, drivers, configurations)::openRetention,
+          Neo4jAnalysisRunRepository.factory(settings, drivers, configurations));
+    }
+    BiFunction<URI, AuthToken, Driver> drivers = (uri, auth) -> {
+      assertEquals(AcquisitionStage.DRIVER, stage);
       return failAcquisition(signal);
     };
-    return new PublicationServices(new Neo4jAstResultRepositoryFactory(settings, drivers, configurations)::openRetention,
-        Neo4jAnalysisRunRepository.factory(settings, drivers, configurations));
+    return new PublicationServices(new Neo4jAstResultRepositoryFactory(settings, drivers)::openRetention,
+        Neo4jAnalysisRunRepository.factory(settings, drivers));
   }
 
   private static <T> T failAcquisition(Optional<RuntimeException> signal) {
@@ -882,10 +905,8 @@ class Neo4jAnalysisRunRepositoryTest {
 
   private static PublicationServices publications(DriverDouble runDriver, AstRepositoryDriverStub astDriver) {
     return new PublicationServices(
-        new Neo4jAstResultRepositoryFactory(Neo4jAnalysisRunRepositoryTest::settings,
-            ignored -> astDriver.driver(), ignored -> SessionConfig.defaultConfig())::openRetention,
-        Neo4jAnalysisRunRepository.factory(
-            Neo4jAnalysisRunRepositoryTest::settings, ignored -> runDriver.driver(), ignored -> SessionConfig.defaultConfig()));
+        new Neo4jAstResultRepositoryFactory(Neo4jAnalysisRunRepositoryTest::settings, (uri, auth) -> astDriver.driver())::openRetention,
+        Neo4jAnalysisRunRepository.factory(Neo4jAnalysisRunRepositoryTest::settings, (uri, auth) -> runDriver.driver()));
   }
 
   @Test

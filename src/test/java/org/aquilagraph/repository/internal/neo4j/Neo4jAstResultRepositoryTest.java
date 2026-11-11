@@ -102,8 +102,7 @@ class Neo4jAstResultRepositoryTest {
     var schemaFailure = new Neo4jException("Schema observation failed");
     rejected.schemaFailure = schemaFailure;
     var backends = List.of(writer, rejected).iterator();
-    var factory = new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings, ignored -> backends.next().driver(),
-        ignored -> SessionConfig.defaultConfig());
+    var factory = new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings, (uri, auth) -> backends.next().driver());
     var retention = AnalysisCapabilities.astRetention(factory::openRetention);
 
     // Act
@@ -137,8 +136,7 @@ class Neo4jAstResultRepositoryTest {
     var readFailure = new Neo4jException("Second read failed");
     rejected.readFailure = readFailure;
     var backends = List.of(reader, rejected).iterator();
-    var factory = new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings, ignored -> backends.next().driver(),
-        ignored -> SessionConfig.defaultConfig());
+    var factory = new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings, (uri, auth) -> backends.next().driver());
     var query = AnalysisCapabilities.astQuery(factory::openQuery);
 
     // Act
@@ -815,8 +813,7 @@ class Neo4jAstResultRepositoryTest {
   }
 
   private static Neo4jAstResultRepositoryFactory factory(AstRepositoryDriverStub backend) {
-    return new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings, ignored -> backend.driver(),
-        ignored -> SessionConfig.defaultConfig());
+    return new Neo4jAstResultRepositoryFactory(Neo4jAstResultRepositoryTest::settings, (uri, auth) -> backend.driver());
   }
 
   private static Neo4jConnectionSettings settings() {

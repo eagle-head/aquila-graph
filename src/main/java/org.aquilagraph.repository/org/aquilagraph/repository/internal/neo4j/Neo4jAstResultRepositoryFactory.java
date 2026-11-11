@@ -1,14 +1,18 @@
 package org.aquilagraph.repository.internal.neo4j;
 
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
+import java.net.URI;
 import java.util.Objects;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.RepositoryOperationKind;
 import org.aquilagraph.application.port.AstQueryRepository;
 import org.aquilagraph.application.port.AstRetentionRepository;
+import org.neo4j.driver.AuthToken;
 import org.neo4j.driver.Driver;
+import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.SessionConfig;
 
 /** Lazy acquisition that retains ownership of partial resources until repository transfer. */
@@ -22,7 +26,11 @@ public final class Neo4jAstResultRepositoryFactory {
    *          deferred validated settings
    */
   public Neo4jAstResultRepositoryFactory(Supplier<Neo4jConnectionSettings> settings) {
-    this(settings, Neo4jRepositoryAcquisition::connect, value -> SessionConfig.forDatabase(value.database()));
+    this(settings, GraphDatabase::driver);
+  }
+
+  Neo4jAstResultRepositoryFactory(Supplier<Neo4jConnectionSettings> settings, BiFunction<URI, AuthToken, Driver> createDriver) {
+    acquisition = new Neo4jRepositoryAcquisition(settings, createDriver);
   }
 
   Neo4jAstResultRepositoryFactory(Supplier<Neo4jConnectionSettings> settings, Function<Neo4jConnectionSettings, Driver> drivers,
