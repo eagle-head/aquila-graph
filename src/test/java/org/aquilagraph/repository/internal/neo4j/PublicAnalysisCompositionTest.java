@@ -67,6 +67,7 @@ import org.aquilagraph.cli.ChannelEmission;
 import org.aquilagraph.cli.CommandDestination;
 import org.aquilagraph.cli.CommandExitPolicy;
 import org.aquilagraph.cli.CommandInvocation;
+import org.aquilagraph.cli.CommandRunner;
 import org.aquilagraph.frontend.JavaFrontends;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.CompilerConfiguration;
@@ -88,7 +89,6 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.io.TempDir;
-import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.Values;
 import org.neo4j.driver.exceptions.Neo4jException;
 
@@ -224,7 +224,7 @@ class PublicAnalysisCompositionTest {
     var request = new AnalysisComputationRequest(cliSource, Optional.of(CfgSelection.allBodies(CFG)));
     var noStorage = AnalysisCapabilities.execution(computation, NO_AST_STORAGE, NO_RUN_STORAGE);
     var driver = AstRepositoryDriverStub.completedRuns();
-    var publisher = AnalysisCapabilities.execution(computation, NO_AST_STORAGE, runRepository(driver));
+    var runner = CliPublicationReporting.runner(NO_AST_STORAGE, runRepository(driver));
     var astWrite = new AstRepositoryDriverStub();
     var astRead = new AstRepositoryDriverStub();
     var output = new StringWriter();
@@ -232,7 +232,7 @@ class PublicAnalysisCompositionTest {
 
     // Act
     var unsaved = noStorage.execute(new AnalysisRequest(request, PublicationIntent.DO_NOT_SAVE));
-    var invocation = runPersistingCommand(publisher, output, error);
+    var invocation = runPersistingCommand(runner, output, error);
     var saved = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, invocation.outcome()).execution();
     var ast = saved.run().representation().ast();
     var identity = ast.result().orElseThrow().identity();
@@ -313,13 +313,12 @@ class PublicAnalysisCompositionTest {
     // Arrange
     Files.writeString(directory.resolve("Sample.java"),
         "interface Sample { static int run(int value) { (value) = 1; return value; } }");
-    var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
-    var execution = AnalysisCapabilities.execution(computation, NO_AST_STORAGE, NO_RUN_STORAGE);
+    var runner = CliPublicationReporting.runner(NO_AST_STORAGE, NO_RUN_STORAGE);
     var output = new StringWriter();
     var error = new StringWriter();
 
     // Act
-    var invocation = runPersistingCommand(execution, output, error);
+    var invocation = runPersistingCommand(runner, output, error);
 
     // Assert
     var observed = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, invocation.outcome()).execution();
@@ -371,7 +370,8 @@ class PublicAnalysisCompositionTest {
     var error = new StringWriter();
 
     // Act
-    var failure = assertThrows(AnalysisPublicationException.class, () -> runPersistingCommand(observedExecution, output, error));
+    var failure = assertThrows(AnalysisPublicationException.class,
+        () -> runPersistingCommand(CliPublicationReporting.runner(observedExecution), output, error));
 
     // Assert
     assertSame(original.get(), failure);
@@ -776,19 +776,17 @@ class PublicAnalysisCompositionTest {
         List.of(SourceFile.fromContent(Path.of("Sample.java"), content))), CONFIGURATION, PROFILE);
   }
 
-  private CommandInvocation runPersistingCommand(AnalysisUseCase execution, StringWriter output, StringWriter error) {
-    return CliPublicationReporting.runner(execution).run(new String[] {directory.toString(), "--persist"},
+  private CommandInvocation runPersistingCommand(CommandRunner runner, StringWriter output, StringWriter error) {
+    return runner.run(new String[] {directory.toString(), "--persist"},
         CommandDestination.throwingWriter(output), CommandDestination.throwingWriter(error));
   }
 
   private static Neo4jAstResultRepositoryFactory astFactory(AstRepositoryDriverStub driver) {
-    return new Neo4jAstResultRepositoryFactory(PublicAnalysisCompositionTest::settings,
-        ignored -> driver.driver(), ignored -> SessionConfig.defaultConfig());
+    return new Neo4jAstResultRepositoryFactory(PublicAnalysisCompositionTest::settings, (uri, auth) -> driver.driver());
   }
 
   private static AnalysisRunRepositoryFactory runRepository(AstRepositoryDriverStub driver) {
-    return Neo4jAnalysisRunRepository.factory(PublicAnalysisCompositionTest::settings,
-        ignored -> driver.driver(), ignored -> SessionConfig.defaultConfig());
+    return Neo4jAnalysisRunRepository.factory(PublicAnalysisCompositionTest::settings, (uri, auth) -> driver.driver());
   }
 
   private static Neo4jConnectionSettings settings() {

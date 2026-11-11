@@ -12,6 +12,7 @@ import org.neo4j.driver.Driver;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.Result;
 import org.neo4j.driver.Session;
+import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.TransactionCallback;
 import org.neo4j.driver.TransactionContext;
 import org.neo4j.driver.Value;
@@ -22,6 +23,7 @@ final class AstRepositoryDriverStub {
   final List<String> events = new ArrayList<>();
   final List<String> queries = new ArrayList<>();
   final List<Statement> statements = new ArrayList<>();
+  final List<SessionConfig> sessionConfigurations = new ArrayList<>();
   private final List<Record> constraints;
   private int sessions;
   int attempts = 1;
@@ -59,7 +61,10 @@ final class AstRepositoryDriverStub {
 
   Driver driver() {
     return proxy(Driver.class, (ignored, method, arguments) -> switch (method.getName()) {
-      case "session" -> session(sessions++);
+      case "session" -> {
+        sessionConfigurations.add((SessionConfig) arguments[0]);
+        yield session(sessions++);
+      }
       case "close" -> {
         events.add("driver.close");
         if (driverCloseFailure != null) { throw driverCloseFailure; }

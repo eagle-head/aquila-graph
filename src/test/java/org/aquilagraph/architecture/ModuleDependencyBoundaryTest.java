@@ -56,7 +56,6 @@ class ModuleDependencyBoundaryTest {
       "cli", PUBLIC_PACKAGES);
   private static final Set<String> BASE_TYPES = platformTypes("java.base");
   private static final Set<String> COMPILER_TYPES = publicCompilerTypes();
-  private static final Set<String> LOGGING_TYPES = platformTypes("java.logging");
   private static final Map<String, String> TYPE_OWNERS = typeOwners();
 
   @TestFactory
@@ -297,7 +296,6 @@ class ModuleDependencyBoundaryTest {
       var allowedOwn = own && (!reader || packageName(type).equals(PREFIX + module + ".api") || intrinsic || permits.contains(type));
       var allowed = BASE_TYPES.contains(type) || allowedOwn || READABLE_PACKAGES.get(module).contains(packageName(type))
           || (module.equals("frontend") && COMPILER_TYPES.contains(type))
-          || (module.equals("repository") && LOGGING_TYPES.contains(type))
           || (module.equals("repository") && type.startsWith("org.neo4j.driver."));
       if (!allowed || type.startsWith("com.sun.tools.javac.") || type.startsWith("jdk.internal.") || type.startsWith("sun.")) {
         result.add("forbidden type " + type);
