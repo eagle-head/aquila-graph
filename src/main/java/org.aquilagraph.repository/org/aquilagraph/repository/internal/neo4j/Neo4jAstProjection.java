@@ -9,6 +9,8 @@ import org.aquilagraph.identity.api.AstIdentity;
 /** Complete immutable, endpoint-validated replacement for one exact AST result. */
 record Neo4jAstProjection(AstIdentity identity, List<Neo4jNode> nodes, List<Neo4jRelationship> relationships) {
   private static final int REQUIRED_ROOT_COUNT = 1;
+  private static final String ROOT_LABEL = "AstResult";
+
   Neo4jAstProjection {
     Objects.requireNonNull(identity, "identity");
     nodes = List.copyOf(nodes);
@@ -30,14 +32,18 @@ record Neo4jAstProjection(AstIdentity identity, List<Neo4jNode> nodes, List<Neo4
         throw new IllegalArgumentException("AST storage relationships require unique keys and exact owned endpoints");
       }
     }
-    if (nodes.stream().filter(node -> "AstResult".equals(node.label()) && node.key().equals(identity.astResultKey()))
-        .count() != REQUIRED_ROOT_COUNT) {
+    var roots = nodes.stream().filter(Neo4jAstProjection::isRoot).toList();
+    if (roots.size() != REQUIRED_ROOT_COUNT || !identity.astResultKey().equals(roots.getFirst().key())) {
       throw new IllegalArgumentException("AST storage requires one exact result root");
     }
   }
 
   Neo4jNode root() {
-    return nodes.stream().filter(node -> "AstResult".equals(node.label())).findFirst().orElseThrow();
+    return nodes.stream().filter(Neo4jAstProjection::isRoot).findFirst().orElseThrow();
+  }
+
+  private static boolean isRoot(Neo4jNode node) {
+    return ROOT_LABEL.equals(node.label());
   }
 
   private static void requireScope(AstIdentity identity, String key, Map<String, Object> properties) {

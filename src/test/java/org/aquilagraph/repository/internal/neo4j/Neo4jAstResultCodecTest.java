@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.aquilagraph.frontend.internal.JavaFrontend;
@@ -65,6 +66,29 @@ class Neo4jAstResultCodecTest {
     assertEquals(AstCodec.materialize(original).nodes().size() + 1, projection.nodes().size());
     assertEquals(AstCodec.materialize(original).links().size() + 1, projection.relationships().size());
     assertTrue(projection.nodes().stream().noneMatch(node -> node.properties().containsKey("runId")));
+  }
+
+  @Test
+  void givenCodecProjectionAndContradictoryRoots_whenAdmittingProjection_thenExactlyOneRootMustHaveTheSubjectKey() throws IOException {
+    // Arrange
+    var outcome = produce("class Stored {}");
+    var identity = outcome.result().orElseThrow().identity();
+    var scope = identity.astResultKey();
+    var wronglyKeyed = new Neo4jNode("other-root", "AstResult", Map.of("key", "other-root", "astResultKey", scope));
+    var codec = new Neo4jAstResultCodec();
+
+    // Act
+    var produced = codec.map(outcome);
+    var root = produced.root();
+    var rejected = List.of(List.<Neo4jNode>of(), List.of(wronglyKeyed), List.of(wronglyKeyed, root), List.of(root, wronglyKeyed))
+        .stream().map(nodes -> assertThrows(IllegalArgumentException.class, () -> new Neo4jAstProjection(identity, nodes, List.of())))
+        .toList();
+
+    // Assert
+    assertEquals("AstResult", root.label());
+    assertEquals(scope, root.key());
+    assertEquals(List.of(root), produced.nodes().stream().filter(node -> node.label().equals("AstResult")).toList());
+    rejected.forEach(failure -> assertEquals("AST storage requires one exact result root", failure.getMessage()));
   }
 
   @Test

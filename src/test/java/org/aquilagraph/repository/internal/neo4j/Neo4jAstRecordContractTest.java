@@ -2,6 +2,7 @@ package org.aquilagraph.repository.internal.neo4j;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -16,6 +17,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.UnaryOperator;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -40,6 +42,7 @@ import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.exceptions.Neo4jException;
+import org.neo4j.driver.exceptions.value.Uncoercible;
 
 class Neo4jAstRecordContractTest {
   @TempDir Path directory;
@@ -301,26 +304,27 @@ class Neo4jAstRecordContractTest {
   }
 
   @TestFactory
-  Stream<DynamicTest> givenMissingOrBlankFormatMetadata_whenQuerying_thenEachRequiredFormatFailurePreventsNormalLookup()
+  Stream<DynamicTest> givenMissingOrMalformedFormatMetadata_whenQuerying_thenEachRequiredFormatFailurePreventsNormalLookup()
       throws IOException {
     // Arrange
     var fixture = fixture();
-    var partitions = List.of("Missing", "Empty", "Whitespace");
+    var partitions = List.of("Missing", "Null", "Numeric", "Empty", "Whitespace");
 
     // Act
     var observations = partitions.stream().map(partition -> DynamicTest.dynamicTest(
         "given" + partition + "FormatMetadata_whenQuerying_thenRequiredFormatFailurePreventsNormalLookup", () -> {
           // Arrange
-          var root = fixture.projection().root();
-          var properties = new HashMap<>(root.properties());
-          if (partition.equals("Missing")) {
-            properties.remove("formatVersion");
-          } else {
-            properties.put("formatVersion", partition.equals("Empty") ? "" : " \t\n");
+          var properties = new HashMap<>(fixture.projection().root().properties());
+          switch (partition) {
+            case "Missing" -> properties.remove("formatVersion");
+            case "Null" -> properties.put("formatVersion", null);
+            case "Numeric" -> properties.put("formatVersion", 22L);
+            case "Empty" -> properties.put("formatVersion", "");
+            case "Whitespace" -> properties.put("formatVersion", " \t\n");
+            default -> throw new AssertionError(partition);
           }
-          var nodes = new ArrayList<>(fixture.projection().nodes());
-          nodes.set(nodes.indexOf(root), new Neo4jNode(root.key(), root.label(), properties));
-          var driver = supplied(new Neo4jAstProjection(fixture.original().identity(), nodes, fixture.projection().relationships()));
+          var driver = supplied(fixture.projection());
+          driver.rootProperties = List.of(properties);
 
           // Act
           var failure = assertThrows(Neo4jRepositoryOperationException.class,
@@ -360,6 +364,113 @@ class Neo4jAstRecordContractTest {
     assertEquals(0, failure.getSuppressed().length);
     assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
     assertOriginal(fixture);
+  }
+
+  @Test
+  void givenRelationshipRowsWithoutScopedNodesOrRoot_whenQuerying_thenTheNodeOnlyProbeReturnsAbsence() throws IOException {
+    // Arrange
+    var fixture = fixture();
+    var identity = fixture.original().identity();
+    var driver = supplied(fixture.projection());
+    driver.rootProperties = List.of();
+    assertFalse(fixture.projection().relationships().isEmpty());
+
+    // Act
+    var lookup = query(identity, driver);
+
+    // Assert
+    assertEquals(new AstLookup(identity, AstLookupStatus.NOT_FOUND, Optional.empty(), Optional.empty()), lookup);
+    assertEquals(2, driver.statements.size());
+    var probe = driver.statements.getLast();
+    assertEquals("MATCH (entity:AstEntity {astResultKey: $scope}) RETURN count(entity) AS count", probe.query());
+    assertEquals(identity.astResultKey(), probe.parameters().get("scope").asString());
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
+  }
+
+  @Test
+  void givenScopedNodesWithNoRoot_whenQuerying_thenTheInconsistencyFailsInDecode() throws IOException {
+    // Arrange
+    var fixture = fixture();
+    var driver = new AstRepositoryDriverStub();
+    driver.scopedNodeCount = 1;
+
+    // Act
+    var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> query(fixture.original().identity(), driver));
+
+    // Assert
+    assertFailure(fixture, driver, failure, IllegalArgumentException.class, "no exact result root");
+    assertEquals(2, driver.queries.size());
+  }
+
+  @Test
+  void givenMultipleStoredRoots_whenQuerying_thenTheCardinalityFailureRemainsInRead() throws IOException {
+    // Arrange
+    var fixture = fixture();
+    var identity = fixture.original().identity();
+    var properties = fixture.projection().root().properties();
+    var driver = supplied(fixture.projection());
+    driver.rootProperties = List.of(properties, properties);
+
+    // Act
+    var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> query(identity, driver));
+
+    // Assert
+    assertEquals(RepositoryOperationContext.queryAst(identity), failure.context());
+    assertEquals(Neo4jRepositoryPhase.READ, failure.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge().orElseThrow());
+    assertEquals("AST lookup requires one exact stored result root",
+        assertInstanceOf(IllegalArgumentException.class, failure.effectivePrimary()).getMessage());
+    assertEquals(1, driver.queries.size());
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
+  }
+
+  @Test
+  void givenRelationshipTargetOutsideTheAstNamespace_whenQuerying_thenEndpointAdmissionFailsInDecode() throws IOException {
+    // Arrange
+    var fixture = fixture();
+    var projection = fixture.projection();
+    var relationship = projection.relationships().getLast();
+    var targetLabel = projection.nodes().stream().filter(node -> node.key().equals(relationship.targetKey()))
+        .findFirst().orElseThrow().label();
+    var driver = supplied(projection);
+    driver.relationshipRows = rows -> changeRow(rows, relationship.key(), row -> {
+      assertEquals(List.of("AstEntity", targetLabel), row.put("targetLabels", List.of(targetLabel)));
+      return row;
+    });
+
+    // Act
+    var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> query(projection.identity(), driver));
+
+    // Assert
+    assertFailure(fixture, driver, failure, IllegalArgumentException.class, "endpoints in their exact owned namespace");
+  }
+
+  @Test
+  void givenNodeConversionAndRelationshipContentFailures_whenQuerying_thenTheOriginalNodeFailureWinsInDecode() throws IOException {
+    // Arrange
+    var fixture = fixture();
+    var identity = fixture.original().identity();
+    var driver = supplied(fixture.projection());
+    var conversionFailure = new Uncoercible("INTEGER", "String");
+    driver.nodeRows = rows -> changeRow(rows, fixture.projection().nodes().getLast().key(), row -> {
+      row.put("key", AstRepositoryDriverStub.failingStringValue(conversionFailure));
+      return row;
+    });
+    driver.relationshipRows = rows -> changeRow(rows, fixture.projection().relationships().getLast().key(), row -> {
+      row.put("targetLabels", List.of("Unowned"));
+      return row;
+    });
+
+    // Act
+    var failure = assertThrows(Neo4jRepositoryOperationException.class, () -> query(identity, driver));
+
+    // Assert
+    assertEquals(RepositoryOperationContext.queryAst(identity), failure.context());
+    assertEquals(Neo4jRepositoryPhase.DECODE, failure.phase());
+    assertEquals(CommitKnowledge.NOT_STARTED, failure.knowledge().orElseThrow());
+    assertSame(conversionFailure, failure.effectivePrimary());
+    assertTrue(driver.queries.getLast().contains("type(relation)"));
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
   }
 
   @Test
