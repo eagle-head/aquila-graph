@@ -1,24 +1,25 @@
 package org.aquilagraph.repository.internal.neo4j;
 
-import java.util.List;
 import java.util.ArrayList;
-import java.util.Map;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import org.aquilagraph.application.AstLookup;
-import org.aquilagraph.application.AstLookupStatus;
 import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
 import org.aquilagraph.application.RepositoryOperationContext;
 import org.aquilagraph.application.RepositoryOperationKind;
 import org.aquilagraph.application.port.AstQueryRepository;
 import org.aquilagraph.application.port.AstRetentionRepository;
 import org.aquilagraph.identity.api.AstIdentity;
+import org.aquilagraph.repository.internal.neo4j.Neo4jStoredAstAdmission.MaterializedRoot;
+import org.aquilagraph.repository.internal.neo4j.Neo4jStoredAstAdmission.MaterializedRows;
+import org.aquilagraph.repository.internal.neo4j.Neo4jStoredAstAdmission.MissingRoot;
+import org.aquilagraph.repository.internal.neo4j.Neo4jStoredAstAdmission.StoredRead;
+import org.aquilagraph.repository.internal.neo4j.Neo4jStoredAstAdmission.UnmaterializedRoot;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
-import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.AstResult;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.Result;
@@ -36,7 +37,7 @@ final class Neo4jAstResultRepository implements AstRetentionRepository, AstQuery
   private final Driver driver;
   private final SessionConfig sessionConfiguration;
   private final RepositoryOperationContext context;
-  private final Neo4jAstResultCodec codec;
+  private final Neo4jStoredAstAdmission admission;
   private final Function<AstOutcome, Neo4jAstProjection> projectionMapper;
   private final AstIdentity subjectIdentity;
   private final Neo4jRepositoryOperation operation;
@@ -61,7 +62,7 @@ final class Neo4jAstResultRepository implements AstRetentionRepository, AstQuery
     }
     subjectIdentity = ast.identity();
     operation = new Neo4jRepositoryOperation(context, "Neo4j AST repository operation failed");
-    this.codec = Objects.requireNonNull(codec, "codec");
+    admission = new Neo4jStoredAstAdmission(codec);
     this.projectionMapper = Objects.requireNonNull(projectionMapper, "projectionMapper");
   }
 
@@ -119,7 +120,7 @@ final class Neo4jAstResultRepository implements AstRetentionRepository, AstQuery
         session -> {
           var stored = operation.driverWork(Neo4jRepositoryPhase.READ,
               () -> session.executeRead(transaction -> read(transaction, identity)));
-          return operation.work(Neo4jRepositoryPhase.DECODE, () -> lookup(identity, stored));
+          return operation.work(Neo4jRepositoryPhase.DECODE, () -> admission.admit(identity, stored));
         });
   }
 
@@ -148,7 +149,7 @@ final class Neo4jAstResultRepository implements AstRetentionRepository, AstQuery
     Neo4jAstSchema.requireConstraints(definitions);
   }
 
-  private static StoredAst read(TransactionContext transaction, AstIdentity identity) {
+  private static StoredRead read(TransactionContext transaction, AstIdentity identity) {
     var parameters = Values.parameters(SCOPE_PARAMETER, identity.astResultKey());
     var roots = transaction
         .run("MATCH (result:AstEntity:AstResult {astResultKey: $scope}) RETURN properties(result) AS properties LIMIT 2", parameters)
@@ -156,14 +157,15 @@ final class Neo4jAstResultRepository implements AstRetentionRepository, AstQuery
     if (roots.isEmpty()) {
       var remaining = transaction.run("MATCH (entity:AstEntity {astResultKey: $scope}) RETURN count(entity) AS count", parameters).single()
           .get("count").asLong();
-      return new StoredAst(Optional.empty(), remaining > 0, List.of(), List.of(), Optional.empty());
+      return new MissingRoot(remaining > 0);
     }
     if (roots.size() != REQUIRED_ROOT_COUNT) {
       throw new IllegalArgumentException("AST lookup requires one exact stored result root");
     }
     var root = roots.getFirst().get(PROPERTIES_FIELD).asMap();
-    if (!(root.get("formatVersion") instanceof String format) || !AstResult.supportsSourceModelVersion(format)) {
-      return new StoredAst(Optional.of(root), true, List.of(), List.of(), Optional.empty());
+    var format = Neo4jStoredAstAdmission.formatVersion(root);
+    if (!Neo4jStoredAstAdmission.requiresMaterialization(format)) {
+      return new UnmaterializedRoot(format);
     }
     var nodes = readRows(
         transaction.run("MATCH (entity:AstEntity {astResultKey: $scope}) "
@@ -177,8 +179,11 @@ final class Neo4jAstResultRepository implements AstRetentionRepository, AstQuery
             + "labels(source) AS sourceLabels, source.astResultKey AS sourceAstResultKey, "
             + "labels(target) AS targetLabels, target.astResultKey AS targetAstResultKey, " + "properties(relation) AS properties",
         parameters), record -> storedRelationship(identity, record));
-    return new StoredAst(Optional.of(root), true, nodes.values(), relationships.values(),
-        nodes.decodingFailure().or(relationships::decodingFailure));
+    var decodingFailure = nodes.decodingFailure().or(relationships::decodingFailure);
+    var rows = decodingFailure.isEmpty()
+        ? Optional.of(new MaterializedRows(nodes.values(), relationships.values()))
+        : Optional.<MaterializedRows>empty();
+    return new MaterializedRoot(Neo4jStoredAstAdmission.sourceProfile(root), rows, decodingFailure);
   }
 
   private static <T> ReadRows<T> readRows(Result result, Function<Record, T> decoder) {
@@ -198,56 +203,12 @@ final class Neo4jAstResultRepository implements AstRetentionRepository, AstQuery
         }
       }
     }
-    return new ReadRows<>(List.copyOf(values), decodingFailure);
+    return new ReadRows<>(values, decodingFailure);
   }
 
   private static Neo4jNode storedNode(Record record) {
-    var labels = record.get("labels").asList(value -> value.asString());
-    if (labels.size() != 2 || !labels.contains("AstEntity")) {
-      throw new IllegalArgumentException("AST storage requires its exact namespace and one closed domain label");
-    }
-    return new Neo4jNode(record.get("key").asString(),
-        labels.stream().filter(label -> !"AstEntity".equals(label)).findFirst().orElseThrow(), record.get(PROPERTIES_FIELD).asMap());
-  }
-
-  private AstLookup lookup(AstIdentity identity, StoredAst stored) {
-    if (stored.root().isEmpty()) {
-      if (stored.hasScopedEntities()) {
-        throw new IllegalArgumentException("Stored AST entities have no exact result root");
-      }
-      return new AstLookup(identity, AstLookupStatus.NOT_FOUND, Optional.empty(), Optional.empty());
-    }
-    var version = stored.root().orElseThrow().get("formatVersion");
-    if (!(version instanceof String format) || format.isBlank()) {
-      throw new IllegalArgumentException("Stored AST result requires an explicit format version");
-    }
-    if (!AstResult.supportsSourceModelVersion(format)) {
-      return new AstLookup(identity, AstLookupStatus.INCOMPATIBLE, Optional.empty(), Optional.of(format));
-    }
-    var sourceProfile = stored.root().orElseThrow().get("astProfileVersion");
-    if (sourceProfile instanceof String profile) {
-      if (!profile.equals(identity.astProfileVersion())) {
-        throw new IllegalArgumentException("Stored AST source profile differs from the exact requested identity");
-      }
-      if (!new AstProfile(profile).isSupported()) {
-        return new AstLookup(identity, AstLookupStatus.INCOMPATIBLE, Optional.empty(), Optional.of(profile));
-      }
-    }
-    if (stored.decodingFailure().isPresent()) {
-      rejectStoredValue(stored.decodingFailure().orElseThrow());
-    }
-    var outcome = codec.decode(new Neo4jAstProjection(identity, stored.nodes(), stored.relationships()), identity);
-    return new AstLookup(identity, AstLookupStatus.FOUND, Optional.of(outcome), Optional.empty());
-  }
-
-  private static void rejectStoredValue(RuntimeException failure) {
-    if (failure instanceof IllegalArgumentException invalid) {
-      throw invalid;
-    }
-    if (failure instanceof ValueException invalid) {
-      throw invalid;
-    }
-    throw new IllegalStateException("Unexpected deferred stored-value failure", failure);
+    var label = Neo4jStoredAstAdmission.nodeLabel(record.get("labels").asList(value -> value.asString()));
+    return new Neo4jNode(record.get("key").asString(), label, record.get(PROPERTIES_FIELD).asMap());
   }
 
   private static Neo4jRelationship storedRelationship(AstIdentity identity, Record record) {
@@ -258,14 +219,8 @@ final class Neo4jAstResultRepository implements AstRetentionRepository, AstQuery
   }
 
   private static void requireOwnedEndpoint(AstIdentity identity, Record record, String endpoint) {
-    var labels = record.get(endpoint + "Labels").asList(value -> value.asString());
-    if (!labels.contains("AstEntity") || !identity.astResultKey().equals(record.get(endpoint + "AstResultKey").asObject())) {
-      throw new IllegalArgumentException("AST storage relationships require endpoints in their exact owned namespace");
-    }
-  }
-
-  private record StoredAst(Optional<Map<String, Object>> root, boolean hasScopedEntities, List<Neo4jNode> nodes,
-      List<Neo4jRelationship> relationships, Optional<RuntimeException> decodingFailure) {
+    Neo4jStoredAstAdmission.requireEndpointNamespace(record.get(endpoint + "Labels").asList(value -> value.asString()));
+    Neo4jStoredAstAdmission.requireEndpointScope(identity, record.get(endpoint + "AstResultKey").asObject());
   }
 
   private record ReadRows<T>(List<T> values, Optional<RuntimeException> decodingFailure) {

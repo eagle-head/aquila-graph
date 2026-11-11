@@ -38,7 +38,9 @@ final class AstRepositoryDriverStub {
   boolean malformedNodeRecords;
   String version = "absent";
   String lockedAstSubject;
+  long scopedNodeCount;
   Neo4jAstProjection stored;
+  List<Map<String, Object>> rootProperties;
   UnaryOperator<List<Map<String, Object>>> nodeRows = UnaryOperator.identity();
   UnaryOperator<List<Map<String, Object>>> relationshipRows = UnaryOperator.identity();
 
@@ -144,8 +146,11 @@ final class AstRepositoryDriverStub {
               .stream().map(AstRepositoryDriverStub::record).toList();
         }
       }
+      if (query.contains("RETURN properties(result)") && rootProperties != null) {
+        rows = rootProperties.stream().map(properties -> record(Map.of("properties", properties))).toList();
+      }
       if (query.contains("RETURN count(entity)")) {
-        rows = List.of(record(Map.of("count", 0L)));
+        rows = List.of(record(Map.of("count", scopedNodeCount)));
       }
       if (query.contains("labels(entity)")) {
         return result(rows, nodeStreamFailure);
@@ -175,8 +180,18 @@ final class AstRepositoryDriverStub {
 
   private static Record record(Map<String, Object> properties) {
     return proxy(Record.class, (ignored, method, arguments) -> switch (method.getName()) {
-      case "get" -> Values.value(properties.get((String) arguments[0]));
+      case "get" -> {
+        var value = properties.get((String) arguments[0]);
+        yield value instanceof Value supplied ? supplied : Values.value(value);
+      }
       default -> throw new AssertionError("Unexpected record operation: " + method.getName());
+    });
+  }
+
+  static Value failingStringValue(RuntimeException failure) {
+    return proxy(Value.class, (ignored, method, arguments) -> {
+      if (method.getName().equals("asString")) { throw failure; }
+      throw new AssertionError("Unexpected value operation: " + method.getName());
     });
   }
 
