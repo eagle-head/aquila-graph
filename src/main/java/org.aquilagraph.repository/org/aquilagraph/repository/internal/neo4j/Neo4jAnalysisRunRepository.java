@@ -2,7 +2,6 @@ package org.aquilagraph.repository.internal.neo4j;
 
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 import java.net.URI;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.BiFunction;
@@ -88,7 +87,7 @@ public final class Neo4jAnalysisRunRepository implements AnalysisRunRepository {
     });
     current.withSession(driver, sessionConfig, Neo4jRepositoryPhase.SCHEMA, Neo4jRepositoryPhase.SCHEMA_SESSION_CLOSE,
         session -> current.driverWork(Neo4jRepositoryPhase.SCHEMA, () -> {
-          ensureSchema(session);
+          Neo4jIdentityConstraints.ANALYSIS_RUN.ensure(session);
           return null;
         }));
     current.replace(driver, sessionConfig, session -> replace(session, projection));
@@ -114,17 +113,6 @@ public final class Neo4jAnalysisRunRepository implements AnalysisRunRepository {
       }
       return null;
     });
-  }
-
-  private static void ensureSchema(Session session) {
-    session.run("CREATE CONSTRAINT analysis_entity_identity IF NOT EXISTS "
-        + "FOR (entity:AnalysisEntity) REQUIRE (entity.runId, entity.key) IS UNIQUE").consume();
-    session.run("CREATE CONSTRAINT analysis_run_identity IF NOT EXISTS " + "FOR (run:AnalysisRun) REQUIRE run.runId IS UNIQUE").consume();
-    var definitions = session.run(
-        "SHOW CONSTRAINTS YIELD name, type, entityType, labelsOrTypes, properties "
-            + "WHERE name IN $names RETURN name, type, entityType, labelsOrTypes, properties",
-        Values.parameters("names", List.of("analysis_entity_identity", "analysis_run_identity"))).list();
-    Neo4jSchema.requireIdentityConstraints(definitions);
   }
 
   /** Closes the driver with the last attempted save observation or acquisition context. */
