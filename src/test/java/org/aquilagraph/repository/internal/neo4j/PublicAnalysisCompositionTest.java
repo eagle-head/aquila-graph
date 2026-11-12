@@ -61,6 +61,7 @@ import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgDerivationException;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
+import org.aquilagraph.cfg.api.ControlFlowGraph;
 import org.aquilagraph.cfg.api.MethodCfgState;
 import org.aquilagraph.cfg.internal.RecoverableCfgFailures;
 import org.aquilagraph.cli.AnalyzeCommandOutcome;
@@ -72,6 +73,7 @@ import org.aquilagraph.cli.CommandRunner;
 import org.aquilagraph.frontend.JavaFrontends;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.GraphIdentity;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
@@ -218,10 +220,10 @@ class PublicAnalysisCompositionTest {
   }
 
   @Test
-  void givenBranchingSource_whenCliPublishesAndAstIsQueriedIndependently_thenBothConsumersPreserveExactGraphIdentity()
+  void givenBranchingSource_whenCliPublishesAndRetainedSourceIsRepublished_thenAllGraphsKeepTheirExactSourceIdentity()
       throws IOException {
     // Arrange
-    Files.writeString(directory.resolve("Sample.java"), BRANCHING);
+    Files.writeString(Files.createDirectory(directory.resolve("src")).resolve("Sample.java"), BRANCHING);
     var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
     var cliSource = new AstProductionRequest(directory, CONFIGURATION, AstProfile.JAVA_SOURCE_BOUNDED);
     var request = new AnalysisComputationRequest(cliSource, Optional.of(CfgSelection.allBodies(CFG)));
@@ -230,6 +232,7 @@ class PublicAnalysisCompositionTest {
     var runner = CliPublicationReporting.runner(NO_AST_STORAGE, runRepository(driver));
     var astWrite = new AstRepositoryDriverStub();
     var astRead = new AstRepositoryDriverStub();
+    var derivedWrite = AstRepositoryDriverStub.completedRuns();
     var output = new StringWriter();
     var error = new StringWriter();
 
@@ -245,9 +248,7 @@ class PublicAnalysisCompositionTest {
     astRead.stored = writtenAst(identity, astWrite);
     var lookup = AnalysisCapabilities.astQuery(astFactory(astRead)::openQuery).findAst(identity);
     var retainedAst = lookup.outcome().orElseThrow();
-    var method = methodKey(ast, "choose");
-    var rederived = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard())
-        .deriveExisting(retainedAst, new CfgRequest(identity, List.of(method), CFG));
+    var rederived = deriveAndSaveAllBodies(retainedAst, derivedWrite);
 
     // Assert
     assertEquals(CommandExitPolicy.EXIT_COMPLETED, invocation.exitCode());
@@ -268,7 +269,50 @@ class PublicAnalysisCompositionTest {
         CommitKnowledge.KNOWN_COMMIT);
     assertCompletedRunWrites(new Neo4jAnalysisRunMapper().map(saved.run()), driver.statements);
     assertTrue(driver.queries.stream().noneMatch(query -> query.contains(":AstEntity")));
-    var graphs = saved.run().representation().cfg().orElseThrow().methods().stream().map(outcome -> outcome.graph().orElseThrow()).toList();
+    assertCompletedRunGraphWrites(saved.run(), driver);
+    assertEquals(List.of("session.open:0", "session.close:0", "session.open:1", "write.begin", "callback.return",
+        "write.acknowledged", "session.close:1", "driver.close"), driver.events);
+    assertPublication(retained, PublicationIntent.SAVE_COMPLETE_AST, Optional.of(new Ast(identity)), PublicationStatus.SAVED,
+        CommitKnowledge.KNOWN_COMMIT);
+    assertEquals(AstLookupStatus.FOUND, lookup.status());
+    assertEquals(identity, lookup.requestedIdentity());
+    var original = ast.result().orElseThrow();
+    var restored = retainedAst.result().orElseThrow();
+    assertEquals(identity, restored.identity());
+    assertEquals(PublicAstObservation.describe(original), PublicAstObservation.describe(restored));
+    assertAstStatements(identity, astRead.statements, AST_RESULT_LOOKUP, AST_NODE_LOOKUP, AST_RELATIONSHIP_LOOKUP);
+    assertEquals("driver.close", astWrite.events.getLast());
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), astRead.events);
+    assertEquals(AnalysisCompletion.COMPLETE, rederived.completion());
+    assertSame(retainedAst, rederived.representation().ast());
+    assertEquals(AnalysisOperation.DERIVE_EXISTING, rederived.identity().operation());
+    assertEquals(new AvailableSource(identity), rederived.identity().source());
+    assertNotEquals(runKey, rederived.identity().key());
+    var restoredFile = restored.snapshot().sourceFiles().getFirst();
+    assertRestoredSourceWrites(derivedWrite, rederived.identity().key(), identity, restoredFile, restored.snapshot());
+    assertCompletedRunGraphWrites(rederived, derivedWrite);
+
+    var choose = methodKey(ast, "choose");
+    var fallback = methodKey(ast, "fallback");
+    var productionGraphs = graphIdentitiesByMethod(saved.run());
+    assertEquals(2, productionGraphs.size());
+    assertTrue(productionGraphs.keySet().containsAll(List.of(choose, fallback)));
+    assertEquals(productionGraphs, graphIdentitiesByMethod(rederived));
+    assertTrue(output.toString().lines().toList().containsAll(List.of(
+        "Completion: COMPLETE", "Method CFG: \"" + choose + "\" AVAILABLE", "Method CFG: \"" + fallback + "\" AVAILABLE",
+        "Repository: SAVED", "Publication subject: COMPLETED_RUN \"" + runKey + "\"",
+        "Commit knowledge: KNOWN_COMMIT")), output.toString());
+  }
+
+  private static Map<String, GraphIdentity> graphIdentitiesByMethod(AnalysisRun run) {
+    return run.representation().cfg().orElseThrow().methods().stream().map(method -> method.graph().orElseThrow())
+        .collect(Collectors.toMap(ControlFlowGraph::methodKey, ControlFlowGraph::identity));
+  }
+
+  private static void assertCompletedRunGraphWrites(AnalysisRun run, AstRepositoryDriverStub driver) {
+    var runKey = run.identity().key();
+    var astKey = run.representation().ast().result().orElseThrow().identity().astResultKey();
+    var graphs = run.representation().cfg().orElseThrow().methods().stream().map(outcome -> outcome.graph().orElseThrow()).toList();
     var expectedGraphs = graphs.stream().map(graph -> graph.graphId()).sorted().toList();
     assertEquals(2, expectedGraphs.size());
     var writtenGraphs = driver.statements.stream().filter(statement -> statement.query()
@@ -292,37 +336,25 @@ class PublicAnalysisCompositionTest {
         .collect(Collectors.toMap(statement -> statement.parameters().get("targetKey").asString(),
             statement -> methodKeysByAnalysis.get(statement.parameters().get("sourceKey").asString())));
     assertEquals(graphs.stream().collect(Collectors.toMap(graph -> graph.graphId(), graph -> graph.methodKey())), graphLinks);
-    assertEquals(List.of("session.open:0", "session.close:0", "session.open:1", "write.begin", "callback.return",
-        "write.acknowledged", "session.close:1", "driver.close"), driver.events);
-    assertPublication(retained, PublicationIntent.SAVE_COMPLETE_AST, Optional.of(new Ast(identity)), PublicationStatus.SAVED,
-        CommitKnowledge.KNOWN_COMMIT);
-    assertEquals(AstLookupStatus.FOUND, lookup.status());
-    assertEquals(identity, lookup.requestedIdentity());
-    assertEquals(identity, retainedAst.result().orElseThrow().identity());
-    assertEquals("driver.close", astWrite.events.getLast());
-    assertEquals("driver.close", astRead.events.getLast());
-    assertEquals(AnalysisCompletion.COMPLETE, rederived.completion());
-    var chosen = graphs.stream().filter(graph -> graph.methodKey().equals(method)).findFirst().orElseThrow();
-    assertEquals(chosen.identity(), rederived.representation().cfg().orElseThrow().methods().getFirst().graph().orElseThrow().identity());
-    assertTrue(output.toString().lines().toList().containsAll(List.of(
-        "Completion: COMPLETE", "Method CFG: \"" + method + "\" AVAILABLE",
-        "Repository: SAVED", "Publication subject: COMPLETED_RUN \"" + runKey + "\"",
-        "Commit knowledge: KNOWN_COMMIT")), output.toString());
   }
 
   @TestFactory
-  Stream<DynamicTest> retainedPathSyntaxCases() {
-    return Stream.of(
-        DynamicTest.dynamicTest("givenRetainedWindowsPaths_whenDerivedRunIsSaved_thenCanonicalSourceLinkIsWritten",
-            () -> assertRestoredSourcePublication("D:\\retained-source", "src\\Sample.java", "\\")),
-        DynamicTest.dynamicTest("givenRetainedPosixPaths_whenDerivedRunIsSaved_thenCanonicalSourceLinkIsWritten",
-            () -> assertRestoredSourcePublication("/retained-source", "src/Sample.java", "/")));
+  Stream<DynamicTest> givenCapturedPathSyntax_whenRetainedSourceIsRepublished_thenCanonicalSourceLinkIsWritten() {
+    // Arrange
+    var windows = DynamicTest.dynamicTest("givenCapturedWindowsPaths_whenRetainedSourceIsRepublished_thenCanonicalSourceLinkIsWritten",
+        () -> assertRestoredSourcePublication("D:\\retained-source", "src\\Sample.java", "\\"));
+    var posix = DynamicTest.dynamicTest("givenCapturedPosixPaths_whenRetainedSourceIsRepublished_thenCanonicalSourceLinkIsWritten",
+        () -> assertRestoredSourcePublication("/retained-source", "src/Sample.java", "/"));
+
+    // Act and assert in each case.
+    return Stream.of(windows, posix);
   }
 
   private static void assertRestoredSourcePublication(String rootText, String relativeText, String separator) {
     // Arrange
     var snapshot = SourceAnalysisFixture.capturedSnapshot(rootText, relativeText, BRANCHING);
     var production = new AstProductionRequest(snapshot, CONFIGURATION, PROFILE);
+    var astWrite = new AstRepositoryDriverStub();
     var astRead = new AstRepositoryDriverStub();
     var runWrite = AstRepositoryDriverStub.completedRuns();
 
@@ -330,20 +362,20 @@ class PublicAnalysisCompositionTest {
     var produced = JavaFrontends.standard().produce(production);
     var original = produced.result().orElseThrow();
     var identity = original.identity();
-    astRead.stored = new Neo4jAstResultCodec().map(produced);
+    astWrite.lockedAstSubject = identity.astResultKey();
+    var retention = AnalysisCapabilities.astRetention(astFactory(astWrite)::openRetention)
+        .retainAst(new AstPublicationRequest(produced, PublicationIntent.SAVE_COMPLETE_AST));
+    astRead.stored = writtenAst(identity, astWrite);
     var lookup = AnalysisCapabilities.astQuery(astFactory(astRead)::openQuery).findAst(identity);
     var restoredOutcome = lookup.outcome().orElseThrow();
     var restored = restoredOutcome.result().orElseThrow();
-    var bodies = restored.program().methods().stream().filter(JavaMethod::hasBody).toList();
-    var methodKeys = bodies.stream().map(JavaMethod::methodKey).toList();
-    var request = new CfgRequest(identity, methodKeys, CFG);
-    var derived = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(restoredOutcome, request);
+    var derived = deriveAndSaveAllBodies(restoredOutcome, runWrite);
     var runKey = derived.identity().key();
-    try (var repository = runRepository(runWrite).open(RepositoryOperationContext.saveCompletedRun(runKey))) {
-      repository.save(derived);
-    }
 
     // Assert
+    assertPublication(retention, PublicationIntent.SAVE_COMPLETE_AST, Optional.of(new Ast(identity)), PublicationStatus.SAVED,
+        CommitKnowledge.KNOWN_COMMIT);
+    assertEquals("driver.close", astWrite.events.getLast());
     assertEquals(AstLookupStatus.FOUND, lookup.status());
     assertEquals(identity, lookup.requestedIdentity());
     assertEquals(identity, restored.identity());
@@ -359,16 +391,31 @@ class PublicAnalysisCompositionTest {
         FileSystems.getDefault() == restoredFile.relativePath().getFileSystem());
     assertEquals(AnalysisOperation.DERIVE_EXISTING, derived.identity().operation());
     assertEquals(new AvailableSource(identity), derived.identity().source());
-    assertEquals(new ExistingSelection(request), derived.identity().selection());
     assertSame(restoredOutcome, derived.representation().ast());
-    assertEquals(List.of("choose", "fallback"), bodies.stream().map(JavaMethod::name).sorted().toList());
+    var methodKeys = List.of(methodKey(produced, "choose"), methodKey(produced, "fallback"));
+    var selection = assertInstanceOf(ExistingSelection.class, derived.identity().selection());
+    assertEquals(identity, selection.request().astIdentity());
+    assertEquals(CFG, selection.request().profile());
+    assertEquals(methodKeys.stream().sorted().toList(), selection.request().methodKeys().stream().sorted().toList());
     var graphs = derived.representation().cfg().orElseThrow().methods().stream().map(method -> method.graph().orElseThrow()).toList();
-    assertEquals(methodKeys, graphs.stream().map(graph -> graph.methodKey()).toList());
+    assertEquals(selection.request().methodKeys(), graphs.stream().map(graph -> graph.methodKey()).toList());
     assertTrue(graphs.stream().allMatch(graph -> identity.equals(graph.identity().astIdentity())));
     assertEquals(AnalysisCompletion.COMPLETE, derived.completion());
     assertTrue(derived.publicationEligibility().eligible(), () -> derived.publicationEligibility().toString());
     assertEquals(List.of(), derived.publicationEligibility().impediments());
     assertRestoredSourceWrites(runWrite, runKey, identity, restoredFile, restored.snapshot());
+    assertCompletedRunGraphWrites(derived, runWrite);
+  }
+
+  private static AnalysisRun deriveAndSaveAllBodies(AstOutcome outcome, AstRepositoryDriverStub write) {
+    var source = outcome.result().orElseThrow();
+    var methodKeys = source.program().methods().stream().filter(JavaMethod::hasBody).map(JavaMethod::methodKey).toList();
+    var request = new CfgRequest(source.identity(), methodKeys, CFG);
+    var derived = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(outcome, request);
+    try (var repository = runRepository(write).open(RepositoryOperationContext.saveCompletedRun(derived.identity().key()))) {
+      repository.save(derived);
+    }
+    return derived;
   }
 
   private static void assertRestoredSourceWrites(AstRepositoryDriverStub write, String runKey, AstIdentity identity, SourceFile restoredFile,
@@ -377,6 +424,7 @@ class PublicAnalysisCompositionTest {
     var snapshotDigest = "snapshot:f91ae7257014414eceb72643c2412969aa7df86a3dbd2a463b469e7d61477e1d";
     var snapshotKey = "input-snapshot:2b1a60735541a303bead7c54753a6c6836c5c7a73a0ca344bdd9318305305a0e";
     var relationshipKey = "relationship:63b062c4e164fdc371158d2d392d1c846e9f3a2c74da55a2ebd710014420bca4";
+    assertNotEquals(identity.astResultKey(), runKey);
     assertEquals(sourceKey, restoredFile.sourceFileKey());
     assertEquals(snapshotDigest, restoredSnapshot.snapshotDigest());
     var replacement = write.statements.getFirst();
