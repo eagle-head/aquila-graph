@@ -1,11 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
-import java.util.List;
 import java.util.Set;
-import org.aquilagraph.application.port.RepositoryException;
-import org.neo4j.driver.Record;
 
-/** Closed labels and inspected constraints for the independent AST namespace. */
+/** Closed labels and relationship types for the independent AST namespace. */
 final class Neo4jAstSchema {
   private static final Set<String> LABELS = Set.of("AstResult", "AstInput", "AstEnvironment", "AstSourceFile", "AstDeclaration",
       "AstOccurrence", "AstType", "AstAnnotationValue", "AstBody", "AstEvidence", "AstCoverage", "AstDiagnostic", "AstValue");
@@ -78,21 +75,5 @@ final class Neo4jAstSchema {
       case "diagnostics", "diagnosticEmissions" -> "HAS_AST_DIAGNOSTIC";
       default -> "AST_FIELD";
     };
-  }
-
-  static void requireConstraints(List<Record> definitions) {
-    requireConstraint(definitions, "ast_entity_identity", "AstEntity", List.of("astResultKey", "key"));
-    requireConstraint(definitions, "ast_result_identity", "AstResult", List.of("astResultKey"));
-  }
-
-  private static void requireConstraint(List<Record> definitions, String name, String label, List<String> properties) {
-    var named = definitions.stream().filter(definition -> name.equals(definition.get("name").asObject())).toList();
-    if (named.size() != 1 || !"NODE_PROPERTY_UNIQUENESS".equals(named.getFirst().get("type").asObject())
-        || !"NODE".equals(named.getFirst().get("entityType").asObject())
-        || !List.of(label).equals(named.getFirst().get("labelsOrTypes").asObject())
-        || !properties.equals(named.getFirst().get("properties").asObject())) {
-      throw new RepositoryException("Neo4j AST schema definition mismatch",
-          new IllegalStateException("Required AST node-property uniqueness constraint is missing or incompatible: " + name));
-    }
   }
 }

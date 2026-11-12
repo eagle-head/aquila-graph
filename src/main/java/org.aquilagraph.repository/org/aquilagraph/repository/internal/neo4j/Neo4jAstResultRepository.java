@@ -23,7 +23,6 @@ import org.aquilagraph.source.api.AstOutcome;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.Result;
-import org.neo4j.driver.Session;
 import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.TransactionContext;
 import org.neo4j.driver.Values;
@@ -91,7 +90,7 @@ final class Neo4jAstResultRepository implements AstRetentionRepository, AstQuery
     });
     operation.withSession(driver, sessionConfiguration, Neo4jRepositoryPhase.SCHEMA, Neo4jRepositoryPhase.SCHEMA_SESSION_CLOSE,
         session -> operation.driverWork(Neo4jRepositoryPhase.SCHEMA, () -> {
-          ensureSchema(session);
+          Neo4jIdentityConstraints.AST_RESULT.ensure(session);
           return null;
         }));
     operation.replace(driver, sessionConfiguration, session -> session.executeWrite(transaction -> {
@@ -135,18 +134,6 @@ final class Neo4jAstResultRepository implements AstRetentionRepository, AstQuery
       throw new IllegalArgumentException("An AST repository has one exact operation lifetime");
     }
     operationStarted = true;
-  }
-
-  private static void ensureSchema(Session session) {
-    session.run("CREATE CONSTRAINT ast_entity_identity IF NOT EXISTS FOR (entity:AstEntity) "
-        + "REQUIRE (entity.astResultKey, entity.key) IS UNIQUE").consume();
-    session.run("CREATE CONSTRAINT ast_result_identity IF NOT EXISTS FOR (result:AstResult) REQUIRE result.astResultKey IS UNIQUE")
-        .consume();
-    var definitions = session.run(
-        "SHOW CONSTRAINTS YIELD name, type, entityType, labelsOrTypes, properties "
-            + "WHERE name IN $names RETURN name, type, entityType, labelsOrTypes, properties",
-        Values.parameters("names", List.of("ast_entity_identity", "ast_result_identity"))).list();
-    Neo4jAstSchema.requireConstraints(definitions);
   }
 
   private static StoredRead read(TransactionContext transaction, AstIdentity identity) {

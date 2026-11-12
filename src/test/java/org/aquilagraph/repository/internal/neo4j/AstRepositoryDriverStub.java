@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 import org.neo4j.driver.Driver;
@@ -23,12 +24,15 @@ final class AstRepositoryDriverStub {
   final List<String> events = new ArrayList<>();
   final List<String> queries = new ArrayList<>();
   final List<Statement> statements = new ArrayList<>();
+  final List<Statement> schemaStatements = new ArrayList<>();
+  final List<String> completedSchemaStatements = new ArrayList<>();
   final List<SessionConfig> sessionConfigurations = new ArrayList<>();
   private final List<Record> constraints;
   private int sessions;
   int attempts = 1;
   int failingClose = -1;
   RuntimeException schemaFailure;
+  Consumer<String> onSchemaResult = ignored -> {};
   RuntimeException readFailure;
   RuntimeException writeFailure;
   RuntimeException closeFailure;
@@ -49,8 +53,8 @@ final class AstRepositoryDriverStub {
         constraint("ast_result_identity", "AstResult", List.of("astResultKey"))));
   }
 
-  private AstRepositoryDriverStub(List<Record> constraints) {
-    this.constraints = constraints;
+  AstRepositoryDriverStub(List<Record> constraints) {
+    this.constraints = List.copyOf(constraints);
   }
 
   static AstRepositoryDriverStub completedRuns() {
@@ -82,8 +86,9 @@ final class AstRepositoryDriverStub {
       case "run" -> {
         var query = (String) arguments[0];
         queries.add(query);
+        schemaStatements.add(new Statement(query, arguments.length > 1 ? Values.value(arguments[1]) : Values.value(Map.of())));
         if (schemaFailure != null) { throw schemaFailure; }
-        yield result(query.startsWith("SHOW CONSTRAINTS") ? constraints : List.of());
+        yield schemaResult(query);
       }
       case "executeWrite" -> {
         events.add("write.begin");
@@ -103,6 +108,22 @@ final class AstRepositoryDriverStub {
         yield null;
       }
       default -> throw new AssertionError("Unexpected session operation: " + method.getName());
+    });
+  }
+
+  private Result schemaResult(String query) {
+    return proxy(Result.class, (ignored, method, arguments) -> {
+      if (query.startsWith("SHOW CONSTRAINTS") && method.getName().equals("list")) {
+        onSchemaResult.accept(query);
+        completedSchemaStatements.add(query);
+        return constraints;
+      }
+      if (query.startsWith("CREATE CONSTRAINT") && method.getName().equals("consume")) {
+        onSchemaResult.accept(query);
+        completedSchemaStatements.add(query);
+        return null;
+      }
+      throw new AssertionError("Unexpected schema result operation: " + method.getName() + " for " + query);
     });
   }
 
@@ -178,7 +199,7 @@ final class AstRepositoryDriverStub {
     });
   }
 
-  private static Record record(Map<String, Object> properties) {
+  static Record record(Map<String, Object> properties) {
     return proxy(Record.class, (ignored, method, arguments) -> switch (method.getName()) {
       case "get" -> {
         var value = properties.get((String) arguments[0]);
