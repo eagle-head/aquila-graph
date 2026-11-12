@@ -1,13 +1,17 @@
 package org.aquilagraph.repository.internal.neo4j;
 
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import org.aquilagraph.repository.internal.neo4j.Neo4jAstReconciliation.RelationshipDecision;
+import org.aquilagraph.repository.internal.neo4j.Neo4jAstReconciliation.RemoveNode;
+import org.aquilagraph.repository.internal.neo4j.Neo4jAstReconciliation.ReplaceNode;
+import org.aquilagraph.repository.internal.neo4j.Neo4jAstReconciliation.RetainNode;
+import org.aquilagraph.repository.internal.neo4j.Neo4jAstReconciliation.StoredNode;
+import org.aquilagraph.repository.internal.neo4j.Neo4jAstReconciliation.StoredRelationship;
 import org.neo4j.driver.TransactionContext;
 import org.neo4j.driver.Values;
 
@@ -19,7 +23,6 @@ final class Neo4jAstMaterialization {
   private final TransactionContext transaction;
   private final Neo4jAstProjection projection;
   private final String scope;
-  private final Map<String, String> nodeAddresses = new HashMap<>();
 
   private Neo4jAstMaterialization(TransactionContext transaction, Neo4jAstProjection projection) {
     this.transaction = transaction;
@@ -32,36 +35,30 @@ final class Neo4jAstMaterialization {
   }
 
   private void replace() {
-    // Addresses are collected anew for each attempt and never become persisted identities.
     transaction.run("MERGE (subject:AstEntity {astResultKey: $scope, key: $scope}) SET subject.key = subject.key",
         Values.parameters("scope", scope)).consume();
-    reconcileNodes();
-    reconcileRelationships();
+    var reconciliation = new Neo4jAstReconciliation(projection);
+    reconcileNodes(reconciliation);
+    reconcileRelationships(reconciliation);
   }
 
-  private void reconcileNodes() {
-    var missing = new LinkedHashMap<String, Neo4jNode>();
-    projection.nodes().forEach(node -> missing.put(node.key(), node));
+  private void reconcileNodes(Neo4jAstReconciliation reconciliation) {
     var obsolete = new ArrayList<String>();
-    var changed = new ArrayList<NodeChange>();
+    var changed = new ArrayList<ReplaceNode>();
     try (var records = transaction
         .run("MATCH (entity:AstEntity {astResultKey: $scope}) "
             + "RETURN elementId(entity) AS address, labels(entity) AS labels, properties(entity) AS properties, "
             + "CASE WHEN entity.key IS :: STRING NOT NULL THEN entity.key ELSE null END AS key", Values.parameters("scope", scope))
         .stream()) {
       records.forEach(record -> {
-        var address = record.get(ADDRESS_FIELD).asString();
-        var expected = missing.remove(record.get("key").asString(null));
-        if (expected == null) {
-          obsolete.add(address);
-          return;
-        }
-        nodeAddresses.put(expected.key(), address);
-        var labels = record.get("labels").asList(value -> value.asString());
-        if (!record.get(PROPERTIES_FIELD).asMap().equals(expected.properties()) || labels.size() != 2
-            || !labels.contains(expected.label())) {
-          var extra = labels.stream().filter(label -> !"AstEntity".equals(label) && !label.equals(expected.label())).toList();
-          changed.add(new NodeChange(address, expected, extra));
+        var stored = new StoredNode(record.get(ADDRESS_FIELD).asString(), record.get("key").asString(null),
+            record.get("labels").asList(value -> value.asString()), record.get(PROPERTIES_FIELD).asMap());
+        switch (reconciliation.observeNode(stored)) {
+          case RetainNode _ -> {
+            // The address is already available for relationship reconciliation.
+          }
+          case RemoveNode removal -> obsolete.add(removal.address());
+          case ReplaceNode replacement -> changed.add(replacement);
         }
       });
     }
@@ -81,20 +78,17 @@ final class Neo4jAstMaterialization {
                 Values.parameters("nodes", batch.stream()
                     .map(change -> Map.of(ADDRESS_FIELD, change.address(), PROPERTIES_FIELD, change.expected().properties())).toList()))
             .consume()));
-    groups(new ArrayList<>(missing.values()), Neo4jNode::label).forEach((label, nodes) -> batches(nodes, batch -> {
+    groups(reconciliation.missingNodes(), Neo4jNode::label).forEach((label, nodes) -> batches(nodes, batch -> {
       try (var records = transaction.run(
           "UNWIND $nodes AS expected CREATE (entity:AstEntity:`" + label + "`) SET entity = expected "
               + "RETURN entity.key AS key, elementId(entity) AS address",
           Values.parameters("nodes", batch.stream().map(Neo4jNode::properties).toList())).stream()) {
-        records.forEach(record -> nodeAddresses.put(record.get("key").asString(), record.get(ADDRESS_FIELD).asString()));
+        records.forEach(record -> reconciliation.recordInsertedNode(record.get("key").asString(), record.get(ADDRESS_FIELD).asString()));
       }
     }));
   }
 
-  private void reconcileRelationships() {
-    var expected = new HashMap<String, Neo4jRelationship>();
-    projection.relationships().forEach(relationship -> expected.put(relationship.key(), relationship));
-    var retained = new HashSet<String>();
+  private void reconcileRelationships(Neo4jAstReconciliation reconciliation) {
     var obsolete = new ArrayList<String>();
     try (var records = transaction
         .run("MATCH (source)-[relation]->(target) "
@@ -105,12 +99,11 @@ final class Neo4jAstMaterialization {
             + "CASE WHEN relation.key IS :: STRING NOT NULL THEN relation.key ELSE null END AS key", Values.parameters("scope", scope))
         .stream()) {
       records.forEach(record -> {
-        var relationship = expected.get(record.get("key").asString(null));
-        if (relationship == null || !record.get("type").asString().equals(relationship.type())
-            || !record.get(PROPERTIES_FIELD).asMap().equals(relationship.properties())
-            || !record.get("source").asString().equals(nodeAddresses.get(relationship.sourceKey()))
-            || !record.get("target").asString().equals(nodeAddresses.get(relationship.targetKey())) || !retained.add(relationship.key())) {
-          obsolete.add(record.get(ADDRESS_FIELD).asString());
+        var stored = new StoredRelationship(record.get(ADDRESS_FIELD).asString(), record.get("key").asString(null),
+            record.get("type").asString(), record.get("source").asString(), record.get("target").asString(),
+            record.get(PROPERTIES_FIELD).asMap());
+        if (reconciliation.observeRelationship(stored) == RelationshipDecision.REMOVE) {
+          obsolete.add(stored.address());
         }
       });
     }
@@ -118,8 +111,7 @@ final class Neo4jAstMaterialization {
         batch -> transaction
             .run("MATCH ()-[relation]->() WHERE elementId(relation) IN $addresses DELETE relation", Values.parameters("addresses", batch))
             .consume());
-    var missing = projection.relationships().stream().filter(relationship -> !retained.contains(relationship.key())).toList();
-    groups(missing, Neo4jRelationship::type).forEach((type, relationships) -> batches(relationships,
+    groups(reconciliation.missingRelationships(), Neo4jRelationship::type).forEach((type, relationships) -> batches(relationships,
         batch -> transaction
             .run(
                 "UNWIND $relationships AS item MATCH (source), (target) "
@@ -127,8 +119,8 @@ final class Neo4jAstMaterialization {
                     + "`]->(target) SET relation = item.properties",
                 Values.parameters("relationships",
                     batch.stream()
-                        .map(relationship -> Map.of("source", nodeAddresses.get(relationship.sourceKey()), "target",
-                            nodeAddresses.get(relationship.targetKey()), PROPERTIES_FIELD, relationship.properties()))
+                        .map(relationship -> Map.of("source", reconciliation.nodeAddress(relationship.sourceKey()), "target",
+                            reconciliation.nodeAddress(relationship.targetKey()), PROPERTIES_FIELD, relationship.properties()))
                         .toList()))
             .consume()));
   }
@@ -146,6 +138,4 @@ final class Neo4jAstMaterialization {
     }
   }
 
-  private record NodeChange(String address, Neo4jNode expected, List<String> extraLabels) {
-  }
 }

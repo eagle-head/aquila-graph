@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
@@ -39,6 +40,7 @@ final class AstRepositoryDriverStub {
   RuntimeException driverCloseFailure;
   RuntimeException nodeStreamFailure;
   RuntimeException relationshipStreamFailure;
+  BiFunction<Integer, Statement, Result> replacementResult;
   boolean malformedNodeRecords;
   String version = "absent";
   String lockedAstSubject;
@@ -94,14 +96,14 @@ final class AstRepositoryDriverStub {
         events.add("write.begin");
         var callback = (TransactionCallback<?>) arguments[0];
         for (var attempt = 0; attempt < attempts; attempt++) {
-          callback.execute(transaction());
+          callback.execute(transaction(attempt));
           events.add("callback.return");
         }
         if (writeFailure != null) { throw writeFailure; }
         events.add("write.acknowledged");
         yield null;
       }
-      case "executeRead" -> ((TransactionCallback<?>) arguments[0]).execute(transaction());
+      case "executeRead" -> ((TransactionCallback<?>) arguments[0]).execute(transaction(0));
       case "close" -> {
         events.add("session.close:" + ordinal);
         if (ordinal == failingClose) { throw closeFailure; }
@@ -127,12 +129,16 @@ final class AstRepositoryDriverStub {
     });
   }
 
-  private TransactionContext transaction() {
+  private TransactionContext transaction(int attempt) {
     return proxy(TransactionContext.class, (ignored, method, arguments) -> {
       if (!method.getName().equals("run")) { throw new AssertionError(method.getName()); }
       var query = (String) arguments[0];
       queries.add(query);
-      statements.add(new Statement(query, arguments.length > 1 ? Values.value(arguments[1]) : Values.value(Map.of())));
+      var statement = new Statement(query, arguments.length > 1 ? Values.value(arguments[1]) : Values.value(Map.of()));
+      statements.add(statement);
+      if (replacementResult != null) {
+        return replacementResult.apply(attempt, statement);
+      }
       if (query.contains("RETURN properties(result)") && readFailure != null) { throw readFailure; }
       var rows = query.contains("RETURN properties(result)") && !version.equals("absent")
           ? List.of(record(Map.of("properties", Map.of("formatVersion", version)))) : List.<Record>of();
@@ -185,11 +191,21 @@ final class AstRepositoryDriverStub {
   }
 
   private static Result result(List<Record> records, RuntimeException streamFailure) {
+    return observedResult(records, streamFailure, () -> {});
+  }
+
+  static Result observedResult(List<Record> records, RuntimeException streamFailure, Runnable onCompletion) {
     return proxy(Result.class, (ignored, method, arguments) -> switch (method.getName()) {
-      case "consume" -> null;
-      case "stream" -> streamFailure == null ? records.stream() : Stream.concat(records.stream(), Stream.<Record>generate(() -> {
-        throw streamFailure;
-      }).limit(1));
+      case "consume" -> {
+        onCompletion.run();
+        yield null;
+      }
+      case "stream" -> {
+        var stream = streamFailure == null ? records.stream() : Stream.concat(records.stream(), Stream.<Record>generate(() -> {
+          throw streamFailure;
+        }).limit(1));
+        yield stream.onClose(onCompletion);
+      }
       case "single" -> records.getFirst();
       case "list" -> {
         if (arguments != null && arguments.length != 0) { throw new AssertionError("Unexpected mapped result"); }
