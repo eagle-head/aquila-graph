@@ -13,6 +13,7 @@ import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 import org.aquilagraph.repository.neo4j.Neo4jRepositories;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -479,6 +480,64 @@ class Neo4jAnalysisRunRepositoryTest {
     assertEquals(new Neo4jAnalysisRunMapper().map(run).nodes().size() + new Neo4jAnalysisRunMapper().map(run).relationships().size() + 1,
         backend.attempts.getFirst().size());
     assertEquals(List.of("schema.close", "publication.close", "driver.close"), backend.effects);
+  }
+
+  @Test
+  void givenLegacySourceKeyFixture_whenRunIsRepublished_thenExactRunWriteContainsOnlyCanonicalSourceLink() {
+    // Arrange
+    var legacyPath = "src\\Example.java";
+    var content = "interface Example {}";
+    var run = RepositoryTestRuns.analyze(temporaryDirectory, legacyPath, content);
+    var unrelated = RepositoryTestRuns.analyze(temporaryDirectory, "Other.java", "interface Other {}");
+    var context = RepositoryOperationContext.saveCompletedRun(run.identity().key());
+    var closeSignal = new Neo4jException("Driver close failed after acknowledged replacement");
+    var backend = new DriverDouble();
+    backend.driverCloseFailure = closeSignal;
+    var factory = Neo4jAnalysisRunRepository.factory(Neo4jAnalysisRunRepositoryTest::settings, (uri, auth) -> backend.driver());
+    var repository = factory.open(RepositoryOperationContext.saveCompletedRun(unrelated.identity().key()));
+    // Fixed framed hashes for the literal fixture paths, content, and relationship endpoints.
+    var sourceKey = "source:0928446aa266c820dd6732f0b67f724633083148e282c69a847bcfcf111b29dc";
+    var snapshotKey = "input-snapshot:c9407580583646e23f6934b319529b3737cbae478e0ba48e6e0081dff2ef3616";
+    var canonicalKey = "relationship:9c308abf2f47c5577d1564c2b05d057ac0258431169e96dbfa9a79afb4ccda02";
+    var legacyKey = "relationship:dba5e1100548d7ff9df4ceba73407fe21dc472e5a00fb18b20ebf04102b10a18";
+    var delete = "MATCH (entity:AnalysisEntity {runId: $runId}) DETACH DELETE entity";
+
+    // Act
+    repository.save(unrelated);
+    repository.save(run);
+    var close = assertThrows(Neo4jRepositoryOperationException.class, repository::close);
+
+    // Assert
+    assertEquals(legacyPath, run.representation().ast().result().orElseThrow().snapshot().sourceFiles().getFirst().relativePath().toString());
+    assertEquals(context, close.context());
+    assertEquals(Neo4jRepositoryPhase.REPOSITORY_CLOSE, close.phase());
+    assertEquals(Optional.of(CommitKnowledge.KNOWN_COMMIT), close.knowledge());
+    assertSame(closeSignal, close.effectivePrimary().getCause());
+    assertEquals(List.of("schema.close", "publication.close", "schema.close", "publication.close", "driver.close"), backend.effects);
+    assertEquals(2, backend.attempts.size());
+    assertEquals(new StatementCall(delete, Map.of("runId", unrelated.identity().key())), backend.attempts.getFirst().getFirst());
+    var replacement = backend.attempts.getLast();
+    var exactRunDeletion = new StatementCall(delete, Map.of("runId", run.identity().key()));
+    assertEquals(exactRunDeletion, replacement.getFirst());
+    assertEquals(List.of(exactRunDeletion), replacement.stream().filter(call -> call.statement().contains("DELETE")).toList());
+
+    var sourceWrite = replacement.stream().filter(call -> call.statement().contains("`SourceFile`")).toList();
+    assertEquals(1, sourceWrite.size());
+    var sourceProperties = assertInstanceOf(Map.class, assertInstanceOf(Map.class, sourceWrite.getFirst().parameters()).get("properties"));
+    assertEquals("src/Example.java", sourceProperties.get("relativePath"));
+    assertEquals(sourceKey, sourceProperties.get("key"));
+    assertEquals(run.identity().key(), sourceProperties.get("runId"));
+
+    var links = replacement.stream().filter(call -> call.statement().contains("`HAS_SOURCE`")).toList();
+    assertEquals(1, links.size());
+    var link = links.getFirst();
+    assertTrue(replacement.indexOf(link) > replacement.indexOf(sourceWrite.getFirst()));
+    assertTrue(link.statement().contains("(source:AnalysisEntity {runId: $runId, key: $sourceKey})"));
+    assertTrue(link.statement().contains("(target:AnalysisEntity {runId: $runId, key: $targetKey})"));
+    assertEquals(Map.of("runId", run.identity().key(), "sourceKey", snapshotKey, "targetKey", sourceKey, "properties",
+        Map.of("runId", run.identity().key(), "key", canonicalKey)), link.parameters());
+    var linkProperties = assertInstanceOf(Map.class, assertInstanceOf(Map.class, link.parameters()).get("properties"));
+    assertNotEquals(legacyKey, linkProperties.get("key"));
   }
 
   @Test

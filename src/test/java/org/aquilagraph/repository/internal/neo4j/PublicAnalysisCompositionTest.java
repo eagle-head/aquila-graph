@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.net.URI;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -83,7 +84,9 @@ import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.internal.SourceAnalysisFixture;
 import org.aquilagraph.source.retention.AstCodec;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
@@ -305,6 +308,97 @@ class PublicAnalysisCompositionTest {
         "Completion: COMPLETE", "Method CFG: \"" + method + "\" AVAILABLE",
         "Repository: SAVED", "Publication subject: COMPLETED_RUN \"" + runKey + "\"",
         "Commit knowledge: KNOWN_COMMIT")), output.toString());
+  }
+
+  @TestFactory
+  Stream<DynamicTest> retainedPathSyntaxCases() {
+    return Stream.of(
+        DynamicTest.dynamicTest("givenRetainedWindowsPaths_whenDerivedRunIsSaved_thenCanonicalSourceLinkIsWritten",
+            () -> assertRestoredSourcePublication("D:\\retained-source", "src\\Sample.java", "\\")),
+        DynamicTest.dynamicTest("givenRetainedPosixPaths_whenDerivedRunIsSaved_thenCanonicalSourceLinkIsWritten",
+            () -> assertRestoredSourcePublication("/retained-source", "src/Sample.java", "/")));
+  }
+
+  private static void assertRestoredSourcePublication(String rootText, String relativeText, String separator) {
+    // Arrange
+    var snapshot = SourceAnalysisFixture.capturedSnapshot(rootText, relativeText, BRANCHING);
+    var production = new AstProductionRequest(snapshot, CONFIGURATION, PROFILE);
+    var astRead = new AstRepositoryDriverStub();
+    var runWrite = AstRepositoryDriverStub.completedRuns();
+
+    // Act
+    var produced = JavaFrontends.standard().produce(production);
+    var original = produced.result().orElseThrow();
+    var identity = original.identity();
+    astRead.stored = new Neo4jAstResultCodec().map(produced);
+    var lookup = AnalysisCapabilities.astQuery(astFactory(astRead)::openQuery).findAst(identity);
+    var restoredOutcome = lookup.outcome().orElseThrow();
+    var restored = restoredOutcome.result().orElseThrow();
+    var bodies = restored.program().methods().stream().filter(JavaMethod::hasBody).toList();
+    var methodKeys = bodies.stream().map(JavaMethod::methodKey).toList();
+    var request = new CfgRequest(identity, methodKeys, CFG);
+    var derived = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(restoredOutcome, request);
+    var runKey = derived.identity().key();
+    try (var repository = runRepository(runWrite).open(RepositoryOperationContext.saveCompletedRun(runKey))) {
+      repository.save(derived);
+    }
+
+    // Assert
+    assertEquals(AstLookupStatus.FOUND, lookup.status());
+    assertEquals(identity, lookup.requestedIdentity());
+    assertEquals(identity, restored.identity());
+    assertArrayEquals(AstCodec.encode(original), AstCodec.encode(restored));
+    assertAstStatements(identity, astRead.statements, AST_RESULT_LOOKUP, AST_NODE_LOOKUP, AST_RELATIONSHIP_LOOKUP);
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), astRead.events);
+    var restoredRoot = restored.snapshot().sourceRoot();
+    var restoredFile = restored.snapshot().sourceFiles().getFirst();
+    assertEquals(rootText, restoredRoot.toString());
+    assertEquals(relativeText, restoredFile.relativePath().toString());
+    assertEquals(separator, restoredFile.relativePath().getFileSystem().getSeparator());
+    assertEquals(separator.equals(FileSystems.getDefault().getSeparator()),
+        FileSystems.getDefault() == restoredFile.relativePath().getFileSystem());
+    assertEquals(AnalysisOperation.DERIVE_EXISTING, derived.identity().operation());
+    assertEquals(new AvailableSource(identity), derived.identity().source());
+    assertEquals(new ExistingSelection(request), derived.identity().selection());
+    assertSame(restoredOutcome, derived.representation().ast());
+    assertEquals(List.of("choose", "fallback"), bodies.stream().map(JavaMethod::name).sorted().toList());
+    var graphs = derived.representation().cfg().orElseThrow().methods().stream().map(method -> method.graph().orElseThrow()).toList();
+    assertEquals(methodKeys, graphs.stream().map(graph -> graph.methodKey()).toList());
+    assertTrue(graphs.stream().allMatch(graph -> identity.equals(graph.identity().astIdentity())));
+    assertEquals(AnalysisCompletion.COMPLETE, derived.completion());
+    assertTrue(derived.publicationEligibility().eligible(), () -> derived.publicationEligibility().toString());
+    assertEquals(List.of(), derived.publicationEligibility().impediments());
+    assertRestoredSourceWrites(runWrite, runKey, identity, restoredFile, restored.snapshot());
+  }
+
+  private static void assertRestoredSourceWrites(AstRepositoryDriverStub write, String runKey, AstIdentity identity, SourceFile restoredFile,
+      InputSnapshot restoredSnapshot) {
+    var sourceKey = "source:aeb17382db57c703c3a1eb653d92ba2288ed4a4b8680c22d250b6a1654be25a5";
+    var snapshotDigest = "snapshot:f91ae7257014414eceb72643c2412969aa7df86a3dbd2a463b469e7d61477e1d";
+    var snapshotKey = "input-snapshot:2b1a60735541a303bead7c54753a6c6836c5c7a73a0ca344bdd9318305305a0e";
+    var relationshipKey = "relationship:63b062c4e164fdc371158d2d392d1c846e9f3a2c74da55a2ebd710014420bca4";
+    assertEquals(sourceKey, restoredFile.sourceFileKey());
+    assertEquals(snapshotDigest, restoredSnapshot.snapshotDigest());
+    var replacement = write.statements.getFirst();
+    assertEquals("MATCH (entity:AnalysisEntity {runId: $runId}) DETACH DELETE entity", replacement.query());
+    assertEquals(Map.of("runId", runKey), replacement.parameters().asMap());
+    var runRows = writtenRunNodes(write, "AnalysisRun");
+    assertEquals(List.of(Map.of("runId", runKey, "key", runKey, "completion", "COMPLETE", "astResultKey", identity.astResultKey(),
+        "operation", "DERIVE_EXISTING")), runRows);
+    var sourceRows = writtenRunNodes(write, "SourceFile");
+    assertEquals(List.of(Map.of("runId", runKey, "key", sourceKey, "relativePath", "src/Sample.java", "content", BRANCHING,
+        "contentDigest", "3aecd0e71434b7e56c6c3d716232bbfaac13617bab606c410857c771987bce57")), sourceRows);
+    var links = write.statements.stream().filter(statement -> statement.query().startsWith(RUN_RELATIONSHIP_SCOPE + "`HAS_SOURCE`]"))
+        .map(statement -> statement.parameters().asMap()).toList();
+    assertEquals(List.of(Map.of("runId", runKey, "sourceKey", snapshotKey, "targetKey", sourceKey,
+        "properties", Map.of("runId", runKey, "key", relationshipKey))), links);
+    assertEquals(List.of("session.open:0", "session.close:0", "session.open:1", "write.begin", "callback.return",
+        "write.acknowledged", "session.close:1", "driver.close"), write.events);
+  }
+
+  private static List<Map<String, Object>> writtenRunNodes(AstRepositoryDriverStub write, String label) {
+    return write.statements.stream().filter(statement -> statement.query().equals(RUN_NODE_CREATE + label + "`) SET entity = $properties"))
+        .map(statement -> statement.parameters().get("properties").asMap()).toList();
   }
 
   @Test

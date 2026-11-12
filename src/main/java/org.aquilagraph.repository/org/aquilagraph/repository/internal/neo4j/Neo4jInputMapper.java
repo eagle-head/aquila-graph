@@ -11,9 +11,10 @@ final class Neo4jInputMapper {
         snapshot.digestAlgorithm(), "snapshotDigest", snapshot.snapshotDigest());
     projection.relate("HAS_INPUT", runId, snapshotKey, "input");
     for (var sourceFile : snapshot.sourceFiles()) {
-      projection.node("SourceFile", sourceFile.sourceFileKey(), "relativePath", sourceFile.relativePath().toString().replace('\\', '/'),
-          "contentDigest", sourceFile.contentDigest(), "content", sourceFile.content());
-      projection.relate("HAS_SOURCE", snapshotKey, sourceFile.sourceFileKey(), sourceFile.relativePath().toString());
+      var relativePath = sourceFile.canonicalRelativePath();
+      projection.node("SourceFile", sourceFile.sourceFileKey(), "relativePath", relativePath, "contentDigest", sourceFile.contentDigest(),
+          "content", sourceFile.content());
+      projection.relate("HAS_SOURCE", snapshotKey, sourceFile.sourceFileKey(), relativePath);
     }
   }
 }
