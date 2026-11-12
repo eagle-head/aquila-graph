@@ -268,10 +268,12 @@ class Neo4jStoredSurfaceContractTest {
     expected.node("InputSnapshot", inputKey, properties("sourceRoot", snapshot.sourceRoot().toString(), "digestAlgorithm", "SHA-256",
         "snapshotDigest", snapshot.snapshotDigest()));
     expected.edge("HAS_INPUT", version.signature(), inputKey, "input");
+    var canonicalPaths = Map.of(Path.of("a", "Support.java"), "a/Support.java", Path.of("z", "Owner.java"), "z/Owner.java");
     for (var file : snapshot.sourceFiles()) {
-      expected.node("SourceFile", file.sourceFileKey(), properties("relativePath", file.canonicalRelativePath(), "contentDigest",
+      var canonicalPath = canonicalPaths.get(file.relativePath());
+      expected.node("SourceFile", file.sourceFileKey(), properties("relativePath", canonicalPath, "contentDigest",
           file.contentDigest(), "content", file.content()));
-      expected.edge("HAS_SOURCE", inputKey, file.sourceFileKey(), file.relativePath().toString());
+      expected.edge("HAS_SOURCE", inputKey, file.sourceFileKey(), canonicalPath);
     }
     var environmentKey = environment.environmentDigest();
     var environmentProperties = properties("digestAlgorithm", environment.digestAlgorithm(),

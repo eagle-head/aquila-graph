@@ -13,7 +13,10 @@ import org.aquilagraph.source.admission.CoverageAdmission;
 import java.util.Optional;
 import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
 import org.aquilagraph.identity.api.DependencySnapshot;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.SourceFile;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Locale;
@@ -45,11 +48,20 @@ import org.aquilagraph.source.api.LanguageFeatureObservation;
 import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 import org.aquilagraph.source.api.SourceCoverageInventory;
 import org.aquilagraph.source.api.AttributedCoverageExpectations;
+import org.aquilagraph.source.internal.CapturedPaths.Role;
 
 /** Admits copied frontend facts and drives native source and graph coordination. */
 public final class SourceAnalysisFixture {
   /** Creates a fixture using standard source admission and CFG ports. */
   public SourceAnalysisFixture() {}
+
+  /** Builds a source snapshot from captured path text without accessing that location. */
+  public static InputSnapshot capturedSnapshot(String rootText, String relativeText, String content) {
+    var paths = new CapturedPaths();
+    var root = paths.read(rootText, Role.ABSOLUTE, null);
+    var relativePath = paths.read(relativeText, Role.RELATIVE, paths.syntax(root));
+    return InputSnapshot.fromSources(root, List.of(SourceFile.fromContent(relativePath, content)));
+  }
 
   /**
    * Builds explicitly supplied historical constructor values for format-specific controls.
