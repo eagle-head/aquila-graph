@@ -176,12 +176,15 @@ final class JavaUnitSourceProjector {
           var element = semantics.element(getCurrentPath());
           var key = element instanceof ExecutableElement ? semantics.declarationKey(element) : Optional.<String>empty();
           if (method.getBody() != null && key.isPresent() && !bodyCorrelation.hasBody(key.orElseThrow())) {
+            var methodKey = key.orElseThrow();
+            var owner = Optional.ofNullable(element.getEnclosingElement()).flatMap(semantics::declarationKey).map(typesByKey::get);
+            var canonical = JavaBodySourceCorrelation.requireCanonicalMethod(owner.orElse(null), methodKey);
             var translator = new JavaMethodBodyTranslator(semantics, sourceEvidence, treeInventory,
                 JavaExecutableProjectionContext.remainingAttributedBody(policy));
-            var translated = translator.translate(unit, sourceFile, key.orElseThrow(), method.getBody(),
+            var translated = translator.translate(unit, sourceFile, methodKey, method.getBody(),
                 new TreePath(getCurrentPath(), method.getBody()), element.getKind() == ElementKind.CONSTRUCTOR,
                 semantics.isImplicitDeclaration(getCurrentPath()));
-            bodyCorrelation.addBody(translated.value());
+            bodyCorrelation.register(unit, sourceFile, translated.value(), canonical);
             diagnostics.include(translated.emissions());
           }
           return super.visitMethod(method, null);

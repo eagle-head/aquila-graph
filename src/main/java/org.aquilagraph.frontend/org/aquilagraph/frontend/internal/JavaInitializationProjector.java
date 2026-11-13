@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import javax.lang.model.element.ElementKind;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.api.AttributedBodyOccurrence;
@@ -52,16 +53,28 @@ final class JavaInitializationProjector {
   Optional<Initialization> fieldChildren(CompilationUnitTree unit, SourceFile sourceFile, TreePath fieldPath, VariableTree declaration,
       SyntaxValue.VariableDeclaration value, SyntaxStructuralPath path, DiagnosticEmissionCollector diagnostics,
       JavaExecutableProjectionContext.DeclarationProjection nestedDeclarations) {
+    treeInventory.requireSource(unit, sourceFile);
+    var parent = fieldPath.getParentPath();
+    var element = semantics.element(fieldPath);
+    var kind = value.kind() == SyntaxValue.VariableDeclaration.Kind.ENUM_CONSTANT ? ElementKind.ENUM_CONSTANT : ElementKind.FIELD;
+    if (!JavaProjectionIdentity.sameInstance(unit, fieldPath.getCompilationUnit())
+        || !JavaProjectionIdentity.sameInstance(declaration, fieldPath.getLeaf())
+        || !JavaProjectionIdentity.sameTreePath(TreePath.getPath(unit, declaration), fieldPath) || element == null
+        || element.getKind() != kind || parent == null || !semantics.declarationKey(element).equals(Optional.of(value.declarationKey()))
+        || !semantics.declarationKey(semantics.element(parent)).equals(Optional.of(value.ownerKey()))) {
+      throw new IllegalArgumentException("Field initialization requires its exact attributed declaration and compiler path");
+    }
     var initializer = declaration.getInitializer();
     if (policy.supportsEnumInitialization() && value.kind() == SyntaxValue.VariableDeclaration.Kind.ENUM_CONSTANT
         && initializer instanceof NewClassTree creation) {
       return enumChildren(unit, sourceFile, fieldPath, creation, value, path, diagnostics, nestedDeclarations);
     }
     if (!policy.supportsMemberInitialization() || value.kind() == SyntaxValue.VariableDeclaration.Kind.ENUM_CONSTANT) {
-      return Optional.of(new Initialization(List.of(), NoRegistration.INSTANCE));
+      return Optional.of(new Initialization(List.of(), Optional.empty(), NoRegistration.INSTANCE));
     }
+    var target = new DeclarationTarget(sourceFile, fieldPath, path, value);
     if (initializer == null) {
-      return Optional.of(new Initialization(List.of(),
+      return Optional.of(new Initialization(List.of(), Optional.of(target),
           new FieldRegistration(value, fieldPath, Optional.empty(), new JavaBodyDecisions(List.of(), List.of(), List.of(), List.of()))));
     }
     var projection = executableProjection(unit, sourceFile, value.declarationKey(), initializer, new TreePath(fieldPath, initializer),
@@ -69,16 +82,53 @@ final class JavaInitializationProjector {
     var decisions = new JavaBodyDecisionProducer(semantics).produce(projection);
     diagnostics.include(decisions.emissions());
     var copied = bodyCorrelation.projectExecutable(projection, path.child(SyntaxRole.INITIALIZER, 0), diagnostics);
-    return copied.map(node -> new Initialization(List.of(new SyntaxChild(SyntaxRole.INITIALIZER, 0, node)),
+    return copied.map(node -> new Initialization(List.of(new SyntaxChild(SyntaxRole.INITIALIZER, 0, node)), Optional.of(target),
         new FieldRegistration(value, fieldPath, Optional.of(projection), decisions.value())));
   }
 
   void retain(Initialization initialization, SyntaxNode declaration, DiagnosticEmissionCollector diagnostics) {
+    if (initialization.target.isPresent()) {
+      requireInitializationDeclaration(initialization.target.orElseThrow(), declaration);
+      requireInitializationChildren(initialization, declaration);
+    }
     switch (initialization.registration) {
       case NoRegistration _ -> {
       }
       case FieldRegistration field -> retainField(field.value(), declaration, field.path(), field.projection(), field.decisions());
       case EnumRegistration constant -> retainEnum(constant, declaration, diagnostics);
+    }
+  }
+
+  private void requireInitializationDeclaration(DeclarationTarget target, SyntaxNode declaration) {
+    var path = target.compilerPath();
+    var expectedKind = target.value().kind() == SyntaxValue.VariableDeclaration.Kind.ENUM_CONSTANT
+        ? SyntaxKind.ENUM_CONSTANT_DECLARATION
+        : SyntaxKind.FIELD_DECLARATION;
+    var origin = sourceEvidence.origin(path.getCompilationUnit(), target.source(), path.getLeaf());
+    if (declaration.syntaxKind() != expectedKind || declaration.sourceKind() != JavaSourceKind.VARIABLE
+        || !target.value().equals(declaration.value()) || !target.source().sourceFileKey().equals(declaration.sourceFileKey())
+        || !target.path().equals(declaration.structuralPath()) || !origin.equals(declaration.origin())
+        || !semantics.declarationKey(semantics.element(path)).equals(Optional.of(target.value().declarationKey()))) {
+      throw new IllegalArgumentException("An initialization scope requires its exact source declaration");
+    }
+  }
+
+  private static void requireInitializationChildren(Initialization initialization, SyntaxNode declaration) {
+    var retained = declaration.children().stream()
+        .filter(
+            child -> child.role() == SyntaxRole.INITIALIZER || child.role() == SyntaxRole.ARGUMENT || child.role() == SyntaxRole.CLASS_BODY)
+        .toList();
+    var produced = initialization.children();
+    if (retained.size() != produced.size()) {
+      throw new IllegalArgumentException("An initialization declaration requires its exact copied children");
+    }
+    for (var index = 0; index < produced.size(); index++) {
+      var expected = produced.get(index);
+      var child = retained.get(index);
+      if (expected.role() != child.role() || expected.position() != child.position()
+          || !JavaProjectionIdentity.sameInstance(expected.node(), child.node())) {
+        throw new IllegalArgumentException("An initialization declaration requires its exact copied children");
+      }
     }
   }
 
@@ -140,7 +190,8 @@ final class JavaInitializationProjector {
           JavaSyntaxStructuralPath.executionRoot(bodyPath)));
     }
 
-    return Optional.of(new Initialization(children, new EnumRegistration(value, fieldPath, creationPath, constructor,
+    var target = new DeclarationTarget(sourceFile, fieldPath, path, value);
+    return Optional.of(new Initialization(children, Optional.of(target), new EnumRegistration(value, fieldPath, creationPath, constructor,
         new JavaBodyDecisions(enumUses, enumInvocations, enumStaticAccesses, enumConcatenations), enumAttributions)));
   }
 
@@ -218,10 +269,12 @@ final class JavaInitializationProjector {
 
   static final class Initialization {
     private final List<SyntaxChild> childNodes;
+    private final Optional<DeclarationTarget> target;
     private final Registration registration;
 
-    private Initialization(List<SyntaxChild> children, Registration registration) {
+    private Initialization(List<SyntaxChild> children, Optional<DeclarationTarget> target, Registration registration) {
       childNodes = List.copyOf(children);
+      this.target = target;
       this.registration = registration;
     }
 
@@ -229,6 +282,10 @@ final class JavaInitializationProjector {
       return childNodes;
     }
 
+  }
+
+  private record DeclarationTarget(SourceFile source, TreePath compilerPath, SyntaxStructuralPath path,
+      SyntaxValue.VariableDeclaration value) {
   }
 
   private sealed interface Registration {

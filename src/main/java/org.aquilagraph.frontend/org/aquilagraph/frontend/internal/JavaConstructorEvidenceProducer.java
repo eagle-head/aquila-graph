@@ -15,7 +15,6 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.ExecutableType;
 import org.aquilagraph.frontend.internal.JavaExecutableSyntaxProjector.NodeProjection;
-import org.aquilagraph.frontend.internal.JavaExecutableSyntaxProjector.Projection;
 import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
@@ -35,11 +34,8 @@ final class JavaConstructorEvidenceProducer {
     this.semantics = Objects.requireNonNull(semantics, "semantics");
   }
 
-  Optional<ConstructorEvidence> produce(Projection evidence, SyntaxNode node) {
-    evidence.requireSemantics(semantics);
-    var projection = evidence.binding(node);
-    var methodKey = evidence.scopeKey();
-    var root = evidence.translation().value();
+  Optional<ConstructorEvidence> produce(String methodKey, SyntaxNode root, NodeProjection projection) {
+    var node = projection.node();
     if (node.syntaxKind() != SyntaxKind.INVOCATION || !(node.value() instanceof SyntaxValue.Invocation invocation)
         || !(projection.compilerAnchor().getLeaf() instanceof MethodInvocationTree call)
         || !(call.getMethodSelect() instanceof IdentifierTree selection)

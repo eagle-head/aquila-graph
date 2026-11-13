@@ -9,9 +9,6 @@ import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.IdentityHashMap;
-import java.util.Collections;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import org.aquilagraph.identity.api.SourceFile;
@@ -77,32 +74,33 @@ final class JavaExecutableSyntaxProjector {
     var nodes = new ArrayList<NodeProjection>();
     var result = translateTree(unit, sourceFile, ownerKey, tree, path, structuralPath, structuralPath, constructor, compilerGenerated,
         nodes);
-    return new Projection(semantics, context, unit, sourceFile, ownerKey, new TranslationResult<>(result.node(), result.emissions()),
-        nodes);
+    return new Projection(semantics, context, treeInventory, unit, sourceFile, ownerKey, path,
+        new TranslationResult<>(result.node(), result.emissions()), nodes);
   }
 
   static final class Projection {
     private final SemanticResolver semantics;
     private final JavaExecutableProjectionContext selectedContext;
+    private final ParsedTreeInventory capturedInventory;
     private final CompilationUnitTree capturedUnit;
     private final SourceFile capturedSource;
     private final String ownerScope;
+    private final TreePath capturedRoot;
     private final TranslationResult<SyntaxNode> translatedSyntax;
     private final List<NodeProjection> projectedNodes;
-    private final Map<SyntaxNode, NodeProjection> bindings;
 
-    private Projection(SemanticResolver semantics, JavaExecutableProjectionContext context, CompilationUnitTree unit, SourceFile source,
-        String scopeKey, TranslationResult<SyntaxNode> translation, List<NodeProjection> nodes) {
+    private Projection(SemanticResolver semantics, JavaExecutableProjectionContext context, ParsedTreeInventory inventory,
+        CompilationUnitTree unit, SourceFile source, String scopeKey, TreePath compilerRoot, TranslationResult<SyntaxNode> translation,
+        List<NodeProjection> nodes) {
       this.semantics = semantics;
       selectedContext = context;
+      capturedInventory = inventory;
       capturedUnit = unit;
       capturedSource = source;
       ownerScope = scopeKey;
+      capturedRoot = compilerRoot;
       translatedSyntax = translation;
       projectedNodes = List.copyOf(nodes);
-      var correspondence = new IdentityHashMap<SyntaxNode, NodeProjection>();
-      nodes.forEach(node -> correspondence.put(node.node(), node));
-      bindings = Collections.unmodifiableMap(correspondence);
     }
 
     TranslationResult<SyntaxNode> translation() {
@@ -111,6 +109,10 @@ final class JavaExecutableSyntaxProjector {
 
     List<NodeProjection> nodes() {
       return projectedNodes;
+    }
+
+    TreePath compilerRoot() {
+      return capturedRoot;
     }
 
     CompilationUnitTree unit() {
@@ -129,23 +131,22 @@ final class JavaExecutableSyntaxProjector {
       return selectedContext;
     }
 
+    ParsedTreeInventory inventory() {
+      return capturedInventory;
+    }
+
     void requireSemantics(SemanticResolver supplied) {
       if (!JavaProjectionIdentity.sameInstance(semantics, supplied)) {
         throw new IllegalArgumentException("Executable evidence belongs to its producing compiler environment");
       }
     }
 
-    Optional<AnalysisDiagnostic> erroneousType(SyntaxNode node) {
-      return binding(node).erroneousType();
+    void requireInventory(ParsedTreeInventory supplied) {
+      if (!JavaProjectionIdentity.sameInstance(capturedInventory, supplied)) {
+        throw new IllegalArgumentException("Executable evidence belongs to its producing parsed inventory");
+      }
     }
 
-    NodeProjection binding(SyntaxNode node) {
-      var binding = bindings.get(node);
-      if (binding == null) {
-        throw new IllegalArgumentException("An executable node must belong to its producing projection");
-      }
-      return binding;
-    }
   }
 
   record NodeProjection(SyntaxNode node, TreePath compilerAnchor, SyntaxStructuralPath compilerPath, List<SyntaxChildMapping> children,
@@ -179,8 +180,7 @@ final class JavaExecutableSyntaxProjector {
     var writtenExpression = treeInventory.writtenExpression(path);
     if (writtenExpression.isPresent()) {
       var expression = writtenExpression.orElseThrow();
-      var originalOperands = new IdentityHashMap<Tree, CompilerOperand>();
-      compilerOperands(tree, path, compilerPath, originalOperands);
+      var originalOperands = syntaxProfile.compilerOperands(path, compilerPath);
       var diagnostics = new DiagnosticEmissionCollector("JavaWrittenExpressionProjector", ownerKey + ':' + structuralPath);
       var projected = new JavaWrittenExpressionProjector(semantics, treeInventory).project(expression, sourceFile, structuralPath, false,
           new CompilerExpressionAnchor.Execution(compilerPath), (anchor, destination) -> {
@@ -245,18 +245,6 @@ final class JavaExecutableSyntaxProjector {
     }
     observeDeclarationProperties(unit, sourceFile, ownerKey, tree, diagnostics);
     return new SyntaxTreeTranslation(node, diagnostics.snapshot());
-  }
-
-  private void compilerOperands(Tree tree, TreePath path, SyntaxStructuralPath address, Map<Tree, CompilerOperand> operands) {
-    operands.put(tree, new CompilerOperand(path, address));
-    if (tree.getKind() == Tree.Kind.PLUS || tree.getKind() == Tree.Kind.MINUS) {
-      for (var child : syntaxProfile.describe(tree, path, address).children()) {
-        compilerOperands(child.tree(), child.treePath(), child.structuralPath(), operands);
-      }
-    }
-  }
-
-  private record CompilerOperand(TreePath path, SyntaxStructuralPath address) {
   }
 
   private void observeDeclarationProperties(CompilationUnitTree unit, SourceFile sourceFile, String ownerKey, Tree tree,

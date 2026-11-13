@@ -51,7 +51,9 @@ import com.sun.source.tree.YieldTree;
 import com.sun.source.util.SimpleTreeVisitor;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import javax.lang.model.element.ElementKind;
@@ -87,6 +89,25 @@ final class JavaExecutableSyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapp
     Objects.requireNonNull(treePath, "treePath");
     Objects.requireNonNull(structuralPath, "structuralPath");
     return tree.accept(this, new MappingContext(treePath, structuralPath));
+  }
+
+  Map<Tree, CompilerOperand> compilerOperands(TreePath root, SyntaxStructuralPath address) {
+    var operands = new IdentityHashMap<Tree, CompilerOperand>();
+    collectCompilerOperands(root, address, operands);
+    return operands;
+  }
+
+  private void collectCompilerOperands(TreePath path, SyntaxStructuralPath address, Map<Tree, CompilerOperand> operands) {
+    var tree = path.getLeaf();
+    operands.put(tree, new CompilerOperand(path, address));
+    if (tree.getKind() == Tree.Kind.PLUS || tree.getKind() == Tree.Kind.MINUS) {
+      for (var child : describe(tree, path, address).children()) {
+        collectCompilerOperands(child.treePath(), child.structuralPath(), operands);
+      }
+    }
+  }
+
+  record CompilerOperand(TreePath path, SyntaxStructuralPath address) {
   }
 
   @Override
