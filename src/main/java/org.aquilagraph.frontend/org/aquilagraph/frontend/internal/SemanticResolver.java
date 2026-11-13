@@ -15,7 +15,6 @@ import com.sun.source.tree.Tree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.Trees;
-import org.aquilagraph.frontend.internal.JavaConstructorSelection.ConstructorCorrelation;
 import java.util.ArrayDeque;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -60,23 +59,23 @@ final class SemanticResolver {
   private final Types types;
   private final Elements elements;
   private final DeclarationIdentityRegistry identities;
-  private final Optional<JavaConstructorSelection> constructorSelection;
+  private final Optional<CompletedConstructorCorrelations> constructorCorrelations;
 
   SemanticResolver(Trees trees, Types types, Elements elements, DeclarationIdentityRegistry identities) {
     this(trees, types, elements, identities, Optional.empty());
   }
 
   SemanticResolver(Trees trees, Types types, Elements elements, DeclarationIdentityRegistry identities,
-      Optional<JavaConstructorSelection> constructorSelection) {
+      Optional<CompletedConstructorCorrelations> constructorCorrelations) {
     this.trees = Objects.requireNonNull(trees, "trees");
     this.types = Objects.requireNonNull(types, "types");
     this.elements = Objects.requireNonNull(elements, "elements");
     this.identities = Objects.requireNonNull(identities, "identities");
-    this.constructorSelection = Objects.requireNonNull(constructorSelection, "constructorSelection");
+    this.constructorCorrelations = Objects.requireNonNull(constructorCorrelations, "constructorCorrelations");
   }
 
   ConstructorCorrelation selectedConstructor(TreePath path, ExecutableElement selected) {
-    return constructorSelection.map(selection -> selection.select(path, selected)).orElseGet(ConstructorCorrelation::unavailable);
+    return constructorCorrelations.map(selection -> selection.select(path, selected)).orElseGet(ConstructorCorrelation::unavailable);
   }
 
   Element element(TreePath path) {

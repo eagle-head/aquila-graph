@@ -53,7 +53,7 @@ import org.aquilagraph.source.api.ConversionEvidence;
 import org.aquilagraph.source.api.ChildUseEvidence;
 import org.aquilagraph.source.api.SemanticReference;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
-import org.aquilagraph.frontend.internal.JavaConstructorSelection.CorrelationStatus;
+import org.aquilagraph.frontend.internal.ConstructorCorrelation.Status;
 
 /** Copies selected use facts while exact compiler paths and body instances remain live. */
 final class JavaBodyDecisionProducer {
@@ -247,12 +247,12 @@ final class JavaBodyDecisionProducer {
     var facts = proof.orElseThrow();
     var children = consumer.children(SyntaxRole.ARGUMENT);
     if (children.size() != facts.arguments().size()) {
-      missingConstructorCorrelation(consumer, CorrelationStatus.UNAVAILABLE, diagnostics);
+      missingConstructorCorrelation(consumer, Status.UNAVAILABLE, diagnostics);
       return;
     }
     for (var index = 0; index < children.size(); index++) {
       if (!children.get(index).resolvedType().equals(Optional.of(facts.arguments().get(index).sourceType()))) {
-        missingConstructorCorrelation(consumer, CorrelationStatus.UNAVAILABLE, diagnostics);
+        missingConstructorCorrelation(consumer, Status.UNAVAILABLE, diagnostics);
         return;
       }
     }
@@ -268,13 +268,12 @@ final class JavaBodyDecisionProducer {
     }
   }
 
-  private static void missingConstructorCorrelation(SyntaxNode consumer, CorrelationStatus status,
-      DiagnosticEmissionCollector diagnostics) {
+  private static void missingConstructorCorrelation(SyntaxNode consumer, Status status, DiagnosticEmissionCollector diagnostics) {
     var arguments = consumer.children(SyntaxRole.ARGUMENT);
     if (arguments.isEmpty() || arguments.stream().anyMatch(argument -> argument.resolvedType().isEmpty())) {
       return;
     }
-    var rejected = status == CorrelationStatus.WITNESS_REJECTED;
+    var rejected = status == Status.WITNESS_REJECTED;
     diagnostics.emit(FrontendDiagnosticFactory.error(consumer.nodeId(),
         rejected ? "frontend.constructor-witness-rejected" : "frontend.missing-constructor-correlation",
         rejected

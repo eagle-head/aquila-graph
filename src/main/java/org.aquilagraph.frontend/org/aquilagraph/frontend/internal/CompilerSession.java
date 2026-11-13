@@ -47,13 +47,15 @@ final class CompilerSession implements AutoCloseable {
     task.analyze();
     var trees = Trees.instance(task);
     var types = task.getTypes();
-    var identities = new DeclarationIdentityRegistry(trees, types, task.getElements(), policy);
-    var selection = new JavaConstructorSelection(compiler, invocation, sources, fileManager.standardFileManager(), trees, types,
-        task.getElements(), policy, parsedSource.treeInventory()::tokens);
-    selection.prepare(parsedSource.units());
-    return new JavaCompilation(parsedSource.units(),
-        new SemanticResolver(trees, types, task.getElements(), identities, Optional.of(selection)), parsedSource.sourceEvidence(),
-        parsedSource.treeInventory(), diagnostics.getDiagnostics());
+    var elements = task.getElements();
+    var identities = new DeclarationIdentityRegistry(trees, types, elements, policy);
+    var witnessCompiler = new ConstructorWitnessCompiler(compiler, invocation);
+    var witnessInputs = new ConstructorWitnessInputs(sources, fileManager.standardFileManager(), trees, types, elements,
+        parsedSource.treeInventory()::tokens);
+    var correlations = new ConstructorCorrelationPreparer(witnessCompiler, witnessInputs, trees, types, elements, policy)
+        .prepare(parsedSource.units());
+    return new JavaCompilation(parsedSource.units(), new SemanticResolver(trees, types, elements, identities, Optional.of(correlations)),
+        parsedSource.sourceEvidence(), parsedSource.treeInventory(), diagnostics.getDiagnostics());
   }
 
   @Override
