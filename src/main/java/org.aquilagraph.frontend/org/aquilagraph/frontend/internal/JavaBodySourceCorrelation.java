@@ -99,12 +99,18 @@ final class JavaBodySourceCorrelation {
       }
     }
     for (var body : supplied) {
-      corroborateBody(unit, sourceFile, body, methodsByKey);
-      addBody(body);
+      var canonical = Optional.ofNullable(methodsByKey.get(body.methodKey())).orElseThrow(() -> canonicalMismatch(body.methodKey()));
+      register(unit, sourceFile, body, canonical);
     }
   }
 
-  void addBody(TranslatedMethodBody body) {
+  static JavaMethod requireCanonicalMethod(@Nullable JavaType owner, String methodKey) {
+    return Optional.ofNullable(owner).stream().flatMap(type -> type.methods().stream())
+        .filter(method -> method.methodKey().equals(methodKey)).findFirst().orElseThrow(() -> canonicalMismatch(methodKey));
+  }
+
+  void register(CompilationUnitTree unit, SourceFile sourceFile, TranslatedMethodBody body, JavaMethod canonical) {
+    corroborateBody(unit, sourceFile, body, canonical);
     if (bodies.putIfAbsent(body.root().structuralPath(), body) != null) {
       throw new IllegalArgumentException("Duplicate translated body path: " + body.root().structuralPath());
     }
@@ -213,9 +219,12 @@ final class JavaBodySourceCorrelation {
     }
   }
 
-  private void corroborateBody(CompilationUnitTree unit, SourceFile sourceFile, TranslatedMethodBody body,
-      Map<String, JavaMethod> methodsByKey) {
+  private void corroborateBody(CompilationUnitTree unit, SourceFile sourceFile, TranslatedMethodBody body, JavaMethod canonical) {
+    treeInventory.requireSource(unit, sourceFile);
     var projection = body.projection();
+    if (!sourceFile.equals(projection.evidence().source())) {
+      throw new IllegalArgumentException("Translated body does not match its producing source: " + body.methodKey());
+    }
     var declaration = projection.declaration();
     var methodPath = TreePath.getPath(unit, declaration);
     if (methodPath == null || !JavaProjectionIdentity.sameInstance(methodPath.getLeaf(), declaration) || declaration.getBody() == null
@@ -231,41 +240,30 @@ final class JavaBodySourceCorrelation {
       throw new IllegalArgumentException("Translated body has no independently attributed source owner: " + body.methodKey());
     }
     var key = semantics.declarationKey(executable).orElseThrow();
-    var canonical = methodsByKey.get(key);
-    if (!key.equals(body.methodKey()) || canonical == null || !canonical.hasBody()
-        || !semantics.declarationKey(owner).equals(Optional.of(canonical.ownerTypeKey()))) {
-      throw new IllegalArgumentException("Translated body does not match its canonical executable: " + body.methodKey());
+    var ownerKey = semantics.declarationKey(owner).orElseThrow();
+    if (!key.equals(body.methodKey()) || !key.equals(projection.evidence().scopeKey()) || !canonical.hasBody()
+        || !ownerKey.equals(canonical.ownerTypeKey())) {
+      throw canonicalMismatch(body.methodKey());
     }
     var independentDeclaration = new JavaMethodDeclarationTranslator(semantics, sourceEvidence, treeInventory)
-        .translate(unit, ownerPath, sourceFile, canonical.ownerTypeKey(), declaration).value();
+        .translate(unit, ownerPath, sourceFile, ownerKey, declaration).value();
     if (!canonical.equals(independentDeclaration)) {
       throw new IllegalArgumentException(
           "Translated body does not match its complete canonical executable declaration: " + body.methodKey());
     }
     var independentBodyPath = new TreePath(methodPath, declaration.getBody());
-    if (!sameTreePath(independentBodyPath, projection.bodyPath())
+    if (!JavaProjectionIdentity.sameTreePath(independentBodyPath, projection.evidence().compilerRoot())
         || !JavaProjectionIdentity.sameInstance(body.root(), projection.evidence().translation().value())
         || !body.root().sourceFileKey().equals(sourceFile.sourceFileKey())
         || !body.root().structuralPath().equals(JavaSyntaxStructuralPath.executionRoot(independentBodyPath))) {
       throw new IllegalArgumentException("Translated body does not retain its executable body projection: " + body.methodKey());
     }
-    projection.evidence().requireSemantics(semantics);
-    new JavaBodyDecisionProducer(semantics).corroborate(body.root(), projection.evidence().nodes());
+    projection.evidence().requireInventory(treeInventory);
+    JavaExecutableProjectionProof.corroborate(projection.evidence(), semantics);
   }
 
-  private static boolean sameTreePath(TreePath first, TreePath second) {
-    @Nullable
-    TreePath firstCursor = first;
-    @Nullable
-    TreePath secondCursor = second;
-    while (firstCursor != null && secondCursor != null) {
-      if (!JavaProjectionIdentity.sameInstance(firstCursor.getLeaf(), secondCursor.getLeaf())) {
-        return false;
-      }
-      firstCursor = firstCursor.getParentPath();
-      secondCursor = secondCursor.getParentPath();
-    }
-    return firstCursor == null && secondCursor == null;
+  private static IllegalArgumentException canonicalMismatch(String methodKey) {
+    return new IllegalArgumentException("Translated body does not match its canonical executable: " + methodKey);
   }
 
   private CopiedAstValues.Scope sealScope(CopiedAstValues.Scope scope) {

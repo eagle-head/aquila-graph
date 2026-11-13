@@ -1,5 +1,6 @@
 package org.aquilagraph.frontend.internal;
 
+import com.sun.source.util.TreePath;
 import java.util.IdentityHashMap;
 import org.jspecify.annotations.Nullable;
 import org.aquilagraph.source.api.SyntaxNode;
@@ -13,6 +14,19 @@ final class JavaProjectionIdentity {
     var identity = new IdentityHashMap<@Nullable Object, Boolean>();
     identity.put(first, Boolean.TRUE);
     return identity.containsKey(second);
+  }
+
+  static boolean sameTreePath(@Nullable TreePath first, @Nullable TreePath second) {
+    var left = first;
+    var right = second;
+    while (left != null && right != null) {
+      if (!sameInstance(left.getLeaf(), right.getLeaf())) {
+        return false;
+      }
+      left = left.getParentPath();
+      right = right.getParentPath();
+    }
+    return left == null && right == null;
   }
 
   /** Selects one in-memory source carrier without changing its durable value identity. */

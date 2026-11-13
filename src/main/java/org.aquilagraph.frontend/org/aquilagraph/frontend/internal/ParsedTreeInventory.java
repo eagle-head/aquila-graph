@@ -338,7 +338,7 @@ final class ParsedTreeInventory {
 
   Optional<WrittenSourceAssociation> sourceAssociation(SyntaxNode node, TreePath path) {
     return capturedOwners.getOrDefault(Objects.requireNonNull(path, "path").getLeaf(), List.of()).stream()
-        .filter(owner -> samePath(owner.treePath(), path)).findFirst().map(owner -> association(node, owner));
+        .filter(owner -> JavaProjectionIdentity.sameTreePath(owner.treePath(), path)).findFirst().map(owner -> association(node, owner));
   }
 
   DeclarationMemberOrder.TreeOrder attributedTreeOrder(TreePath path) {
@@ -349,8 +349,8 @@ final class ParsedTreeInventory {
   }
 
   Optional<SourceOwnerPath> parsedOwnerPath(TreePath path) {
-    return capturedOwners.getOrDefault(path.getLeaf(), List.of()).stream().filter(owner -> samePath(owner.treePath(), path))
-        .map(ParsedSourceOwner::path).findFirst();
+    return capturedOwners.getOrDefault(path.getLeaf(), List.of()).stream()
+        .filter(owner -> JavaProjectionIdentity.sameTreePath(owner.treePath(), path)).map(ParsedSourceOwner::path).findFirst();
   }
 
   private static WrittenSourceAssociation association(SyntaxNode node, ParsedSourceOwner owner) {
@@ -359,19 +359,6 @@ final class ParsedTreeInventory {
 
   private record ParsedSourceOwner(TreePath treePath, String sourceFileKey, SourceOwnerPath path, JavaSourceKind sourceKind,
       Optional<SourceSpan> origin) {
-  }
-
-  private static boolean samePath(TreePath first, TreePath second) {
-    var left = first;
-    var right = second;
-    while (left != null && right != null) {
-      if (!JavaProjectionIdentity.sameInstance(left.getLeaf(), right.getLeaf())) {
-        return false;
-      }
-      left = left.getParentPath();
-      right = right.getParentPath();
-    }
-    return left == null && right == null;
   }
 
   Optional<List<WrittenAnnotationArgument>> annotationArguments(AnnotationTree tree) {
@@ -479,8 +466,8 @@ final class ParsedTreeInventory {
   }
 
   Optional<Expression> writtenExpression(TreePath path) {
-    return writtenExpressions.getOrDefault(path.getLeaf(), List.of()).stream().filter(value -> samePath(value.compilerAnchor(), path))
-        .findFirst();
+    return writtenExpressions.getOrDefault(path.getLeaf(), List.of()).stream()
+        .filter(value -> JavaProjectionIdentity.sameTreePath(value.compilerAnchor(), path)).findFirst();
   }
 
   List<WrittenExpressionRegion> expressionRegions() {

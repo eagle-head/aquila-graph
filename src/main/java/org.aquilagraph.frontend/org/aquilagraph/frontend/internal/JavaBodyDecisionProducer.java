@@ -7,15 +7,12 @@ import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.NewClassTree;
-import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.SwitchExpressionTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.util.TreePath;
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import javax.lang.model.element.Element;
@@ -51,7 +48,6 @@ import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.SyntaxOperator;
-import org.aquilagraph.source.api.CompilerExpressionAnchor;
 import org.aquilagraph.source.api.JavaTypeReference;
 import org.aquilagraph.source.api.ConversionEvidence;
 import org.aquilagraph.source.api.ChildUseEvidence;
@@ -74,36 +70,35 @@ final class JavaBodyDecisionProducer {
   }
 
   TranslationResult<JavaBodyDecisions> produce(Projection projection) {
-    projection.requireSemantics(semantics);
+    var bindings = JavaExecutableProjectionProof.corroborate(projection, semantics);
     var scopeKey = projection.scopeKey();
     var diagnostics = new DiagnosticEmissionCollector("JavaBodyDecisionProducer", scopeKey);
     var root = projection.translation().value();
-    var bindings = corroborate(root, projection.nodes());
     var uses = new ArrayList<ChildUseEvidence>();
     var invocations = new ArrayList<InvocationApplicability>();
     var staticAccesses = new ArrayList<StaticMemberEvidence>();
     var concatenations = new ArrayList<StringExpressionEvidence>();
     var constructorContexts = new ArrayList<ConstructorEvidence>();
     for (var consumer : SourceExecutionTraversal.nodes(root)) {
-      var binding = Objects.requireNonNull(bindings.get(consumer));
+      var binding = bindings.binding(consumer);
       if (consumer.syntaxKind() == SyntaxKind.TYPE_DECLARATION) {
         continue;
       }
       if (consumer.syntaxKind() == SyntaxKind.INVOCATION || consumer.syntaxKind() == SyntaxKind.OBJECT_CREATION) {
-        var context = constructors.produce(projection, consumer);
+        var context = constructors.produce(scopeKey, root, binding);
         context.ifPresent(constructorContexts::add);
         invocation(scopeKey, binding, bindings, uses, invocations, diagnostics);
       } else {
         for (var child : consumer.children()) {
           if (child.node().syntaxKind().requiresType()) {
-            var childBinding = Objects.requireNonNull(bindings.get(child.node()));
+            var childBinding = bindings.binding(child.node());
             target(binding, child, bindings).flatMap(selected -> conversion(scopeKey, consumer, child, source(childBinding), selected,
                 consumer.syntaxKind() == SyntaxKind.TYPE_CAST, assignmentContext(consumer))).ifPresent(uses::add);
           }
         }
       }
       staticAccess(scopeKey, binding).ifPresent(staticAccesses::add);
-      concatenation(scopeKey, binding, projection).ifPresent(concatenations::add);
+      concatenation(scopeKey, binding, bindings).ifPresent(concatenations::add);
     }
     var selectedInvocations = new HashMap<String, InvocationApplicability>();
     invocations.forEach(value -> selectedInvocations.put(value.consumerNodeId(), value));
@@ -130,59 +125,11 @@ final class JavaBodyDecisionProducer {
         diagnostics.snapshot());
   }
 
-  Map<SyntaxNode, NodeProjection> corroborate(SyntaxNode root, List<NodeProjection> projections) {
-    var bindings = new IdentityHashMap<SyntaxNode, NodeProjection>();
-    for (var projection : projections) {
-      if (bindings.put(projection.node(), projection) != null) {
-        throw new IllegalArgumentException("One produced body instance cannot have two compiler projections");
-      }
-    }
-    var nodes = SourceExecutionTraversal.nodes(root);
-    if (nodes.size() != bindings.size()) {
-      throw new IllegalArgumentException("The final registered body must retain exactly its produced compiler projection");
-    }
-    for (var node : nodes) {
-      var binding = bindings.get(node);
-      if (node.syntaxKind() == SyntaxKind.TYPE_DECLARATION) {
-        if (binding == null || !(binding.compilerAnchor().getLeaf() instanceof ClassTree)) {
-          throw new IllegalArgumentException("A nested declaration boundary requires its exact compiler path");
-        }
-        continue;
-      }
-      if (binding != null && binding.derivation().isPresent()) {
-        var correspondence = binding.sourceAssociation().flatMap(value -> value.normalizedExpression()).orElseThrow();
-        if (!semantics.declarationType(binding.derivation().orElseThrow().type()).equals(node.type())
-            || !(correspondence.compilerAnchor() instanceof CompilerExpressionAnchor.Execution execution)
-            || !binding.compilerPath().equals(execution.path())
-            || !semantics.type(binding.compilerAnchor()).equals(correspondence.compilerType())
-            || (correspondence.occurrencePath().isEmpty() && !correspondence.region().matches(node))) {
-          throw new IllegalArgumentException("A derived occurrence requires its actual compiler-region and written topology proof");
-        }
-        continue;
-      }
-      if (binding == null || !binding.compilerAnchor().getLeaf().getKind().name().equals(node.sourceKind().name())
-          || !semantics.type(binding.compilerAnchor()).equals(node.type()) || binding.children().size() != node.children().size()) {
-        throw new IllegalArgumentException("A final body node requires its exact attributed source projection");
-      }
-      for (var index = 0; index < node.children().size(); index++) {
-        var child = node.children().get(index);
-        var mapping = binding.children().get(index);
-        var childBinding = bindings.get(child.node());
-        if (childBinding == null || mapping.role() != child.role() || mapping.position() != child.position()
-            || !mapping.structuralPath().equals(childBinding.compilerPath())
-            || !JavaProjectionIdentity.sameInstance(mapping.treePath(), childBinding.compilerAnchor())
-            || !JavaProjectionIdentity.sameInstance(mapping.tree(), childBinding.compilerAnchor().getLeaf())) {
-          throw new IllegalArgumentException("A selected child use requires its exact direct child and compiler path");
-        }
-      }
-    }
-    return bindings;
-  }
-
   Optional<ChildUseEvidence> fieldInitializer(Projection projection, SyntaxNode field) {
-    projection.requireSemantics(semantics);
+    var bindings = JavaExecutableProjectionProof.corroborate(projection, semantics);
     var scopeKey = projection.scopeKey();
-    var initializerPath = projection.binding(projection.translation().value()).compilerAnchor();
+    var binding = bindings.binding(projection.translation().value());
+    var initializerPath = binding.compilerAnchor();
     var fieldPath = initializerPath.getParentPath();
     if (fieldPath == null || !(fieldPath.getLeaf() instanceof VariableTree variable)
         || !JavaProjectionIdentity.sameInstance(variable.getInitializer(), initializerPath.getLeaf())
@@ -195,9 +142,8 @@ final class JavaBodyDecisionProducer {
     if (initializer.isEmpty()) {
       return Optional.empty();
     }
-    return semantics.attributedMirror(fieldPath)
-        .flatMap(target -> conversion(scopeKey, field, new SyntaxChild(SyntaxRole.INITIALIZER, 0, initializer.orElseThrow()),
-            source(projection.binding(projection.translation().value())), target, false, true));
+    return semantics.attributedMirror(fieldPath).flatMap(target -> conversion(scopeKey, field,
+        new SyntaxChild(SyntaxRole.INITIALIZER, 0, initializer.orElseThrow()), source(binding), target, false, true));
   }
 
   TranslationResult<JavaBodyDecisions> enumConstant(String scopeKey, SyntaxNode constant, TreePath creationPath,
@@ -248,7 +194,7 @@ final class JavaBodyDecisionProducer {
         diagnostics.snapshot());
   }
 
-  private void invocation(String scopeKey, NodeProjection consumer, Map<SyntaxNode, NodeProjection> bindings, List<ChildUseEvidence> uses,
+  private void invocation(String scopeKey, NodeProjection consumer, JavaExecutableProjectionProof bindings, List<ChildUseEvidence> uses,
       List<InvocationApplicability> invocations, DiagnosticEmissionCollector diagnostics) {
     if (!(semantics.element(consumer.compilerAnchor()) instanceof ExecutableElement executable)
         || !referenceMatches(consumer.node(), executable)) {
@@ -266,7 +212,7 @@ final class JavaBodyDecisionProducer {
     var arguments = new ArrayList<TypeMirror>();
     for (var child : consumer.node().children()) {
       if (child.role() == SyntaxRole.ARGUMENT) {
-        var mirror = mirror(Objects.requireNonNull(bindings.get(child.node())));
+        var mirror = mirror(bindings.binding(child.node()));
         if (mirror.isEmpty()) {
           return;
         }
@@ -284,7 +230,7 @@ final class JavaBodyDecisionProducer {
         array.map(value -> semantics.typeIdentity(value.getComponentType()))));
     for (var child : consumer.node().children()) {
       if (child.role() == SyntaxRole.ARGUMENT) {
-        conversion(scopeKey, consumer.node(), child, source(Objects.requireNonNull(bindings.get(child.node()))),
+        conversion(scopeKey, consumer.node(), child, source(bindings.binding(child.node())),
             selected.argumentTargets().get(child.position()), false, false).ifPresent(uses::add);
       }
     }
@@ -352,7 +298,7 @@ final class JavaBodyDecisionProducer {
     return Optional.empty();
   }
 
-  private Optional<TypeMirror> target(NodeProjection consumer, SyntaxChild child, Map<SyntaxNode, NodeProjection> bindings) {
+  private Optional<TypeMirror> target(NodeProjection consumer, SyntaxChild child, JavaExecutableProjectionProof bindings) {
     var node = consumer.node();
     if (child.role() == SyntaxRole.CONDITION || child.role() == SyntaxRole.GUARD || node.syntaxKind() == SyntaxKind.CONDITIONAL_AND
         || node.syntaxKind() == SyntaxKind.CONDITIONAL_OR) {
@@ -369,16 +315,15 @@ final class JavaBodyDecisionProducer {
       case CONDITIONAL_EXPRESSION ->
         child.role() == SyntaxRole.TRUE_EXPRESSION || child.role() == SyntaxRole.FALSE_EXPRESSION ? mirror(consumer) : Optional.empty();
       case UNARY -> child.role() == SyntaxRole.OPERAND ? mirror(consumer) : Optional.empty();
-      case ASSIGNMENT -> child.role() == SyntaxRole.VALUE
-          ? mirror(Objects.requireNonNull(bindings.get(node.requiredChild(SyntaxRole.LOCATION))))
-          : Optional.empty();
+      case ASSIGNMENT ->
+        child.role() == SyntaxRole.VALUE ? mirror(bindings.binding(node.requiredChild(SyntaxRole.LOCATION))) : Optional.empty();
       case RETURN -> child.role() == SyntaxRole.EXPRESSION ? enclosingReturn(consumer.compilerAnchor()) : Optional.empty();
       case CASE -> child.role() == SyntaxRole.BODY ? enclosingSwitch(consumer.compilerAnchor()) : Optional.empty();
       case YIELD -> child.role() == SyntaxRole.VALUE ? enclosingSwitch(consumer.compilerAnchor()) : Optional.empty();
       case SWITCH_EXPRESSION,
           SWITCH_STATEMENT ->
         child.role() == SyntaxRole.SELECTOR
-            ? mirror(Objects.requireNonNull(bindings.get(child.node()))).flatMap(mirror -> primitive(mirror)
+            ? mirror(bindings.binding(child.node())).flatMap(mirror -> primitive(mirror)
                 .<TypeMirror>map(type -> type.getKind() == TypeKind.BOOLEAN ? type : semantics.primitiveType(TypeKind.INT))
                 .or(() -> Optional.of(mirror)))
             : Optional.empty();
@@ -389,10 +334,10 @@ final class JavaBodyDecisionProducer {
     };
   }
 
-  private Optional<TypeMirror> binaryTarget(NodeProjection consumer, SyntaxChild child, Map<SyntaxNode, NodeProjection> bindings) {
+  private Optional<TypeMirror> binaryTarget(NodeProjection consumer, SyntaxChild child, JavaExecutableProjectionProof bindings) {
     var operator = Tree.Kind.valueOf(consumer.node().sourceKind().name());
-    var left = mirror(Objects.requireNonNull(bindings.get(consumer.node().requiredChild(SyntaxRole.LEFT_OPERAND))));
-    var right = mirror(Objects.requireNonNull(bindings.get(consumer.node().requiredChild(SyntaxRole.RIGHT_OPERAND))));
+    var left = mirror(bindings.binding(consumer.node().requiredChild(SyntaxRole.LEFT_OPERAND)));
+    var right = mirror(bindings.binding(consumer.node().requiredChild(SyntaxRole.RIGHT_OPERAND)));
     if (left.isEmpty() || right.isEmpty()) {
       return Optional.empty();
     }
@@ -598,7 +543,8 @@ final class JavaBodyDecisionProducer {
         && JavaProjectionIdentity.sameInstance(assignment.getVariable(), target);
   }
 
-  private Optional<StringExpressionEvidence> concatenation(String scopeKey, NodeProjection projection, Projection evidence) {
+  private Optional<StringExpressionEvidence> concatenation(String scopeKey, NodeProjection projection,
+      JavaExecutableProjectionProof evidence) {
     var node = projection.node();
     if (!(node.value() instanceof SyntaxValue.Operator operator) || operator.operator() != SyntaxOperator.PLUS || !isString(node)) {
       return Optional.empty();
@@ -617,13 +563,13 @@ final class JavaBodyDecisionProducer {
   }
 
   private static EvidenceValue<Boolean> stringOperand(String scopeKey, SyntaxNode consumer, SyntaxNode operand, String slot,
-      Projection evidence) {
+      JavaExecutableProjectionProof evidence) {
     var origin = new EvidenceOrigin(scopeKey, consumer.nodeId(), slot, consumer.origin());
     if (operand.resolvedType().isPresent()) {
       return EvidenceValue.known(isString(operand), origin);
     }
     if (operand.type() == SyntaxType.Erroneous.INSTANCE) {
-      var diagnostic = evidence.erroneousType(operand).orElseThrow();
+      var diagnostic = evidence.binding(operand).erroneousType().orElseThrow();
       return EvidenceValue.erroneous(origin, "The attributed operand type is erroneous", diagnostic);
     }
     return EvidenceValue.missing(origin, "The compiler operand classification is unavailable");

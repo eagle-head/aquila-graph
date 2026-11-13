@@ -35,6 +35,8 @@ import java.lang.reflect.Proxy;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
@@ -51,15 +53,23 @@ import javax.tools.ToolProvider;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AggregateFixture;
+import org.aquilagraph.source.admission.CopiedAstValues;
+import org.aquilagraph.frontend.internal.JavaExecutableSyntaxProjector.NodeProjection;
+import org.aquilagraph.source.api.AnnotationScalar;
+import org.aquilagraph.source.api.NormalizedExpressionCorrespondence;
+import org.aquilagraph.source.api.WrittenSourceAssociation;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.JavaMethod;
+import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.JavaType;
 
 import org.aquilagraph.source.api.MethodBodyOrigin;
 import org.aquilagraph.source.api.SyntaxNode;
+import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.EvidenceState;
 import org.junit.jupiter.api.io.TempDir;
@@ -76,7 +86,7 @@ class JavaMethodBodyAdmissionTest {
     // Arrange
     withCompiledSource("entry-values", "class Example { void action() { class Local {} } void other() {} }", fixture -> {
       var body = fixture.body("action");
-      var path = body.projection().bodyPath();
+      var path = body.projection().evidence().compilerRoot();
       var effects = new AtomicInteger();
       var context = JavaExecutableProjectionContext.canonicalMethod(JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_UNITS),
           (_, _, _) -> { effects.incrementAndGet(); throw new AssertionError("Rejected input must not project descendants"); });
@@ -144,15 +154,16 @@ class JavaMethodBodyAdmissionTest {
             assertEquals(state, concatenation.rightIsString().state());
             var operand = projection.translation().value().descendantsAndSelf().stream()
                 .filter(node -> node.sourceKind().name().equals("INT_LITERAL")).findFirst().orElseThrow();
+            var binding = JavaExecutableProjectionProof.corroborate(projection, semantics).binding(operand);
             if (state == EvidenceState.ERRONEOUS) {
               var diagnostic = concatenation.rightIsString().diagnostic().orElseThrow();
-              assertSame(projection.erroneousType(operand).orElseThrow(), diagnostic);
+              assertSame(binding.erroneousType().orElseThrow(), diagnostic);
               assertEquals(operand.origin().stream().toList(), diagnostic.origins());
               assertTrue(projection.translation().emissions().events().stream().anyMatch(event -> event.diagnostic() == diagnostic));
               assertEquals("frontend.error-type", diagnostic.code());
             } else {
               assertTrue(concatenation.rightIsString().diagnostic().isEmpty());
-              assertTrue(projection.erroneousType(operand).isEmpty());
+              assertTrue(binding.erroneousType().isEmpty());
             }
             assertThrows(UnsupportedOperationException.class, () -> projection.nodes().clear());
             assertThrows(UnsupportedOperationException.class, () -> projection.translation().emissions().events().clear());
@@ -290,6 +301,112 @@ class JavaMethodBodyAdmissionTest {
   }
 
   @Test
+  void givenProjectedFieldInitializer_whenRetainedWithAForeignCopy_thenConversionRequiresTheExactChild() throws IOException {
+    // Arrange
+    withCompiledSource("field-copy", "class Example { Byte value = 1; }", fixture -> {
+      var unit = fixture.unit();
+      var source = fixture.source();
+      var semantics = fixture.semantics();
+      var inventory = fixture.inventory();
+      var type = (ClassTree) unit.getTypeDecls().getFirst();
+      var field = type.getMembers().stream().filter(VariableTree.class::isInstance).map(VariableTree.class::cast).findFirst().orElseThrow();
+      var fieldPath = TreePath.getPath(unit, field);
+      var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0);
+      var policy = JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_INITIALIZATION);
+      var diagnostics = new DiagnosticEmissionCollector("field-initialization", source.sourceFileKey());
+      var associations = new JavaWrittenSourceAssociations(inventory);
+      var scope = new JavaDeclarationScope();
+      var headers = new JavaDeclarationHeaderProjector(semantics, fixture.evidence(), inventory, new JavaAnnotationMirrorCorrelation(semantics),
+          policy, associations, scope::fieldAnnotations);
+      var correlation = new JavaBodySourceCorrelation(semantics, fixture.evidence(), inventory, associations, scope);
+      var projector = new JavaInitializationProjector(semantics, fixture.evidence(), inventory, policy, associations, correlation);
+      var header = headers.field(unit, source, fieldPath, field, path, path, diagnostics).orElseThrow();
+      var initialization = projector.fieldChildren(unit, source, fieldPath, field, header.value(), path, diagnostics,
+          (_, _, _) -> { throw new AssertionError("Unexpected nested declaration"); }).orElseThrow();
+      var copied = initialization.children().getFirst().node();
+      var equal = SyntaxNode.source(copied.sourceFileKey(), copied.structuralPath(), copied.sourceKind(), copied.syntaxKind(), copied.type(),
+          copied.value(), copied.children(), copied.semanticReference(), copied.origin().orElseThrow());
+      var different = SyntaxNode.source(copied.sourceFileKey(), copied.structuralPath(), copied.sourceKind(), copied.syntaxKind(), copied.type(),
+          new SyntaxValue.Literal("128"), copied.children(), copied.semanticReference(), copied.origin().orElseThrow());
+      var candidates = List.of(equal, different, copied).stream().map(initializer -> {
+        var children = new ArrayList<>(header.children());
+        children.add(new SyntaxChild(SyntaxRole.INITIALIZER, 0, initializer));
+        return SyntaxNode.source(source.sourceFileKey(), path, JavaSourceKind.VARIABLE, SyntaxKind.FIELD_DECLARATION,
+            SyntaxType.NotApplicable.INSTANCE, header.value(), children, Optional.empty(), header.range());
+      }).toList();
+
+      // Act
+      var equalError = assertThrows(IllegalArgumentException.class, () -> projector.retain(initialization, candidates.getFirst(), diagnostics));
+      var differentError = assertThrows(IllegalArgumentException.class, () -> projector.retain(initialization, candidates.get(1), diagnostics));
+      var afterRefusal = correlation.sealedScopes();
+      projector.retain(initialization, candidates.getLast(), diagnostics);
+
+      // Assert
+      assertEquals(copied, equal);
+      assertNotSame(copied, equal);
+      assertEquals("An initialization declaration requires its exact copied children", equalError.getMessage());
+      assertEquals(equalError.getMessage(), differentError.getMessage());
+      assertTrue(afterRefusal.isEmpty());
+      var retained = correlation.sealedScopes().getFirst();
+      assertSame(copied, retained.root().requiredChild(SyntaxRole.INITIALIZER));
+      var conversion = retained.uses().stream().filter(use -> use.role() == SyntaxRole.INITIALIZER).findFirst().orElseThrow();
+      assertEquals("byte", conversion.conversion().knownValue().orElseThrow().preBoxPrimitiveType().orElseThrow().displayName());
+      assertEquals("java.lang.Byte", conversion.conversion().knownValue().orElseThrow().boxedType().orElseThrow().displayName());
+    });
+  }
+
+  @Test
+  void givenTwoFieldsWithoutInitializers_whenRetainedWithTheOtherDeclaration_thenNoForeignScopeIsStaged() throws IOException {
+    // Arrange
+    withCompiledSource("field-declaration-owner", "class Example { int first; int second; }", fixture -> {
+      var unit = fixture.unit();
+      var source = fixture.source();
+      var semantics = fixture.semantics();
+      var inventory = fixture.inventory();
+      var type = (ClassTree) unit.getTypeDecls().getFirst();
+      var fields = type.getMembers().stream().filter(VariableTree.class::isInstance).map(VariableTree.class::cast).toList();
+      var policy = JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_INITIALIZATION);
+      var diagnostics = new DiagnosticEmissionCollector("field-initialization", source.sourceFileKey());
+      var associations = new JavaWrittenSourceAssociations(inventory);
+      var scope = new JavaDeclarationScope();
+      var headers = new JavaDeclarationHeaderProjector(semantics, fixture.evidence(), inventory, new JavaAnnotationMirrorCorrelation(semantics),
+          policy, associations, scope::fieldAnnotations);
+      var correlation = new JavaBodySourceCorrelation(semantics, fixture.evidence(), inventory, associations, scope);
+      var projector = new JavaInitializationProjector(semantics, fixture.evidence(), inventory, policy, associations, correlation);
+      var declarations = new ArrayList<SyntaxNode>();
+      var initializations = new ArrayList<JavaInitializationProjector.Initialization>();
+      for (var index = 0; index < fields.size(); index++) {
+        var field = fields.get(index);
+        var compilerPath = TreePath.getPath(unit, field);
+        var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, index);
+        var header = headers.field(unit, source, compilerPath, field, path, path, diagnostics).orElseThrow();
+        declarations.add(SyntaxNode.source(source.sourceFileKey(), path, JavaSourceKind.VARIABLE, SyntaxKind.FIELD_DECLARATION,
+            SyntaxType.NotApplicable.INSTANCE, header.value(), header.children(), Optional.empty(), header.range()));
+        initializations.add(projector.fieldChildren(unit, source, compilerPath, field, header.value(), path, diagnostics,
+            (_, _, _) -> { throw new AssertionError("Unexpected nested declaration"); }).orElseThrow());
+      }
+
+      // Act
+      var other = declarations.getLast();
+      var wrongPath = assertThrows(IllegalArgumentException.class, () -> projector.fieldChildren(unit, source,
+          TreePath.getPath(unit, fields.getLast()), fields.getFirst(), other.value(SyntaxValue.VariableDeclaration.class),
+          other.structuralPath(), diagnostics, (_, _, _) -> { throw new AssertionError("Unexpected nested declaration"); }));
+      var error = assertThrows(IllegalArgumentException.class,
+          () -> projector.retain(initializations.getFirst(), declarations.getLast(), diagnostics));
+      var afterRefusal = correlation.sealedScopes();
+      projector.retain(initializations.getFirst(), declarations.getFirst(), diagnostics);
+
+      // Assert
+      assertEquals("Field initialization requires its exact attributed declaration and compiler path", wrongPath.getMessage());
+      assertEquals("An initialization scope requires its exact source declaration", error.getMessage());
+      assertTrue(afterRefusal.isEmpty());
+      var retained = correlation.sealedScopes().getFirst();
+      assertSame(declarations.getFirst(), retained.root());
+      assertTrue(retained.uses().isEmpty());
+    });
+  }
+
+  @Test
   void givenRealInitializerBlock_whenProjectedWithInitializerScope_thenLocalBindingAndUpdateRemainInsideTheWrittenBlock() throws IOException {
     // Arrange
     withCompiledSource("initializer-statements", "class Example { { int value = 1; value += 2; } }", fixture -> {
@@ -331,7 +448,7 @@ class JavaMethodBodyAdmissionTest {
 
       // Act
       var error = assertThrows(IllegalArgumentException.class, () -> projector.project(fixture.unit(), fixture.source(), original.methodKey(),
-          original.projection().declaration().getBody(), other.projection().bodyPath(), original.root().structuralPath(), false, false));
+          original.projection().declaration().getBody(), other.projection().evidence().compilerRoot(), original.root().structuralPath(), false, false));
 
       // Assert
       assertTrue(error.getMessage().contains("exact compiler tree and compilation-unit path"));
@@ -353,7 +470,7 @@ class JavaMethodBodyAdmissionTest {
 
       // Assert
       assertSame(action.root(), action.projection().evidence().translation().value());
-      assertSame(action.projection().declaration().getBody(), action.projection().bodyPath().getLeaf());
+      assertSame(action.projection().declaration().getBody(), action.projection().evidence().compilerRoot().getLeaf());
       assertSame(action.root(), aggregate.methodSyntax(action.methodKey()).orElseThrow().root());
       assertSame(action.root(), aggregate.node(action.root().nodeId()).orElseThrow());
       assertEquals(MethodBodyOrigin.SOURCE_AST, aggregate.methodBodyOrigin(action.methodKey()).orElseThrow());
@@ -371,9 +488,275 @@ class JavaMethodBodyAdmissionTest {
   }
 
   @Test
+  void givenCompiledBodyWithDerivedAndNestedSyntax_whenBindingsAreCorroborated_thenOnlyExactMembershipIsRetained() throws IOException {
+    // Arrange
+    withCompiledSource("projection-membership", "class Example { String action() { class Local {} return \"a\" + \"b\"; } }", fixture -> {
+      var body = fixture.body("action");
+      var evidence = body.projection().evidence();
+      var root = body.root();
+      var supplied = new ArrayList<>(evidence.nodes());
+      var rootBinding = supplied.stream().filter(binding -> binding.node() == root).findFirst().orElseThrow();
+      var derived = supplied.stream().filter(binding -> binding.derivation().isPresent() && binding.node().syntaxKind() == SyntaxKind.BINARY)
+          .findFirst().orElseThrow();
+      var equalRoot = SyntaxNode.source(root.sourceFileKey(), root.structuralPath(), root.sourceKind(), root.syntaxKind(), root.type(),
+          root.value(), root.children(), root.semanticReference(), root.origin().orElseThrow());
+      var duplicate = new ArrayList<>(supplied);
+      duplicate.add(rootBinding);
+      var missing = new ArrayList<>(supplied);
+      missing.removeLast();
+      var extra = new ArrayList<>(supplied);
+      extra.add(new NodeProjection(equalRoot, rootBinding.compilerAnchor(), rootBinding.compilerPath(), rootBinding.children(),
+          rootBinding.sourceAssociation(), rootBinding.erroneousType()));
+      var foreign = new ArrayList<>(extra);
+      foreign.remove(rootBinding);
+
+      // Act
+      var proof = JavaExecutableProjectionProof.corroborate(evidence, supplied, fixture.semantics());
+      supplied.clear();
+      var duplicateError = assertThrows(IllegalArgumentException.class,
+          () -> JavaExecutableProjectionProof.corroborate(evidence, duplicate, fixture.semantics()));
+      var missingError = assertThrows(IllegalArgumentException.class,
+          () -> JavaExecutableProjectionProof.corroborate(evidence, missing, fixture.semantics()));
+      var extraError = assertThrows(IllegalArgumentException.class,
+          () -> JavaExecutableProjectionProof.corroborate(evidence, extra, fixture.semantics()));
+      var foreignError = assertThrows(IllegalArgumentException.class,
+          () -> JavaExecutableProjectionProof.corroborate(evidence, foreign, fixture.semantics()));
+
+      // Assert
+      assertEquals(root, equalRoot);
+      assertNotSame(root, equalRoot);
+      assertSame(rootBinding, proof.binding(root));
+      assertSame(derived, proof.binding(derived.node()));
+      assertEquals(List.of("Local"), evidence.nodes().stream().map(NodeProjection::compilerAnchor).map(TreePath::getLeaf)
+          .filter(ClassTree.class::isInstance).map(ClassTree.class::cast).map(tree -> tree.getSimpleName().toString()).toList());
+      assertThrows(IllegalArgumentException.class, () -> proof.binding(equalRoot));
+      assertTrue(duplicateError.getMessage().contains("two compiler projections"));
+      assertTrue(missingError.getMessage().contains("exactly its produced compiler projection"));
+      assertEquals(missingError.getMessage(), extraError.getMessage());
+      assertTrue(foreignError.getMessage().contains("exact attributed source projection"));
+    });
+  }
+
+  @Test
+  void givenCompiledBodyWithDerivedSyntax_whenChildOrRegionEvidenceIsMismatched_thenCorroborationRejectsEachAtItsBoundary()
+      throws IOException {
+    // Arrange
+    withCompiledSource("projection-anchors", "class Example { String action() { {} return \"a\" + \"b\"; } }", fixture -> {
+      var body = fixture.body("action");
+      var evidence = body.projection().evidence();
+      var root = body.root();
+      var valid = JavaExecutableProjectionProof.corroborate(evidence, fixture.semantics());
+      var rootBinding = valid.binding(root);
+      var children = new ArrayList<>(rootBinding.children());
+      Collections.swap(children, 0, 1);
+      var mismatchedChildren = new NodeProjection(root, rootBinding.compilerAnchor(), rootBinding.compilerPath(), children,
+          rootBinding.sourceAssociation(), rootBinding.erroneousType());
+      var derived = evidence.nodes().stream().filter(binding -> binding.derivation().isPresent() && binding.node().syntaxKind() == SyntaxKind.BINARY)
+          .findFirst().orElseThrow();
+      var mismatchedRegion = new NodeProjection(derived.node(), derived.compilerAnchor(), derived.compilerPath(), derived.children(),
+          Optional.empty(), derived.erroneousType(), derived.derivation());
+
+      // Act
+      var childError = assertThrows(IllegalArgumentException.class, () -> JavaExecutableProjectionProof.corroborate(evidence,
+          evidence.nodes().stream().map(binding -> binding == rootBinding ? mismatchedChildren : binding).toList(),
+          fixture.semantics()));
+      var regionError = assertThrows(IllegalArgumentException.class, () -> JavaExecutableProjectionProof.corroborate(evidence,
+          evidence.nodes().stream().map(binding -> binding == derived ? mismatchedRegion : binding).toList(),
+          fixture.semantics()));
+
+      // Assert
+      assertTrue(childError.getMessage().contains("exact direct child and compiler path"));
+      assertTrue(regionError.getMessage().contains("compiler-region and written topology proof"));
+      assertSame(rootBinding, valid.binding(root));
+      assertSame(derived, valid.binding(derived.node()));
+    });
+  }
+
+  @Test
+  void givenCompilerOperandsWithEqualKindsAndTypes_whenBothBindingsAndMappingsAreSwapped_thenActualRolesRejectTheSwap()
+      throws IOException {
+    // Arrange
+    withCompiledSource("operand-anchors", "class Example { int action(int a, int b) { return a * b; } }", fixture -> {
+      var evidence = fixture.body("action").projection().evidence();
+      var proof = JavaExecutableProjectionProof.corroborate(evidence, fixture.semantics());
+      var binary = evidence.nodes().stream().filter(binding -> binding.node().syntaxKind() == SyntaxKind.BINARY).findFirst().orElseThrow();
+      var left = proof.binding(binary.node().requiredChild(SyntaxRole.LEFT_OPERAND));
+      var right = proof.binding(binary.node().requiredChild(SyntaxRole.RIGHT_OPERAND));
+      var swapped = List.of(
+          new SyntaxChildMapping(SyntaxRole.LEFT_OPERAND, 0, right.compilerAnchor().getLeaf(), right.compilerAnchor(), left.compilerPath()),
+          new SyntaxChildMapping(SyntaxRole.RIGHT_OPERAND, 0, left.compilerAnchor().getLeaf(), left.compilerAnchor(), right.compilerPath()));
+      var bindings = evidence.nodes().stream().map(binding -> {
+        if (binding == binary) {
+          return new NodeProjection(binding.node(), binding.compilerAnchor(), binding.compilerPath(), swapped, binding.sourceAssociation(),
+              binding.erroneousType());
+        }
+        if (binding == left || binding == right) {
+          return withAnchor(binding, binding == left ? right.compilerAnchor() : left.compilerAnchor());
+        }
+        return binding;
+      }).toList();
+
+      // Act
+      var error = assertThrows(IllegalArgumentException.class,
+          () -> JavaExecutableProjectionProof.corroborate(evidence, bindings, fixture.semantics()));
+
+      // Assert
+      assertEquals(left.node().type(), right.node().type());
+      assertEquals(left.node().sourceKind(), right.node().sourceKind());
+      assertNotSame(left.compilerAnchor().getLeaf(), right.compilerAnchor().getLeaf());
+      assertSame(left, proof.binding(left.node()));
+      assertTrue(error.getMessage().contains("exact direct child and compiler path"));
+    });
+  }
+
+  @Test
+  void givenDerivedLiteralAndIntactOperand_whenMatchingFactsOrCompilerAddressAreFalsified_thenCapturedEvidenceRejectsEach()
+      throws IOException {
+    // Arrange
+    var content = "class Example { String action(String x) { String folded = \"a\" + \"b\"; return x + \"c\" + \"d\"; } }";
+    withCompiledSource("written-region-evidence", content, fixture -> {
+      var evidence = fixture.body("action").projection().evidence();
+      var proof = JavaExecutableProjectionProof.corroborate(evidence, fixture.semantics());
+      var literal = evidence.nodes().stream().filter(binding -> binding.derivation().isPresent()
+          && binding.node().value() instanceof SyntaxValue.Literal value && value.text().equals("a")).findFirst().orElseThrow();
+      var association = literal.sourceAssociation().orElseThrow();
+      var relation = association.normalizedExpression().orElseThrow();
+      var supplied = new NormalizedExpressionCorrespondence(relation.region(), relation.occurrencePath(), relation.compilerAnchor(),
+          relation.compilerKind(), relation.compilerType(), Optional.of(new AnnotationScalar.StringValue("z")),
+          relation.derivedConstantExpression(), relation.observations());
+      var wrongAssociation = new WrittenSourceAssociation(association.nodeKey(), association.sourceFileKey(), association.ownerPath(),
+          association.sourceKind(), association.origin(), Optional.of(supplied));
+      var facts = literal.derivation().orElseThrow();
+      var wrongLiteral = new NodeProjection(literal.node(), literal.compilerAnchor(), literal.compilerPath(), literal.children(),
+          Optional.of(wrongAssociation), literal.erroneousType(),
+          Optional.of(new JavaWrittenExpressionProjector.Facts(facts.type(), Optional.of("z"), facts.constantStatus())));
+      var operand = evidence.nodes().stream().filter(binding -> binding.node().sourceKind().name().equals("IDENTIFIER"))
+          .findFirst().orElseThrow();
+      var wrongAddress = new NodeProjection(operand.node(), operand.compilerAnchor(), operand.node().structuralPath(), operand.children(),
+          operand.sourceAssociation(), operand.erroneousType());
+
+      // Act
+      var factError = assertThrows(IllegalArgumentException.class, () -> JavaExecutableProjectionProof.corroborate(evidence,
+          evidence.nodes().stream().map(binding -> binding == literal ? wrongLiteral : binding).toList(), fixture.semantics()));
+      var addressError = assertThrows(IllegalArgumentException.class, () -> JavaExecutableProjectionProof.corroborate(evidence,
+          evidence.nodes().stream().map(binding -> binding == operand ? wrongAddress : binding).toList(), fixture.semantics()));
+
+      // Assert
+      assertNotSame(literal, wrongLiteral);
+      assertSame(literal, proof.binding(literal.node()));
+      assertFalse(operand.compilerPath().equals(wrongAddress.compilerPath()));
+      assertSame(operand, proof.binding(operand.node()));
+      assertTrue(factError.getMessage().contains("compiler-region and written topology proof"));
+      assertEquals(factError.getMessage(), addressError.getMessage());
+    });
+  }
+
+  @Test
+  void givenPreviouslyProducedBodies_whenLiveTypeChanges_thenRegistrationReplaysTheStructuralProofBeforeInsertion() throws IOException {
+    // Arrange
+    var content = "class Example { int action() { return 1; } int other() { return 2; } }";
+    withCompiledSource("registration-replay", content, fixture -> {
+      var changed = new AtomicBoolean();
+      var trees = new ProjectionTrees(fixture.trees()) {
+        @Override public TypeMirror getTypeMirror(TreePath path) {
+          return changed.get() && path.getLeaf() instanceof LiteralTree literal && Integer.valueOf(2).equals(literal.getValue())
+              ? fixture.task().getTypes().getPrimitiveType(TypeKind.LONG) : super.getTypeMirror(path);
+        }
+      };
+      var policy = JavaTranslationPolicy.legacyAnalysis();
+      var semantics = new SemanticResolver(trees, fixture.task().getTypes(), fixture.task().getElements(),
+          new DeclarationIdentityRegistry(trees, fixture.task().getTypes(), fixture.task().getElements(), policy));
+      var translator = new JavaMethodBodyTranslator(semantics, fixture.evidence(), fixture.inventory(),
+          JavaExecutableProjectionContext.metadata(policy));
+      var first = translate(fixture, translator, "action");
+      var second = translate(fixture, translator, "other");
+      var methods = fixture.translated().types().getFirst().methods();
+      var firstMethod = methods.stream().filter(method -> method.methodKey().equals(first.methodKey())).findFirst().orElseThrow();
+      var secondMethod = methods.stream().filter(method -> method.methodKey().equals(second.methodKey())).findFirst().orElseThrow();
+      var correlation = new JavaBodySourceCorrelation(semantics, fixture.evidence(), fixture.inventory(),
+          new JavaWrittenSourceAssociations(fixture.inventory()), new JavaDeclarationScope());
+      correlation.register(fixture.unit(), fixture.source(), first, firstMethod);
+      var previous = correlation.registrations(fixture.source());
+
+      // Act
+      changed.set(true);
+      var error = assertThrows(IllegalArgumentException.class,
+          () -> correlation.register(fixture.unit(), fixture.source(), second, secondMethod));
+      var retained = correlation.registrations(fixture.source());
+      changed.set(false);
+      correlation.register(fixture.unit(), fixture.source(), second, secondMethod);
+
+      // Assert
+      assertTrue(error.getMessage().contains("exact attributed source projection"));
+      assertEquals(previous, retained);
+      assertSame(first.root(), retained.getFirst().root());
+      assertEquals(List.of(first.methodKey(), second.methodKey()),
+          correlation.registrations(fixture.source()).stream().map(CopiedAstValues.Body::methodKey).toList());
+    });
+  }
+
+  @Test
+  void givenWrittenMethodWithUnavailableHeader_whenRemainingBodiesAreScanned_thenCanonicalMetadataIsRequired() throws IOException {
+    // Arrange
+    var content = "class Example { int refused() { return 4; } } class Healthy { int action() { return 7; } }";
+    withCompiledSource("remaining-registration", content, fixture -> {
+      var unit = fixture.unit();
+      var source = fixture.source();
+      var semantics = fixture.semantics();
+      var inventory = fixture.inventory();
+      var policy = JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_UNITS);
+      var refusedTree = ((ClassTree) unit.getTypeDecls().getFirst()).getMembers().stream().filter(MethodTree.class::isInstance)
+          .map(MethodTree.class::cast).filter(method -> method.getName().contentEquals("refused")).findFirst().orElseThrow();
+      var evidence = new JavaSourceEvidence(new SourcePositions() {
+        @Override public long getStartPosition(CompilationUnitTree owner, Tree tree) {
+          return tree == refusedTree ? Diagnostic.NOPOS : fixture.evidence().rawStart(owner, tree);
+        }
+
+        @Override public long getEndPosition(CompilationUnitTree owner, Tree tree) {
+          return fixture.evidence().rawEnd(owner, tree);
+        }
+      });
+      var metadata = new JavaUnitTranslationFactory(semantics, evidence, inventory, policy).create(unit, source)
+          .translateDeclarations().value();
+      var example = metadata.types().stream().filter(type -> type.qualifiedName().equals("Example")).findFirst().orElseThrow();
+      var healthy = metadata.types().stream().filter(type -> type.qualifiedName().equals("Healthy")).findFirst().orElseThrow();
+      var refused = example.methods().stream().filter(method -> method.name().equals("refused")).findFirst().orElseThrow();
+      var generated = example.methods().stream().filter(JavaMethod::constructor).findFirst().orElseThrow();
+      var action = healthy.methods().stream().filter(method -> method.name().equals("action")).findFirst().orElseThrow();
+      var withoutRefused = new JavaType(example.typeKey(), example.qualifiedName(), example.kind(), example.modifiers(), example.enclosingType(),
+          example.directSuperclass(), example.directInterfaces(), example.permittedSubclasses(), example.typeParameters(), example.sourceDeclared(),
+          example.fields(), example.recordComponents(), List.of(generated), example.synthesizedDeclarations(), example.origins(),
+          example.nesting(), example.staticType(), example.displayName());
+      var associations = new JavaWrittenSourceAssociations(inventory);
+      var scope = new JavaDeclarationScope();
+      var correlation = new JavaBodySourceCorrelation(semantics, evidence, inventory, associations, scope);
+      var headers = new JavaDeclarationHeaderProjector(semantics, evidence, inventory, new JavaAnnotationMirrorCorrelation(semantics),
+          policy, associations, scope::fieldAnnotations);
+      var declarations = new JavaDeclarationProjector(semantics, evidence, inventory, headers, policy, associations, scope, correlation);
+      var projector = new JavaUnitSourceProjector(semantics, evidence, inventory, policy, associations, correlation, declarations);
+
+      // Act
+      var error = assertThrows(IllegalArgumentException.class,
+          () -> projector.project(unit, source, List.of(), List.of(withoutRefused, healthy)));
+      var positive = new UnitSourceFixture(semantics, evidence, inventory, policy).translate(unit, source, List.of(), metadata.types());
+
+      // Assert
+      assertEquals("Translated body does not match its canonical executable: " + refused.methodKey(), error.getMessage());
+      assertTrue(correlation.hasBody(action.methodKey()));
+      assertTrue(correlation.hasBody(generated.methodKey()));
+      assertFalse(correlation.hasBody(refused.methodKey()));
+      assertTrue(positive.diagnostics().stream().anyMatch(diagnostic -> diagnostic.code().equals("frontend.missing-source-position")));
+      var origins = positive.bodies().stream().collect(Collectors.toMap(CopiedAstValues.Body::methodKey, CopiedAstValues.Body::origin));
+      assertEquals(MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY, origins.get(refused.methodKey()));
+      assertEquals(MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY, origins.get(generated.methodKey()));
+      assertEquals(MethodBodyOrigin.SOURCE_AST, origins.get(action.methodKey()));
+    });
+  }
+
+  @Test
   void givenSwappedRootWithOriginalProjection_whenContributed_thenProducedInstanceMismatchIsRejected() throws IOException {
     // Arrange
-    withCompiledSource("swapped-root", fixture -> {
+    withCompiledSource("swapped-root", "class Example { String action() { class Local {} return \"a\" + \"b\"; } }", fixture -> {
       var original = fixture.body("action");
       var root = original.root();
       var replacement = SyntaxNode.source(root.sourceFileKey(), root.structuralPath(), root.sourceKind(), root.syntaxKind(), root.type(),
@@ -382,11 +765,25 @@ class JavaMethodBodyAdmissionTest {
 
       // Act
       var error = assertThrows(IllegalArgumentException.class, () -> fixture.contribute(fixture.replace(original, swapped), fixture.semantics()));
+      var admitted = fixture.contribute(fixture.translated().methodBodies(), fixture.semantics());
 
       // Assert
       assertEquals(root, replacement);
       assertNotSame(root, replacement);
       assertTrue(error.getMessage().contains("does not retain its executable body projection"));
+      var retained = admitted.bodies().stream().filter(body -> body.methodKey().equals(original.methodKey())).findFirst().orElseThrow();
+      var writtenBody = admitted.contribution().orElseThrow().root().descendantsAndSelf().stream()
+          .filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration declaration
+              && declaration.declarationKey().equals(original.methodKey()))
+          .findFirst().orElseThrow().requiredChild(SyntaxRole.BODY);
+      var expression = writtenBody.children(SyntaxRole.STATEMENT).getLast().requiredChild(SyntaxRole.EXPRESSION);
+      assertNotSame(root, retained.root());
+      assertSame(writtenBody, retained.root());
+      assertEquals(root.origin(), writtenBody.origin());
+      var concatenation = retained.concatenations().getFirst();
+      assertEquals(original.methodKey(), concatenation.scopeKey());
+      assertEquals(expression.nodeId(), concatenation.binaryNodeId());
+      assertEquals(Optional.of(true), concatenation.compileTimeConstant().knownValue());
     });
   }
 
@@ -401,7 +798,7 @@ class JavaMethodBodyAdmissionTest {
       // Act
       var error = assertThrows(IllegalArgumentException.class,
           () -> translator.translate(fixture.unit(), fixture.source(), original.methodKey(), original.projection().declaration().getBody(),
-              other.projection().bodyPath(), false, false));
+              other.projection().evidence().compilerRoot(), false, false));
 
       // Assert
       assertTrue(error.getMessage().contains("requires its attributed executable and exact body path"));
@@ -522,7 +919,7 @@ class JavaMethodBodyAdmissionTest {
       // Act
       var error = assertThrows(IllegalArgumentException.class,
           () -> translator.translate(fixture.unit(), fixture.source(), action.methodKey(), other.projection().declaration().getBody(),
-              other.projection().bodyPath(), false, false));
+              other.projection().evidence().compilerRoot(), false, false));
 
       // Assert
       assertTrue(error.getMessage().contains("requires its attributed executable and exact body path"));
@@ -575,7 +972,7 @@ class JavaMethodBodyAdmissionTest {
           var path = TreePath.getPath(fixture.unit(), body.projection().declaration());
           var executable = fixture.semantics().element(path);
           assertSame(body.projection().declaration(), fixture.semantics().sourceTree(executable));
-          assertSame(body.projection().declaration().getBody(), body.projection().bodyPath().getLeaf());
+          assertSame(body.projection().declaration().getBody(), body.projection().evidence().compilerRoot().getLeaf());
           assertEquals(fixture.semantics().declarationKey(executable).orElseThrow(), aggregate.methodSyntax(body.methodKey()).orElseThrow().methodKey());
           var retained = aggregate.methodSyntax(body.methodKey()).orElseThrow().root();
           if (aggregate.methodBodyOrigin(body.methodKey()).orElseThrow() == MethodBodyOrigin.SOURCE_AST) {
@@ -588,6 +985,17 @@ class JavaMethodBodyAdmissionTest {
         }
       });
     }
+  }
+
+  private static NodeProjection withAnchor(NodeProjection binding, TreePath anchor) {
+    return new NodeProjection(binding.node(), anchor, binding.compilerPath(), binding.children(), binding.sourceAssociation(),
+        binding.erroneousType(), binding.derivation());
+  }
+
+  private static TranslatedMethodBody translate(Fixture fixture, JavaMethodBodyTranslator translator, String name) {
+    var body = fixture.body(name);
+    return translator.translate(fixture.unit(), fixture.source(), body.methodKey(), body.projection().declaration().getBody(),
+        body.projection().evidence().compilerRoot(), false, false).value();
   }
 
   private void withCompiledSource(String directory, FixtureAction action) throws IOException {
