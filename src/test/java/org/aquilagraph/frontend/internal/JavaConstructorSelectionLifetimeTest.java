@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.sun.source.util.JavacTask;
+import com.sun.source.util.TaskEvent;
+import com.sun.source.util.TaskListener;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -62,6 +65,30 @@ class JavaConstructorSelectionLifetimeTest {
         assertEquals(List.of(true, false), observation.closedRoles);
         assertTrue(observation.managers.stream().allMatch(manager -> manager.delegateClosed));
       }
+    }
+  }
+
+  @Test
+  void givenBorrowedOriginalManager_whenSessionPreparesWitness_thenOnlyTheWitnessManagerClosesBeforeTheSession(@TempDir Path directory)
+      throws IOException {
+    // Arrange
+    var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+    var sources = new SnapshotSourceCatalog(
+        InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Selection.java"), SOURCE))));
+    var policy = JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_UNITS);
+    try (var observation = new CompilerObservation()) {
+      List<Boolean> closedBeforeSessionClose;
+
+      // Act
+      try (var session = CompilerSessionAcquisition.open(observation.compiler, JavaCompilerInvocation.from(configuration), sources)) {
+        session.analyze(session.parse(), policy);
+        closedBeforeSessionClose = observation.managers.stream().map(manager -> manager.delegateClosed).toList();
+      }
+
+      // Assert
+      assertEquals(List.of(false, true), closedBeforeSessionClose);
+      assertEquals(List.of(true, false), observation.closedRoles);
+      assertTrue(observation.managers.stream().allMatch(manager -> manager.delegateClosed));
     }
   }
 
@@ -180,6 +207,42 @@ class JavaConstructorSelectionLifetimeTest {
     }
   }
 
+  @Test
+  void givenAbruptWitnessAttribution_whenTheFrontendIsRetried_thenPrimaryFailureSurvivesAndTheNextResultIsUsable(@TempDir Path directory)
+      throws IOException {
+    // Arrange
+    var root = sourceRoot(directory, false);
+    var attributionFailure = new IllegalStateException("Injected witness attribution failure");
+    var witnessCloseFailure = new IOException("Injected witness manager close failure");
+    var originalCloseFailure = new IOException("Injected original manager close failure");
+    try (var observation = new CompilerObservation()) {
+      observation.witnessAttributionFailure = attributionFailure;
+      observation.witnessCloseFailure = witnessCloseFailure;
+      observation.originalCloseFailure = originalCloseFailure;
+      var frontend = frontend(observation);
+
+      // Act
+      var failure = assertThrows(RuntimeException.class, () -> analyze(frontend, root, false));
+      var closedAfterFailure = List.copyOf(observation.closedRoles);
+      var delegatesClosedAfterFailure = observation.managers.stream().allMatch(manager -> manager.delegateClosed);
+      observation.beginHealthyRequest();
+      var result = analyze(frontend, root, false);
+
+      // Assert
+      assertSame(attributionFailure, failure.getCause());
+      assertEquals(List.of(witnessCloseFailure, originalCloseFailure), List.of(failure.getSuppressed()));
+      assertEquals(List.of(true, false), closedAfterFailure);
+      assertTrue(delegatesClosedAfterFailure);
+      assertTrue(result.diagnostics().stream().noneMatch(diagnostic -> diagnostic.isError()), result.diagnostics().toString());
+      var body = result.aggregate().methodSyntax("type:Selection#create()").orElseThrow();
+      var creation = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION)
+          .findFirst().orElseThrow();
+      assertEquals("java.lang.String", body.useDecision(creation.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow().selectedTarget().displayName());
+      assertEquals(List.of(true, false, true, false), observation.closedRoles);
+      assertTrue(observation.managers.stream().allMatch(manager -> manager.delegateClosed));
+    }
+  }
+
   private static Path sourceRoot(Path directory, boolean pathEntry) throws IOException {
     var root = directory.resolve(pathEntry ? "path-input" : "snapshot-input");
     Files.createDirectories(root);
@@ -205,6 +268,7 @@ class JavaConstructorSelectionLifetimeTest {
     private final List<ManagerObservation> managers = new ArrayList<>();
     private final List<Boolean> closedRoles = new ArrayList<>();
     private @Nullable Throwable workFailure;
+    private @Nullable IllegalStateException witnessAttributionFailure;
     private @Nullable IOException witnessCloseFailure;
     private @Nullable IOException originalCloseFailure;
     private @Nullable IllegalStateException acquisitionFailure;
@@ -234,9 +298,30 @@ class JavaConstructorSelectionLifetimeTest {
               if (taskRequests > 1 && workFailure != null) {
                 throw workFailure;
               }
+              var task = (JavacTask) invoke(method, delegate, arguments);
+              var attributionFailure = witnessAttributionFailure;
+              if (taskRequests > 1 && attributionFailure != null) {
+                task.addTaskListener(new TaskListener() {
+                  @Override
+                  public void started(TaskEvent event) {
+                    if (event.getKind() == TaskEvent.Kind.ANALYZE) {
+                      throw attributionFailure;
+                    }
+                  }
+                });
+              }
+              return task;
             }
             return invoke(method, delegate, arguments);
           });
+    }
+
+    private void beginHealthyRequest() {
+      managerRequests = 0;
+      taskRequests = 0;
+      witnessAttributionFailure = null;
+      witnessCloseFailure = null;
+      originalCloseFailure = null;
     }
 
     private static @Nullable Object invoke(Method method, Object receiver, @Nullable Object @Nullable [] arguments) throws Throwable {

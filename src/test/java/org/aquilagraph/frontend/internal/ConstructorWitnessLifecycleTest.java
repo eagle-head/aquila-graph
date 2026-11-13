@@ -30,6 +30,11 @@ import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.DiagnosticEmission;
+import org.aquilagraph.source.api.EvidenceState;
+import org.aquilagraph.source.api.ResolutionStatus;
+import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.retention.AstCodec;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
@@ -40,17 +45,25 @@ class ConstructorWitnessLifecycleTest {
   @TempDir Path directory;
 
   @TestFactory
-  Stream<DynamicTest> givenUnavailableOrRejectedConstructorWitnesses_whenAllExecutionOwnersAreProduced_thenCorrelationFailuresAreDiagnosed() {
+  Stream<DynamicTest> givenFailedWitnesses_whenExecutionOwnersAreProduced_thenOnlyTypedArgumentsRequireCorrelationDiagnostics() {
     // Arrange
     var cases = List.of(new WitnessCase("Unavailable", "class PrivateProof {}", "frontend.missing-constructor-correlation"),
         new WitnessCase("Rejected", "class PrivateProof { MissingType value; }", "frontend.constructor-witness-rejected"));
-    var source = "class Box { <T> Box(T x) {} } class Probe { Object field = new Box(1); "
-        + "{ Object local = new Box(2); } Object make() { return new Box(3); } } "
-        + "enum Token { ONE(4); <T> Token(T value) {} }";
+    var source = """
+        class Box { <T> Box(T x) {} }
+        class VarargsBox { @SafeVarargs <T extends Number> VarargsBox(T... values) {} }
+        class Probe {
+          Object field = new Box(1);
+          { Object local = new Box(2); }
+          Object make() { return new Box(3); }
+          Object zero() { return new VarargsBox(); }
+        }
+        enum Token { ONE(4); <T> Token(T value) {} }
+        """;
 
     // Act
     var tests = cases.stream().map(example -> DynamicTest.dynamicTest(
-        "given" + example.name() + "PrivateProof_whenProducedAndDecoded_thenRequiredCorrelationHasSourceDiagnostic", () -> {
+        "given" + example.name() + "Witness_whenProducedAndDecoded_thenTypedCallsAloneHaveCorrelationDiagnostics", () -> {
           // Arrange
           var observation = new CompilerObservation();
           observation.witnessSource = example.source();
@@ -69,17 +82,70 @@ class ConstructorWitnessLifecycleTest {
             assertTrue(ast.diagnostics().stream().allMatch(value -> value.stage() == DiagnosticStage.FRONTEND && value.isError()
                 && value.origins().size() == 1 && value.origins().getFirst().sourceFileKey().equals(snapshot.sourceFiles().getFirst().sourceFileKey())));
             var ranges = ast.diagnostics().stream().map(value -> value.origins().getFirst())
-                .map(span -> source.substring((int) span.startOffset(), (int) span.endOffsetExclusive())).sorted().toList();
-            assertEquals(List.of("ONE(4)", "new Box(1)", "new Box(2)", "new Box(3)"), ranges);
+                .map(span -> source.substring((int) span.startOffset(), (int) span.endOffsetExclusive())).toList();
+            assertEquals(List.of("new Box(1)", "new Box(2)", "new Box(3)", "ONE(4)"), ranges);
+            var emissions = ast.coverage().validationEvidence().diagnosticEmissions();
+            assertEquals(List.of(0, 1, 2, 3), emissions.stream().map(DiagnosticEmission::slot).toList());
+            assertEquals(ast.diagnostics(), emissions.stream().map(DiagnosticEmission::diagnostic).toList());
+            assertEquals(original.coverage().validationEvidence().diagnosticEmissions(), emissions);
+            assertEquals(original.diagnostics(), ast.diagnostics());
             assertEquals(original.identity(), ast.identity());
+            var method = ast.program().methods().stream().filter(candidate -> candidate.name().equals("zero")).findFirst().orElseThrow();
+            var zero = ast.body(method.methodKey()).orElseThrow(
+                () -> new AssertionError("Zero-argument method has no retained body: " + method.methodKey()));
+            var zeroCall = zero.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION)
+                .findFirst().orElseThrow();
+            assertTrue(zeroCall.children(SyntaxRole.ARGUMENT).isEmpty());
+            assertEquals(EvidenceState.MISSING, zero.invocationEvidence(zeroCall.nodeId()).orElseThrow().applicability().state());
           }
-          assertEquals(List.of(1, 1, 1, 1, 1), observation.closes);
+          assertEquals(List.of(1, 1, 1, 1, 1, 1), observation.closes);
         }));
     // Assert
     return tests;
   }
 
   private record WitnessCase(String name, String source, String code) {
+  }
+
+  @Test
+  void givenSelectedConstructorWithAnErroneousArgument_whenWitnessesAreRejected_thenOnlyTheTypedCallHasACorrelationDiagnostic() {
+    // Arrange
+    var source = """
+        class Box { <T> Box(T value) {} }
+        class Probe {
+          Object invalid() { return new Box(absent); }
+          Object typed() { return new Box(1); }
+        }
+        """;
+    var observation = new CompilerObservation();
+    observation.witnessSource = "class PrivateProof { MissingType value; }";
+    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Probe.java"), source)));
+    var frontend = new JavaFrontend(new JavaSourceLoader(),
+        new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture()), () -> observation.compiler));
+
+    // Act
+    var outcome = frontend.produce(new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+        AstProfile.JAVA_SOURCE_MODULE_SERVICES));
+
+    // Assert
+    assertEquals(AstCompletion.INCOMPLETE, outcome.completion(), outcome.diagnostics().toString());
+    var ast = outcome.result().orElseThrow();
+    var method = ast.program().methods().stream().filter(candidate -> candidate.name().equals("invalid")).findFirst().orElseThrow();
+    var body = ast.body(method.methodKey()).orElseThrow(
+        () -> new AssertionError("Erroneous method has no retained body: " + method.methodKey() + " " + ast.diagnostics()));
+    var invalid = body.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION)
+        .findFirst().orElseThrow();
+    assertEquals(ResolutionStatus.RESOLVED, invalid.semanticReference().orElseThrow().status());
+    assertTrue(invalid.requiredChild(SyntaxRole.ARGUMENT).resolvedType().isEmpty());
+    assertEquals(EvidenceState.MISSING, body.invocationEvidence(invalid.nodeId()).orElseThrow().applicability().state());
+    var correlationDiagnostics = ast.diagnostics().stream().filter(diagnostic -> diagnostic.code().equals("frontend.constructor-witness-rejected")
+        || diagnostic.code().equals("frontend.missing-constructor-correlation")).toList();
+    assertEquals(1, correlationDiagnostics.size());
+    var typed = correlationDiagnostics.getFirst();
+    assertEquals("frontend.constructor-witness-rejected", typed.code());
+    var span = typed.origins().getFirst();
+    assertEquals("new Box(1)", source.substring((int) span.startOffset(), (int) span.endOffsetExclusive()));
+    assertEquals(List.of(1, 1, 1), observation.closes);
   }
 
   @Test

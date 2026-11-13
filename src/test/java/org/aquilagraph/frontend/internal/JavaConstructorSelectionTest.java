@@ -663,9 +663,10 @@ class JavaConstructorSelectionTest {
       var collection = task.getTypes().getDeclaredType(task.getElements().getTypeElement("java.util.Collection"),
           argument.getTypeArguments().getFirst());
       var lexicalView = JavaSourceTokens.capture(source);
-      var selection = new JavaConstructorSelection(compiler, invocation, catalog, manager, trees, task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis(), unit -> lexicalView);
-      selection.prepare(units);
-      var facts = selection.select(path, selected).facts().orElseThrow();
+      var witnessInputs = new ConstructorWitnessInputs(catalog, manager, trees, task.getTypes(), task.getElements(), unit -> lexicalView);
+      var correlations = new ConstructorCorrelationPreparer(new ConstructorWitnessCompiler(compiler, invocation), witnessInputs, trees,
+          task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis()).prepare(units);
+      var facts = correlations.select(path, selected).facts().orElseThrow();
 
       // Assert
       assertEquals(1, paths.size());
@@ -880,10 +881,12 @@ class JavaConstructorSelectionTest {
       var originalCapture = assertInstanceOf(TypeVariable.class, enclosing.getTypeArguments().getFirst());
       var semantics = new SemanticResolver(trees, task.getTypes(), task.getElements(), new DeclarationIdentityRegistry(trees, task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis()));
       var lexicalView = JavaSourceTokens.capture(source);
-      var selection = new JavaConstructorSelection(compiler, invocation, catalog, owned.standardFileManager(), trees, task.getTypes(),
-          task.getElements(), JavaTranslationPolicy.legacyAnalysis(), unit -> lexicalView);
-      selection.prepare(units);
-      assertEquals(semantics.typeIdentity(originalCapture), selection.select(path, selected).facts().orElseThrow().arguments().getFirst().selectedTarget());
+      var witnessInputs = new ConstructorWitnessInputs(catalog, owned.standardFileManager(), trees, task.getTypes(), task.getElements(),
+          unit -> lexicalView);
+      var correlations = new ConstructorCorrelationPreparer(new ConstructorWitnessCompiler(compiler, invocation), witnessInputs, trees,
+          task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis()).prepare(units);
+      assertEquals(semantics.typeIdentity(originalCapture),
+          correlations.select(path, selected).facts().orElseThrow().arguments().getFirst().selectedTarget());
       assertEquals(List.of(), diagnostics.getDiagnostics());
     }
   }

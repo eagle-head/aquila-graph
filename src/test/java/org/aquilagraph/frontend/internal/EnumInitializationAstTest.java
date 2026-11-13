@@ -109,8 +109,6 @@ class EnumInitializationAstTest {
   Stream<DynamicTest> givenNestedEnumInitializationVariants_whenProducedAndDecoded_thenCanonicalRecursiveValuesRemainCases() {
     // Arrange
     var sources = Stream.of(
-        "enum Example { TEXT(\"a\"); <T extends CharSequence> Example(T value) {} }",
-        "enum Example { TEXT(\"a\") {}; <T extends CharSequence> Example(T value) {} }",
         "enum Example { FIRST((java.util.function.IntSupplier) () -> { class Local { int value() { return 3; } } return new Local().value(); }) { int[] array = {}; { int n = 1; n++; } int value() { return array.length; } }; Example(java.util.function.IntSupplier action) {} }",
         "class Example { int subject() { enum Choice { FIRST(1) { int value() { return 2; } }, SECOND(3); Choice(int n) {} } return Choice.FIRST.ordinal(); } }",
         "enum Example { FIRST(new Object() { int field = 2; int value() { return field; } }) { class Member { int value() { return 4; } } }; Example(Object value) {} }",
@@ -142,6 +140,44 @@ class EnumInitializationAstTest {
     }));
     // Assert
     return cases;
+  }
+
+  @Test
+  void givenGenericEnumConstantsWithAndWithoutABody_whenProducedAndDecoded_thenEachRetainsItsInferredArgumentTarget() throws IOException {
+    // Arrange
+    var source = """
+        enum Example {
+          TEXT("a"), WITH_BODY("b") {}, BUILDER(new StringBuilder()) {};
+          <T extends CharSequence> Example(T value) {}
+        }
+        """;
+
+    // Act
+    var original = produce(source);
+    var retained = AstCodec.decode(AstCodec.encode(original), original.identity());
+
+    // Assert
+    for (var ast : List.of(original, retained)) {
+      assertEquals(AstCompletion.COMPLETE, ast.completion(), details(ast));
+      var constants = constants(ast);
+      assertEquals(List.of(0, 1, 1), constants.stream().map(node -> node.children(SyntaxRole.CLASS_BODY).size()).toList());
+      var expectedTargets = List.of("java.lang.String", "java.lang.String", "java.lang.StringBuilder");
+      for (var index = 0; index < constants.size(); index++) {
+        var constant = constants.get(index);
+        var declaration = constant.value(SyntaxValue.VariableDeclaration.class);
+        var execution = ast.aggregate().executionSyntax(declaration.declarationKey()).orElseThrow();
+        assertEquals(constant, execution.root());
+        assertEquals(declaration.ownerKey(), ((ExecutionScope.EnumConstant) execution.scope()).ownerKey());
+        assertEquals(1, constant.children(SyntaxRole.ARGUMENT).size());
+        var argument = execution.useEvidence(constant.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow();
+        assertEquals(expectedTargets.get(index), argument.selectedTarget().displayName());
+        var applicability = execution.invocationEvidence(constant.nodeId()).orElseThrow().applicability().knownValue().orElseThrow();
+        assertEquals(InvocationApplicabilityMode.FIXED, applicability.mode());
+        assertEquals(1, applicability.formalCount());
+      }
+    }
+    assertEquals(original.aggregate().nodes(), retained.aggregate().nodes());
+    assertEquals(original.aggregate().executionScopes(), retained.aggregate().executionScopes());
   }
 
   @Test
