@@ -40,6 +40,14 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.TreeSet;
 import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.Element;
+import javax.lang.model.element.ElementVisitor;
+import com.sun.source.tree.Tree;
+import com.sun.source.tree.TreeVisitor;
+import java.util.Optional;
+import java.util.Comparator;
+import java.util.function.Function;
+import org.jspecify.annotations.Nullable;
 import javax.lang.model.element.TypeElement;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.source.api.LanguageFeature;
@@ -47,8 +55,24 @@ import org.aquilagraph.source.api.LanguageFeatureCategory;
 import org.aquilagraph.source.api.LanguageFeatureClassification;
 import org.aquilagraph.source.api.LanguageFeatureCoverage;
 
-/** Defines and verifies the closed declaration-property coverage contract for Java 25. */
+/** Owns typed declaration-property descriptors and independently validates the Java 25 surface inventory. */
 final class JavaDeclarationPropertyCoverage {
+  private static final String MODIFIERS = "getModifiers";
+  private static final String ACCEPT = "accept";
+  private static final String TREE_TRAVERSAL_RATIONALE = "Visitor dispatch is a traversal protocol, not a Java declaration fact";
+  private static final String TREE_TRAVERSAL_REFERENCE = "https://docs.oracle.com/en/java/javase/25/docs/api/"
+      + "jdk.compiler/com/sun/source/tree/Tree.html#accept(V,D)";
+  private static final String CREATION_BOUNDARY = "Written creation operands and optional anonymous body";
+  private static final String STATEMENT_KIND_BOUNDARY = "Canonical written statement kind";
+  private static final String CONDITION = "getCondition";
+  private static final String STATEMENT_BOUNDARY = "Canonical written statement value and ordered children";
+  private static final String EXPRESSION = "getExpression";
+  private static final String RESOURCE_BOUNDARY = "Ordered written resources, try body, catches, and optional finally body";
+  private static final String CASE_BOUNDARY = "Written case labels, guard, and form-specific body or absence";
+  private static final String STATEMENT = "getStatement";
+  private static final String TYPE_PARAMETERS = "getTypeParameters";
+  private static final String JAVA_API_REFERENCE = "https://docs.oracle.com/en/java/javase/25/docs/api/";
+  private static final String ANNOTATION_PROXY_RATIONALE = "Annotation proxy lookup is not a separate declaration fact";
   static final String COMPILATION_UNIT_IMPORTS = "CompilationUnitTree::CompilationUnitTree#getImports()";
   static final String COMPILATION_UNIT_MODULE = "CompilationUnitTree::CompilationUnitTree#getModule()";
   static final String COMPILATION_UNIT_PACKAGE = "CompilationUnitTree::CompilationUnitTree#getPackage()";
@@ -77,45 +101,60 @@ final class JavaDeclarationPropertyCoverage {
       DeconstructionPatternTree.class, AnyPatternTree.class, SwitchTree.class, SwitchExpressionTree.class, CaseTree.class, YieldTree.class,
       WhileLoopTree.class, DoWhileLoopTree.class, ForLoopTree.class, EnhancedForLoopTree.class, LabeledStatementTree.class, BreakTree.class,
       ContinueTree.class, TryTree.class, CatchTree.class, UnionTypeTree.class, TypeElement.class, ExecutableElement.class);
-  private static final String STATEMENT_KIND_BOUNDARY = "Canonical written statement kind";
-  private static final String STATEMENT_VALUE_BOUNDARY = "Canonical written statement value and ordered children";
-  private static final String TREE_API = "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/";
-  private static final String JAVA_COMPILER_API = "https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/";
-  private static final String ELEMENT_API = JAVA_COMPILER_API + "javax/lang/model/element/";
-  private static final String ANNOTATED_CONSTRUCT_API = JAVA_COMPILER_API + "javax/lang/model/AnnotatedConstruct.html";
-  private static final String ANNOTATION_PROXY_REASON = "Annotation proxy lookup is not a separate declaration fact";
-  private static final String TREE_VISITOR_REASON = "Visitor dispatch is a traversal protocol, not a Java declaration fact";
-  private static final String TREE_ACCEPT_SOURCE = TREE_API + "Tree.html#accept(V,D)";
+
+  private static final JavaDeclarationAccessor TREE_KIND = JavaDeclarationAccessor.of(Tree.class, "getKind", Tree::getKind);
+  private static final JavaDeclarationAccessor ELEMENT_KIND = JavaDeclarationAccessor.of(Element.class, "getKind", Element::getKind);
+  private static final JavaDeclarationAccessor ELEMENT_MODIFIERS = JavaDeclarationAccessor.of(Element.class, MODIFIERS,
+      Element::getModifiers);
+  private static final JavaDeclarationAccessor ELEMENT_ANNOTATIONS = JavaDeclarationAccessor.of(Element.class, "getAnnotationMirrors",
+      Element::getAnnotationMirrors);
+  private static final List<JavaDeclarationProperty> CATALOG = createDescriptors();
 
   private JavaDeclarationPropertyCoverage() {
   }
 
   static LanguageFeatureCoverage fromConfiguration(CompilerConfiguration configuration) {
-    var coverage = fromClassifications(configuration, classifications());
-    JavaDeclarationAccessor.validateCatalog(DECLARATION_SURFACES, coverage);
-    return coverage;
+    return fromDescriptors(configuration, CATALOG);
   }
 
-  static boolean isDeclarationSurface(Class<?> surface) {
-    return DECLARATION_SURFACES.contains(surface);
+  static List<JavaDeclarationProperty> descriptors() {
+    return CATALOG;
   }
 
-  static LanguageFeatureCoverage fromClassifications(CompilerConfiguration configuration,
-      List<LanguageFeatureClassification> classifications) {
+  static List<JavaDeclarationProperty> accessors(Class<?> surface, LanguageFeatureCoverage coverage) {
+    if (!DECLARATION_SURFACES.contains(surface)) {
+      throw new IllegalArgumentException("Unsupported declaration surface: " + surface.getName());
+    }
+    var result = new ArrayList<JavaDeclarationProperty>();
+    for (var descriptor : CATALOG) {
+      if (descriptor.surface() != surface) {
+        continue;
+      }
+      var classification = coverage.classificationOf(descriptor.classification().feature());
+      if (!classification.filter(descriptor.classification()::equals).isPresent()) {
+        throw new IllegalArgumentException(
+            "Declaration property classification mismatch: " + descriptor.classification().feature().identifier());
+      }
+      if (descriptor.binding().isPresent()) {
+        result.add(descriptor);
+      }
+    }
+    return List.copyOf(result);
+  }
+
+  static LanguageFeatureCoverage fromDescriptors(CompilerConfiguration configuration, List<JavaDeclarationProperty> descriptors) {
     Objects.requireNonNull(configuration, "configuration");
-    var coverage = LanguageFeatureCoverageFactory.fromConfiguration(configuration, classifications);
+    var coverage = LanguageFeatureCoverageFactory.fromConfiguration(configuration,
+        descriptors.stream().map(JavaDeclarationProperty::classification).toList());
     var expected = accessorIdentifiers();
     var actual = new TreeSet<String>();
     var unrecognized = new TreeSet<String>();
-    for (var classification : coverage.classifications()) {
-      var feature = classification.feature();
-      if (feature.category() != LanguageFeatureCategory.DECLARATION_PROPERTY) {
-        throw new IllegalArgumentException("Java declaration property coverage contains a non-property feature: " + feature.identifier());
+    for (var descriptor : descriptors) {
+      var identifier = descriptor.classification().feature().identifier();
+      if (!DECLARATION_SURFACES.contains(descriptor.surface()) || !expected.contains(identifier)) {
+        unrecognized.add(identifier);
       }
-      if (!expected.contains(feature.identifier())) {
-        unrecognized.add(feature.identifier());
-      }
-      actual.add(feature.identifier());
+      actual.add(identifier);
     }
     if (!unrecognized.isEmpty()) {
       var message = unrecognized.size() == 1
@@ -125,332 +164,351 @@ final class JavaDeclarationPropertyCoverage {
     }
     var missing = new TreeSet<>(expected);
     missing.removeAll(actual);
-    var extra = new TreeSet<>(actual);
-    extra.removeAll(expected);
-    if (!missing.isEmpty() || !extra.isEmpty()) {
-      throw new IllegalArgumentException("Java declaration property coverage mismatch: missing=" + missing + ", extra=" + extra);
+    if (!missing.isEmpty()) {
+      throw new IllegalArgumentException("Java declaration property coverage mismatch: missing=" + missing + ", extra=[]");
     }
     return coverage;
   }
 
-  private static List<LanguageFeatureClassification> classifications() {
-    var classifications = new ArrayList<LanguageFeatureClassification>();
-    classifications.addAll(compilationUnitClassifications());
-    classifications.addAll(classClassifications());
-    classifications.addAll(methodClassifications());
-    classifications.addAll(variableClassifications());
-    classifications.addAll(blockClassifications());
-    classifications.addAll(arrayClassifications());
-    classifications.addAll(creationClassifications());
-    classifications.addAll(iterationClassifications());
-    classifications.addAll(assertionMonitorClassifications());
-    classifications.addAll(lambdaClassifications());
-    classifications.addAll(referenceClassifications());
-    classifications.addAll(classLiteralClassifications());
-    classifications.addAll(patternClassifications());
-    classifications.addAll(switchClassifications());
-    classifications.addAll(exceptionClassifications());
-    classifications.addAll(typeElementClassifications());
-    classifications.addAll(executableElementClassifications());
-    return List.copyOf(classifications);
+  private static List<JavaDeclarationProperty> createDescriptors() {
+    var descriptors = new ArrayList<JavaDeclarationProperty>();
+    descriptors.addAll(creationDescriptors());
+    descriptors.addAll(blockDescriptors());
+    descriptors.addAll(assertionMonitorDescriptors());
+    descriptors.addAll(exceptionDescriptors());
+    descriptors.addAll(referenceDescriptors());
+    descriptors.addAll(classLiteralDescriptors());
+    descriptors.addAll(switchDescriptors());
+    descriptors.addAll(patternDescriptors());
+    descriptors.addAll(lambdaDescriptors());
+    descriptors.addAll(iterationDescriptors());
+    descriptors.addAll(arrayDescriptors());
+    descriptors.addAll(compilationUnitDescriptors());
+    descriptors.addAll(classDescriptors());
+    descriptors.addAll(methodDescriptors());
+    descriptors.addAll(variableDescriptors());
+    descriptors.addAll(typeElementDescriptors());
+    descriptors.addAll(executableElementDescriptors());
+    descriptors.sort(Comparator.comparing(descriptor -> descriptor.classification().feature().identifier()));
+    return List.copyOf(descriptors);
   }
 
-  private static List<LanguageFeatureClassification> creationClassifications() {
-    var result = new ArrayList<LanguageFeatureClassification>();
-    result.add(
-        irrelevant("NewClassTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE));
-    result.add(represented("NewClassTree::Tree#getKind()", "Canonical object creation kind"));
-    for (var accessor : List.of("getEnclosingExpression", "getIdentifier", "getTypeArguments", "getArguments", "getClassBody")) {
-      result.add(represented("NewClassTree::NewClassTree#" + accessor + "()", "Written creation operands and optional anonymous body"));
-    }
-    return List.copyOf(result);
-  }
-
-  private static List<LanguageFeatureClassification> blockClassifications() {
+  private static List<JavaDeclarationProperty> creationDescriptors() {
     return List.of(
-        irrelevant("BlockTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
-        represented("BlockTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY),
-        represented("BlockTree::BlockTree#isStatic()", "Written static initializer distinction"),
-        represented("BlockTree::BlockTree#getStatements()", "Complete ordered written block statements, including empty blocks"));
+        irrelevant(NewClassTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(NewClassTree.class, TREE_KIND, "Canonical object creation kind"),
+        represented(NewClassTree.class, "getEnclosingExpression", NewClassTree::getEnclosingExpression, CREATION_BOUNDARY),
+        represented(NewClassTree.class, "getIdentifier", NewClassTree::getIdentifier, CREATION_BOUNDARY),
+        represented(NewClassTree.class, "getTypeArguments", NewClassTree::getTypeArguments, CREATION_BOUNDARY),
+        represented(NewClassTree.class, "getArguments", NewClassTree::getArguments, CREATION_BOUNDARY),
+        represented(NewClassTree.class, "getClassBody", NewClassTree::getClassBody, CREATION_BOUNDARY));
   }
 
-  private static List<LanguageFeatureClassification> assertionMonitorClassifications() {
+  private static List<JavaDeclarationProperty> blockDescriptors() {
+    return List.of(irrelevant(BlockTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(BlockTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+        represented(BlockTree.class, "isStatic", BlockTree::isStatic, "Written static initializer distinction"),
+        represented(BlockTree.class, "getStatements", BlockTree::getStatements,
+            "Complete ordered written block statements, including empty blocks"));
+  }
+
+  private static List<JavaDeclarationProperty> assertionMonitorDescriptors() {
     return List.of(
-        irrelevant("AssertTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
-        represented("AssertTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY),
-        represented("AssertTree::AssertTree#getCondition()", STATEMENT_VALUE_BOUNDARY),
-        represented("AssertTree::AssertTree#getDetail()", STATEMENT_VALUE_BOUNDARY),
-        irrelevant("SynchronizedTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
-            TREE_ACCEPT_SOURCE),
-        represented("SynchronizedTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY),
-        represented("SynchronizedTree::SynchronizedTree#getExpression()", STATEMENT_VALUE_BOUNDARY),
-        represented("SynchronizedTree::SynchronizedTree#getBlock()", STATEMENT_VALUE_BOUNDARY));
+        irrelevant(AssertTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(AssertTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+        represented(AssertTree.class, CONDITION, AssertTree::getCondition, STATEMENT_BOUNDARY),
+        represented(AssertTree.class, "getDetail", AssertTree::getDetail, STATEMENT_BOUNDARY),
+        irrelevant(SynchronizedTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(SynchronizedTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+        represented(SynchronizedTree.class, EXPRESSION, SynchronizedTree::getExpression, STATEMENT_BOUNDARY),
+        represented(SynchronizedTree.class, "getBlock", SynchronizedTree::getBlock, STATEMENT_BOUNDARY));
   }
 
-  private static List<LanguageFeatureClassification> exceptionClassifications() {
-    var result = new ArrayList<LanguageFeatureClassification>();
-    for (var surface : List.of(TryTree.class, CatchTree.class, UnionTypeTree.class)) {
-      var name = surface.getSimpleName();
-      result.add(
-          irrelevant(name + "::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE));
-      result.add(represented(name + "::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
-    }
-    for (var accessor : List.of("getResources", "getBlock", "getCatches", "getFinallyBlock")) {
-      result.add(
-          represented("TryTree::TryTree#" + accessor + "()", "Ordered written resources, try body, catches, and optional finally body"));
-    }
-    for (var accessor : List.of("getParameter", "getBlock")) {
-      result.add(represented("CatchTree::CatchTree#" + accessor + "()", "Written catch binding and body"));
-    }
-    result.add(represented("UnionTypeTree::UnionTypeTree#getTypeAlternatives()", "Every ordered written catch type alternative"));
-    return List.copyOf(result);
+  private static List<JavaDeclarationProperty> exceptionDescriptors() {
+    return List.of(irrelevant(TryTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(TryTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+        irrelevant(CatchTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(CatchTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+        irrelevant(UnionTypeTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(UnionTypeTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+        represented(TryTree.class, "getResources", TryTree::getResources, RESOURCE_BOUNDARY),
+        represented(TryTree.class, "getBlock", TryTree::getBlock, RESOURCE_BOUNDARY),
+        represented(TryTree.class, "getCatches", TryTree::getCatches, RESOURCE_BOUNDARY),
+        represented(TryTree.class, "getFinallyBlock", TryTree::getFinallyBlock, RESOURCE_BOUNDARY),
+        represented(CatchTree.class, "getParameter", CatchTree::getParameter, "Written catch binding and body"),
+        represented(CatchTree.class, "getBlock", CatchTree::getBlock, "Written catch binding and body"), represented(UnionTypeTree.class,
+            "getTypeAlternatives", UnionTypeTree::getTypeAlternatives, "Every ordered written catch type alternative"));
   }
 
-  private static List<LanguageFeatureClassification> referenceClassifications() {
+  private static List<JavaDeclarationProperty> referenceDescriptors() {
     return List.of(
-        irrelevant("MemberReferenceTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
-            TREE_ACCEPT_SOURCE),
-        represented("MemberReferenceTree::Tree#getKind()", "Canonical written reference kind"),
-        represented("MemberReferenceTree::MemberReferenceTree#getMode()", "Method or constructor reference mode"),
-        represented("MemberReferenceTree::MemberReferenceTree#getName()", "Written reference name"),
-        represented("MemberReferenceTree::MemberReferenceTree#getQualifierExpression()", "Written reference qualifier subtree"),
-        represented("MemberReferenceTree::MemberReferenceTree#getTypeArguments()", "Ordered explicit reference type arguments"));
+        irrelevant(MemberReferenceTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(MemberReferenceTree.class, TREE_KIND, "Canonical written reference kind"),
+        represented(MemberReferenceTree.class, "getMode", MemberReferenceTree::getMode, "Method or constructor reference mode"),
+        represented(MemberReferenceTree.class, "getName", MemberReferenceTree::getName, "Written reference name"),
+        represented(MemberReferenceTree.class, "getQualifierExpression", MemberReferenceTree::getQualifierExpression,
+            "Written reference qualifier subtree"),
+        represented(MemberReferenceTree.class, "getTypeArguments", MemberReferenceTree::getTypeArguments,
+            "Ordered explicit reference type arguments"));
   }
 
-  private static List<LanguageFeatureClassification> classLiteralClassifications() {
+  private static List<JavaDeclarationProperty> classLiteralDescriptors() {
     return List.of(
-        irrelevant("MemberSelectTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
-            TREE_ACCEPT_SOURCE),
-        represented("MemberSelectTree::Tree#getKind()", "Written class literal kind"),
-        represented("MemberSelectTree::MemberSelectTree#getIdentifier()", "Written class literal selector"),
-        represented("MemberSelectTree::MemberSelectTree#getExpression()", "Written class literal type operand"));
+        irrelevant(MemberSelectTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(MemberSelectTree.class, TREE_KIND, "Written class literal kind"),
+        represented(MemberSelectTree.class, "getIdentifier", MemberSelectTree::getIdentifier, "Written class literal selector"),
+        represented(MemberSelectTree.class, EXPRESSION, MemberSelectTree::getExpression, "Written class literal type operand"));
   }
 
-  private static List<LanguageFeatureClassification> switchClassifications() {
-    var result = new ArrayList<LanguageFeatureClassification>();
-    for (var surface : List.of(SwitchTree.class, SwitchExpressionTree.class, CaseTree.class, YieldTree.class)) {
-      var name = surface.getSimpleName();
-      result.add(
-          irrelevant(name + "::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE));
-      result.add(represented(name + "::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
-    }
-    for (var surface : List.of("SwitchTree", "SwitchExpressionTree")) {
-      result.add(represented(surface + "::" + surface + "#getExpression()", "Written switch selector"));
-      result.add(represented(surface + "::" + surface + "#getCases()", "Ordered written switch cases including an empty block"));
-    }
-    for (var accessor : List.of("getLabels", "getGuard", "getBody", "getStatements", "getCaseKind", "getExpressions")) {
-      result.add(represented("CaseTree::CaseTree#" + accessor + "()", "Written case labels, guard, and form-specific body or absence"));
-    }
-    result.add(irrelevant("CaseTree::CaseTree#getExpression()",
-        "Deprecated first-label alias; getExpressions and getLabels retain the complete list", TREE_API + "CaseTree.html#getExpression()"));
-    result.add(represented("YieldTree::YieldTree#getValue()", "Written yielded expression"));
-    return List.copyOf(result);
+  private static List<JavaDeclarationProperty> switchDescriptors() {
+    return List
+        .of(irrelevant(SwitchTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+            represented(SwitchTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+            irrelevant(SwitchExpressionTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class,
+                Object.class),
+            represented(SwitchExpressionTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+            irrelevant(CaseTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+            represented(CaseTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+            irrelevant(YieldTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+            represented(YieldTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+            represented(SwitchTree.class, EXPRESSION, SwitchTree::getExpression, "Written switch selector"),
+            represented(SwitchTree.class, "getCases", SwitchTree::getCases, "Ordered written switch cases including an empty block"),
+            represented(SwitchExpressionTree.class, EXPRESSION, SwitchExpressionTree::getExpression, "Written switch selector"),
+            represented(SwitchExpressionTree.class, "getCases", SwitchExpressionTree::getCases,
+                "Ordered written switch cases including an empty block"),
+            represented(CaseTree.class, "getLabels", CaseTree::getLabels, CASE_BOUNDARY),
+            represented(CaseTree.class, "getGuard", CaseTree::getGuard, CASE_BOUNDARY),
+            represented(CaseTree.class, "getBody", CaseTree::getBody, CASE_BOUNDARY),
+            represented(CaseTree.class, "getStatements", CaseTree::getStatements, CASE_BOUNDARY),
+            represented(CaseTree.class, "getCaseKind", CaseTree::getCaseKind, CASE_BOUNDARY),
+            represented(CaseTree.class, "getExpressions", CaseTree::getExpressions, CASE_BOUNDARY),
+            irrelevant(CaseTree.class, EXPRESSION, "Deprecated first-label alias; getExpressions and getLabels retain the complete list",
+                "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/CaseTree.html#getExpression()"),
+            represented(YieldTree.class, "getValue", YieldTree::getValue, "Written yielded expression"));
   }
 
-  private static List<LanguageFeatureClassification> patternClassifications() {
+  private static List<JavaDeclarationProperty> patternDescriptors() {
     return List.of(
-        irrelevant("InstanceOfTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
-            TREE_ACCEPT_SOURCE),
-        represented("InstanceOfTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY),
-        represented("InstanceOfTree::InstanceOfTree#getExpression()", "Written tested expression"),
-        represented("InstanceOfTree::InstanceOfTree#getType()", "Traditional written type or shared binding-pattern type"),
-        represented("InstanceOfTree::InstanceOfTree#getPattern()", "One written pattern subtree or explicit absence"),
-        irrelevant("BindingPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
-            TREE_ACCEPT_SOURCE),
-        represented("BindingPatternTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY),
-        represented("BindingPatternTree::BindingPatternTree#getVariable()", "Written named or unnamed pattern binding"),
-        irrelevant("DeconstructionPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
-            TREE_ACCEPT_SOURCE),
-        represented("DeconstructionPatternTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY),
-        represented("DeconstructionPatternTree::DeconstructionPatternTree#getDeconstructor()", "Written record type subtree"),
-        represented("DeconstructionPatternTree::DeconstructionPatternTree#getNestedPatterns()",
+        irrelevant(InstanceOfTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(InstanceOfTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+        represented(InstanceOfTree.class, EXPRESSION, InstanceOfTree::getExpression, "Written tested expression"),
+        represented(InstanceOfTree.class, "getType", InstanceOfTree::getType, "Traditional written type or shared binding-pattern type"),
+        represented(InstanceOfTree.class, "getPattern", InstanceOfTree::getPattern, "One written pattern subtree or explicit absence"),
+        irrelevant(BindingPatternTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(BindingPatternTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+        represented(BindingPatternTree.class, "getVariable", BindingPatternTree::getVariable, "Written named or unnamed pattern binding"),
+        irrelevant(
+            DeconstructionPatternTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(DeconstructionPatternTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+        represented(DeconstructionPatternTree.class, "getDeconstructor", DeconstructionPatternTree::getDeconstructor,
+            "Written record type subtree"),
+        represented(DeconstructionPatternTree.class, "getNestedPatterns", DeconstructionPatternTree::getNestedPatterns,
             "Ordered record component patterns including empty lists"),
-        irrelevant("AnyPatternTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
-            TREE_ACCEPT_SOURCE),
-        represented("AnyPatternTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
+        irrelevant(AnyPatternTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(AnyPatternTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY));
   }
 
-  private static List<LanguageFeatureClassification> lambdaClassifications() {
+  private static List<JavaDeclarationProperty> lambdaDescriptors() {
     return List.of(
-        irrelevant("LambdaExpressionTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
-            TREE_ACCEPT_SOURCE),
-        represented("LambdaExpressionTree::Tree#getKind()", "Canonical written lambda kind"),
-        represented("LambdaExpressionTree::LambdaExpressionTree#getParameters()", "Ordered written lambda bindings"),
-        represented("LambdaExpressionTree::LambdaExpressionTree#getBody()", "Written lambda expression or block body"),
-        represented("LambdaExpressionTree::LambdaExpressionTree#getBodyKind()", "Written lambda body distinction"));
+        irrelevant(LambdaExpressionTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(LambdaExpressionTree.class, TREE_KIND, "Canonical written lambda kind"),
+        represented(LambdaExpressionTree.class, "getParameters", LambdaExpressionTree::getParameters, "Ordered written lambda bindings"),
+        represented(LambdaExpressionTree.class, "getBody", LambdaExpressionTree::getBody, "Written lambda expression or block body"),
+        represented(LambdaExpressionTree.class, "getBodyKind", LambdaExpressionTree::getBodyKind, "Written lambda body distinction"));
   }
 
-  private static List<LanguageFeatureClassification> iterationClassifications() {
-    var result = new ArrayList<LanguageFeatureClassification>();
-    result.add(irrelevant("WhileLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
-        TREE_ACCEPT_SOURCE));
-    result.add(represented("WhileLoopTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
-    result.add(represented("WhileLoopTree::WhileLoopTree#getCondition()", STATEMENT_VALUE_BOUNDARY));
-    result.add(represented("WhileLoopTree::WhileLoopTree#getStatement()", STATEMENT_VALUE_BOUNDARY));
-    result.add(irrelevant("DoWhileLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
-        TREE_ACCEPT_SOURCE));
-    result.add(represented("DoWhileLoopTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
-    result.add(represented("DoWhileLoopTree::DoWhileLoopTree#getCondition()", STATEMENT_VALUE_BOUNDARY));
-    result.add(represented("DoWhileLoopTree::DoWhileLoopTree#getStatement()", STATEMENT_VALUE_BOUNDARY));
-    result.add(
-        irrelevant("ForLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE));
-    result.add(represented("ForLoopTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
-    result.add(represented("ForLoopTree::ForLoopTree#getInitializer()", STATEMENT_VALUE_BOUNDARY));
-    result.add(represented("ForLoopTree::ForLoopTree#getCondition()", STATEMENT_VALUE_BOUNDARY));
-    result.add(represented("ForLoopTree::ForLoopTree#getUpdate()", STATEMENT_VALUE_BOUNDARY));
-    result.add(represented("ForLoopTree::ForLoopTree#getStatement()", STATEMENT_VALUE_BOUNDARY));
-    result.add(irrelevant("EnhancedForLoopTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
-        TREE_ACCEPT_SOURCE));
-    result.add(represented("EnhancedForLoopTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
-    result.add(represented("EnhancedForLoopTree::EnhancedForLoopTree#getVariable()", STATEMENT_VALUE_BOUNDARY));
-    result.add(represented("EnhancedForLoopTree::EnhancedForLoopTree#getExpression()", STATEMENT_VALUE_BOUNDARY));
-    result.add(represented("EnhancedForLoopTree::EnhancedForLoopTree#getStatement()", STATEMENT_VALUE_BOUNDARY));
-    result.add(irrelevant("LabeledStatementTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
-        TREE_ACCEPT_SOURCE));
-    result.add(represented("LabeledStatementTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
-    result.add(represented("LabeledStatementTree::LabeledStatementTree#getLabel()", STATEMENT_VALUE_BOUNDARY));
-    result.add(represented("LabeledStatementTree::LabeledStatementTree#getStatement()", STATEMENT_VALUE_BOUNDARY));
-    result.add(
-        irrelevant("BreakTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE));
-    result.add(represented("BreakTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
-    result.add(represented("BreakTree::BreakTree#getLabel()", STATEMENT_VALUE_BOUNDARY));
-    result.add(
-        irrelevant("ContinueTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE));
-    result.add(represented("ContinueTree::Tree#getKind()", STATEMENT_KIND_BOUNDARY));
-    result.add(represented("ContinueTree::ContinueTree#getLabel()", STATEMENT_VALUE_BOUNDARY));
-    return List.copyOf(result);
+  private static List<JavaDeclarationProperty> iterationDescriptors() {
+    return List
+        .of(irrelevant(WhileLoopTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+            represented(WhileLoopTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+            represented(WhileLoopTree.class, CONDITION, WhileLoopTree::getCondition, STATEMENT_BOUNDARY),
+            represented(WhileLoopTree.class, STATEMENT, WhileLoopTree::getStatement, STATEMENT_BOUNDARY),
+            irrelevant(DoWhileLoopTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+            represented(DoWhileLoopTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+            represented(DoWhileLoopTree.class, CONDITION, DoWhileLoopTree::getCondition, STATEMENT_BOUNDARY),
+            represented(DoWhileLoopTree.class, STATEMENT, DoWhileLoopTree::getStatement, STATEMENT_BOUNDARY),
+            irrelevant(ForLoopTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+            represented(ForLoopTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+            represented(ForLoopTree.class, "getInitializer", ForLoopTree::getInitializer, STATEMENT_BOUNDARY),
+            represented(ForLoopTree.class, CONDITION, ForLoopTree::getCondition, STATEMENT_BOUNDARY),
+            represented(ForLoopTree.class, "getUpdate", ForLoopTree::getUpdate, STATEMENT_BOUNDARY),
+            represented(ForLoopTree.class, STATEMENT, ForLoopTree::getStatement, STATEMENT_BOUNDARY),
+            irrelevant(EnhancedForLoopTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class,
+                Object.class),
+            represented(EnhancedForLoopTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+            represented(EnhancedForLoopTree.class, "getVariable", EnhancedForLoopTree::getVariable, STATEMENT_BOUNDARY),
+            represented(EnhancedForLoopTree.class, EXPRESSION, EnhancedForLoopTree::getExpression, STATEMENT_BOUNDARY),
+            represented(EnhancedForLoopTree.class, STATEMENT, EnhancedForLoopTree::getStatement, STATEMENT_BOUNDARY),
+            irrelevant(LabeledStatementTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class,
+                Object.class),
+            represented(LabeledStatementTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+            represented(LabeledStatementTree.class, "getLabel", LabeledStatementTree::getLabel, STATEMENT_BOUNDARY),
+            represented(LabeledStatementTree.class, STATEMENT, LabeledStatementTree::getStatement, STATEMENT_BOUNDARY),
+            irrelevant(BreakTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+            represented(BreakTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+            represented(BreakTree.class, "getLabel", BreakTree::getLabel, STATEMENT_BOUNDARY),
+            irrelevant(ContinueTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+            represented(ContinueTree.class, TREE_KIND, STATEMENT_KIND_BOUNDARY),
+            represented(ContinueTree.class, "getLabel", ContinueTree::getLabel, STATEMENT_BOUNDARY));
   }
 
-  private static List<LanguageFeatureClassification> arrayClassifications() {
+  private static List<JavaDeclarationProperty> arrayDescriptors() {
     return List.of(
-        irrelevant("NewArrayTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
-        represented("NewArrayTree::Tree#getKind()", "JavaCompilerKindCoverage exact tree-kind contract"),
-        represented("NewArrayTree::NewArrayTree#getType()", "JavaAstAggregate optional written array component type"),
-        represented("NewArrayTree::NewArrayTree#getDimensions()", "JavaAstAggregate ordered sized dimension expressions"),
-        represented("NewArrayTree::NewArrayTree#getInitializers()", "JavaAstAggregate absent, empty or ordered initializer elements"),
-        represented("NewArrayTree::NewArrayTree#getAnnotations()", "JavaAstAggregate initialized creation first dimension annotations"),
-        represented("NewArrayTree::NewArrayTree#getDimAnnotations()", "JavaAstAggregate ordered sized dimension annotation groups"));
+        irrelevant(NewArrayTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(NewArrayTree.class, TREE_KIND, "JavaCompilerKindCoverage exact tree-kind contract"),
+        represented(NewArrayTree.class, "getType", NewArrayTree::getType, "JavaAstAggregate optional written array component type"),
+        represented(NewArrayTree.class, "getDimensions", NewArrayTree::getDimensions,
+            "JavaAstAggregate ordered sized dimension expressions"),
+        represented(NewArrayTree.class, "getInitializers", NewArrayTree::getInitializers,
+            "JavaAstAggregate absent, empty or ordered initializer elements"),
+        represented(NewArrayTree.class, "getAnnotations", NewArrayTree::getAnnotations,
+            "JavaAstAggregate initialized creation first dimension annotations"),
+        represented(NewArrayTree.class, "getDimAnnotations", NewArrayTree::getDimAnnotations,
+            "JavaAstAggregate ordered sized dimension annotation groups"));
   }
 
-  private static List<LanguageFeatureClassification> compilationUnitClassifications() {
+  private static List<JavaDeclarationProperty> compilationUnitDescriptors() {
     return List.of(
-        irrelevant("CompilationUnitTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON,
-            TREE_ACCEPT_SOURCE),
-        represented(COMPILATION_UNIT_IMPORTS, "JavaAstAggregate ordered import declarations"),
-        represented("CompilationUnitTree::Tree#getKind()", "JavaCompilerKindCoverage exact tree-kind contract"),
-        irrelevant("CompilationUnitTree::CompilationUnitTree#getLineMap()",
+        irrelevant(CompilationUnitTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(CompilationUnitTree.class, "getImports", CompilationUnitTree::getImports,
+            "JavaAstAggregate ordered import declarations"),
+        represented(CompilationUnitTree.class, TREE_KIND, "JavaCompilerKindCoverage exact tree-kind contract"),
+        irrelevant(CompilationUnitTree.class, "getLineMap",
             "SourceFile content and SourceSpan offsets own source evidence; line-number conversion is presentation metadata",
-            TREE_API + "CompilationUnitTree.html#getLineMap()"),
-        represented(COMPILATION_UNIT_MODULE, "JavaAstAggregate source-owned module declaration and directives"),
-        represented(COMPILATION_UNIT_PACKAGE, "JavaAstAggregate source-owned package declaration"),
-        represented(COMPILATION_UNIT_PACKAGE_ANNOTATIONS, "JavaAstAggregate ordered package annotation attachments"),
-        represented(COMPILATION_UNIT_PACKAGE_NAME, "JavaAstAggregate package qualified name"),
-        represented("CompilationUnitTree::CompilationUnitTree#getSourceFile()", "SourceFile input snapshot"),
-        represented("CompilationUnitTree::CompilationUnitTree#getTypeDecls()", "JavaProgram top-level type declarations"));
+            "https://docs.oracle.com/en/java/javase/25/docs/api/jdk.compiler/com/sun/source/tree/CompilationUnitTree.html#getLineMap()"),
+        represented(CompilationUnitTree.class, "getModule", CompilationUnitTree::getModule,
+            "JavaAstAggregate source-owned module declaration and directives"),
+        represented(CompilationUnitTree.class, "getPackage", CompilationUnitTree::getPackage,
+            "JavaAstAggregate source-owned package declaration"),
+        represented(CompilationUnitTree.class, "getPackageAnnotations", CompilationUnitTree::getPackageAnnotations,
+            "JavaAstAggregate ordered package annotation attachments"),
+        represented(CompilationUnitTree.class, "getPackageName", CompilationUnitTree::getPackageName,
+            "JavaAstAggregate package qualified name"),
+        represented(CompilationUnitTree.class, "getSourceFile", CompilationUnitTree::getSourceFile, "SourceFile input snapshot"),
+        represented(CompilationUnitTree.class, "getTypeDecls", CompilationUnitTree::getTypeDecls,
+            "JavaProgram top-level type declarations"));
   }
 
-  private static List<LanguageFeatureClassification> classClassifications() {
-    return List.of(
-        irrelevant("ClassTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
-        represented("ClassTree::ClassTree#getExtendsClause()", "JavaType direct superclass reference"),
-        represented("ClassTree::ClassTree#getImplementsClause()", "JavaType direct interface references"),
-        represented("ClassTree::Tree#getKind()", "JavaType declaration kind"),
-        represented("ClassTree::ClassTree#getMembers()", "JavaType field, method, and nested-type declarations"),
-        represented("ClassTree::ClassTree#getModifiers()", "JavaType modifier set and source annotation attachments"),
-        represented("ClassTree::ClassTree#getPermitsClause()", "JavaType permitted-subclass references"),
-        represented("ClassTree::ClassTree#getSimpleName()", "JavaType qualified name and declaration identity"),
-        represented("ClassTree::ClassTree#getTypeParameters()", "JavaType type-parameter aggregates"));
+  private static List<JavaDeclarationProperty> classDescriptors() {
+    return List.of(irrelevant(ClassTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(ClassTree.class, "getExtendsClause", ClassTree::getExtendsClause, "JavaType direct superclass reference"),
+        represented(ClassTree.class, "getImplementsClause", ClassTree::getImplementsClause, "JavaType direct interface references"),
+        represented(ClassTree.class, TREE_KIND, "JavaType declaration kind"),
+        represented(ClassTree.class, "getMembers", ClassTree::getMembers, "JavaType field, method, and nested-type declarations"),
+        represented(ClassTree.class, MODIFIERS, ClassTree::getModifiers, "JavaType modifier set and source annotation attachments"),
+        represented(ClassTree.class, "getPermitsClause", ClassTree::getPermitsClause, "JavaType permitted-subclass references"),
+        represented(ClassTree.class, "getSimpleName", ClassTree::getSimpleName, "JavaType qualified name and declaration identity"),
+        represented(ClassTree.class, TYPE_PARAMETERS, ClassTree::getTypeParameters, "JavaType type-parameter aggregates"));
   }
 
-  private static List<LanguageFeatureClassification> methodClassifications() {
+  private static List<JavaDeclarationProperty> methodDescriptors() {
     return List.of(
-        irrelevant("MethodTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
-        represented("MethodTree::MethodTree#getBody()", "MethodSyntax body occurrence and JavaMethod body-presence flag"),
-        represented(METHOD_DEFAULT_VALUE, "JavaAstAggregate declaration-owned typed annotation default"),
-        represented("MethodTree::Tree#getKind()", "JavaMethod declaration aggregate"),
-        represented("MethodTree::MethodTree#getModifiers()", "JavaMethod modifier set and source annotation attachments"),
-        represented("MethodTree::MethodTree#getName()", "JavaMethod name and declaration identity"),
-        represented("MethodTree::MethodTree#getParameters()", "JavaMethod ordered JavaParameter aggregates"),
-        represented(METHOD_RECEIVER_PARAMETER, "JavaAstAggregate explicit receiver syntax occurrence"),
-        represented("MethodTree::MethodTree#getReturnType()", "JavaAstAggregate written return-type attachment"),
-        represented(METHOD_THROWS, "JavaAstAggregate ordered thrown-type attachments"),
-        represented(METHOD_TYPE_PARAMETERS, "JavaAstAggregate ordered executable type-parameter declarations"));
+        irrelevant(MethodTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(MethodTree.class, "getBody", MethodTree::getBody, "MethodSyntax body occurrence and JavaMethod body-presence flag"),
+        represented(MethodTree.class, "getDefaultValue", MethodTree::getDefaultValue,
+            "JavaAstAggregate declaration-owned typed annotation default"),
+        represented(MethodTree.class, TREE_KIND, "JavaMethod declaration aggregate"),
+        represented(MethodTree.class, MODIFIERS, MethodTree::getModifiers, "JavaMethod modifier set and source annotation attachments"),
+        represented(MethodTree.class, "getName", MethodTree::getName, "JavaMethod name and declaration identity"),
+        represented(MethodTree.class, "getParameters", MethodTree::getParameters, "JavaMethod ordered JavaParameter aggregates"),
+        represented(MethodTree.class, "getReceiverParameter", MethodTree::getReceiverParameter,
+            "JavaAstAggregate explicit receiver syntax occurrence"),
+        represented(MethodTree.class, "getReturnType", MethodTree::getReturnType, "JavaAstAggregate written return-type attachment"),
+        represented(MethodTree.class, "getThrows", MethodTree::getThrows, "JavaAstAggregate ordered thrown-type attachments"),
+        represented(MethodTree.class, TYPE_PARAMETERS, MethodTree::getTypeParameters,
+            "JavaAstAggregate ordered executable type-parameter declarations"));
   }
 
-  private static List<LanguageFeatureClassification> variableClassifications() {
+  private static List<JavaDeclarationProperty> variableDescriptors() {
     return List.of(
-        irrelevant("VariableTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)", TREE_VISITOR_REASON, TREE_ACCEPT_SOURCE),
-        represented(VARIABLE_INITIALIZER, "JavaAstAggregate field and enum initializer presence; expression content remains diagnosed"),
-        represented("VariableTree::Tree#getKind()", "JavaField, JavaParameter, or MethodSyntax declaration aggregate"),
-        represented(VARIABLE_MODIFIERS, "JavaAstAggregate written declaration modifiers and annotation attachment points"),
-        represented("VariableTree::VariableTree#getName()", "JavaField or JavaParameter name"),
-        represented(VARIABLE_NAME_EXPRESSION, "JavaAstAggregate receiver qualifier source occurrence"),
-        represented("VariableTree::VariableTree#getType()", "JavaField or JavaParameter type identity"));
+        irrelevant(VariableTree.class, ACCEPT, TREE_TRAVERSAL_RATIONALE, TREE_TRAVERSAL_REFERENCE, TreeVisitor.class, Object.class),
+        represented(VariableTree.class, "getInitializer", VariableTree::getInitializer,
+            "JavaAstAggregate field and enum initializer presence; expression content remains diagnosed"),
+        represented(VariableTree.class, TREE_KIND, "JavaField, JavaParameter, or MethodSyntax declaration aggregate"),
+        represented(VariableTree.class, MODIFIERS, VariableTree::getModifiers,
+            "JavaAstAggregate written declaration modifiers and annotation attachment points"),
+        represented(VariableTree.class, "getName", VariableTree::getName, "JavaField or JavaParameter name"),
+        represented(VariableTree.class, "getNameExpression", VariableTree::getNameExpression,
+            "JavaAstAggregate receiver qualifier source occurrence"),
+        represented(VariableTree.class, "getType", VariableTree::getType, "JavaField or JavaParameter type identity"));
   }
 
-  private static List<LanguageFeatureClassification> typeElementClassifications() {
+  private static List<JavaDeclarationProperty> typeElementDescriptors() {
     return List.of(
-        irrelevant("TypeElement::Element#accept(javax.lang.model.element.ElementVisitor,java.lang.Object)",
-            "Visitor dispatch is an element traversal protocol, not a Java declaration fact",
-            ELEMENT_API + "Element.html#accept(javax.lang.model.element.ElementVisitor,P)"),
-        represented("TypeElement::TypeElement#asType()", "JavaType declaration identity"),
-        irrelevant("TypeElement::Element#equals(java.lang.Object)",
+        irrelevant(TypeElement.class, ACCEPT, "Visitor dispatch is an element traversal protocol, not a Java declaration fact",
+            JAVA_API_REFERENCE + "java.compiler/javax/lang/model/element/Element.html#accept(javax.lang.model.element.ElementVisitor,P)",
+            ElementVisitor.class, Object.class),
+        represented(TypeElement.class, "asType", TypeElement::asType, "JavaType declaration identity"),
+        irrelevant(TypeElement.class, "equals",
             "Element object equality is a compiler-model protocol; Aquila Graph uses stable declaration keys",
-            ELEMENT_API + "Element.html#equals(java.lang.Object)"),
-        irrelevant("TypeElement::Element#getAnnotation(java.lang.Class)", ANNOTATION_PROXY_REASON,
-            ANNOTATED_CONSTRUCT_API + "#getAnnotation(java.lang.Class)"),
-        represented(TYPE_ELEMENT_ANNOTATION_MIRRORS, "JavaAstAggregate reconciled written type annotations"),
-        irrelevant("TypeElement::Element#getAnnotationsByType(java.lang.Class)", ANNOTATION_PROXY_REASON,
-            ANNOTATED_CONSTRUCT_API + "#getAnnotationsByType(java.lang.Class)"),
-        represented(TYPE_ELEMENT_ENCLOSED_ELEMENTS, "JavaType direct declaration inventory with typed synthesized counterparts"),
-        represented("TypeElement::TypeElement#getEnclosingElement()", "JavaType enclosing-type reference"),
-        represented("TypeElement::TypeElement#getInterfaces()", "JavaType direct interface references"),
-        represented("TypeElement::Element#getKind()", "JavaType declaration kind"),
-        represented("TypeElement::Element#getModifiers()", "JavaType modifier set"),
-        represented("TypeElement::TypeElement#getNestingKind()", "JavaType enclosing-type reference and qualified identity"),
-        represented("TypeElement::TypeElement#getPermittedSubclasses()", "JavaType permitted-subclass references"),
-        represented("TypeElement::TypeElement#getQualifiedName()", "JavaType qualified name"),
-        represented(TYPE_ELEMENT_RECORD_COMPONENTS, "JavaType ordered JavaRecordComponent declarations"),
-        represented("TypeElement::TypeElement#getSimpleName()", "JavaType qualified name and declaration identity"),
-        represented("TypeElement::TypeElement#getSuperclass()", "JavaType direct superclass reference"),
-        represented("TypeElement::TypeElement#getTypeParameters()", "JavaType type-parameter aggregates"),
-        irrelevant("TypeElement::Element#hashCode()",
+            JAVA_API_REFERENCE + "java.compiler/javax/lang/model/element/Element.html#equals(java.lang.Object)", Object.class),
+        irrelevant(TypeElement.class, "getAnnotation", ANNOTATION_PROXY_RATIONALE,
+            JAVA_API_REFERENCE + "java.compiler/javax/lang/model/AnnotatedConstruct.html#getAnnotation(java.lang.Class)", Class.class),
+        represented(TypeElement.class, ELEMENT_ANNOTATIONS, "JavaAstAggregate reconciled written type annotations"),
+        irrelevant(TypeElement.class, "getAnnotationsByType", ANNOTATION_PROXY_RATIONALE,
+            JAVA_API_REFERENCE + "java.compiler/javax/lang/model/AnnotatedConstruct.html#getAnnotationsByType(java.lang.Class)",
+            Class.class),
+        represented(TypeElement.class, "getEnclosedElements", TypeElement::getEnclosedElements,
+            "JavaType direct declaration inventory with typed synthesized counterparts"),
+        represented(TypeElement.class, "getEnclosingElement", TypeElement::getEnclosingElement, "JavaType enclosing-type reference"),
+        represented(TypeElement.class, "getInterfaces", TypeElement::getInterfaces, "JavaType direct interface references"),
+        represented(TypeElement.class, ELEMENT_KIND, "JavaType declaration kind"),
+        represented(TypeElement.class, ELEMENT_MODIFIERS, "JavaType modifier set"),
+        represented(TypeElement.class, "getNestingKind", TypeElement::getNestingKind,
+            "JavaType enclosing-type reference and qualified identity"),
+        represented(TypeElement.class, "getPermittedSubclasses", TypeElement::getPermittedSubclasses,
+            "JavaType permitted-subclass references"),
+        represented(TypeElement.class, "getQualifiedName", TypeElement::getQualifiedName, "JavaType qualified name"),
+        represented(TypeElement.class, "getRecordComponents", TypeElement::getRecordComponents,
+            "JavaType ordered JavaRecordComponent declarations"),
+        represented(TypeElement.class, "getSimpleName", TypeElement::getSimpleName, "JavaType qualified name and declaration identity"),
+        represented(TypeElement.class, "getSuperclass", TypeElement::getSuperclass, "JavaType direct superclass reference"),
+        represented(TypeElement.class, TYPE_PARAMETERS, TypeElement::getTypeParameters, "JavaType type-parameter aggregates"),
+        irrelevant(TypeElement.class, "hashCode",
             "Element object hashing is a compiler-model protocol; Aquila Graph uses stable declaration keys",
-            ELEMENT_API + "Element.html#hashCode()"));
+            JAVA_API_REFERENCE + "java.compiler/javax/lang/model/element/Element.html#hashCode()"));
   }
 
-  private static List<LanguageFeatureClassification> executableElementClassifications() {
+  private static List<JavaDeclarationProperty> executableElementDescriptors() {
     return List.of(
-        irrelevant("ExecutableElement::Element#accept(javax.lang.model.element.ElementVisitor,java.lang.Object)",
-            "Visitor dispatch is an element traversal protocol, not a Java declaration fact",
-            ELEMENT_API + "Element.html#accept(javax.lang.model.element.ElementVisitor,P)"),
-        represented("ExecutableElement::ExecutableElement#asType()", "JavaMethod signature, parameter, and return-type aggregates"),
-        irrelevant("ExecutableElement::Element#equals(java.lang.Object)",
+        irrelevant(ExecutableElement.class, ACCEPT, "Visitor dispatch is an element traversal protocol, not a Java declaration fact",
+            JAVA_API_REFERENCE + "java.compiler/javax/lang/model/element/Element.html#accept(javax.lang.model.element.ElementVisitor,P)",
+            ElementVisitor.class, Object.class),
+        represented(ExecutableElement.class, "asType", ExecutableElement::asType,
+            "JavaMethod signature, parameter, and return-type aggregates"),
+        irrelevant(ExecutableElement.class, "equals",
             "Element object equality is a compiler-model protocol; Aquila Graph uses stable declaration keys",
-            ELEMENT_API + "Element.html#equals(java.lang.Object)"),
-        irrelevant("ExecutableElement::Element#getAnnotation(java.lang.Class)", ANNOTATION_PROXY_REASON,
-            ANNOTATED_CONSTRUCT_API + "#getAnnotation(java.lang.Class)"),
-        represented(EXECUTABLE_ELEMENT_ANNOTATION_MIRRORS, "JavaAstAggregate reconciled written executable annotations"),
-        irrelevant("ExecutableElement::Element#getAnnotationsByType(java.lang.Class)", ANNOTATION_PROXY_REASON,
-            ANNOTATED_CONSTRUCT_API + "#getAnnotationsByType(java.lang.Class)"),
-        represented(EXECUTABLE_ELEMENT_DEFAULT_VALUE, "JavaAstAggregate attributed annotation default value"),
-        irrelevant("ExecutableElement::Element#getEnclosedElements()",
+            JAVA_API_REFERENCE + "java.compiler/javax/lang/model/element/Element.html#equals(java.lang.Object)", Object.class),
+        irrelevant(ExecutableElement.class, "getAnnotation", ANNOTATION_PROXY_RATIONALE,
+            JAVA_API_REFERENCE + "java.compiler/javax/lang/model/AnnotatedConstruct.html#getAnnotation(java.lang.Class)", Class.class),
+        represented(ExecutableElement.class, ELEMENT_ANNOTATIONS, "JavaAstAggregate reconciled written executable annotations"),
+        irrelevant(ExecutableElement.class, "getAnnotationsByType", ANNOTATION_PROXY_RATIONALE,
+            JAVA_API_REFERENCE + "java.compiler/javax/lang/model/AnnotatedConstruct.html#getAnnotationsByType(java.lang.Class)",
+            Class.class),
+        represented(ExecutableElement.class, "getDefaultValue", ExecutableElement::getDefaultValue,
+            "JavaAstAggregate attributed annotation default value"),
+        irrelevant(ExecutableElement.class, "getEnclosedElements",
             "Executable elements do not contribute separately queryable enclosed declarations to the current semantic graph",
-            ELEMENT_API + "ExecutableElement.html"),
-        represented("ExecutableElement::ExecutableElement#getEnclosingElement()", "JavaMethod owner type key"),
-        represented("ExecutableElement::Element#getKind()", "JavaMethod constructor flag"),
-        represented("ExecutableElement::Element#getModifiers()", "JavaMethod modifier set"),
-        represented("ExecutableElement::ExecutableElement#getParameters()", "JavaMethod ordered JavaParameter aggregates"),
-        represented(EXECUTABLE_ELEMENT_RECEIVER_TYPE, "JavaAstAggregate compiler-attributed receiver-type outcome"),
-        represented("ExecutableElement::ExecutableElement#getReturnType()", "JavaMethod return type"),
-        represented("ExecutableElement::ExecutableElement#getSimpleName()", "JavaMethod name and declaration identity"),
-        represented(EXECUTABLE_ELEMENT_THROWN_TYPES, "JavaAstAggregate ordered written attachments and attributed thrown types"),
-        represented(EXECUTABLE_ELEMENT_TYPE_PARAMETERS, "JavaAstAggregate ordered executable type parameters"),
-        irrelevant("ExecutableElement::Element#hashCode()",
+            JAVA_API_REFERENCE + "java.compiler/javax/lang/model/element/ExecutableElement.html"),
+        represented(ExecutableElement.class, "getEnclosingElement", ExecutableElement::getEnclosingElement, "JavaMethod owner type key"),
+        represented(ExecutableElement.class, ELEMENT_KIND, "JavaMethod constructor flag"),
+        represented(ExecutableElement.class, ELEMENT_MODIFIERS, "JavaMethod modifier set"),
+        represented(ExecutableElement.class, "getParameters", ExecutableElement::getParameters,
+            "JavaMethod ordered JavaParameter aggregates"),
+        represented(ExecutableElement.class, "getReceiverType", ExecutableElement::getReceiverType,
+            "JavaAstAggregate compiler-attributed receiver-type outcome"),
+        represented(ExecutableElement.class, "getReturnType", ExecutableElement::getReturnType, "JavaMethod return type"),
+        represented(ExecutableElement.class, "getSimpleName", ExecutableElement::getSimpleName, "JavaMethod name and declaration identity"),
+        represented(ExecutableElement.class, "getThrownTypes", ExecutableElement::getThrownTypes,
+            "JavaAstAggregate ordered written attachments and attributed thrown types"),
+        represented(ExecutableElement.class, TYPE_PARAMETERS, ExecutableElement::getTypeParameters,
+            "JavaAstAggregate ordered executable type parameters"),
+        irrelevant(ExecutableElement.class, "hashCode",
             "Element object hashing is a compiler-model protocol; Aquila Graph uses stable declaration keys",
-            ELEMENT_API + "Element.html#hashCode()"),
-        represented("ExecutableElement::ExecutableElement#isDefault()", "JavaMethod modifier set"),
-        represented(EXECUTABLE_ELEMENT_VARARGS, "JavaAstAggregate executable and final formal-parameter arity facts"));
+            JAVA_API_REFERENCE + "java.compiler/javax/lang/model/element/Element.html#hashCode()"),
+        represented(ExecutableElement.class, "isDefault", ExecutableElement::isDefault, "JavaMethod modifier set"),
+        represented(ExecutableElement.class, "isVarArgs", ExecutableElement::isVarArgs,
+            "JavaAstAggregate executable and final formal-parameter arity facts"));
   }
 
   private static Set<String> accessorIdentifiers() {
@@ -464,15 +522,22 @@ final class JavaDeclarationPropertyCoverage {
     return surface.getSimpleName() + "::" + method.getDeclaringClass().getSimpleName() + '#' + method.getName() + '(' + parameters + ')';
   }
 
-  private static LanguageFeatureClassification represented(String identifier, String boundary) {
-    return LanguageFeatureClassification.represented(feature(identifier), boundary);
+  private static <T> JavaDeclarationProperty represented(Class<T> surface, String name, Function<T, @Nullable Object> invocation,
+      String boundary) {
+    return represented(surface, JavaDeclarationAccessor.of(surface, name, invocation), boundary);
   }
 
-  private static LanguageFeatureClassification irrelevant(String identifier, String rationale, String sourceLocator) {
-    return LanguageFeatureClassification.irrelevant(feature(identifier), rationale, sourceLocator);
+  private static JavaDeclarationProperty represented(Class<?> surface, JavaDeclarationAccessor binding, String boundary) {
+    var feature = new LanguageFeature(LanguageFeatureCategory.DECLARATION_PROPERTY, accessorIdentifier(surface, binding.method()));
+    return new JavaDeclarationProperty(surface, binding.method(), LanguageFeatureClassification.represented(feature, boundary),
+        Optional.of(binding));
   }
 
-  private static LanguageFeature feature(String identifier) {
-    return new LanguageFeature(LanguageFeatureCategory.DECLARATION_PROPERTY, identifier);
+  private static JavaDeclarationProperty irrelevant(Class<?> surface, String name, String rationale, String sourceLocator,
+      Class<?>... parameters) {
+    var method = JavaDeclarationAccessor.method(surface, name, parameters);
+    var feature = new LanguageFeature(LanguageFeatureCategory.DECLARATION_PROPERTY, accessorIdentifier(surface, method));
+    return new JavaDeclarationProperty(surface, method, LanguageFeatureClassification.irrelevant(feature, rationale, sourceLocator),
+        Optional.empty());
   }
 }

@@ -112,7 +112,7 @@ public class DeclarationAccessorInvocationTest {
 
     // Act
     var actual = assertThrows(IllegalArgumentException.class,
-        () -> JavaCoveragePropertyProjection.accessors(BooleanSupplier.class, coverage));
+        () -> JavaDeclarationPropertyCoverage.accessors(BooleanSupplier.class, coverage));
 
     // Assert
     assertEquals("Unsupported declaration surface: java.util.function.BooleanSupplier", actual.getMessage());
@@ -126,7 +126,7 @@ public class DeclarationAccessorInvocationTest {
         "getPermitsClause", "getSimpleName", "getTypeParameters");
 
     // Act
-    var actual = JavaCoveragePropertyProjection.accessors(ClassTree.class, coverage).stream()
+    var actual = JavaDeclarationPropertyCoverage.accessors(ClassTree.class, coverage).stream()
         .map(accessor -> accessor.method().getName()).collect(Collectors.toUnmodifiableSet());
 
     // Assert
@@ -163,7 +163,7 @@ public class DeclarationAccessorInvocationTest {
       var parsed = session.parse();
       var sourceOwner = JavaCoverageTopology.owners(parsed.units(), sources, parsed.sourceEvidence()).stream()
           .filter(value -> value.tree() instanceof ClassTree).findFirst().orElseThrow();
-      var accessor = JavaCoveragePropertyProjection.accessors(surface, JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION)).stream()
+      var accessor = JavaDeclarationPropertyCoverage.accessors(surface, JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION)).stream()
           .filter(value -> value.method().getName().equals(getter)).findFirst().orElseThrow();
       return JavaCoveragePropertyProjection.query(accessor, owner, sourceOwner,
           parsed.sourceEvidence(), Optional.empty(), JavaTranslationPolicy.legacyAnalysis());

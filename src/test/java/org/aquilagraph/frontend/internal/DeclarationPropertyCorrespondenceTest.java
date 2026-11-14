@@ -124,6 +124,42 @@ class DeclarationPropertyCorrespondenceTest {
   }
 
   @Test
+  void givenFrozenWrittenNameAndActualDeclaration_whenOnlyTheAccessorEncounterChanges_thenIndependentProjectionRejectsIt()
+      throws IOException {
+    // Arrange
+    var original = analyze();
+    withCompiler(original, false, fixture -> {
+      var selected = fixture.written().encounters().stream()
+          .filter(encounter -> encounter.address().role().equals("ClassTree::ClassTree#getSimpleName()"))
+          .findFirst().orElseThrow();
+      var expected = new CoveragePropertyValue(State.SCALAR,
+          List.of(new CoveragePropertyValue.Item("item:0", "Sample", Provenance.WRITTEN)));
+      assertEquals(expected, selected.value());
+      var changedValue = new CoveragePropertyValue(State.SCALAR,
+          List.of(new CoveragePropertyValue.Item("item:0", "Different", Provenance.WRITTEN)));
+      var changed = new ObservedPropertyEncounters(fixture.written().encounters().stream()
+          .map(encounter -> encounter.equals(selected)
+              ? new ObservedPropertyEncounters.Encounter(encounter.address(), encounter.occurrence(), encounter.observation(), changedValue)
+              : encounter)
+          .toList());
+
+      // Act
+      var failure = assertThrows(IllegalArgumentException.class, () -> fixture.reconcile(changed, fixture.attributed()));
+
+      // Assert
+      assertEquals("Actual accessor encounters must exactly match the independent scalar/list projection", failure.getMessage());
+      assertEquals(expected, fixture.capture().inventory().contexts().stream()
+          .filter(context -> context.address().equals(selected.address())).findFirst().orElseThrow().writtenValue().orElseThrow());
+      assertEquals("Sample", fixture.translation().value().program().types().getFirst().qualifiedName());
+      assertEquals(original.languageFeatureCoverageResult().validationEvidence().attributedExpectations(), fixture.expectations());
+      var unchanged = fixture.reconcile(fixture.written(), fixture.attributed());
+      assertEquals(List.of(), unchanged.diagnostics());
+      assertEquals(Optional.of(expected), unchanged.coverageResult().validationEvidence().outcomes().stream()
+          .filter(outcome -> outcome.address().equals(selected.address())).findFirst().orElseThrow().encounteredValue());
+    });
+  }
+
+  @Test
   void givenAttributedKindPairs_whenOneSideLosesOrDuplicatesAnEncounter_thenReconciliationRejectsIncompleteAccounting()
       throws IOException {
     // Arrange
