@@ -55,7 +55,7 @@ final class JavaDeclarationPropertyEncounterProducer {
         observe(owner, element, ExecutableElement.class, Partition.ATTRIBUTED_PROPERTY, Optional.of(semantics), encounters);
       } else if (owner.tree() instanceof ClassTree || owner.tree() instanceof MethodTree) {
         var expectedSurface = owner.tree() instanceof ClassTree ? TypeElement.class : ExecutableElement.class;
-        for (var accessor : JavaCoveragePropertyProjection.accessors(expectedSurface, coverage)) {
+        for (var accessor : JavaDeclarationPropertyCoverage.accessors(expectedSurface, coverage)) {
           encounters.add(encounter(owner, accessor, Partition.ATTRIBUTED_PROPERTY, unavailable));
         }
       }
@@ -65,14 +65,14 @@ final class JavaDeclarationPropertyEncounterProducer {
 
   private void observe(JavaCoverageTopology.Owner sourceOwner, Object actualOwner, Class<?> surface, Partition partition,
       Optional<SemanticResolver> semantics, List<ObservedPropertyEncounters.Encounter> encounters) {
-    for (var accessor : JavaCoveragePropertyProjection.accessors(surface, coverage)) {
+    for (var accessor : JavaDeclarationPropertyCoverage.accessors(surface, coverage)) {
       var value = JavaCoveragePropertyProjection.query(accessor, actualOwner, sourceOwner, sourceEvidence, semantics, policy);
       encounters.add(encounter(sourceOwner, accessor, partition, value));
     }
   }
 
-  private static ObservedPropertyEncounters.Encounter encounter(JavaCoverageTopology.Owner owner,
-      JavaCoveragePropertyProjection.Accessor accessor, Partition partition, CoveragePropertyValue value) {
+  private static ObservedPropertyEncounters.Encounter encounter(JavaCoverageTopology.Owner owner, JavaDeclarationProperty accessor,
+      Partition partition, CoveragePropertyValue value) {
     var address = new SourceContext.Address(owner.source().sourceFileKey(), partition, owner.path(),
         accessor.classification().feature().identifier(), 0);
     var occurrence = new LanguageFeatureOccurrence(owner.source().sourceFileKey(), accessor.classification(),

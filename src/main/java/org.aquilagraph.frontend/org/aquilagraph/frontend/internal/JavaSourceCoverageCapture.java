@@ -94,7 +94,7 @@ final class JavaSourceCoverageCapture {
     contexts.addAll(typeUses);
     for (var owner : owners) {
       JavaCoverageTopology.surface(owner.tree()).ifPresent(surface -> {
-        for (var accessor : JavaCoveragePropertyProjection.accessors(surface, coverage)) {
+        for (var accessor : JavaDeclarationPropertyCoverage.accessors(surface, coverage)) {
           var value = JavaCoveragePropertyProjection.query(accessor, owner.tree(), owner, parsed.sourceEvidence(), Optional.empty(),
               policy);
           contexts.add(new SourceContext(address(owner, Partition.WRITTEN_PROPERTY, accessor.classification().feature().identifier(), 0),
@@ -109,7 +109,7 @@ final class JavaSourceCoverageCapture {
       if (surface == null) {
         continue;
       }
-      for (var accessor : JavaCoveragePropertyProjection.accessors(surface, coverage)) {
+      for (var accessor : JavaDeclarationPropertyCoverage.accessors(surface, coverage)) {
         var address = address(owner, Partition.ATTRIBUTED_PROPERTY, accessor.classification().feature().identifier(), 0);
         contexts.add(new SourceContext(address, Optional.of(accessor.classification().feature()), owner.origin().stream().toList(),
             Optional.empty(), true));
@@ -349,7 +349,7 @@ final class JavaSourceCoverageCapture {
         .orElseThrow(() -> new IllegalStateException("Recursive written type syntax requires its exact parsed parent role"));
   }
 
-  private static SemanticDescriptor descriptor(JavaCoverageTopology.Owner owner, Optional<JavaCoveragePropertyProjection.Accessor> accessor,
+  private static SemanticDescriptor descriptor(JavaCoverageTopology.Owner owner, Optional<JavaDeclarationProperty> accessor,
       TreePath path) {
     return new SemanticDescriptor(owner, accessor, path);
   }
@@ -371,7 +371,6 @@ final class JavaSourceCoverageCapture {
     return new SourceContext.Address(owner.source().sourceFileKey(), partition, owner.path(), role, ordinal);
   }
 
-  private record SemanticDescriptor(JavaCoverageTopology.Owner owner, Optional<JavaCoveragePropertyProjection.Accessor> accessor,
-      TreePath path) {
+  private record SemanticDescriptor(JavaCoverageTopology.Owner owner, Optional<JavaDeclarationProperty> accessor, TreePath path) {
   }
 }

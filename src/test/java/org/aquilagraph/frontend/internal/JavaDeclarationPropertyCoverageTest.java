@@ -321,13 +321,13 @@ class JavaDeclarationPropertyCoverageTest {
   @Test
   void givenMissingAccessor_whenPropertyCoverageIsValidated_thenDeterministicDifferenceIsRejected() {
     // Arrange
-    var classifications = mutableClassifications();
-    classifications.removeIf(classification -> classification.feature().identifier()
+    var descriptors = mutableDescriptors();
+    descriptors.removeIf(descriptor -> descriptor.classification().feature().identifier()
         .equals("MethodTree::MethodTree#getThrows()"));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> JavaDeclarationPropertyCoverage.fromClassifications(JAVA_25_CONFIGURATION, classifications));
+        () -> JavaDeclarationPropertyCoverage.fromDescriptors(JAVA_25_CONFIGURATION, descriptors));
 
     // Assert
     assertEquals("Java declaration property coverage mismatch: missing=[MethodTree::MethodTree#getThrows()], extra=[]",
@@ -335,15 +335,31 @@ class JavaDeclarationPropertyCoverageTest {
   }
 
   @Test
+  void givenAMissingNonGetterDescriptor_whenPropertyCoverageIsValidated_thenIndependentDiscoveryRejectsTheOmission() {
+    // Arrange
+    var descriptors = mutableDescriptors();
+    descriptors.removeIf(descriptor -> descriptor.classification().feature().identifier()
+        .equals("ClassTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)"));
+
+    // Act
+    var exception = assertThrows(IllegalArgumentException.class,
+        () -> JavaDeclarationPropertyCoverage.fromDescriptors(JAVA_25_CONFIGURATION, descriptors));
+
+    // Assert
+    assertEquals("Java declaration property coverage mismatch: missing=[ClassTree::Tree#accept(com.sun.source.tree.TreeVisitor,java.lang.Object)], extra=[]",
+        exception.getMessage());
+  }
+
+  @Test
   void givenDuplicateAccessor_whenPropertyCoverageIsValidated_thenDuplicateIsRejectedBeforeKeyNormalization() {
     // Arrange
-    var classifications = mutableClassifications();
-    classifications.add(classifications.stream().filter(classification -> classification.feature().identifier()
+    var descriptors = mutableDescriptors();
+    descriptors.add(descriptors.stream().filter(descriptor -> descriptor.classification().feature().identifier()
         .equals("MethodTree::MethodTree#getThrows()")).findFirst().orElseThrow());
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> JavaDeclarationPropertyCoverage.fromClassifications(JAVA_25_CONFIGURATION, classifications));
+        () -> JavaDeclarationPropertyCoverage.fromDescriptors(JAVA_25_CONFIGURATION, descriptors));
 
     // Assert
     assertEquals("Duplicate language feature classification: DECLARATION_PROPERTY:MethodTree::MethodTree#getThrows()",
@@ -351,41 +367,38 @@ class JavaDeclarationPropertyCoverageTest {
   }
 
   @Test
-  void givenRenamedAccessor_whenPropertyCoverageIsValidated_thenUnrecognizedIdentityIsRejected() {
+  void givenRenamedAccessor_whenItsDescriptorIsCreated_thenUnrecognizedIdentityIsRejected() {
     // Arrange
-    var classifications = mutableClassifications();
-    classifications.removeIf(classification -> classification.feature().identifier()
-        .equals("MethodTree::MethodTree#getThrows()"));
-    classifications.add(LanguageFeatureClassification.diagnosed(
+    var original = descriptor("MethodTree::MethodTree#getThrows()");
+    var renamed = LanguageFeatureClassification.diagnosed(
         new LanguageFeature(LanguageFeatureCategory.DECLARATION_PROPERTY,
             "MethodTree::MethodTree#getThrownTypes()"),
-        "frontend.unsupported-renamed-declaration-property"));
+        "frontend.unsupported-renamed-declaration-property");
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> JavaDeclarationPropertyCoverage.fromClassifications(JAVA_25_CONFIGURATION, classifications));
+        () -> new JavaDeclarationProperty(original.surface(), original.method(), renamed, Optional.empty()));
 
     // Assert
-    assertEquals("Unrecognized Java declaration property: MethodTree::MethodTree#getThrownTypes()",
+    assertEquals("Declaration property identity does not match its compiler surface: MethodTree::MethodTree#getThrownTypes()",
         exception.getMessage());
   }
 
   @Test
   void givenExtraUnknownAccessor_whenPropertyCoverageIsValidated_thenUnrecognizedIdentityIsRejected() {
     // Arrange
-    var classifications = mutableClassifications();
-    classifications.add(LanguageFeatureClassification.diagnosed(
-        new LanguageFeature(LanguageFeatureCategory.DECLARATION_PROPERTY,
-            "MethodTree::MethodTree#getFutureProperty()"),
-        "frontend.unsupported-future-declaration-property"));
+    var descriptors = mutableDescriptors();
+    var binding = JavaDeclarationAccessor.of(String.class, "isEmpty", String::isEmpty);
+    var classification = LanguageFeatureClassification.represented(
+        new LanguageFeature(LanguageFeatureCategory.DECLARATION_PROPERTY, "String::String#isEmpty()"), "String emptiness");
+    descriptors.add(new JavaDeclarationProperty(String.class, binding.method(), classification, Optional.of(binding)));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,
-        () -> JavaDeclarationPropertyCoverage.fromClassifications(JAVA_25_CONFIGURATION, classifications));
+        () -> JavaDeclarationPropertyCoverage.fromDescriptors(JAVA_25_CONFIGURATION, descriptors));
 
     // Assert
-    assertEquals("Unrecognized Java declaration property: MethodTree::MethodTree#getFutureProperty()",
-        exception.getMessage());
+    assertEquals("Unrecognized Java declaration property: String::String#isEmpty()", exception.getMessage());
   }
 
   @Test
@@ -420,8 +433,13 @@ class JavaDeclarationPropertyCoverageTest {
         JavaLanguageFeatureCoverage.fromConfiguration(configuration).contractIdentity());
   }
 
-  private static ArrayList<LanguageFeatureClassification> mutableClassifications() {
-    return new ArrayList<>(JavaDeclarationPropertyCoverage.fromConfiguration(JAVA_25_CONFIGURATION).classifications());
+  private static ArrayList<JavaDeclarationProperty> mutableDescriptors() {
+    return new ArrayList<>(JavaDeclarationPropertyCoverage.descriptors());
+  }
+
+  private static JavaDeclarationProperty descriptor(String identifier) {
+    return JavaDeclarationPropertyCoverage.descriptors().stream()
+        .filter(value -> value.classification().feature().identifier().equals(identifier)).findFirst().orElseThrow();
   }
 
   private static Set<String> propertiesWithPolicy(LanguageFeatureCoverage coverage, LanguageFeaturePolicy policy) {

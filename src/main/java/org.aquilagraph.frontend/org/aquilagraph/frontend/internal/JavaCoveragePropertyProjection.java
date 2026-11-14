@@ -7,7 +7,6 @@ import com.sun.source.tree.Tree;
 import com.sun.source.tree.DefaultCaseLabelTree;
 import com.sun.source.tree.NewArrayTree;
 import com.sun.source.tree.ModifiersTree;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -15,7 +14,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Function;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
@@ -32,38 +30,14 @@ import org.aquilagraph.source.api.CoverageExecutableType;
 import org.aquilagraph.source.api.CoveragePropertyValue.Item;
 import org.aquilagraph.source.api.CoveragePropertyValue.Provenance;
 import org.aquilagraph.source.api.CoveragePropertyValue.State;
-import org.aquilagraph.source.api.LanguageFeatureCategory;
-import org.aquilagraph.source.api.LanguageFeatureClassification;
-import org.aquilagraph.source.api.LanguageFeatureCoverage;
-import org.aquilagraph.source.api.LanguageFeaturePolicy;
-import org.jspecify.annotations.Nullable;
 
 /** Copies only exact represented public accessor values; compiler objects remain session-local. */
 final class JavaCoveragePropertyProjection {
   private JavaCoveragePropertyProjection() {
   }
 
-  static List<Accessor> accessors(Class<?> surface, LanguageFeatureCoverage coverage) {
-    if (!JavaDeclarationPropertyCoverage.isDeclarationSurface(surface)) {
-      throw new IllegalArgumentException("Unsupported declaration surface: " + surface.getName());
-    }
-    var result = new ArrayList<Accessor>();
-    for (var method : surface.getMethods()) {
-      if (method.getParameterCount() != 0 || method.getReturnType() == void.class) {
-        continue;
-      }
-      var identifier = JavaDeclarationPropertyCoverage.accessorIdentifier(surface, method);
-      coverage.classifications().stream()
-          .filter(classification -> classification.feature().category() == LanguageFeatureCategory.DECLARATION_PROPERTY
-              && classification.feature().identifier().equals(identifier) && classification.policy() == LanguageFeaturePolicy.REPRESENTED)
-          .findFirst().ifPresent(classification -> result.add(new Accessor(method, classification)));
-    }
-    result.sort(Comparator.comparing(accessor -> accessor.classification().feature().identifier()));
-    return List.copyOf(result);
-  }
-
-  static CoveragePropertyValue query(Accessor accessor, Object owner, JavaCoverageTopology.Owner sourceOwner, JavaSourceEvidence evidence,
-      Optional<SemanticResolver> semantics, JavaTranslationPolicy policy) {
+  static CoveragePropertyValue query(JavaDeclarationProperty accessor, Object owner, JavaCoverageTopology.Owner sourceOwner,
+      JavaSourceEvidence evidence, Optional<SemanticResolver> semantics, JavaTranslationPolicy policy) {
     if (policy.supportsEnumInitialization() && owner instanceof VariableTree variable
         && JavaEnumConstantSyntax.isConstant(sourceOwner.treePath(), evidence)) {
       switch (accessor.method().getName()) {
@@ -198,27 +172,4 @@ final class JavaCoveragePropertyProjection {
         Optional.empty(), Optional.empty(), copied);
   }
 
-  static final class Accessor {
-    private final Method accessorMethod;
-    private final LanguageFeatureClassification featureClassification;
-    private final Function<Object, @Nullable Object> reader;
-
-    private Accessor(Method method, LanguageFeatureClassification classification) {
-      accessorMethod = method;
-      featureClassification = classification;
-      reader = JavaDeclarationAccessor.bind(method);
-    }
-
-    Method method() {
-      return accessorMethod;
-    }
-
-    LanguageFeatureClassification classification() {
-      return featureClassification;
-    }
-
-    Optional<Object> read(Object owner) {
-      return Optional.ofNullable(reader.apply(owner));
-    }
-  }
 }

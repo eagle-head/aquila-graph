@@ -46,7 +46,8 @@ import javax.lang.model.element.TypeElement;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.source.api.LanguageFeatureClassification;
-import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeature;
+import org.aquilagraph.source.api.LanguageFeatureCategory;
 import org.junit.jupiter.api.Test;
 
 class DeclarationAccessorDispatchTest {
@@ -59,7 +60,7 @@ class DeclarationAccessorDispatchTest {
     var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
     var visited = 0;
     for (var surface : SURFACES) {
-      for (var accessor : JavaCoveragePropertyProjection.accessors(surface, coverage)) {
+      for (var accessor : JavaDeclarationPropertyCoverage.accessors(surface, coverage)) {
         var expected = new IllegalArgumentException(accessor.classification().feature().identifier());
         var invoked = new AtomicReference<Method>();
         var owner = Proxy.newProxyInstance(surface.getClassLoader(), new Class<?>[] {surface}, (_, method, _) -> {
@@ -86,7 +87,7 @@ class DeclarationAccessorDispatchTest {
     var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
     var visited = 0;
     for (var surface : SURFACES) {
-      for (var accessor : JavaCoveragePropertyProjection.accessors(surface, coverage)) {
+      for (var accessor : JavaDeclarationPropertyCoverage.accessors(surface, coverage)) {
         var expected = new AssertionError(accessor.classification().feature().identifier());
         var invoked = new AtomicReference<Method>();
         var owner = Proxy.newProxyInstance(surface.getClassLoader(), new Class<?>[] {surface}, (_, method, _) -> {
@@ -167,7 +168,7 @@ class DeclarationAccessorDispatchTest {
     var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
 
     // Act
-    var actual = assertThrows(IllegalArgumentException.class, () -> JavaCoveragePropertyProjection.accessors(String.class, coverage));
+    var actual = assertThrows(IllegalArgumentException.class, () -> JavaDeclarationPropertyCoverage.accessors(String.class, coverage));
 
     // Assert
     assertEquals("Unsupported declaration surface: java.lang.String", actual.getMessage());
@@ -186,44 +187,125 @@ class DeclarationAccessorDispatchTest {
   }
 
   @Test
-  void givenANewRepresentedPropertyWithoutABinding_whenTheCatalogIsValidated_thenTheMissingBindingIsReported() throws Exception {
+  void givenTwoSurfacesSharingATreeCallable_whenAccessorsAreSelected_thenSurfaceIdentitiesAndMeaningRemainDistinct() throws Exception {
     // Arrange
-    var coverage = JavaDeclarationPropertyCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-    var method = CompilationUnitTree.class.getMethod("getLineMap");
-    var identifier = JavaDeclarationPropertyCoverage.accessorIdentifier(CompilationUnitTree.class, method);
-    var classifications = coverage.classifications().stream()
-        .map(value -> value.feature().identifier().equals(identifier)
-            ? LanguageFeatureClassification.represented(value.feature(), "Line map representation") : value).toList();
-    var changed = LanguageFeatureCoverage.forRelease(JavaRelease.JAVA_25, classifications);
+    var classOwner = Proxy.newProxyInstance(ClassTree.class.getClassLoader(), new Class<?>[] {ClassTree.class},
+        (_, _, _) -> Tree.Kind.CLASS);
+    var blockOwner = Proxy.newProxyInstance(BlockTree.class.getClassLoader(), new Class<?>[] {BlockTree.class},
+        (_, _, _) -> Tree.Kind.BLOCK);
 
     // Act
-    var actual = assertThrows(IllegalStateException.class, () -> JavaDeclarationAccessor.validateCatalog(SURFACES, changed));
+    var classKind = accessor(ClassTree.class, "getKind");
+    var blockKind = accessor(BlockTree.class, "getKind");
+    var classValue = classKind.read(classOwner);
+    var blockValue = blockKind.read(blockOwner);
 
     // Assert
-    assertEquals("Declaration accessor bindings mismatch: missing=[" + method.toGenericString() + "], extra=[]", actual.getMessage());
+    assertEquals(Tree.class.getMethod("getKind"), classKind.method());
+    assertEquals(classKind.method(), blockKind.method());
+    assertSame(classKind.binding().orElseThrow(), blockKind.binding().orElseThrow());
+    assertEquals("ClassTree::Tree#getKind()", classKind.classification().feature().identifier());
+    assertEquals("BlockTree::Tree#getKind()", blockKind.classification().feature().identifier());
+    assertEquals(Optional.of("JavaType declaration kind"), classKind.classification().representationBoundary());
+    assertEquals(Optional.of("Canonical written statement kind"), blockKind.classification().representationBoundary());
+    assertEquals(Optional.of(Tree.Kind.CLASS), classValue);
+    assertEquals(Optional.of(Tree.Kind.BLOCK), blockValue);
+  }
+
+  @Test
+  void givenTheClassSurface_whenAccessorsAreSelected_thenCanonicalIdentifiersAreInExactOrder() {
+    // Arrange
+    var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
+
+    // Act
+    var identifiers = JavaDeclarationPropertyCoverage.accessors(ClassTree.class, coverage).stream()
+        .map(value -> value.classification().feature().identifier()).toList();
+
+    // Assert
+    assertEquals(List.of("ClassTree::ClassTree#getExtendsClause()", "ClassTree::ClassTree#getImplementsClause()",
+        "ClassTree::ClassTree#getMembers()", "ClassTree::ClassTree#getModifiers()", "ClassTree::ClassTree#getPermitsClause()",
+        "ClassTree::ClassTree#getSimpleName()", "ClassTree::ClassTree#getTypeParameters()", "ClassTree::Tree#getKind()"), identifiers);
+  }
+
+  @Test
+  void givenASurfaceSpecificInheritedGetterAndAnotherTreeSurface_whenRead_thenTheForeignSurfaceIsRejectedBeforeInvocation() {
+    // Arrange
+    var classKind = accessor(ClassTree.class, "getKind");
+    var foreignOwner = Proxy.newProxyInstance(BlockTree.class.getClassLoader(), new Class<?>[] {BlockTree.class},
+        (_, _, _) -> { throw new AssertionError("Foreign surface must not be invoked"); });
+
+    // Act
+    var actual = assertThrows(ClassCastException.class, () -> classKind.read(foreignOwner));
+
+    // Assert
+    assertEquals(ClassCastException.class, actual.getClass());
+  }
+
+  @Test
+  void givenANewRepresentedPropertyWithoutABinding_whenTheCatalogIsValidated_thenTheMissingBindingIsReported() throws Exception {
+    // Arrange
+    var method = CompilationUnitTree.class.getMethod("getLineMap");
+    var identifier = JavaDeclarationPropertyCoverage.accessorIdentifier(CompilationUnitTree.class, method);
+    var feature = new LanguageFeature(LanguageFeatureCategory.DECLARATION_PROPERTY, identifier);
+    var classification = LanguageFeatureClassification.represented(feature, "Line map representation");
+
+    // Act
+    var actual = assertThrows(IllegalArgumentException.class,
+        () -> new JavaDeclarationProperty(CompilationUnitTree.class, method, classification, Optional.empty()));
+
+    // Assert
+    assertEquals("Declaration property reader policy mismatch: " + identifier, actual.getMessage());
   }
 
   @Test
   void givenABindingWhosePropertyIsNoLongerRepresented_whenTheCatalogIsValidated_thenTheExtraBindingIsReported() throws Exception {
     // Arrange
-    var coverage = JavaDeclarationPropertyCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
     var method = ClassTree.class.getMethod("getExtendsClause");
     var identifier = JavaDeclarationPropertyCoverage.accessorIdentifier(ClassTree.class, method);
-    var classifications = coverage.classifications().stream()
-        .map(value -> value.feature().identifier().equals(identifier)
-            ? LanguageFeatureClassification.diagnosed(value.feature(), "frontend.changed-superclass-policy") : value).toList();
-    var changed = LanguageFeatureCoverage.forRelease(JavaRelease.JAVA_25, classifications);
+    var original = accessor(ClassTree.class, "getExtendsClause");
+    var classification = LanguageFeatureClassification.diagnosed(original.classification().feature(), "frontend.changed-superclass-policy");
 
     // Act
-    var actual = assertThrows(IllegalStateException.class, () -> JavaDeclarationAccessor.validateCatalog(SURFACES, changed));
+    var actual = assertThrows(IllegalArgumentException.class,
+        () -> new JavaDeclarationProperty(ClassTree.class, method, classification, original.binding()));
 
     // Assert
-    assertEquals("Declaration accessor bindings mismatch: missing=[], extra=[" + method.toGenericString() + "]", actual.getMessage());
+    assertEquals("Declaration property reader policy mismatch: " + identifier, actual.getMessage());
   }
 
-  private static JavaCoveragePropertyProjection.Accessor accessor(Class<?> surface, String getter) {
+  @Test
+  void givenAReaderForAnotherMethod_whenThePropertyDescriptorIsCreated_thenTheCallableMismatchIsRejected() {
+    // Arrange
+    var original = accessor(ClassTree.class, "getExtendsClause");
+    var differentBinding = JavaDeclarationAccessor.of(ClassTree.class, "getMembers", ClassTree::getMembers);
+
+    // Act
+    var actual = assertThrows(IllegalArgumentException.class, () -> new JavaDeclarationProperty(ClassTree.class, original.method(),
+        original.classification(), Optional.of(differentBinding)));
+
+    // Assert
+    assertEquals("Declaration property reader does not match its compiler callable: ClassTree::ClassTree#getExtendsClause()",
+        actual.getMessage());
+  }
+
+  @Test
+  void givenAnInheritedReaderForAnIncompatibleSurface_whenThePropertyDescriptorIsCreated_thenTheReceiverMismatchIsRejected() {
+    // Arrange
+    var original = accessor(BlockTree.class, "getKind");
+    var classBinding = JavaDeclarationAccessor.of(ClassTree.class, "getKind", ClassTree::getKind);
+    assertEquals(original.method(), classBinding.method());
+
+    // Act
+    var actual = assertThrows(IllegalArgumentException.class, () -> new JavaDeclarationProperty(BlockTree.class, original.method(),
+        original.classification(), Optional.of(classBinding)));
+
+    // Assert
+    assertEquals("Declaration property reader does not match its compiler callable: BlockTree::Tree#getKind()", actual.getMessage());
+  }
+
+  private static JavaDeclarationProperty accessor(Class<?> surface, String getter) {
     var coverage = JavaLanguageFeatureCoverage.fromConfiguration(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
-    return JavaCoveragePropertyProjection.accessors(surface, coverage).stream()
+    return JavaDeclarationPropertyCoverage.accessors(surface, coverage).stream()
         .filter(value -> value.method().getName().equals(getter)).findFirst().orElseThrow();
   }
 }
