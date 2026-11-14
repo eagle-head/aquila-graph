@@ -34,6 +34,8 @@ import org.aquilagraph.source.api.SyntaxValue;
 final class JavaInitializationProjector {
   private static final String DIAGNOSTIC_PRODUCER = "JavaAstContributionTranslator";
   private final SemanticResolver semantics;
+  private final JavaConversionEvidenceProducer conversions;
+  private final JavaInvocationEvidenceProducer invocations;
   private final JavaSourceEvidence sourceEvidence;
   private final ParsedTreeInventory treeInventory;
   private final JavaTranslationPolicy policy;
@@ -43,6 +45,8 @@ final class JavaInitializationProjector {
   JavaInitializationProjector(SemanticResolver semantics, JavaSourceEvidence sourceEvidence, ParsedTreeInventory treeInventory,
       JavaTranslationPolicy policy, JavaWrittenSourceAssociations sourceAssociations, JavaBodySourceCorrelation bodyCorrelation) {
     this.semantics = semantics;
+    conversions = new JavaConversionEvidenceProducer(semantics);
+    invocations = new JavaInvocationEvidenceProducer(semantics, conversions);
     this.sourceEvidence = sourceEvidence;
     this.treeInventory = treeInventory;
     this.policy = policy;
@@ -137,7 +141,7 @@ final class JavaInitializationProjector {
     var decisions = projection.map(valueProjection -> bodyCorrelation.rebind(initializerDecisions, valueProjection.translation().value(),
         node.requiredChild(SyntaxRole.INITIALIZER))).orElse(initializerDecisions);
     var uses = new ArrayList<>(decisions.uses());
-    projection.flatMap(evidence -> new JavaBodyDecisionProducer(semantics).fieldInitializer(evidence, node)).ifPresent(uses::add);
+    projection.flatMap(evidence -> conversions.fieldInitializer(evidence, node)).ifPresent(uses::add);
     var attributions = projection.map(valueProjection -> new ArrayList<>(bodyCorrelation.executionAttributions(valueProjection)))
         .orElseGet(ArrayList::new);
     attributions.add(new AttributedBodyOccurrence(value.declarationKey(), node.nodeId(), node.sourceFileKey(), node.sourceKind(),
@@ -197,20 +201,21 @@ final class JavaInitializationProjector {
 
   private void retainEnum(EnumRegistration constant, SyntaxNode node, DiagnosticEmissionCollector diagnostics) {
     var value = constant.value();
-    var translated = new JavaBodyDecisionProducer(semantics).enumConstant(value.declarationKey(), node, constant.creationPath(),
-        constant.constructor());
-    diagnostics.include(translated.emissions());
-    var decisions = translated.value();
+    var emissions = new DiagnosticEmissionCollector("JavaBodyDecisionProducer", value.declarationKey());
+    var selection = invocations.enumConstant(value.declarationKey(), node, constant.creationPath(), constant.constructor(), emissions);
+    diagnostics.include(emissions.snapshot());
     var uses = new ArrayList<>(constant.decisions().uses());
-    uses.addAll(decisions.uses());
-    var invocations = new ArrayList<>(constant.decisions().invocations());
-    invocations.addAll(decisions.invocations());
+    var retainedInvocations = new ArrayList<>(constant.decisions().invocations());
+    selection.ifPresent(selected -> {
+      uses.addAll(selected.uses());
+      retainedInvocations.add(InvocationEvidence.known(selected.applicability(), node.origin()));
+    });
     var attributions = new ArrayList<>(constant.attributions());
     attributions.add(new AttributedBodyOccurrence(value.declarationKey(), node.nodeId(), node.sourceFileKey(), node.sourceKind(),
         JavaSyntaxStructuralPath.executionRoot(constant.fieldPath())));
     bodyCorrelation.retainScope(
         new CopiedAstValues.Scope(new ExecutionScope.EnumConstant(value.declarationKey(), value.ownerKey(), constant.constructor()), node,
-            uses, invocations, constant.decisions().staticAccesses(), constant.decisions().concatenations(), attributions));
+            uses, retainedInvocations, constant.decisions().staticAccesses(), constant.decisions().concatenations(), attributions));
   }
 
   private JavaExecutableSyntaxProjector.Projection executableProjection(CompilationUnitTree unit, SourceFile sourceFile, String scopeKey,
