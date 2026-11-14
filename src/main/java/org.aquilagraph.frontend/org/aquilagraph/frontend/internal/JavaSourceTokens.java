@@ -2,7 +2,6 @@ package org.aquilagraph.frontend.internal;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /** Immutable complete-unit lexical view with translated spelling and original UTF-16 offsets. */
@@ -10,45 +9,34 @@ final class JavaSourceTokens {
   private static final List<String> COMPOUND_SYMBOLS = List.of(">>>=", "<<=", ">>=", "...", ">>>", "::", "->", "++", "--", "==", "<=", ">=",
       "!=", "&&", "||", "+=", "-=", "*=", "/=", "&=", "|=", "^=", "%=", "<<", ">>");
   private final List<Token> tokens;
+  private final JavaTranslatedSource capturedSource;
 
-  private JavaSourceTokens(List<Token> tokens) {
+  private JavaSourceTokens(List<Token> tokens, JavaTranslatedSource source) {
     this.tokens = List.copyOf(tokens);
+    capturedSource = source;
   }
 
   static JavaSourceTokens capture(String source) {
-    var decoded = decode(Objects.requireNonNull(source, "source"));
+    var decoded = JavaTranslatedSource.capture(source);
     var text = decoded.text();
     var result = new ArrayList<Token>();
     var index = 0;
     while (index < text.length()) {
+      index = decoded.triviaEnd(index, text.length()).orElse(text.length());
+      if (index == text.length()) {
+        break;
+      }
       var start = index;
       var character = text.charAt(index);
-      if (whiteSpace(character)) {
-        index++;
-        continue;
-      }
-      if (text.startsWith("/*", index)) {
-        var end = text.indexOf("*/", index + 2);
-        index = end < 0 ? text.length() : end + 2;
-        continue;
-      }
-      if (text.startsWith("//", index)) {
-        while (index < text.length() && text.charAt(index) != '\n' && text.charAt(index) != '\r') {
-          index++;
-        }
-        continue;
-      }
+      var identifierEnd = decoded.identifierEnd(index);
       Kind kind;
       if (character == '"' || character == '\'') {
         kind = character == '\'' ? Kind.CHARACTER : text.startsWith("\"\"\"", index) ? Kind.TEXT_BLOCK : Kind.STRING;
         var delimiter = kind == Kind.TEXT_BLOCK ? "\"\"\"" : Character.toString(character);
         index = quotedEnd(text, index, delimiter);
-      } else if (Character.isJavaIdentifierStart(text.codePointAt(index))) {
+      } else if (identifierEnd.isPresent()) {
         kind = Kind.IDENTIFIER;
-        index += Character.charCount(text.codePointAt(index));
-        while (index < text.length() && Character.isJavaIdentifierPart(text.codePointAt(index))) {
-          index += Character.charCount(text.codePointAt(index));
-        }
+        index = identifierEnd.orElseThrow();
       } else if (digit(character) || (character == '.' && index + 1 < text.length() && digit(text.charAt(index + 1)))) {
         kind = Kind.NUMBER;
         index = numberEnd(text, index);
@@ -59,9 +47,13 @@ final class JavaSourceTokens {
       }
       var spelling = text.substring(start, index);
       var meaning = kind == Kind.IDENTIFIER ? identifierMeaning(spelling) : spelling;
-      result.add(new Token(kind, spelling, meaning, decoded.starts().get(start), decoded.ends().get(index - 1)));
+      result.add(new Token(kind, spelling, meaning, decoded.rawStart(start), decoded.rawEnd(index)));
     }
-    return new JavaSourceTokens(result);
+    return new JavaSourceTokens(result, decoded);
+  }
+
+  JavaTranslatedSource source() {
+    return capturedSource;
   }
 
   List<Token> all() {
@@ -145,59 +137,11 @@ final class JavaSourceTokens {
     return character >= '0' && character <= '9';
   }
 
-  private static boolean whiteSpace(char character) {
-    return character == ' ' || character == '\t' || character == '\f' || character == '\r' || character == '\n';
-  }
-
-  private static DecodedSource decode(String source) {
-    var text = new StringBuilder(source.length());
-    var starts = new ArrayList<Integer>();
-    var ends = new ArrayList<Integer>();
-    var index = 0;
-    var previousWasEscape = false;
-    var trailingBackslashes = 0;
-    while (index < source.length()) {
-      var end = index + 1;
-      var character = source.charAt(index);
-      var escaped = false;
-      if (character == '\\' && (previousWasEscape || trailingBackslashes % 2 == 0) && end < source.length() && source.charAt(end) == 'u') {
-        var hex = end;
-        while (hex < source.length() && source.charAt(hex) == 'u') {
-          hex++;
-        }
-        if (hex + 4 <= source.length()) {
-          var value = 0;
-          var valid = true;
-          for (var offset = hex; offset < hex + 4; offset++) {
-            var next = Character.digit(source.charAt(offset), 16);
-            valid &= next >= 0 && source.charAt(offset) <= 127;
-            value = value * 16 + Math.max(next, 0);
-          }
-          if (valid) {
-            character = (char) value;
-            end = hex + 4;
-            escaped = true;
-          }
-        }
-      }
-      text.append(character);
-      starts.add(index);
-      ends.add(end);
-      trailingBackslashes = character == '\\' ? trailingBackslashes + 1 : 0;
-      previousWasEscape = escaped;
-      index = end;
-    }
-    return new DecodedSource(text.toString(), starts, ends);
-  }
-
   enum Kind {
     IDENTIFIER, NUMBER, CHARACTER, STRING, TEXT_BLOCK, SYMBOL
   }
 
   /** Keeps translated spelling and compiler identifier interpretation separate from original offsets. */
   record Token(Kind kind, String value, String meaning, int start, int end) {
-  }
-
-  private record DecodedSource(String text, List<Integer> starts, List<Integer> ends) {
   }
 }
