@@ -394,21 +394,22 @@ final class JavaExecutableSyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapp
 
   @Override
   public SyntaxNodeMapping visitMethodInvocation(MethodInvocationTree invocation, MappingContext context) {
+    var selector = invocation.getMethodSelect();
+    var writtenName = selectorName(selector);
     var children = new ChildMappings(context);
     var element = semantics.element(context.treePath());
     var executable = element instanceof ExecutableElement candidate ? candidate : null;
     var expectedReference = executable != null && executable.getKind() == ElementKind.CONSTRUCTOR
         ? ReferenceKind.CONSTRUCTOR
         : ReferenceKind.METHOD;
-    var description = invocationDescription(invocation, context, executable, children);
+    var description = invocationDescription(selector, writtenName, context, executable, children);
     children.addAll(SyntaxRole.ARGUMENT, invocation.getArguments());
     return accepted(SyntaxKind.INVOCATION, description, children, semantics.reference(context.treePath(), expectedReference));
   }
 
-  private SyntaxValue.Invocation invocationDescription(MethodInvocationTree invocation, MappingContext context,
+  private SyntaxValue.Invocation invocationDescription(Tree selector, String writtenName, MappingContext context,
       @Nullable ExecutableElement executable, ChildMappings children) {
-    var selector = invocation.getMethodSelect();
-    var name = executable == null ? selectorName(selector) : executable.getSimpleName().toString();
+    var name = executable == null ? writtenName : executable.getSimpleName().toString();
     if (selector instanceof IdentifierTree identifier) {
       if (identifier.getName().contentEquals(THIS_NAME)) {
         return invocationValue(CONSTRUCTOR_NAME, InvocationForm.THIS_CONSTRUCTOR, context, executable);
@@ -743,7 +744,7 @@ final class JavaExecutableSyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapp
     return switch (selector) {
       case IdentifierTree identifier -> identifier.getName().toString();
       case MemberSelectTree selection -> selection.getIdentifier().toString();
-      default -> "unresolved";
+      default -> throw new IllegalArgumentException("Method invocation requires an identifier or member selector: " + selector.getKind());
     };
   }
 
