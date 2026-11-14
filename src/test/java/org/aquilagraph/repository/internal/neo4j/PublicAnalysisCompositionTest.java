@@ -63,6 +63,7 @@ import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.ControlFlowGraph;
 import org.aquilagraph.cfg.api.MethodCfgState;
+import org.aquilagraph.cfg.api.OperationKind;
 import org.aquilagraph.cfg.internal.RecoverableCfgFailures;
 import org.aquilagraph.cli.AnalyzeCommandOutcome;
 import org.aquilagraph.cli.ChannelEmission;
@@ -86,8 +87,15 @@ import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.ExecutionScope;
+import org.aquilagraph.source.api.InvocationApplicabilityMode;
+import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.JavaMethod;
+import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
 import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.internal.SourceAnalysisFixture;
 import org.aquilagraph.source.retention.AstCodec;
 import org.junit.jupiter.api.DynamicTest;
@@ -108,6 +116,29 @@ class PublicAnalysisCompositionTest {
       }
       """;
   private static final CompilerConfiguration CONFIGURATION = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
+  private static final String COMPOSED_SOURCE = ("""
+      class Box { <T> Box(T value) {} ESCAPED_CLOSE
+      class Numbers { static long selected(long first, long... rest) { return first; } }
+      class Sample extends Numbers {
+        static String field = "field:" + Sample.selected(Integer.valueOf(3), 4, 5);
+        static { String text = "block:" + selected(Integer.valueOf(3), 4, 5); }
+        Sample() { String text = "constructor:" + Sample.selected(Integer.valueOf(3), 4, 5); }
+        static String subject() { return "method:" + selected(Integer.valueOf(3), 4, 5); }
+        static Object make() { return new Box(7); }
+        static boolean literal() { return ESCAPED_TRUE; }
+      }
+      enum Label {
+        VALUE("enum:" + Numbers.selected(Integer.valueOf(3), 4, 5));
+        Label(String text) {}
+      }
+      enum Empty { PLAIN, ESCAPED_EMPTY /* supplementary: 😀 */ ESCAPED_OPEN ESCAPED_PAREN_CLOSE }
+      """)
+      .replace("ESCAPED_CLOSE", "\\" + "u007d")
+      .replace("ESCAPED_TRUE", "tr" + "\\" + "u0000ue")
+      .replace("ESCAPED_EMPTY", "EM" + "\\" + "u0050TY")
+      .replace("ESCAPED_OPEN", "\\" + "u0028")
+      .replace("ESCAPED_PAREN_CLOSE", "\\" + "u0029")
+      .replace("\n", "\r\n");
   private static final AstProfile PROFILE = AstProfile.JAVA_SOURCE_MODULE_SERVICES;
   private static final CfgProfile CFG = CfgProfile.JAVA_BOUNDED;
   private static final AstRetentionRepositoryFactory NO_AST_STORAGE = context -> {
@@ -302,6 +333,231 @@ class PublicAnalysisCompositionTest {
         "Completion: COMPLETE", "Method CFG: \"" + choose + "\" AVAILABLE", "Method CFG: \"" + fallback + "\" AVAILABLE",
         "Repository: SAVED", "Publication subject: COMPLETED_RUN \"" + runKey + "\"",
         "Commit knowledge: KNOWN_COMMIT")), output.toString());
+  }
+
+  @Test
+  void givenComposedFrontendEvidence_whenWrittenQueriedAndDerived_thenExactDetachedFactsReachTheSelectedGraph() {
+    // Arrange
+    var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
+    var write = new AstRepositoryDriverStub();
+    var read = new AstRepositoryDriverStub();
+    var execution = AnalysisCapabilities.execution(computation, NO_AST_STORAGE, NO_RUN_STORAGE);
+
+    // Act
+    var unsaved = execution.execute(new AnalysisRequest(new AnalysisComputationRequest(source(COMPOSED_SOURCE), Optional.empty()),
+        PublicationIntent.DO_NOT_SAVE));
+    var outcome = unsaved.run().representation().ast();
+    var original = outcome.result().orElseThrow();
+    var identity = original.identity();
+    write.lockedAstSubject = identity.astResultKey();
+    var publication = AnalysisCapabilities.astRetention(astFactory(write)::openRetention)
+        .retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
+    read.stored = writtenAst(identity, write);
+    var lookup = AnalysisCapabilities.astQuery(astFactory(read)::openQuery).findAst(identity);
+    var retainedOutcome = lookup.outcome().orElseThrow();
+    var retained = retainedOutcome.result().orElseThrow();
+    var request = new CfgRequest(identity, List.of(moduleTypeKey("Sample") + "#subject()", moduleTypeKey("Sample") + "#make()"), CFG);
+    var derived = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(retainedOutcome, request);
+
+    // Assert
+    assertEquals(AnalysisCompletion.COMPLETE, unsaved.run().completion(), unsaved.run().diagnostics().values().toString());
+    assertEquals(List.of(Impediment.CFG_NOT_COMPLETE), unsaved.run().publicationEligibility().impediments());
+    assertPublication(unsaved.publication(), PublicationIntent.DO_NOT_SAVE, Optional.of(new Ast(identity)),
+        PublicationStatus.NOT_REQUESTED, CommitKnowledge.NOT_STARTED);
+    assertPublication(publication, PublicationIntent.SAVE_COMPLETE_AST, Optional.of(new Ast(identity)),
+        PublicationStatus.SAVED, CommitKnowledge.KNOWN_COMMIT);
+    assertEquals(AstLookupStatus.FOUND, lookup.status());
+    assertEquals(identity, lookup.requestedIdentity());
+    assertEquals(identity, retained.identity());
+    assertEquals("java-source/22", identity.sourceModelVersion());
+    assertEquals("javac-public/14", identity.semanticProductionRevision());
+    var bytes = AstCodec.encode(original);
+    assertArrayEquals(bytes, AstCodec.encode(retained));
+    var decoded = AstCodec.decode(bytes, identity);
+    for (var result : List.of(original, retained, decoded)) {
+      assertComposedFacts(result);
+    }
+    assertSame(retainedOutcome, derived.representation().ast());
+    assertSame(retained, derived.representation().ast().result().orElseThrow());
+    assertEquals(AnalysisCompletion.COMPLETE, derived.completion());
+    var methods = derived.representation().cfg().orElseThrow().methods();
+    assertEquals(request.methodKeys(), methods.stream().map(method -> method.methodKey()).toList());
+    for (var method : methods) {
+      assertEquals(MethodCfgState.AVAILABLE, method.state());
+      assertEquals(retained.bodyRef(method.methodKey()).orElseThrow(), method.graph().orElseThrow().body());
+      assertEquals(identity, method.graph().orElseThrow().identity().astIdentity());
+    }
+    var subject = methods.stream().filter(method -> method.methodKey().equals(moduleTypeKey("Sample") + "#subject()")).findFirst().orElseThrow();
+    var relevant = List.of(OperationKind.INVOKE, OperationKind.UNBOX, OperationKind.VARARGS_ARRAY,
+        OperationKind.STRING_CONVERSION, OperationKind.STRING_CONCAT);
+    assertEquals(List.of(OperationKind.INVOKE, OperationKind.UNBOX, OperationKind.VARARGS_ARRAY, OperationKind.INVOKE,
+        OperationKind.STRING_CONVERSION, OperationKind.STRING_CONCAT), subject.graph().orElseThrow().operationNodes().stream()
+            .map(node -> node.kind()).filter(relevant::contains).toList());
+    var make = methods.stream().filter(method -> method.methodKey().equals(moduleTypeKey("Sample") + "#make()")).findFirst().orElseThrow();
+    var creation = retained.body(make.methodKey()).orElseThrow().root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION).findFirst().orElseThrow();
+    var allocation = make.graph().orElseThrow().operationNodes().stream().filter(node -> node.kind() == OperationKind.NEW_OBJECT)
+        .findFirst().orElseThrow();
+    assertEquals(retained.occurrence(creation), allocation.sourceRef().occurrence());
+    assertEquals("driver.close", write.events.getLast());
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), read.events);
+  }
+
+  @Test
+  void givenComposedMethodEvidence_whenBootstrapCliComputesAndPublishes_thenNoSaveAndWrittenResultsKeepTheSameFacts()
+      throws IOException {
+    // Arrange
+    var cliSource = COMPOSED_SOURCE.substring(0, COMPOSED_SOURCE.indexOf("enum Label"))
+        .replace("  static String field = \"field:\" + Sample.selected(Integer.valueOf(3), 4, 5);\r\n", "")
+        .replace("  static { String text = \"block:\" + selected(Integer.valueOf(3), 4, 5); }\r\n", "");
+    Files.writeString(Files.createDirectory(directory.resolve("src")).resolve("Sample.java"), cliSource);
+    var noSave = CliPublicationReporting.runner(NO_AST_STORAGE, NO_RUN_STORAGE);
+    var driver = AstRepositoryDriverStub.completedRuns();
+    var saving = CliPublicationReporting.runner(NO_AST_STORAGE, runRepository(driver));
+    var output = new StringWriter();
+    var error = new StringWriter();
+    var noSaveOutput = new StringWriter();
+    var noSaveError = new StringWriter();
+
+    // Act
+    var unsaved = noSave.run(new String[] {directory.toString()}, CommandDestination.throwingWriter(noSaveOutput),
+        CommandDestination.throwingWriter(noSaveError));
+    var saved = runPersistingCommand(saving, output, error);
+
+    // Assert
+    assertEquals(CommandExitPolicy.EXIT_COMPLETED, unsaved.exitCode(), noSaveError.toString());
+    assertEquals(CommandExitPolicy.EXIT_COMPLETED, saved.exitCode(), error.toString());
+    var before = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, unsaved.outcome()).execution();
+    var after = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, saved.outcome()).execution();
+    assertEquals(before.run().identity(), after.run().identity());
+    assertEquals(PublicationStatus.NOT_REQUESTED, before.publication().status());
+    assertEquals(CommitKnowledge.NOT_STARTED, before.publication().knowledge());
+    assertPublication(after.publication(), PublicationIntent.SAVE_COMPLETED,
+        Optional.of(new CompletedRun(after.run().identity().key())), PublicationStatus.SAVED, CommitKnowledge.KNOWN_COMMIT);
+    for (var run : List.of(before.run(), after.run())) {
+      assertEquals(AnalysisCompletion.COMPLETE, run.completion());
+      assertTrue(run.publicationEligibility().eligible());
+      assertTrue(run.diagnostics().values().isEmpty());
+      var ast = run.representation().ast().result().orElseThrow();
+      assertEquals(cliSource, ast.snapshot().sourceFiles().getFirst().content());
+      assertSemanticScopes(ast, 2, "type:Numbers", "type:Sample");
+      assertMethodFacts(ast, cliSource, "type:Sample", "type:Box");
+    }
+    assertArrayEquals(AstCodec.encode(before.run().representation().ast().result().orElseThrow()),
+        AstCodec.encode(after.run().representation().ast().result().orElseThrow()));
+    assertCompletedRunWrites(new Neo4jAnalysisRunMapper().map(after.run()), driver.statements);
+    var writtenSource = driver.statements.stream().filter(statement -> statement.query().startsWith(RUN_NODE_CREATE + "SourceFile`)"))
+        .map(statement -> statement.parameters().get("properties")).findFirst().orElseThrow();
+    assertEquals(cliSource, writtenSource.get("content").asString());
+    assertEquals("", noSaveError.toString());
+    assertEquals("", error.toString());
+    assertTrue(noSaveOutput.toString().lines().toList().contains("Repository: NOT_REQUESTED"), noSaveOutput.toString());
+    assertTrue(output.toString().lines().toList().containsAll(List.of("Completion: COMPLETE", "Repository: SAVED",
+        "Publication subject: COMPLETED_RUN \"" + after.run().identity().key() + "\"", "Commit knowledge: KNOWN_COMMIT")), output.toString());
+    assertEquals("driver.close", driver.events.getLast());
+  }
+
+  @Test
+  void givenInitializationEvidenceOutsideTheCliProfile_whenBootstrapRequestsPublication_thenExactRefusalKeepsStorageUnopened()
+      throws IOException {
+    // Arrange
+    Files.writeString(directory.resolve("Sample.java"), COMPOSED_SOURCE);
+    var runner = CliPublicationReporting.runner(NO_AST_STORAGE, NO_RUN_STORAGE);
+    var output = new StringWriter();
+    var error = new StringWriter();
+
+    // Act
+    var invocation = runPersistingCommand(runner, output, error);
+
+    // Assert
+    var execution = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, invocation.outcome()).execution();
+    var run = execution.run();
+    assertEquals(CommandExitPolicy.EXIT_INCOMPLETE, invocation.exitCode());
+    assertEquals(AnalysisCompletion.PARTIAL, run.completion());
+    assertEquals(AstCompletion.INCOMPLETE, run.representation().ast().completion());
+    assertPublication(execution.publication(), PublicationIntent.SAVE_COMPLETED,
+        Optional.of(new CompletedRun(run.identity().key())), PublicationStatus.NOT_ELIGIBLE, CommitKnowledge.NOT_STARTED);
+    assertEquals(List.of("frontend.unsupported-field-initializer", "frontend.unsupported-initializer",
+        "frontend.unsupported-enum-constant-initialization", "frontend.unsupported-enum-constant-initialization",
+        "frontend.unsupported-enum-constant-initialization"),
+        run.representation().ast().diagnostics().stream().map(diagnostic -> diagnostic.code()).toList());
+    assertEquals(List.of(Impediment.RUN_NOT_COMPLETE, Impediment.ERROR_DIAGNOSTICS), run.publicationEligibility().impediments());
+    assertMethodFacts(run.representation().ast().result().orElseThrow(), COMPOSED_SOURCE, "type:Sample", "type:Box");
+    assertTrue(output.toString().lines().toList().containsAll(List.of("Completion: PARTIAL", "Repository: NOT_ELIGIBLE")), output.toString());
+    assertTrue(error.toString().contains("frontend.unsupported-field-initializer"), error.toString());
+    assertTrue(error.toString().contains("frontend.unsupported-enum-constant-initialization"), error.toString());
+  }
+
+  private static void assertComposedFacts(AstResult result) {
+    assertEquals(AstCompletion.COMPLETE, result.completion(), result.diagnostics().toString());
+    assertTrue(result.diagnostics().isEmpty());
+    assertEquals(COMPOSED_SOURCE, result.snapshot().sourceFiles().getFirst().content());
+    assertSemanticScopes(result, 5, moduleTypeKey("Numbers"), moduleTypeKey("Sample"));
+    assertMethodFacts(result, COMPOSED_SOURCE, moduleTypeKey("Sample"), moduleTypeKey("Box"));
+    var constants = result.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION
+        && node.value(SyntaxValue.VariableDeclaration.class).declarationKey().startsWith(moduleTypeKey("Empty") + "#")).toList();
+    assertEquals(List.of("PLAIN", "EMPTY"), constants.stream().map(node -> node.value(SyntaxValue.VariableDeclaration.class).name()).toList());
+    assertEquals(List.of(false, true), constants.stream().map(node -> node.value(SyntaxValue.VariableDeclaration.class).argumentList()).toList());
+    var empty = constants.getLast();
+    var rawEmpty = "EM" + "\\" + "u0050TY /* supplementary: 😀 */ " + "\\" + "u0028 " + "\\" + "u0029";
+    assertEquals(rawEmpty, COMPOSED_SOURCE.substring(Math.toIntExact(empty.origin().orElseThrow().startOffset()),
+        Math.toIntExact(empty.origin().orElseThrow().endOffsetExclusive())));
+    assertSame(empty, result.aggregate().executionSyntax(empty.value(SyntaxValue.VariableDeclaration.class).declarationKey()).orElseThrow().root());
+  }
+
+  private static void assertSemanticScopes(AstResult result, int expectedScopes, String numbersKey, String sampleKey) {
+    var scopes = result.aggregate().executionScopes().stream().map(scope -> result.aggregate().executionSyntax(scope.key()).orElseThrow())
+        .filter(scope -> scope.root().descendantsAndSelf().stream().anyMatch(node -> node.syntaxKind() == SyntaxKind.INVOCATION
+            && node.value(SyntaxValue.Invocation.class).name().equals("selected"))).toList();
+    assertEquals(expectedScopes, scopes.size());
+    assertEquals(2, scopes.stream().filter(scope -> scope.scope() instanceof ExecutionScope.Method).count());
+    if (expectedScopes == 5) {
+      assertEquals(1, scopes.stream().filter(scope -> scope.scope() instanceof ExecutionScope.Field).count());
+      assertEquals(1, scopes.stream().filter(scope -> scope.scope() instanceof ExecutionScope.Initializer).count());
+      assertEquals(1, scopes.stream().filter(scope -> scope.scope() instanceof ExecutionScope.EnumConstant).count());
+    }
+    for (var scope : scopes) {
+      var invocation = scope.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION
+          && node.value(SyntaxValue.Invocation.class).name().equals("selected")).findFirst().orElseThrow();
+      assertSame(invocation, result.aggregate().node(invocation.nodeId()).orElseThrow());
+      assertEquals(Optional.of(numbersKey + "#selected(long,long[])"), invocation.requiredReference().symbolKey());
+      var form = scope.scope() instanceof ExecutionScope.Initializer || scope.scopeKey().equals(sampleKey + "#subject()")
+          ? InvocationForm.STATIC_UNQUALIFIED : InvocationForm.STATIC_TYPE;
+      assertEquals(form, invocation.value(SyntaxValue.Invocation.class).form());
+      assertEquals(InvocationApplicabilityMode.VARIABLE, scope.invocationArity(invocation.nodeId()).orElseThrow().mode());
+      assertEquals("long[]", scope.invocationArity(invocation.nodeId()).orElseThrow().varargArrayType().orElseThrow().erasedName());
+      assertEquals(numbersKey + "#selected(long,long[])", scope.staticAccess(invocation.nodeId()).orElseThrow().selectedMemberKey());
+      var conversion = scope.useDecision(invocation.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow();
+      assertEquals("java.lang.Integer", conversion.sourceType().erasedName());
+      assertEquals("long", conversion.selectedTarget().erasedName());
+      assertEquals("int", conversion.unboxedType().orElseThrow().erasedName());
+      var plus = scope.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.BINARY).findFirst().orElseThrow();
+      var concatenation = scope.stringConcatenation(plus.nodeId()).orElseThrow();
+      assertEquals(Optional.of(true), concatenation.leftIsString().knownValue());
+      assertEquals(Optional.of(false), concatenation.rightIsString().knownValue());
+      assertEquals(Optional.of(false), concatenation.compileTimeConstant().knownValue());
+    }
+  }
+
+  private static void assertMethodFacts(AstResult result, String source, String sampleKey, String boxKey) {
+    var make = result.body(sampleKey + "#make()").orElseThrow();
+    var creation = make.root().descendantsAndSelf().stream().filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION)
+        .findFirst().orElseThrow();
+    assertSame(creation, result.aggregate().node(creation.nodeId()).orElseThrow());
+    assertEquals(Optional.of(boxKey + "#<init>(java.lang.Object)"), creation.requiredReference().symbolKey());
+    assertEquals("java.lang.Integer", make.useDecision(creation.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow().selectedTarget().erasedName());
+    assertEquals(InvocationApplicabilityMode.FIXED, make.invocationArity(creation.nodeId()).orElseThrow().mode());
+    var literal = result.body(sampleKey + "#literal()").orElseThrow().root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.LITERAL).findFirst().orElseThrow();
+    var rawLiteral = "tr" + "\\" + "u0000ue";
+    assertEquals("true", literal.value(SyntaxValue.Literal.class).text());
+    assertEquals(source.indexOf(rawLiteral), literal.origin().orElseThrow().startOffset());
+    assertEquals(source.indexOf(rawLiteral) + rawLiteral.length(), literal.origin().orElseThrow().endOffsetExclusive());
+    assertFalse(result.program().methods().stream().anyMatch(method -> method.name().startsWith("constructorSelection")));
+  }
+
+  private static String moduleTypeKey(String name) {
+    return new JavaTypeDeclarationIdentity(Optional.empty(), name).declarationKey();
   }
 
   private static Map<String, GraphIdentity> graphIdentitiesByMethod(AnalysisRun run) {
