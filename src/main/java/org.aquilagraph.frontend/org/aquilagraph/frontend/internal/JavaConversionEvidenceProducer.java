@@ -315,6 +315,7 @@ final class JavaConversionEvidenceProducer {
   private static boolean assignmentContext(SyntaxNode node) {
     return node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION || node.syntaxKind() == SyntaxKind.ASSIGNMENT
         || node.syntaxKind() == SyntaxKind.RETURN || node.syntaxKind() == SyntaxKind.CONDITIONAL_EXPRESSION
-        || node.syntaxKind() == SyntaxKind.CASE || node.syntaxKind() == SyntaxKind.YIELD;
+        || node.syntaxKind() == SyntaxKind.CASE || node.syntaxKind() == SyntaxKind.YIELD
+        || node.syntaxKind() == SyntaxKind.LAMBDA_EXPRESSION;
   }
 }
