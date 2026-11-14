@@ -831,7 +831,7 @@ final class JavaDeclarationHeaderProjector {
     var argumentList = creation == null
         ? Optional.of(false)
         : creation.getArguments().isEmpty()
-            ? JavaEnumConstantSourceEvidence.argumentList(sourceFile, range.orElseThrow(),
+            ? JavaEnumConstantSourceEvidence.argumentList(treeInventory.tokens(unit).source(), range.orElseThrow(),
                 sourceEvidence.rawStart(unit, creation.getIdentifier()))
             : Optional.of(true);
     if (argumentList.isEmpty()) {
