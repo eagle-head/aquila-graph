@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -29,7 +32,7 @@ class AstValueAdmissionTest {
   @Test
   void givenEmptyCapture_whenCopiedValuesAreAdmitted_thenTheImmutableReaderIsEmpty() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(Path.of("."), List.of());
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of(".")), List.of());
 
     // Act
     var aggregate = AstValueAdmission.admit(CopiedAstValues.empty(snapshot));
@@ -44,11 +47,11 @@ class AstValueAdmissionTest {
   @Test
   void givenMutableContributionList_whenCopiedValuesAreCreated_thenLaterMutationCannotChangeAdmission() {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Source.java"), " ");
-    var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(source));
+    var source = SourceFile.fromContent(capturedPath(Path.of("Source.java")), " ");
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of(".")), List.of(source));
     var root = root(source);
     var sources = new ArrayList<>(List.of(contribution(root)));
-    var values = new CopiedAstValues(snapshot, sources, List.of(), List.of(), List.of(), List.of());
+    var values = new CopiedAstValues(snapshot, sources, List.of(), List.of(), List.of(), List.of(), List.of());
     sources.clear();
 
     // Act
@@ -62,10 +65,10 @@ class AstValueAdmissionTest {
   @Test
   void givenDuplicateContributions_whenCompleteValuesAreAdmitted_thenNoAggregateIsReturned() {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Source.java"), " ");
-    var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(source));
+    var source = SourceFile.fromContent(capturedPath(Path.of("Source.java")), " ");
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of(".")), List.of(source));
     var contribution = contribution(root(source));
-    var values = new CopiedAstValues(snapshot, List.of(contribution, contribution), List.of(), List.of(), List.of(), List.of());
+    var values = new CopiedAstValues(snapshot, List.of(contribution, contribution), List.of(), List.of(), List.of(), List.of(), List.of());
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> AstValueAdmission.admit(values));
@@ -79,8 +82,8 @@ class AstValueAdmissionTest {
   @Test
   void givenCapturedSourceWithoutRoot_whenCompleteValuesAreAdmitted_thenMissingSourceIsRejected() {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Source.java"), " ");
-    var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(source));
+    var source = SourceFile.fromContent(capturedPath(Path.of("Source.java")), " ");
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of(".")), List.of(source));
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class, () -> AstValueAdmission.admit(CopiedAstValues.empty(snapshot)));
@@ -93,7 +96,7 @@ class AstValueAdmissionTest {
   private static SyntaxNode root(SourceFile source) {
     return SyntaxNode.source(source.sourceFileKey(), SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.COMPILATION_UNIT,
         SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), List.of(), Optional.empty(),
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE), List.of(), Optional.empty(),
         new SourceSpan(source.sourceFileKey(), 0, source.content().length()));
   }
 

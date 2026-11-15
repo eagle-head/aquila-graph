@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -49,8 +52,8 @@ class LocalOutcomeCompatibilityTest {
     var preservation = System.getProperty("frontend.preservation.directory");
     var root = preservation == null ? directory : Path.of(preservation).resolve("inputs").resolve("local-outcomes");
     for (var index = 0; index < sources.size(); index++) {
-      var snapshot = InputSnapshot.fromSources(root.resolve("case-" + index),
-          List.of(SourceFile.fromContent(Path.of("Sample.java"), sources.get(index))));
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(root.resolve("case-" + index)),
+          List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), sources.get(index))));
       for (var profile : PROFILES) {
         // Act
         var outcome = frontend.produce(snapshot, CONFIGURATION, profile);

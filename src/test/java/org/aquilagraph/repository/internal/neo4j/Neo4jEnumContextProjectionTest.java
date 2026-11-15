@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 
 
 import org.aquilagraph.source.api.AstProfile;
@@ -31,9 +34,9 @@ class Neo4jEnumContextProjectionTest {
   @Test
   void givenCompletedEnumConstructors_whenMapped_thenContextValuesAndOperandOrderRemainSeparateFromSourceDeclarations() throws IOException {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Enums.java"),
+    var source = SourceFile.fromContent(capturedPath(Path.of("Enums.java")),
         "enum Empty { ; } enum Delegated { ; Delegated() { this(7); } Delegated(int value) {} }");
-    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(InputSnapshot.fromSources(sourceRoot, List.of(source)),
+    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(InputSnapshot.fromSources(capturedAbsolute(sourceRoot), List.of(source)),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
     var run = new SourceAnalysisFixture().analyze(input);
     assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().values().toString());

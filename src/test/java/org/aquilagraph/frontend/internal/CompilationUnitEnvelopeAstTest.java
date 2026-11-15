@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -120,13 +123,13 @@ class CompilationUnitEnvelopeAstTest {
   void givenCapturedPackageAndModuleAnnotations_whenProducedAndDecoded_thenRealUnitFormsAndOrderedDirectivesSurvive() throws IOException {
     // Arrange
     var sources = List.of(
-        SourceFile.fromContent(Path.of("sample/Mark.java"), "package sample; import java.lang.annotation.*; @Target({ElementType.PACKAGE, ElementType.MODULE}) public @interface Mark {}"),
-        SourceFile.fromContent(Path.of("sample/package-info.java"), "@sample.Mark package sample;"),
-        SourceFile.fromContent(Path.of("sample/Service.java"), "package sample; public interface Service {}"),
-        SourceFile.fromContent(Path.of("sample/First.java"), "package sample; public class First implements Service {}"),
-        SourceFile.fromContent(Path.of("sample/Second.java"), "package sample; public class Second implements Service {}"),
-        SourceFile.fromContent(Path.of("module-info.java"), "@sample.Mark module sample.module { requires static transitive java.sql; exports sample to java.sql, java.logging; opens sample to java.logging, java.sql; uses sample.Service; provides sample.Service with sample.First, sample.Second; }"));
-    var snapshot = InputSnapshot.fromSources(directory, sources);
+        SourceFile.fromContent(capturedPath(Path.of("sample/Mark.java")), "package sample; import java.lang.annotation.*; @Target({ElementType.PACKAGE, ElementType.MODULE}) public @interface Mark {}"),
+        SourceFile.fromContent(capturedPath(Path.of("sample/package-info.java")), "@sample.Mark package sample;"),
+        SourceFile.fromContent(capturedPath(Path.of("sample/Service.java")), "package sample; public interface Service {}"),
+        SourceFile.fromContent(capturedPath(Path.of("sample/First.java")), "package sample; public class First implements Service {}"),
+        SourceFile.fromContent(capturedPath(Path.of("sample/Second.java")), "package sample; public class Second implements Service {}"),
+        SourceFile.fromContent(capturedPath(Path.of("module-info.java")), "@sample.Mark module sample.module { requires static transitive java.sql; exports sample to java.sql, java.logging; opens sample to java.logging, java.sql; uses sample.Service; provides sample.Service with sample.First, sample.Second; }"));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), sources);
     // Act
     var produced = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, configuration(), AstProfile.JAVA_SOURCE_UNITS).result().orElseThrow();
     var retained = AstCodec.decode(AstCodec.encode(produced), produced.identity());
@@ -151,7 +154,7 @@ class CompilationUnitEnvelopeAstTest {
   @Test
   void givenAnOpenModuleWithoutTypes_whenProduced_thenNoDeclarationIsInvented() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("module-info.java"), "open module example.module { requires java.logging; }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("module-info.java")), "open module example.module { requires java.logging; }")));
     // Act
     var ast = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, configuration(), AstProfile.JAVA_SOURCE_UNITS).result().orElseThrow();
     // Assert
@@ -167,7 +170,7 @@ class CompilationUnitEnvelopeAstTest {
         AstProfile.JAVA_SOURCE_NESTED, AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION, AstProfile.JAVA_SOURCE_DECLARATIONS);
     // Act
     var tests = profiles.stream().map(profile -> DynamicTest.dynamicTest("given" + profile.version() + "NoTypeUnit_whenProduced_thenOriginalQualificationRemains", () -> {
-      var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), "package example;")));
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "package example;")));
       var outcome = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, configuration(), profile);
       // Assert
       assertEquals(AstCompletion.UNAVAILABLE, outcome.completion());
@@ -185,7 +188,7 @@ class CompilationUnitEnvelopeAstTest {
     Files.writeString(directory.resolve("Comment.java"), "// comment\n");
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var captured = new JavaSourceLoader().discover(directory);
-    var reversed = InputSnapshot.fromSources(directory, captured.sourceFiles().reversed());
+    var reversed = InputSnapshot.fromSources(capturedAbsolute(directory), captured.sourceFiles().reversed());
     // Act
     var fromRoot = frontend.produce(new AstProductionRequest(new SourceInput.Root(directory), configuration(), AstProfile.JAVA_SOURCE_UNITS)).result().orElseThrow();
     var fromSnapshot = frontend.produce(reversed, configuration(), AstProfile.JAVA_SOURCE_UNITS).result().orElseThrow();
@@ -205,7 +208,7 @@ class CompilationUnitEnvelopeAstTest {
   @Test
   void givenInvalidImportWithoutTypes_whenProduced_thenActualCompilerErrorsPreventCompleteness() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), "import missing.Type;")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "import missing.Type;")));
     // Act
     AstOutcome outcome = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, configuration(), AstProfile.JAVA_SOURCE_UNITS);
     // Assert
@@ -216,8 +219,8 @@ class CompilationUnitEnvelopeAstTest {
   @Test
   void givenAMissingRequiredCompilerUnitInMixedCapture_whenRealCompilerValuesAreTranslated_thenEveryRootIsWithheld() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Empty.java"), ""),
-        SourceFile.fromContent(Path.of("Example.java"), "class Example {}")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Empty.java")), ""),
+        SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example {}")));
     var sources = new SnapshotSourceCatalog(snapshot);
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration()), sources)) {
       var parsed = session.parse();
@@ -235,7 +238,7 @@ class CompilationUnitEnvelopeAstTest {
   @Test
   void givenZeroCapturedFiles_whenProduced_thenNoCompilerOrUnitIsInvented() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(Path.of("."), List.of());
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of(".")), List.of());
     var frontend = new JavaFrontend(new JavaSourceLoader(), new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture()), () -> { throw new AssertionError("Zero capture must not acquire the compiler"); }));
     // Act
     var outcome = frontend.produce(snapshot, configuration(), AstProfile.JAVA_SOURCE_UNITS);
@@ -247,7 +250,7 @@ class CompilationUnitEnvelopeAstTest {
   }
 
   private static AstResult produce(String source, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of(".")), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, configuration(), profile).result().orElseThrow();
   }
 

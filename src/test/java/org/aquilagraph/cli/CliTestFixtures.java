@@ -1,5 +1,8 @@
 package org.aquilagraph.cli;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
@@ -95,7 +98,7 @@ final class CliTestFixtures {
   }
 
   static AstOutcome produce(String source, AstProfile profile) throws IOException {
-    var sources = source.isEmpty() ? List.<SourceFile>of() : List.of(SourceFile.fromContent(Path.of("Example.java"), source));
+    var sources = source.isEmpty() ? List.<SourceFile>of() : List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source));
     return produce(Path.of("."), sources, profile);
   }
 
@@ -104,7 +107,7 @@ final class CliTestFixtures {
   }
 
   static AstOutcome produce(Path root, List<SourceFile> sources, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(root, sources);
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(root), sources);
     return produce(snapshot, profile);
   }
 

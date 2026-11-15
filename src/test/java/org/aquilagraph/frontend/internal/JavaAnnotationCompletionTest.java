@@ -563,7 +563,7 @@ class JavaAnnotationCompletionTest {
         JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.MARKER, List.of(), SyntaxValue.AnnotationLocation.DECLARATION, Set.of(target)),
         List.of(), Optional.of(new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED,
-            Optional.of("type:Unwritten"), Optional.empty(), List.of(), List.of())),
+            Optional.of("type:Unwritten"), Optional.empty(), List.of(), List.of(), Optional.empty())),
         new SourceSpan(owner.sourceFileKey(), ownerRange.startOffset(), ownerRange.startOffset() + 1));
     var sourceRoot = fixture.aggregate().roots().stream().filter(node -> node.sourceFileKey().equals(owner.sourceFileKey()))
         .findFirst().orElseThrow();

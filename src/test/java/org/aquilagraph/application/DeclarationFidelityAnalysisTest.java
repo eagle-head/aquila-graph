@@ -1,5 +1,8 @@
 package org.aquilagraph.application;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -31,7 +34,7 @@ class DeclarationFidelityAnalysisTest {
   void givenEmptyMembersAndMethodsWithDifferentCfgAdmission_whenTheApplicationUsesTheDeclarationProfile_thenSourceCompletenessAndOrderSurvive()
       throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { ; int simple() { return 5; } ; int complex() { int n = 0; while(n < 2) { n++; } return n; } ; }")));
     var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     var request = new AnalysisComputationRequest(

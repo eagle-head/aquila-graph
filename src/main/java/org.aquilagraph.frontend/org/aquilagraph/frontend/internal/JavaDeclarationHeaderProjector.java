@@ -337,7 +337,7 @@ final class JavaDeclarationHeaderProjector {
         SyntaxType.NotApplicable.INSTANCE, value, children, Optional.empty(), component.origin());
     sourceAssociations.created(node, tree);
     var reference = new SemanticReference(ReferenceKind.RECORD_COMPONENT, ResolutionStatus.RESOLVED, Optional.of(component.componentKey()),
-        Optional.empty(), List.of(), List.of());
+        Optional.empty(), List.of(), List.of(), Optional.empty());
     addDeclarationEdge(node, reference, semanticEdges);
     return Optional.of(node);
   }

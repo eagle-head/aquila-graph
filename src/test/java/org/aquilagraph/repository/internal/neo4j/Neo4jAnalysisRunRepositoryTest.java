@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import org.aquilagraph.identity.api.CapturedLocation;
+import org.aquilagraph.identity.api.CapturedLocation.Syntax;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.PublicationIntent;
 import org.aquilagraph.application.port.AnalysisRunRepositoryFactory;
@@ -483,11 +486,13 @@ class Neo4jAnalysisRunRepositoryTest {
   }
 
   @Test
-  void givenLegacySourceKeyFixture_whenRunIsRepublished_thenExactRunWriteContainsOnlyCanonicalSourceLink() {
+  void givenWindowsCapturedSource_whenRunIsRepublished_thenExactRunWriteContainsOnlyCanonicalSourceLink() {
     // Arrange
     var legacyPath = "src\\Example.java";
     var content = "interface Example {}";
-    var run = RepositoryTestRuns.analyze(temporaryDirectory, legacyPath, content);
+    var root = CapturedLocation.parse(Syntax.WINDOWS, "C:/sources");
+    var source = CapturedLocation.parse(Syntax.WINDOWS, legacyPath);
+    var run = RepositoryTestRuns.analyze(root, source, content);
     var unrelated = RepositoryTestRuns.analyze(temporaryDirectory, "Other.java", "interface Other {}");
     var context = RepositoryOperationContext.saveCompletedRun(run.identity().key());
     var closeSignal = new Neo4jException("Driver close failed after acknowledged replacement");

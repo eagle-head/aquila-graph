@@ -9,30 +9,22 @@ import java.nio.file.FileVisitOption;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import org.aquilagraph.frontend.internal.AnalysisEnvironmentCapture.DependencyContentCapture;
 import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
 import org.aquilagraph.identity.api.DependencyKind;
-import org.aquilagraph.identity.api.DependencySnapshot;
 
-final class CompilerDependencyCapture {
+final class CompilerDependencyCapture implements DependencyContentCapture {
   private static final int BUFFER_SIZE = 8192;
 
-  List<DependencySnapshot> capture(List<Path> locations) throws IOException {
-    Objects.requireNonNull(locations, "locations");
-    var dependencies = new ArrayList<DependencySnapshot>(locations.size());
-    for (var location : locations) {
-      dependencies.add(capture(Objects.requireNonNull(location, "location")));
-    }
-    return List.copyOf(dependencies);
-  }
-
-  private static DependencySnapshot capture(Path location) throws IOException {
+  @Override
+  public PhysicalDependency capture(Path location) throws IOException {
+    Objects.requireNonNull(location, "location");
     if (Files.notExists(location)) {
-      return new DependencySnapshot(location, DependencyKind.MISSING, 0, 0, emptyFingerprint("missing"));
+      return new PhysicalDependency(DependencyKind.MISSING, 0, 0, emptyFingerprint("missing"));
     }
     if (Files.isRegularFile(location)) {
       return captureFile(location);
@@ -43,7 +35,7 @@ final class CompilerDependencyCapture {
     throw new IOException("Unsupported compiler dependency entry: " + location);
   }
 
-  private static DependencySnapshot captureFile(Path location) throws IOException {
+  private static PhysicalDependency captureFile(Path location) throws IOException {
     var digest = sha256();
     updateString(digest, "regular-file");
     var expectedSize = Files.size(location);
@@ -52,10 +44,10 @@ final class CompilerDependencyCapture {
     if (capturedSize != expectedSize) {
       throw new IOException("Compiler dependency changed while being captured: " + location);
     }
-    return new DependencySnapshot(location, DependencyKind.REGULAR_FILE, capturedSize, 1, formattedFingerprint(digest));
+    return new PhysicalDependency(DependencyKind.REGULAR_FILE, capturedSize, 1, formattedFingerprint(digest));
   }
 
-  private static DependencySnapshot captureDirectory(Path location) throws IOException {
+  private static PhysicalDependency captureDirectory(Path location) throws IOException {
     List<Path> files;
     try (var paths = Files.walk(location, FileVisitOption.FOLLOW_LINKS)) {
       files = paths.filter(Files::isRegularFile).sorted(Comparator.comparing(path -> canonicalPath(location.relativize(path)))).toList();
@@ -77,7 +69,7 @@ final class CompilerDependencyCapture {
       }
       byteCount = Math.addExact(byteCount, capturedSize);
     }
-    return new DependencySnapshot(location, DependencyKind.DIRECTORY, byteCount, files.size(), formattedFingerprint(digest));
+    return new PhysicalDependency(DependencyKind.DIRECTORY, byteCount, files.size(), formattedFingerprint(digest));
   }
 
   private static long updateContent(MessageDigest digest, Path path) throws IOException {
@@ -127,6 +119,6 @@ final class CompilerDependencyCapture {
   }
 
   private static String canonicalPath(Path path) {
-    return path.toString().replace('\\', '/');
+    return NativeLocations.capture(path).canonicalRelativeName();
   }
 }

@@ -46,7 +46,7 @@ final class FrontendDiagnosticFactory {
     Objects.requireNonNull(path, "path");
     var occurrence = String.join(":", path.identityComponents());
     var context = sourceFile.sourceFileKey() + ':' + occurrence;
-    var locatedMessage = message + " in " + sourceFile.relativePath() + " at " + occurrence;
+    var locatedMessage = message + " in " + sourceFile.relativePath().spelling() + " at " + occurrence;
     return otherError(context, code, locatedMessage, Optional.empty());
   }
 }

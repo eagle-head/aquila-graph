@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -59,17 +62,17 @@ class JavaAnnotationOccurrenceCorrelationTest {
         "given" + (annotations.startsWith("@Tag(") ? "RepeatedBaseWithContainer" : "RepeatedContainersWithGroup")
             + "_whenProduced_thenCompilerErrorsReturnAndValidNeighborSurvives", () -> {
           // Arrange
-          var snapshot = InputSnapshot.fromSources(directory, List.of(
-              SourceFile.fromContent(Path.of("Invalid.java"), DECLARATIONS + annotations + " class Invalid {}"),
-              SourceFile.fromContent(Path.of("Neighbor.java"), "@Tag(41) class Neighbor {}")));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+              SourceFile.fromContent(capturedPath(Path.of("Invalid.java")), DECLARATIONS + annotations + " class Invalid {}"),
+              SourceFile.fromContent(capturedPath(Path.of("Neighbor.java")), "@Tag(41) class Neighbor {}")));
           var request = new AstProductionRequest(new SourceInput.Snapshot(snapshot),
               CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS);
           var frontend = new JavaFrontend(new JavaSourceLoader());
 
           // Act
           var outcome = frontend.produce(request);
-          var following = frontend.produce(new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(directory,
-              List.of(SourceFile.fromContent(Path.of("Valid.java"), DECLARATIONS + "@Tag(43) class Following {}")))),
+          var following = frontend.produce(new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(capturedAbsolute(directory),
+              List.of(SourceFile.fromContent(capturedPath(Path.of("Valid.java")), DECLARATIONS + "@Tag(43) class Following {}")))),
               CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS));
 
           // Assert
@@ -108,8 +111,8 @@ class JavaAnnotationOccurrenceCorrelationTest {
           // Arrange
           var source = "import java.lang.annotation.*; @Target(ElementType." + value.target()
               + ") @interface Mark { int value(); } record Sample(@Mark(23) int value) { " + value.body() + " }";
-          var request = new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(directory,
-              List.of(SourceFile.fromContent(Path.of("Sample.java"), source)))),
+          var request = new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(capturedAbsolute(directory),
+              List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), source)))),
               CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS);
 
           // Act
@@ -140,8 +143,8 @@ class JavaAnnotationOccurrenceCorrelationTest {
         @Target(ElementType.TYPE_USE) @interface Tags { Tag[] value(); }
         class Sample { int[][] values = new int @Tag(1) @Tag(1)[2] @Tags({@Tag(3)})[4]; }
         """;
-    var request = new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Sample.java"), source)))),
+    var request = new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), source)))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS);
 
     // Act
@@ -160,7 +163,7 @@ class JavaAnnotationOccurrenceCorrelationTest {
   @Test
   void givenRepeatedEqualValuesAndSingleBaseBesideContainer_whenProducedTwice_thenPhysicalOccurrencesAndValuesRemainDistinct() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Valid.java"), DECLARATIONS + """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Valid.java")), DECLARATIONS + """
         @Tag(7) @Tag(7) @Tag(9) class Repeated {}
         @Tag(11) @Tags({@Tag(13), @Tag(13)}) class Mixed {}
         """)));
@@ -198,7 +201,7 @@ class JavaAnnotationOccurrenceCorrelationTest {
   @Test
   void givenInvalidRepeatableSource_whenExplicitRetentionIsRequested_thenPublicationIsRefusedBeforeRepositoryAcquisition() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Invalid.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Invalid.java")),
         DECLARATIONS + "@Tag(1) @Tag(2) @Tags({@Tag(3)}) class Invalid {}")));
     var request = new AstProductionRequest(new SourceInput.Snapshot(snapshot),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS);
@@ -219,7 +222,7 @@ class JavaAnnotationOccurrenceCorrelationTest {
   @Test
   void givenInvalidRepeatableRecordComponent_whenProduced_thenAdmittedPartialUnitRetainsCompilerAndCorrelationErrors() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Records.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Records.java")),
         DECLARATIONS + "record Sample(@Tag(1) @Tag(2) @Tags({@Tag(3)}) int value) {}")));
     var request = new AstProductionRequest(new SourceInput.Snapshot(snapshot),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS);
@@ -243,7 +246,7 @@ class JavaAnnotationOccurrenceCorrelationTest {
   @Test
   void givenAmbiguousOccurrenceAndUnrelatedEmission_whenArgumentsAreProjected_thenFailureRetainsItsOwnCreatingEvent() throws Exception {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Invalid.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Invalid.java")),
         "@interface Mark { int value(); } @Mark(1) @Mark(2) class Invalid {}")));
     var catalog = new SnapshotSourceCatalog(snapshot);
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);

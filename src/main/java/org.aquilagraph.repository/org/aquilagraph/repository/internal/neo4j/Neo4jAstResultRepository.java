@@ -138,9 +138,8 @@ final class Neo4jAstResultRepository implements AstRetentionRepository, AstQuery
 
   private static StoredRead read(TransactionContext transaction, AstIdentity identity) {
     var parameters = Values.parameters(SCOPE_PARAMETER, identity.astResultKey());
-    var roots = transaction
-        .run("MATCH (result:AstEntity:AstResult {astResultKey: $scope}) RETURN properties(result) AS properties LIMIT 2", parameters)
-        .list();
+    var roots = transaction.run("MATCH (result:AstEntity:AstResult {astResultKey: $scope}) "
+        + "RETURN result { .formatVersion, .astProfileVersion } AS properties LIMIT 2", parameters).list();
     if (roots.isEmpty()) {
       var remaining = transaction.run("MATCH (entity:AstEntity {astResultKey: $scope}) RETURN count(entity) AS count", parameters).single()
           .get("count").asLong();

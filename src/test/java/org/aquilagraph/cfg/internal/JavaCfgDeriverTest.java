@@ -1,5 +1,8 @@
 package org.aquilagraph.cfg.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.cfg.CfgDerivers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -51,8 +54,8 @@ class JavaCfgDeriverTest {
   void givenCompleteExpandedSourceAndSuppliedConstructionFailure_whenDeriving_thenSourceSurvivesAndActualCauseIsRetained()
       throws IOException {
     // Arrange
-    var ast = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Stored.java"), "class Stored { int value() { return 1; } }"))),
+    var ast = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), "class Stored { int value() { return 1; } }"))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
     var cause = new IllegalStateException("Supplied graph construction failure");
     var request = new CfgRequest(ast.identity(), List.of(key(ast, "value")), CfgProfile.JAVA_BOUNDED);
@@ -170,6 +173,31 @@ class JavaCfgDeriverTest {
             "Requested source identity differs from the supplied AST result"),
         requestDiagnostic(request, "control-flow.incompatible-profile", "profile",
             "Requested source and graph interpretation versions are incompatible")), result.diagnostics());
+  }
+
+  @Test
+  void givenRetiredSourceFormatAndSupportedGraphProfile_whenDeriving_thenSourceIncompatibilityAndIdentityMismatchAreOrdered() throws IOException {
+    // Arrange
+    var ast = produce("class Stored { int value() { return 1; } }");
+    var current = ast.identity();
+    var retired = AstIdentity.fromContent(current.softwareSignature(), "java-source/22", current.astProfileVersion(),
+        current.semanticProductionRevision(), current.canonicalContentDigest());
+    var selected = List.of(key(ast, "value"));
+    var deriver = CfgDerivers.standard();
+    var currentRequest = new CfgRequest(current, selected, CfgProfile.JAVA_BOUNDED);
+    var retiredRequest = new CfgRequest(retired, selected, CfgProfile.JAVA_BOUNDED);
+
+    // Act
+    var accepted = deriver.derive(ast, currentRequest);
+    var rejected = deriver.derive(ast, retiredRequest);
+
+    // Assert
+    assertEquals(CfgState.COMPLETE, accepted.state());
+    assertEquals(MethodCfgState.AVAILABLE, accepted.methods().getFirst().state());
+    assertEquals(CfgState.REJECTED, rejected.state());
+    assertTrue(rejected.methods().isEmpty());
+    assertEquals(List.of("control-flow.foreign-ast", "control-flow.incompatible-profile"),
+        rejected.diagnostics().stream().map(value -> value.code()).toList());
   }
 
   @Test
@@ -384,7 +412,7 @@ class JavaCfgDeriverTest {
   }
 
   private AstResult produce(String source) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot,
         new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(), List.of()), AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
   }

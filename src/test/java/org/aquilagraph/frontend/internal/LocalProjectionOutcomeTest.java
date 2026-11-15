@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -271,7 +274,7 @@ class LocalProjectionOutcomeTest {
   }
 
   private void withCompilation(String content, Observation observation) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Sample.java"), content)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), content)));
     var sources = new SnapshotSourceCatalog(snapshot);
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
       observation.observe(new Fixture(snapshot.sourceFiles().getFirst(), session.analyze(session.parse(), POLICY)));

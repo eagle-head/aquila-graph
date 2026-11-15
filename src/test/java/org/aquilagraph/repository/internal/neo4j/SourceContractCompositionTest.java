@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.PublicationSubjectIdentity.Ast;
@@ -314,8 +317,8 @@ class SourceContractCompositionTest {
     var observations = variants.stream().map(variant -> DynamicTest.dynamicTest(
         "given" + variant.name() + "BesideMixedSource_whenProduced_thenSpecificErrorAndValidNeighborSurvive", () -> {
           // Arrange
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Sample.java"), SOURCE),
-              SourceFile.fromContent(Path.of("Invalid.java"), variant.source())));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), SOURCE),
+              SourceFile.fromContent(capturedPath(Path.of("Invalid.java")), variant.source())));
           var retention = AnalysisCapabilities.astRetention(context -> {
             throw new AssertionError("Incomplete source must not acquire storage");
           });
@@ -352,8 +355,8 @@ class SourceContractCompositionTest {
   }
 
   private AstProductionRequest request(String source) {
-    return new AstProductionRequest(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Sample.java"), source))),
+    return new AstProductionRequest(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), source))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES);
   }
 
@@ -363,12 +366,12 @@ class SourceContractCompositionTest {
     assertEquals(AstProfile.JAVA_SOURCE_MODULE_SERVICES, ast.profile());
     assertEquals("java-source-expanded/8", ast.identity().astProfileVersion());
     assertEquals("javac-public/14", ast.identity().semanticProductionRevision());
-    assertEquals("java-source/22", ast.identity().sourceModelVersion());
+    assertEquals("java-source/23", ast.identity().sourceModelVersion());
     assertNeighborFacts(ast);
   }
 
   private static void assertNeighborFacts(AstResult ast) {
-    var file = ast.snapshot().sourceFiles().stream().filter(value -> value.relativePath().equals(Path.of("Sample.java")))
+    var file = ast.snapshot().sourceFiles().stream().filter(value -> value.canonicalRelativePath().equals("Sample.java"))
         .findFirst().orElseThrow();
     assertEquals(SOURCE, file.content());
     var sample = ast.aggregate().nodes().stream().filter(node -> node.value() instanceof SyntaxValue.TypeDeclaration value
@@ -458,7 +461,7 @@ class SourceContractCompositionTest {
   private static SyntaxNode at(AstResult ast, String spelling, SyntaxKind kind) {
     var start = SOURCE.indexOf(spelling);
     assertTrue(start >= 0, spelling);
-    var fileKey = ast.snapshot().sourceFiles().stream().filter(file -> file.relativePath().equals(Path.of("Sample.java")))
+    var fileKey = ast.snapshot().sourceFiles().stream().filter(file -> file.canonicalRelativePath().equals("Sample.java"))
         .findFirst().orElseThrow().sourceFileKey();
     var matches = ast.aggregate().nodes().stream().filter(node -> node.syntaxKind() == kind
         && node.origin().equals(Optional.of(new SourceSpan(fileKey, start, start + spelling.length())))).toList();

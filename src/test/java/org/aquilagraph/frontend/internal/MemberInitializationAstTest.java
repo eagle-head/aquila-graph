@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -63,7 +66,7 @@ class MemberInitializationAstTest {
   void givenEmptyBodyDeclarationsAlongsideInitialization_whenProducedDecodedAndOfferedForRetention_thenIncompleteQualificationPreservesRepresentedMembers() throws IOException {
     // Arrange
     var source = "class Example { ; static int field = Math.abs(-1); static { field = 2; } ; }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var publication = AnalysisCapabilities.astRetention(context -> {
       throw new AssertionError("Incomplete source must not acquire a repository");
     });
@@ -223,7 +226,7 @@ class MemberInitializationAstTest {
           // Arrange
           var source = test.source();
           var start = source.indexOf(test.marker()) + test.offset();
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
           var publication = AnalysisCapabilities.astRetention(context -> {
             throw new AssertionError("Incomplete compact source must not acquire a repository");
           });
@@ -280,7 +283,7 @@ class MemberInitializationAstTest {
 
           // Assert
           assertEquals(AstCompletion.COMPLETE, result.completion(), result.diagnostics().toString());
-          assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.COMPACT), root.value());
+          assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.COMPACT, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE), root.value());
           assertTrue(root.children(SyntaxRole.TYPE_DECLARATION).isEmpty());
           assertEquals(List.of(SyntaxKind.FIELD_DECLARATION, SyntaxKind.METHOD_DECLARATION),
               root.children(SyntaxRole.COMPACT_MEMBER).stream().map(SyntaxNode::syntaxKind).toList());
@@ -438,7 +441,7 @@ class MemberInitializationAstTest {
   }
 
   private AstResult produce(String source, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)
         .result().orElseThrow();
   }
@@ -544,8 +547,8 @@ class MemberInitializationAstTest {
   @Test
   void givenInvalidInitializerAssignment_whenCompilerReportsItsError_thenSourceCannotBeComplete() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { int field = \"invalid\"; }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { int field = \"invalid\"; }")));
 
     // Act
     var outcome = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
@@ -660,7 +663,7 @@ class MemberInitializationAstTest {
   void givenMemberInitializationAndSimpleMethods_whenStandardApplicationSelectsAllBodies_thenOnlyActualMethodGraphsAreAvailable() throws IOException {
     // Arrange
     var source = "class Example { int field=41; static { int staticLocal=42; } { int instanceLocal=43; } Object input=\"abc\"; boolean matched=input instanceof String value && value.length()>0; int subject() { return 7; } }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
 
     // Act
@@ -699,7 +702,7 @@ class MemberInitializationAstTest {
   @Test
   void givenMemberInitializationThroughApplicationComposition_whenCfgIsAbsentOrRefused_thenTheRealProducerResultKeepsItsCanonicalDeclarationScopes() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { int field = Math.abs(-1); { field++; } int subject() { for (int i=0;i<1;i++) { field++; } return field; } }")));
     var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
 
@@ -721,7 +724,7 @@ class MemberInitializationAstTest {
   @Test
   void givenRealMemberInitializationAndControlledCfgConstructionFailure_whenApplicationCoordinates_thenTheEstablishedSourceAndActualCauseSurvive() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { int field = 1; { field++; } int subject() { return field; } }")));
     var cause = new IllegalStateException("Controlled construction failure");
     var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), RecoverableCfgFailures.atMethod("type:Example#subject()", cause));
@@ -754,7 +757,7 @@ class MemberInitializationAstTest {
           var source = test.source();
           var declarationStart = source.indexOf("String value");
           var declarationEnd = declarationStart + "String value".length();
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
           var sourceKey = snapshot.sourceFiles().getFirst().sourceFileKey();
           var expectedAccesses = new ArrayList<SourceSpan>();
           for (var start = source.indexOf("value.length"); start >= 0; start = source.indexOf("value.length", start + 1)) {

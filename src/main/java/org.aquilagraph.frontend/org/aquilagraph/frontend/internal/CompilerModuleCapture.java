@@ -8,7 +8,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.jar.JarFile;
@@ -19,10 +18,8 @@ import javax.tools.JavaFileManager.Location;
 import javax.tools.JavaFileObject;
 import javax.tools.StandardJavaFileManager;
 import javax.tools.StandardLocation;
-import org.aquilagraph.identity.api.CompilerConfiguration;
-import org.aquilagraph.identity.api.DependencyKind;
 import org.aquilagraph.identity.api.DependencySemantics;
-import org.aquilagraph.identity.api.DependencySnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.ModuleCandidate;
 import org.aquilagraph.identity.api.ModuleNameOrigin;
 import org.aquilagraph.source.api.AnalysisInputException;
@@ -31,31 +28,11 @@ import org.aquilagraph.source.api.AnalysisInputException;
 final class CompilerModuleCapture {
   private static final String ARCHIVE_URI_SCHEME = "jar";
 
-  List<DependencySnapshot> capture(JavaCompiler compiler, CompilerConfiguration configuration, List<DependencySnapshot> physical,
-      boolean modular) throws IOException {
-    var captured = new ArrayList<DependencySnapshot>(physical.size());
-    for (var dependency : physical) {
-      captured.add(capture(compiler, configuration, dependency, modular));
-    }
-    return List.copyOf(captured);
-  }
-
-  private static DependencySnapshot capture(JavaCompiler compiler, CompilerConfiguration configuration, DependencySnapshot dependency,
-      boolean modular) throws IOException {
-    var semantics = !modular
-        ? new DependencySemantics(DependencySemantics.State.CLASS_PATH, List.of())
-        : dependency.kind() == DependencyKind.MISSING
-            ? new DependencySemantics(DependencySemantics.State.MISSING, List.of())
-            : observe(compiler, configuration, dependency.location());
-    return new DependencySnapshot(dependency.location(), dependency.kind(), dependency.byteCount(), dependency.entryCount(),
-        dependency.fingerprint(), semantics);
-  }
-
-  private static DependencySemantics observe(JavaCompiler compiler, CompilerConfiguration configuration, Path entry) throws IOException {
+  DependencySemantics observe(JavaCompiler compiler, JavaRelease release, Path entry) throws IOException {
     var diagnostics = new DiagnosticCollector<JavaFileObject>();
     try (var manager = compiler.getStandardFileManager(diagnostics, Locale.ROOT, StandardCharsets.UTF_8)) {
       try {
-        JavaCompilerInvocation.from(configuration).configureModuleView(manager, entry);
+        JavaCompilerInvocation.configureModuleView(manager, release, entry);
       } catch (IllegalArgumentException exception) {
         throw new AnalysisInputException("The compiler rejected the analysis configuration", exception);
       }
@@ -66,7 +43,7 @@ final class CompilerModuleCapture {
           if (name == null || name.isBlank()) {
             throw new IOException("Compiler module location has no lookup name: " + location.getName());
           }
-          modules.add(candidate(manager, location, entry, name, configuration.release().feature()));
+          modules.add(candidate(manager, location, entry, name, release.feature()));
         }
       }
       var invalid = false;
@@ -95,7 +72,7 @@ final class CompilerModuleCapture {
     if (roots.hasNext()) {
       throw new IOException("Compiler module location has multiple artifact roots: " + location.getName());
     }
-    var member = root.equals(entry) ? "." : entry.relativize(root).toString().replace('\\', '/');
+    var member = root.equals(entry) ? "." : NativeLocations.capture(entry.relativize(root)).canonicalRelativeName();
     var descriptor = manager.getJavaFileForInput(location, "module-info", JavaFileObject.Kind.CLASS);
     if (descriptor != null) {
       String declaredName;

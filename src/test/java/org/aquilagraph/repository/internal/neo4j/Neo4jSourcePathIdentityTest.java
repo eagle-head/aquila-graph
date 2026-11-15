@@ -3,17 +3,17 @@ package org.aquilagraph.repository.internal.neo4j;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrowsExactly;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.CapturedLocation;
+import org.aquilagraph.identity.api.CapturedLocation.Syntax;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.StableId;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.function.Executable;
-import org.junit.jupiter.api.io.TempDir;
 
 class Neo4jSourcePathIdentityTest {
   private static final String CONTENT = "class Example {}";
@@ -22,33 +22,31 @@ class Neo4jSourcePathIdentityTest {
   private static final String CHANGED_CONTENT_DIGEST = "c2ba3c4c1f42b3471d6df30d290c606f132a3896ec56b97952c948e49679f729";
   private static final String NESTED_LINK = "relationship:51c0c983769cd964a5c15d34d0e41aa5b47119dbc1100171422e453e7696d200";
 
-  @TempDir Path sourceRoot;
-
   @TestFactory
-  Stream<DynamicTest> sourcePathCases() {
+  Stream<DynamicTest> givenExplicitRelativeLocations_whenMapped_thenTheirCanonicalSourceLinksAreExact() {
     return Stream.of(
-        sourcePathCase("NativeSegments", Path.of("src", "Example.java"), CONTENT, "src/Example.java", CONTENT_DIGEST, NESTED_LINK),
-        sourcePathCase("NormalizedAlias", Path.of("src", "unused", "..", ".", "Example.java"), CONTENT, "src/Example.java",
+        sourcePathCase("NativeSegments", CapturedLocation.parse(Syntax.WINDOWS, "src/Example.java"), CONTENT, "src/Example.java", CONTENT_DIGEST, NESTED_LINK),
+        sourcePathCase("NormalizedAlias", CapturedLocation.parse(Syntax.WINDOWS, "src/unused/.././Example.java"), CONTENT, "src/Example.java",
             CONTENT_DIGEST, NESTED_LINK),
-        sourcePathCase("BackslashSpelling", Path.of("src\\Example.java"), CONTENT, "src/Example.java", CONTENT_DIGEST, NESTED_LINK),
-        sourcePathCase("AlreadyCanonicalFlatPath", Path.of("Example.java"), CONTENT, "Example.java", CONTENT_DIGEST,
+        sourcePathCase("BackslashSpelling", CapturedLocation.parse(Syntax.WINDOWS, "src\\Example.java"), CONTENT, "src/Example.java", CONTENT_DIGEST, NESTED_LINK),
+        sourcePathCase("AlreadyCanonicalFlatPath", CapturedLocation.parse(Syntax.WINDOWS, "Example.java"), CONTENT, "Example.java", CONTENT_DIGEST,
             "relationship:c17d777d93b30e7c2360e09d8b940e9fe819f351ae2cb4a60e29d78b364c7a69"),
-        sourcePathCase("CaseSensitivePath", Path.of("src", "example.java"), CONTENT, "src/example.java", CONTENT_DIGEST,
+        sourcePathCase("CaseSensitivePath", CapturedLocation.parse(Syntax.WINDOWS, "src/example.java"), CONTENT, "src/example.java", CONTENT_DIGEST,
             "relationship:b6523b9259d244688b01b6979740bbe1671f153980727b38a607000cbb3c5436"),
-        sourcePathCase("ChangedContent", Path.of("src", "Example.java"), CHANGED_CONTENT, "src/Example.java", CHANGED_CONTENT_DIGEST,
+        sourcePathCase("ChangedContent", CapturedLocation.parse(Syntax.WINDOWS, "src/Example.java"), CHANGED_CONTENT, "src/Example.java", CHANGED_CONTENT_DIGEST,
             "relationship:a9a4ff1d9881ce1cee488394f5ca18ddbd1a32ed09da903177aae96edf0a1fd0"));
   }
 
-  private DynamicTest sourcePathCase(String context, Path relativePath, String content, String canonicalPath, String contentDigest,
+  private DynamicTest sourcePathCase(String context, CapturedLocation relativePath, String content, String canonicalPath, String contentDigest,
       String expectedLink) {
     return DynamicTest.dynamicTest("given" + context + "_whenMapped_thenSourceAndRelationshipUseTheExpectedCanonicalIdentity",
         () -> assertSourcePathIdentity(relativePath, content, canonicalPath, contentDigest, expectedLink));
   }
 
-  private void assertSourcePathIdentity(Path relativePath, String content, String canonicalPath, String contentDigest, String expectedLink) {
+  private void assertSourcePathIdentity(CapturedLocation relativePath, String content, String canonicalPath, String contentDigest, String expectedLink) {
     // Arrange
     var source = SourceFile.fromContent(relativePath, content);
-    var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(source));
+    var snapshot = InputSnapshot.fromSources(CapturedLocation.parse(Syntax.WINDOWS, "C:/source-root"), List.of(source));
     var expectedSourceKey = StableId.sha256("source", canonicalPath, contentDigest);
     var expectedSnapshotDigest = StableId.sha256("snapshot", canonicalPath, contentDigest);
     var expectedSnapshotKey = StableId.sha256("input-snapshot", expectedSnapshotDigest);
@@ -73,7 +71,7 @@ class Neo4jSourcePathIdentityTest {
   }
 
   @TestFactory
-  Stream<DynamicTest> duplicatePathCases() {
+  Stream<DynamicTest> givenEqualCanonicalPaths_whenCaptured_thenSnapshotRejectsDuplicates() {
     return Stream.of(
         DynamicTest.dynamicTest("givenEqualCanonicalPathsAndContent_whenSnapshotIsCaptured_thenDuplicatePathsAreRejected",
             () -> assertDuplicatePathRejected(CONTENT, true)),
@@ -83,11 +81,11 @@ class Neo4jSourcePathIdentityTest {
 
   private void assertDuplicatePathRejected(String secondContent, boolean sameSourceKey) {
     // Arrange
-    var first = SourceFile.fromContent(Path.of("src", "Example.java"), CONTENT);
-    var second = SourceFile.fromContent(Path.of("src\\Example.java"), secondContent);
+    var first = SourceFile.fromContent(CapturedLocation.parse(Syntax.WINDOWS, "src/Example.java"), CONTENT);
+    var second = SourceFile.fromContent(CapturedLocation.parse(Syntax.WINDOWS, "src\\Example.java"), secondContent);
 
     // Act
-    Executable capture = () -> InputSnapshot.fromSources(sourceRoot, List.of(first, second));
+    Executable capture = () -> InputSnapshot.fromSources(CapturedLocation.parse(Syntax.WINDOWS, "C:/source-root"), List.of(first, second));
 
     // Assert
     assertEquals(first.canonicalRelativePath(), second.canonicalRelativePath());

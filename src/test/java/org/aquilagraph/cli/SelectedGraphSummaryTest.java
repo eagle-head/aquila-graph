@@ -1,5 +1,7 @@
 package org.aquilagraph.cli;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -23,7 +25,7 @@ class SelectedGraphSummaryTest {
   void givenActualBoxingAndUnboxingGraphs_whenSummaryAndPresenterRun_thenNewOperationsCountAsNodesAndTheirEffectsCountAsEdges() throws IOException {
     // Arrange
     var source = "class Example { Number box(int input) { return input; } long unbox(Integer input) { return input; } }";
-    var input = CliTestFixtures.produce(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source)),
+    var input = CliTestFixtures.produce(sourceRoot, List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)),
         AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
     var run = CliTestFixtures.analyze(AstOutcome.available(input));
     var streams = new CliStreams(StandardCharsets.UTF_8);

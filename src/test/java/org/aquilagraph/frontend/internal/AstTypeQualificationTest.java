@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AstPublicationRequest;
 import org.aquilagraph.application.PublicationIntent;
@@ -158,8 +161,8 @@ class AstTypeQualificationTest {
   }
 
   private SyntaxAnalysisInput copiedInput(SyntaxType type) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { int value() { return 1; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { int value() { return 1; } }")));
     var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
     var method = original.program().methods().stream().filter(value -> value.name().equals("value")).findFirst().orElseThrow();
     var aggregate = original.aggregate().orElseThrow();
@@ -175,7 +178,7 @@ class AstTypeQualificationTest {
         copyNode(body.root(), literal, type, replacements), body.origin(), body.methodKey().equals(method.methodKey()) ? List.of() : body.uses(),
         body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var supplied = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), sources, bodies, copied.memberOrders(), copied.associations(),
-        copied.declarationTypes()));
+        copied.declarationTypes(), copied.scopes()));
     return JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied),
         JavaCoverageTestSupport.emissions(original));
   }

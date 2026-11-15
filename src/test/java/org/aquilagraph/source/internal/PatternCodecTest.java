@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.retention.AstCodec;
 
 
@@ -34,37 +37,17 @@ class PatternCodecTest {
   @TempDir Path directory;
 
   @Test
-  void givenCompatibleReferenceFormat_whenClosedValuesAreDecoded_thenOriginalIdentityAndReferenceStructureRemainReadable() throws IOException {
+  void givenArrayConstructorReference_whenRetained_thenTheExactIdentityAndReferenceRemainReadable() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { java.util.function.IntFunction<int[]> subject() { return int[]::new; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { java.util.function.IntFunction<int[]> subject() { return int[]::new; } }")));
     var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
-    var previous = SourceAnalysisFixture.referenceResult(current);
     // Act
-    var decoded = AstCodec.decode(AstCodec.encode(previous), previous.identity());
+    var decoded = AstCodec.decode(AstCodec.encode(current), current.identity());
     // Assert
-    assertEquals("java-source/9", decoded.identity().sourceModelVersion());
-    assertEquals(previous.identity(), decoded.identity());
+    assertEquals("java-source/23", decoded.identity().sourceModelVersion());
+    assertEquals(current.identity(), decoded.identity());
     assertEquals(current.aggregate(), decoded.aggregate());
     assertEquals(AstCompletion.COMPLETE, decoded.completion());
   }
 
-  @TestFactory
-  Stream<DynamicTest> givenPatternValuesInOlderFormats_whenReadOrWritten_thenEveryOldFrameRejectsNewSyntaxAndScope() {
-    return Stream.of("java-source/2", "java-source/3", "java-source/4", "java-source/5", "java-source/6", "java-source/7", "java-source/8", "java-source/9")
-        .flatMap(format -> List.of(SyntaxKind.INSTANCE_OF, SyntaxKind.BINDING_PATTERN, SyntaxKind.DECONSTRUCTION_PATTERN, SyntaxKind.ANY_PATTERN,
-            SyntaxRole.PATTERN, SyntaxRole.PATTERN_COMPONENT, CoverageEvidenceValue.Tag.PATTERN_BINDING, CoverageEvidenceValue.Tag.INFERRED_RECORD_TYPE,
-            new SyntaxValue.PatternBinding(Optional.of(List.of())), new SyntaxValue.InferredRecordType("Box"))
-            .stream().map(value -> DynamicTest.dynamicTest(format + " " + value, () -> {
-              // Arrange
-              var codec = new RetainedValueCodec(false, format);
-              var current = new CanonicalValueWriter("java-source/10");
-              new RetainedValueCodec(false, "java-source/10").write(current, value);
-              var old = new CanonicalValueWriter(format);
-              // Act
-              var write = assertThrows(IllegalArgumentException.class, () -> codec.write(old, value));
-              var read = assertThrows(IllegalArgumentException.class, () -> codec.read(new CanonicalValueReader(current.toByteArray(), "java-source/10")));
-              // Assert
-              assertEquals(write.getMessage(), read.getMessage());
-            })));
-  }
 }

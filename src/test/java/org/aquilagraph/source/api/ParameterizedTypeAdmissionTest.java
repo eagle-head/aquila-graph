@@ -104,7 +104,7 @@ class ParameterizedTypeAdmissionTest {
   private static Optional<SemanticReference> reference(SyntaxType.Resolved type) {
     var declared = (JavaTypeStructure.Declared) type.structure().orElseThrow();
     return Optional.of(new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(declared.declarationKey()),
-        Optional.of(type.identity().displayName()), List.of(), List.of()));
+        Optional.of(type.identity().displayName()), List.of(), List.of(), Optional.empty()));
   }
 
   private static SyntaxType.Resolved declared(String name, List<JavaTypeStructure> arguments) {

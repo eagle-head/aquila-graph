@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.admission.CoverageAdmission;
@@ -87,9 +90,9 @@ class ModuleServiceAdmissionTest {
   @Test
   void givenConflictingCapturedModuleDescriptors_whenProducingAndDecoding_thenCompilerErrorsAndFileSpecificOperandFactsRemain() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(
-        SourceFile.fromContent(Path.of("first/module-info.java"), "module first { uses java.lang.Runnable; }"),
-        SourceFile.fromContent(Path.of("second/module-info.java"), "module second { uses java.lang.AutoCloseable; }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+        SourceFile.fromContent(capturedPath(Path.of("first/module-info.java")), "module first { uses java.lang.Runnable; }"),
+        SourceFile.fromContent(capturedPath(Path.of("second/module-info.java")), "module second { uses java.lang.AutoCloseable; }")));
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
@@ -113,7 +116,7 @@ class ModuleServiceAdmissionTest {
     var operand = operands(original).getFirst();
     var selected = operand.semanticReference().orElseThrow();
     var reference = new SemanticReference(selected.referenceKind(), selected.status(), selected.symbolKey(), selected.typeName(),
-        selected.typeAlternativeNames(), selected.assignableToTypeNames());
+        selected.typeAlternativeNames(), selected.assignableToTypeNames(), Optional.empty());
     var aggregate = copied(original, node -> node.nodeId().equals(operand.nodeId())
         ? copy(node, node.children(), Optional.of(reference), node.origin().orElseThrow()) : node, UnaryOperator.identity());
 
@@ -198,27 +201,6 @@ class ModuleServiceAdmissionTest {
   }
 
   @Test
-  void givenSuccessorFacts_whenOlderFormatsAreRequested_thenNewFieldsKindsRolesAndProfileCannotBeSilentlyDropped() {
-    // Arrange
-    var original = fixture(AstProfile.JAVA_SOURCE_MODULE_SERVICES);
-    var operand = original.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.MODULE_TYPE_REFERENCE).findFirst().orElseThrow();
-    var values = List.of(operand.semanticReference().orElseThrow(), operand.value(SyntaxValue.ModuleTypeReference.class),
-        SyntaxKind.MODULE_TYPE_REFERENCE, SyntaxRole.SERVICE_TYPE, SourceContext.Partition.MODULE_ENDPOINT);
-    // Act
-    var profileFailure = assertThrows(IllegalArgumentException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input(original, original.coverage())),
-        original.profile(), original.identity().semanticProductionRevision(), "java-source/19"));
-    // Assert
-    assertTrue(profileFailure.getMessage().contains("java-source/20"), profileFailure.toString());
-    for (var version = 2; version < 20; version++) {
-      var format = "java-source/" + version;
-      for (var value : values) {
-        var failure = assertThrows(IllegalArgumentException.class, () -> new RetainedValueCodec(false, format).write(new CanonicalValueWriter(format), value));
-        assertTrue(failure.getMessage().contains("java-source/20"), failure.toString());
-      }
-    }
-  }
-
-  @Test
   void givenRetainedModuleOperands_whenCopiedTargetsAreMissingOrErroneous_thenExactWrittenChildrenRemainQueryableAndIncomplete() {
     // Arrange
     var original = fixture(AstProfile.JAVA_SOURCE_MODULE_SERVICES);
@@ -230,7 +212,7 @@ class ModuleServiceAdmissionTest {
     // Act
     for (var operand : operands) {
       for (var status : List.of(ResolutionStatus.UNRESOLVED, ResolutionStatus.ERROR)) {
-        var reference = new SemanticReference(ReferenceKind.TYPE, status, Optional.empty(), Optional.empty(), List.of(), List.of());
+        var reference = new SemanticReference(ReferenceKind.TYPE, status, Optional.empty(), Optional.empty(), List.of(), List.of(), Optional.empty());
         var aggregate = copied(original, node -> node.nodeId().equals(operand.nodeId())
             ? copy(node, node.children(), Optional.of(reference), node.origin().orElseThrow()) : node, UnaryOperator.identity());
         var result = admitted(original, aggregate);
@@ -355,12 +337,12 @@ class ModuleServiceAdmissionTest {
   }
 
   private AstResult orderedFixture(String packagePrefix) {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("module-info.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("module-info.java")),
         "module service.sample { uses " + packagePrefix + "api.Service; provides " + packagePrefix + "api.Service with " + packagePrefix
             + "impl.ZuluProvider, " + packagePrefix + "impl.AlphaProvider; }"),
-        SourceFile.fromContent(Path.of("api/Service.java"), "package " + packagePrefix + "api; public interface Service {}"),
-        SourceFile.fromContent(Path.of("impl/ZuluProvider.java"), "package " + packagePrefix + "impl; public class ZuluProvider implements " + packagePrefix + "api.Service {}"),
-        SourceFile.fromContent(Path.of("impl/AlphaProvider.java"), "package " + packagePrefix + "impl; public class AlphaProvider implements " + packagePrefix + "api.Service {}")));
+        SourceFile.fromContent(capturedPath(Path.of("api/Service.java")), "package " + packagePrefix + "api; public interface Service {}"),
+        SourceFile.fromContent(capturedPath(Path.of("impl/ZuluProvider.java")), "package " + packagePrefix + "impl; public class ZuluProvider implements " + packagePrefix + "api.Service {}"),
+        SourceFile.fromContent(capturedPath(Path.of("impl/AlphaProvider.java")), "package " + packagePrefix + "impl; public class AlphaProvider implements " + packagePrefix + "api.Service {}")));
     return new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(new SourceInput.Snapshot(snapshot),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES)).result().orElseThrow();
   }
@@ -439,10 +421,10 @@ class ModuleServiceAdmissionTest {
   }
 
   private AstResult fixture(AstProfile profile) {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("module-info.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("module-info.java")),
         "module service.sample { uses api.Service; provides api.Service with impl.Provider; }"),
-        SourceFile.fromContent(Path.of("api/Service.java"), "package api; public interface Service {}"),
-        SourceFile.fromContent(Path.of("impl/Provider.java"), "package impl; public class Provider implements api.Service {}")));
+        SourceFile.fromContent(capturedPath(Path.of("api/Service.java")), "package api; public interface Service {}"),
+        SourceFile.fromContent(capturedPath(Path.of("impl/Provider.java")), "package impl; public class Provider implements api.Service {}")));
     return new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(new SourceInput.Snapshot(snapshot),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)).result().orElseThrow();
   }

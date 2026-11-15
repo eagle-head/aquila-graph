@@ -151,7 +151,7 @@ final class ControlFlowGraphConstruction {
       throw new IllegalStateException("An admitted initialization target requires its selected declaring type identity");
     }
     var reference = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, target.declarationKey(),
-        Optional.of(target.identity().erasedName()), List.of(), List.of());
+        Optional.of(target.identity().erasedName()), List.of(), List.of(), Optional.empty());
     var operationId = operationNodeId(site, "class-initialization");
     var operation = addOperationWithId(operationId, site, OperationKind.CLASS_INITIALIZATION, target.identity().displayName(), List.of(),
         Optional.empty(), List.of(ExceptionType.unknown("unchecked-class-initialization")), List.of(reference));

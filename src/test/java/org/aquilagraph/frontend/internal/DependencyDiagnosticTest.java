@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -35,9 +38,9 @@ class DependencyDiagnosticTest {
     var dependency = dependency("missing");
     var content = "import dependency.Library; class Example { int read(Library value) { return value.value() + absent; } }";
     // Spaces and a non-ASCII filename exercise captured source URI encoding.
-    var source = SourceFile.fromContent(Path.of("source files", "Example \u00dc.java"), content);
-    var snapshot = InputSnapshot.fromSources(directory, List.of(source));
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(dependency), List.of(), List.of());
+    var source = SourceFile.fromContent(capturedPath(Path.of("source files", "Example \u00dc.java")), content);
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(source));
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(dependency)), List.of(), List.of());
     var request = new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_UNITS);
 
     // Act
@@ -64,10 +67,10 @@ class DependencyDiagnosticTest {
       throws IOException {
     // Arrange
     var dependency = dependency("7");
-    var source = SourceFile.fromContent(Path.of("Example.java"),
+    var source = SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "import dependency.Library; class Example { int read(Library value) { return value.value(); } }");
-    var snapshot = InputSnapshot.fromSources(directory, List.of(source));
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(dependency), List.of(), List.of());
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(source));
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(dependency)), List.of(), List.of());
     var request = new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_UNITS);
 
     // Act

@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -86,7 +89,7 @@ class QualifiedReceiverProjectionTest {
     // Act
     var original = produce("class Holder<A> { support.Outer<java.util.List<A>> outer; } "
         + "class Probe { Object make(Holder<?> holder) { return holder.outer.new Box(1); } }",
-        new CompilerConfiguration(JavaRelease.JAVA_25, List.of(classes), List.of(), List.of()));
+        new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(classes)), List.of(), List.of()));
     var decoded = AstCodec.decode(AstCodec.encode(original), original.identity());
 
     // Assert
@@ -158,7 +161,7 @@ class QualifiedReceiverProjectionTest {
   }
 
   private AstResult produce(String source, CompilerConfiguration configuration) {
-    var snapshot = InputSnapshot.fromSources(directory.resolve("input"), List.of(SourceFile.fromContent(Path.of("Probe.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory.resolve("input")), List.of(SourceFile.fromContent(capturedPath(Path.of("Probe.java")), source)));
     var outcome = JavaFrontends.standard().produce(new AstProductionRequest(new SourceInput.Snapshot(snapshot), configuration,
         AstProfile.JAVA_SOURCE_MODULE_SERVICES));
     assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());

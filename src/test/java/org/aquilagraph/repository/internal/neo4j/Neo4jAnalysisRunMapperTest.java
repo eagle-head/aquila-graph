@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 
 
 import org.aquilagraph.source.api.AstProfile;
@@ -58,7 +61,7 @@ class Neo4jAnalysisRunMapperTest {
     // Arrange
     var named = new JavaTypeDeclarationIdentity(Optional.of("service.sample"), "api.Service");
     var unnamed = new JavaTypeDeclarationIdentity(Optional.empty(), "api.Service");
-    var plain = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(named.declarationKey()), Optional.of("api.Service"), List.of("api.Service"), List.of("api.Service"));
+    var plain = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(named.declarationKey()), Optional.of("api.Service"), List.of("api.Service"), List.of("api.Service"), Optional.empty());
     var namedReference = new SemanticReference(plain.referenceKind(), plain.status(), plain.symbolKey(), plain.typeName(), plain.typeAlternativeNames(), plain.assignableToTypeNames(), Optional.of(named));
     var unnamedReference = new SemanticReference(plain.referenceKind(), plain.status(), Optional.of(unnamed.declarationKey()), plain.typeName(), plain.typeAlternativeNames(), plain.assignableToTypeNames(), Optional.of(unnamed));
     var builder = new Neo4jProjectionBuilder("analysis");
@@ -152,7 +155,7 @@ class Neo4jAnalysisRunMapperTest {
                         sourceRoot,
                         new CompilerConfiguration(
                             JavaRelease.JAVA_25,
-                            List.of(firstDependency),
+                            List.of(capturedAbsolute(firstDependency)),
                             List.of(),
                             List.of()), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow()));
     var secondRun = completedMapperFixture(
@@ -162,7 +165,7 @@ class Neo4jAnalysisRunMapperTest {
                         sourceRoot,
                         new CompilerConfiguration(
                             JavaRelease.JAVA_25,
-                            List.of(secondDependency),
+                            List.of(capturedAbsolute(secondDependency)),
                             List.of(),
                             List.of()), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow()));
     var mapper = new Neo4jAnalysisRunMapper();
@@ -219,7 +222,7 @@ class Neo4jAnalysisRunMapperTest {
                 new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
                         sourceRoot,
                         new CompilerConfiguration(
-                            JavaRelease.JAVA_25, List.of(dependency), List.of(), List.of()), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow()));
+                            JavaRelease.JAVA_25, List.of(capturedAbsolute(dependency)), List.of(), List.of()), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow()));
 
     // Act
     var projection = new Neo4jAnalysisRunMapper().map(run);
@@ -462,8 +465,8 @@ class Neo4jAnalysisRunMapperTest {
   @Test
   void givenCompleteSourceWithFullOrIncompleteSelection_whenMapping_thenAdmissionAgreesWithPublicEligibility() {
     // Arrange
-    var request = new AstProductionRequest(InputSnapshot.fromSources(temporaryDirectory, List.of(SourceFile.fromContent(
-        Path.of("Example.java"), "interface Example { static int first() { return 1; } static int second() { return 2; } }"))),
+    var request = new AstProductionRequest(InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory), List.of(SourceFile.fromContent(
+        capturedPath(Path.of("Example.java")), "interface Example { static int first() { return 1; } static int second() { return 2; } }"))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED);
     var ast = new JavaFrontend(new JavaSourceLoader()).produce(request);
     var result = ast.result().orElseThrow();

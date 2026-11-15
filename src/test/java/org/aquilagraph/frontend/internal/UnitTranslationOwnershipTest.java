@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -74,12 +77,12 @@ class UnitTranslationOwnershipTest {
       throws IOException {
     // Arrange
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var snapshot = snapshot("recursive", List.of(SourceFile.fromContent(Path.of("First.java"), FIRST),
-        SourceFile.fromContent(Path.of("Second.java"), SECOND)));
+    var snapshot = snapshot("recursive", List.of(SourceFile.fromContent(capturedPath(Path.of("First.java")), FIRST),
+        SourceFile.fromContent(capturedPath(Path.of("Second.java")), SECOND)));
 
     // Act
     var outcome = frontend.produce(snapshot, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS);
-    var unrelated = frontend.produce(snapshot("ordinary", List.of(SourceFile.fromContent(Path.of("Other.java"),
+    var unrelated = frontend.produce(snapshot("ordinary", List.of(SourceFile.fromContent(capturedPath(Path.of("Other.java")),
         "class Other { int subject() { return 20; } }"))), CONFIGURATION, AstProfile.JAVA_SOURCE_BOUNDED);
     var repeated = frontend.produce(snapshot, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS);
     var result = outcome.result().orElseThrow();
@@ -174,11 +177,11 @@ class UnitTranslationOwnershipTest {
   void givenInvalidMiddleUnit_whenProductionFailsThenValidWorkFollows_thenTruthfulFailureAndLaterCanonicalRequestRemain() throws IOException {
     // Arrange
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var valid = snapshot("valid", List.of(SourceFile.fromContent(Path.of("First.java"), FIRST),
-        SourceFile.fromContent(Path.of("Second.java"), SECOND)));
-    var invalid = snapshot("invalid", List.of(SourceFile.fromContent(Path.of("Before.java"), "class Before { int value = 1; }"),
-        SourceFile.fromContent(Path.of("Broken.java"), "class Broken { int subject() { return missing; } }"),
-        SourceFile.fromContent(Path.of("After.java"), "class After { int value = 2; }")));
+    var valid = snapshot("valid", List.of(SourceFile.fromContent(capturedPath(Path.of("First.java")), FIRST),
+        SourceFile.fromContent(capturedPath(Path.of("Second.java")), SECOND)));
+    var invalid = snapshot("invalid", List.of(SourceFile.fromContent(capturedPath(Path.of("Before.java")), "class Before { int value = 1; }"),
+        SourceFile.fromContent(capturedPath(Path.of("Broken.java")), "class Broken { int subject() { return missing; } }"),
+        SourceFile.fromContent(capturedPath(Path.of("After.java")), "class After { int value = 2; }")));
 
     // Act
     var failure = frontend.produce(invalid, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS);
@@ -195,7 +198,7 @@ class UnitTranslationOwnershipTest {
   private InputSnapshot snapshot(String name, List<SourceFile> files) {
     var preservationDirectory = System.getProperty("unit.preservation.directory");
     var root = preservationDirectory == null ? directory : Path.of(preservationDirectory).resolve("inputs");
-    return InputSnapshot.fromSources(root.resolve(name), files);
+    return InputSnapshot.fromSources(capturedAbsolute(root.resolve(name)), files);
   }
 
   private static SyntaxNode type(AstResult result, String name, String file) {

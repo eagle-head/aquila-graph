@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AstPublicationRequest;
 import org.aquilagraph.application.PublicationIntent;
@@ -82,8 +85,8 @@ class ExecutionAttributionAdmissionTest {
         new AttributionGapCase("CompactField", "int field = 1; void main() {}"))
         .map(test -> DynamicTest.dynamicTest("given" + test.name() + "WithoutCompilerRootAttribution_whenQualifiedDecodedAndOfferedForRetention_thenIncompleteValuesRefuseAcquisition", () -> {
           // Arrange
-          var snapshot = InputSnapshot.fromSources(directory,
-              List.of(SourceFile.fromContent(Path.of("Example.java"), test.source())));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+              List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), test.source())));
           var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot,
               CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_INITIALIZATION).result().orElseThrow();
           var values = SourceValueCapture.capture(original.aggregate());
@@ -422,7 +425,7 @@ class ExecutionAttributionAdmissionTest {
     // Arrange
     var original = produce("class Example { int first=1; static {} {} }");
     var values = SourceValueCapture.capture(original.aggregate());
-    var orders = values.memberOrders().stream().map(order -> new DeclarationMemberOrder(order.sourceFileKey(), order.ownerTypeKey(), order.members())).toList();
+    var orders = values.memberOrders().stream().map(order -> new DeclarationMemberOrder(order.sourceFileKey(), order.ownerTypeKey(), order.members(), Optional.empty())).toList();
     var supplied = new CopiedAstValues(values.snapshot(), values.sources(), values.bodies(), orders, values.associations(), values.declarationTypes(), values.scopes());
 
     // Act
@@ -438,7 +441,7 @@ class ExecutionAttributionAdmissionTest {
   }
 
   private AstResult produce(String source, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         profile).result().orElseThrow();
   }

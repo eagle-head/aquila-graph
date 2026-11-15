@@ -1,5 +1,8 @@
 package org.aquilagraph.source.api;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -16,12 +19,12 @@ class InputSnapshotTest {
   void givenSourcesInDifferentEncounterOrders_whenCaptured_thenCanonicalOrderAndIdentityAreEqual() {
     // Arrange
     var names = List.of("Sample.java", "a/B.java", "a0.java", "module-info.java", "package-info.java", "sample.java", "É.java");
-    var sources = names.stream().map(name -> SourceFile.fromContent(Path.of(name), "class Sample {}")).toList();
+    var sources = names.stream().map(name -> SourceFile.fromContent(capturedPath(Path.of(name)), "class Sample {}")).toList();
     var input = new ArrayList<>(sources.reversed());
 
     // Act
-    var snapshot = InputSnapshot.fromSources(Path.of("sources"), input);
-    var repeated = InputSnapshot.fromSources(Path.of("sources"), sources);
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of("sources")), input);
+    var repeated = InputSnapshot.fromSources(capturedAbsolute(Path.of("sources")), sources);
 
     // Assert
     assertEquals(names, snapshot.sourceFiles().stream().map(SourceFile::canonicalRelativePath).toList());
@@ -35,12 +38,12 @@ class InputSnapshotTest {
   @Test
   void givenKnownContentAndAnotherCheckoutRoot_whenCaptured_thenExistingSnapshotDigestIsPreserved() {
     // Arrange
-    var sources = List.of(SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}"),
-        SourceFile.fromContent(Path.of("package-info.java"), "package sample;"));
+    var sources = List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample {}"),
+        SourceFile.fromContent(capturedPath(Path.of("package-info.java")), "package sample;"));
 
     // Act
-    var original = InputSnapshot.fromSources(Path.of("sources"), sources);
-    var relocated = InputSnapshot.fromSources(Path.of("another-checkout"), sources.reversed());
+    var original = InputSnapshot.fromSources(capturedAbsolute(Path.of("sources")), sources);
+    var relocated = InputSnapshot.fromSources(capturedAbsolute(Path.of("another-checkout")), sources.reversed());
 
     // Assert
     assertEquals("SHA-256", original.digestAlgorithm());
@@ -53,14 +56,14 @@ class InputSnapshotTest {
   @Test
   void givenCanonicalAndReversedSources_whenConstructedDirectly_thenOnlyCanonicalOrderIsAccepted() {
     // Arrange
-    var sources = List.of(SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}"),
-        SourceFile.fromContent(Path.of("package-info.java"), "package sample;"));
+    var sources = List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample {}"),
+        SourceFile.fromContent(capturedPath(Path.of("package-info.java")), "package sample;"));
     var input = new ArrayList<>(sources);
 
     // Act
-    var snapshot = new InputSnapshot(Path.of("sources"), "SHA-256", "captured-digest", input);
+    var snapshot = new InputSnapshot(capturedAbsolute(Path.of("sources")), "SHA-256", "captured-digest", input);
     var failure = assertThrows(IllegalArgumentException.class,
-        () -> new InputSnapshot(Path.of("sources"), "SHA-256", "captured-digest", sources.reversed()));
+        () -> new InputSnapshot(capturedAbsolute(Path.of("sources")), "SHA-256", "captured-digest", sources.reversed()));
 
     // Assert
     assertEquals(sources, snapshot.sourceFiles());
@@ -72,12 +75,12 @@ class InputSnapshotTest {
   @Test
   void givenDuplicateCanonicalPathsWithDifferentKeys_whenCaptured_thenAmbiguousSourceOwnershipIsRejected() {
     // Arrange
-    var first = SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}");
-    var second = SourceFile.fromContent(Path.of("nested/../Sample.java"), "class Sample { int value; }");
+    var first = SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample {}");
+    var second = SourceFile.fromContent(capturedPath(Path.of("nested/../Sample.java")), "class Sample { int value; }");
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class,
-        () -> InputSnapshot.fromSources(Path.of("sources"), List.of(first, second)));
+        () -> InputSnapshot.fromSources(capturedAbsolute(Path.of("sources")), List.of(first, second)));
 
     // Assert
     assertNotEquals(first.sourceFileKey(), second.sourceFileKey());
@@ -87,12 +90,12 @@ class InputSnapshotTest {
   @Test
   void givenDuplicateKeysWithDifferentPaths_whenCaptured_thenDuplicateSourceIdentityIsRejected() {
     // Arrange
-    var first = SourceFile.fromContent(Path.of("First.java"), "class First {}");
-    var second = new SourceFile(first.sourceFileKey(), Path.of("Second.java"), first.contentDigest(), first.content());
+    var first = SourceFile.fromContent(capturedPath(Path.of("First.java")), "class First {}");
+    var second = new SourceFile(first.sourceFileKey(), capturedPath(Path.of("Second.java")), first.contentDigest(), first.content());
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class,
-        () -> InputSnapshot.fromSources(Path.of("sources"), List.of(first, second)));
+        () -> InputSnapshot.fromSources(capturedAbsolute(Path.of("sources")), List.of(first, second)));
 
     // Assert
     assertEquals("Source-file keys must be unique", failure.getMessage());
@@ -101,11 +104,11 @@ class InputSnapshotTest {
   @Test
   void givenEmptyAndSingletonSourceSets_whenCaptured_thenBoundarySnapshotsRemainValid() {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}");
+    var source = SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample {}");
 
     // Act
-    var empty = InputSnapshot.fromSources(Path.of("sources"), List.of());
-    var singleton = InputSnapshot.fromSources(Path.of("sources"), List.of(source));
+    var empty = InputSnapshot.fromSources(capturedAbsolute(Path.of("sources")), List.of());
+    var singleton = InputSnapshot.fromSources(capturedAbsolute(Path.of("sources")), List.of(source));
 
     // Assert
     assertEquals(0, empty.sourceFileCount());
@@ -118,14 +121,14 @@ class InputSnapshotTest {
   @Test
   void givenChangedSourceContentOrPath_whenCaptured_thenSnapshotIdentityChanges() {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}");
-    var original = InputSnapshot.fromSources(Path.of("sources"), List.of(source));
+    var source = SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample {}");
+    var original = InputSnapshot.fromSources(capturedAbsolute(Path.of("sources")), List.of(source));
 
     // Act
     var edited = InputSnapshot.fromSources(original.sourceRoot(),
         List.of(SourceFile.fromContent(source.relativePath(), "class Sample { int value; }")));
     var renamed = InputSnapshot.fromSources(original.sourceRoot(),
-        List.of(SourceFile.fromContent(Path.of("sample.java"), source.content())));
+        List.of(SourceFile.fromContent(capturedPath(Path.of("sample.java")), source.content())));
 
     // Assert
     assertNotEquals(original.snapshotDigest(), edited.snapshotDigest());

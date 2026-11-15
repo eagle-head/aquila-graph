@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.cfg.CfgDerivers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -44,7 +47,7 @@ class ConstructorBodyIdentityTest {
           static Stored create(Integer first, Integer second) { return new Stored(first, second); }
         }
         """;
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), source)));
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
 
     // Act
@@ -88,7 +91,7 @@ class ConstructorBodyIdentityTest {
   @Test
   void givenWrittenConstructorsWithInsertedSuperclassCalls_whenRetainedAndDerived_thenGeneratedOperationsKeepTheCanonicalBody()
       throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), """
         class Parent { Parent(int... values) {} }
         class Stored extends Parent { Stored() {} }
         class Plain { Plain() {} }
@@ -133,7 +136,7 @@ class ConstructorBodyIdentityTest {
   @Test
   void givenWrittenThisAndSuperDelegations_whenProducedRetainedAndDerived_thenEachConstructorUsesItsOneCanonicalSourceBody()
       throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), """
         class Parent { Parent(int n) {} }
         class Stored extends Parent {
           Stored() { this(1); }

@@ -1,5 +1,8 @@
 package org.aquilagraph.source.api;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import org.aquilagraph.identity.api.CapturedLocation;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -14,8 +17,8 @@ class CompilerConfigurationTest {
   @Test
   void givenMutableCompilerInputs_whenConfigurationIsCreated_thenOwnershipIsImmutable() {
     // Arrange
-    var classPath = new ArrayList<Path>();
-    classPath.add(Path.of("library.jar"));
+    var classPath = new ArrayList<CapturedLocation>();
+    classPath.add(capturedAbsolute(Path.of("library.jar")));
     var options = new ArrayList<String>();
     options.add("-Xlint:all");
 

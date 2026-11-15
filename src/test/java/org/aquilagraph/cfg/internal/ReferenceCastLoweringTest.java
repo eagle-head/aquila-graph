@@ -1,5 +1,8 @@
 package org.aquilagraph.cfg.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstProductionRequest;
@@ -39,7 +42,7 @@ class ReferenceCastLoweringTest {
 
     // Act
     var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
-        InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source))),
+        InputSnapshot.fromSources(capturedAbsolute(sourceRoot), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
 
     // Assert
@@ -72,7 +75,7 @@ class ReferenceCastLoweringTest {
 
     // Act
     var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
-        InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source))),
+        InputSnapshot.fromSources(capturedAbsolute(sourceRoot), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
 
     // Assert
@@ -109,7 +112,7 @@ class ReferenceCastLoweringTest {
 
     // Act
     var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
-        InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source))),
+        InputSnapshot.fromSources(capturedAbsolute(sourceRoot), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
 
     // Assert

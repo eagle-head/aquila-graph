@@ -1,5 +1,8 @@
 package org.aquilagraph;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -44,7 +47,7 @@ class AquilaGraphProcessIT {
     var root = Files.createDirectories(temporaryDirectory.resolve("environment-source"));
     var source = "class Example { int value() { return 7; } }";
     Files.writeString(root.resolve("Example.java"), source);
-    var snapshot = InputSnapshot.fromSources(root, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(root), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var environment = StableId.sha256("analysis-environment/2", "language-release", "25", "compiler-implementation",
         ToolProvider.getSystemJavaCompiler().getClass().getName(), "compiler-vendor", System.getProperty("java.vendor"),
         "compiler-version", System.getProperty("java.runtime.version"), "analysis-options", "5", "--release", "25", "-encoding", "UTF-8",

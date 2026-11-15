@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -66,12 +69,12 @@ class JavaFrontendLifetimeTest {
     try (var observation = new DependencyFileSystemObservation(dependency)) {
       observation.inputOpenFailureAttempt = 2;
       observation.inputOpenFailure = new IOException("Unexpected recapture");
-      var configuration = configuration(observation.observe(dependency), List.of(INVALID_COMPILER_OPTION));
-      var snapshot = InputSnapshot.fromSources(temporaryDirectory, List.of());
-      var frontend = new JavaFrontend(new JavaSourceLoader());
+      var configuration = configuration(dependency, List.of(INVALID_COMPILER_OPTION));
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory), List.of());
+      var pipeline = new JavaAnalysisPipeline(observedEnvironment(observation));
 
       // Act
-      var input = assertDoesNotThrow(() -> new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, configuration, JavaTranslationPolicy.legacyAnalysis()));
+      var input = assertDoesNotThrow(() -> pipeline.analyze(snapshot, configuration, JavaTranslationPolicy.legacyAnalysis()));
 
       // Assert
       assertEquals(snapshot, input.snapshot());
@@ -93,9 +96,9 @@ class JavaFrontendLifetimeTest {
     try (var observation = new DependencyFileSystemObservation(dependency)) {
       observation.inputOpenFailureAttempt = 2;
       observation.inputOpenFailure = new IOException("Unexpected recapture");
-      var configuration = configuration(observation.observe(dependency), List.of(INVALID_COMPILER_OPTION));
+      var configuration = configuration(dependency, List.of(INVALID_COMPILER_OPTION));
       var snapshot = snapshot(temporaryDirectory);
-      var frontend = new JavaFrontend(new JavaSourceLoader());
+      var frontend = new JavaFrontend(new JavaSourceLoader(), new JavaAnalysisPipeline(observedEnvironment(observation)));
 
       // Act
       var failure = assertThrows(AnalysisInputException.class, () -> frontend.produce(snapshot, configuration, AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow());
@@ -123,9 +126,9 @@ class JavaFrontendLifetimeTest {
       try (var observation = new DependencyFileSystemObservation(dependency)) {
         observation.inputReadFailureAttempt = 2;
         observation.inputReadFailure = readFailure;
-        var configuration = configuration(observation.observe(dependency), List.of());
+        var configuration = configuration(dependency, List.of());
         var snapshot = snapshot(sourceRoot);
-        var frontend = new JavaFrontend(new JavaSourceLoader());
+        var frontend = new JavaFrontend(new JavaSourceLoader(), new JavaAnalysisPipeline(observedEnvironment(observation)));
 
         // Act
         if (pathEntry) {
@@ -158,9 +161,9 @@ class JavaFrontendLifetimeTest {
     try (var observation = new DependencyFileSystemObservation(dependency)) {
       observation.inputOpenFailureAttempt = 2;
       observation.inputOpenFailure = openFailure;
-      var configuration = configuration(observation.observe(dependency), List.of());
+      var configuration = configuration(dependency, List.of());
       var snapshot = snapshot(temporaryDirectory);
-      var frontend = new JavaFrontend(new JavaSourceLoader());
+      var frontend = new JavaFrontend(new JavaSourceLoader(), new JavaAnalysisPipeline(observedEnvironment(observation)));
 
       // Act
       var failure = assertThrows(IOException.class, () -> frontend.produce(snapshot, configuration, AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow());
@@ -183,8 +186,8 @@ class JavaFrontendLifetimeTest {
       var dependency = dependencyDirectory(pathEntry ? "path-dependency" : "snapshot-dependency");
       try (var compiler = new CompilerObservation(); var observation = new DependencyFileSystemObservation(dependency)) {
         observation.inputOpenObserver = attempt -> compiler.timeline.add("dependency-read-" + attempt);
-        var configuration = configuration(observation.observe(dependency), List.of());
-        var frontend = observedFrontend(compiler);
+        var configuration = configuration(dependency, List.of());
+        var frontend = observedFrontend(compiler, observation);
 
         // Act
         var input = analyze(frontend, root, configuration, pathEntry, false);
@@ -216,8 +219,8 @@ class JavaFrontendLifetimeTest {
       try (var compiler = new CompilerObservation(); var observation = new DependencyFileSystemObservation(dependency)) {
         compiler.closeFailure = closeFailure;
         observation.inputOpenObserver = attempt -> compiler.timeline.add("dependency-read-" + attempt);
-        var configuration = configuration(observation.observe(dependency), List.of());
-        var frontend = observedFrontend(compiler);
+        var configuration = configuration(dependency, List.of());
+        var frontend = observedFrontend(compiler, observation);
 
         // Act
         if (pathEntry) {
@@ -253,8 +256,8 @@ class JavaFrontendLifetimeTest {
       try (var compiler = new CompilerObservation(); var observation = new DependencyFileSystemObservation(dependency)) {
         compiler.workFailure = workFailure;
         compiler.closeFailure = closeFailure;
-        var configuration = configuration(observation.observe(dependency), List.of());
-        var frontend = observedFrontend(compiler);
+        var configuration = configuration(dependency, List.of());
+        var frontend = observedFrontend(compiler, observation);
 
         // Act
         if (pathEntry) {
@@ -293,8 +296,8 @@ class JavaFrontendLifetimeTest {
         try (var compiler = new CompilerObservation(); var observation = new DependencyFileSystemObservation(dependency)) {
           compiler.workFailure = workFailure;
           compiler.closeFailure = closeFailure;
-          var configuration = configuration(observation.observe(dependency), List.of());
-          var frontend = observedFrontend(compiler);
+          var configuration = configuration(dependency, List.of());
+          var frontend = observedFrontend(compiler, observation);
 
           // Act
           var failure = assertThrows(workFailure.getClass(), () -> analyze(frontend, root, configuration, pathEntry, false));
@@ -323,8 +326,8 @@ class JavaFrontendLifetimeTest {
       try (var compiler = new CompilerObservation(); var observation = new DependencyFileSystemObservation(dependency)) {
         compiler.afterDelegateClose = () -> System.setProperty("java.runtime.version", originalRuntime + "-changed-at-close");
         observation.inputOpenObserver = attempt -> compiler.timeline.add("dependency-read-" + attempt);
-        var configuration = configuration(observation.observe(dependency), List.of());
-        var frontend = observedFrontend(compiler);
+        var configuration = configuration(dependency, List.of());
+        var frontend = observedFrontend(compiler, observation);
 
         try {
           // Act
@@ -364,8 +367,8 @@ class JavaFrontendLifetimeTest {
         observation.inputOpenObserver = attempt -> compiler.timeline.add("dependency-read-" + attempt);
         observation.inputReadFailureAttempt = 2;
         observation.inputReadFailure = recaptureFailure;
-        var configuration = configuration(observation.observe(dependency), List.of());
-        var frontend = observedFrontend(compiler);
+        var configuration = configuration(dependency, List.of());
+        var frontend = observedFrontend(compiler, observation);
 
         // Act
         if (pathEntry) {
@@ -398,11 +401,11 @@ class JavaFrontendLifetimeTest {
       var dependency = dependencyDirectory(pathEntry ? "path-dependency" : "snapshot-dependency");
       try (var compiler = new CompilerObservation(); var observation = new DependencyFileSystemObservation(dependency)) {
         compiler.unsupportedRelease = true;
-        var configuration = configuration(observation.observe(dependency), List.of());
-        var pipeline = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture()), compiler::select);
+        var configuration = configuration(dependency, List.of());
+        var pipeline = new JavaAnalysisPipeline(observedEnvironment(observation), compiler::select);
 
         // Act
-        var failure = assertThrows(AnalysisEnvironmentException.class, () -> pipeline.analyze(pathEntry ? new JavaSourceLoader().discover(root) : InputSnapshot.fromSources(root, List.of()), configuration, JavaTranslationPolicy.legacyAnalysis()));
+        var failure = assertThrows(AnalysisEnvironmentException.class, () -> pipeline.analyze(pathEntry ? new JavaSourceLoader().discover(root) : InputSnapshot.fromSources(capturedAbsolute(root), List.of()), configuration, JavaTranslationPolicy.legacyAnalysis()));
 
         // Assert
         assertEquals("The system compiler cannot analyze Java release 25", failure.getMessage());
@@ -426,11 +429,11 @@ class JavaFrontendLifetimeTest {
       var dependency = dependencyDirectory(pathEntry ? "path-dependency" : "snapshot-dependency");
       try (var compiler = new CompilerObservation(); var observation = new DependencyFileSystemObservation(dependency)) {
         compiler.missingCompiler = true;
-        var configuration = configuration(observation.observe(dependency), List.of());
-        var pipeline = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture()), compiler::select);
+        var configuration = configuration(dependency, List.of());
+        var pipeline = new JavaAnalysisPipeline(observedEnvironment(observation), compiler::select);
 
         // Act
-        var failure = assertThrows(AnalysisEnvironmentException.class, () -> pipeline.analyze(pathEntry ? new JavaSourceLoader().discover(root) : InputSnapshot.fromSources(root, List.of()), configuration, JavaTranslationPolicy.legacyAnalysis()));
+        var failure = assertThrows(AnalysisEnvironmentException.class, () -> pipeline.analyze(pathEntry ? new JavaSourceLoader().discover(root) : InputSnapshot.fromSources(capturedAbsolute(root), List.of()), configuration, JavaTranslationPolicy.legacyAnalysis()));
 
         // Assert
         assertEquals("A JDK system compiler is required for Java release 25", failure.getMessage());
@@ -452,11 +455,11 @@ class JavaFrontendLifetimeTest {
       var root = sourceRoot(pathEntry ? "path-root" : "snapshot-root", true);
       var dependency = dependencyDirectory(pathEntry ? "path-dependency" : "snapshot-dependency");
       try (var compiler = new CompilerObservation(); var observation = new DependencyFileSystemObservation(dependency)) {
-        var configuration = configuration(observation.observe(dependency), List.of(INVALID_COMPILER_OPTION));
-        var pipeline = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture()), compiler::select);
+        var configuration = configuration(dependency, List.of(INVALID_COMPILER_OPTION));
+        var pipeline = new JavaAnalysisPipeline(observedEnvironment(observation), compiler::select);
 
         // Act
-        var input = pipeline.analyze(pathEntry ? new JavaSourceLoader().discover(root) : InputSnapshot.fromSources(root, List.of()), configuration, JavaTranslationPolicy.legacyAnalysis());
+        var input = pipeline.analyze(pathEntry ? new JavaSourceLoader().discover(root) : InputSnapshot.fromSources(capturedAbsolute(root), List.of()), configuration, JavaTranslationPolicy.legacyAnalysis());
 
         // Assert
         assertEquals(List.of(), input.program().types());
@@ -477,14 +480,19 @@ class JavaFrontendLifetimeTest {
     return root;
   }
 
-  private static JavaFrontend observedFrontend(CompilerObservation observation) {
-    var pipeline = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture()), observation::select);
+  private static JavaFrontend observedFrontend(CompilerObservation compiler, DependencyFileSystemObservation observation) {
+    var pipeline = new JavaAnalysisPipeline(observedEnvironment(observation), compiler::select);
     return new JavaFrontend(new JavaSourceLoader(), pipeline);
+  }
+
+  private static AnalysisEnvironmentCapture observedEnvironment(DependencyFileSystemObservation observation) {
+    var capture = new CompilerDependencyCapture();
+    return new AnalysisEnvironmentCapture(path -> capture.capture(observation.observe(path)));
   }
 
   private static AstResult analyze(JavaFrontend frontend, Path root, CompilerConfiguration configuration, boolean pathEntry,
       boolean empty) throws IOException {
-    var snapshot = empty ? InputSnapshot.fromSources(root, List.of()) : snapshot(root);
+    var snapshot = empty ? InputSnapshot.fromSources(capturedAbsolute(root), List.of()) : snapshot(root);
     return pathEntry ? frontend.produce(new AstProductionRequest(new SourceInput.Root(root), configuration, AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow()
         : frontend.produce(snapshot, configuration, AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
   }
@@ -502,11 +510,11 @@ class JavaFrontendLifetimeTest {
   }
 
   private static CompilerConfiguration configuration(Path dependency, List<String> options) {
-    return new CompilerConfiguration(JavaRelease.JAVA_25, List.of(dependency), List.of(), options);
+    return new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(dependency)), List.of(), options);
   }
 
   private static InputSnapshot snapshot(Path sourceRoot) {
-    return InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Sample.java"), SOURCE)));
+    return InputSnapshot.fromSources(capturedAbsolute(sourceRoot), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), SOURCE)));
   }
 
   private static final class CompilerObservation implements AutoCloseable {

@@ -1,5 +1,8 @@
 package org.aquilagraph.cfg.api;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -140,7 +143,7 @@ class CfgDerivationExceptionTest {
   }
 
   private AstResult fixture(AstProfile profile) throws IOException {
-    var input = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Progress.java"), """
+    var input = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Progress.java")), """
         interface Progress {
           int bodyless();
           default int first() { return 7; }

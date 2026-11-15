@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -74,7 +77,7 @@ class JavaConstructorSelectionLifetimeTest {
     // Arrange
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var sources = new SnapshotSourceCatalog(
-        InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Selection.java"), SOURCE))));
+        InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Selection.java")), SOURCE))));
     var policy = JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_UNITS);
     try (var observation = new CompilerObservation()) {
       List<Boolean> closedBeforeSessionClose;
@@ -258,7 +261,7 @@ class JavaConstructorSelectionLifetimeTest {
   private static AstResult analyze(JavaFrontend frontend, Path root, boolean pathEntry) throws IOException {
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     return pathEntry ? frontend.produce(new AstProductionRequest(root, configuration, AstProfile.JAVA_SOURCE_UNITS)).result().orElseThrow()
-        : frontend.produce(InputSnapshot.fromSources(root, List.of(SourceFile.fromContent(Path.of("Selection.java"), SOURCE))), configuration,
+        : frontend.produce(InputSnapshot.fromSources(capturedAbsolute(root), List.of(SourceFile.fromContent(capturedPath(Path.of("Selection.java")), SOURCE))), configuration,
             AstProfile.JAVA_SOURCE_UNITS).result().orElseThrow();
   }
 

@@ -131,7 +131,6 @@ class ModuleBoundaryProcessIT {
       throws Exception {
     // Arrange
     var client = compile(List.of("org.aquilagraph.source", "org.aquilagraph.cfg", "org.aquilagraph.frontend"), """
-        import java.nio.file.Path;
         import java.util.List;
         import org.aquilagraph.frontend.JavaFrontends;
         import org.aquilagraph.cfg.CfgDerivers;
@@ -140,13 +139,15 @@ class ModuleBoundaryProcessIT {
         import org.aquilagraph.identity.api.CompilerConfiguration;
         import org.aquilagraph.identity.api.InputSnapshot;
         import org.aquilagraph.identity.api.JavaRelease;
+        import org.aquilagraph.identity.api.CapturedLocation;
+        import org.aquilagraph.identity.api.CapturedLocation.Syntax;
         import org.aquilagraph.identity.api.SourceFile;
         import org.aquilagraph.source.api.AstProductionRequest;
         import org.aquilagraph.source.api.AstProfile;
         public final class Client {
           public static void main(String[] arguments) {
             for (var profile : List.of(AstProfile.JAVA_SOURCE_BOUNDED, AstProfile.JAVA_SOURCE_MODULE_SERVICES)) {
-              var input = InputSnapshot.fromSources(Path.of("captured"), List.of(SourceFile.fromContent(Path.of("Example.java"),
+              var input = InputSnapshot.fromSources(CapturedLocation.parse(Syntax.POSIX, "/captured"), List.of(SourceFile.fromContent(CapturedLocation.parse(Syntax.POSIX, "Example.java"),
                   "class Example { int value() { return 1; } }")));
               var ast = JavaFrontends.standard().produce(new AstProductionRequest(input,
                   CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)).result().orElseThrow();
@@ -184,8 +185,9 @@ class ModuleBoundaryProcessIT {
     // Arrange
     var client = compile(READERS, """
         import java.lang.reflect.InaccessibleObjectException;
-        import java.nio.file.Path;
         import java.util.List;
+        import org.aquilagraph.identity.api.CapturedLocation;
+        import org.aquilagraph.identity.api.CapturedLocation.Syntax;
         import org.aquilagraph.identity.api.SourceFile;
         public final class Client {
           public static void main(String[] arguments) throws Exception {
@@ -193,7 +195,7 @@ class ModuleBoundaryProcessIT {
                 || ModuleLayer.boot().findModule("jdk.compiler").isPresent() || ModuleLayer.boot().findModule("java.compiler").isPresent()) {
               throw new IllegalStateException("Reader resolution acquired the compiler");
             }
-            if (!SourceFile.fromContent(Path.of("Example.java"), "class Example {}").content().equals("class Example {}")
+            if (!SourceFile.fromContent(CapturedLocation.parse(Syntax.POSIX, "Example.java"), "class Example {}").content().equals("class Example {}")
                 || !SourceFile.class.getDeclaredConstructors()[0].trySetAccessible()) {
               throw new IllegalStateException("Public leaf access is unavailable");
             }

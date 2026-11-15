@@ -15,6 +15,8 @@ import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.Test;
 
 class DeclarationValueContractTest {
+  private static final JavaTypeNesting TOP_LEVEL = new JavaTypeNesting(JavaTypeNesting.Kind.TOP_LEVEL, Optional.empty(), Optional.empty());
+  private static final JavaTypeIdentity OWNER_TYPE = new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Owner", "Owner");
   private static final JavaTypeIdentity INT = new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int");
   private static final SourceSpan ORIGIN = new SourceSpan("source", 10, 20);
 
@@ -39,7 +41,8 @@ class DeclarationValueContractTest {
 
     // Act
     var type = new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, typeModifiers, Optional.empty(), Optional.empty(), references,
-        references, parameters, true, fields, List.of(), List.of(), List.of(), origins);
+        references, parameters, true, fields, List.of(), List.of(), List.of(), origins,
+    TOP_LEVEL, new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Owner<T>", "Owner"), "Owner");
     bounds.clear();
     origins.clear();
     fieldModifiers.clear();
@@ -102,7 +105,8 @@ class DeclarationValueContractTest {
     var owner = type("type:Owner", Optional.empty(), List.of());
     var nested = new JavaType("type:Nested", "Nested", JavaTypeKind.CLASS, Set.of(), Optional.of(reference("type:Owner", "Owner")),
         Optional.of(reference("type:External", "External")), List.of(reference("type:ExternalInterface", "ExternalInterface")),
-        List.of(reference("type:ExternalPermitted", "ExternalPermitted")), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of());
+        List.of(reference("type:ExternalPermitted", "ExternalPermitted")), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    new JavaTypeNesting(JavaTypeNesting.Kind.MEMBER, Optional.of("type:Owner"), Optional.empty()), new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Nested", "Nested"), "Nested");
 
     // Act
     var program = new JavaProgram(List.of(nested, owner));
@@ -224,7 +228,8 @@ class DeclarationValueContractTest {
         () -> new JavaTypeParameter("key", "owner", "T", List.of(bound), true, List.of()));
     var noBound = assertThrows(IllegalArgumentException.class, () -> new JavaTypeParameter("key", "owner", "T", List.of(), false, List.of()));
     var typeFailure = assertThrows(IllegalArgumentException.class, () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(),
-        Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), true, List.of(), List.of(), List.of(), List.of(), List.of()));
+        Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), true, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"));
 
     // Assert
     assertEquals(List.of(duplicatedFormal, duplicatedFormal), suppliedMethod.parameters());
@@ -248,8 +253,8 @@ class DeclarationValueContractTest {
 
     // Act
     var noDeclaration = new JavaTypeReference(INT, Optional.empty());
-    var errorWithKey = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.ERROR, Optional.of("caller-key"), Optional.of("Missing"), alternatives, assignable);
-    var unresolvedWithKey = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.of("caller-key"), Optional.empty(), List.of(), List.of());
+    var errorWithKey = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.ERROR, Optional.of("caller-key"), Optional.of("Missing"), alternatives, assignable, Optional.empty());
+    var unresolvedWithKey = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.of("caller-key"), Optional.empty(), List.of(), List.of(), Optional.empty());
     alternatives.clear();
     assignable.clear();
 
@@ -261,10 +266,10 @@ class DeclarationValueContractTest {
     assertThrows(IllegalArgumentException.class, () -> new JavaTypeReference(INT, Optional.of(" ")));
     assertThrows(IllegalArgumentException.class, () -> new JavaTypeIdentity(JavaTypeCategory.INT, " ", "int"));
     assertThrows(IllegalArgumentException.class, () -> new JavaTypeIdentity(JavaTypeCategory.INT, "int", " "));
-    assertThrows(IllegalArgumentException.class, () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of()));
-    assertThrows(IllegalArgumentException.class, () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.ERROR, Optional.of(" "), Optional.empty(), List.of(), List.of()));
-    assertThrows(IllegalArgumentException.class, () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.ERROR, Optional.empty(), Optional.empty(), List.of("Missing"), List.of()));
-    assertThrows(IllegalArgumentException.class, () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.ERROR, Optional.empty(), Optional.empty(), List.of(), List.of("Object")));
+    assertThrows(IllegalArgumentException.class, () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of(), Optional.empty()));
+    assertThrows(IllegalArgumentException.class, () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.ERROR, Optional.of(" "), Optional.empty(), List.of(), List.of(), Optional.empty()));
+    assertThrows(IllegalArgumentException.class, () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.ERROR, Optional.empty(), Optional.empty(), List.of("Missing"), List.of(), Optional.empty()));
+    assertThrows(IllegalArgumentException.class, () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.ERROR, Optional.empty(), Optional.empty(), List.of(), List.of("Object"), Optional.empty()));
   }
 
   @Test
@@ -304,34 +309,54 @@ class DeclarationValueContractTest {
   void givenNullTypeAggregateFieldsEntriesAndBlankIdentity_whenSuppliedTypesAreConstructed_thenEachRequiredCollectionAndIdentityBoundaryIsEnforced() {
     // Arrange
     var failures = List.<Executable>of(
-        () -> new JavaType(null, "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of()),
-        () -> new JavaType("type:Owner", null, JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of()),
-        () -> new JavaType("type:Owner", "Owner", null, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of()),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, null, Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of()),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), null, Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of()),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), null, List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of()),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), null, List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of()),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), null, List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of()),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), null, false, List.of(), List.of(), List.of(), List.of(), List.of()),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, null, List.of(), List.of(), List.of(), List.of()),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), null, List.of(), List.of(), List.of()),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), null, List.of(), List.of()),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), null, List.of()),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), null),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Collections.singleton(null), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of()),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), Collections.singletonList(null), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of()),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), Collections.singletonList(null), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of()),
+        () -> new JavaType(null, "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", null, JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", null, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, null, Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), null, Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), null, List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), null, List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), null, List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), null, false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, null, List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), null, List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), null, List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), null, List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), null,
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Collections.singleton(null), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), Collections.singletonList(null), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), Collections.singletonList(null), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"),
         () -> aggregate("type:Owner", JavaTypeKind.CLASS, Collections.singletonList(null), List.of(), List.of(), List.of(), List.of()),
         () -> aggregate("type:Owner", JavaTypeKind.CLASS, List.of(), Collections.singletonList(null), List.of(), List.of(), List.of()),
         () -> aggregate("type:Owner", JavaTypeKind.RECORD, List.of(), List.of(), Collections.singletonList(null), List.of(), List.of()),
         () -> aggregate("type:Owner", JavaTypeKind.CLASS, List.of(), List.of(), List.of(), Collections.singletonList(null), List.of()),
         () -> aggregate("type:Owner", JavaTypeKind.CLASS, List.of(), List.of(), List.of(), List.of(), Collections.singletonList(null)),
-        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), Collections.singletonList(null)));
+        () -> new JavaType("type:Owner", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), Collections.singletonList(null),
+    TOP_LEVEL, OWNER_TYPE, "Owner"));
 
     // Act
     var rejected = failures.stream().map(action -> assertThrows(NullPointerException.class, action)).toList();
-    var blankKey = assertThrows(IllegalArgumentException.class, () -> new JavaType(" ", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of()));
-    var blankName = assertThrows(IllegalArgumentException.class, () -> new JavaType("type:Owner", " ", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of()));
+    var blankKey = assertThrows(IllegalArgumentException.class, () -> new JavaType(" ", "Owner", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"));
+    var blankName = assertThrows(IllegalArgumentException.class, () -> new JavaType("type:Owner", " ", JavaTypeKind.CLASS, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), List.of(), false, List.of(), List.of(), List.of(), List.of(), List.of(),
+    TOP_LEVEL, OWNER_TYPE, "Owner"));
 
     // Assert
     assertEquals(23, rejected.size());
@@ -359,14 +384,14 @@ class DeclarationValueContractTest {
         () -> new JavaRecordComponent("type:Record#record-component:0", "type:Record", 0, "value", INT, Set.of(), Set.of(), false, Optional.empty(), Optional.empty(), Optional.empty(), null),
         () -> new JavaRecordComponent("type:Record#record-component:0", "type:Record", 0, "value", INT, Collections.singleton(null), Set.of(), false, Optional.empty(), Optional.empty(), Optional.empty(), ORIGIN),
         () -> new JavaRecordComponent("type:Record#record-component:0", "type:Record", 0, "value", INT, Set.of(), Collections.singleton(null), false, Optional.empty(), Optional.empty(), Optional.empty(), ORIGIN),
-        () -> new SemanticReference(null, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of()),
-        () -> new SemanticReference(ReferenceKind.TYPE, null, Optional.empty(), Optional.empty(), List.of(), List.of()),
-        () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, null, Optional.empty(), List.of(), List.of()),
-        () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), null, List.of(), List.of()),
-        () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), null, List.of()),
-        () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), null),
-        () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.of("type"), Collections.singletonList(null), List.of()),
-        () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.of("type"), List.of(), Collections.singletonList(null)),
+        () -> new SemanticReference(null, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of(), Optional.empty()),
+        () -> new SemanticReference(ReferenceKind.TYPE, null, Optional.empty(), Optional.empty(), List.of(), List.of(), Optional.empty()),
+        () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, null, Optional.empty(), List.of(), List.of(), Optional.empty()),
+        () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), null, List.of(), List.of(), Optional.empty()),
+        () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), null, List.of(), Optional.empty()),
+        () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), null, Optional.empty()),
+        () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.of("type"), Collections.singletonList(null), List.of(), Optional.empty()),
+        () -> new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.of("type"), List.of(), Collections.singletonList(null), Optional.empty()),
         () -> new JavaField(null, "owner", "value", INT, Set.of(), false, false, List.of()),
         () -> new JavaField("key", null, "value", INT, Set.of(), false, false, List.of()),
         () -> new JavaField("key", "owner", null, INT, Set.of(), false, false, List.of()),
@@ -410,14 +435,18 @@ class DeclarationValueContractTest {
   }
 
   private static JavaType type(String key, Optional<JavaTypeReference> enclosing, List<JavaMethod> methods) {
+    var owner = enclosing.flatMap(JavaTypeReference::declarationKey);
+    var nesting = new JavaTypeNesting(owner.isEmpty() ? JavaTypeNesting.Kind.TOP_LEVEL : JavaTypeNesting.Kind.MEMBER, owner, Optional.empty());
     return new JavaType(key, key.substring("type:".length()), JavaTypeKind.CLASS, Set.of(), enclosing, Optional.empty(), List.of(), List.of(),
-        List.of(), false, List.of(), List.of(), methods, List.of(), List.of());
+        List.of(), false, List.of(), List.of(), methods, List.of(), List.of(),
+    nesting, new JavaTypeIdentity(JavaTypeCategory.DECLARED, key.substring("type:".length()), key.substring("type:".length())), key.substring("type:".length()));
   }
 
   private static JavaType aggregate(String key, JavaTypeKind kind, List<JavaTypeParameter> parameters, List<JavaField> fields,
       List<JavaRecordComponent> components, List<JavaMethod> methods, List<JavaSynthesizedDeclaration> synthesized) {
     return new JavaType(key, key.substring("type:".length()), kind, Set.of(), Optional.empty(), Optional.empty(), List.of(), List.of(), parameters,
-        false, fields, components, methods, synthesized, List.of());
+        false, fields, components, methods, synthesized, List.of(),
+    TOP_LEVEL, new JavaTypeIdentity(JavaTypeCategory.DECLARED, key.substring("type:".length()), key.substring("type:".length())), key.substring("type:".length()));
   }
 
   private static JavaMethod method(String key, String owner) {

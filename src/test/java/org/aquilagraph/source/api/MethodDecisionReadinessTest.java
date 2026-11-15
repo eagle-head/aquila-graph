@@ -507,7 +507,7 @@ class MethodDecisionReadinessTest {
   private static SyntaxNode localBody() {
     var path = BODY_PATH.child(SyntaxRole.STATEMENT, 0);
     var local = node(path, JavaSourceKind.VARIABLE, SyntaxKind.LOCAL_DECLARATION, new SyntaxType.Resolved(INT),
-        new SyntaxValue.LocalDeclaration("local"),
+        new SyntaxValue.LocalDeclaration("local", Optional.empty(), List.of(), Optional.empty()),
         List.of(new SyntaxChild(SyntaxRole.INITIALIZER, 0, literal(path.child(SyntaxRole.INITIALIZER, 0), INT))),
         Optional.of(reference(ReferenceKind.LOCAL, METHOD + ":local_variable:0:0")));
     return block(BODY_PATH, List.of(local));

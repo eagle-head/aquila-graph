@@ -1,5 +1,8 @@
 package org.aquilagraph.cli;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -65,7 +68,7 @@ class CfgResultPresentationTest {
   @Test
   void givenAstOnlyAndEmptyExplicitSelections_whenPresented_thenAbsentRequestAndEmptyRequestRemainDistinct() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), "interface Example { void absent(); static void run() {} }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "interface Example { void absent(); static void run() {} }")));
     var runner = CliTestFixtures.runner();
     var astOnly = runner.analyze(new AnalysisComputationRequest(
         new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED), Optional.empty()));

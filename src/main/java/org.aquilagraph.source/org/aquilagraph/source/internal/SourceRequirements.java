@@ -138,7 +138,7 @@ public final class SourceRequirements {
     }
     input.aggregate().ifPresent(source -> {
       source.nodes().forEach(node -> collectSourceGaps(node, profile, reasons));
-      source.nodes().forEach(node -> collectProfileGaps(source, node, profile, semanticRevision, reasons));
+      source.nodes().forEach(node -> collectProfileGaps(source, node, profile, reasons));
       source.nodes().forEach(node -> collectDeclarationScopeGaps(source, node, profile, reasons));
       for (var node : source.nodes()) {
         if (source.writtenSourceAssociation(node.nodeId()).flatMap(association -> association.normalizedExpression())
@@ -310,7 +310,7 @@ public final class SourceRequirements {
         || (value.derivedConstantExpression().orElseThrow() && value.derivedConstant().isEmpty()));
   }
 
-  private static void collectProfileGaps(JavaAstAggregate source, SyntaxNode node, AstProfile profile, String semanticRevision,
+  private static void collectProfileGaps(JavaAstAggregate source, SyntaxNode node, AstProfile profile,
       List<SourceQualificationReason> reasons) {
     if (profile.equals(AstProfile.JAVA_SOURCE_BOUNDED) && (node.syntaxKind() == SyntaxKind.CLASS_LITERAL
         || node.syntaxKind() == SyntaxKind.UPDATE || node.syntaxKind() == SyntaxKind.COMPOUND_ASSIGNMENT
@@ -319,7 +319,7 @@ public final class SourceRequirements {
         || node.syntaxKind() == SyntaxKind.MEMBER_REFERENCE || node.syntaxKind() == SyntaxKind.INSTANCE_OF
         || node.syntaxKind() == SyntaxKind.BINDING_PATTERN || node.syntaxKind() == SyntaxKind.DECONSTRUCTION_PATTERN
         || node.syntaxKind() == SyntaxKind.ANY_PATTERN || node.syntaxKind() == SyntaxKind.SWITCH_STATEMENT
-        || (node.syntaxKind() == SyntaxKind.CASE && !boundedCase(source, node, semanticRevision))
+        || (node.syntaxKind() == SyntaxKind.CASE && !SourceSwitchRequirements.isBoundedCase(node, source))
         || (node.syntaxKind() == SyntaxKind.TRY
             && (!node.children(SyntaxRole.RESOURCE).isEmpty() || !node.children(SyntaxRole.FINALLY_BLOCK).isEmpty()))
         || node.sourceKind() == JavaSourceKind.UNION_TYPE || node.sourceKind() == JavaSourceKind.INTERSECTION_TYPE)) {
@@ -359,13 +359,6 @@ public final class SourceRequirements {
     if (local.bindingEvidence().filter(binding -> binding.declarationKey().isEmpty()).isPresent()) {
       reasons.add(nodeReason(Category.MISSING_REQUIRED_EVIDENCE, EvidenceRole.LOCAL_DECLARATION, node));
     }
-  }
-
-  private static boolean boundedCase(JavaAstAggregate source, SyntaxNode node, String semanticRevision) {
-    // Revision 9 retained written labels while still qualifying their former literal shape.
-    return "javac-public/9".equals(semanticRevision)
-        ? SourceSwitchRequirements.isBoundedCase(node)
-        : SourceSwitchRequirements.isBoundedCase(node, source);
   }
 
   private static void collectDeclarationScopeGaps(JavaAstAggregate aggregate, SyntaxNode node, AstProfile profile,

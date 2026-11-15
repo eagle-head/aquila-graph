@@ -8,11 +8,14 @@ import org.aquilagraph.identity.api.SourceOccurrence;
 
 
 import org.aquilagraph.source.retention.AstCodec;
+import org.aquilagraph.source.internal.AstValueSchema.Fields;
 import org.aquilagraph.source.retention.AstValueProjection;
 
 
 
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.aquilagraph.source.internal.RetainedSourceFixture.payloadWithAggregate;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -26,8 +29,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Arrays;
 import java.util.ArrayList;
@@ -122,14 +123,12 @@ class AstCodecContractTest {
   }
 
   @TestFactory
-  Stream<DynamicTest> givenCurrentAndHistoricalBranches_whenDeclarationsReplaceLeafBodies_thenReconstructionRejectsTheCategory() {
-    return Stream.of(false, true).flatMap(historical -> Stream.of(SyntaxRole.THEN_BRANCH, SyntaxRole.ELSE_BRANCH)
-        .map(role -> DynamicTest.dynamicTest("given" + (historical ? "Historical" : "Current") + role
+  Stream<DynamicTest> givenBoundedAndExpandedBranches_whenDeclarationsReplaceLeafBodies_thenReconstructionRejectsTheCategory() {
+    return Stream.of(AstProfile.JAVA_SOURCE_BOUNDED, AstProfile.JAVA_SOURCE_MODULE_SERVICES).flatMap(profile -> Stream.of(SyntaxRole.THEN_BRANCH, SyntaxRole.ELSE_BRANCH)
+        .map(role -> DynamicTest.dynamicTest("given" + profile.version() + role
             + "_whenLeafIsReplacedByDeclaration_thenReconstructionRejectsCategory", () -> {
           // Arrange
-          var produced = StatementBranchFixture.produce(directory,
-              historical ? AstProfile.JAVA_SOURCE_BOUNDED : AstProfile.JAVA_SOURCE_MODULE_SERVICES).result().orElseThrow();
-          var original = historical ? SourceAnalysisFixture.legacyResult(produced) : produced;
+          var original = StatementBranchFixture.produce(directory, profile).result().orElseThrow();
           var bytes = AstCodec.encode(original);
           var leaf = StatementBranchFixture.branch(AstOutcome.available(original), role);
           // Act
@@ -579,7 +578,7 @@ class AstCodecContractTest {
       var wrongIdentity = new JavaTypeIdentity(JavaTypeCategory.EXECUTABLE, descriptor, descriptor);
       var encodedValue = new CanonicalValueWriter("");
       new RetainedValueCodec(false).write(encodedValue, partialValue);
-      var malformedValue = replaceValueFrame(encodedValue.toByteArray(), selected.identity(), wrongIdentity, AstCodec.FORMAT_VERSION);
+      var malformedValue = replaceValueFrame(encodedValue.toByteArray(), selected.identity(), wrongIdentity);
       var malformedPayload = replaceNodeValueFrame(AstCodec.encode(positive), referenceNode(positive), Arrays.copyOfRange(malformedValue, Integer.BYTES, malformedValue.length));
       // Act
       var copying = assertThrows(IllegalArgumentException.class, () -> new SyntaxType.Resolved(wrongIdentity, partial));
@@ -652,7 +651,7 @@ class AstCodecContractTest {
       var wrongErasure = new JavaExecutableErasure(wrongParameters, part.equals("return") ? wrong : signature.erasure().returnType());
       var encodedValue = new CanonicalValueWriter("");
       new RetainedValueCodec(false).write(encodedValue, partialValue);
-      var malformedValue = replaceValueFrame(encodedValue.toByteArray(), signature.erasure(), wrongErasure, AstCodec.FORMAT_VERSION);
+      var malformedValue = replaceValueFrame(encodedValue.toByteArray(), signature.erasure(), wrongErasure);
       var malformedPayload = replaceNodeValueFrame(AstCodec.encode(positive), referenceNode(positive), Arrays.copyOfRange(malformedValue, Integer.BYTES, malformedValue.length));
       // Act
       var copying = assertThrows(IllegalArgumentException.class, () -> new JavaTypeStructure.Executable(signature.variables(), parameters, resultType,
@@ -1470,7 +1469,7 @@ class AstCodecContractTest {
   }
 
   private AstResult referenceResult(String members) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { " + members + " }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { " + members + " }")));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
   }
 
@@ -1496,7 +1495,7 @@ class AstCodecContractTest {
                   : declaration.kind() == SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR).findFirst().orElseThrow();
           var selected = truthful.requiredReference();
           var contradiction = new SemanticReference(selected.referenceKind(), selected.status(), Optional.of(wrong.declarationKey()),
-              selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames());
+              selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames(), Optional.empty());
           var changed = copyNode(truthful, truthful.type(), truthful.value(), truthful.children(), Optional.of(contradiction));
           replacements.clear();
           replacements.put(referenceNode(positive), changed);
@@ -1651,7 +1650,7 @@ class AstCodecContractTest {
               && declaration.name().equals("Other")).findFirst().orElseThrow();
       var selected = node.requiredReference();
       var contradiction = new SemanticReference(selected.referenceKind(), selected.status(), Optional.of(wrong.declarationKey()),
-          selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames());
+          selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames(), Optional.empty());
       var changed = copyNode(truthful, truthful.type(), truthful.value(), truthful.children(), Optional.of(contradiction));
       replacements.clear();
       replacements.put(referenceNode(positive), changed);
@@ -1711,7 +1710,7 @@ class AstCodecContractTest {
         source.semanticEdges().stream().filter(edge -> !removedReferenceSources.contains(edge.sourceKey())).toList())).toList();
     var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), replaceNode(body.root(), replacements), body.origin(), body.uses(), body.invocations(),
         body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
-    return new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes());
+    return new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes(), captured.scopes());
   }
 
   private static SyntaxNode replaceNode(SyntaxNode original, Map<SyntaxNode, SyntaxNode> replacements) {
@@ -1727,7 +1726,7 @@ class AstCodecContractTest {
   @Test
   void givenAnnotatedWrittenArrayWithUnavailableQualifierType_whenNamedSelectionIsSupplied_thenWrittenArrayFactsStillRejectTheContradiction() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "import java.lang.annotation.*; @Target(ElementType.TYPE_USE) @interface Mark {} "
             + "class Example { java.util.function.IntFunction<int[]> subject() { return int @Mark []::new; } }")));
     var result = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
@@ -1767,7 +1766,7 @@ class AstCodecContractTest {
         new ReferenceCase("java.util.function.Supplier<Example>", "Example::new"))
         .map(variant -> DynamicTest.dynamicTest(variant.expression(), () -> {
           // Arrange
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
               "class Example { " + variant.target() + " subject(int[] array) { return " + variant.expression() + "; } }")));
           var result = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
               AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
@@ -1799,24 +1798,11 @@ class AstCodecContractTest {
         }));
   }
 
-  private static String formatForFrame(byte[] bytes) {
-    var length = ByteBuffer.wrap(bytes).getInt();
-    if (length < 0 || length > (bytes.length - Integer.BYTES) / Character.BYTES) {
-      throw new IllegalArgumentException("Invalid retained frame version length");
-    }
-    var format = new String(bytes, Integer.BYTES, length * Character.BYTES, StandardCharsets.UTF_16BE);
-    return format;
-  }
-
   private static byte[] replaceValueFrame(byte[] bytes, Object original, Object replacement) {
-    return replaceValueFrame(bytes, original, replacement, formatForFrame(bytes));
-  }
-
-  private static byte[] replaceValueFrame(byte[] bytes, Object original, Object replacement, String format) {
     var originalWriter = new CanonicalValueWriter("");
-    new RetainedValueCodec(false, format).write(originalWriter, original);
+    new RetainedValueCodec(false).write(originalWriter, original);
     var replacementWriter = new CanonicalValueWriter("");
-    new RetainedValueCodec(false, format).write(replacementWriter, replacement);
+    new RetainedValueCodec(false).write(replacementWriter, replacement);
     var originalFrame = Arrays.copyOfRange(originalWriter.toByteArray(), Integer.BYTES, originalWriter.toByteArray().length);
     var replacementFrame = Arrays.copyOfRange(replacementWriter.toByteArray(), Integer.BYTES, replacementWriter.toByteArray().length);
     return replaceExactFrame(bytes, originalFrame, replacementFrame);
@@ -1830,18 +1816,22 @@ class AstCodecContractTest {
 
   private static byte[] replaceNodeValueFrame(byte[] bytes, SyntaxNode node, SyntaxValue replacementValue) {
     var writer = new CanonicalValueWriter("");
-    new RetainedValueCodec(false, formatForFrame(bytes)).write(writer, replacementValue);
+    new RetainedValueCodec(false).write(writer, replacementValue);
     return replaceNodeValueFrame(bytes, node, Arrays.copyOfRange(writer.toByteArray(), Integer.BYTES, writer.toByteArray().length));
   }
 
   private static byte[] replaceNodeValueFrame(byte[] bytes, SyntaxNode node, byte[] replacementValue) {
     var original = new CanonicalValueWriter("");
     var replacement = new CanonicalValueWriter("");
-    var codec = new RetainedValueCodec(false, formatForFrame(bytes));
-    for (var field : List.of(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind(), node.type())) {
-      codec.write(original, field);
-      codec.write(replacement, field);
-    }
+    var codec = new RetainedValueCodec(false);
+    writeNodePrefix(original, codec, node);
+    writeNodePrefix(replacement, codec, node);
+    original.text("type");
+    replacement.text("type");
+    codec.write(original, node.type());
+    codec.write(replacement, node.type());
+    original.text("value");
+    replacement.text("value");
     codec.write(original, node.value());
     var replacementBytes = new ByteArrayOutputStream();
     replacementBytes.writeBytes(replacement.toByteArray());
@@ -1853,24 +1843,40 @@ class AstCodecContractTest {
   private static byte[] replaceNodeTypeFrame(byte[] bytes, SyntaxNode node, SyntaxType replacementType) {
     var original = new CanonicalValueWriter("");
     var replacement = new CanonicalValueWriter("");
-    var codec = new RetainedValueCodec(false, formatForFrame(bytes));
-    for (var field : List.of(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind())) {
-      codec.write(original, field);
-      codec.write(replacement, field);
-    }
+    var codec = new RetainedValueCodec(false);
+    writeNodePrefix(original, codec, node);
+    writeNodePrefix(replacement, codec, node);
+    original.text("type");
+    replacement.text("type");
     codec.write(original, node.type());
     codec.write(replacement, replacementType);
     return replaceExactFrame(bytes, Arrays.copyOfRange(original.toByteArray(), Integer.BYTES, original.toByteArray().length),
         Arrays.copyOfRange(replacement.toByteArray(), Integer.BYTES, replacement.toByteArray().length));
   }
 
+  private static void writeNodePrefix(CanonicalValueWriter writer, RetainedValueCodec codec, SyntaxNode node) {
+    writer.count(9);
+    writer.text("sourceFileKey");
+    codec.write(writer, node.sourceFileKey());
+    writer.text("structuralPath");
+    codec.write(writer, node.structuralPath());
+    writer.text("sourceKind");
+    codec.write(writer, node.sourceKind());
+    writer.text("syntaxKind");
+    codec.write(writer, node.syntaxKind());
+  }
+
   private static byte[] withSelectedReference(byte[] bytes, SyntaxNode node, Optional<SemanticReference> selectedReference) {
     var original = new CanonicalValueWriter("");
     var replacement = new CanonicalValueWriter("");
-    var codec = new RetainedValueCodec(false, formatForFrame(bytes));
+    var codec = new RetainedValueCodec(false);
+    original.text("semanticReference");
     codec.write(original, node.semanticReference());
+    original.text("origin");
     codec.write(original, node.origin());
+    replacement.text("semanticReference");
     codec.write(replacement, selectedReference);
+    replacement.text("origin");
     codec.write(replacement, node.origin());
     return replaceExactFrame(bytes, Arrays.copyOfRange(original.toByteArray(), Integer.BYTES, original.toByteArray().length),
         Arrays.copyOfRange(replacement.toByteArray(), Integer.BYTES, replacement.toByteArray().length));
@@ -1898,7 +1904,7 @@ class AstCodecContractTest {
     return Stream.of(SyntaxValue.ReferenceQualifier.EXPRESSION, SyntaxValue.ReferenceQualifier.SUPER, SyntaxValue.ReferenceQualifier.QUALIFIED_SUPER)
         .map(qualifier -> DynamicTest.dynamicTest(qualifier.name(), () -> {
           // Arrange
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
               "class Example { java.util.function.Supplier<Example> subject() { return Example::new; } }")));
           var result = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
               AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
@@ -1906,14 +1912,14 @@ class AstCodecContractTest {
               .value(SyntaxValue.MemberReference.class);
           var writer = new CanonicalValueWriter(AstCodec.FORMAT_VERSION);
           var codec = new RetainedValueCodec(false);
-          var shape = AstValueSchema.type(SyntaxValue.MemberReference.class);
-          var components = shape.components(value);
+          var shape = (Fields) AstValueSchema.shape(value);
+          var components = shape.components(value, false);
           writer.text(shape.tag());
-          writer.count(shape.fields().size());
-          for (var index = 0; index < shape.fields().size(); index++) {
-            var field = shape.fields().get(index);
+          writer.count(components.size());
+          for (var index = 0; index < components.size(); index++) {
+            var field = components.get(index).name();
             writer.text(field);
-            codec.write(writer, field.equals("qualifier") ? qualifier : components.get(index));
+            codec.write(writer, field.equals("qualifier") ? qualifier : components.get(index).value());
           }
           // Act
           var construction = assertThrows(IllegalArgumentException.class, () -> new SyntaxValue.MemberReference(value.name(), value.mode(), qualifier,
@@ -1935,7 +1941,7 @@ class AstCodecContractTest {
         new ReferenceCase("java.util.function.Function<int[],int[]>", "int[]::clone"))
         .flatMap(variant -> Stream.of(false, true).map(occurrence -> DynamicTest.dynamicTest(variant.expression() + (occurrence ? " occurrence" : " declaration"), () -> {
           // Arrange
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
               "class Example { Example() {} static Example selected() { return new Example(); } static void unrelated() {} "
                   + variant.target() + " subject() { return " + variant.expression() + "; } }")));
           var result = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
@@ -1945,7 +1951,7 @@ class AstCodecContractTest {
               .filter(node -> node.value(SyntaxValue.ExecutableDeclaration.class).name().equals("unrelated")).findFirst().orElseThrow();
           SyntaxSemanticTarget target = occurrence ? new SyntaxSemanticTarget.SourceOccurrence(unrelated.nodeId())
               : new SyntaxSemanticTarget.Declaration(new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED,
-                  Optional.of(unrelated.value(SyntaxValue.ExecutableDeclaration.class).declarationKey()), Optional.empty(), List.of(), List.of()));
+                  Optional.of(unrelated.value(SyntaxValue.ExecutableDeclaration.class).declarationKey()), Optional.empty(), List.of(), List.of(), Optional.empty()));
           var captured = SourceValueCapture.capture(result.aggregate());
           var malformed = withAdditionalEdge(captured, new SyntaxSemanticEdge(reference.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE, target));
           var payload = payloadWithAggregate(result, malformed);
@@ -2000,7 +2006,7 @@ class AstCodecContractTest {
             var selected = new SemanticReference(reference.referenceKind(), reference.status(),
                 Optional.of(method.methodKey() + ":parameter:" + value.ordinal()), typeName.or(reference::typeName),
                 value.type().isPresent() ? erasedNames : reference.typeAlternativeNames(),
-                value.type().isPresent() ? erasedNames : reference.assignableToTypeNames());
+                value.type().isPresent() ? erasedNames : reference.assignableToTypeNames(), Optional.empty());
             return SyntaxNode.withoutDirectSource(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind(),
                 value.type().<SyntaxType>map(SyntaxType.Resolved::new).orElse(node.type()), new SyntaxValue.SourceSymbol(value.name()),
                 node.children(), Optional.of(selected));
@@ -2054,7 +2060,7 @@ class AstCodecContractTest {
           var status = type == SyntaxType.Erroneous.INSTANCE ? ResolutionStatus.ERROR : ResolutionStatus.RESOLVED;
           var values = detachedBodyWithoutHeader(SourceValueCapture.capture(original.aggregate()), operand -> {
             var reference = new SemanticReference(ReferenceKind.PARAMETER, status, Optional.of(parameter.parameterKey()), Optional.empty(),
-                List.of(), List.of());
+                List.of(), List.of(), Optional.empty());
             return SyntaxNode.withoutDirectSource(operand.sourceFileKey(), operand.structuralPath(), operand.sourceKind(), operand.syntaxKind(),
                 type, operand.value(), operand.children(), Optional.of(reference));
           });
@@ -2076,8 +2082,8 @@ class AstCodecContractTest {
   }
 
   private AstResult formalResult(String signature) throws IOException {
-    var source = SourceFile.fromContent(Path.of("Example.java"), "interface Example { static " + signature + " { return value; } }");
-    var snapshot = InputSnapshot.fromSources(directory, List.of(source));
+    var source = SourceFile.fromContent(capturedPath(Path.of("Example.java")), "interface Example { static " + signature + " { return value; } }");
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(source));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
   }
@@ -2106,7 +2112,7 @@ class AstCodecContractTest {
     var detached = new CopiedAstValues.Body(body.methodKey(), withoutPositions(body.root(), operandChange),
         MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION, List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
     return new CopiedAstValues(values.snapshot(), List.of(source), List.of(detached), List.of(),
-        values.associations().stream().filter(association -> association.nodeKey().equals(root.nodeId())).toList(), List.of());
+        values.associations().stream().filter(association -> association.nodeKey().equals(root.nodeId())).toList(), List.of(), List.of());
   }
 
   private static SyntaxNode withoutPositions(SyntaxNode node, UnaryOperator<SyntaxNode> operandChange) {
@@ -2124,41 +2130,21 @@ class AstCodecContractTest {
       edges.add(edge);
       return new SyntaxSourceContribution(source.sourceFileKey(), source.root(), source.nodes(), source.structuralEdges(), edges);
     }).toList();
-    return new CopiedAstValues(captured.snapshot(), sources, captured.bodies(), captured.memberOrders(), captured.associations(), captured.declarationTypes());
-  }
-
-  @TestFactory
-  Stream<DynamicTest> givenReferenceValuesInOlderFrames_whenReadOrWritten_thenEveryCompatibleOldFormatRejectsNewSyntax() {
-    return Stream.of("java-source/2", "java-source/3", "java-source/4", "java-source/5", "java-source/6", "java-source/7", "java-source/8")
-        .map(format -> DynamicTest.dynamicTest(format, () -> {
-          // Arrange
-          var codec = new RetainedValueCodec(false, format);
-          var writer = new CanonicalValueWriter(format);
-          writer.text("syntax-kind");
-          writer.text("MEMBER_REFERENCE");
-          // Act
-          var write = assertThrows(IllegalArgumentException.class, () -> codec.write(new CanonicalValueWriter(format), SyntaxKind.MEMBER_REFERENCE));
-          var read = assertThrows(IllegalArgumentException.class, () -> codec.read(new CanonicalValueReader(writer.toByteArray(), format)));
-          // Assert
-          assertEquals("Member reference syntax requires retained AST format java-source/9", write.getMessage());
-          assertEquals(write.getMessage(), read.getMessage());
-        }));
+    return new CopiedAstValues(captured.snapshot(), sources, captured.bodies(), captured.memberOrders(), captured.associations(), captured.declarationTypes(), captured.scopes());
   }
 
   @Test
-  void givenCompatibleLambdaFormat_whenDecoded_thenWrittenFunctionalValuesKeepTheirOriginalIdentity() throws IOException {
+  void givenCurrentLambda_whenDecoded_thenWrittenFunctionalValuesKeepTheirIdentity() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { Runnable subject() { return () -> {}; } }")));
     var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
-    var previous = SourceAnalysisFixture.lambdaResult(current);
     // Act
-    var decoded = AstCodec.decode(AstCodec.encode(previous), previous.identity());
+    var decoded = AstCodec.decode(AstCodec.encode(current), current.identity());
     // Assert
-    assertEquals("java-source/8", decoded.identity().sourceModelVersion());
-    assertEquals(previous.identity(), decoded.identity());
+    assertEquals(current.identity(), decoded.identity());
     assertEquals(current.aggregate(), decoded.aggregate());
-    assertEquals(previous.coverage(), decoded.coverage());
+    assertEquals(current.coverage(), decoded.coverage());
     var originalProperties = current.coverage().validationEvidence().outcomes().stream()
         .filter(outcome -> outcome.address().role().startsWith("LambdaExpressionTree::")).toList();
     var retainedProperties = decoded.coverage().validationEvidence().outcomes().stream()
@@ -2188,7 +2174,7 @@ class AstCodecContractTest {
             new JavaTypeStructure.Wildcard(JavaTypeStructure.Wildcard.BoundKind.UNBOUNDED, Optional.empty())))
         .map(target -> DynamicTest.dynamicTest(target.identity().category().name(), () -> {
           // Arrange
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
               "class Example { Runnable subject() { return () -> {}; } }")));
           var result = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
               AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
@@ -2229,178 +2215,105 @@ class AstCodecContractTest {
         }));
   }
 
-  @TestFactory
-  Stream<DynamicTest> givenLambdaValuesInOlderFrames_whenReadOrWritten_thenClosedFormatsRejectNewSyntax() {
-    return Stream.of("java-source/2", "java-source/3", "java-source/4", "java-source/5", "java-source/6", "java-source/7")
-        .map(format -> DynamicTest.dynamicTest(format, () -> {
-          // Arrange
-          var codec = new RetainedValueCodec(false, format);
-          var writer = new CanonicalValueWriter(format);
-          writer.text("syntax-kind");
-          writer.text("LAMBDA_EXPRESSION");
-          // Act
-          var write = assertThrows(IllegalArgumentException.class,
-              () -> codec.write(new CanonicalValueWriter(format), SyntaxKind.LAMBDA_EXPRESSION));
-          var read = assertThrows(IllegalArgumentException.class,
-              () -> codec.read(new CanonicalValueReader(writer.toByteArray(), format)));
-          // Assert
-          assertTrue(write.getMessage().contains("java-source/8"));
-          assertTrue(read.getMessage().contains("java-source/8"));
-        }));
-  }
-
   @Test
-  void givenCompatibleAssertionFormat_whenDecoded_thenPreLambdaCatalogAndValuesRemainReadable() throws IOException {
+  void givenCurrentAssertionAndMonitor_whenDecoded_thenWrittenValuesRemainReadable() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")),
         "class Stored { void value(Object lock) { assert lock != null; synchronized (lock) {} } }")));
     var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
-    var previous = SourceAnalysisFixture.assertionResult(current);
     // Act
-    var decoded = AstCodec.decode(AstCodec.encode(previous), previous.identity());
+    var decoded = AstCodec.decode(AstCodec.encode(current), current.identity());
     // Assert
-    assertEquals("java-source/7", decoded.identity().sourceModelVersion());
-    assertEquals("java-language-feature-coverage:0acd09f319196e03148af21d885419a440820cc7506a081b9f8cad0222eecb91", decoded.coverage().coverage().contractIdentity());
+    var kinds = decoded.aggregate().nodes().stream().map(SyntaxNode::syntaxKind).collect(Collectors.toSet());
+    assertTrue(kinds.containsAll(Set.of(SyntaxKind.ASSERT, SyntaxKind.SYNCHRONIZED)));
     assertEquals(AstCompletion.COMPLETE, decoded.completion());
     assertEquals(current.aggregate(), decoded.aggregate());
-    assertArrayEquals(AstCodec.encode(previous), AstCodec.encode(decoded));
-  }
-
-  @TestFactory
-  Stream<DynamicTest> givenAssertionMonitorValuesInOlderFrames_whenReadOrWritten_thenClosedFormatRejectsNewSyntax() {
-    return Stream.of("java-source/2", "java-source/3", "java-source/4", "java-source/5", "java-source/6").map(format -> DynamicTest.dynamicTest(format, () -> {
-      // Arrange
-      var codec = new RetainedValueCodec(false, format);
-      var values = List.of(SyntaxKind.ASSERT, SyntaxKind.SYNCHRONIZED, SyntaxRole.DETAIL, SyntaxRole.MONITOR);
-      // Act
-      var writes = values.stream().map(value -> assertThrows(IllegalArgumentException.class,
-          () -> codec.write(new CanonicalValueWriter(format), value))).toList();
-      var reads = values.stream().map(value -> {
-        var writer = new CanonicalValueWriter(format);
-        writer.text(value instanceof SyntaxKind ? "syntax-kind" : "syntax-role");
-        writer.text(value.name());
-        return assertThrows(IllegalArgumentException.class, () -> codec.read(new CanonicalValueReader(writer.toByteArray(), format)));
-      }).toList();
-      // Assert
-      assertTrue(writes.stream().allMatch(failure -> failure.getMessage().contains("java-source/7")));
-      assertTrue(reads.stream().allMatch(failure -> failure.getMessage().contains("java-source/7")));
-    }));
+    assertArrayEquals(AstCodec.encode(current), AstCodec.encode(decoded));
   }
 
   @Test
-  void givenCompatibleIterationFormat_whenDecoded_thenPriorCatalogIdentityAndWrittenValuesRemainReadable() throws IOException {
+  void givenCurrentIteration_whenDecoded_thenLabelsRemainReadable() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")),
         "class Stored { void value(int n) { outer: for (int i = 0; i < n; i++) { if (i == 2) break outer; } } }")));
     var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
-    var previous = SourceAnalysisFixture.iterationResult(current);
-    var bytes = AstCodec.encode(previous);
+    var bytes = AstCodec.encode(current);
     // Act
-    var decoded = AstCodec.decode(bytes, previous.identity());
+    var decoded = AstCodec.decode(bytes, current.identity());
     // Assert
-    assertEquals("java-source/6", decoded.identity().sourceModelVersion());
-    assertEquals("java-language-feature-coverage:1aa72c351c5b0c6af37bed7951ef08eb038cdb214148b933ac6a6bf93db97bb5", decoded.coverage().coverage().contractIdentity());
+    var labels = decoded.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.LABELED_STATEMENT)
+        .map(node -> node.value(SyntaxValue.StatementLabel.class).name().orElseThrow()).toList();
+    assertEquals(List.of("outer"), labels);
     assertEquals(AstCompletion.COMPLETE, decoded.completion());
     assertEquals(current.aggregate(), decoded.aggregate());
-    assertEquals(previous.identity(), decoded.identity());
+    assertEquals(current.identity(), decoded.identity());
     assertArrayEquals(bytes, AstCodec.encode(decoded));
   }
 
   @Test
-  void givenCompatibleArrayFormat_whenDecoded_thenItsOriginalIdentityAndArrayValuesRemainSupported() throws IOException {
+  void givenCurrentArrayCreation_whenDecoded_thenDimensionsStayOrdered() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")),
         "class Stored { int[][] value(int n) { return new int[n][]; } }")));
     var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
-    var previous = SourceAnalysisFixture.arrayResult(current);
-    var bytes = AstCodec.encode(previous);
+    var bytes = AstCodec.encode(current);
     // Act
-    var decoded = AstCodec.decode(bytes, previous.identity());
+    var decoded = AstCodec.decode(bytes, current.identity());
     // Assert
-    assertEquals("java-source/5", decoded.identity().sourceModelVersion());
-    assertEquals("java-language-feature-coverage:307ae3a6c3bf92cbb9cae296574a250b2558b403e949f57d534a1ef141a17e0e", decoded.coverage().coverage().contractIdentity());
-    assertEquals(previous.identity(), decoded.identity());
+    var creation = decoded.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ARRAY_CREATION)
+        .findFirst().orElseThrow();
+    assertEquals(1, creation.children(SyntaxRole.DIMENSION).size());
+    assertEquals(current.identity(), decoded.identity());
     assertEquals(current.aggregate(), decoded.aggregate());
     assertEquals(AstCompletion.COMPLETE, decoded.completion());
     assertArrayEquals(bytes, AstCodec.encode(decoded));
   }
 
-  @TestFactory
-  Stream<DynamicTest> givenIterationValuesInOlderFrames_whenReadOrWritten_thenFormatGuardsRejectThem() {
-    return Stream.of("java-source/2", "java-source/3", "java-source/4", "java-source/5").map(format -> DynamicTest.dynamicTest(format, () -> {
-      // Arrange
-      var frames = List.of(List.of("syntax-kind", "FOR_LOOP"), List.of("syntax-kind", "BREAK"), List.of("syntax-role", "UPDATE"),
-          List.of("syntax-role", "ITERABLE"), List.of("local-binding-context", "ENHANCED_FOR"), List.of("coverage-evidence-value/tag", "STATEMENT_LABEL"));
-      var codec = new RetainedValueCodec(false, format);
-      var label = new SyntaxValue.StatementLabel(Optional.of("outer"));
-      // Act
-      var writingFailure = assertThrows(IllegalArgumentException.class, () -> codec.write(new CanonicalValueWriter(format), label));
-      var failures = frames.stream().map(frame -> {
-        var writer = new CanonicalValueWriter(format);
-        writer.text(frame.getFirst());
-        writer.text(frame.getLast());
-        return assertThrows(IllegalArgumentException.class, () -> codec.read(new CanonicalValueReader(writer.toByteArray(), format)));
-      }).toList();
-      // Assert
-      assertTrue(writingFailure.getMessage().contains("java-source/6"));
-      assertTrue(failures.subList(0, 4).stream().allMatch(failure -> failure.getMessage().contains("java-source/6")), failures.toString());
-      assertEquals(format.equals("java-source/2") ? "Copied binding values require the current retained AST format: local-binding-context"
-          : "Iteration statements require retained AST format java-source/6", failures.get(4).getMessage());
-      assertTrue(failures.get(5).getMessage().contains("java-source/6"));
-    }));
-  }
-
   @Test
-  void givenCompatibleOlderResult_whenDecodedAndDerived_thenOriginalIdentityAndValuesRemainUsable() throws IOException {
+  void givenCurrentBoundedResult_whenDecodedAndDerived_thenIdentityAndValuesRemainUsable() throws IOException {
     // Arrange
     var current = fixture();
-    var legacy = SourceAnalysisFixture.legacyResult(current);
-    var bytes = AstCodec.encode(legacy);
-    var method = legacy.program().methods().stream().filter(value -> value.name().equals("value")).findFirst().orElseThrow();
+    var bytes = AstCodec.encode(current);
+    var method = current.program().methods().stream().filter(value -> value.name().equals("value")).findFirst().orElseThrow();
 
     // Act
-    var decoded = AstCodec.decode(bytes, legacy.identity());
+    var decoded = AstCodec.decode(bytes, current.identity());
     var cfg = CfgDerivers.standard().derive(decoded,
         new CfgRequest(decoded.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
 
     // Assert
     assertEquals(AstResult.SOURCE_MODEL_VERSION, current.identity().sourceModelVersion());
-    assertEquals("java-source/2", legacy.identity().sourceModelVersion());
-    assertNotEquals(current.identity(), legacy.identity());
-    assertEquals(legacy.identity(), decoded.identity());
+    assertEquals(current.identity(), decoded.identity());
     assertEquals(current.aggregate(), decoded.aggregate());
-    assertEquals(legacy.coverage(), decoded.coverage());
-    assertTrue(current.coverage().validationEvidence().writtenInventory().writtenExpressions().isPresent());
-    assertTrue(decoded.coverage().validationEvidence().writtenInventory().writtenExpressions().isEmpty());
+    assertEquals(current.coverage(), decoded.coverage());
+    assertTrue(decoded.coverage().validationEvidence().writtenInventory().writtenExpressions().isPresent());
     assertEquals(AstCompletion.COMPLETE, decoded.completion());
     assertEquals(MethodCfgState.AVAILABLE, cfg.methods().getFirst().state());
     assertArrayEquals(bytes, AstCodec.encode(decoded));
-    assertEquals(AstCodec.materialize(legacy), AstCodec.materialize(decoded));
+    assertEquals(AstCodec.materialize(current), AstCodec.materialize(decoded));
   }
 
   @Test
-  void givenCompatibleUpdateAwareResult_whenDecodedAndDerived_thenPriorFormatAndUpdateValuesRemainReadable() throws IOException {
+  void givenCurrentUpdates_whenDecodedAndDerived_thenWrittenValuesRemainReadable() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")),
         "class Stored { int value(int input) { input += 2; return input++; } }")));
     var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
-    var previous = SourceAnalysisFixture.updateResult(current);
-    var bytes = AstCodec.encode(previous);
-    var method = previous.program().methods().stream().filter(value -> value.name().equals("value")).findFirst().orElseThrow();
+    var bytes = AstCodec.encode(current);
+    var method = current.program().methods().stream().filter(value -> value.name().equals("value")).findFirst().orElseThrow();
     // Act
-    var decoded = AstCodec.decode(bytes, previous.identity());
+    var decoded = AstCodec.decode(bytes, current.identity());
     var cfg = CfgDerivers.standard().derive(decoded, new CfgRequest(decoded.identity(), List.of(method.methodKey()), CfgProfile.JAVA_BOUNDED));
     // Assert
-    assertEquals("java-source/4", previous.identity().sourceModelVersion());
     assertEquals(AstCompletion.COMPLETE, decoded.completion());
-    assertEquals(previous.identity(), decoded.identity());
-    assertEquals(previous.aggregate(), decoded.aggregate());
-    assertEquals(previous.coverage(), decoded.coverage());
-    assertEquals(AstCodec.materialize(previous), AstCodec.materialize(decoded));
+    assertEquals(current.identity(), decoded.identity());
+    assertEquals(current.aggregate(), decoded.aggregate());
+    assertEquals(current.coverage(), decoded.coverage());
+    assertEquals(AstCodec.materialize(current), AstCodec.materialize(decoded));
     assertArrayEquals(bytes, AstCodec.encode(decoded));
     assertEquals(MethodCfgState.UNSUPPORTED, cfg.methods().getFirst().state());
     assertEquals(List.of(SyntaxKind.COMPOUND_ASSIGNMENT, SyntaxKind.UPDATE), decoded.body(method.methodKey()).orElseThrow().root()
@@ -2408,19 +2321,140 @@ class AstCodecContractTest {
   }
 
   @Test
-  void givenExecutableArrayValues_whenWrittenOrReadInEarlierFormats_thenTheClosedVersionBoundaryRejectsThem() {
+  void givenValidCurrentIdentityFollowedByAnOptionalChain_whenDecoded_thenTheWrongInputShapeRejectsBeforeDescent() throws IOException {
     // Arrange
-    var value = new SyntaxValue.ArrayCreation(true, true, List.of(0));
-    var writer = new CanonicalValueWriter(AstResult.SOURCE_MODEL_VERSION);
-    new RetainedValueCodec(false).write(writer, value);
-    // Act and Assert
-    for (var format : List.of("java-source/2", "java-source/3", "java-source/4")) {
-      var codec = new RetainedValueCodec(false, format);
-      assertThrows(IllegalArgumentException.class, () -> codec.write(new CanonicalValueWriter(format), value));
-      var kind = new CanonicalValueWriter(format);
-      kind.text("syntax-kind"); kind.text("ARRAY_CREATION");
-      assertThrows(IllegalArgumentException.class, () -> codec.read(new CanonicalValueReader(kind.toByteArray(), format)));
+    var original = fixture();
+    var malformed = retainedEnvelope(original);
+    for (var index = 0; index < 20_000; index++) {
+      malformed.text("optional/present");
     }
+    malformed.text("optional/absent");
+    var validBytes = AstCodec.encode(original);
+
+    // Act
+    var failure = assertThrows(AstContractException.class, () -> AstCodec.decode(malformed.toByteArray(), original.identity()));
+    var decoded = AstCodec.decode(validBytes, original.identity());
+
+    // Assert
+    assertEquals(original.identity(), decoded.identity());
+    var cause = assertInstanceOf(ClassCastException.class, failure.getCause());
+    assertEquals("Wrong retained value type: SyntaxAnalysisInput", cause.getMessage());
+  }
+
+  @Test
+  void givenDeepWellTypedOccurrencesEndingInAnUnfinishedReference_whenDecoded_thenTheExactReferenceRejects() throws IOException {
+    // Arrange
+    var original = fixture();
+    var valid = AstCodec.encode(original);
+    var nodeHeader = new CanonicalValueWriter("source-node");
+    nodeHeader.integer(0);
+    var prefix = nodeHeader.toByteArray();
+    var offset = 0;
+    while (offset <= valid.length - prefix.length
+        && !Arrays.equals(valid, offset, offset + prefix.length, prefix, 0, prefix.length)) {
+      offset++;
+    }
+    assertTrue(offset <= valid.length - prefix.length, "The admitted envelope contains source occurrence zero");
+
+    var anchor = new CanonicalValueWriter("");
+    var codec = new RetainedValueCodec(false);
+    var sourceKey = original.snapshot().sourceFiles().getFirst().sourceFileKey();
+    for (var ordinal = 0; ordinal < 6_000; ordinal++) {
+      anchor.text("source-node");
+      anchor.integer(ordinal);
+      anchor.count(9);
+      anchor.text("sourceFileKey");
+      codec.write(anchor, sourceKey);
+      anchor.text("structuralPath");
+      codec.write(anchor, SyntaxStructuralPath.sourceFileRoot());
+      anchor.text("sourceKind");
+      codec.write(anchor, JavaSourceKind.BLOCK);
+      anchor.text("syntaxKind");
+      codec.write(anchor, SyntaxKind.BLOCK);
+      anchor.text("type");
+      codec.write(anchor, SyntaxType.NotApplicable.INSTANCE);
+      anchor.text("value");
+      codec.write(anchor, SyntaxValue.None.INSTANCE);
+      anchor.text("children");
+      anchor.text("list");
+      anchor.count(1);
+      anchor.text("syntax-child");
+      anchor.count(3);
+      anchor.text("role");
+      codec.write(anchor, SyntaxRole.STATEMENT);
+      anchor.text("position");
+      codec.write(anchor, 0);
+      anchor.text("node");
+    }
+    anchor.text("source-node-reference");
+    anchor.integer(0);
+    var part = anchor.toByteArray();
+    var malformed = new ByteArrayOutputStream();
+    malformed.write(valid, 0, offset);
+    malformed.write(part, Integer.BYTES, part.length - Integer.BYTES);
+
+    // Act
+    var failure = assertThrows(AstContractException.class, () -> AstCodec.decode(malformed.toByteArray(), original.identity()));
+    var decoded = AstCodec.decode(valid, original.identity());
+
+    // Assert
+    assertEquals(original.identity(), decoded.identity());
+    assertEquals("Source occurrence reference requires an earlier complete occurrence", failure.getCause().getMessage());
+  }
+
+  @Test
+  void givenCurrentInputWithTwoValidFieldsSwapped_whenDecoded_thenExactFieldOrderIsRequired() throws IOException {
+    // Arrange
+    var original = fixture();
+    var malformed = retainedEnvelope(original);
+    var codec = new RetainedValueCodec(false);
+    malformed.text("syntax-analysis-input");
+    malformed.count(6);
+    malformed.text("environmentSnapshot");
+    codec.write(malformed, original.environment());
+    malformed.text("snapshot");
+    codec.write(malformed, original.snapshot());
+    malformed.text("program");
+    codec.write(malformed, original.program());
+    malformed.text("aggregate");
+    codec.write(malformed, Optional.of(original.aggregate()));
+    malformed.text("diagnostics");
+    codec.write(malformed, original.diagnostics());
+    malformed.text("languageFeatureCoverageResult");
+    codec.write(malformed, original.coverage());
+
+    // Act
+    var failure = assertThrows(AstContractException.class, () -> AstCodec.decode(malformed.toByteArray(), original.identity()));
+    var decoded = AstCodec.decode(AstCodec.encode(original), original.identity());
+
+    // Assert
+    assertEquals(original.identity(), decoded.identity());
+    assertEquals("Wrong retained field order: syntax-analysis-input/snapshot", failure.getCause().getMessage());
+  }
+
+  @Test
+  void givenValidCurrentAstWithAnExtraByte_whenDecoded_thenTrailingDataRejects() throws IOException {
+    // Arrange
+    var original = fixture();
+    var valid = AstCodec.encode(original);
+    var malformed = Arrays.copyOf(valid, valid.length + 1);
+
+    // Act
+    var failure = assertThrows(AstContractException.class, () -> AstCodec.decode(malformed, original.identity()));
+    var decoded = AstCodec.decode(valid, original.identity());
+
+    // Assert
+    assertEquals(original.identity(), decoded.identity());
+    assertTrue(failure.getCause().getMessage().contains("unread trailing bytes"));
+  }
+
+  private static CanonicalValueWriter retainedEnvelope(AstResult result) {
+    var writer = new CanonicalValueWriter(AstCodec.FORMAT_VERSION);
+    writer.text(result.profile().version());
+    writer.text(result.identity().semanticProductionRevision());
+    writer.text(result.completion().name());
+    new RetainedValueCodec(false).write(writer, result.identity());
+    return writer;
   }
 
   @Test
@@ -2440,9 +2474,9 @@ class AstCodecContractTest {
   }
 
   @Test
-  void givenPrecedingBindingAwareResult_whenDecodedAndDerived_thenBindingsCoverageIdentityAndClosedValuesRemainReadable() throws IOException {
+  void givenCurrentBindings_whenDecodedAndDerived_thenCoverageAndClosedValuesRemainReadable() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), """
         import java.lang.annotation.*;
         @Target({ElementType.LOCAL_VARIABLE, ElementType.TYPE_USE}) @interface Mark { int value(); }
         class Stored {
@@ -2457,13 +2491,12 @@ class AstCodecContractTest {
         """)));
     var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
-    var previous = SourceAnalysisFixture.previousResult(SourceAnalysisFixture.withPreviousCoverage(current));
-    var bytes = AstCodec.encode(previous);
-    var method = previous.program().methods().stream().filter(value -> value.name().equals("named")).findFirst().orElseThrow();
-    var expanded = previous.program().methods().stream().filter(value -> value.name().equals("expanded")).findFirst().orElseThrow();
+    var bytes = AstCodec.encode(current);
+    var method = current.program().methods().stream().filter(value -> value.name().equals("named")).findFirst().orElseThrow();
+    var expanded = current.program().methods().stream().filter(value -> value.name().equals("expanded")).findFirst().orElseThrow();
 
     // Act
-    var decoded = AstCodec.decode(bytes, previous.identity());
+    var decoded = AstCodec.decode(bytes, current.identity());
     var cfg = CfgDerivers.standard().derive(decoded,
         new CfgRequest(decoded.identity(), List.of(method.methodKey(), expanded.methodKey()), CfgProfile.JAVA_BOUNDED));
     var locals = decoded.body(method.methodKey()).orElseThrow().root().descendantsAndSelf().stream()
@@ -2472,16 +2505,10 @@ class AstCodecContractTest {
         .filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).toList();
 
     // Assert
-    assertEquals("java-source/3", decoded.identity().sourceModelVersion());
-    assertEquals(previous.identity(), decoded.identity());
-    assertNotEquals(current.identity(), previous.identity());
+    assertEquals(current.identity(), decoded.identity());
     assertEquals(current.aggregate(), decoded.aggregate());
-    assertEquals(previous.coverage(), decoded.coverage());
-    assertEquals("java-language-feature-coverage:e0968b3e0d4da804090dff9f60d557181733dff543864f096e1a854a0e0d3ac2",
-        decoded.coverage().coverage().contractIdentity());
-    assertNotEquals(current.coverage().coverage(), decoded.coverage().coverage());
-    assertEquals(current.coverage().validationEvidence().writtenInventory().contexts().stream()
-        .filter(context -> context.feature().map(feature -> !feature.identifier().startsWith("NewArrayTree::") && !feature.identifier().startsWith("BlockTree::")).orElse(true)).toList(),
+    assertEquals(current.coverage(), decoded.coverage());
+    assertEquals(current.coverage().validationEvidence().writtenInventory().contexts(),
         decoded.coverage().validationEvidence().writtenInventory().contexts());
     assertEquals(current.coverage().validationEvidence().attributedExpectations().projections(),
         decoded.coverage().validationEvidence().attributedExpectations().projections());
@@ -2499,42 +2526,9 @@ class AstCodecContractTest {
     assertTrue(expandedLocals.getLast().value(SyntaxValue.LocalDeclaration.class).bindingEvidence().orElseThrow().declarationKey().isPresent());
     assertEquals(MethodCfgState.AVAILABLE, cfg.methods().stream().filter(value -> value.methodKey().equals(method.methodKey())).findFirst().orElseThrow().state());
     assertEquals(MethodCfgState.UNSUPPORTED, cfg.methods().stream().filter(value -> value.methodKey().equals(expanded.methodKey())).findFirst().orElseThrow().state());
-    assertEquals(AstCodec.materialize(previous), AstCodec.materialize(decoded));
+    assertEquals(AstCodec.materialize(current), AstCodec.materialize(decoded));
     assertArrayEquals(bytes, AstCodec.encode(decoded));
     assertThrows(IllegalArgumentException.class, () -> new CanonicalValueReader(AstCodec.encode(current), "java-source/3"));
-  }
-
-  @Test
-  void givenUpdateValues_whenAssignedThePrecedingFormat_thenTheCodecRejectsTheirIncompatibleValues() throws IOException {
-    // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
-        "class Stored { int value(int input) { input += 2; return input++; } }")));
-    var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
-    // Act
-    var failure = assertThrows(AstContractException.class, () -> SourceAnalysisFixture.previousResult(current));
-    // Assert
-    assertTrue(failure.getMessage().contains("Update expressions require the current retained AST format"), failure.toString());
-    assertEquals(AstCompletion.COMPLETE, current.completion());
-  }
-
-  @Test
-  void givenUpdateEnumInAnOlderFrame_whenTheValueIsDecoded_thenTheVersionBoundaryRejectsItBeforeMaterialization() {
-    // Arrange
-    var format = "java-source/3";
-    var kind = new CanonicalValueWriter(format);
-    kind.text("syntax-kind");
-    kind.text("UPDATE");
-    var operator = new CanonicalValueWriter(format);
-    operator.text("syntax-operator");
-    operator.text("PLUS_ASSIGNMENT");
-    var codec = new RetainedValueCodec(false, format);
-    // Act
-    var kindFailure = assertThrows(IllegalArgumentException.class, () -> codec.read(new CanonicalValueReader(kind.toByteArray(), format)));
-    var operatorFailure = assertThrows(IllegalArgumentException.class, () -> codec.read(new CanonicalValueReader(operator.toByteArray(), format)));
-    // Assert
-    assertEquals("Update expressions require the current retained AST format", kindFailure.getMessage());
-    assertEquals(kindFailure.getMessage(), operatorFailure.getMessage());
   }
 
   @Test
@@ -2551,73 +2545,51 @@ class AstCodecContractTest {
   }
 
   @Test
-  void givenCompatibleOlderPlainLocalValues_whenTheFullResultIsDecoded_thenBindingsTypesInitializersAndIdentitySurvive()
+  void givenCurrentPlainLocalValues_whenTheFullResultIsDecoded_thenTypesInitializersAndIdentitySurvive()
       throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")),
         "class Stored { int subject() { int first=1; int second; second=first+2; return second; } }")));
     var current = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
-    var legacy = SourceAnalysisFixture.legacyResult(current);
-    var bytes = AstCodec.encode(legacy);
+    var bytes = AstCodec.encode(current);
 
     // Act
-    var decoded = AstCodec.decode(bytes, legacy.identity());
+    var decoded = AstCodec.decode(bytes, current.identity());
     var locals = decoded.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION).toList();
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, decoded.completion());
-    assertEquals("java-source/2", decoded.identity().sourceModelVersion());
-    assertEquals(legacy.identity(), decoded.identity());
+    assertEquals(current.identity(), decoded.identity());
     assertEquals(List.of("first", "second"), locals.stream().map(node -> node.value(SyntaxValue.LocalDeclaration.class).name()).toList());
-    assertTrue(locals.stream().allMatch(node -> node.value(SyntaxValue.LocalDeclaration.class).bindingEvidence().isEmpty()));
+    assertTrue(locals.stream().allMatch(node -> node.value(SyntaxValue.LocalDeclaration.class).bindingEvidence().isPresent()));
     assertEquals("int", locals.getFirst().requiredChild(SyntaxRole.DECLARED_TYPE).resolvedType().orElseThrow().displayName());
     assertTrue(locals.getFirst().optionalChild(SyntaxRole.INITIALIZER).isPresent());
     assertTrue(locals.getLast().optionalChild(SyntaxRole.INITIALIZER).isEmpty());
     assertEquals(current.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS)
         .map(SyntaxNode::semanticReference).toList(), decoded.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS)
             .map(SyntaxNode::semanticReference).toList());
-    assertEquals(legacy.aggregate(), decoded.aggregate());
+    assertEquals(current.aggregate(), decoded.aggregate());
     assertArrayEquals(bytes, AstCodec.encode(decoded));
-    assertEquals(AstCodec.materialize(legacy), AstCodec.materialize(decoded));
+    assertEquals(AstCodec.materialize(current), AstCodec.materialize(decoded));
   }
 
   @Test
-  void givenCopiedBindingValues_whenUsingTheOlderCatalog_thenBothEncodingAndDecodingRejectTheNewTags() {
-    // Arrange
-    var binding = new LocalBindingEvidence(Optional.of("type:Example#subject():local_variable:0:1"),
-        LocalBindingEvidence.TypeForm.DECLARED, LocalBindingEvidence.Context.LOCAL, true, 0, List.of());
-    var local = new SyntaxValue.LocalDeclaration("value", Optional.empty(), List.of(), Optional.of(binding));
-    var modern = new CanonicalValueWriter("copied-local-value");
-    new RetainedValueCodec(false).write(modern, local);
-    var legacy = new RetainedValueCodec(false, "java-source/2");
-
-    // Act
-    var encodingFailure = assertThrows(IllegalArgumentException.class,
-        () -> legacy.write(new CanonicalValueWriter("copied-local-value"), local));
-    var decodingFailure = assertThrows(IllegalArgumentException.class,
-        () -> legacy.read(new CanonicalValueReader(modern.toByteArray(), "copied-local-value")));
-
-    // Assert
-    assertTrue(encodingFailure.getMessage().contains("current retained AST format"));
-    assertTrue(decodingFailure.getMessage().contains("current retained AST format"));
-  }
-
-  @Test
-  void givenLegacyLocalDeclarationRecord_whenDecodedAndEncoded_thenItsOriginalFieldsAndBytesRemainCompatible() {
+  void givenLocalDeclarationWithoutEvidence_whenEncoded_thenTheEvidenceFieldRecordsAbsence() {
     // Arrange
     var writer = new CanonicalValueWriter("copied-local-value");
     writer.text("syntax-value/local-declaration");
-    writer.count(3);
+    writer.count(4);
     writer.text("name");
     writer.text("text");
     writer.text("value");
     writer.text("writtenType");
-    writer.text("optional");
-    writer.flag(false);
+    writer.text("optional/absent");
     writer.text("writtenModifiers");
     writer.text("list");
     writer.count(0);
+    writer.text("bindingEvidence");
+    writer.text("optional/absent");
     var bytes = writer.toByteArray();
 
     // Act
@@ -2626,7 +2598,7 @@ class AstCodecContractTest {
     reader.requireFinished();
     var encoded = new CanonicalValueWriter("copied-local-value");
     new RetainedValueCodec(false).write(encoded, local);
-    var materialized = new AstValueProjector(AstResult.SOURCE_MODEL_VERSION).project(local);
+    var materialized = new AstValueProjector().project(local);
 
     // Assert
     assertEquals("value", local.name());
@@ -2635,7 +2607,7 @@ class AstCodecContractTest {
     assertTrue(local.bindingEvidence().isEmpty());
     assertArrayEquals(bytes, encoded.toByteArray());
     assertEquals("syntax-value/local-declaration", materialized.nodes().getFirst().tag());
-    assertEquals(List.of("name", "writtenType", "writtenModifiers"), materialized.links().stream()
+    assertEquals(List.of("name", "writtenType", "writtenModifiers", "bindingEvidence"), materialized.links().stream()
         .filter(link -> link.sourceOrdinal() == 0).map(AstValueProjection.Link::field).toList());
   }
 
@@ -2650,7 +2622,7 @@ class AstCodecContractTest {
     // Arrange
     var source = local ? "class Example { int subject(long input) { int narrowed = (int) input; return narrowed; } }"
         : "class Example { int subject(long input) { return (int) input; } }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var original = new JavaFrontend(new JavaSourceLoader())
         .produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile).result().orElseThrow();
     var kind = local ? SyntaxKind.LOCAL_DECLARATION : SyntaxKind.TYPE_CAST;
@@ -2815,8 +2787,8 @@ class AstCodecContractTest {
   }
 
   private AstResult fixture(AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Stored.java"), "class Stored { int value(int x) { return x + 1; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), "class Stored { int value(int x) { return x + 1; } }")));
     var outcome = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         profile);
     assertEquals(AstCompletion.COMPLETE, outcome.completion());
@@ -2828,16 +2800,16 @@ class AstCodecContractTest {
     writer.text(original.profile().version());
     writer.text(original.identity().semanticProductionRevision());
     writer.text(original.completion().name());
-    var codec = new RetainedValueCodec(false, original.identity().sourceModelVersion());
+    var codec = new RetainedValueCodec(false);
     codec.write(writer, original.identity());
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());
-    var shape = AstValueSchema.type(SyntaxAnalysisInput.class);
-    var components = shape.components(input);
+    var shape = (Fields) AstValueSchema.shape(input);
+    var components = shape.components(input, false);
     writer.text(shape.tag());
-    writer.count(shape.fields().size());
-    for (var index = 0; index < shape.fields().size(); index++) {
-      var field = shape.fields().get(index);
+    writer.count(components.size());
+    for (var index = 0; index < components.size(); index++) {
+      var field = components.get(index).name();
       writer.text(field);
       if ("program".equals(field) && "method".equals(owner) && !changedField.isEmpty()) {
         codec.write(writer, changedMethodProgram(original.program(), changedField));
@@ -2851,16 +2823,20 @@ class AstCodecContractTest {
           writeRecord(writer, codec, type, changedField);
         }
       } else if ("aggregate".equals(field) && ("aggregate".equals(owner) || "body".equals(owner))) {
-        writer.text("optional");
-        writer.flag(true);
+        writer.text("optional/present");
         writer.text("source-aggregate");
+        writer.count(1);
+        writer.text("copiedValues");
         writeAggregate(writer, codec, SourceValueCapture.capture(original.aggregate()), owner, changedField);
       } else if ("languageFeatureCoverageResult".equals(field) && "coverage".equals(owner)) {
         writer.text("source-coverage-result");
+        writer.count(2);
+        writer.text("coverage");
         codec.write(writer, original.coverage().coverage());
+        writer.text("validationEvidence");
         writeRecord(writer, codec, original.coverage().validationEvidence(), changedField);
       } else {
-        codec.write(writer, components.get(index));
+        codec.write(writer, components.get(index).value());
       }
     }
     return writer.toByteArray();
@@ -2876,7 +2852,8 @@ class AstCodecContractTest {
           return new JavaMethod(method.methodKey(), method.ownerTypeKey(), method.name(),
               field.equals("signature") ? "value(long)" : method.signature(), field.equals("returnType") ? "long" : method.returnType(),
               method.parameters(), method.modifiers(), method.constructor(), method.sourceDeclared(), method.hasBody(), method.origins());
-        }).toList(), type.synthesizedDeclarations(), type.origins())).toList());
+        }).toList(), type.synthesizedDeclarations(), type.origins(),
+    type.nesting(), type.staticType(), type.displayName())).toList());
   }
 
   private static void writeAggregate(CanonicalValueWriter writer, RetainedValueCodec codec, CopiedAstValues values, String owner,
@@ -2885,12 +2862,12 @@ class AstCodecContractTest {
       writeRecord(writer, codec, values, changedField);
       return;
     }
-    var shape = AstValueSchema.type(CopiedAstValues.class);
-    var components = shape.components(values);
+    var shape = (Fields) AstValueSchema.shape(values);
+    var components = shape.components(values, false);
     writer.text(shape.tag());
-    writer.count(shape.fields().size());
-    for (var index = 0; index < shape.fields().size(); index++) {
-      var field = shape.fields().get(index);
+    writer.count(components.size());
+    for (var index = 0; index < components.size(); index++) {
+      var field = components.get(index).name();
       writer.text(field);
       if ("bodies".equals(field)) {
         writer.text("list");
@@ -2899,25 +2876,25 @@ class AstCodecContractTest {
           writeRecord(writer, codec, body, changedField);
         }
       } else {
-        codec.write(writer, components.get(index));
+        codec.write(writer, components.get(index).value());
       }
     }
   }
 
   private static void writeRecord(CanonicalValueWriter writer, RetainedValueCodec codec, Object value, String changedField) {
-    var shape = AstValueSchema.type(value.getClass());
-    var components = shape.components(value);
+    var shape = (Fields) AstValueSchema.shape(value);
+    var components = shape.components(value, false);
     writer.text(shape.tag());
-    writer.count(shape.fields().size());
-    for (var index = 0; index < shape.fields().size(); index++) {
-      var field = shape.fields().get(index);
+    writer.count(components.size());
+    for (var index = 0; index < components.size(); index++) {
+      var field = components.get(index).name();
       writer.text(field);
       var replacement = switch (changedField) {
         case "modifiers" -> Set.of("wrong retained member");
         case "enclosingType" -> Optional.of("wrong retained member");
         default -> List.of("wrong retained member");
       };
-      codec.write(writer, field.equals(changedField) ? replacement : components.get(index));
+      codec.write(writer, field.equals(changedField) ? replacement : components.get(index).value());
     }
   }
 }

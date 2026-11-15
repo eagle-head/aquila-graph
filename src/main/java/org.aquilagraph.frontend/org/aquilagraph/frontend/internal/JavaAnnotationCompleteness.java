@@ -357,6 +357,6 @@ final class JavaAnnotationCompleteness {
 
   private void report(SourceFile source, String context, String code, String message, Optional<SourceSpan> range) {
     reconciliationDiagnostics.emit("JavaAnnotationCompleteness", FrontendDiagnosticFactory
-        .otherError(source.sourceFileKey() + ':' + context, code, message + " in " + source.relativePath(), range));
+        .otherError(source.sourceFileKey() + ':' + context, code, message + " in " + source.relativePath().spelling(), range));
   }
 }

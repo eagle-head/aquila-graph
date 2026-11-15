@@ -1,5 +1,7 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -41,8 +43,8 @@ class JavaAnnotationProcessingBoundaryTest {
       assertEquals(PROCESSOR + "\n", new String(jar.getInputStream(service).readAllBytes(), StandardCharsets.UTF_8));
       assertTrue(jar.getJarEntry("probe/BoundaryProcessor.class") != null);
     }
-    var discoverable = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(processorJar), List.of(), List.of());
-    var explicit = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(processorJar), List.of(),
+    var discoverable = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(processorJar)), List.of(), List.of());
+    var explicit = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(processorJar)), List.of(),
         List.of("-processor", PROCESSOR));
     assertTrue(JavaCompilerInvocation.from(discoverable).compilerOptions().contains("-proc:none"));
     assertTrue(JavaCompilerInvocation.from(discoverable).analysisOptions().contains("-proc:none"));

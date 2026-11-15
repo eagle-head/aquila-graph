@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -108,7 +111,7 @@ class EmptyBodyDeclarationAstTest {
   @Test
   void givenCompactUnitSemicolonsOutsideWrittenTypeDeclarations_whenProduced_thenTheUnitEnvelopeGapRemainsTruthful() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "; void main() {} ;")));
     // Act
     var outcome = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
@@ -124,7 +127,7 @@ class EmptyBodyDeclarationAstTest {
   @Test
   void givenAnInvalidAnnotationTargetBesideValidEmptyMembers_whenProduced_thenActualCompilerErrorsPreventCompletion() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         import java.lang.annotation.ElementType;
         import java.lang.annotation.Target;
         @Target(ElementType.METHOD) @interface Mark {}
@@ -154,7 +157,7 @@ class EmptyBodyDeclarationAstTest {
   }
 
   private AstResult produce(String source, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var outcome = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile);
     assertTrue(outcome.result().isPresent(), outcome.diagnostics().toString());
     return outcome.result().orElseThrow();

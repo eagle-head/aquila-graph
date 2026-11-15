@@ -1,5 +1,7 @@
 package org.aquilagraph.identity.api;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -19,7 +21,7 @@ class Sha256AvailabilityTest {
   void givenNoDigestProviders_whenIdentityDigestsAreRequested_thenEveryEntryPointPreservesTheUnavailableAlgorithmCause() {
     // Arrange
     var operations = List.<Supplier<?>>of(() -> StableId.sha256("source", "Sample.java"),
-        () -> SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}"),
+        () -> SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample {}"),
         () -> new CanonicalValueWriter("values/1").digest("content"));
 
     // Act

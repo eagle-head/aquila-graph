@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -49,8 +52,8 @@ class JavaFrontendEntryTest {
     // Arrange
     Files.write(temporaryDirectory.resolve("Sample.java"), new byte[] {(byte) 0xc3, 0x28});
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var snapshot = InputSnapshot.fromSources(temporaryDirectory,
-        List.of(SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample {}")));
 
     // Act
     var failure = assertThrows(AnalysisInputException.class, () -> frontend.produce(new AstProductionRequest(temporaryDirectory, CONFIGURATION, AstProfile.JAVA_SOURCE_BOUNDED)));
@@ -67,7 +70,7 @@ class JavaFrontendEntryTest {
   void givenEmptySourcesAndMissingRuntimeVendor_whenProductionAndCopyingRun_thenOnlyCopyingRequiresAnEnvironment() {
     // Arrange
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var snapshot = InputSnapshot.fromSources(temporaryDirectory, List.of());
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory), List.of());
     var originalVendor = System.getProperty("java.vendor");
     System.clearProperty("java.vendor");
     try {

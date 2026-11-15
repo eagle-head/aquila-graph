@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.retention.AstCodec;
@@ -50,7 +53,7 @@ class InvocationEvidenceRetentionTest {
   void givenSuppliedErroneousApplicabilityWithAnActualSourceDiagnostic_whenRetainingAndDeriving_thenExactCauseAndExplanationSurvive()
       throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")),
         "class Stored { int call() { return missing(); } }")));
     var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot,
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
@@ -183,7 +186,7 @@ class InvocationEvidenceRetentionTest {
   }
 
   private AstResult produce() throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")),
         "class Stored { static int target(int x) { return x; } int call() { return target(7); } }")));
     var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(), List.of());
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, configuration, AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
@@ -202,7 +205,7 @@ class InvocationEvidenceRetentionTest {
             && value.consumerNodeId().equals(replacement.consumerNodeId()) ? replacement : value).toList(),
         body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), bodies, copied.memberOrders(),
-        copied.associations(), copied.declarationTypes()));
+        copied.associations(), copied.declarationTypes(), copied.scopes()));
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(aggregate),
         original.diagnostics(), original.coverage());
     return AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision());

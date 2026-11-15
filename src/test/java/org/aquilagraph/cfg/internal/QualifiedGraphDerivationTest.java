@@ -1,5 +1,8 @@
 package org.aquilagraph.cfg.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.cfg.CfgDerivers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -30,7 +33,7 @@ class QualifiedGraphDerivationTest {
   void givenActualRetainedConstructorsAndMethods_whenQualifiedGraphsAreDerived_thenCanonicalOwnershipAndEverySemanticFieldSurvive()
       throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), """
         class Base {
           Base(int... values) {}
           int read() { return 1; }

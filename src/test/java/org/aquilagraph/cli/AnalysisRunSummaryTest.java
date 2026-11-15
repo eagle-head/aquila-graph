@@ -1,5 +1,8 @@
 package org.aquilagraph.cli;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -86,8 +89,8 @@ class AnalysisRunSummaryTest {
   @Test
   void givenAstOnlyAndEmptyGraphSelection_whenReported_thenBothChannelsPreserveTheirDistinctSelectionAndCounts() {
     // Arrange
-    var file = SourceFile.fromContent(Path.of("Example.java"), "interface Example { void bodyless(); static void concrete() {} }");
-    var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(file));
+    var file = SourceFile.fromContent(capturedPath(Path.of("Example.java")), "interface Example { void bodyless(); static void concrete() {} }");
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of(".")), List.of(file));
     var runner = CliTestFixtures.runner();
     var sourceOnly = runner.analyze(new AnalysisComputationRequest(
         new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED), Optional.empty()));

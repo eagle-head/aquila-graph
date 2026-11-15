@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.sun.source.tree.CatchTree;
@@ -46,9 +49,9 @@ class DeclarationCoordinateAvailabilityTest {
   void givenMissingPathsUnavailableEndpointsAndReversedCoordinates_whenReferenceOnlyKeysAreDerived_thenAvailabilityIsNotInvented()
       throws IOException {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Sample.java"), "class Sample { void read() { int local = 1; class Local {} } }");
+    var source = SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample { void read() { int local = 1; class Local {} } }");
     var compiler = ToolProvider.getSystemJavaCompiler();
-    var sources = new SnapshotSourceCatalog(InputSnapshot.fromSources(temporaryDirectory, List.of(source)));
+    var sources = new SnapshotSourceCatalog(InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory), List.of(source)));
     try (var manager = compiler.getStandardFileManager(null, null, null)) {
       var task = (JavacTask) compiler.getTask(null, manager, null,
           JavaCompilerInvocation.from(CompilerConfiguration.forRelease(JavaRelease.JAVA_25)).compilerOptions(), null, sources.compilationUnits());

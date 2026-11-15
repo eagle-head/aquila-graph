@@ -1,5 +1,7 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -322,7 +324,7 @@ class JavaAnnotationAstTest {
     assertEquals(0, ToolProvider.getSystemJavaCompiler().run(null, null, null, "-proc:none", "-d", classes.toString(),
         definition.toString()));
     Files.writeString(sourceRoot.resolve("Sample.java"), "@Repeat @Repeat class Sample {}\n");
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(classes), List.of(), List.of());
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(classes)), List.of(), List.of());
 
     // Act
     var result = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(new JavaSourceLoader().discover(sourceRoot), configuration, JavaTranslationPolicy.legacyAnalysis());

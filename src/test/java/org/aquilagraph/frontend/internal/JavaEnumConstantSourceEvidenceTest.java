@@ -1,5 +1,7 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -86,7 +88,7 @@ class JavaEnumConstantSourceEvidenceTest {
   }
 
   private static Optional<Boolean> read(String content, int start, int end, long identifierStart) {
-    var source = SourceFile.fromContent(Path.of("Example.java"), content);
+    var source = SourceFile.fromContent(capturedPath(Path.of("Example.java")), content);
     var tokens = JavaSourceTokens.capture(content);
     return JavaEnumConstantSourceEvidence.argumentList(tokens.source(), new SourceSpan(source.sourceFileKey(), start, end), identifierStart);
   }

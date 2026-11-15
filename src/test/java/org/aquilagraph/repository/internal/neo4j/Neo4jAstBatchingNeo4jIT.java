@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -53,8 +56,8 @@ class Neo4jAstBatchingNeo4jIT {
     // Arrange
     var settings = Neo4jIntegration.settings();
     var name = "BatchSubject" + UUID.randomUUID().toString().replace("-", "");
-    var ast = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of(name + ".java"), "class " + name + " { int value(int input) { return input + 1; } }"))),
+    var ast = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of(name + ".java")), "class " + name + " { int value(int input) { return input + 1; } }"))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_EXPANDED);
     var identity = ast.result().orElseThrow().identity();
     var projection = new Neo4jAstResultCodec().map(ast);

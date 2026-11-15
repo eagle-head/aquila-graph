@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -47,7 +50,7 @@ class ExecutableLiteralInterpretationTest {
   @Test
   void givenAnnotationAndExecutionLiteralFamilies_whenQueriedAfterCompilerAndCodecClosure_thenOnlyExecutionRuntimeTextIsInterpreted() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), SOURCE)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), SOURCE)));
     var request = new AstProductionRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_FIDELITY);
     var original = new JavaFrontend(new JavaSourceLoader()).produce(request).result().orElseThrow();

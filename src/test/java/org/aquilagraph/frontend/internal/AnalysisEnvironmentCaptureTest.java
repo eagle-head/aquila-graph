@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -46,8 +49,8 @@ class AnalysisEnvironmentCaptureTest {
     var relocatedPath = temporaryDirectory.resolve("relocated.jar");
     Files.write(originalPath, new byte[] {0, (byte) 0xff});
     Files.write(relocatedPath, new byte[] {0, (byte) 0xff});
-    var original = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(originalPath), List.of(), List.of());
-    var relocated = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(relocatedPath), List.of(), List.of());
+    var original = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(originalPath)), List.of(), List.of());
+    var relocated = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(relocatedPath)), List.of(), List.of());
     var compiler = ToolProvider.getSystemJavaCompiler();
     var capture = new AnalysisEnvironmentCapture(new CompilerDependencyCapture());
     var originalOptions = JavaCompilerInvocation.from(original).analysisOptions();
@@ -70,7 +73,7 @@ class AnalysisEnvironmentCaptureTest {
     // Arrange
     var dependency = temporaryDirectory.resolve("dependency.jar");
     Files.writeString(dependency, "first");
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(dependency), List.of(), List.of());
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(dependency)), List.of(), List.of());
     var invocation = JavaCompilerInvocation.from(configuration);
     var compiler = ToolProvider.getSystemJavaCompiler();
     var capture = new AnalysisEnvironmentCapture(new CompilerDependencyCapture());
@@ -90,7 +93,7 @@ class AnalysisEnvironmentCaptureTest {
       throws IOException {
     // Arrange
     var missingDependency = temporaryDirectory.resolve("missing.jar");
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(missingDependency), List.of(), List.of());
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(missingDependency)), List.of(), List.of());
     var invocation = JavaCompilerInvocation.from(configuration);
     var capture = new AnalysisEnvironmentCapture(new CompilerDependencyCapture());
 
@@ -109,13 +112,13 @@ class AnalysisEnvironmentCaptureTest {
       throws IOException {
     // Arrange
     var dependency = Files.createDirectory(temporaryDirectory.resolve("dependency"));
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(dependency), List.of(), List.of());
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(dependency)), List.of(), List.of());
     var invocation = JavaCompilerInvocation.from(configuration);
     var compiler = ToolProvider.getSystemJavaCompiler();
     var capture = new AnalysisEnvironmentCapture(new CompilerDependencyCapture());
     var expected = capture.capture(compiler, configuration, invocation.analysisOptions());
-    var snapshot = InputSnapshot.fromSources(temporaryDirectory,
-        List.of(SourceFile.fromContent(Path.of("Sample.java"), "class Sample { int read() { return 1; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample { int read() { return 1; } }")));
     try (var session = CompilerSessionAcquisition.open(compiler, invocation, new SnapshotSourceCatalog(snapshot))) {
       var parsed = session.parse();
       var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
@@ -144,8 +147,8 @@ class AnalysisEnvironmentCaptureTest {
     var compiler = ToolProvider.getSystemJavaCompiler();
     var capture = new AnalysisEnvironmentCapture(new CompilerDependencyCapture());
     var expected = capture.capture(compiler, configuration, invocation.analysisOptions());
-    var snapshot = InputSnapshot.fromSources(temporaryDirectory,
-        List.of(SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample {}")));
     try (var session = CompilerSessionAcquisition.open(compiler, invocation, new SnapshotSourceCatalog(snapshot))) {
       session.analyze(session.parse(), JavaTranslationPolicy.legacyAnalysis());
     }

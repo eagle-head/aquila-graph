@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -20,7 +23,6 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
 import org.aquilagraph.identity.api.DependencySemantics;
 import org.aquilagraph.source.api.AnalysisEnvironmentException;
 import org.aquilagraph.source.api.AnalysisInputException;
@@ -104,8 +106,8 @@ class CompilerModuleLifecycleTest {
 
   private AstProductionRequest request() throws IOException {
     var dependency = Files.createDirectories(directory.resolve("modules"));
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(dependency), List.of());
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example {}")));
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(capturedAbsolute(dependency)), List.of());
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example {}")));
     return new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_MODULE_SERVICES);
   }
 
@@ -140,7 +142,6 @@ class CompilerModuleLifecycleTest {
     var environment = capture.capture(compiler, configuration, JavaCompilerInvocation.from(configuration).analysisOptions());
 
     // Assert
-    assertEquals(EnvironmentIdentityScheme.MODULE_SEMANTICS, environment.identityScheme());
     assertEquals(DependencySemantics.State.MODULES, environment.modulePath().getFirst().semantics().state());
     assertEquals(1, closed.get());
   }

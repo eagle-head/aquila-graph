@@ -506,7 +506,7 @@ final class JavaTypeTranslator {
 
   private JavaTypeNesting typeNesting(@Nullable TypeElement element) {
     if (element == null || element.getNestingKind() == NestingKind.TOP_LEVEL) {
-      return new JavaTypeNesting(JavaTypeNesting.Kind.TOP_LEVEL, Optional.empty());
+      return new JavaTypeNesting(JavaTypeNesting.Kind.TOP_LEVEL, Optional.empty(), Optional.empty());
     }
     var owner = Objects.requireNonNull(element.getEnclosingElement(), "nested declaration owner");
     return new JavaTypeNesting(JavaTypeNesting.Kind.valueOf(element.getNestingKind().name()), semantics.declarationKey(owner),

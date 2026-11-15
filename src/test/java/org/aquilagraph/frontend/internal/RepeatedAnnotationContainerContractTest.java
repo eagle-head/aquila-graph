@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -67,7 +70,7 @@ class RepeatedAnnotationContainerContractTest {
           // Arrange
           var source = DECLARATIONS + variant.annotations().stream().map(ExpectedAnnotation::spelling).collect(Collectors.joining(" "))
               + " class Subject {}";
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Subject.java"), source)));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Subject.java")), source)));
 
           // Act
           var outcome = JavaFrontends.standard().produce(request(snapshot));
@@ -103,8 +106,8 @@ class RepeatedAnnotationContainerContractTest {
           var invalid = DECLARATIONS + variant.annotations().stream().map(ExpectedAnnotation::spelling).collect(Collectors.joining(" "))
               + " class Invalid {}";
           var neighborSource = "@Tag(43) class Neighbor {}";
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Invalid.java"), invalid),
-              SourceFile.fromContent(Path.of("Neighbor.java"), neighborSource)));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Invalid.java")), invalid),
+              SourceFile.fromContent(capturedPath(Path.of("Neighbor.java")), neighborSource)));
 
           // Act
           var outcome = JavaFrontends.standard().produce(request(snapshot));

@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -156,8 +159,8 @@ public class DeclarationAccessorInvocationTest {
   }
 
   private static CoveragePropertyValue query(Class<?> surface, String getter, Object owner) throws IOException {
-    var snapshot = InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/sources"),
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example {}")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/sources")),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example {}")));
     var sources = new SnapshotSourceCatalog(snapshot);
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
       var parsed = session.parse();

@@ -1,5 +1,8 @@
 package org.aquilagraph.application;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -70,13 +73,13 @@ class ModuleServiceConsumerTest {
   void givenMissingRequiredModuleTarget_whenExplicitRetentionRequested_thenRepositoryRemainsUnopened() {
     // Arrange
     var original = request(PublicationIntent.SAVE_COMPLETE_AST);
-    var missing = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("module-info.java"), "module service.missing { uses missing.Service; }")));
+    var missing = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("module-info.java")), "module service.missing { uses missing.Service; }")));
     var service = AnalysisCapabilities.execution(AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()), ModuleServiceConsumerTest::unexpectedAstRepository, run -> { throw new AssertionError("Combined publication was not requested"); });
     // Act
     var execution = service.execute(new AnalysisRequest(new AnalysisComputationRequest(
         new AstProductionRequest(missing, original.computation().source().configuration(), original.computation().source().profile()), Optional.empty()), original.publicationIntent()));
     var empty = service.execute(new AnalysisRequest(new AnalysisComputationRequest(
-        new AstProductionRequest(InputSnapshot.fromSources(directory, List.of()), original.computation().source().configuration(), original.computation().source().profile()), Optional.empty()), original.publicationIntent()));
+        new AstProductionRequest(InputSnapshot.fromSources(capturedAbsolute(directory), List.of()), original.computation().source().configuration(), original.computation().source().profile()), Optional.empty()), original.publicationIntent()));
     // Assert
     assertEquals(AstCompletion.INCOMPLETE, execution.run().representation().ast().completion());
     assertEquals(PublicationStatus.NOT_ELIGIBLE, execution.publication().status());
@@ -94,10 +97,10 @@ class ModuleServiceConsumerTest {
   }
 
   private AnalysisRequest request(PublicationIntent intent) {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("module-info.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("module-info.java")),
         "module service.consumer { uses api.Service; provides api.Service with impl.Provider; }"),
-        SourceFile.fromContent(Path.of("api/Service.java"), "package api; public interface Service {}"),
-        SourceFile.fromContent(Path.of("impl/Provider.java"), "package impl; public class Provider implements api.Service { public int value() { return 7; } public Runnable lambda() { return () -> {}; } }")));
+        SourceFile.fromContent(capturedPath(Path.of("api/Service.java")), "package api; public interface Service {}"),
+        SourceFile.fromContent(capturedPath(Path.of("impl/Provider.java")), "package impl; public class Provider implements api.Service { public int value() { return 7; } public Runnable lambda() { return () -> {}; } }")));
     return new AnalysisRequest(new AnalysisComputationRequest(
         new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES), Optional.empty()), intent);
   }

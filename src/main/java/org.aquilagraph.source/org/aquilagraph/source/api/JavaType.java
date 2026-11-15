@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.aquilagraph.identity.api.SourceSpan;
 
 /**
@@ -55,71 +54,6 @@ public record JavaType(String typeKey, String qualifiedName, JavaTypeKind kind, 
     List<JavaTypeReference> permittedSubclasses, List<JavaTypeParameter> typeParameters, boolean sourceDeclared, List<JavaField> fields,
     List<JavaRecordComponent> recordComponents, List<JavaMethod> methods, List<JavaSynthesizedDeclaration> synthesizedDeclarations,
     List<SourceSpan> origins, JavaTypeNesting nesting, JavaTypeIdentity staticType, String displayName) {
-  /**
-   * Creates an earlier-profile top-level or member declaration.
-   *
-   * @param typeKey
-   *          stable type identifier
-   * @param qualifiedName
-   *          compiler-reported or derived name
-   * @param kind
-   *          declaration category
-   * @param modifiers
-   *          effective modifiers
-   * @param enclosingType
-   *          enclosing member type
-   * @param directSuperclass
-   *          direct superclass
-   * @param directInterfaces
-   *          direct interfaces
-   * @param permittedSubclasses
-   *          permitted subclasses
-   * @param typeParameters
-   *          type parameters
-   * @param sourceDeclared
-   *          source provenance
-   * @param fields
-   *          fields
-   * @param recordComponents
-   *          record components
-   * @param methods
-   *          methods
-   * @param synthesizedDeclarations
-   *          nonwritten members
-   * @param origins
-   *          source locations
-   */
-  public JavaType(String typeKey, String qualifiedName, JavaTypeKind kind, Set<JavaTypeModifier> modifiers,
-      Optional<JavaTypeReference> enclosingType, Optional<JavaTypeReference> directSuperclass, List<JavaTypeReference> directInterfaces,
-      List<JavaTypeReference> permittedSubclasses, List<JavaTypeParameter> typeParameters, boolean sourceDeclared, List<JavaField> fields,
-      List<JavaRecordComponent> recordComponents, List<JavaMethod> methods, List<JavaSynthesizedDeclaration> synthesizedDeclarations,
-      List<SourceSpan> origins) {
-    this(typeKey, qualifiedName, kind, modifiers, enclosingType, directSuperclass, directInterfaces, permittedSubclasses, typeParameters,
-        sourceDeclared, fields, recordComponents, methods, synthesizedDeclarations, origins, historicalNesting(enclosingType),
-        declarationIdentity(typeKey, qualifiedName, modifiers, enclosingType, typeParameters), qualifiedName);
-  }
-
-  private static JavaTypeNesting historicalNesting(Optional<JavaTypeReference> enclosingType) {
-    var owner = Objects.requireNonNull(enclosingType, "enclosingType").flatMap(JavaTypeReference::declarationKey);
-    return new JavaTypeNesting(owner.isEmpty() ? JavaTypeNesting.Kind.TOP_LEVEL : JavaTypeNesting.Kind.MEMBER, owner);
-  }
-
-  private static JavaTypeIdentity declarationIdentity(String typeKey, String qualifiedName, Set<JavaTypeModifier> modifiers,
-      Optional<JavaTypeReference> enclosingType, List<JavaTypeParameter> typeParameters) {
-    requireText(typeKey, "typeKey");
-    requireText(qualifiedName, "qualifiedName");
-    Objects.requireNonNull(modifiers, "modifiers");
-    Objects.requireNonNull(typeParameters, "typeParameters");
-    var declarationName = enclosingType.isPresent() && !modifiers.contains(JavaTypeModifier.STATIC)
-        && qualifiedName.startsWith(enclosingType.orElseThrow().identity().erasedName() + '.')
-            ? enclosingType.orElseThrow().identity().displayName() + '.' + qualifiedName.substring(qualifiedName.lastIndexOf('.') + 1)
-            : qualifiedName;
-    var arguments = typeParameters.isEmpty()
-        ? ""
-        : typeParameters.stream().map(parameter -> Objects.requireNonNull(parameter, "typeParameters entry").name())
-            .collect(Collectors.joining(",", "<", ">"));
-    return new JavaTypeIdentity(JavaTypeCategory.DECLARED, declarationName + arguments, qualifiedName);
-  }
   /** Validates and defensively copies type data. */
   public JavaType {
     requireText(typeKey, "typeKey");

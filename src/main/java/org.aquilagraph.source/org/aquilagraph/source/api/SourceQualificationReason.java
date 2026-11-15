@@ -39,7 +39,7 @@ public record SourceQualificationReason(Category category, EvidenceRole role, Su
     EMPTY_SOURCE,
     /** No admitted roots were established. */
     UNAVAILABLE_ROOTS,
-    /** The selected historical profile excludes this source form. */
+    /** The selected profile excludes this source form. */
     PROFILE_RESTRICTION,
     /** A native source error was emitted. */
     COMPILER_ERROR,
@@ -59,7 +59,7 @@ public record SourceQualificationReason(Category category, EvidenceRole role, Su
     SOURCE_CAPTURE,
     /** Admitted source roots. */
     SOURCE_ROOTS,
-    /** Historical declaration envelope. */
+    /** Compilation-unit range and declaration form. */
     DECLARATION_ENVELOPE,
     /** Module directive operands. */
     MODULE_SERVICE_SLOTS,

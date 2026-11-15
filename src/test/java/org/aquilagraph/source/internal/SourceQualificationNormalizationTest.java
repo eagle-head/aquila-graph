@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -42,7 +45,7 @@ class SourceQualificationNormalizationTest {
           var source = "@interface Marker { String value(); } @Marker(\"left\" + \"right\""
               + (knownStatus ? " + Subject.TOKEN" : "")
               + ") class Subject { static final String TOKEN = \"suffix\"; }";
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Subject.java"), source)));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Subject.java")), source)));
           var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
               AstProfile.JAVA_SOURCE_MODULE_SERVICES).result().orElseThrow();
           var copied = SourceValueCapture.capture(original.aggregate());

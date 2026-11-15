@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.CoverageAdmission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -173,8 +176,8 @@ class SourceContextAdmissionTest {
   }
 
   private static SyntaxAnalysisInput analyze() throws IOException {
-    var snapshot = InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/context-check/sources"),
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { int field; int value(int parameter) { return parameter; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of("D:/Projects/aquila-graph/aquila-graph/target/context-check/sources")),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { int field; int value(int parameter) { return parameter; } }")));
     return new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CONFIGURATION, JavaTranslationPolicy.legacyAnalysis());
   }
 
@@ -204,7 +207,7 @@ class SourceContextAdmissionTest {
     var contexts = evidence.writtenInventory().contexts().stream().map(value -> value.address().equals(selected.address()) ? context : value)
         .sorted(Comparator.comparing(value -> value.address().partition())).toList();
     var written = new SourceCoverageInventory(input.snapshot(), input.languageFeatureCoverage().release(),
-        input.languageFeatureCoverage().contractIdentity(), contexts);
+        input.languageFeatureCoverage().contractIdentity(), contexts, Optional.empty());
     var projections = evidence.attributedExpectations().projections().stream().filter(value -> !value.address().equals(selected.address()))
         .toList();
     var outcomes = evidence.outcomes().stream().map(value -> value.equals(selected) ? replacement : value)

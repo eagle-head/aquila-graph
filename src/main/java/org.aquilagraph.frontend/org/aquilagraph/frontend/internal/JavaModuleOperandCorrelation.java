@@ -37,7 +37,7 @@ final class JavaModuleOperandCorrelation {
     var selected = candidates.stream().filter(target -> target.equals(element)).toList();
     if (erroneous || selected.size() != SINGLE_DIRECTIVE_COUNT) {
       return new SemanticReference(ReferenceKind.TYPE, erroneous ? ResolutionStatus.ERROR : ResolutionStatus.UNRESOLVED, Optional.empty(),
-          Optional.empty(), List.of(), List.of());
+          Optional.empty(), List.of(), List.of(), Optional.empty());
     }
     var target = selected.getFirst();
     var identity = identities.typeIdentity(target);

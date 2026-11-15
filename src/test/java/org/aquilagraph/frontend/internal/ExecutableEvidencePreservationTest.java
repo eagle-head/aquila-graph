@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -38,7 +41,7 @@ class ExecutableEvidencePreservationTest {
         var nested = "String nested() { return \"a\" + 2; }";
         var source = "class Example { " + (staticField ? "static " : "") + "Object field = new Object() { " + nested
             + (duplicateMethod ? nested : "") + " }; int sibling() { return 7; } }";
-        var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+        var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
 
         // Act
         var outcome = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
@@ -73,8 +76,8 @@ class ExecutableEvidencePreservationTest {
         "class Example { static Object accept(Object value) { return value; } Object field = accept(new Object() {}); }");
     var frontend = new JavaFrontend(new JavaSourceLoader());
     for (var index = 0; index < sources.size(); index++) {
-      var snapshot = InputSnapshot.fromSources(directory.resolve("arguments-" + index),
-          List.of(SourceFile.fromContent(Path.of("Example.java"), sources.get(index))));
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory.resolve("arguments-" + index)),
+          List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), sources.get(index))));
       for (var profile : PROFILES) {
         // Act
         var outcome = frontend.produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile);
@@ -127,8 +130,8 @@ class ExecutableEvidencePreservationTest {
     var preservation = System.getProperty("frontend.preservation.directory");
     var root = preservation == null ? directory : Path.of(preservation).resolve("inputs").resolve("executables");
     for (var index = 0; index < sources.size(); index++) {
-      var snapshot = InputSnapshot.fromSources(root.resolve("case-" + index),
-          List.of(SourceFile.fromContent(Path.of("Example.java"), sources.get(index))));
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(root.resolve("case-" + index)),
+          List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), sources.get(index))));
       for (var profile : PROFILES) {
         // Act
         var outcome = frontend.produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile);

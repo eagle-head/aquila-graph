@@ -60,7 +60,7 @@ final class PackagedQualificationExpectations {
         Publication intent: DO_NOT_SAVE
         Publication subject: AST "%3$s"
         Publication software signature: "%2$s"
-        Publication source model: "java-source/22"
+        Publication source model: "java-source/23"
         Publication AST profile: "java-source-bounded/1"
         Publication production revision: "javac-public/14"
         Publication content digest: "%4$s"

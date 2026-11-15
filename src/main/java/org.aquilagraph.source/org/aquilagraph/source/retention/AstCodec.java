@@ -32,12 +32,11 @@ public final class AstCodec {
    */
   public static byte[] encode(AstResult result) {
     Objects.requireNonNull(result, "result");
-    var format = result.identity().sourceModelVersion();
-    var writer = new CanonicalValueWriter(format);
+    var writer = new CanonicalValueWriter(FORMAT_VERSION);
     writer.text(result.profile().version());
     writer.text(result.identity().semanticProductionRevision());
     writer.text(result.completion().name());
-    var codec = new RetainedValueCodec(false, format);
+    var codec = new RetainedValueCodec(false);
     codec.write(writer, result.identity());
     codec.write(writer, copiedInput(result));
     return writer.toByteArray();
@@ -52,7 +51,7 @@ public final class AstCodec {
    */
   public static AstValueProjection materialize(AstResult result) {
     Objects.requireNonNull(result, "result");
-    return new AstValueProjector(result.identity().sourceModelVersion()).project(copiedInput(result));
+    return new AstValueProjector().project(copiedInput(result));
   }
 
   /**
@@ -77,14 +76,14 @@ public final class AstCodec {
       var profile = new AstProfile(reader.text());
       var semanticRevision = reader.text();
       var completion = AstCompletion.valueOf(reader.text());
-      var codec = new RetainedValueCodec(false, format);
-      var identity = RetainedValueCodec.required(codec.read(reader), AstIdentity.class);
+      var codec = new RetainedValueCodec(false);
+      var identity = codec.read(reader, AstIdentity.class);
       if (!identity.equals(expected)) {
         throw new IllegalArgumentException("Retained AST identity differs from the exact requested identity");
       }
-      var input = RetainedValueCodec.required(codec.read(reader), SyntaxAnalysisInput.class);
+      var input = codec.read(reader, SyntaxAnalysisInput.class);
       reader.requireFinished();
-      var result = AstResultAdmission.admit(input, profile, semanticRevision, format);
+      var result = AstResultAdmission.admit(input, profile, semanticRevision);
       if (!result.identity().equals(identity) || result.completion() != completion) {
         throw new IllegalArgumentException("Retained AST content or source qualification differs from its admitted identity");
       }

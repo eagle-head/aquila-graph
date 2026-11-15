@@ -1,5 +1,8 @@
 package org.aquilagraph.application;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -22,12 +25,12 @@ final class TestAnalysisRuns {
   }
 
   static AnalysisRun completed(Path sourceRoot, CompilerConfiguration configuration) {
-    return analyze(sourceRoot, configuration, List.of(SourceFile.fromContent(Path.of("Example.java"), "interface Example {}")));
+    return analyze(sourceRoot, configuration, List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "interface Example {}")));
   }
 
   static AnalysisRun fromSource(String source) {
     return analyze(Path.of("."), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
   }
 
   static AnalysisRun rejected() {
@@ -35,7 +38,7 @@ final class TestAnalysisRuns {
   }
 
   private static AnalysisRun analyze(Path root, CompilerConfiguration configuration, List<SourceFile> sources) {
-    var snapshot = InputSnapshot.fromSources(root, sources);
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(root), sources);
     var source = new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_BOUNDED);
     var request = new AnalysisComputationRequest(source, Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)));
     return AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()).analyze(request);

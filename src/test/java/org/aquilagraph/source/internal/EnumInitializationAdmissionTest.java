@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.retention.AstCodec;
@@ -93,7 +96,7 @@ class EnumInitializationAdmissionTest {
     var scope = values.scopes().stream().filter(value -> value.scope() instanceof ExecutionScope.EnumConstant).findFirst().orElseThrow();
     var constant = (ExecutionScope.EnumConstant) scope.scope();
     var selected = constant.selectedConstructor().orElseThrow();
-    var foreign = new SemanticReference(selected.referenceKind(), selected.status(), Optional.of("type:Other#<init>(int)"), selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames());
+    var foreign = new SemanticReference(selected.referenceKind(), selected.status(), Optional.of("type:Other#<init>(int)"), selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames(), Optional.empty());
     var duplicate = new ArrayList<>(values.scopes());
     duplicate.add(scope);
     var duplicateBodies = new ArrayList<>(values.bodies());
@@ -130,13 +133,13 @@ class EnumInitializationAdmissionTest {
     var scopes = values.scopes().stream().map(scope -> {
       if (!(scope.scope() instanceof ExecutionScope.EnumConstant constant)) return scope;
       var selected = constant.selectedConstructor().orElseThrow();
-      var nonexistent = new SemanticReference(selected.referenceKind(), selected.status(), Optional.of(constant.ownerKey() + "#<init>(boolean)"), selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames());
+      var nonexistent = new SemanticReference(selected.referenceKind(), selected.status(), Optional.of(constant.ownerKey() + "#<init>(boolean)"), selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames(), Optional.empty());
       return copy(scope, new ExecutionScope.EnumConstant(constant.key(), constant.ownerKey(), Optional.of(nonexistent)), scope.uses(), scope.invocations());
     }).toList();
     var incompatible = values.scopes().stream().map(scope -> {
       if (!(scope.scope() instanceof ExecutionScope.EnumConstant constant)) return scope;
       var selected = constant.selectedConstructor().orElseThrow();
-      var other = new SemanticReference(selected.referenceKind(), selected.status(), Optional.of(constant.ownerKey() + "#<init>(java.lang.String[])"), selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames());
+      var other = new SemanticReference(selected.referenceKind(), selected.status(), Optional.of(constant.ownerKey() + "#<init>(java.lang.String[])"), selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames(), Optional.empty());
       return copy(scope, new ExecutionScope.EnumConstant(constant.key(), constant.ownerKey(), Optional.of(other)), scope.uses(), scope.invocations());
     }).toList();
     // Act
@@ -148,22 +151,26 @@ class EnumInitializationAdmissionTest {
   }
 
   @Test
-  void givenEarlierEnumProfileAndCurrentEnumScopes_whenRetainedFormatsAreSelected_thenOriginalValuesDecodeAndNewScopesRefuseOldFormat() throws IOException {
+  void givenTwoSupportedEnumProfiles_whenRetained_thenEachProfileKeepsItsOwnValues() throws IOException {
     // Arrange
-    var historical = produce("enum Example { FIRST; Example() {} }", AstProfile.JAVA_SOURCE_NESTED);
-    var input = new SyntaxAnalysisInput(historical.snapshot(), historical.environment(), historical.program(), Optional.of(historical.aggregate()), historical.diagnostics(), historical.coverage());
-    var previous = AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input), historical.profile(), historical.identity().semanticProductionRevision(), AstResult.NESTED_SOURCE_MODEL_VERSION);
-    var current = produce("enum Example { FIRST(1) {}; Example(int n) {} }", AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION);
-    var currentInput = new SyntaxAnalysisInput(current.snapshot(), current.environment(), current.program(), Optional.of(current.aggregate()), current.diagnostics(), current.coverage());
+    var earlier = produce("enum Example { FIRST; Example() {} }", AstProfile.JAVA_SOURCE_NESTED);
+    var later = produce("enum Example { FIRST(1) {}; Example(int n) {} }", AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION);
+    var earlierBytes = AstCodec.encode(earlier);
+    var laterBytes = AstCodec.encode(later);
+
     // Act
-    var bytes = AstCodec.encode(previous);
-    var retained = AstCodec.decode(bytes, previous.identity());
-    var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(currentInput), current.profile(), current.identity().semanticProductionRevision(), AstResult.NESTED_SOURCE_MODEL_VERSION));
+    var earlierRetained = AstCodec.decode(earlierBytes, earlier.identity());
+    var laterRetained = AstCodec.decode(laterBytes, later.identity());
+
     // Assert
-    assertEquals(previous.identity(), retained.identity());
-    assertEquals(previous.completion(), retained.completion());
-    assertArrayEquals(bytes, AstCodec.encode(retained));
-    assertTrue(failure.getMessage().contains("java-source/16"));
+    assertEquals(AstProfile.JAVA_SOURCE_NESTED, earlierRetained.profile());
+    assertEquals(AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION, laterRetained.profile());
+    assertEquals(earlier.identity(), earlierRetained.identity());
+    assertEquals(later.identity(), laterRetained.identity());
+    assertEquals(earlier.completion(), earlierRetained.completion());
+    assertEquals(later.completion(), laterRetained.completion());
+    assertArrayEquals(earlierBytes, AstCodec.encode(earlierRetained));
+    assertArrayEquals(laterBytes, AstCodec.encode(laterRetained));
   }
 
   @TestFactory
@@ -176,7 +183,7 @@ class EnumInitializationAdmissionTest {
           var scopes = values.scopes().stream().map(scope -> {
             if (!(scope.scope() instanceof ExecutionScope.EnumConstant constant)) return scope;
             var selected = constant.selectedConstructor().orElseThrow();
-            var other = new SemanticReference(selected.referenceKind(), selected.status(), Optional.of(constant.ownerKey() + "#<init>(" + parameters + ")"), selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames());
+            var other = new SemanticReference(selected.referenceKind(), selected.status(), Optional.of(constant.ownerKey() + "#<init>(" + parameters + ")"), selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames(), Optional.empty());
             return copy(scope, new ExecutionScope.EnumConstant(constant.key(), constant.ownerKey(), Optional.of(other)), scope.uses(), optionalInvocations(scope, absent));
           }).toList();
           // Act
@@ -258,7 +265,7 @@ class EnumInitializationAdmissionTest {
   }
 
   private AstResult produce(String source, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile).result().orElseThrow();
   }
 

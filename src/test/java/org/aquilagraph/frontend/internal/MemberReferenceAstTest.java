@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.AstPublicationRequest;
@@ -192,7 +195,7 @@ class MemberReferenceAstTest {
     var reference = references(result).getFirst();
     assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source(reference.sourceFileKey(), reference.structuralPath(), reference.sourceKind(),
         reference.syntaxKind(), reference.type(), reference.value(), reference.children(), Optional.of(new SemanticReference(ReferenceKind.CONSTRUCTOR,
-            ResolutionStatus.RESOLVED, Optional.of("supplied-constructor"), Optional.empty(), List.of(), List.of())), reference.origin().orElseThrow()));
+            ResolutionStatus.RESOLVED, Optional.of("supplied-constructor"), Optional.empty(), List.of(), List.of(), Optional.empty())), reference.origin().orElseThrow()));
   }
 
   @TestFactory
@@ -201,7 +204,7 @@ class MemberReferenceAstTest {
       // Arrange
       var arrayType = written.equals("Missing[][]") ? "Missing[][]" : "Missing[]";
       var source = "class Example { java.util.function.Function<" + arrayType + "," + arrayType + "> subject() { return " + written + "::clone; } }";
-      var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
       // Act
       var outcome = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_EXPANDED);
       var result = outcome.result().orElseThrow();
@@ -228,7 +231,7 @@ class MemberReferenceAstTest {
       // Arrange
       var arrayType = written.equals("Missing[][]") ? "Object[][]" : written.startsWith("String") ? "String[]" : "Object[]";
       var source = "class Example { java.util.function.Function<" + arrayType + "," + arrayType + "> subject() { return " + written + "::clone; } }";
-      var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
       // Act
       var outcome = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_EXPANDED);
       var result = outcome.result().orElseThrow();
@@ -250,7 +253,7 @@ class MemberReferenceAstTest {
   }
 
   private AstResult produce(String source, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile).result().orElseThrow();
   }
 
@@ -293,7 +296,7 @@ class MemberReferenceAstTest {
         .flatMap(member -> Stream.of("target", "selected-type", "qualifier", "target-structure", "target-identity-only", "selected-structure", "selected-identity-only", "qualifier-structure", "qualifier-identity-only")
             .map(missingFact -> DynamicTest.dynamicTest(member + " " + missingFact, () -> {
       // Arrange
-      var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
           "class Example { " + member + " }")));
       var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
       var complete = AstProductionAdmission.outcome(original, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1").result().orElseThrow();
@@ -316,7 +319,7 @@ class MemberReferenceAstTest {
           source.structuralEdges(), source.semanticEdges())).toList();
       var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), replaceFact(body.root(), replacements, missingFact),
           body.origin(), body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
-      var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes()));
+      var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes(), captured.scopes()));
       var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(original));
       // Act
       var outcome = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
@@ -394,7 +397,7 @@ class MemberReferenceAstTest {
         "java.util.function.Supplier<Example> subject() { return Example::new; }")
         .map(member -> DynamicTest.dynamicTest(member, () -> {
           // Arrange
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { " + member + " }")));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { " + member + " }")));
           var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
           var captured = SourceValueCapture.capture(original.aggregate().orElseThrow());
           var replacements = new IdentityHashMap<SyntaxNode, SyntaxNode>();
@@ -405,7 +408,7 @@ class MemberReferenceAstTest {
               source.structuralEdges(), source.semanticEdges().stream().filter(edge -> !referenceKeys.contains(edge.sourceKey())).toList())).toList();
           var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), replaceFact(body.root(), replacements, "member"),
               body.origin(), body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
-          var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes()));
+          var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes(), captured.scopes()));
           var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(original));
           // Act
           var outcome = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
@@ -424,7 +427,7 @@ class MemberReferenceAstTest {
   @Test
   void givenChangedReferenceName_whenReconciledAgainstIndependentWrittenProperties_thenTheExactNameObligationFails() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { java.util.function.ToIntFunction<String> subject() { return Integer::parseInt; } }")));
     var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
     var captured = SourceValueCapture.capture(original.aggregate().orElseThrow());
@@ -434,7 +437,7 @@ class MemberReferenceAstTest {
         source.structuralEdges(), source.semanticEdges())).toList();
     var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), replaceFact(body.root(), replacements, "name"),
         body.origin(), body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
-    var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes()));
+    var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes(), captured.scopes()));
     // Act
     var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(original));
     var result = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1").result().orElseThrow();
@@ -473,7 +476,7 @@ class MemberReferenceAstTest {
   @Test
   void givenExpandedReferenceRequest_whenApplicationSelectsCfg_thenRealRefusalKeepsTheCompleteSource() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { java.util.function.IntFunction<int[]> subject() { return int[]::new; } }")));
     var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);

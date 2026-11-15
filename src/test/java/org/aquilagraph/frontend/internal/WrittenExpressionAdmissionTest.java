@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.internal.SourceValueCapture;
 import org.aquilagraph.source.admission.CoverageAdmission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -424,7 +427,7 @@ class WrittenExpressionAdmissionTest {
     var original = produce("class Example { int value() { return 1; } }");
     var evidence = original.coverage().validationEvidence();
     var written = evidence.writtenInventory();
-    var absent = new SourceCoverageInventory(written.snapshot(), written.release(), written.contractIdentity(), written.contexts());
+    var absent = new SourceCoverageInventory(written.snapshot(), written.release(), written.contractIdentity(), written.contexts(), Optional.empty());
     var attributed = new AttributedCoverageExpectations(absent, evidence.attributedExpectations().projections());
     var coverage = CoverageAdmission.fromEvidence(original.coverage().coverage(), absent, attributed,
         evidence.outcomes(), evidence.unmatchedFacts(), evidence.diagnosticEmissions());
@@ -445,7 +448,7 @@ class WrittenExpressionAdmissionTest {
   }
 
   private AstOutcome produceOutcome(String source) {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(new SourceInput.Snapshot(snapshot),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_FIDELITY));
   }

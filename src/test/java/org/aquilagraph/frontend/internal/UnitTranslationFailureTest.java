@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -40,7 +43,7 @@ class UnitTranslationFailureTest {
       throws IOException {
     // Arrange
     var text = "enum Sample { FIRST { @Missing class Earlier {} }, SECOND { class Later {} }; }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Sample.java"), text)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), text)));
     var source = snapshot.sourceFiles().getFirst();
     var sources = new SnapshotSourceCatalog(snapshot);
     var policy = JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_UNITS);
@@ -119,7 +122,7 @@ class UnitTranslationFailureTest {
   void givenEarlierUnitAndExecutableEmissions_whenLaterNestedProjectionFails_thenCreatingEventsSurviveUnwindingAndFinalReconciliation()
       throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Sample.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")),
         "import java.util.List; class Sample { void subject() { int value = 1; class Nested {} } }")));
     var source = snapshot.sourceFiles().getFirst();
     var sources = new SnapshotSourceCatalog(snapshot);
@@ -270,9 +273,9 @@ class UnitTranslationFailureTest {
   }
 
   private InputSnapshot snapshot() {
-    return InputSnapshot.fromSources(directory, List.of(
-        SourceFile.fromContent(Path.of("ABefore.java"), "class Before { void subject() { class Nested { int value() { return 1; } } } }"),
-        SourceFile.fromContent(Path.of("BMiddle.java"), "class Middle { int subject() { return 2; } }"),
-        SourceFile.fromContent(Path.of("CAfter.java"), "class After { void subject() { class Nested { int value() { return 3; } } } }")));
+    return InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+        SourceFile.fromContent(capturedPath(Path.of("ABefore.java")), "class Before { void subject() { class Nested { int value() { return 1; } } } }"),
+        SourceFile.fromContent(capturedPath(Path.of("BMiddle.java")), "class Middle { int subject() { return 2; } }"),
+        SourceFile.fromContent(capturedPath(Path.of("CAfter.java")), "class After { void subject() { class Nested { int value() { return 3; } } } }")));
   }
 }

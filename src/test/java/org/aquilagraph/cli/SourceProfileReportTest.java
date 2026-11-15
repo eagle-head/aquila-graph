@@ -1,5 +1,8 @@
 package org.aquilagraph.cli;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.aquilagraph.cli.NativeReportAssertions.assertNativeReport;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -150,7 +153,7 @@ class SourceProfileReportTest {
   @Test
   void givenAstOnlyRequestWithSourceErrors_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of(".")), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { int subject() { return missing; } }")));
     var runner = CliTestFixtures.runner();
     var request = new AnalysisComputationRequest(
@@ -170,7 +173,7 @@ class SourceProfileReportTest {
   @Test
   void givenAlternativeCfgProfile_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of(".")), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { int subject(int value) { return switch (value) { case 1 -> 2; default -> 3; }; } }")));
     var runner = CliTestFixtures.runner();
     var request = new AnalysisComputationRequest(

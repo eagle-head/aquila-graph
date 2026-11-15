@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -115,7 +118,7 @@ class InvocationSelectorBoundaryTest {
   }
 
   private InputSnapshot snapshot(String content) {
-    return InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Sample.java"), content)));
+    return InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), content)));
   }
 
   private static List<SelectorObservation> selectors(InputSnapshot input) throws IOException {

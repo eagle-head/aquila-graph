@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -47,7 +50,7 @@ class JavaModifierCoverageTest {
       var source = "sealed class Base" + permits + " {} non-sealed abstract class Open extends Base {} "
           + "sealed interface Contract" + (permits.isEmpty() ? "" : " permits Extension")
           + " {} non-sealed interface Extension extends Contract {}";
-      var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Hierarchy.java"), source)));
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Hierarchy.java")), source)));
       for (var profile : PROFILES) {
         // Act
         var outcome = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(snapshot, CONFIGURATION, profile));
@@ -93,7 +96,7 @@ class JavaModifierCoverageTest {
     // Arrange
     var source = "abstract class Base { protected static final class Nested {} } final class Leaf {} "
         + "strictfp class Floating {} interface Contract { int value(); }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Controls.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Controls.java")), source)));
 
     // Act
     var outcome = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(snapshot, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS));
@@ -125,7 +128,7 @@ class JavaModifierCoverageTest {
     // Arrange
     var source = "import java.util.function.IntSupplier; sealed class Base permits Open {} "
         + "non-sealed class Open extends Base { int supported() { return 7; } IntSupplier subject() { return () -> 9; } }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Hierarchy.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Hierarchy.java")), source)));
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var outcome = frontend.produce(new AstProductionRequest(snapshot, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS));
     var result = outcome.result().orElseThrow();
@@ -148,8 +151,8 @@ class JavaModifierCoverageTest {
   @Test
   void givenNonSealedDeclarationWithoutSealedParent_whenProduced_thenActualCompilerErrorsPreventCompleteQualification() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Invalid.java"), "non-sealed class Invalid {}")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Invalid.java")), "non-sealed class Invalid {}")));
 
     // Act
     var outcome = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(snapshot, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS));

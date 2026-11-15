@@ -27,6 +27,7 @@ final class CompilerSessionAcquisition implements AutoCloseable {
     try (var acquisition = new CompilerSessionAcquisition()) {
       acquisition.fileManager = compiler.getStandardFileManager(diagnostics, Locale.ROOT, StandardCharsets.UTF_8);
       acquisition.managedFileManager = new CompilerFileManager(Objects.requireNonNull(acquisition.fileManager, "fileManager"));
+      invocation.configurePaths(acquisition.managedFileManager.standardFileManager());
       var task = (JavacTask) compiler.getTask(null, Objects.requireNonNull(acquisition.managedFileManager, "managedFileManager"),
           diagnostics, invocation.compilerOptions(), null, sources.compilationUnits());
       return acquisition.transfer(CompilerSession.fromAcquiredTask(

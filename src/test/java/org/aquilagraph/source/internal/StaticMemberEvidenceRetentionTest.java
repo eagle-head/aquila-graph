@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AstPublicationRequest;
 import org.aquilagraph.application.PublicationIntent;
@@ -58,7 +61,7 @@ class StaticMemberEvidenceRetentionTest {
   void givenSourceOnlyStaticConstantInTypeAnnotation_whenDeriving_thenSourceReferenceIsRetainedWithoutRuntimeMemberAccess()
       throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), """
         import java.lang.annotation.ElementType;
         import java.lang.annotation.Target;
         @Target(ElementType.TYPE_USE) @interface Limit { int value(); }
@@ -89,7 +92,7 @@ class StaticMemberEvidenceRetentionTest {
   void givenInheritedAndExternalStaticMembers_whenRequiredOwnerIsOmittedMissingOrErroneous_thenDecodedSourceIsIncompleteAndCannotPublish()
       throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), """
         class Parent { static int mutable; }
         class Stored extends Parent { int read() { return mutable + Integer.MAX_VALUE; } }
         """)));
@@ -218,7 +221,7 @@ class StaticMemberEvidenceRetentionTest {
   }
 
   private AstResult produce() throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")),
         "class Stored { int read() { return Integer.MAX_VALUE; } }")));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot,
         new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(), List.of()), AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
@@ -242,7 +245,7 @@ class StaticMemberEvidenceRetentionTest {
         body.invocations(), body.staticAccesses().isEmpty() ? body.staticAccesses() : members,
         body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), bodies, copied.memberOrders(),
-        copied.associations(), copied.declarationTypes()));
+        copied.associations(), copied.declarationTypes(), copied.scopes()));
     return AstResultAdmission.admit(new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(),
         Optional.of(aggregate), original.diagnostics(), original.coverage()), original.profile(), original.identity().semanticProductionRevision());
   }

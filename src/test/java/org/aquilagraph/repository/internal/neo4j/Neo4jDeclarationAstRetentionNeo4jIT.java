@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.AstPublicationRequest;
@@ -65,7 +68,6 @@ import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.DependencySemantics;
-import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
 import org.aquilagraph.identity.api.ModuleCandidate;
 import org.aquilagraph.identity.api.ModuleNameOrigin;
 import org.aquilagraph.identity.api.InputSnapshot;
@@ -94,6 +96,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.aquilagraph.testsupport.Neo4jIntegration;
 import org.aquilagraph.testsupport.SourceFidelityFixture;
 import org.aquilagraph.testsupport.LiteralLabelFixture;
+import org.aquilagraph.testsupport.RetiredSourceFixture;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.io.TempDir;
 import org.neo4j.driver.AuthTokens;
@@ -108,7 +111,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   @TempDir Path directory;
 
   @Test
-  void givenHistoricalAndModuleAwareResults_whenPublishedReplacedAndDependenciesRemoved_thenIndependentQueriesPreserveBothSubjects() throws Exception {
+  void givenRetiredAndCurrentModuleResults_whenReplacingAndRemovingDependencies_thenIndependentQueriesPreserveCurrentAndRefuseRetired() throws Exception {
     // Arrange
     var dependency = directory.resolve("alpha.jar");
     var manifest = new Manifest();
@@ -118,17 +121,17 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       output.write(new byte[] {1, 2, 3});
       output.closeEntry();
     }
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(dependency), List.of());
-    var snapshot = InputSnapshot.fromSources(directory, List.of(
-        SourceFile.fromContent(Path.of("module-info.java"), "module consumer.sample { requires alpha; }"),
-        SourceFile.fromContent(Path.of("sample/Example.java"), "package sample; public class Example { public int value() { return 7; } }")));
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(capturedAbsolute(dependency)), List.of());
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+        SourceFile.fromContent(capturedPath(Path.of("module-info.java")), "module consumer.sample { requires alpha; }"),
+        SourceFile.fromContent(capturedPath(Path.of("sample/Example.java")), "package sample; public class Example { public int value() { return 7; } }")));
     var settings = settings();
     var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     AnalysisRunRepositoryFactory completed = Neo4jRepositories.completedRuns(() -> settings);
     var application = AnalysisCapabilities.execution(runner, Neo4jRepositories.astRetention(() -> settings), completed);
     var request = new AnalysisRequest(new AnalysisComputationRequest(
         new AstProductionRequest(snapshot, configuration, AstProfile.JAVA_SOURCE_MODULE_SERVICES), Optional.empty()), PublicationIntent.SAVE_COMPLETE_AST);
-    var historical = AstOutcome.available(HistoricalAstFixtures.read(20));
+    var historical = HistoricalAstFixtures.read(20);
     var execution = application.execute(request);
     var outcome = execution.run().representation().ast();
     var original = outcome.result().orElseThrow();
@@ -138,7 +141,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     try {
       // Act
       var firstRead = query(settings).findAst(original.identity());
-      var oldSave = retention(settings).retainAst(new AstPublicationRequest(historical, PublicationIntent.SAVE_COMPLETE_AST));
+      storeRetiredRoot(settings, historical);
       var runSave = AnalysisExecutionFixture.executeComputed(run, PublicationIntent.SAVE_COMPLETED,
           AnalysisExecutionFixture::unexpectedAstRepository, completed).publication();
       assertEquals(PublicationStatus.SAVED, runSave.status(), run.diagnostics().values().toString());
@@ -157,21 +160,18 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
           AnalysisExecutionFixture::unexpectedAstRepository, completed).publication();
       Files.delete(dependency);
       var retained = queryRetainedInIndependentProcess(settings, outcome, Optional.empty(), List.of(run.identity().key()));
-      var retainedHistorical = queryRetainedInIndependentProcess(settings, historical, Optional.empty());
+      assertIndependentRetiredRefusal(historical);
 
       // Assert
       assertEquals(PublicationStatus.SAVED, execution.publication().status());
       assertEquals(AstLookupStatus.FOUND, firstRead.status());
       assertEquals(original.environment(), firstRead.outcome().orElseThrow().result().orElseThrow().environment());
-      assertEquals(PublicationStatus.SAVED, oldSave.status());
       assertEquals(PublicationStatus.SAVED, runReplacement.status());
-      assertEquals(EnvironmentIdentityScheme.MODULE_SEMANTICS, retained.environment().identityScheme());
       assertEquals(List.of(new ModuleCandidate(".", "alpha", Optional.empty(), ModuleNameOrigin.FILENAME)),
           retained.environment().modulePath().getFirst().semantics().modules());
       assertEquals(DependencySemantics.State.MODULES, retained.environment().modulePath().getFirst().semantics().state());
-      assertEquals(EnvironmentIdentityScheme.HISTORICAL, retainedHistorical.environment().identityScheme());
-      assertEquals("java-source/20", retainedHistorical.identity().sourceModelVersion());
-      assertNotEquals(original.identity(), retainedHistorical.identity());
+      assertRetiredRootRefused(settings, historical);
+      assertNotEquals(original.identity(), historical.identity());
       assertNotEquals(run.identity().key(), original.identity().softwareSignature());
       withSession(settings, session -> {
         var environment = session.run("MATCH (environment:AnalysisEnvironmentSnapshot {runId: $runId}) RETURN environment",
@@ -193,7 +193,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       });
     } finally {
       delete(settings, original.identity());
-      delete(settings, historical.result().orElseThrow().identity());
+      delete(settings, historical.identity());
       withSession(settings, session -> session.run("MATCH (entity:AnalysisEntity {runId: $runId}) DETACH DELETE entity",
           Values.parameters("runId", run.identity().key())).consume());
     }
@@ -214,17 +214,17 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     Files.copy(alpha, beta);
     var alphaBytes = Files.readAllBytes(alpha);
     var betaBytes = Files.readAllBytes(beta);
-    var matchingConfiguration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(alpha), List.of());
-    var nonmatchingConfiguration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(beta), List.of());
+    var matchingConfiguration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(capturedAbsolute(alpha)), List.of());
+    var nonmatchingConfiguration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(capturedAbsolute(beta)), List.of());
     var descriptor = "import api.Service; import impl.AlphaProvider; module service.integrated { requires alpha; uses api.Service; provides Service with impl.ZuluFactory, AlphaProvider; }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(
-        SourceFile.fromContent(Path.of("module-info.java"), descriptor),
-        SourceFile.fromContent(Path.of("api/Service.java"), "package api; public interface Service { int value(); }"),
-        SourceFile.fromContent(Path.of("api/Mark.java"), "package api; public @interface Mark { Class<?> type() default String.class; int count() default 3; }"),
-        SourceFile.fromContent(Path.of("impl/Product.java"), "package impl; public class Product implements api.Service { public int value() { return 11; } }"),
-        SourceFile.fromContent(Path.of("impl/ZuluFactory.java"), "package impl; public final class ZuluFactory { private ZuluFactory() {} public static Product provider() { return new Product(); } }"),
-        SourceFile.fromContent(Path.of("impl/AlphaProvider.java"), "package impl; @api.Mark public class AlphaProvider implements api.Service { public int value() { return 7; } }"),
-        SourceFile.fromContent(Path.of("model/Payload.java"), "package model; @api.Mark public class Payload<T extends Comparable<T>> { public T echo(T value) { return value; } public int supported() { return 9; } public Runnable lambda() { return () -> {}; } public Object boxed() { return 4; } public Class<?> literal() { return String.class; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+        SourceFile.fromContent(capturedPath(Path.of("module-info.java")), descriptor),
+        SourceFile.fromContent(capturedPath(Path.of("api/Service.java")), "package api; public interface Service { int value(); }"),
+        SourceFile.fromContent(capturedPath(Path.of("api/Mark.java")), "package api; public @interface Mark { Class<?> type() default String.class; int count() default 3; }"),
+        SourceFile.fromContent(capturedPath(Path.of("impl/Product.java")), "package impl; public class Product implements api.Service { public int value() { return 11; } }"),
+        SourceFile.fromContent(capturedPath(Path.of("impl/ZuluFactory.java")), "package impl; public final class ZuluFactory { private ZuluFactory() {} public static Product provider() { return new Product(); } }"),
+        SourceFile.fromContent(capturedPath(Path.of("impl/AlphaProvider.java")), "package impl; @api.Mark public class AlphaProvider implements api.Service { public int value() { return 7; } }"),
+        SourceFile.fromContent(capturedPath(Path.of("model/Payload.java")), "package model; @api.Mark public class Payload<T extends Comparable<T>> { public T echo(T value) { return value; } public int supported() { return 9; } public Runnable lambda() { return () -> {}; } public Object boxed() { return 4; } public Class<?> literal() { return String.class; } }")));
     var settings = settings();
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var application = AnalysisCapabilities.execution(AnalysisCapabilities.computation(frontend, CfgDerivers.standard()),
@@ -260,7 +260,6 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       assertEquals(snapshot, nonmatchingAst.capturedInput().orElseThrow());
       assertEquals(List.of(), retained.diagnostics());
       assertEquals(original.environment(), retained.environment());
-      assertEquals(EnvironmentIdentityScheme.MODULE_SEMANTICS, retained.environment().identityScheme());
       assertEquals(List.of(new ModuleCandidate(".", "alpha", Optional.empty(), ModuleNameOrigin.FILENAME)),
           retained.environment().modulePath().getFirst().semantics().modules());
       assertEquals(List.of(new ModuleCandidate(".", "beta", Optional.empty(), ModuleNameOrigin.FILENAME)),
@@ -277,7 +276,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
       assertEquals("java-source-expanded/8", retained.profile().version());
       assertEquals("javac-public/14", retained.identity().semanticProductionRevision());
-      assertEquals("java-source/22", retained.identity().sourceModelVersion());
+      assertEquals("java-source/23", retained.identity().sourceModelVersion());
       DeclarationAstRetentionFixture.assertPreserved(original, retained);
       assertEquals(List.of(MethodCfgState.AVAILABLE, MethodCfgState.UNSUPPORTED), graphs.methods().stream().map(method -> method.state()).toList());
       assertEquals(2, retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION).count());
@@ -293,22 +292,20 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   }
 
   @Test
-  void givenModuleEndpointsAndAuthenticHistory_whenSavedReplacedAndQueriedWithoutCompiler_thenExactSubjectsAndOrderedTargetsCoexist() throws Exception {
+  void givenCurrentModuleEndpointsAndRetiredEnvelope_whenReplacedAndQueriedWithoutCompiler_thenCurrentTargetsAndRetiredRefusalSurvive() throws Exception {
     // Arrange
     var historical = HistoricalAstFixtures.read(19);
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var first = frontend.produce(new AstProductionRequest(new SourceInput.Snapshot(historical.snapshot()),
-        historical.environment().compilerConfiguration(), AstProfile.JAVA_SOURCE_MODULE_SERVICES));
-    var changed = InputSnapshot.fromSources(directory, historical.snapshot().sourceFiles().stream().map(source ->
-        SourceFile.fromContent(source.relativePath(), source.content().replace("module service.sample", "module service.alternate"))).toList());
-    var second = frontend.produce(new AstProductionRequest(new SourceInput.Snapshot(changed), historical.environment().compilerConfiguration(), AstProfile.JAVA_SOURCE_MODULE_SERVICES));
-    var reorderedInput = InputSnapshot.fromSources(directory, historical.snapshot().sourceFiles().stream().map(source ->
-        SourceFile.fromContent(source.relativePath(), source.content().replace("impl.ZuluProvider, impl.AlphaProvider", "impl.AlphaProvider, impl.ZuluProvider"))).toList());
-    var reordered = frontend.produce(new AstProductionRequest(new SourceInput.Snapshot(reorderedInput), historical.environment().compilerConfiguration(), AstProfile.JAVA_SOURCE_MODULE_SERVICES));
-    var subjects = List.of(AstOutcome.available(historical), first, second, reordered);
+    var providerOrder = List.of("impl.ZuluProvider", "impl.AlphaProvider");
+    var reverseOrder = providerOrder.reversed();
+    var first = produceModuleEndpoints(frontend, "service.sample", providerOrder);
+    var second = produceModuleEndpoints(frontend, "service.alternate", providerOrder);
+    var reordered = produceModuleEndpoints(frontend, "service.sample", reverseOrder);
+    var subjects = List.of(first, second, reordered);
     assertNotEquals(first.result().orElseThrow().identity().canonicalContentDigest(), reordered.result().orElseThrow().identity().canonicalContentDigest());
     var settings = settings();
     try {
+      storeRetiredRoot(settings, historical);
       for (var subject : subjects) {
         assertEquals(AstCompletion.COMPLETE, subject.completion(), subject.diagnostics().toString());
         assertEquals(PublicationStatus.SAVED, retention(settings).retainAst(new AstPublicationRequest(subject,
@@ -317,22 +314,38 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       // Act
       var replaced = retention(settings).retainAst(new AstPublicationRequest(first, PublicationIntent.SAVE_COMPLETE_AST));
       var lookups = subjects.stream().map(subject -> query(settings).findAst(subject.result().orElseThrow().identity())).toList();
+      assertIndependentRetiredRefusal(historical);
       // Assert
       assertEquals(PublicationStatus.SAVED, replaced.status());
+      assertRetiredRootRefused(settings, historical);
       for (var index = 0; index < subjects.size(); index++) {
         var original = subjects.get(index).result().orElseThrow();
         assertEquals(AstLookupStatus.FOUND, lookups.get(index).status());
         DeclarationAstRetentionFixture.assertPreserved(original, lookups.get(index).outcome().orElseThrow().result().orElseThrow());
         assertMaterialization(settings, subjects.get(index));
-        var module = index == 2 ? "service.alternate" : "service.sample";
-        var providerOrder = index == 3 ? List.of("impl.AlphaProvider", "impl.ZuluProvider") : List.of("impl.ZuluProvider", "impl.AlphaProvider");
-        var expected = index == 0 ? List.<String>of() : expectedModuleOperands(original.snapshot(), module, providerOrder);
+        var module = index == 1 ? "service.alternate" : "service.sample";
+        var expected = expectedModuleOperands(original.snapshot(), module, index == 2 ? reverseOrder : providerOrder);
         var retained = independentQuery(settings, subjects.get(index), Optional.of(expected));
         assertEquals(original.identity(), retained.identity());
       }
     } finally {
       for (var subject : subjects) { delete(settings, subject.result().orElseThrow().identity()); }
+      delete(settings, historical.identity());
     }
+  }
+
+  private AstOutcome produceModuleEndpoints(JavaFrontend frontend, String module, List<String> providerOrder) {
+    var descriptor = "import api.Service; module " + module + " { uses Service; provides api.Service with "
+        + String.join(", ", providerOrder) + "; }";
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+        SourceFile.fromContent(capturedPath(Path.of("module-info.java")), descriptor),
+        SourceFile.fromContent(capturedPath(Path.of("api/Service.java")), "package api; public interface Service {}"),
+        SourceFile.fromContent(capturedPath(Path.of("impl/AlphaProvider.java")),
+            "package impl; public final class AlphaProvider implements api.Service {}"),
+        SourceFile.fromContent(capturedPath(Path.of("impl/ZuluProvider.java")),
+            "package impl; public final class ZuluProvider implements api.Service {}")));
+    return frontend.produce(new AstProductionRequest(snapshot, DeclarationAstRetentionFixture.configuration(),
+        AstProfile.JAVA_SOURCE_MODULE_SERVICES));
   }
 
   private static List<String> expectedModuleOperands(InputSnapshot snapshot, String module, List<String> providers) {
@@ -359,16 +372,24 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   }
 
   @Test
-  void givenCurrentAndHistoricalLiteralLabels_whenSavedAndQueriedWithoutCompiler_thenOwnFactsAndGraphLabelsSurvive() throws Exception {
+  void givenCurrentAndRetiredLiteralLabels_whenQueriedWithoutCompiler_thenCurrentLabelsSurviveAndRetiredEnvelopeRefuses() throws Exception {
     // Arrange
-    var current = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
-        new SourceInput.Snapshot(LiteralLabelFixture.snapshot(directory)), DeclarationAstRetentionFixture.configuration(),
-        AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
     var historical = LiteralLabelFixture.historical(AstProfile.JAVA_SOURCE_FIDELITY);
+    var settings = settings();
 
-    for (var original : List.of(current, historical)) {
+    try {
+      storeRetiredRoot(settings, historical);
+      assertIndependentRetiredRefusal(historical);
+      assertRetiredRootRefused(settings, historical);
+    } finally {
+      delete(settings, historical.identity());
+    }
+    for (var profile : List.of(AstProfile.JAVA_SOURCE_BOUNDED, AstProfile.JAVA_SOURCE_FIDELITY)) {
+      var original = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
+          new SourceInput.Snapshot(LiteralLabelFixture.snapshot(directory)), DeclarationAstRetentionFixture.configuration(),
+          profile)).result().orElseThrow();
       // Act
-      var retained = independentQuery(settings(), AstOutcome.available(original));
+      var retained = independentQuery(settings, AstOutcome.available(original));
       var methods = List.of("negative", "text").stream().map(name -> retained.program().methods().stream()
           .filter(method -> method.name().equals(name)).findFirst().orElseThrow().methodKey()).toList();
       var derived = CfgDerivers.standard().derive(retained, new CfgRequest(retained.identity(), methods, CfgProfile.JAVA_BOUNDED));
@@ -400,7 +421,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   void givenNestedSameStartRegions_whenRepeatedProductionIsRetainedAndQueriedWithoutCompiler_thenOneCanonicalIdentitySurvives() throws Exception {
     // Arrange
     var source = "class Example { String value() { return -1 * 2 + \"a\" + \"b\"; } }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var request = new AstProductionRequest(new SourceInput.Snapshot(snapshot), DeclarationAstRetentionFixture.configuration(),
         AstProfile.JAVA_SOURCE_FIDELITY);
     var frontend = new JavaFrontend(new JavaSourceLoader());
@@ -431,7 +452,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
           String subject(String input) { return 1 + 2 + "e" + "f" + input; }
         }
         """;
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var ast = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(new SourceInput.Snapshot(snapshot),
         DeclarationAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_FIDELITY));
     var original = ast.result().orElseThrow();
@@ -442,7 +463,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     // Assert
     DeclarationAstRetentionFixture.assertPreserved(original, retained);
     assertEquals(AstProfile.JAVA_SOURCE_FIDELITY, retained.profile());
-    assertEquals("java-source/22", retained.identity().sourceModelVersion());
+    assertEquals("java-source/23", retained.identity().sourceModelVersion());
     assertEquals("javac-public/14", retained.identity().semanticProductionRevision());
     assertEquals(6, retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.BINARY).count());
     assertEquals(3, retained.aggregate().nodes().stream().filter(node -> node.sourceKind() == JavaSourceKind.UNARY_MINUS).count());
@@ -515,7 +536,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     // Assert
     assertEquals(AstCompletion.COMPLETE, retained.completion());
     assertEquals("javac-public/14", retained.identity().semanticProductionRevision());
-    assertEquals("java-source/22", retained.identity().sourceModelVersion());
+    assertEquals("java-source/23", retained.identity().sourceModelVersion());
     var modifiers = retained.coverage().validationEvidence().outcomes().stream()
         .filter(value -> value.address().role().equals("TypeElement::Element#getModifiers()"))
         .flatMap(value -> value.encounteredValue().stream()).flatMap(value -> value.items().stream())
@@ -660,12 +681,38 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     var original = ast.result().orElseThrow();
     var identity = original.identity();
     var output = directory.resolve("retained-query.ast");
+    var expectations = directory.resolve("module-endpoints.tsv");
+    if (expectedEndpoints.isPresent()) {
+      Files.write(expectations, expectedEndpoints.orElseThrow());
+    }
+    var expectedSource = directory.resolve("expected-query.ast");
+    Files.writeString(expectedSource, PublicAstObservation.describe(original));
+    assertMaterialization(settings, ast, expectedRunIds);
+
+    var exit = invokeIndependentConsumer(identity, output,
+        List.of(expectedEndpoints.isPresent() ? expectations.toString() : "-", expectedSource.toString()));
+
+    assertEquals(0, exit.status(), exit.diagnostics());
+    assertEquals(Files.readString(expectedSource), Files.readString(output));
+    var found = query(settings).findAst(identity).outcome().orElseThrow().result().orElseThrow();
+    assertArrayEquals(AstCodec.encode(original), AstCodec.encode(found));
+    return found;
+  }
+
+  private void assertIndependentRetiredRefusal(RetiredSourceFixture retired) throws Exception {
+    var output = directory.resolve("retired-query.ast");
+
+    var exit = invokeIndependentConsumer(retired.identity(), output, List.of());
+
+    assertNotEquals(0, exit.status(), exit.diagnostics());
+    assertTrue(exit.diagnostics().contains("Expected retained source: INCOMPATIBLE"), exit.diagnostics());
+    assertFalse(Files.exists(output));
+  }
+
+  private IndependentQueryExit invokeIndependentConsumer(AstIdentity identity, Path output, List<String> expectations) throws Exception {
     var log = directory.resolve("retained-query.log");
     var consumerClasses = compileQueryConsumer();
     var modulePath = Path.of("target/aquila-graph/lib").toAbsolutePath() + File.pathSeparator + consumerClasses;
-    assertMaterialization(settings, ast, expectedRunIds);
-
-    // Act
     var executable = Path.of(System.getProperty("java.home"), "bin", System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java");
     var arguments = new ArrayList<>(List.of(executable.toString(),
         "-Xms64m", "-Xmx1g",
@@ -674,32 +721,18 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
         "org.aquilagraph.retention.consumer/" + RetainedAstQueryProcess.class.getName(), identity.softwareSignature(),
         identity.sourceModelVersion(), identity.astProfileVersion(), identity.semanticProductionRevision(), identity.canonicalContentDigest(),
         output.toString()));
-    if (expectedEndpoints.isPresent()) {
-      var expectations = directory.resolve("module-endpoints.tsv");
-      Files.write(expectations, expectedEndpoints.orElseThrow());
-      arguments.add(expectations.toString());
-    } else {
-      arguments.add("-");
-    }
-    var expectedSource = directory.resolve("expected-query.ast");
-    Files.writeString(expectedSource, PublicAstObservation.describe(original));
-    arguments.add(expectedSource.toString());
+    arguments.addAll(expectations);
     var builder = new ProcessBuilder(arguments).redirectErrorStream(true).redirectOutput(log.toFile());
     builder.environment().putAll(Neo4jIntegration.environment());
     var process = builder.start();
     try {
       var completed = process.waitFor(60, TimeUnit.SECONDS);
 
-      // Assert
       var diagnostics = Files.readString(log);
       System.out.print(diagnostics);
       assertTrue(completed, () -> "Independent query timed out: " + process.pid() + "\n" + diagnostics);
-      assertEquals(0, process.exitValue(), diagnostics);
-      assertEquals(Files.readString(expectedSource), Files.readString(output));
       System.out.println("Independent query process " + process.pid() + " completed with exit " + process.exitValue());
-      var found = query(settings).findAst(identity).outcome().orElseThrow().result().orElseThrow();
-      assertArrayEquals(AstCodec.encode(original), AstCodec.encode(found));
-      return found;
+      return new IndependentQueryExit(process.exitValue(), diagnostics);
     } finally {
       if (process.isAlive()) {
         process.destroyForcibly();
@@ -707,6 +740,8 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       }
     }
   }
+
+  private record IndependentQueryExit(int status, String diagnostics) {}
 
   private Path compileQueryConsumer() throws IOException {
     var root = Files.createTempDirectory(directory, "query-module-");
@@ -844,14 +879,14 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
   }
 
   @Test
-  void givenCurrentAndOriginalHistoricalSubjects_whenReplacingSourceAndLegacyNamespaces_thenEveryOtherIdentityRemainsReadable() throws IOException {
+  void givenCurrentAndRetiredSubjects_whenReplacingSourceAndCompletedNamespaces_thenRetiredEnvelopesRemainUntouched() throws IOException {
     // Arrange
     var settings = settings();
     var current = DeclarationAstRetentionFixture.mixed(directory);
-    var historical = new ArrayList<AstResult>();
+    var historical = new ArrayList<RetiredSourceFixture>();
     for (var format = 2; format <= 21; format++) { historical.add(HistoricalAstFixtures.read(format)); }
-    var simple = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("LegacyRun.java"), "class LegacyRun { int value() { return 4; } }"))),
+    var simple = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("LegacyRun.java")), "class LegacyRun { int value() { return 4; } }"))),
         DeclarationAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
     var result = simple.result().orElseThrow();
     var run = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(simple,
@@ -860,8 +895,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
     try {
       assertEquals(PublicationStatus.SAVED, retention(settings).retainAst(new AstPublicationRequest(current,
           PublicationIntent.SAVE_COMPLETE_AST)).status());
-      for (var prior : historical) { assertEquals(PublicationStatus.SAVED, retention(settings).retainAst(new AstPublicationRequest(AstOutcome.available(prior),
-          PublicationIntent.SAVE_COMPLETE_AST)).status()); }
+      for (var prior : historical) { storeRetiredRoot(settings, prior); }
 
       // Act
       var replaced = retention(settings).retainAst(new AstPublicationRequest(current, PublicationIntent.SAVE_COMPLETE_AST));
@@ -878,10 +912,7 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
       DeclarationAstRetentionFixture.assertMixed(retained);
       assertMaterialization(settings, current);
       for (var prior : historical) {
-        var lookup = query(settings).findAst(prior.identity());
-        assertEquals(AstLookupStatus.FOUND, lookup.status());
-        DeclarationAstRetentionFixture.assertPreserved(prior, lookup.outcome().orElseThrow().result().orElseThrow());
-        assertMaterialization(settings, AstOutcome.available(prior));
+        assertRetiredRootRefused(settings, prior);
       }
     } finally {
       delete(settings, current.result().orElseThrow().identity());
@@ -997,6 +1028,25 @@ class Neo4jDeclarationAstRetentionNeo4jIT {
 
   private static AstRetention retention(Neo4jConnectionSettings settings) {
     return AnalysisCapabilities.astRetention(Neo4jRepositories.astRetention(() -> settings));
+  }
+
+  private static void storeRetiredRoot(Neo4jConnectionSettings settings, RetiredSourceFixture retired) {
+    var root = HistoricalAstFixtures.storedRoot(retired).root();
+    withSession(settings, session -> session.run("CREATE (root:AstEntity:AstResult) SET root = $properties",
+        Values.parameters("properties", root.properties())).consume());
+  }
+
+  private static void assertRetiredRootRefused(Neo4jConnectionSettings settings, RetiredSourceFixture retired) {
+    var lookup = query(settings).findAst(retired.identity());
+    assertEquals(AstLookupStatus.INCOMPATIBLE, lookup.status());
+    assertEquals(retired.identity(), lookup.requestedIdentity());
+    assertEquals(retired.identity().sourceModelVersion(), lookup.unsupportedFormat().orElseThrow());
+    assertTrue(lookup.outcome().isEmpty());
+    withSession(settings, session -> {
+      var stored = session.run("MATCH (root:AstEntity:AstResult {astResultKey: $scope}) RETURN properties(root) AS properties",
+          Values.parameters("scope", retired.identity().astResultKey())).single().get("properties").asMap();
+      assertEquals(HistoricalAstFixtures.storedRoot(retired).root().properties(), stored);
+    });
   }
 
   private static void assertMaterialization(Neo4jConnectionSettings settings, AstOutcome ast) {

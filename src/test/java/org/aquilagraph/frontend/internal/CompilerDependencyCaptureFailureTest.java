@@ -28,7 +28,7 @@ class CompilerDependencyCaptureFailureTest {
       var location = observation.observe(file);
 
       // Act
-      var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(List.of(location)));
+      var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(location));
       Files.delete(file);
 
       // Assert
@@ -52,7 +52,7 @@ class CompilerDependencyCaptureFailureTest {
       observation.inputCloseFailure = closeFailure;
 
       // Act
-      var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(List.of(observation.observe(file))));
+      var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(observation.observe(file)));
       Files.delete(file);
 
       // Assert
@@ -74,7 +74,7 @@ class CompilerDependencyCaptureFailureTest {
       observation.inputOpenFailure = openFailure;
 
       // Act
-      var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(List.of(observation.observe(file))));
+      var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(observation.observe(file)));
       Files.delete(file);
 
       // Assert
@@ -96,7 +96,7 @@ class CompilerDependencyCaptureFailureTest {
       observation.inputCloseFailure = closeFailure;
 
       // Act
-      var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(List.of(observation.observe(file))));
+      var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(observation.observe(file)));
       Files.delete(file);
 
       // Assert
@@ -118,7 +118,7 @@ class CompilerDependencyCaptureFailureTest {
         observation.reportedSizeOffset = 1;
 
         // Act
-        var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(List.of(observation.observe(location))));
+        var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(observation.observe(location)));
         Files.delete(file);
         Files.delete(root);
 
@@ -141,7 +141,7 @@ class CompilerDependencyCaptureFailureTest {
       observation.directoryOpenFailure = openFailure;
 
       // Act
-      var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(List.of(observation.observe(directory))));
+      var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(observation.observe(directory)));
       Files.delete(directory);
 
       // Assert
@@ -163,7 +163,7 @@ class CompilerDependencyCaptureFailureTest {
       observation.directoryIterationFailure = iterationFailure;
 
       // Act
-      var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(List.of(observation.observe(directory))));
+      var failure = assertThrows(IOException.class, () -> new CompilerDependencyCapture().capture(observation.observe(directory)));
       Files.delete(file);
       Files.delete(directory);
 
@@ -179,16 +179,14 @@ class CompilerDependencyCaptureFailureTest {
   }
 
   @Test
-  void givenNullLocationListOrEntry_whenDependenciesAreCaptured_thenRequiredArgumentsRejectNullBeforeProviderWork() {
+  void givenNullNativeLocation_whenPhysicalDependencyIsCaptured_thenItIsRejectedBeforeProviderWork() {
     // Arrange
     var capture = new CompilerDependencyCapture();
 
     // Act
-    var nullList = assertThrows(NullPointerException.class, () -> capture.capture(null));
-    var nullEntry = assertThrows(NullPointerException.class, () -> capture.capture(Collections.singletonList(null)));
+    var failure = assertThrows(NullPointerException.class, () -> capture.capture(null));
 
     // Assert
-    assertEquals("locations", nullList.getMessage());
-    assertEquals("location", nullEntry.getMessage());
+    assertEquals("location", failure.getMessage());
   }
 }

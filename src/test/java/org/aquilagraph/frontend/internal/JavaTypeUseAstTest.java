@@ -1040,7 +1040,7 @@ class JavaTypeUseAstTest {
   private static SyntaxSemanticEdge reference(String owner, SyntaxStructuralPath path, JavaSourceKind kind, ReferenceKind referenceKind,
       String declarationKey) {
     var target = new SemanticReference(referenceKind, ResolutionStatus.RESOLVED, Optional.of(declarationKey), Optional.empty(),
-        List.of(), List.of());
+        List.of(), List.of(), Optional.empty());
     return new SyntaxSemanticEdge(SyntaxNodeKey.from(owner, path, kind).value(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.Declaration(target));
   }

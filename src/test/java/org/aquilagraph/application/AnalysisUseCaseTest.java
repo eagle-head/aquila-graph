@@ -1,5 +1,8 @@
 package org.aquilagraph.application;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -42,8 +45,8 @@ class AnalysisUseCaseTest {
   @Test
   void givenAbruptCfgFailure_whenExecutingEitherSaveIntent_thenTheOriginalFailurePrecedesRepositoryAcquisition() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(temporaryDirectory,
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "interface Example { static int value() { return 1; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "interface Example { static int value() { return 1; } }")));
     var source = new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED);
     var request = new AnalysisComputationRequest(source, Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)));
     var primary = new IllegalStateException("Unexpected CFG invocation failure");
@@ -407,7 +410,7 @@ class AnalysisUseCaseTest {
   }
 
   private static AnalysisRun partialRun(Path root) {
-    var input = InputSnapshot.fromSources(root, List.of(SourceFile.fromContent(Path.of("Partial.java"),
+    var input = InputSnapshot.fromSources(capturedAbsolute(root), List.of(SourceFile.fromContent(capturedPath(Path.of("Partial.java")),
         "class Partial { void run() { while (true) {} } }")));
     return AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()).analyze(
         new AnalysisComputationRequest(

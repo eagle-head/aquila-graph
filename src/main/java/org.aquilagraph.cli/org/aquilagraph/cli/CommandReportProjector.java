@@ -75,7 +75,7 @@ class CommandReportProjector {
       catalog = run.diagnostics();
       this.failures = failures;
       run.representation().ast().capturedInput().ifPresent(
-          snapshot -> snapshot.sourceFiles().forEach(source -> files.put(source.sourceFileKey(), source.relativePath().toString())));
+          snapshot -> snapshot.sourceFiles().forEach(source -> files.put(source.sourceFileKey(), source.relativePath().spelling())));
     }
 
     CommandReport.Executed project(AnalysisExecution execution) {

@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -39,7 +42,7 @@ class DeclarationIdentityRegistryTest {
   void givenPublicCompilerElementsForOverloadsGenericsEnumAndRecord_whenKeysAreDerived_thenExactCanonicalIdentityGrammarIsRetained()
       throws IOException {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Box.java"), """
+    var source = SourceFile.fromContent(capturedPath(Path.of("Box.java")), """
         package example;
         class Box<T> {
           int value;
@@ -52,7 +55,7 @@ class DeclarationIdentityRegistryTest {
         record Pair(int value) {}
         """);
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
-    var sources = new SnapshotSourceCatalog(InputSnapshot.fromSources(temporaryDirectory, List.of(source)));
+    var sources = new SnapshotSourceCatalog(InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory), List.of(source)));
     var compiler = ToolProvider.getSystemJavaCompiler();
     try (var manager = compiler.getStandardFileManager(null, null, null)) {
       var task = (JavacTask) compiler.getTask(null, manager, null, JavaCompilerInvocation.from(configuration).compilerOptions(), null,
@@ -93,8 +96,8 @@ class DeclarationIdentityRegistryTest {
     // Arrange
     var compiler = ToolProvider.getSystemJavaCompiler();
     try (var manager = compiler.getStandardFileManager(null, null, null)) {
-      var sources = new SnapshotSourceCatalog(InputSnapshot.fromSources(temporaryDirectory,
-          List.of(SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}"))));
+      var sources = new SnapshotSourceCatalog(InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory),
+          List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample {}"))));
       var task = (JavacTask) compiler.getTask(null, manager, null,
           JavaCompilerInvocation.from(CompilerConfiguration.forRelease(JavaRelease.JAVA_25)).compilerOptions(), null, sources.compilationUnits());
       task.parse();
@@ -233,8 +236,8 @@ class DeclarationIdentityRegistryTest {
   }
 
   private void withCompiledSource(String content, Consumer<RegistryObservation> assertion) throws IOException {
-    var sources = new SnapshotSourceCatalog(InputSnapshot.fromSources(temporaryDirectory,
-        List.of(SourceFile.fromContent(Path.of("Sample.java"), content))));
+    var sources = new SnapshotSourceCatalog(InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), content))));
     var compiler = ToolProvider.getSystemJavaCompiler();
     try (var manager = compiler.getStandardFileManager(null, null, null)) {
       var task = (JavacTask) compiler.getTask(null, manager, null,

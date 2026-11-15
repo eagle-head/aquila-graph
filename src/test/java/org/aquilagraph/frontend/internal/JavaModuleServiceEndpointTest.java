@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -74,7 +77,7 @@ class JavaModuleServiceEndpointTest {
     assertEquals(AstCompletion.COMPLETE, result.completion(), result.diagnostics().toString());
     assertEquals("java-source-expanded/8", result.profile().version());
     assertEquals("javac-public/14", result.identity().semanticProductionRevision());
-    assertEquals("java-source/22", result.identity().sourceModelVersion());
+    assertEquals("java-source/23", result.identity().sourceModelVersion());
     for (var subject : List.of(result, retained)) {
       var operands = endpoints(subject);
       assertEquals(3, operands.size());
@@ -242,7 +245,7 @@ class JavaModuleServiceEndpointTest {
     var absent = produce(Map.of("module-info.java", "module service.empty {}"));
     // Assert
     assertEquals(AstCompletion.COMPLETE, old.completion(), old.diagnostics().toString());
-    assertEquals("java-source/22", old.identity().sourceModelVersion());
+    assertEquals("java-source/23", old.identity().sourceModelVersion());
     assertEquals("javac-public/14", old.identity().semanticProductionRevision());
     assertTrue(endpoints(old).isEmpty());
     assertTrue(old.aggregate().nodes().stream().flatMap(node -> node.semanticReference().stream()).allMatch(reference -> reference.declarationIdentity().isEmpty()));
@@ -261,13 +264,13 @@ class JavaModuleServiceEndpointTest {
     var facadeAlpha = compileModule("facade-alpha", Map.of("module-info.java", "module service.facade { requires transitive service.alpha; }"), List.of(alpha));
     var facadeBeta = compileModule("facade-beta", Map.of("module-info.java", "module service.facade { requires transitive service.beta; }"), List.of(beta));
     var descriptor = "import same.api.Service; module service.consumer { requires service.facade; uses Service; provides same.api.Service with impl.Provider; }";
-    var snapshot = InputSnapshot.fromSources(directory.resolve("consumer"), List.of(SourceFile.fromContent(Path.of("module-info.java"), descriptor),
-        SourceFile.fromContent(Path.of("impl/Provider.java"), "package impl; public class Provider implements same.api.Service {}")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory.resolve("consumer")), List.of(SourceFile.fromContent(capturedPath(Path.of("module-info.java")), descriptor),
+        SourceFile.fromContent(capturedPath(Path.of("impl/Provider.java")), "package impl; public class Provider implements same.api.Service {}")));
     var frontend = new JavaFrontend(new JavaSourceLoader());
     // Act
     var first = frontend.produce(new AstProductionRequest(new SourceInput.Snapshot(snapshot), configuration(List.of(alpha, facadeAlpha)), AstProfile.JAVA_SOURCE_MODULE_SERVICES)).result().orElseThrow();
     var second = frontend.produce(new AstProductionRequest(new SourceInput.Snapshot(snapshot), configuration(List.of(beta, facadeBeta)), AstProfile.JAVA_SOURCE_MODULE_SERVICES)).result().orElseThrow();
-    var foreignSnapshot = InputSnapshot.fromSources(directory.resolve("consumer"), snapshot.sourceFiles().stream().map(source ->
+    var foreignSnapshot = InputSnapshot.fromSources(capturedAbsolute(directory.resolve("consumer")), snapshot.sourceFiles().stream().map(source ->
         SourceFile.fromContent(source.relativePath(), source.content().replace("with impl.Provider", "with same.impl.ExternalProvider"))).toList());
     var foreign = frontend.produce(new AstProductionRequest(new SourceInput.Snapshot(foreignSnapshot), configuration(List.of(alpha, facadeAlpha)), AstProfile.JAVA_SOURCE_MODULE_SERVICES)).result().orElseThrow();
     // Assert
@@ -487,12 +490,12 @@ class JavaModuleServiceEndpointTest {
   }
 
   private static CompilerConfiguration configuration(List<Path> modules) {
-    return new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), modules, List.of());
+    return new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), modules.stream().map(path -> capturedAbsolute(path)).toList(), List.of());
   }
 
   private AstResult produce(Map<String, String> sources) {
-    var snapshot = InputSnapshot.fromSources(directory, sources.entrySet().stream().sorted(Map.Entry.comparingByKey())
-        .map(entry -> SourceFile.fromContent(Path.of(entry.getKey()), entry.getValue())).toList());
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), sources.entrySet().stream().sorted(Map.Entry.comparingByKey())
+        .map(entry -> SourceFile.fromContent(capturedPath(Path.of(entry.getKey())), entry.getValue())).toList());
     return new JavaFrontend(new JavaSourceLoader()).produce(request(snapshot, AstProfile.JAVA_SOURCE_MODULE_SERVICES)).result().orElseThrow();
   }
 
@@ -503,10 +506,10 @@ class JavaModuleServiceEndpointTest {
   }
 
   private InputSnapshot snapshot(String descriptor, String provider) {
-    return InputSnapshot.fromSources(directory, List.of(
-        SourceFile.fromContent(Path.of("module-info.java"), descriptor),
-        SourceFile.fromContent(Path.of("api/Service.java"), "package api; public interface Service {}"),
-        SourceFile.fromContent(Path.of("impl/" + provider + ".java"), "package impl; public class " + provider + " implements api.Service { public " + provider + "() {} public int value() { return 7; } }")));
+    return InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+        SourceFile.fromContent(capturedPath(Path.of("module-info.java")), descriptor),
+        SourceFile.fromContent(capturedPath(Path.of("api/Service.java")), "package api; public interface Service {}"),
+        SourceFile.fromContent(capturedPath(Path.of("impl/" + provider + ".java")), "package impl; public class " + provider + " implements api.Service { public " + provider + "() {} public int value() { return 7; } }")));
   }
 
   static AstProductionRequest request(InputSnapshot snapshot, AstProfile profile) {

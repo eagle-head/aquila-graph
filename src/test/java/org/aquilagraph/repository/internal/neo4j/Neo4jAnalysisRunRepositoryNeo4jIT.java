@@ -1,5 +1,7 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+
 import static org.aquilagraph.repository.internal.neo4j.Neo4jPublicationObservation.cleanup;
 import static org.aquilagraph.repository.internal.neo4j.Neo4jPublicationObservation.completedRun;
 import static org.aquilagraph.repository.internal.neo4j.Neo4jPublicationObservation.expectedProjection;
@@ -374,7 +376,7 @@ class Neo4jAnalysisRunRepositoryNeo4jIT {
     var identity = originalResult.identity();
     var replacementRoot = Files.createDirectory(temporaryDirectory.resolve("replacement"));
     var replacementAst = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(
-        InputSnapshot.fromSources(replacementRoot, originalResult.snapshot().sourceFiles()),
+        InputSnapshot.fromSources(capturedAbsolute(replacementRoot), originalResult.snapshot().sourceFiles()),
         originalAst.requestedConfiguration().orElseThrow(), originalAst.profile()));
     var replacementResult = replacementAst.result().orElseThrow();
     assertEquals(identity, replacementResult.identity());

@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -67,7 +70,7 @@ class ConstructorWitnessLifecycleTest {
           // Arrange
           var observation = new CompilerObservation();
           observation.witnessSource = example.source();
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Probe.java"), source)));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Probe.java")), source)));
           var frontend = new JavaFrontend(new JavaSourceLoader(), new JavaAnalysisPipeline(
               new AnalysisEnvironmentCapture(new CompilerDependencyCapture()), () -> observation.compiler));
           // Act
@@ -119,7 +122,7 @@ class ConstructorWitnessLifecycleTest {
         """;
     var observation = new CompilerObservation();
     observation.witnessSource = "class PrivateProof { MissingType value; }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Probe.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Probe.java")), source)));
     var frontend = new JavaFrontend(new JavaSourceLoader(),
         new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture()), () -> observation.compiler));
 
@@ -192,8 +195,8 @@ class ConstructorWitnessLifecycleTest {
   }
 
   private SnapshotSourceCatalog sources(String source) {
-    return new SnapshotSourceCatalog(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Probe.java"), source))));
+    return new SnapshotSourceCatalog(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Probe.java")), source))));
   }
 
   private static JavaCompilerInvocation invocation() {

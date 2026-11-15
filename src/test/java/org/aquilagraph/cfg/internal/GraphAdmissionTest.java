@@ -1,5 +1,8 @@
 package org.aquilagraph.cfg.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.cfg.api.MethodCfgState;
 import org.aquilagraph.cfg.api.MethodCfgOutcome;
@@ -72,7 +75,7 @@ class GraphAdmissionTest {
     // Arrange
     var fixture = fixture("class Stored { int value() { return 1; } }", false, AstProfile.JAVA_SOURCE_MODULE_SERVICES);
     var identity = new JavaTypeDeclarationIdentity(Optional.empty(), "Stored");
-    var plain = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(identity.declarationKey()), Optional.of("Stored"), List.of("Stored"), List.of("Stored"));
+    var plain = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(identity.declarationKey()), Optional.of("Stored"), List.of("Stored"), List.of("Stored"), Optional.empty());
     var typed = new SemanticReference(plain.referenceKind(), plain.status(), plain.symbolKey(), plain.typeName(), plain.typeAlternativeNames(), plain.assignableToTypeNames(), Optional.of(identity));
     // Act
     var first = new GraphAdmission(fixture.ast(), fixture.plan()).admit( withReferences(fixture.draft(), List.of(plain)), fixture.creating(), Map.of());
@@ -93,19 +96,19 @@ class GraphAdmissionTest {
   }
 
   @Test
-  void givenHistoricalReferenceShapes_whenCurrentGraphsAreAdmitted_thenOriginalContentAndDerivationIdentitiesRemainExact() throws IOException {
+  void givenUntypedDeclarationReference_whenCurrentGraphsAreAdmitted_thenGraphIdentityBindsTheObservedReference() throws IOException {
     // Arrange
-    var fixture = fixture("class Stored { int value() { return 1; } }", false, AstProfile.JAVA_SOURCE_BOUNDED, true);
+    var fixture = fixture("class Stored { int value() { return 1; } }", false, AstProfile.JAVA_SOURCE_BOUNDED);
     var target = new JavaTypeDeclarationIdentity(Optional.empty(), "Stored");
-    var reference = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(target.declarationKey()), Optional.of("Stored"), List.of("Stored"), List.of("Stored"));
+    var reference = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(target.declarationKey()), Optional.of("Stored"), List.of("Stored"), List.of("Stored"), Optional.empty());
     // Act
     var supplied = new GraphAdmission(fixture.ast(), fixture.plan()).admit( withReferences(fixture.draft(), List.of(reference)), fixture.creating(), Map.of());
     // Assert
-    assertEquals("ast-result:278fc3c35fbe7636b8314238585763f7bb89bc3053eb40bf4d1862f7279d5c06", fixture.ast().identity().astResultKey());
-    assertEquals("cfg-content:97a2aea3f6915e7e7c123fda6e0c2e8d91628394c1fc648a5b7a8b7850b52756", fixture.graph().identity().canonicalContentDigest());
-    assertEquals("cfg-derivation:e7726cce96195fd339a4b580435e96e321ca34b45be0fe77fba9d12db05e0848", fixture.graph().identity().derivationKey());
-    assertEquals("cfg-content:3365797f513ac3467dd43f130eb0cfbad6a1f08ff5752ecbabdfa63053c812e5", supplied.identity().canonicalContentDigest());
-    assertEquals("cfg-derivation:be9cc6f4208b9e25908316fbc4331e3a24d4ca71122c3983627227658920fe12", supplied.identity().derivationKey());
+    assertEquals(fixture.ast().identity(), supplied.identity().astIdentity());
+    assertEquals(fixture.graph().identity().astIdentity(), supplied.identity().astIdentity());
+    assertNotEquals(fixture.graph().identity().canonicalContentDigest(), supplied.identity().canonicalContentDigest());
+    assertNotEquals(fixture.graph().identity().derivationKey(), supplied.identity().derivationKey());
+    assertEquals(List.of(reference), supplied.operationNodes().getFirst().semanticReferences());
     assertTrue(supplied.operationNodes().getFirst().semanticReferences().getFirst().declarationIdentity().isEmpty());
   }
 
@@ -246,8 +249,8 @@ class GraphAdmissionTest {
   void givenRealSourceProfiles_whenStandardDeriverQualifiesGraphs_thenLocalRoleAlgorithmsAndExactQueriesRemainIntact()
       throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Stored.java"), "class Stored { int value(int input) { return input + 7; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), "class Stored { int value(int input) { return input + 7; } }")));
     var graphs = new ArrayList<ControlFlowGraph>();
 
     for (var profile : List.of(AstProfile.JAVA_SOURCE_BOUNDED, AstProfile.JAVA_SOURCE_EXPANDED)) {
@@ -575,16 +578,11 @@ class GraphAdmissionTest {
   }
 
   private Fixture fixture(String source, boolean constructor, AstProfile profile) throws IOException {
-    return fixture(source, constructor, profile, false);
-  }
-
-  private Fixture fixture(String source, boolean constructor, AstProfile profile, boolean historical) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Stored.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), source)));
     var produced = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         profile).result().orElseThrow();
-    var selected = historical ? SourceAnalysisFixture.historicalResult(produced, historicalEnvironment(produced.environment()), "javac-public/10") : produced;
-    var ast = AstCodec.decode(AstCodec.encode(selected), selected.identity());
+    var ast = AstCodec.decode(AstCodec.encode(produced), produced.identity());
     var method = ast.program().types().stream().filter(type -> type.qualifiedName().equals("Stored"))
         .flatMap(type -> type.methods().stream()).filter(value -> constructor ? value.constructor() : value.name().equals("value"))
         .findFirst().orElseThrow();
@@ -598,11 +596,6 @@ class GraphAdmissionTest {
           .orElse(ast.body(method.methodKey()).orElseThrow().root()));
     }
     return new Fixture(ast, new LoweringPlan(ast.bodyRef(method.methodKey()).orElseThrow(), CfgProfile.JAVA_BOUNDED), graph, draft, creating);
-  }
-
-  private static AnalysisEnvironmentSnapshot historicalEnvironment(AnalysisEnvironmentSnapshot current) {
-    return new AnalysisEnvironmentSnapshot(current.compilerConfiguration(), "com.sun.tools.javac.api.JavacTool", "Eclipse Adoptium",
-        "25.0.4.1+1-LTS", current.analysisOptions(), current.classPath(), current.modulePath(), current.identityScheme());
   }
 
   private static DraftGraph draft(ControlFlowGraph graph) {

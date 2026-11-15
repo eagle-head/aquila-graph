@@ -1,5 +1,6 @@
 package org.aquilagraph.identity.consumer;
 
+
 import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.BodyRef;
@@ -10,9 +11,10 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SoftwareVersion;
+import org.aquilagraph.identity.api.CapturedLocation;
+import org.aquilagraph.identity.api.CapturedLocation.Syntax;
 import org.aquilagraph.identity.api.SourceFile;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.Arrays;
@@ -33,8 +35,8 @@ public final class IdentityRuntimeProbe {
         || ModuleLayer.boot().findModule("jdk.compiler").isPresent()) {
       throw new IllegalStateException("Identity domain operations require only their named module and Java base");
     }
-    var source = SourceFile.fromContent(Path.of("A.java"), "class A {}");
-    var input = InputSnapshot.fromSources(Path.of("source-root"), List.of(source));
+    var source = SourceFile.fromContent(CapturedLocation.parse(Syntax.POSIX, "A.java"), "class A {}");
+    var input = InputSnapshot.fromSources(CapturedLocation.parse(Syntax.POSIX, "/source-root"), List.of(source));
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var environment = new AnalysisEnvironmentSnapshot(configuration, "copied-compiler", "vendor", "version", List.of(), List.of(), List.of());
     var software = SoftwareVersion.from(input, environment);

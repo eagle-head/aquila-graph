@@ -31,7 +31,7 @@ class JavaSourceLoaderTest {
     var snapshot = new JavaSourceLoader().discover(temporaryDirectory);
 
     // Assert
-    assertEquals(expected.stream().map(Path::of).toList(), snapshot.sourceFiles().stream().map(source -> source.relativePath()).toList());
+    assertEquals(expected, snapshot.sourceFiles().stream().map(source -> source.canonicalRelativePath()).toList());
   }
 
   @Test
@@ -54,8 +54,8 @@ class JavaSourceLoaderTest {
 
     // Assert
     assertEquals(
-        List.of(Path.of("example/First.java"), Path.of("example/Second.java")),
-        firstSnapshot.sourceFiles().stream().map(source -> source.relativePath()).toList());
+        List.of("example/First.java", "example/Second.java"),
+        firstSnapshot.sourceFiles().stream().map(source -> source.canonicalRelativePath()).toList());
     assertNotEquals(firstSnapshot.snapshotDigest(), changedSnapshot.snapshotDigest());
     assertEquals(2, firstSnapshot.sourceFileCount());
     assertThrows(
@@ -92,8 +92,8 @@ class JavaSourceLoaderTest {
 
     // Assert
     assertEquals(snapshot, repeated);
-    assertEquals(List.of(Path.of("Sample.java"), Path.of("package-info.java")),
-        snapshot.sourceFiles().stream().map(source -> source.relativePath()).toList());
+    assertEquals(List.of("Sample.java", "package-info.java"),
+        snapshot.sourceFiles().stream().map(source -> source.canonicalRelativePath()).toList());
     assertEquals(List.of("source:5b7d302b83ed255231899a484fac0ec5daf17b2311738c6a8d6eb46f7687faf7",
         "source:eb15457babaaed21bcf793195907afce837a598b5f4019297fd79d8eabe45ce4"),
         snapshot.sourceFiles().stream().map(source -> source.sourceFileKey()).toList());

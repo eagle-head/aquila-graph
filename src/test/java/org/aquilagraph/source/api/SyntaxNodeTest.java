@@ -457,7 +457,7 @@ class SyntaxNodeTest {
         .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DECLARED_TYPE, 0);
     var key = "type:Example";
     var type = new SyntaxType.Resolved(DECLARED_TYPE, new JavaTypeStructure.Declared(key, Optional.empty(), List.of()));
-    var target = new SemanticReference(ReferenceKind.TYPE, status, Optional.of(key), Optional.empty(), List.of(), List.of());
+    var target = new SemanticReference(ReferenceKind.TYPE, status, Optional.of(key), Optional.empty(), List.of(), List.of(), Optional.empty());
 
     return assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
         JavaSourceKind.IDENTIFIER, SyntaxKind.TYPE_USE, type, new SyntaxValue.SourceSymbol("Example"), List.of(),
@@ -472,7 +472,7 @@ class SyntaxNodeTest {
     var type = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.TYPE_VARIABLE, "T", "java.lang.Object"),
         new JavaTypeStructure.Variable("parameter:T"));
     var wrongReference = new SemanticReference(ReferenceKind.TYPE_PARAMETER, ResolutionStatus.RESOLVED,
-        Optional.of("parameter:U"), Optional.empty(), List.of(), List.of());
+        Optional.of("parameter:U"), Optional.empty(), List.of(), List.of(), Optional.empty());
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("source", path,
@@ -583,7 +583,7 @@ class SyntaxNodeTest {
         SyntaxKind.ANNOTATION, SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.MARKER, List.of(), SyntaxValue.AnnotationLocation.UNRESOLVED),
         List.of(), Optional.of(new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED,
-            Optional.empty(), Optional.empty(), List.of(), List.of())), ORIGIN);
+            Optional.empty(), Optional.empty(), List.of(), List.of(), Optional.empty())), ORIGIN);
     var value = new SyntaxValue.TypeDeclaration("Example", "owner", Set.of(), Set.of(),
         new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 1, 0, 0, 0));
 
@@ -1716,6 +1716,6 @@ class SyntaxNodeTest {
   }
 
   private static SemanticReference reference(ReferenceKind kind, String key) {
-    return new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of());
+    return new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of(), Optional.empty());
   }
 }

@@ -1,5 +1,8 @@
 package org.aquilagraph.application;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -253,7 +256,7 @@ class AstLookupTest {
   void givenAdmittedUnavailableSource_whenConstructingFoundLookup_thenIllegalArgumentExceptionIsThrown() throws IOException {
     // Arrange
     var identity = completeSource().result().orElseThrow().identity();
-    var ast = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory, List.of()),
+    var ast = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory), List.of()),
         configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
     assertEquals(AstCompletion.UNAVAILABLE, ast.completion());
     assertTrue(ast.result().isEmpty());
@@ -289,8 +292,8 @@ class AstLookupTest {
   }
 
   private AstOutcome produce(String source) throws IOException {
-    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Stored.java"), source))), configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
+    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), source))), configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
   }
 
   private static CompilerConfiguration configuration() {

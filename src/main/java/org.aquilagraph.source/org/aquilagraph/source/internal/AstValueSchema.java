@@ -3,6 +3,14 @@ package org.aquilagraph.source.internal;
 import org.aquilagraph.source.admission.CopiedAstValues;
 
 import java.lang.annotation.ElementType;
+import java.lang.invoke.MethodType;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import java.lang.reflect.WildcardType;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -11,8 +19,24 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
+import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
+import org.aquilagraph.identity.api.CanonicalValueReader;
+import org.aquilagraph.identity.api.CanonicalValueWriter;
+import org.aquilagraph.identity.api.CapturedLocation;
+import org.aquilagraph.identity.api.CapturedLocation.RootKind;
+import org.aquilagraph.identity.api.CapturedLocation.Syntax;
+import org.aquilagraph.source.admission.AstValueAdmission;
+import org.aquilagraph.source.admission.CoverageAdmission;
+import org.aquilagraph.source.api.JavaAstAggregate;
+import org.aquilagraph.source.api.LanguageFeatureCoverage;
+import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
+import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
-import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
 import org.aquilagraph.identity.api.DependencySemantics;
 import org.aquilagraph.identity.api.ModuleCandidate;
 import org.aquilagraph.identity.api.ModuleNameOrigin;
@@ -29,7 +53,6 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AstContractException;
-import org.jspecify.annotations.Nullable;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AnnotationElementValue;
 import org.aquilagraph.source.api.AnnotationScalar;
@@ -128,7 +151,10 @@ import org.aquilagraph.source.api.CompilerExpressionAnchor;
 import org.aquilagraph.source.api.WrittenTypeEvidence;
 
 /** Closed retained-value tags and ordered public components. */
-public final class AstValueSchema {
+final class AstValueSchema {
+  static final String OCCURRENCE_REFERENCE = "source-node-reference";
+  private static final String STRUCTURAL_PATH_FIELD = "structuralPath";
+  private static final String CHILDREN = "children";
   private static final String MODE_FIELD = "mode";
   private static final String THROWN_TYPES_FIELD = "thrownTypes";
   private static final String PARAMETERS_FIELD = "parameters";
@@ -173,8 +199,12 @@ public final class AstValueSchema {
   static {
     var types = new LinkedHashMap<Class<?>, Shape>();
     record(types, AnalysisEnvironmentSnapshot.class, "analysis-environment-snapshot", "compilerConfiguration", "compilerImplementation",
-        "compilerVendor", "compilerVersion", "analysisOptions", "classPath", "modulePath", "identityScheme");
-    enumeration(types, EnvironmentIdentityScheme.class, "environment-identity-scheme");
+        "compilerVendor", "compilerVersion", "analysisOptions", "classPath", "modulePath");
+    scalars(types);
+    special(types, CapturedLocation.class, "captured-location", AstValueSchema::location, "syntax", "rootKind", "rootComponents",
+        "components", "spelling");
+    enumeration(types, Syntax.class, "captured-location/syntax");
+    enumeration(types, RootKind.class, "captured-location/root-kind");
     record(types, DependencySemantics.class, "dependency-semantics", "state", "modules");
     enumeration(types, DependencySemantics.State.class, "dependency-semantics/state");
     record(types, ModuleCandidate.class, "module-candidate", "member", "lookupName", "descriptorName", "nameOrigin");
@@ -253,14 +283,14 @@ public final class AstValueSchema {
     record(types, CoveragePropertyValue.Item.class, "coverage-property-value/item", IDENTITY_FIELD, VALUE_FIELD, "provenance",
         "executableType", "typeIdentity", "modifierFlags", "annotationValue", "typeStructure");
     enumeration(types, CoveragePropertyValue.Provenance.class, "coverage-property-value/provenance");
-    record(types, CoverageSourceFact.class, "coverage-source-fact", "structuralPath", SOURCE_KIND_FIELD, "syntaxKind", TYPE_FIELD,
-        VALUE_FIELD, "children", "semanticReference", "sourceAssociation");
+    record(types, CoverageSourceFact.class, "coverage-source-fact", STRUCTURAL_PATH_FIELD, SOURCE_KIND_FIELD, "syntaxKind", TYPE_FIELD,
+        VALUE_FIELD, CHILDREN, "semanticReference", "sourceAssociation");
     record(types, CoverageSourceFact.Step.class, "coverage-source-fact/step", ROLE_FIELD, ORDINAL_FIELD);
     record(types, CoverageSourceFact.Child.class, "coverage-source-fact/child", ROLE_FIELD, ORDINAL_FIELD, NODE_KEY_FIELD);
     record(types, CoverageSourceFact.Association.class, "coverage-source-fact/association", NODE_KEY_FIELD, SOURCE_FILE_KEY_FIELD,
         OWNER_PATH_FIELD, SOURCE_KIND_FIELD, ORIGIN_FIELD, "normalizedExpression");
-    record(types, CoverageSyntaxFactValue.class, "coverage-syntax-fact-value", "structuralPath", SOURCE_KIND_FIELD, "syntaxKind",
-        TYPE_FIELD, VALUE_FIELD, "children", "semanticReference", "sourceAssociation");
+    record(types, CoverageSyntaxFactValue.class, "coverage-syntax-fact-value", STRUCTURAL_PATH_FIELD, SOURCE_KIND_FIELD, "syntaxKind",
+        TYPE_FIELD, VALUE_FIELD, CHILDREN, "semanticReference", "sourceAssociation");
     record(types, CoverageSyntaxFactValue.Child.class, "coverage-syntax-fact-value/child", ROLE_FIELD, ORDINAL_FIELD, NODE_KEY_FIELD);
     record(types, CoverageTypeStructure.Simple.class, "coverage-type-structure/simple", CATEGORY_FIELD);
     record(types, CoverageTypeStructure.Declared.class, "coverage-type-structure/declared", DECLARATION_KEY_FIELD, LEXICAL_OWNER_KEY_FIELD,
@@ -383,7 +413,8 @@ public final class AstValueSchema {
         "diagnostics", "languageFeatureCoverageResult");
     record(types, SyntaxChild.class, "syntax-child", ROLE_FIELD, POSITION_FIELD, "node");
     enumeration(types, SyntaxKind.class, "syntax-kind");
-    record(types, SyntaxNodeTuple.class, "syntax-node-tuple", NODE_KEY_FIELD, SOURCE_FILE_KEY_FIELD, "structuralPath", SOURCE_KIND_FIELD);
+    record(types, SyntaxNodeTuple.class, "syntax-node-tuple", NODE_KEY_FIELD, SOURCE_FILE_KEY_FIELD, STRUCTURAL_PATH_FIELD,
+        SOURCE_KIND_FIELD);
     enumeration(types, SyntaxOperator.class, "syntax-operator");
     record(types, SyntaxRangeTuple.class, "syntax-range-tuple", NODE_KEY_FIELD, "range");
     enumeration(types, SyntaxRole.class, "syntax-role");
@@ -424,7 +455,7 @@ public final class AstValueSchema {
     enumeration(types, SyntaxValue.CompilationUnitRange.class, "syntax-value/compilation-unit-range");
     record(types, SyntaxValue.QualifiedName.class, "syntax-value/qualified-name", "components");
     record(types, SyntaxValue.StatementLabel.class, "syntax-value/statement-label", NAME_FIELD);
-    record(types, SyntaxValue.LocalDeclaration.class, "syntax-value/local-binding", NAME_FIELD, "writtenType", WRITTEN_MODIFIERS_FIELD,
+    record(types, SyntaxValue.LocalDeclaration.class, "syntax-value/local-declaration", NAME_FIELD, "writtenType", WRITTEN_MODIFIERS_FIELD,
         "bindingEvidence");
     record(types, LocalBindingEvidence.class, "local-binding-evidence", "declarationKey", "typeForm", "context", "initialized",
         "annotations", "sharedAnnotationKeys");
@@ -535,6 +566,23 @@ public final class AstValueSchema {
     value(types, SyntaxValue.ImportDeclaration.class, "syntax-value/import-declaration", QUALIFIED_NAME_FIELD, "staticImport",
         "moduleImport", "onDemand");
     enumeration(types, ElementType.class, "annotation-target");
+    special(types, SyntaxNode.class, "source-node", AstValueSchema::node, SOURCE_FILE_KEY_FIELD, STRUCTURAL_PATH_FIELD, SOURCE_KIND_FIELD,
+        "syntaxKind", TYPE_FIELD, "value", CHILDREN, "semanticReference", "origin");
+    register(types, JavaAstAggregate.class,
+        new Fields(
+            JavaAstAggregate.class, "source-aggregate", List.of(new Field("copiedValues", CopiedAstValues.class,
+                value -> SourceValueCapture.capture((JavaAstAggregate) value), true, UnaryOperator.identity())),
+            values -> AstValueAdmission.admit(required(values.getFirst(), CopiedAstValues.class)), false));
+    special(types, LanguageFeatureCoverage.class, "source-coverage-contract", AstValueSchema::coverageContract, "release",
+        "classifications");
+    special(types, LanguageFeatureCoverageResult.class, "source-coverage-result", AstValueSchema::coverageResult, "coverage",
+        "validationEvidence");
+    special(types, SyntaxValue.Annotation.class, "syntax-value/annotation", AstValueSchema::annotation, FORM_FIELD, "arguments", "location",
+        "applicableTargets", "closestTypeAdmissible", "argumentFailureCode", "repeatableContainerKey");
+    configureField(types, InputSnapshot.class, "sourceRoot", false, UnaryOperator.identity());
+    configureField(types, DependencySnapshot.class, "location", false, UnaryOperator.identity());
+    configureField(types, SyntaxNode.class, CHILDREN, true, AstValueSchema::canonicalSyntaxChildren);
+    configureField(types, CoverageSourceFact.class, CHILDREN, true, AstValueSchema::canonicalCoverageChildren);
     BY_TYPE = Map.copyOf(types);
     var tags = new LinkedHashMap<String, Shape>();
     types.values().forEach(shape -> {
@@ -542,20 +590,30 @@ public final class AstValueSchema {
         throw new IllegalStateException("Duplicate retained source tag: " + shape.tag());
       }
     });
+    for (var container : Container.values()) {
+      if (tags.putIfAbsent(container.tag(), container) != null) {
+        throw new IllegalStateException("Duplicate retained container tag: " + container.tag());
+      }
+    }
     BY_TAG = Map.copyOf(tags);
   }
 
   private AstValueSchema() {
   }
 
-  /**
-   * Returns the closed value type registered for a retained tag.
-   *
-   * @param type
-   *          required value type
-   * @return the resulting shape
-   */
-  public static Shape type(Class<?> type) {
+  static Shape shape(Object value) {
+    return switch (value) {
+      case Optional<?> optional -> optional.isPresent() ? Container.PRESENT : Container.ABSENT;
+      case List<?> _ -> Container.LIST;
+      case Set<?> _ -> Container.SET;
+      case JavaAstAggregate _ -> type(JavaAstAggregate.class);
+      case LanguageFeatureCoverageResult _ -> type(LanguageFeatureCoverageResult.class);
+      case Enum<?> enumeration -> type(enumeration.getDeclaringClass());
+      default -> type(value.getClass());
+    };
+  }
+
+  private static Shape type(Class<?> type) {
     var shape = BY_TYPE.get(type);
     if (shape == null) {
       throw new IllegalArgumentException("Unregistered retained source value: " + type.getName());
@@ -563,14 +621,7 @@ public final class AstValueSchema {
     return shape;
   }
 
-  /**
-   * Returns the retained tag registered for a closed value type.
-   *
-   * @param tag
-   *          tag
-   * @return the resulting shape
-   */
-  public static Shape tag(String tag) {
+  static Shape tag(String tag) {
     var shape = BY_TAG.get(tag);
     if (shape == null) {
       throw new IllegalArgumentException("Unknown retained source tag: " + tag);
@@ -587,146 +638,275 @@ public final class AstValueSchema {
     value(types, type, tag, fields);
   }
 
-  private static void value(Map<Class<?>, Shape> types, Class<?> type, String tag, String... fields) {
+  private static void value(Map<Class<?>, Shape> types, Class<?> type, String tag, String... names) {
+    var fields = fields(type, names);
     try {
-      var accessors = new Method[fields.length];
-      var parameters = new Class<?>[fields.length];
-      for (var index = 0; index < fields.length; index++) {
-        accessors[index] = type.getMethod(fields[index]);
-        parameters[index] = accessors[index].getReturnType();
-      }
+      var parameters = fields.stream().map(Method::getReturnType).toArray(Class<?>[]::new);
       var constructor = type.getConstructor(parameters);
-      if (types.putIfAbsent(type, new Shape(type, tag, List.of(fields), List.of(accessors), constructor)) != null) {
-        throw new IllegalStateException("Duplicate retained source type: " + type.getName());
-      }
-    } catch (ReflectiveOperationException exception) {
+      register(types, type,
+          new Fields(type, tag, fields.stream().map(AstValueSchema::field).toList(), values -> construct(constructor, values), false));
+    } catch (NoSuchMethodException exception) {
       throw new IllegalStateException("Retained source schema does not match its public value contract: " + tag, exception);
     }
   }
 
-  private static void enumeration(Map<Class<?>, Shape> types, Class<?> type, String tag) {
-    types.put(type, new Shape(type, tag, List.of(), List.of(), null));
+  private static void special(Map<Class<?>, Shape> types, Class<?> type, String tag, Function<List<Object>, Object> construct,
+      String... names) {
+    register(types, type,
+        new Fields(type, tag, fields(type, names).stream().map(AstValueSchema::field).toList(), construct, type == SyntaxNode.class));
   }
 
-  record Shape(Class<?> type, String tag, List<String> fields, List<Method> accessors, @Nullable Constructor<?> constructor) {
-    List<Object> components(Object value) {
-      return accessors.stream().map(accessor -> invoke(accessor, value)).toList();
+  private static List<Method> fields(Class<?> type, String... names) {
+    var accessors = new ArrayList<Method>(names.length);
+    try {
+      for (var name : names) {
+        accessors.add(type.getMethod(name));
+      }
+    } catch (NoSuchMethodException exception) {
+      throw new IllegalStateException("Missing retained source accessor: " + type.getName(), exception);
+    }
+    return List.copyOf(accessors);
+  }
+
+  private static Field field(Method accessor) {
+    return new Field(accessor.getName(), accessor.getGenericReturnType(), value -> invoke(accessor, value), true, UnaryOperator.identity());
+  }
+
+  private static void configureField(Map<Class<?>, Shape> types, Class<?> type, String name, boolean identifies,
+      UnaryOperator<Object> canonical) {
+    var shape = required(Objects.requireNonNull(types.get(type), "registered fields"), Fields.class);
+    if (shape.fields().stream().noneMatch(field -> field.name().equals(name))) {
+      throw new IllegalStateException("No retained component " + name + " for " + shape.tag());
+    }
+    var fields = shape.fields().stream()
+        .map(field -> field.name().equals(name) ? new Field(name, field.type(), field.access(), identifies, canonical) : field).toList();
+    types.put(type, new Fields(shape.valueType(), shape.tag(), fields, shape.construct(), shape.occurrence()));
+  }
+
+  private static void register(Map<Class<?>, Shape> types, Class<?> type, Shape shape) {
+    if (types.putIfAbsent(type, shape) != null) {
+      throw new IllegalStateException("Duplicate retained source type: " + type.getName());
+    }
+  }
+
+  private static void enumeration(Map<Class<?>, Shape> types, Class<?> type, String tag) {
+    var constants = Objects.requireNonNull(type.getEnumConstants(), "registered enum constants");
+    register(types, type, new Scalar(type, tag, (writer, value) -> writer.text(((Enum<?>) value).name()), reader -> {
+      var name = reader.text();
+      return Arrays.stream(constants).filter(value -> ((Enum<?>) value).name().equals(name)).findFirst()
+          .orElseThrow(() -> new IllegalArgumentException("Unknown retained enum value: " + tag + "/" + name));
+    }));
+  }
+
+  private static void scalars(Map<Class<?>, Shape> types) {
+    scalar(types, String.class, "text", CanonicalValueWriter::text, CanonicalValueReader::text);
+    scalar(types, Boolean.class, "flag", CanonicalValueWriter::flag, CanonicalValueReader::flag);
+    scalar(types, Integer.class, "int32", CanonicalValueWriter::integer, CanonicalValueReader::integer);
+    scalar(types, Long.class, "int64", CanonicalValueWriter::longInteger, CanonicalValueReader::longInteger);
+    scalar(types, Float.class, "float32", CanonicalValueWriter::floating, CanonicalValueReader::floating);
+    scalar(types, Double.class, "float64", CanonicalValueWriter::floating, CanonicalValueReader::doubleFloating);
+    scalar(types, Byte.class, "int8", (writer, number) -> writer.integer(number),
+        reader -> (byte) boundedInteger(reader, Byte.MIN_VALUE, Byte.MAX_VALUE));
+    scalar(types, Short.class, "int16", (writer, number) -> writer.integer(number),
+        reader -> (short) boundedInteger(reader, Short.MIN_VALUE, Short.MAX_VALUE));
+    scalar(types, Character.class, "char16", (writer, character) -> writer.integer(character),
+        reader -> (char) boundedInteger(reader, Character.MIN_VALUE, Character.MAX_VALUE));
+    scalar(types, BigDecimal.class, "decimal", (writer, number) -> writer.text(number.toString()), reader -> new BigDecimal(reader.text()));
+  }
+
+  private static <T> void scalar(Map<Class<?>, Shape> types, Class<T> type, String tag, BiConsumer<CanonicalValueWriter, T> write,
+      Function<CanonicalValueReader, T> read) {
+    register(types, type, new Scalar(type, tag, (writer, value) -> write.accept(writer, required(value, type)), read::apply));
+  }
+
+  private static int boundedInteger(CanonicalValueReader reader, int minimum, int maximum) {
+    var value = reader.integer();
+    if (value < minimum || value > maximum) {
+      throw new IllegalArgumentException("Retained integer is outside its tagged width");
+    }
+    return value;
+  }
+
+  private static CapturedLocation location(List<Object> values) {
+    var syntax = required(values.get(0), Syntax.class);
+    var spelling = required(values.get(4), String.class);
+    var location = CapturedLocation.parse(syntax, spelling);
+    if (location.rootKind() != required(values.get(1), RootKind.class) || !location.rootComponents().equals(values.get(2))
+        || !location.components().equals(values.get(3)) || !location.spelling().equals(spelling)) {
+      throw new IllegalArgumentException("Retained location components contradict its normalized spelling");
+    }
+    return location;
+  }
+
+  private static SyntaxNode node(List<Object> values) {
+    var fileKey = required(values.get(0), String.class);
+    var path = required(values.get(1), SyntaxStructuralPath.class);
+    var sourceKind = required(values.get(2), JavaSourceKind.class);
+    var kind = required(values.get(3), SyntaxKind.class);
+    var type = required(values.get(4), SyntaxType.class);
+    var value = required(values.get(5), SyntaxValue.class);
+    var children = sequence(values.get(6), SyntaxChild.class);
+    var reference = optional(values.get(7), SemanticReference.class);
+    var origin = optional(values.get(8), SourceSpan.class);
+    return origin.isPresent()
+        ? SyntaxNode.source(fileKey, path, sourceKind, kind, type, value, children, reference, origin.orElseThrow())
+        : SyntaxNode.withoutDirectSource(fileKey, path, sourceKind, kind, type, value, children, reference);
+  }
+
+  private static LanguageFeatureCoverage coverageContract(List<Object> values) {
+    return LanguageFeatureCoverage.forRelease(required(values.get(0), JavaRelease.class),
+        sequence(values.get(1), LanguageFeatureClassification.class));
+  }
+
+  private static LanguageFeatureCoverageResult coverageResult(List<Object> values) {
+    var coverage = required(values.get(0), LanguageFeatureCoverage.class);
+    var evidence = required(values.get(1), CoverageValidationEvidence.class);
+    return CoverageAdmission.fromEvidence(coverage, evidence.writtenInventory(), evidence.attributedExpectations(), evidence.outcomes(),
+        evidence.unmatchedFacts(), evidence.diagnosticEmissions());
+  }
+
+  private static SyntaxValue.Annotation annotation(List<Object> values) {
+    var form = required(values.get(0), SyntaxValue.AnnotationForm.class);
+    var arguments = sequence(values.get(1), SyntaxValue.AnnotationArgumentHeader.class);
+    var location = required(values.get(2), SyntaxValue.AnnotationLocation.class);
+    var targets = ((Set<?>) values.get(3)).stream().map(target -> required(target, ElementType.class))
+        .collect(Collectors.toUnmodifiableSet());
+    var admissible = required(values.get(4), Boolean.class);
+    var failure = optional(values.get(5), String.class);
+    var container = optional(values.get(6), String.class);
+    var annotation = failure.isPresent()
+        ? SyntaxValue.Annotation.withArgumentFailure(form, arguments, location, targets, admissible, failure.orElseThrow())
+        : new SyntaxValue.Annotation(form, arguments, location, targets, admissible);
+    return annotation.withRepeatableContainer(container);
+  }
+
+  private static List<SyntaxChild> canonicalSyntaxChildren(Object value) {
+    return sequence(value, SyntaxChild.class).stream()
+        .sorted(Comparator.comparing((SyntaxChild child) -> child.role().stableId()).thenComparingInt(SyntaxChild::position)).toList();
+  }
+
+  private static List<CoverageSourceFact.Child> canonicalCoverageChildren(Object value) {
+    return sequence(value, CoverageSourceFact.Child.class).stream()
+        .sorted(Comparator.comparing((CoverageSourceFact.Child child) -> SyntaxRole.valueOf(child.role()).stableId())
+            .thenComparingInt(CoverageSourceFact.Child::ordinal))
+        .toList();
+  }
+
+  private static <T> T required(Object value, Class<T> type) {
+    return Objects.requireNonNull(type.cast(value), "retained component");
+  }
+
+  private static <T> List<T> sequence(Object value, Class<T> type) {
+    return ((List<?>) value).stream().map(component -> required(component, type)).toList();
+  }
+
+  private static <T> Optional<T> optional(Object value, Class<T> type) {
+    return ((Optional<?>) value).map(component -> required(component, type));
+  }
+
+  sealed interface Shape permits Scalar, Fields, Container {
+    String tag();
+
+    Class<?> valueType();
+  }
+
+  record Scalar(Class<?> valueType, String tag, BiConsumer<CanonicalValueWriter, Object> write,
+      Function<CanonicalValueReader, Object> read) implements Shape {
+  }
+
+  record Fields(Class<?> valueType, String tag, List<Field> fields, Function<List<Object>, Object> construct,
+      boolean occurrence) implements Shape {
+    List<Component> components(Object value, boolean canonical) {
+      return fields.stream().filter(field -> !canonical || field.identifies())
+          .map(field -> new Component(field.name(), field.component(value, canonical))).toList();
     }
 
-    List<String> retainedFields(int version) {
-      if (version < 22 && type == JavaTypeStructure.Declared.class) {
-        return fields.subList(0, fields.size() - 1);
+    Object reconstruct(List<Object> values) {
+      for (var index = 0; index < fields.size(); index++) {
+        var field = fields.get(index);
+        requireType(field.type(), values.get(index), tag + "/" + field.name());
       }
-      if (version < 21 && (type == AnalysisEnvironmentSnapshot.class || type == DependencySnapshot.class)) {
-        return fields.subList(0, fields.size() - 1);
-      }
-      if (version < 20 && type == SemanticReference.class) {
-        return fields.subList(0, fields.size() - 1);
-      }
-      if (version < 19 && (type == WrittenSourceAssociation.class || type == SourceCoverageInventory.class
-          || type == SyntaxValue.Literal.class || type == CoverageSourceFact.Association.class)) {
-        return fields.subList(0, fields.size() - 1);
-      }
-      if (version < 18 && type == SyntaxValue.CompilationUnit.class) {
-        return fields.subList(0, 1);
-      }
-      var retained = version < 14 && (type == CopiedAstValues.class || type == DeclarationMemberOrder.class)
-          ? fields.subList(0, fields.size() - 1)
-          : fields;
-      if (version < 15 && type == JavaType.class) {
-        retained = retained.subList(0, retained.size() - 3);
-      }
-      return version < 14 ? retained.stream().map(field -> SCOPE_KEY_FIELD.equals(field) ? "methodKey" : field).toList() : retained;
+      return construct.apply(values);
+    }
+  }
+
+  record Field(String name, Type type, Function<Object, Object> access, boolean identifies, UnaryOperator<Object> canonical) {
+    Object component(Object value, boolean useCanonical) {
+      var component = access.apply(value);
+      return useCanonical ? canonical.apply(component) : component;
+    }
+  }
+
+  record Component(String name, Object value) {
+  }
+
+  enum Container implements Shape {
+    PRESENT("optional/present", Optional.class), ABSENT("optional/absent", Optional.class), LIST("list", List.class), SET("set", Set.class);
+
+    private final String retainedTag;
+    private final Class<?> containerClass;
+
+    Container(String tag, Class<?> type) {
+      retainedTag = tag;
+      containerClass = type;
     }
 
-    List<Object> retainedComponents(Object value, int version) {
-      var values = components(value);
-      if (version < 22 && value instanceof JavaTypeStructure.Declared declared) {
-        if (declared.enclosingOwnerType().isPresent()) {
-          throw new IllegalArgumentException("Indirect enclosing instance views require retained AST format java-source/22");
-        }
-        return values.subList(0, values.size() - 1);
-      }
-      if (version < 21 && value instanceof AnalysisEnvironmentSnapshot environment) {
-        if (environment.identityScheme() != EnvironmentIdentityScheme.HISTORICAL) {
-          throw new IllegalArgumentException("Module-aware environment identity requires retained AST format java-source/21");
-        }
-        return values.subList(0, values.size() - 1);
-      }
-      if (version < 21 && value instanceof DependencySnapshot dependency) {
-        if (dependency.semantics().state() != DependencySemantics.State.UNOBSERVED) {
-          throw new IllegalArgumentException("Observed dependency semantics require retained AST format java-source/21");
-        }
-        return values.subList(0, values.size() - 1);
-      }
-      if (version < 20 && value instanceof SemanticReference reference) {
-        if (reference.declarationIdentity().isPresent()) {
-          throw new IllegalArgumentException("Module-qualified targets require retained AST format java-source/20");
-        }
-        return values.subList(0, values.size() - 1);
-      }
-      if (version < 19 && value instanceof CoverageSourceFact.Association association) {
-        if (association.normalizedExpression().isPresent()) {
-          throw new IllegalArgumentException("Normalized coverage facts require retained AST format java-source/19");
-        }
-        return values.subList(0, values.size() - 1);
-      }
-      if (version < 19 && value instanceof SyntaxValue.Literal literal) {
-        if (literal.restrictedDecimal().isPresent()) {
-          throw new IllegalArgumentException("Context-restricted decimal operands require retained AST format java-source/19");
-        }
-        return values.subList(0, values.size() - 1);
-      }
-      if (version < 19 && value instanceof SourceCoverageInventory inventory) {
-        if (inventory.writtenExpressions().filter(valuesInRegion -> !valuesInRegion.isEmpty()).isPresent()) {
-          throw new IllegalArgumentException("Written expression obligations require retained AST format java-source/19");
-        }
-        return values.subList(0, values.size() - 1);
-      }
-      if (version < 19 && value instanceof WrittenSourceAssociation association) {
-        if (association.normalizedExpression().isPresent()) {
-          throw new IllegalArgumentException("Written expression correspondence requires retained AST format java-source/19");
-        }
-        return values.subList(0, values.size() - 1);
-      }
-      if (version < 18 && value instanceof SyntaxValue.CompilationUnit unit) {
-        if (unit.range() != SyntaxValue.CompilationUnitRange.LEGACY_PROFILE) {
-          throw new IllegalArgumentException("Captured source envelopes require retained AST format java-source/18");
-        }
-        return values.subList(0, 1);
-      }
-      if (version < 15 && value instanceof JavaType declaration) {
-        if (declaration.nesting().kind() == JavaTypeNesting.Kind.LOCAL || declaration.nesting().kind() == JavaTypeNesting.Kind.ANONYMOUS) {
-          throw new IllegalArgumentException("Nested declaration metadata requires retained AST format java-source/15");
-        }
-        return values.subList(0, values.size() - 3);
-      }
-      if (version < 14 && value instanceof CopiedAstValues copied) {
-        if (!copied.scopes().isEmpty()) {
-          throw new IllegalArgumentException("Declaration execution scopes require retained AST format java-source/14");
-        }
-        return values.subList(0, values.size() - 1);
-      }
-      if (version < 14 && value instanceof DeclarationMemberOrder order) {
-        if (order.attributedTreeOrder().isPresent()) {
-          throw new IllegalArgumentException("Attributed declaration tree order requires retained AST format java-source/14");
-        }
-        return values.subList(0, values.size() - 1);
-      }
-      return values;
+    @Override
+    public Class<?> valueType() {
+      return containerClass;
     }
 
-    Object construct(List<Object> values) {
-      if (values.size() != fields.size()) {
-        throw new IllegalArgumentException("Wrong retained field count for " + tag);
+    @Override
+    public String tag() {
+      return retainedTag;
+    }
+
+    List<?> members(Object value, Function<Set<?>, List<?>> orderSet) {
+      return switch (this) {
+        case PRESENT, ABSENT -> ((Optional<?>) value).stream().toList();
+        case LIST -> (List<?>) value;
+        case SET -> orderSet.apply((Set<?>) value);
+      };
+    }
+  }
+
+  static void requireAssignable(Type type, Class<?> actual, String field) {
+    if (!carrierType(type).isAssignableFrom(actual)) {
+      throw new ClassCastException("Wrong retained value type: " + field);
+    }
+  }
+
+  private static Class<?> carrierType(Type type) {
+    return switch (type) {
+      case Class<?> exact -> exact.isPrimitive() ? MethodType.methodType(exact).wrap().returnType() : exact;
+      case ParameterizedType parameterized -> carrierType(parameterized.getRawType());
+      case TypeVariable<?> variable -> carrierType(variable.getBounds()[0]);
+      case WildcardType wildcard -> carrierType(wildcard.getUpperBounds()[0]);
+      default -> Object.class;
+    };
+  }
+
+  private static void requireType(Type type, Object value, String field) {
+    requireAssignable(type, value.getClass(), field);
+    if (type instanceof ParameterizedType parameterized) {
+      var elementType = parameterized.getActualTypeArguments()[0];
+      switch (value) {
+        case Optional<?> optional -> optional.ifPresent(element -> requireType(elementType, element, field));
+        case List<?> list -> list.forEach(element -> requireType(elementType, element, field));
+        case Set<?> set -> set.forEach(element -> requireType(elementType, element, field));
+        case EvidenceValue<?> evidence -> evidence.knownValue().ifPresent(element -> requireType(elementType, element, field));
+        default -> throw new IllegalStateException("Unregistered parameterized retained field: " + field);
       }
-      try {
-        return Objects.requireNonNull(constructor, "value constructor").newInstance(values.toArray());
-      } catch (InvocationTargetException exception) {
-        throw constructorFailure(exception);
-      } catch (ReflectiveOperationException exception) {
-        throw new IllegalStateException("Cannot construct registered retained source value: " + tag, exception);
-      }
+    }
+  }
+
+  private static Object construct(Constructor<?> constructor, List<Object> values) {
+    try {
+      return constructor.newInstance(values.toArray());
+    } catch (InvocationTargetException exception) {
+      throw constructorFailure(exception);
+    } catch (ReflectiveOperationException exception) {
+      throw new IllegalStateException("Cannot construct registered retained source value: " + constructor.getDeclaringClass(), exception);
     }
   }
 

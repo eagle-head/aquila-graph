@@ -1,5 +1,8 @@
 package org.aquilagraph.cfg.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstProductionRequest;
@@ -578,7 +581,7 @@ class SelectedDecisionLoweringTest {
   }
 
   private ControlFlowGraph build(String source, String ownerTypeKey, String methodName) throws IOException {
-    var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(sourceRoot), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
     var method = input.program().methods().stream().filter(candidate -> candidate.name().equals(methodName)
         && (ownerTypeKey.isEmpty() || candidate.ownerTypeKey().equals(ownerTypeKey))).findFirst().orElseThrow();

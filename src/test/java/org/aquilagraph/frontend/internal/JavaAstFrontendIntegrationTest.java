@@ -52,8 +52,8 @@ class JavaAstFrontendIntegrationTest {
 
     // Assert
     assertEquals(2, aggregate.roots().size());
-    assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), empty.value());
-    assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), named.value());
+    assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE), empty.value());
+    assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE), named.value());
     assertTrue(empty.children().isEmpty());
     assertEquals(new SyntaxValue.PackageDeclaration("sample", Optional.of(new PackageQualifierEvidence(JavaSourceKind.IDENTIFIER,
         new SourceSpan(named.sourceFileKey(), 8, 14)))), packageNode.value());
@@ -121,7 +121,7 @@ class JavaAstFrontendIntegrationTest {
     var module = root.requiredChild(SyntaxRole.MODULE_DECLARATION);
 
     // Assert
-    assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR), root.value());
+    assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE), root.value());
     assertEquals(new SyntaxValue.ImportDeclaration("java.lang.Deprecated", false, false, false), imported.value());
     assertEquals(root.sourceFileKey(), imported.sourceFileKey());
     var range = imported.origin().orElseThrow();
@@ -165,7 +165,7 @@ class JavaAstFrontendIntegrationTest {
     var first = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(new JavaSourceLoader().discover(sourceRoot), JAVA_25, JavaTranslationPolicy.legacyAnalysis());
     var second = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(new JavaSourceLoader().discover(sourceRoot), JAVA_25, JavaTranslationPolicy.legacyAnalysis());
     var module = first.aggregate().orElseThrow().roots().stream()
-        .filter(root -> root.value().equals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR)))
+        .filter(root -> root.value().equals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE)))
         .findFirst().orElseThrow().requiredChild(SyntaxRole.MODULE_DECLARATION);
     var directives = module.children(SyntaxRole.MODULE_DIRECTIVE);
 
@@ -258,7 +258,7 @@ class JavaAstFrontendIntegrationTest {
     var methodRange = members.get(1).origin().orElseThrow();
 
     // Assert
-    assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.COMPACT), root.value());
+    assertEquals(new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.COMPACT, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE), root.value());
     assertEquals(new SyntaxValue.ImportDeclaration("java.util.List", false, false, false),
         root.requiredChild(SyntaxRole.IMPORT_DECLARATION).value());
     assertEquals(List.of(SyntaxKind.FIELD_DECLARATION, SyntaxKind.METHOD_DECLARATION),

@@ -50,28 +50,6 @@ public record CopiedAstValues(InputSnapshot snapshot, List<SyntaxSourceContribut
   }
 
   /**
-   * Copies historical method-only values without adding declaration scopes.
-   *
-   * @param snapshot
-   *          captured input
-   * @param sources
-   *          copied source contributions
-   * @param bodies
-   *          actual method registrations
-   * @param memberOrders
-   *          declaration order
-   * @param associations
-   *          written source associations
-   * @param declarationTypes
-   *          declaration type components
-   */
-  public CopiedAstValues(InputSnapshot snapshot, List<SyntaxSourceContribution> sources, List<Body> bodies,
-      List<DeclarationMemberOrder> memberOrders, List<WrittenSourceAssociation> associations,
-      List<DeclarationTypeEvidence> declarationTypes) {
-    this(snapshot, sources, bodies, memberOrders, associations, declarationTypes, List.of());
-  }
-
-  /**
    * Returns copied empty source values for an empty captured input.
    *
    * @param snapshot
@@ -79,7 +57,7 @@ public record CopiedAstValues(InputSnapshot snapshot, List<SyntaxSourceContribut
    * @return empty copied values, subject to admission of source membership
    */
   public static CopiedAstValues empty(InputSnapshot snapshot) {
-    return new CopiedAstValues(snapshot, List.of(), List.of(), List.of(), List.of(), List.of());
+    return new CopiedAstValues(snapshot, List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
   }
 
   /**

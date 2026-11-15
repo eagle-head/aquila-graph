@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -141,7 +144,7 @@ class ExpandedProfileTest {
           calls.incrementAndGet();
           throw new AssertionError("Empty capture must not acquire a compiler");
         }));
-    var input = InputSnapshot.fromSources(directory, List.of());
+    var input = InputSnapshot.fromSources(capturedAbsolute(directory), List.of());
 
     // Act
     var bounded = frontend.produce(input, configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
@@ -235,7 +238,7 @@ class ExpandedProfileTest {
   }
 
   private InputSnapshot snapshot(String source) {
-    return InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"), source)));
+    return InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), source)));
   }
 
   private static CompilerConfiguration configuration() {

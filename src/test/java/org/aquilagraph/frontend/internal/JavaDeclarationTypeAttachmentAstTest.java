@@ -179,7 +179,7 @@ class JavaDeclarationTypeAttachmentAstTest {
       var referenceKind = ((SyntaxSemanticTarget.Declaration) original.target()).reference().referenceKind();
       var unrelated = new SyntaxSemanticEdge(declaration.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
           new SyntaxSemanticTarget.Declaration(new SemanticReference(referenceKind, ResolutionStatus.RESOLVED,
-              Optional.of("type:unrelated"), Optional.empty(), List.of(), List.of())));
+              Optional.of("type:unrelated"), Optional.empty(), List.of(), List.of(), Optional.empty())));
       var missing = new ArrayList<>(aggregate.semanticEdges());
       missing.remove(original);
       var wrong = new ArrayList<>(missing);
@@ -212,7 +212,7 @@ class JavaDeclarationTypeAttachmentAstTest {
     var referenceKind = ((SyntaxSemanticTarget.Declaration) original.target()).reference().referenceKind();
     var unrelated = new SyntaxSemanticEdge(typeUse.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.Declaration(new SemanticReference(referenceKind, ResolutionStatus.RESOLVED,
-            Optional.of("type:unrelated"), Optional.empty(), List.of(), List.of())));
+            Optional.of("type:unrelated"), Optional.empty(), List.of(), List.of(), Optional.empty())));
     var missing = new ArrayList<>(aggregate.semanticEdges());
     missing.remove(original);
     var wrong = new ArrayList<>(missing);
@@ -250,10 +250,10 @@ class JavaDeclarationTypeAttachmentAstTest {
       var referenceKind = selectedReference.referenceKind();
       var unrelated = new SyntaxSemanticEdge(declaration.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
           new SyntaxSemanticTarget.Declaration(new SemanticReference(referenceKind, ResolutionStatus.RESOLVED,
-              Optional.of("type:unrelated"), Optional.empty(), List.of(), List.of())));
+              Optional.of("type:unrelated"), Optional.empty(), List.of(), List.of(), Optional.empty())));
       var incorrectKind = new SyntaxSemanticEdge(declaration.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
           new SyntaxSemanticTarget.Declaration(new SemanticReference(referenceKind == ReferenceKind.TYPE ? ReferenceKind.FIELD
-              : ReferenceKind.TYPE, ResolutionStatus.RESOLVED, selectedReference.symbolKey(), Optional.empty(), List.of(), List.of())));
+              : ReferenceKind.TYPE, ResolutionStatus.RESOLVED, selectedReference.symbolKey(), Optional.empty(), List.of(), List.of(), Optional.empty())));
       var missing = new ArrayList<>(aggregate.semanticEdges());
       missing.remove(original);
       var wrong = new ArrayList<>(missing);
@@ -326,7 +326,7 @@ class JavaDeclarationTypeAttachmentAstTest {
 
   private static SemanticReference reference(JavaTypeStructure structure, String key) {
     var kind = structure instanceof JavaTypeStructure.Variable ? ReferenceKind.TYPE_PARAMETER : ReferenceKind.TYPE;
-    return new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of());
+    return new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of(), Optional.empty());
   }
 
   private static SyntaxSemanticEdge semanticEdge(String owner, Attachment attachment) {
@@ -340,7 +340,7 @@ class JavaDeclarationTypeAttachmentAstTest {
     return new SyntaxSemanticEdge(SyntaxNodeKey.from(owner, path, sourceKind).value(),
         SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.Declaration(new SemanticReference(referenceKind, ResolutionStatus.RESOLVED,
-            Optional.of(key), Optional.empty(), List.of(), List.of())));
+            Optional.of(key), Optional.empty(), List.of(), List.of(), Optional.empty())));
   }
 
   private static List<TypeTuple> typeTuples(JavaAstAggregate aggregate) {

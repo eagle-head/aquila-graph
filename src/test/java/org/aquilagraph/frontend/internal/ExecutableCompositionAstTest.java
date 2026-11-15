@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.AstPublicationRequest;
@@ -341,7 +344,7 @@ class ExecutableCompositionAstTest {
         body.uses().stream().filter(use -> !invocationKeys.contains(use.consumerNodeId()) || use.role() != SyntaxRole.ARGUMENT).toList(),
         body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var supplied = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), captured.sources(), bodies, captured.memberOrders(),
-        captured.associations(), captured.declarationTypes()));
+        captured.associations(), captured.declarationTypes(), captured.scopes()));
     var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied),
         JavaCoverageTestSupport.emissions(original));
     var retention = AnalysisCapabilities.astRetention(ignored -> { throw new AssertionError("Incomplete source cannot acquire storage"); });
@@ -368,7 +371,7 @@ class ExecutableCompositionAstTest {
   }
 
   private InputSnapshot snapshot(String source) {
-    return InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    return InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
   }
 
   private static SyntaxNode local(List<SyntaxNode> nodes, String name) {

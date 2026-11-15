@@ -161,7 +161,7 @@ final class JavaSourceCoverageCapture {
   }
 
   static SourceCoverageInventory empty(InputSnapshot snapshot, LanguageFeatureCoverage coverage) {
-    return new SourceCoverageInventory(snapshot, coverage.release(), coverage.contractIdentity(), List.of());
+    return new SourceCoverageInventory(snapshot, coverage.release(), coverage.contractIdentity(), List.of(), Optional.empty());
   }
 
   SourceCoverageInventory inventory() {

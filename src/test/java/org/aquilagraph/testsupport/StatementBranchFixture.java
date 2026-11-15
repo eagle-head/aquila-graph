@@ -1,5 +1,8 @@
 package org.aquilagraph.testsupport;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.ByteArrayOutputStream;
@@ -43,13 +46,13 @@ public final class StatementBranchFixture {
     var syntax = unsupported ? SyntaxKind.UNSUPPORTED
         : kind == JavaSourceKind.VARIABLE ? SyntaxKind.LOCAL_DECLARATION : SyntaxKind.TYPE_DECLARATION;
     SyntaxValue value = unsupported ? new SyntaxValue.Unsupported(kind.name())
-        : kind == JavaSourceKind.VARIABLE ? new SyntaxValue.LocalDeclaration("value")
+        : kind == JavaSourceKind.VARIABLE ? new SyntaxValue.LocalDeclaration("value", Optional.empty(), List.of(), Optional.empty())
             : new SyntaxValue.TypeDeclaration("Local", "type:Local", Set.of(), Set.of(),
                 new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 0));
     SyntaxType type = syntax.requiresType() ? SyntaxType.Unresolved.INSTANCE : SyntaxType.NotApplicable.INSTANCE;
     var reference = syntax == SyntaxKind.LOCAL_DECLARATION
         ? Optional.of(new SemanticReference(ReferenceKind.LOCAL, ResolutionStatus.RESOLVED, Optional.of("local:value"),
-            Optional.empty(), List.of(), List.of()))
+            Optional.empty(), List.of(), List.of(), Optional.empty()))
         : Optional.<SemanticReference>empty();
     return origin.isPresent()
         ? SyntaxNode.source(source, path, kind, syntax, type, value, List.of(), reference, origin.orElseThrow())
@@ -57,7 +60,7 @@ public final class StatementBranchFixture {
   }
 
   public static AstOutcome produce(Path directory, AstProfile profile) {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Branches.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Branches.java")),
         "class Branches { void run(boolean flag) { if (flag) ; else ; } }")));
     return JavaFrontends.standard().produce(new AstProductionRequest(new SourceInput.Snapshot(snapshot),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile));
@@ -89,12 +92,29 @@ public final class StatementBranchFixture {
   }
 
   private static byte[] header(SyntaxNode node, String format) {
-    var writer = new CanonicalValueWriter("");
-    var codec = new RetainedValueCodec(false, format);
-    for (var field : List.of(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind(), node.type(), node.value(),
-        node.children(), node.semanticReference(), node.origin())) {
-      codec.write(writer, field);
-    }
-    return Arrays.copyOfRange(writer.toByteArray(), Integer.BYTES, writer.toByteArray().length);
+    var writer = new CanonicalValueWriter(format);
+    var codec = new RetainedValueCodec(false);
+    var envelope = writer.toByteArray().length;
+    writer.count(9);
+    writer.text("sourceFileKey");
+    codec.write(writer, node.sourceFileKey());
+    writer.text("structuralPath");
+    codec.write(writer, node.structuralPath());
+    writer.text("sourceKind");
+    codec.write(writer, node.sourceKind());
+    writer.text("syntaxKind");
+    codec.write(writer, node.syntaxKind());
+    writer.text("type");
+    codec.write(writer, node.type());
+    writer.text("value");
+    codec.write(writer, node.value());
+    writer.text("children");
+    codec.write(writer, node.children());
+    writer.text("semanticReference");
+    codec.write(writer, node.semanticReference());
+    writer.text("origin");
+    codec.write(writer, node.origin());
+    var bytes = writer.toByteArray();
+    return Arrays.copyOfRange(bytes, envelope, bytes.length);
   }
 }

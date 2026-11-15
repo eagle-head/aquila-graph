@@ -29,9 +29,9 @@ class SourceSubjectReportTest {
         ? new DeclarationMemberOrder(order.sourceFileKey(), order.ownerTypeKey(), order.members().stream().map(member ->
             member.declarationKey().equals("type:Second#field:first")
                 ? new DeclarationMemberOrder.Member(member.declarationKey(), member.kind(), "FIELD:altered", member.provenance(), member.writtenOrdinal())
-                : member).toList()) : order).toList();
+                : member).toList(), Optional.empty()) : order).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), copied.bodies(), orders,
-        copied.associations(), copied.declarationTypes()));
+        copied.associations(), copied.declarationTypes(), copied.scopes()));
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());
     var reconciled = JavaCoverageTestSupport.withFacts(input, input.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(input));

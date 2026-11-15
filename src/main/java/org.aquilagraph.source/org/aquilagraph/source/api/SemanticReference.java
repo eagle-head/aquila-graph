@@ -24,26 +24,6 @@ import java.util.Optional;
  */
 public record SemanticReference(ReferenceKind referenceKind, ResolutionStatus status, Optional<String> symbolKey, Optional<String> typeName,
     List<String> typeAlternativeNames, List<String> assignableToTypeNames, Optional<JavaTypeDeclarationIdentity> declarationIdentity) {
-  /**
-   * Creates a reference using the historical identity representation.
-   *
-   * @param referenceKind
-   *          referenced category
-   * @param status
-   *          resolution outcome
-   * @param symbolKey
-   *          declaration key
-   * @param typeName
-   *          descriptive type
-   * @param typeAlternativeNames
-   *          union alternatives
-   * @param assignableToTypeNames
-   *          transitive supertypes
-   */
-  public SemanticReference(ReferenceKind referenceKind, ResolutionStatus status, Optional<String> symbolKey, Optional<String> typeName,
-      List<String> typeAlternativeNames, List<String> assignableToTypeNames) {
-    this(referenceKind, status, symbolKey, typeName, typeAlternativeNames, assignableToTypeNames, Optional.empty());
-  }
   /** Validates resolution consistency and optional semantic attributes. */
   public SemanticReference {
     Objects.requireNonNull(referenceKind, "referenceKind");

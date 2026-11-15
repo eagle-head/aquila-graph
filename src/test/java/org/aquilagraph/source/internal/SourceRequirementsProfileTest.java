@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.retention.AstCodec;
@@ -37,7 +40,7 @@ class SourceRequirementsProfileTest {
   void givenParenthesizedLocalFieldAndArrayTargets_whenProducingSource_thenActualTargetChildrenSurviveIndependentCfgRefusal()
       throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Targets.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Targets.java")), """
         class Targets {
           int field;
           int local(int input) { (input) = 1; return input; }
@@ -74,7 +77,7 @@ class SourceRequirementsProfileTest {
   @Test
   void givenValidGenericHeaders_whenSourceIsQualified_thenPackageQualifiersAndAbsentOptionalSlotsDoNotCreateGaps() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Headers.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Headers.java")), """
         import java.util.List;
         import java.io.IOException;
         abstract class Headers<T extends Number & Comparable<T>> implements java.io.Serializable {

@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -103,7 +106,7 @@ class EnclosingConstructorCompositionTest {
           // Arrange
           var source = context.declarations() + context.source();
           assertCompilerAccepts(source);
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Probe.java"), source)));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Probe.java")), source)));
 
           // Act
           var outcome = JavaFrontends.standard().produce(new AstProductionRequest(new SourceInput.Snapshot(snapshot),
@@ -113,7 +116,7 @@ class EnclosingConstructorCompositionTest {
           assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
           assertTrue(outcome.diagnostics().isEmpty(), outcome.diagnostics().toString());
           var original = outcome.result().orElseThrow();
-          assertEquals("java-source/22", original.identity().sourceModelVersion());
+          assertEquals("java-source/23", original.identity().sourceModelVersion());
           assertEquals("javac-public/14", original.identity().semanticProductionRevision());
           var encoded = AstCodec.encode(original);
           var decoded = AstCodec.decode(encoded, original.identity());

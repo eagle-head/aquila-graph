@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -238,8 +241,8 @@ class ScopedSourcePublicationTest {
           int value() { @Mark int first = 10, second = 11; return first + second; }
         }
         """;
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Sample.java"), text),
-        SourceFile.fromContent(Path.of("Following.java"), "class Following { int value() { return 12; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), text),
+        SourceFile.fromContent(capturedPath(Path.of("Following.java")), "class Following { int value() { return 12; } }")));
     var sources = new SnapshotSourceCatalog(snapshot);
     var finalized = new ArrayList<List<FinalizedUnit>>();
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
@@ -341,8 +344,8 @@ class ScopedSourcePublicationTest {
           int subject() { @Mark int first = 4, second = 5; return first + second; }
         }
         """;
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Sample.java"), text),
-        SourceFile.fromContent(Path.of("Following.java"), "class Following { int value() { return 6; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), text),
+        SourceFile.fromContent(capturedPath(Path.of("Following.java")), "class Following { int value() { return 6; } }")));
     var sources = new SnapshotSourceCatalog(snapshot);
     var requests = new ArrayList<List<FinalizedUnit>>();
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
@@ -426,7 +429,7 @@ class ScopedSourcePublicationTest {
   }
 
   private void withCompilation(String text, Observation observation) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Sample.java"), text)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), text)));
     var sources = new SnapshotSourceCatalog(snapshot);
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
       observation.observe(new Fixture(snapshot.sourceFiles().getFirst(), session.analyze(session.parse(), POLICY)));

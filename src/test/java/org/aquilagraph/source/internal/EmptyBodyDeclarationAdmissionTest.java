@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.retention.AstCodec;
@@ -108,22 +111,18 @@ class EmptyBodyDeclarationAdmissionTest {
   }
 
   @Test
-  void givenAnEarlierEnumFormat_whenReencodedAndDecoded_thenOriginalProfileIdentityAndValuesRemainCompatible() throws IOException {
+  void givenEnumInitializationProfileFacts_whenRetained_thenProfileIdentityAndValuesRemainExact() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "enum Example { FIRST(1) { int value() { return 2; } }; Example(int value) {} }")));
     var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION).result().orElseThrow();
-    var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
-        original.diagnostics(), original.coverage());
-    var historical = AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input), original.profile(), original.identity().semanticProductionRevision(),
-        AstResult.ENUM_SOURCE_MODEL_VERSION);
     // Act
-    var bytes = AstCodec.encode(historical);
-    var retained = AstCodec.decode(bytes, historical.identity());
+    var bytes = AstCodec.encode(original);
+    var retained = AstCodec.decode(bytes, original.identity());
     // Assert
     assertEquals(AstCompletion.COMPLETE, retained.completion());
-    assertEquals(historical.identity(), retained.identity());
+    assertEquals(original.identity(), retained.identity());
     assertEquals(AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION, retained.profile());
     assertEquals(original.aggregate(), retained.aggregate());
     assertArrayEquals(bytes, AstCodec.encode(retained));
@@ -156,21 +155,8 @@ class EmptyBodyDeclarationAdmissionTest {
     }));
   }
 
-  @Test
-  void givenDeclarationValuesWithAnOlderRequestedFormat_whenReadmitted_thenTheNewSourceContractCannotBeMisidentified() throws IOException {
-    // Arrange
-    var ast = produce();
-    var input = new SyntaxAnalysisInput(ast.snapshot(), ast.environment(), ast.program(), Optional.of(ast.aggregate()), ast.diagnostics(),
-        ast.coverage());
-    // Act
-    var error = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input), ast.profile(),
-        ast.identity().semanticProductionRevision(), AstResult.ENUM_SOURCE_MODEL_VERSION));
-    // Assert
-    assertTrue(error.getMessage().contains("java-source/17"), error.toString());
-  }
-
   private AstResult produce() throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { ; ; }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { ; ; }")));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_DECLARATIONS).result().orElseThrow();
   }

@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.retention.AstCodec;
@@ -59,8 +62,8 @@ class MemberInitializationAdmissionTest {
   @Test
   void givenCompactFieldScopeWithForeignOwner_whenCopiedValuesAreAdmitted_thenActualCompactContainerCannotAuthorizeIt() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "int count = Math.abs(-1); void main() {}")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "int count = Math.abs(-1); void main() {}")));
     var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_INITIALIZATION).result().orElseThrow();
     var values = SourceValueCapture.capture(original.aggregate());
@@ -90,7 +93,7 @@ class MemberInitializationAdmissionTest {
           declaration.type(), declaration.initializer(), declaration.argumentList(), declaration.arguments(), declaration.constantBody(),
           declaration.sharedDeclaratorKeys());
       var reference = node.semanticReference().map(value -> new SemanticReference(value.referenceKind(), value.status(),
-          Optional.of("type:Foreign#field:count"), value.typeName(), value.typeAlternativeNames(), value.assignableToTypeNames()));
+          Optional.of("type:Foreign#field:count"), value.typeName(), value.typeAlternativeNames(), value.assignableToTypeNames(), Optional.empty()));
       return rebuild(node, node.syntaxKind(), foreign, node.children(), reference);
     });
     var field = changed.scopes().getFirst();
@@ -104,7 +107,7 @@ class MemberInitializationAdmissionTest {
           var reference = declaration.reference();
           return new SyntaxSemanticEdge(edge.sourceKey(), edge.relation(), new Declaration(new SemanticReference(reference.referenceKind(),
               reference.status(), Optional.of("type:Foreign#field:count"), reference.typeName(), reference.typeAlternativeNames(),
-              reference.assignableToTypeNames())));
+              reference.assignableToTypeNames(), Optional.empty())));
         }).toList())).toList();
     var supplied = new CopiedAstValues(changed.snapshot(), sources, changed.bodies(), changed.memberOrders(),
         changed.associations(), changed.declarationTypes(), List.of(scope));
@@ -207,7 +210,7 @@ class MemberInitializationAdmissionTest {
 
   private AstResult produce() throws IOException {
     var source = "class Example { int first = Math.abs(-1); int second = Integer.MAX_VALUE; }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_INITIALIZATION).result().orElseThrow();
   }
@@ -224,7 +227,7 @@ class MemberInitializationAdmissionTest {
     var supplied = mapSyntax(original, node -> node.nodeId().equals(access.nodeId())
         ? rebuild(node, node.syntaxKind(), new SyntaxValue.SourceSymbol("later"), node.children(),
             Optional.of(new SemanticReference(reference.referenceKind(), reference.status(), later.requiredReference().symbolKey(),
-                reference.typeName(), reference.typeAlternativeNames(), reference.assignableToTypeNames()))) : node);
+                reference.typeName(), reference.typeAlternativeNames(), reference.assignableToTypeNames(), Optional.empty()))) : node);
 
     // Act
     var failure = assertThrows(AstContractException.class, () -> AstValueAdmission.admit(supplied));
@@ -285,7 +288,7 @@ class MemberInitializationAdmissionTest {
   }
 
   private AstResult produce(String source) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_INITIALIZATION).result().orElseThrow();
   }
@@ -374,8 +377,8 @@ class MemberInitializationAdmissionTest {
     return Stream.of(SyntaxKind.FIELD_DECLARATION, SyntaxKind.STATIC_INITIALIZER_BLOCK, SyntaxKind.INSTANCE_INITIALIZER_BLOCK)
         .map(removedKind -> DynamicTest.dynamicTest("given" + removedKind + "Contents_whenOmitted_thenIndependentCoverageDetectsMissingOutput", () -> {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { int field = 1; static { int value = 2; } { int other = 3; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { int field = 1; static { int value = 2; } { int other = 3; } }")));
     var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_INITIALIZATION).result().orElseThrow();
     var values = SourceValueCapture.capture(original.aggregate());

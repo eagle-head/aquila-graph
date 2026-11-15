@@ -265,6 +265,7 @@ public final class AnnotationAttachmentAdmission {
   }
 
   private static SemanticReference reference(ReferenceKind kind, String key) {
-    return new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of());
+    return new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of(),
+        Optional.empty());
   }
 }

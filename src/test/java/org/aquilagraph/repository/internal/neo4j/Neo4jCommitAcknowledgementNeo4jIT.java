@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.aquilagraph.repository.internal.neo4j.Neo4jPublicationObservation.await;
 import static org.aquilagraph.repository.internal.neo4j.Neo4jPublicationObservation.directUri;
 import static org.aquilagraph.repository.internal.neo4j.Neo4jPublicationObservation.loopbackTarget;
@@ -317,8 +320,8 @@ class Neo4jCommitAcknowledgementNeo4jIT {
   private record NamespaceFixture(Namespace namespace, String label, String scopeProperty) {}
 
   private static AstOutcome astFixture(String typeName, Path root) throws IOException {
-    var source = SourceFile.fromContent(Path.of(typeName + ".java"), "interface " + typeName + " {}");
-    var input = InputSnapshot.fromSources(root, List.of(source));
+    var source = SourceFile.fromContent(capturedPath(Path.of(typeName + ".java")), "interface " + typeName + " {}");
+    var input = InputSnapshot.fromSources(capturedAbsolute(root), List.of(source));
     return new JavaFrontend(new JavaSourceLoader()).produce(input, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_BOUNDED);
   }

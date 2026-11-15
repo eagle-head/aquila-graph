@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
@@ -132,32 +135,31 @@ class Neo4jExecutableAstRetentionNeo4jIT {
   }
 
   @Test
-  void givenMixedAndLegacySourceSubjects_whenExactlyReplacingEachNamespace_thenOtherRetainedSubjectsRemainIntact() throws IOException {
+  void givenTwoCurrentSourceSubjects_whenExactlyReplacingEachNamespace_thenTheOtherRetainedSubjectRemainsIntact() throws IOException {
     // Arrange
     var settings = settings();
     var mixed = ExecutableAstRetentionFixture.frontend().produce(ExecutableAstRetentionFixture.snapshot(directory),
         ExecutableAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_EXPANDED);
     var mixedResult = mixed.result().orElseThrow();
-    var oldSource = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Older.java"), "class Older { int value() { return 4; } }")));
+    var oldSource = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Older.java")), "class Older { int value() { return 4; } }")));
     var bounded = ExecutableAstRetentionFixture.frontend().produce(oldSource, ExecutableAstRetentionFixture.configuration(),
         AstProfile.JAVA_SOURCE_BOUNDED);
-    var legacyRun = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(bounded,
+    var boundedRun = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(bounded,
         new CfgRequest(bounded.result().orElseThrow().identity(), bounded.result().orElseThrow().program().methods().stream()
             .filter(method -> method.hasBody()).map(method -> method.methodKey()).toList(), CfgProfile.JAVA_BOUNDED));
-    var oldResult = SourceAnalysisFixture.legacyResult(bounded.result().orElseThrow());
-    var old = AstOutcome.available(oldResult);
+    var oldResult = bounded.result().orElseThrow();
     try {
       assertEquals(PublicationStatus.SAVED, retention(settings).retainAst(new AstPublicationRequest(mixed,
           PublicationIntent.SAVE_COMPLETE_AST)).status());
-      assertEquals(PublicationStatus.SAVED, retention(settings).retainAst(new AstPublicationRequest(old,
+      assertEquals(PublicationStatus.SAVED, retention(settings).retainAst(new AstPublicationRequest(bounded,
           PublicationIntent.SAVE_COMPLETE_AST)).status());
 
       // Act
       var replacement = retention(settings).retainAst(new AstPublicationRequest(mixed, PublicationIntent.SAVE_COMPLETE_AST));
-      try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(RepositoryOperationContext.saveCompletedRun(legacyRun.identity().key()))) {
-        repository.save(legacyRun);
-        repository.save(legacyRun);
+      try (var repository = Neo4jRepositories.completedRuns(() -> settings).open(RepositoryOperationContext.saveCompletedRun(boundedRun.identity().key()))) {
+        repository.save(boundedRun);
+        repository.save(boundedRun);
       }
       var retrieved = query(settings).findAst(mixedResult.identity()).outcome().orElseThrow().result().orElseThrow();
       var older = query(settings).findAst(oldResult.identity()).outcome().orElseThrow().result().orElseThrow();
@@ -165,17 +167,17 @@ class Neo4jExecutableAstRetentionNeo4jIT {
       // Assert
       assertEquals(PublicationStatus.SAVED, replacement.status());
       ExecutableAstRetentionFixture.assertPreserved(mixedResult, retrieved);
-      assertEquals("java-source/2", older.identity().sourceModelVersion());
+      assertEquals("java-source/23", older.identity().sourceModelVersion());
       assertEquals(AstProfile.JAVA_SOURCE_BOUNDED, older.profile());
       assertEquals(oldResult.identity(), older.identity());
       assertArrayEquals(AstCodec.encode(oldResult), AstCodec.encode(older));
       assertMaterialization(settings, mixed);
-      assertMaterialization(settings, old);
+      assertMaterialization(settings, bounded);
     } finally {
       deleteAst(settings, mixedResult.identity());
       deleteAst(settings, oldResult.identity());
       withSession(settings, session -> session.run("MATCH (entity:AnalysisEntity {runId: $runId}) DETACH DELETE entity",
-          Values.parameters("runId", legacyRun.identity().key())).consume());
+          Values.parameters("runId", boundedRun.identity().key())).consume());
     }
   }
 
@@ -307,10 +309,10 @@ class Neo4jExecutableAstRetentionNeo4jIT {
   void givenRootLabelOnRetainedChild_whenExactlyReplacing_thenClosedSubjectAndOtherIdentityArePreserved() throws IOException {
     // Arrange
     var settings = settings();
-    var input = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("RootLabel.java"), "class RootLabel { int value() { return 7; } }")));
-    var neighborInput = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Neighbor.java"), "class Neighbor { int value() { return 9; } }")));
+    var input = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("RootLabel.java")), "class RootLabel { int value() { return 7; } }")));
+    var neighborInput = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Neighbor.java")), "class Neighbor { int value() { return 9; } }")));
     var ast = ExecutableAstRetentionFixture.frontend().produce(input, ExecutableAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_EXPANDED);
     var neighbor = ExecutableAstRetentionFixture.frontend().produce(neighborInput, ExecutableAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_EXPANDED);
     var original = ast.result().orElseThrow();
@@ -354,11 +356,11 @@ class Neo4jExecutableAstRetentionNeo4jIT {
     var settings = settings();
     var frontend = ExecutableAstRetentionFixture.frontend();
     var configuration = ExecutableAstRetentionFixture.configuration();
-    var ast = frontend.produce(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Owned.java"), "class Owned { int value() { return 7; } }"))),
+    var ast = frontend.produce(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Owned.java")), "class Owned { int value() { return 7; } }"))),
         configuration, AstProfile.JAVA_SOURCE_EXPANDED);
-    var neighbor = frontend.produce(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Adjacent.java"), "class Adjacent { int value() { return 9; } }"))),
+    var neighbor = frontend.produce(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Adjacent.java")), "class Adjacent { int value() { return 9; } }"))),
         configuration, AstProfile.JAVA_SOURCE_EXPANDED);
     var projection = new Neo4jAstResultCodec().map(ast);
     var adjacent = new Neo4jAstResultCodec().map(neighbor);
@@ -415,8 +417,8 @@ class Neo4jExecutableAstRetentionNeo4jIT {
   void givenExtraneousMaterialization_whenExactlyReplaced_thenClosedLabelsNodesAndLinksAreRestored() throws IOException {
     // Arrange
     var settings = settings();
-    var input = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Topology.java"), "class Topology { int value() { return 7; } }")));
+    var input = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Topology.java")), "class Topology { int value() { return 7; } }")));
     var ast = ExecutableAstRetentionFixture.frontend().produce(input, ExecutableAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_EXPANDED);
     var original = ast.result().orElseThrow();
     try {
@@ -453,8 +455,8 @@ class Neo4jExecutableAstRetentionNeo4jIT {
   private void assertIntegralFieldReplacement(String owner) throws IOException {
     // Arrange: the producer is real; deliberate stored numeric coercion is a supplied corruption.
     var settings = settings();
-    var input = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Integral.java"), "class Integral { int value() { return 7; } }")));
+    var input = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Integral.java")), "class Integral { int value() { return 7; } }")));
     var ast = ExecutableAstRetentionFixture.frontend().produce(input, ExecutableAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_EXPANDED);
     var original = ast.result().orElseThrow();
     try {
@@ -490,29 +492,28 @@ class Neo4jExecutableAstRetentionNeo4jIT {
   }
 
   @Test
-  void givenCompatibleExceptionSchema_whenSavedAndLaterQueried_thenOriginalIdentityAndCompleteValuesRemainReadable() throws IOException {
+  void givenExceptionFacts_whenSavedAndLaterQueried_thenTheirExactIdentityAndCompleteValuesRemainReadable() throws IOException {
     // Arrange
     var settings = settings();
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Prior.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Prior.java")),
         "class Prior { int subject(int value) { try { value += 1; } finally { value += 2; } return value; } }")));
     var current = ExecutableAstRetentionFixture.frontend().produce(snapshot, ExecutableAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_EXPANDED)
         .result().orElseThrow();
-    var previous = SourceAnalysisFixture.exceptionResult(current);
-    var outcome = AstOutcome.available(previous);
+    var outcome = AstOutcome.available(current);
     try {
       // Act
       var publication = retention(settings).retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
-      var retained = query(settings).findAst(previous.identity()).outcome().orElseThrow().result().orElseThrow();
+      var retained = query(settings).findAst(current.identity()).outcome().orElseThrow().result().orElseThrow();
 
       // Assert
       assertEquals(PublicationStatus.SAVED, publication.status());
-      assertEquals("java-source/12", retained.identity().sourceModelVersion());
-      assertEquals(previous.identity(), retained.identity());
-      assertArrayEquals(AstCodec.encode(previous), AstCodec.encode(retained));
+      assertEquals("java-source/23", retained.identity().sourceModelVersion());
+      assertEquals(current.identity(), retained.identity());
+      assertArrayEquals(AstCodec.encode(current), AstCodec.encode(retained));
       assertEquals(current.aggregate(), retained.aggregate());
       assertMaterialization(settings, outcome);
     } finally {
-      deleteAst(settings, previous.identity());
+      deleteAst(settings, current.identity());
     }
   }
 

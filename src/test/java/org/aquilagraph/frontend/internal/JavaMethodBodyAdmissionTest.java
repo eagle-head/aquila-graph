@@ -1,5 +1,7 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -92,7 +94,7 @@ class JavaMethodBodyAdmissionTest {
           (_, _, _) -> { effects.incrementAndGet(); throw new AssertionError("Rejected input must not project descendants"); });
       var projector = new JavaExecutableSyntaxProjector(fixture.semantics(), fixture.evidence(), fixture.inventory(), context,
           "JavaMethodBodyTranslator", "method body");
-      var foreignSource = SourceFile.fromContent(Path.of("Example.java"), "class Example {}");
+      var foreignSource = SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example {}");
 
       // Act
       var scopeError = assertThrows(IllegalArgumentException.class, () -> projector.project(fixture.unit(), fixture.source(),
@@ -846,7 +848,8 @@ class JavaMethodBodyAdmissionTest {
       var missingMethod = new JavaType(original.typeKey(), original.qualifiedName(), original.kind(), original.modifiers(),
           original.enclosingType(), original.directSuperclass(), original.directInterfaces(), original.permittedSubclasses(),
           original.typeParameters(), original.sourceDeclared(), original.fields(), original.recordComponents(), List.of(),
-          original.synthesizedDeclarations(), original.origins());
+          original.synthesizedDeclarations(), original.origins(),
+    original.nesting(), original.staticType(), original.displayName());
       var contributor = new UnitSourceFixture(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaTranslationPolicy.legacyAnalysis());
 
       // Act
@@ -879,7 +882,8 @@ class JavaMethodBodyAdmissionTest {
       var changedType = new JavaType(type.typeKey(), type.qualifiedName(), type.kind(), type.modifiers(), type.enclosingType(),
           type.directSuperclass(), type.directInterfaces(), type.permittedSubclasses(), type.typeParameters(), type.sourceDeclared(),
           type.fields(), type.recordComponents(), type.methods().stream().map(method -> method.equals(original) ? changed : method).toList(),
-          type.synthesizedDeclarations(), type.origins());
+          type.synthesizedDeclarations(), type.origins(),
+    type.nesting(), type.staticType(), type.displayName());
       var contributor = new UnitSourceFixture(fixture.semantics(), fixture.evidence(), fixture.inventory(), JavaTranslationPolicy.legacyAnalysis());
 
       // Act

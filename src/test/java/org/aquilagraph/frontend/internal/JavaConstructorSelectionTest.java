@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -189,8 +192,8 @@ class JavaConstructorSelectionTest {
     var archive = directory.resolve("constructors.jar");
     writeJar(classes, archive);
     var archiveBytes = Files.readAllBytes(archive);
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(archive), List.of(), List.of());
-    var baseline = InputSnapshot.fromSources(directory.resolve("baseline"), List.of(SourceFile.fromContent(Path.of("Selection.java"), """
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(archive)), List.of(), List.of());
+    var baseline = InputSnapshot.fromSources(capturedAbsolute(directory.resolve("baseline")), List.of(SourceFile.fromContent(capturedPath(Path.of("Selection.java")), """
         class Selection {
           static support.GenericConstruction create() { return new support.GenericConstruction(1); }
         }
@@ -200,13 +203,13 @@ class JavaConstructorSelectionTest {
     var movedArchive = directory.resolve("constructors-moved.jar");
     Files.move(archive, movedArchive);
     Files.move(movedArchive, archive);
-    var source = SourceFile.fromContent(Path.of("Selection.java"), """
+    var source = SourceFile.fromContent(capturedPath(Path.of("Selection.java")), """
         class Selection {
           static support.GenericConstruction privateBound() { return new support.GenericConstruction(null); }
           static support.GenericConstruction explicit(String value) { return new <CharSequence> support.GenericConstruction(value, 1); }
         }
         """);
-    var snapshot = InputSnapshot.fromSources(directory.resolve("input"), List.of(source));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory.resolve("input")), List.of(source));
 
     // Act
     var input = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, configuration, JavaTranslationPolicy.legacyAnalysis());
@@ -457,7 +460,7 @@ class JavaConstructorSelectionTest {
     }
     var binary = classes.resolve("support/GenericConstruction$Nested.class");
     var originalBytes = Files.readAllBytes(binary);
-    var source = SourceFile.fromContent(Path.of("Selection.java"), """
+    var source = SourceFile.fromContent(capturedPath(Path.of("Selection.java")), """
         class Selection {
           static support.GenericConstruction<String>.Nested<Number> fixed(support.GenericConstruction<String> owner, Integer value) {
             return owner.new Nested<Number>(value, "outer");
@@ -467,10 +470,10 @@ class JavaConstructorSelectionTest {
           }
         }
         """);
-    var snapshot = InputSnapshot.fromSources(directory.resolve("input"), List.of(source));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory.resolve("input")), List.of(source));
 
     // Act
-    var input = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, new CompilerConfiguration(JavaRelease.JAVA_25, List.of(classes), List.of(), List.of()), JavaTranslationPolicy.legacyAnalysis());
+    var input = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(classes)), List.of(), List.of()), JavaTranslationPolicy.legacyAnalysis());
 
     // Assert
     assertCompleted(input);
@@ -631,8 +634,8 @@ class JavaConstructorSelectionTest {
           static Selection capture(java.util.List<?> values) { return new Selection(values); }
         }
         """;
-    var snapshot = InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/compiler-input"),
-        List.of(SourceFile.fromContent(Path.of("Selection.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of("D:/Projects/aquila-graph/aquila-graph/target/compiler-input")),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Selection.java")), source)));
     var catalog = new SnapshotSourceCatalog(snapshot);
     var invocation = JavaCompilerInvocation.from(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
     var compiler = ToolProvider.getSystemJavaCompiler();
@@ -642,6 +645,7 @@ class JavaConstructorSelectionTest {
     var input = analyze(source);
     try (var owned = new CompilerFileManager(compiler.getStandardFileManager(diagnostics, null, StandardCharsets.UTF_8))) {
       var manager = owned.standardFileManager();
+      invocation.configurePaths(owned.standardFileManager());
       var task = (JavacTask) compiler.getTask(null, owned, diagnostics, invocation.compilerOptions(), null, catalog.compilationUnits());
       var units = new ArrayList<CompilationUnitTree>();
       task.parse().forEach(units::add);
@@ -713,8 +717,8 @@ class JavaConstructorSelectionTest {
     var annotatedTarget = annotatedConstructor.useDecision(annotatedDelegation.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow().selectedTarget();
     assertEquals(annotatedTarget, argument(input, "declared", 0).selectedTarget());
     assertEquals("java.util.List<java.lang.String>", annotatedTarget.displayName());
-    assertAnnotatedFormal(InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/compiler-input"),
-        List.of(SourceFile.fromContent(Path.of("Selection.java"), source))), CompilerConfiguration.forRelease(JavaRelease.JAVA_25), "Selection");
+    assertAnnotatedFormal(InputSnapshot.fromSources(capturedAbsolute(Path.of("D:/Projects/aquila-graph/aquila-graph/target/compiler-input")),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Selection.java")), source))), CompilerConfiguration.forRelease(JavaRelease.JAVA_25), "Selection");
   }
 
   @Test
@@ -742,7 +746,7 @@ class JavaConstructorSelectionTest {
     }
     var binary = classes.resolve("support/GenericConstruction.class");
     var originalBytes = Files.readAllBytes(binary);
-    var snapshot = InputSnapshot.fromSources(directory.resolve("input"), List.of(SourceFile.fromContent(Path.of("Selection.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory.resolve("input")), List.of(SourceFile.fromContent(capturedPath(Path.of("Selection.java")), """
         class Selection extends support.GenericConstruction {
           Selection() { <String>super(java.util.List.of("text"), 1); }
           static support.GenericConstruction create() { return new <String> support.GenericConstruction(java.util.List.of("text"), 1); }
@@ -750,7 +754,7 @@ class JavaConstructorSelectionTest {
         """)));
 
     // Act
-    var input = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, new CompilerConfiguration(JavaRelease.JAVA_25, List.of(classes), List.of(), List.of()), JavaTranslationPolicy.legacyAnalysis());
+    var input = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(classes)), List.of(), List.of()), JavaTranslationPolicy.legacyAnalysis());
 
     // Assert
     assertCompleted(input);
@@ -761,7 +765,7 @@ class JavaConstructorSelectionTest {
     assertEquals("java.util.List<java.lang.String>", target.displayName());
     assertEquals(target, argument(input, "create", 0).selectedTarget());
     assertArrayEquals(originalBytes, Files.readAllBytes(binary));
-    assertAnnotatedFormal(snapshot, new CompilerConfiguration(JavaRelease.JAVA_25, List.of(classes), List.of(), List.of()),
+    assertAnnotatedFormal(snapshot, new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(classes)), List.of(), List.of()),
         "support.GenericConstruction");
   }
 
@@ -838,6 +842,7 @@ class JavaConstructorSelectionTest {
     var diagnostics = new DiagnosticCollector<JavaFileObject>();
     var compiler = ToolProvider.getSystemJavaCompiler();
     try (var owned = new CompilerFileManager(compiler.getStandardFileManager(diagnostics, null, StandardCharsets.UTF_8))) {
+      invocation.configurePaths(owned.standardFileManager());
       var task = (JavacTask) compiler.getTask(null, owned, diagnostics, invocation.compilerOptions(), null, catalog.compilationUnits());
       task.parse();
       task.analyze();
@@ -852,13 +857,14 @@ class JavaConstructorSelectionTest {
   }
 
   private static void assertEnclosingCaptureSelection(String source) throws IOException {
-    var snapshot = InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/compiler-input"),
-        List.of(SourceFile.fromContent(Path.of("Selection.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of("D:/Projects/aquila-graph/aquila-graph/target/compiler-input")),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Selection.java")), source)));
     var catalog = new SnapshotSourceCatalog(snapshot);
     var invocation = JavaCompilerInvocation.from(CompilerConfiguration.forRelease(JavaRelease.JAVA_25));
     var diagnostics = new DiagnosticCollector<JavaFileObject>();
     var compiler = ToolProvider.getSystemJavaCompiler();
     try (var owned = new CompilerFileManager(compiler.getStandardFileManager(diagnostics, null, StandardCharsets.UTF_8))) {
+      invocation.configurePaths(owned.standardFileManager());
       var task = (JavacTask) compiler.getTask(null, owned, diagnostics, invocation.compilerOptions(), null, catalog.compilationUnits());
       var units = new ArrayList<CompilationUnitTree>();
       task.parse().forEach(units::add);
@@ -939,8 +945,8 @@ class JavaConstructorSelectionTest {
   }
 
   private static SyntaxAnalysisInput analyze(String source, CompilerConfiguration configuration) throws IOException {
-    var snapshot = InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/compiler-input"),
-        List.of(SourceFile.fromContent(Path.of("Selection.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of("D:/Projects/aquila-graph/aquila-graph/target/compiler-input")),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Selection.java")), source)));
     return new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, configuration, JavaTranslationPolicy.legacyAnalysis());
   }
 

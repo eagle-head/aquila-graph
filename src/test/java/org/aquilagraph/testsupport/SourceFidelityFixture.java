@@ -1,5 +1,8 @@
 package org.aquilagraph.testsupport;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -65,14 +68,14 @@ public final class SourceFidelityFixture {
   }
 
   public static InputSnapshot snapshot(Path root) {
-    return InputSnapshot.fromSources(root, List.of(SourceFile.fromContent(Path.of("Hierarchy.java"), SOURCE)));
+    return InputSnapshot.fromSources(capturedAbsolute(root), List.of(SourceFile.fromContent(capturedPath(Path.of("Hierarchy.java")), SOURCE)));
   }
 
   public static void assertFaithful(AstResult result) {
     assertEquals(AstCompletion.COMPLETE, result.completion(), result.diagnostics().toString());
     assertTrue(result.diagnostics().isEmpty());
     assertEquals(AstProfile.JAVA_SOURCE_FIDELITY, result.profile());
-    assertEquals("java-source/22", result.identity().sourceModelVersion());
+    assertEquals("java-source/23", result.identity().sourceModelVersion());
     assertEquals("javac-public/14", result.identity().semanticProductionRevision());
     assertEquals("java-source-expanded/7", result.identity().astProfileVersion());
     assertSourceFacts(result);

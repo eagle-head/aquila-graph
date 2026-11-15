@@ -1,5 +1,7 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -12,7 +14,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.net.URI;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -73,6 +74,9 @@ import org.aquilagraph.cli.CommandInvocation;
 import org.aquilagraph.cli.CommandRunner;
 import org.aquilagraph.frontend.JavaFrontends;
 import org.aquilagraph.identity.api.AstIdentity;
+import org.aquilagraph.identity.api.CapturedLocation;
+import org.aquilagraph.identity.api.CapturedLocation.RootKind;
+import org.aquilagraph.identity.api.CapturedLocation.Syntax;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.GraphIdentity;
 import org.aquilagraph.identity.api.InputSnapshot;
@@ -96,7 +100,6 @@ import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
-import org.aquilagraph.source.internal.SourceAnalysisFixture;
 import org.aquilagraph.source.retention.AstCodec;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
@@ -157,7 +160,7 @@ class PublicAnalysisCompositionTest {
   private static final String AST_ROOT_UPDATE = "UNWIND $nodes AS item MATCH (entity) WHERE elementId(entity) = item.address "
       + "SET entity:`AstResult`, entity = item.properties";
   private static final String AST_RESULT_LOOKUP =
-      "MATCH (result:AstEntity:AstResult {astResultKey: $scope}) RETURN properties(result) AS properties LIMIT 2";
+      "MATCH (result:AstEntity:AstResult {astResultKey: $scope}) RETURN result { .formatVersion, .astProfileVersion } AS properties LIMIT 2";
   private static final String AST_ENTITY_SCOPE = "MATCH (entity:AstEntity {astResultKey: $scope}) RETURN ";
   private static final String AST_RELATIONSHIP_SCOPE = "MATCH (source)-[relation]->(target) "
       + "WHERE (source:AstEntity AND source.astResultKey = $scope) OR relation.astResultKey = $scope "
@@ -226,7 +229,7 @@ class PublicAnalysisCompositionTest {
     assertEquals(AstLookupStatus.FOUND, lookup.status());
     assertEquals(identity, lookup.requestedIdentity());
     assertEquals(identity, retained.identity());
-    assertEquals("java-source/22", retained.identity().sourceModelVersion());
+    assertEquals("java-source/23", retained.identity().sourceModelVersion());
     assertEquals(original.qualification(), retained.qualification());
     assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retained));
     assertEquals(PublicAstObservation.describe(original), PublicAstObservation.describe(retained));
@@ -369,7 +372,7 @@ class PublicAnalysisCompositionTest {
     assertEquals(AstLookupStatus.FOUND, lookup.status());
     assertEquals(identity, lookup.requestedIdentity());
     assertEquals(identity, retained.identity());
-    assertEquals("java-source/22", identity.sourceModelVersion());
+    assertEquals("java-source/23", identity.sourceModelVersion());
     assertEquals("javac-public/14", identity.semanticProductionRevision());
     var bytes = AstCodec.encode(original);
     assertArrayEquals(bytes, AstCodec.encode(retained));
@@ -597,18 +600,21 @@ class PublicAnalysisCompositionTest {
   @TestFactory
   Stream<DynamicTest> givenCapturedPathSyntax_whenRetainedSourceIsRepublished_thenCanonicalSourceLinkIsWritten() {
     // Arrange
+    var sharedRoot = "//server/share/captured";
     var windows = DynamicTest.dynamicTest("givenCapturedWindowsPaths_whenRetainedSourceIsRepublished_thenCanonicalSourceLinkIsWritten",
-        () -> assertRestoredSourcePublication("D:\\retained-source", "src\\Sample.java", "\\"));
+        () -> assertRestoredSourcePublication(Syntax.WINDOWS, sharedRoot, "src/Sample.java", RootKind.WINDOWS_UNC));
     var posix = DynamicTest.dynamicTest("givenCapturedPosixPaths_whenRetainedSourceIsRepublished_thenCanonicalSourceLinkIsWritten",
-        () -> assertRestoredSourcePublication("/retained-source", "src/Sample.java", "/"));
+        () -> assertRestoredSourcePublication(Syntax.POSIX, sharedRoot, "src/Sample.java", RootKind.POSIX_ABSOLUTE));
 
     // Act and assert in each case.
     return Stream.of(windows, posix);
   }
 
-  private static void assertRestoredSourcePublication(String rootText, String relativeText, String separator) {
+  private static void assertRestoredSourcePublication(Syntax syntax, String rootText, String relativeText, RootKind rootKind) {
     // Arrange
-    var snapshot = SourceAnalysisFixture.capturedSnapshot(rootText, relativeText, BRANCHING);
+    var root = CapturedLocation.parse(syntax, rootText);
+    var relative = CapturedLocation.parse(syntax, relativeText);
+    var snapshot = InputSnapshot.fromSources(root, List.of(SourceFile.fromContent(relative, BRANCHING)));
     var production = new AstProductionRequest(snapshot, CONFIGURATION, PROFILE);
     var astWrite = new AstRepositoryDriverStub();
     var astRead = new AstRepositoryDriverStub();
@@ -640,11 +646,11 @@ class PublicAnalysisCompositionTest {
     assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), astRead.events);
     var restoredRoot = restored.snapshot().sourceRoot();
     var restoredFile = restored.snapshot().sourceFiles().getFirst();
-    assertEquals(rootText, restoredRoot.toString());
-    assertEquals(relativeText, restoredFile.relativePath().toString());
-    assertEquals(separator, restoredFile.relativePath().getFileSystem().getSeparator());
-    assertEquals(separator.equals(FileSystems.getDefault().getSeparator()),
-        FileSystems.getDefault() == restoredFile.relativePath().getFileSystem());
+    assertEquals(root, restoredRoot);
+    assertEquals(rootKind, restoredRoot.rootKind());
+    assertEquals(syntax, restoredRoot.syntax());
+    assertEquals(relative, restoredFile.relativePath());
+    assertEquals("src/Sample.java", restoredFile.canonicalRelativePath());
     assertEquals(AnalysisOperation.DERIVE_EXISTING, derived.identity().operation());
     assertEquals(new AvailableSource(identity), derived.identity().source());
     assertSame(restoredOutcome, derived.representation().ast());
@@ -805,7 +811,7 @@ class PublicAnalysisCompositionTest {
       throw new AssertionError("Unselected or unavailable source must not invoke CFG derivation");
     });
     var execution = AnalysisCapabilities.execution(computation, NO_AST_STORAGE, NO_RUN_STORAGE);
-    var emptySource = new AstProductionRequest(InputSnapshot.fromSources(directory, List.of()), CONFIGURATION, PROFILE);
+    var emptySource = new AstProductionRequest(InputSnapshot.fromSources(capturedAbsolute(directory), List.of()), CONFIGURATION, PROFILE);
     var selection = new CfgSelection(List.of("missing"), CFG);
 
     // Act
@@ -1134,13 +1140,13 @@ class PublicAnalysisCompositionTest {
   }
 
   @TestFactory
-  Stream<DynamicTest> givenOriginalHistoricalFixtures_whenQueried_thenThePublicConsumerStillObservesTheirOriginalValues() {
+  Stream<DynamicTest> givenOriginalHistoricalFixtures_whenQueried_thenTheirStoredRootsAreRefusedAfterClosure() {
     // Arrange
     var formats = List.of(2, 19, 21);
 
     // Act
     var observations = formats.stream().map(format -> DynamicTest.dynamicTest(
-        "givenOriginalSourceFormat" + format + "_whenQueried_thenThePublicConsumerObservesItsOriginalValues",
+        "givenOriginalSourceFormat" + format + "_whenQueried_thenItsStoredRootIsRefusedAfterClosure",
         () -> assertHistoricalLookup(format)));
 
     // Assert
@@ -1152,26 +1158,23 @@ class PublicAnalysisCompositionTest {
     var original = HistoricalAstFixtures.read(format);
     var identity = original.identity();
     var driver = new AstRepositoryDriverStub();
-    driver.stored = new Neo4jAstResultCodec().map(AstOutcome.available(original));
+    driver.stored = HistoricalAstFixtures.storedRoot(original);
+    driver.malformedNodeRecords = true;
 
     // Act
-    var found = AnalysisCapabilities.astQuery(astFactory(driver)::openQuery).findAst(identity);
-    var retained = found.outcome().orElseThrow().result().orElseThrow();
+    var lookup = AnalysisCapabilities.astQuery(astFactory(driver)::openQuery).findAst(identity);
 
     // Assert
-    assertEquals(AstLookupStatus.FOUND, found.status());
-    assertEquals(identity, found.requestedIdentity());
-    assertEquals(identity, retained.identity());
-    assertEquals("java-source/" + format, retained.identity().sourceModelVersion());
-    assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retained));
-    assertEquals(PublicAstObservation.describe(original), PublicAstObservation.describe(retained));
-    assertAstStatements(identity, driver.statements, AST_RESULT_LOOKUP, AST_NODE_LOOKUP, AST_RELATIONSHIP_LOOKUP);
+    assertEquals(AstLookupStatus.INCOMPATIBLE, lookup.status());
+    assertEquals(identity, lookup.requestedIdentity());
+    assertEquals(Optional.empty(), lookup.outcome());
+    assertAstStatements(identity, driver.statements, AST_RESULT_LOOKUP);
     assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
   }
 
   private AstProductionRequest source(String content) {
-    return new AstProductionRequest(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Sample.java"), content))), CONFIGURATION, PROFILE);
+    return new AstProductionRequest(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), content))), CONFIGURATION, PROFILE);
   }
 
   private CommandInvocation runPersistingCommand(CommandRunner runner, StringWriter output, StringWriter error) {

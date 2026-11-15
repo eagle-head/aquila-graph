@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AstPublicationRequest;
 import org.aquilagraph.application.PublicationIntent;
@@ -68,7 +71,7 @@ class WrittenBodyTypeAdmissionTest {
     // Arrange
     var source = local ? "class Example { int subject(long input) { int narrowed = (int) input; return narrowed; } }"
         : "class Example { int subject(long input) { return (int) input; } }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var result = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)
         .result().orElseThrow();
     var kind = local ? SyntaxKind.LOCAL_DECLARATION : SyntaxKind.TYPE_CAST;
@@ -152,8 +155,8 @@ class WrittenBodyTypeAdmissionTest {
   private void assertRetainedTargets(AstProfile profile, String declaration, AstCompletion expected, List<String> diagnosticCodes)
       throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "import java.util.List; class Example { " + declaration + " }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "import java.util.List; class Example { " + declaration + " }")));
     var result = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)
         .result().orElseThrow();
 
@@ -192,7 +195,7 @@ class WrittenBodyTypeAdmissionTest {
 
   private void assertMissingTarget(AstProfile profile, String source, SyntaxKind kind, SyntaxRole role) throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
     var baseline = AstResultAdmission.admit(original, profile, "javac-public/1");
     var changed = AstValueAdmission.admit(omitTypeTarget(original.aggregate().orElseThrow(), kind, role));
@@ -239,7 +242,7 @@ class WrittenBodyTypeAdmissionTest {
         body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(),
         body.attributedOccurrences().stream().filter(occurrence -> !omitted.contains(occurrence.nodeKey())).toList())).toList();
     return new CopiedAstValues(copied.snapshot(), sources, bodies, copied.memberOrders(),
-        copied.associations().stream().filter(association -> !omitted.contains(association.nodeKey())).toList(), copied.declarationTypes());
+        copied.associations().stream().filter(association -> !omitted.contains(association.nodeKey())).toList(), copied.declarationTypes(), copied.scopes());
   }
 
   private static SyntaxNode omit(SyntaxNode node, Set<String> omitted, Map<SyntaxNode, SyntaxNode> replacements) {

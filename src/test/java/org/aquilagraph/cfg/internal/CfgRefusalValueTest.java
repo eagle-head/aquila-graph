@@ -1,5 +1,8 @@
 package org.aquilagraph.cfg.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.cfg.api.CfgState;
 import org.aquilagraph.cfg.api.CfgOutcome;
@@ -121,7 +124,7 @@ class CfgRefusalValueTest {
   }
 
   private Fixture fixture(AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Refused.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Refused.java")), """
         class Refused {
           int run(int input) {
             int first = switch (input) { case 1 -> 2; default -> 3; };

@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.retention.AstCodec;
@@ -108,53 +111,37 @@ class NestedDeclarationAdmissionTest {
   }
 
   @Test
-  void givenHistoricalGenericOwnerAndMember_whenDecoded_thenCapturedTypesOriginalIdentityAndBytesRemainCompatible() throws IOException {
+  void givenGenericOwnerAndMember_whenRetained_thenCapturedTypesIdentityAndBytesRemainExact() throws IOException {
     // Arrange
     var current = produce("class Example<T> { class Member {} T subject(T value) { return value; } }", AstProfile.JAVA_SOURCE_EXPANDED);
-    var previous = SourceAnalysisFixture.classLiteralResult(current);
-    var input = new SyntaxAnalysisInput(previous.snapshot(), previous.environment(), previous.program(), Optional.of(previous.aggregate()), previous.diagnostics(), previous.coverage());
-    var initialization = AstResultAdmission.admit(input, previous.profile(), previous.identity().semanticProductionRevision(), AstResult.INITIALIZATION_SOURCE_MODEL_VERSION);
 
     // Act
-    var oldBytes = AstCodec.encode(previous);
-    var retained = AstCodec.decode(oldBytes, previous.identity());
-    var retainedInitialization = AstCodec.decode(AstCodec.encode(initialization), initialization.identity());
+    var oldBytes = AstCodec.encode(current);
+    var retained = AstCodec.decode(oldBytes, current.identity());
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, retained.completion());
-    assertEquals(previous.identity(), retained.identity());
+    assertEquals(current.identity(), retained.identity());
     assertEquals("Example<T>", retained.program().types().getFirst().staticType().displayName());
     assertEquals(current.program().types().getLast().staticType(), retained.program().types().getLast().staticType());
     assertArrayEquals(oldBytes, AstCodec.encode(retained));
-    assertEquals(initialization.identity(), retainedInitialization.identity());
   }
 
   @Test
-  void givenLocalDeclarations_whenAnOlderRetainedFormatIsRequested_thenNewStructureCannotAcquireAHistoricalIdentity() throws IOException {
-    // Arrange
-    var original = produce("class Example { void subject() { class Local {} } }", AstProfile.JAVA_SOURCE_NESTED);
-    var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()), original.diagnostics(), original.coverage());
-
-    // Act
-    var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input), original.profile(), original.identity().semanticProductionRevision(), AstResult.INITIALIZATION_SOURCE_MODEL_VERSION));
-
-    // Assert
-    assertTrue(failure.getMessage().contains("java-source/15"), failure.toString());
-  }
-
-  @Test
-  void givenGenericParentAndMembers_whenEarlierPublicTypeConstructorIsUsed_thenTheProgramRetainsItsDeclaredOwnerTypes() throws IOException {
+  void givenGenericParentAndMembers_whenRetained_thenTheirDeclaredOwnerTypesRemainDistinct() throws IOException {
     // Arrange
     var original = produce("class Example<T> { class Member<U> {} static class Static<V> {} }", AstProfile.JAVA_SOURCE_EXPANDED);
-    var types = original.program().types().stream().map(type -> new JavaType(type.typeKey(), type.qualifiedName(), type.kind(), type.modifiers(),
-        type.enclosingType(), type.directSuperclass(), type.directInterfaces(), type.permittedSubclasses(), type.typeParameters(), type.sourceDeclared(),
-        type.fields(), type.recordComponents(), type.methods(), type.synthesizedDeclarations(), type.origins())).toList();
 
     // Act
-    var copied = new JavaProgram(types);
+    var copied = AstCodec.decode(AstCodec.encode(original), original.identity()).program();
 
     // Assert
-    assertEquals(original.program().types().stream().map(JavaType::staticType).toList(), copied.types().stream().map(JavaType::staticType).toList());
+    assertEquals("Example<T>", copied.types().stream().filter(type -> type.qualifiedName().equals("Example")).findFirst()
+        .orElseThrow().staticType().displayName());
+    assertEquals("Example<T>.Member<U>", copied.types().stream().filter(type -> type.qualifiedName().equals("Example.Member")).findFirst()
+        .orElseThrow().staticType().displayName());
+    assertEquals("Example.Static<V>", copied.types().stream().filter(type -> type.qualifiedName().equals("Example.Static")).findFirst()
+        .orElseThrow().staticType().displayName());
   }
 
   @TestFactory
@@ -215,7 +202,7 @@ class NestedDeclarationAdmissionTest {
   }
 
   private AstResult produce(String source, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile).result().orElseThrow();
   }
 

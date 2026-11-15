@@ -12,6 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
 
 import java.io.IOException;
 import java.net.URI;
@@ -245,8 +247,8 @@ class Neo4jAstResultRepositoryTest {
   @Test
   void givenExpandedClosedValue_whenFindingThroughAdapter_thenEverySourceValueAndProfileSurvive() throws IOException {
     // Arrange: the driver is supplied; this observes decoding, not database persistence.
-    var ast = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Stored.java"), "class Stored { int value(int x) { return x + 7; } }"))),
+    var ast = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), "class Stored { int value(int x) { return x + 7; } }"))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_EXPANDED);
     var backend = new AstRepositoryDriverStub();
     backend.stored = new Neo4jAstResultCodec().map(ast);
@@ -452,7 +454,7 @@ class Neo4jAstResultRepositoryTest {
       assertSame(backend.driverCloseFailure, driverCleanup.effectivePrimary().getCause());
       assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), backend.events);
       assertEquals(1, backend.queries.size());
-      assertTrue(backend.queries.getFirst().contains("RETURN properties(result)"));
+      assertTrue(backend.queries.getFirst().contains("RETURN result { .formatVersion, .astProfileVersion } AS properties"));
     }
   }
 
@@ -632,7 +634,7 @@ class Neo4jAstResultRepositoryTest {
 
   @Test
   void givenAbsentSubjectOrUnsupportedVersion_whenFinding_thenReadClosesBeforeNormalReturnWithoutLoadingMaterialization() throws IOException {
-    for (var version : List.of("absent", "unsupported-java-source")) {
+    for (var version : List.of("absent", "java-source/22", "unsupported-java-source")) {
       // Arrange
       var ast = produce();
       var backend = new AstRepositoryDriverStub();
@@ -661,7 +663,7 @@ class Neo4jAstResultRepositoryTest {
         if (status == AstLookupStatus.FOUND) {
           backend.stored = projection;
         } else if (status == AstLookupStatus.INCOMPATIBLE) {
-          backend.version = "unsupported-java-source";
+          backend.version = "java-source/22";
         }
         var close = new Neo4jException("Controlled " + phase + " failure after " + status);
         if (phase == Neo4jRepositoryPhase.READ_SESSION_CLOSE) {
@@ -691,7 +693,7 @@ class Neo4jAstResultRepositoryTest {
     // Arrange
     var ast = produce();
     var backend = new AstRepositoryDriverStub();
-    backend.version = Neo4jAstResultCodec.FORMAT_VERSION;
+    backend.version = AstCodec.FORMAT_VERSION;
 
     // Act
     var failure = assertThrows(Neo4jRepositoryOperationException.class,
@@ -867,8 +869,8 @@ class Neo4jAstResultRepositoryTest {
   }
 
   private AstOutcome produce(String filename, String source) throws IOException {
-    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of(filename), source))),
+    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of(filename)), source))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED);
   }
 

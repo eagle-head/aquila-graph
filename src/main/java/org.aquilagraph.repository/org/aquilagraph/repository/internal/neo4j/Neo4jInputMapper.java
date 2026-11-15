@@ -7,7 +7,7 @@ import org.aquilagraph.identity.api.StableId;
 final class Neo4jInputMapper {
   void map(String runId, InputSnapshot snapshot, Neo4jProjectionBuilder projection) {
     var snapshotKey = StableId.sha256("input-snapshot", snapshot.snapshotDigest());
-    projection.node("InputSnapshot", snapshotKey, "sourceRoot", snapshot.sourceRoot().toString(), "digestAlgorithm",
+    projection.node("InputSnapshot", snapshotKey, "sourceRoot", snapshot.sourceRoot().spelling(), "digestAlgorithm",
         snapshot.digestAlgorithm(), "snapshotDigest", snapshot.snapshotDigest());
     projection.relate("HAS_INPUT", runId, snapshotKey, "input");
     for (var sourceFile : snapshot.sourceFiles()) {

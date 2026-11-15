@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.cfg.internal.CfgAdmission;
 import org.aquilagraph.cfg.api.CfgProfile;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,8 +46,8 @@ class AttributedOccurrenceIdentityTest {
     // Arrange
     var source = "class Stored { int value() { return 7; } }";
     var compilerRoot = actualCompilerBodyPath(source);
-    var file = SourceFile.fromContent(Path.of("Stored.java"), source);
-    var ast = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory, List.of(file)),
+    var file = SourceFile.fromContent(capturedPath(Path.of("Stored.java")), source);
+    var ast = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory), List.of(file)),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
     var retained = AstCodec.decode(AstCodec.encode(ast), ast.identity());
     var method = retained.program().methods().stream().filter(value -> value.name().equals("value")).findFirst().orElseThrow();

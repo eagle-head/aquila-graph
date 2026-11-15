@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.repository.neo4j.Neo4jRepositories;
 import org.aquilagraph.application.RepositoryOperationContext;
 
@@ -46,9 +49,9 @@ class Neo4jEnumContextNeo4jIT {
     var settings = Neo4jIntegration.settings();
     var suffix = UUID.randomUUID().toString().replace("-", "");
     var delegated = "Delegated" + suffix;
-    var source = SourceFile.fromContent(Path.of("Enums.java"), "enum Empty" + suffix + " { ; } enum " + delegated
+    var source = SourceFile.fromContent(capturedPath(Path.of("Enums.java")), "enum Empty" + suffix + " { ; } enum " + delegated
         + " { ; " + delegated + "() { this(7); } " + delegated + "(int value) {} }");
-    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(InputSnapshot.fromSources(sourceRoot, List.of(source)),
+    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(InputSnapshot.fromSources(capturedAbsolute(sourceRoot), List.of(source)),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
     var run = new SourceAnalysisFixture().analyze(input);
     assertEquals(AnalysisCompletion.COMPLETE, run.completion(), () -> run.diagnostics().values().toString());

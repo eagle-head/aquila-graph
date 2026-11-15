@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.util.SourcePositions;
@@ -27,7 +30,7 @@ public final class SourcePositionFixtures {
   }
 
   public static AstResult produce(String content, Predicate<Tree> unavailable, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(SourceFile.fromContent(Path.of("Example.java"), content)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of(".")), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), content)));
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     var policy = JavaTranslationPolicy.forProfile(profile);
     var baseline = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture()))

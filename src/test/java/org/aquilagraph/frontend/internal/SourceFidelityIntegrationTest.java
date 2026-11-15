@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -87,8 +90,8 @@ class SourceFidelityIntegrationTest {
           int refused(int number) { return switch (number) { case 0 -> 1; default -> 2; }; }
         }
         """;
-    var source = SourceFile.fromContent(Path.of("Branches.java"), text);
-    var snapshot = InputSnapshot.fromSources(directory, List.of(source));
+    var source = SourceFile.fromContent(capturedPath(Path.of("Branches.java")), text);
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(source));
     var frontend = JavaFrontends.standard();
     var request = new AstProductionRequest(new SourceInput.Snapshot(snapshot),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES);
@@ -131,8 +134,8 @@ class SourceFidelityIntegrationTest {
   @Test
   void givenInvalidDirectJavaDeclaration_whenPublicProducerRuns_thenRealCompilerDiagnosticsPreventCompleteQualification() {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Invalid.java"), "class Invalid { void run(boolean flag) { if (flag) int value; } }");
-    var request = new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(directory, List.of(source))),
+    var source = SourceFile.fromContent(capturedPath(Path.of("Invalid.java")), "class Invalid { void run(boolean flag) { if (flag) int value; } }");
+    var request = new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(capturedAbsolute(directory), List.of(source))),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES);
     // Act
     var outcome = JavaFrontends.standard().produce(request);
@@ -154,8 +157,8 @@ class SourceFidelityIntegrationTest {
         .map(member -> DynamicTest.dynamicTest("givenLocalAnnotationIn" + member
             + "_whenPublicProducerRuns_thenCompilerAndProjectionDiagnosticsSurvive", () -> {
           // Arrange
-          var source = SourceFile.fromContent(Path.of("Invalid.java"), "class Invalid { " + member + " }");
-          var request = new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(directory, List.of(source))),
+          var source = SourceFile.fromContent(capturedPath(Path.of("Invalid.java")), "class Invalid { " + member + " }");
+          var request = new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(capturedAbsolute(directory), List.of(source))),
               CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES);
           // Act
           var outcome = JavaFrontends.standard().produce(request);
@@ -185,9 +188,9 @@ class SourceFidelityIntegrationTest {
         + "BesideCombinedCorrections_whenFrontendIsReused_thenRealErrorsAndValidFactsSurvive", () -> {
           // Arrange
           var frontend = new JavaFrontend(new JavaSourceLoader());
-          var sources = List.of(SourceFile.fromContent(Path.of("Hierarchy.java"), SourceFidelityFixture.SOURCE),
-              SourceFile.fromContent(Path.of("Invalid.java"), mixture + " class Invalid { int value() { return -4; } }"));
-          var invalid = new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(directory, sources)),
+          var sources = List.of(SourceFile.fromContent(capturedPath(Path.of("Hierarchy.java")), SourceFidelityFixture.SOURCE),
+              SourceFile.fromContent(capturedPath(Path.of("Invalid.java")), mixture + " class Invalid { int value() { return -4; } }"));
+          var invalid = new AstProductionRequest(new SourceInput.Snapshot(InputSnapshot.fromSources(capturedAbsolute(directory), sources)),
               CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_FIDELITY);
           var valid = new AstProductionRequest(new SourceInput.Snapshot(SourceFidelityFixture.snapshot(directory)),
               CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_FIDELITY);

@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -21,7 +24,6 @@ import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.DependencySemantics;
-import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.ModuleCandidate;
@@ -43,8 +45,8 @@ class ModuleEnvironmentIdentityTest {
     // Arrange
     var firstOutput = Files.createDirectories(directory.resolve("first"));
     var secondOutput = Files.createDirectories(directory.resolve("second"));
-    var source = InputSnapshot.fromSources(directory, List.of(
-        SourceFile.fromContent(Path.of("Example.java"), "class Example { int value() { return 7; } }")));
+    var source = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+        SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { int value() { return 7; } }")));
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
@@ -62,8 +64,6 @@ class ModuleEnvironmentIdentityTest {
     assertEquals(List.of(), second.diagnostics());
     assertEquals(source, a.snapshot());
     assertEquals(source, b.snapshot());
-    assertEquals(EnvironmentIdentityScheme.MODULE_SEMANTICS, a.environment().identityScheme());
-    assertEquals(EnvironmentIdentityScheme.MODULE_SEMANTICS, b.environment().identityScheme());
     assertEquals(List.of("--release", "25", "-encoding", "UTF-8", "-proc:none", "-d", firstOutput.toString()),
         a.environment().analysisOptions());
     assertEquals(List.of("--release", "25", "-encoding", "UTF-8", "-proc:none", "-d", secondOutput.toString()),
@@ -92,7 +92,6 @@ class ModuleEnvironmentIdentityTest {
     assertEquals(AstCompletion.COMPLETE, matching.completion());
     assertNotEquals(AstCompletion.COMPLETE, nonmatching.completion());
     assertTrue(nonmatching.diagnostics().stream().anyMatch(value -> value.message().contains("alpha")));
-    assertEquals(EnvironmentIdentityScheme.MODULE_SEMANTICS, first.environment().identityScheme());
     assertEquals(List.of(new ModuleCandidate(".", "alpha", Optional.empty(), ModuleNameOrigin.FILENAME)),
         first.environment().modulePath().getFirst().semantics().modules());
     assertEquals(List.of(new ModuleCandidate(".", "beta", Optional.empty(), ModuleNameOrigin.FILENAME)),
@@ -101,7 +100,7 @@ class ModuleEnvironmentIdentityTest {
     assertNotEquals(first.environment().environmentDigest(), secondEnvironment.environmentDigest());
     assertNotEquals(SoftwareVersion.from(source, first.environment()).signature(), SoftwareVersion.from(source, secondEnvironment).signature());
     assertEquals(source, nonmatching.capturedInput().orElseThrow());
-    assertEquals("java-source/22", first.identity().sourceModelVersion());
+    assertEquals("java-source/23", first.identity().sourceModelVersion());
     assertEquals(first.environment(), decoded.environment());
     assertArrayEquals(AstCodec.encode(first), AstCodec.encode(decoded));
   }
@@ -137,7 +136,7 @@ class ModuleEnvironmentIdentityTest {
     var result = produce(source, List.of(beta, beta), List.of(alpha, beta, alpha));
 
     // Assert
-    assertEquals(List.of(alpha, beta, alpha), result.environment().modulePath().stream().map(value -> value.location()).toList());
+    assertEquals(List.of(capturedAbsolute(alpha), capturedAbsolute(beta), capturedAbsolute(alpha)), result.environment().modulePath().stream().map(value -> value.location()).toList());
     assertEquals(List.of("alpha", "beta", "alpha"), result.environment().modulePath().stream()
         .map(value -> value.semantics().modules().getFirst().lookupName()).toList());
     assertEquals(List.of(DependencySemantics.State.CLASS_PATH, DependencySemantics.State.CLASS_PATH),
@@ -219,6 +218,33 @@ class ModuleEnvironmentIdentityTest {
   }
 
   @Test
+  void givenNativeArchiveNamesInAModuleDirectory_whenProducedAndDecoded_thenExactObservedMemberSpellingSurvives() throws IOException {
+    // Arrange
+    var modules = Files.createDirectory(directory.resolve("module-path"));
+    var nativeMember = "\\".equals(directory.getFileSystem().getSeparator()) ? "captured-member.jar" : "captured\\member.jar";
+    Files.move(archive(nativeMember, Optional.of("captured.module")), modules.resolve(nativeMember));
+    Files.move(archive("ordinary.jar", Optional.of("control.module")), modules.resolve("ordinary.jar"));
+    var source = snapshot("module consumer.sample { requires captured.module; requires control.module; }");
+
+    // Act
+    var result = produce(source, List.of(), List.of(modules));
+    var decoded = AstCodec.decode(AstCodec.encode(result), result.identity());
+
+    // Assert
+    var expectedModules = List.of(
+        new ModuleCandidate(nativeMember, "captured.module", Optional.empty(), ModuleNameOrigin.MANIFEST),
+        new ModuleCandidate("ordinary.jar", "control.module", Optional.empty(), ModuleNameOrigin.MANIFEST));
+    assertEquals(AstCompletion.COMPLETE, result.completion(), result.diagnostics().toString());
+    var producedDependency = result.environment().modulePath().getFirst();
+    var retainedDependency = decoded.environment().modulePath().getFirst();
+    assertEquals(capturedAbsolute(modules), producedDependency.location());
+    assertEquals(DependencySemantics.State.MODULES, producedDependency.semantics().state());
+    assertEquals(expectedModules, producedDependency.semantics().modules());
+    assertEquals(expectedModules, retainedDependency.semantics().modules());
+    assertEquals(producedDependency, retainedDependency);
+  }
+
+  @Test
   void givenDuplicateNamesWithinAModuleDirectory_whenProduced_thenAllArtifactAssociationsRemain() throws IOException {
     // Arrange
     var first = archive("one.jar", Optional.of("duplicate.module"));
@@ -297,8 +323,8 @@ class ModuleEnvironmentIdentityTest {
     // Arrange
     var entry = Files.createDirectory(directory.resolve("broken-module"));
     Files.write(entry.resolve("module-info.class"), new byte[] {1, 2, 3});
-    var source = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { int value() { return 1; } }")));
+    var source = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { int value() { return 1; } }")));
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
@@ -325,9 +351,9 @@ class ModuleEnvironmentIdentityTest {
     // Arrange
     var primary = moduleArchive("primary.jar", true);
     var alternate = moduleArchive("alternate.jar", false);
-    var source = InputSnapshot.fromSources(directory, List.of(
-        SourceFile.fromContent(Path.of("module-info.java"), "module consumer.sample { requires shared.module; }"),
-        SourceFile.fromContent(Path.of("sample/Consumer.java"), "package sample; class Consumer { api.Api value; }")));
+    var source = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+        SourceFile.fromContent(capturedPath(Path.of("module-info.java")), "module consumer.sample { requires shared.module; }"),
+        SourceFile.fromContent(capturedPath(Path.of("sample/Consumer.java")), "package sample; class Consumer { api.Api value; }")));
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
     // Act
@@ -340,8 +366,8 @@ class ModuleEnvironmentIdentityTest {
     assertTrue(reversed.diagnostics().stream().anyMatch(value -> value.message().contains("api")));
     var originalEnvironment = first.capturedEnvironment().orElseThrow();
     var reversedEnvironment = reversed.capturedEnvironment().orElseThrow();
-    assertEquals(List.of(primary, alternate), originalEnvironment.modulePath().stream().map(value -> value.location()).toList());
-    assertEquals(List.of(alternate, primary), reversedEnvironment.modulePath().stream().map(value -> value.location()).toList());
+    assertEquals(List.of(capturedAbsolute(primary), capturedAbsolute(alternate)), originalEnvironment.modulePath().stream().map(value -> value.location()).toList());
+    assertEquals(List.of(capturedAbsolute(alternate), capturedAbsolute(primary)), reversedEnvironment.modulePath().stream().map(value -> value.location()).toList());
     assertEquals(List.of("shared.module", "shared.module"), originalEnvironment.modulePath().stream()
         .map(value -> value.semantics().modules().getFirst().lookupName()).toList());
     assertNotEquals(originalEnvironment.environmentDigest(), reversedEnvironment.environmentDigest());
@@ -394,11 +420,12 @@ class ModuleEnvironmentIdentityTest {
   }
 
   private InputSnapshot snapshot(String source) {
-    return InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("module-info.java"), source)));
+    return InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("module-info.java")), source)));
   }
 
   private static CompilerConfiguration configuration(List<Path> classPath, List<Path> modulePath) {
-    return new CompilerConfiguration(JavaRelease.JAVA_25, classPath, modulePath, List.of());
+    return new CompilerConfiguration(JavaRelease.JAVA_25, classPath.stream().map(path -> capturedAbsolute(path)).toList(),
+        modulePath.stream().map(path -> capturedAbsolute(path)).toList(), List.of());
   }
 
   private Path archive(String name, Optional<String> moduleName) throws IOException {

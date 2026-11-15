@@ -1,5 +1,7 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -63,7 +65,7 @@ class ConstructorCorrelationCommandTest {
     // Arrange
     Files.writeString(directory.resolve(FILE), SOURCE);
     var start = SOURCE.indexOf(CREATION);
-    var expectedOrigin = new SourceSpan(SourceFile.fromContent(FILE, SOURCE).sourceFileKey(), start, start + CREATION.length());
+    var expectedOrigin = new SourceSpan(SourceFile.fromContent(capturedPath(FILE), SOURCE).sourceFileKey(), start, start + CREATION.length());
     var cases = List.of(
         new WitnessFailure("class PrivateProof {}", "frontend.missing-constructor-correlation",
             "Required constructor argument evidence could not be correlated with its captured source occurrence"),

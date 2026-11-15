@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.aquilagraph.source.internal.RetainedSourceFixture.payloadWithAggregate;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
@@ -61,8 +64,8 @@ class LocalBindingAdmissionTest {
   void givenAnUnsupportedIdentifier_whenItCarriesAForeignLocalSelection_thenDirectAndRetainedAdmissionRefuse() throws IOException {
     // Arrange
     var original = produce(List.of(
-        SourceFile.fromContent(Path.of("First.java"), "class First { int subject() { int value=1; return value; } }"),
-        SourceFile.fromContent(Path.of("Other.java"), "class Other { int subject() { int value=2; return value; } }")));
+        SourceFile.fromContent(capturedPath(Path.of("First.java")), "class First { int subject() { int value=1; return value; } }"),
+        SourceFile.fromContent(capturedPath(Path.of("Other.java")), "class Other { int subject() { int value=2; return value; } }")));
     var declarations = named(original, "value", SyntaxKind.LOCAL_DECLARATION);
     var own = declarations.getFirst();
     var foreign = declarations.getLast();
@@ -99,7 +102,7 @@ class LocalBindingAdmissionTest {
     var copiedType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.CHAR, "char", "char"));
     var reference = access.requiredReference();
     var wrongReference = new SemanticReference(reference.referenceKind(), reference.status(), reference.symbolKey(),
-        Optional.of("char"), List.of("char"), List.of("char"));
+        Optional.of("char"), List.of("char"), List.of("char"), Optional.empty());
     var values = copy(original, node -> node.nodeId().equals(access.nodeId())
         ? SyntaxNode.source(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind(), copiedType, node.value(),
             node.children(), Optional.of(wrongReference), node.origin().orElseThrow())
@@ -209,7 +212,7 @@ class LocalBindingAdmissionTest {
         .filter(node -> node.requiredChild(SyntaxRole.EXPRESSION).nodeId().equals(access.nodeId())).findFirst().orElseThrow();
     var name = type.knownIdentity().map(JavaTypeIdentity::displayName);
     var reference = new SemanticReference(access.requiredReference().referenceKind(), status, access.requiredReference().symbolKey(),
-        name, name.stream().toList(), name.stream().toList());
+        name, name.stream().toList(), name.stream().toList(), Optional.empty());
     return withoutChildUse(copy(original, node -> node.nodeId().equals(access.nodeId())
         ? SyntaxNode.source(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind(), type, node.value(),
             node.children(), Optional.of(reference), node.origin().orElseThrow()) : node), statement.nodeId());
@@ -256,7 +259,7 @@ class LocalBindingAdmissionTest {
   void givenACloserPatternWithoutFlowEvidence_whenAnotherUseSelectsTheOuterFormal_thenPartialSourceKeepsItsBinding()
       throws IOException {
     // Arrange
-    var original = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), """
+    var original = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         class Example {
           int subject(String value, Object input) {
             class Local {
@@ -342,7 +345,7 @@ class LocalBindingAdmissionTest {
   void givenEnumSelectorOwnsABareCaseConstant_whenCopiedLabelClaimsASameNamedLocal_thenDirectAndRetainedAdmissionRefuse()
       throws IOException {
     // Arrange
-    var original = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), """
+    var original = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         enum Choice { ONE, TWO }
         class Example {
           int subject(Choice choice) {
@@ -382,7 +385,7 @@ class LocalBindingAdmissionTest {
   void givenAnOuterProjectionGap_whenNestedAccessClaimsAnUnrepresentedLocal_thenDirectAndRetainedAdmissionRefuse()
       throws IOException {
     // Arrange
-    var original = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), """
+    var original = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         class Example {
           int subject() {
             outer: {
@@ -428,7 +431,7 @@ class LocalBindingAdmissionTest {
   void givenAProjectionGapRetainsAnExactLocalKey_whenAccessClaimsAnotherKeyInTheSameExecution_thenDirectAndRetainedAdmissionRefuse()
       throws IOException {
     // Arrange
-    var original = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), """
+    var original = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         class Example {
           int subject() {
             class Local {
@@ -476,7 +479,7 @@ class LocalBindingAdmissionTest {
   void givenColonSwitchBindingSelectedByALaterLabel_whenCompilerReportsDefiniteAssignment_thenSourceAndRetentionKeepTheSelection()
       throws IOException {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Example.java"), """
+    var source = SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         class Example { int choose(int input) {
           switch (input) {
             case 0: final int one = 1; break;
@@ -513,7 +516,7 @@ class LocalBindingAdmissionTest {
   void givenColonSwitchLabelSelectsAFieldBeforeTheGroupLocal_whenCopiedLabelClaimsTheLocal_thenAdmissionRejectsTheSelection()
       throws IOException {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Example.java"), """
+    var source = SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         class Example {
           static final int one = 0;
           int choose(int input) {
@@ -556,13 +559,13 @@ class LocalBindingAdmissionTest {
         }
         """;
     var original = produce(List.of(
-        SourceFile.fromContent(Path.of("Marker.java"), """
+        SourceFile.fromContent(capturedPath(Path.of("Marker.java")), """
             import java.lang.annotation.ElementType;
             import java.lang.annotation.Target;
             @Target(ElementType.LOCAL_VARIABLE) @interface Marker { int value(); }
             """),
-        SourceFile.fromContent(Path.of("First.java"), declaration.formatted("First")),
-        SourceFile.fromContent(Path.of("Other.java"), declaration.formatted("Other"))));
+        SourceFile.fromContent(capturedPath(Path.of("First.java")), declaration.formatted("First")),
+        SourceFile.fromContent(capturedPath(Path.of("Other.java")), declaration.formatted("Other"))));
     var bindings = named(original, "value", SyntaxKind.LOCAL_DECLARATION);
     var own = bindings.getFirst();
     var foreign = bindings.getLast();
@@ -594,8 +597,8 @@ class LocalBindingAdmissionTest {
       throws IOException {
     // Arrange
     var original = produce(List.of(
-        SourceFile.fromContent(Path.of("First.java"), "class First { int subject() { int value=1; return value; } }"),
-        SourceFile.fromContent(Path.of("Other.java"), "class Other { int subject() { int value=2; return value; } }")));
+        SourceFile.fromContent(capturedPath(Path.of("First.java")), "class First { int subject() { int value=1; return value; } }"),
+        SourceFile.fromContent(capturedPath(Path.of("Other.java")), "class Other { int subject() { int value=2; return value; } }")));
     var bindings = named(original, "value", SyntaxKind.LOCAL_DECLARATION);
     var local = bindings.getFirst();
     var foreign = bindings.getLast();
@@ -623,8 +626,8 @@ class LocalBindingAdmissionTest {
       throws IOException {
     // Arrange
     var original = produce(List.of(
-        SourceFile.fromContent(Path.of("First.java"), "class First { { int value=1; int other=value; } }"),
-        SourceFile.fromContent(Path.of("Other.java"), "class Other { { int value=2; int other=value; } }")),
+        SourceFile.fromContent(capturedPath(Path.of("First.java")), "class First { { int value=1; int other=value; } }"),
+        SourceFile.fromContent(capturedPath(Path.of("Other.java")), "class Other { { int value=2; int other=value; } }")),
         AstProfile.JAVA_SOURCE_INITIALIZATION);
     var bindings = named(original, "value", SyntaxKind.LOCAL_DECLARATION);
     var local = bindings.getFirst();
@@ -735,7 +738,7 @@ class LocalBindingAdmissionTest {
   @Test
   void givenNestedLocalAnonymousAndLambdaCaptures_whenRetainedAndReadmitted_thenExactBindingsRemainSelected() throws IOException {
     // Arrange
-    var original = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), """
+    var original = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         class Example {
           int subject(int input) {
             int value = 2;
@@ -771,7 +774,7 @@ class LocalBindingAdmissionTest {
   void givenNestedTypeDeclaresANearerBinding_whenCopiedAccessSelectsTheOuterBinding_thenAdmissionRejectsShadowing()
       throws IOException {
     // Arrange
-    var original = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), """
+    var original = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         class Example {
           int subject(int value) {
             class Local { int get() { int value = 2; return value; } }
@@ -800,7 +803,7 @@ class LocalBindingAdmissionTest {
   @Test
   void givenInheritedFieldShadowsAnOuterLocal_whenCopiedAccessClaimsCapture_thenAdmissionRejectsTheSelection() throws IOException {
     // Arrange
-    var original = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), """
+    var original = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         class Base { int value = 2; }
         class Example {
           int subject() {
@@ -834,15 +837,15 @@ class LocalBindingAdmissionTest {
     // Arrange
     var cases = List.of(
         new CapturedHierarchy("givenTransitiveProtectedFieldAcrossPackages_whenAccessClaimsOuterLocal_thenAdmissionRejects", List.of(
-            SourceFile.fromContent(Path.of("foundation", "Base.java"), """
+            SourceFile.fromContent(capturedPath(Path.of("foundation", "Base.java")), """
                 package foundation;
                 public class Base<T> { protected int value = 2; }
                 """),
-            SourceFile.fromContent(Path.of("bridge", "Middle.java"), """
+            SourceFile.fromContent(capturedPath(Path.of("bridge", "Middle.java")), """
                 package bridge;
                 public class Middle extends foundation.Base<String> {}
                 """),
-            SourceFile.fromContent(Path.of("clients", "Example.java"), """
+            SourceFile.fromContent(capturedPath(Path.of("clients", "Example.java")), """
                 package clients;
                 class Example {
                   int subject() {
@@ -853,8 +856,8 @@ class LocalBindingAdmissionTest {
                 }
                 """))),
         new CapturedHierarchy("givenPackageFieldAcrossCompilationUnits_whenAccessClaimsOuterLocal_thenAdmissionRejects", List.of(
-            SourceFile.fromContent(Path.of("sample", "Base.java"), "package sample; class Base { int value = 2; }"),
-            SourceFile.fromContent(Path.of("sample", "Example.java"), """
+            SourceFile.fromContent(capturedPath(Path.of("sample", "Base.java")), "package sample; class Base { int value = 2; }"),
+            SourceFile.fromContent(capturedPath(Path.of("sample", "Example.java")), """
                 package sample;
                 class Example {
                   int subject() {
@@ -865,7 +868,7 @@ class LocalBindingAdmissionTest {
                 }
                 """))),
         new CapturedHierarchy("givenAnonymousCreationInheritsInterfaceField_whenAccessClaimsOuterLocal_thenAdmissionRejects", List.of(
-            SourceFile.fromContent(Path.of("Example.java"), """
+            SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
                 interface Base { int value = 2; }
                 interface Middle extends Base { int get(); }
                 class Example {
@@ -906,7 +909,7 @@ class LocalBindingAdmissionTest {
     // Arrange
     var cases = List.of(
         new CapturedHierarchy("givenPrivateFieldHidesFartherPublicField_whenSourceIsRetained_thenOuterCaptureRemainsSelected", List.of(
-            SourceFile.fromContent(Path.of("Example.java"), """
+            SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
                 class Base { public int value = 2; }
                 class Middle extends Base { private int value = 3; }
                 class Example {
@@ -918,9 +921,9 @@ class LocalBindingAdmissionTest {
                 }
                 """))),
         new CapturedHierarchy("givenPackageFieldAcrossAnInterveningPackage_whenSourceIsRetained_thenOuterCaptureRemainsSelected", List.of(
-            SourceFile.fromContent(Path.of("sample", "Base.java"), "package sample; public class Base { int value = 2; }"),
-            SourceFile.fromContent(Path.of("bridge", "Middle.java"), "package bridge; public class Middle extends sample.Base {}"),
-            SourceFile.fromContent(Path.of("sample", "Example.java"), """
+            SourceFile.fromContent(capturedPath(Path.of("sample", "Base.java")), "package sample; public class Base { int value = 2; }"),
+            SourceFile.fromContent(capturedPath(Path.of("bridge", "Middle.java")), "package bridge; public class Middle extends sample.Base {}"),
+            SourceFile.fromContent(capturedPath(Path.of("sample", "Example.java")), """
                 package sample;
                 class Example {
                   int subject() {
@@ -931,7 +934,7 @@ class LocalBindingAdmissionTest {
                 }
                 """))),
         new CapturedHierarchy("givenSuperclassOutsideCapturedSource_whenSourceIsRetained_thenOuterCaptureRemainsSelected", List.of(
-            SourceFile.fromContent(Path.of("Example.java"), """
+            SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
                 class Example {
                   int subject() {
                     int value = 1;
@@ -965,7 +968,7 @@ class LocalBindingAdmissionTest {
   @Test
   void givenNestedFieldShadowsAnOuterLocal_whenCopiedAccessClaimsCapture_thenAdmissionRejectsTheSelection() throws IOException {
     // Arrange
-    var original = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), """
+    var original = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         class Example {
           int subject() {
             int value = 1;
@@ -996,7 +999,7 @@ class LocalBindingAdmissionTest {
   @Test
   void givenAnInterveningTypeOwnsAField_whenCopiedInnerAccessClaimsTheOuterFormal_thenAdmissionRejectsTheSelection() throws IOException {
     // Arrange
-    var original = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), """
+    var original = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         class Example {
           int subject(int value) {
             class Middle {
@@ -1066,7 +1069,7 @@ class LocalBindingAdmissionTest {
 
   private void assertImplicitFieldScope(MemberCase member) throws IOException {
     // Arrange
-    var original = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), member.source())),
+    var original = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), member.source())),
         AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION);
     var parameter = writtenMember(original, "value", SyntaxKind.PARAMETER_DECLARATION);
     var declared = writtenMember(original, "value", member.declarationKind());
@@ -1535,7 +1538,7 @@ class LocalBindingAdmissionTest {
   }
 
   private AstResult produce(String source) throws IOException {
-    return produce(List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    return produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
   }
 
   private AstResult produce(List<SourceFile> sources) throws IOException {
@@ -1547,7 +1550,7 @@ class LocalBindingAdmissionTest {
   }
 
   private AstOutcome produceOutcome(List<SourceFile> sources, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, sources);
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), sources);
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile);
   }
 
@@ -1611,7 +1614,7 @@ class LocalBindingAdmissionTest {
     var reference = node.requiredReference();
     return SyntaxNode.source(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), SyntaxKind.VARIABLE_ACCESS, node.type(),
         new SyntaxValue.SourceSymbol(name), node.children(), Optional.of(new SemanticReference(kind, reference.status(),
-            Optional.of(key), reference.typeName(), reference.typeAlternativeNames(), reference.assignableToTypeNames())),
+            Optional.of(key), reference.typeName(), reference.typeAlternativeNames(), reference.assignableToTypeNames(), Optional.empty())),
         node.origin().orElseThrow());
   }
 
@@ -1629,7 +1632,7 @@ class LocalBindingAdmissionTest {
 
   private static SyntaxNode legacy(SyntaxNode node, String name) {
     if (node.value() instanceof SyntaxValue.LocalDeclaration local && local.name().equals(name)) {
-      return replace(node, new SyntaxValue.LocalDeclaration(local.name(), local.writtenType(), local.writtenModifiers()));
+      return replace(node, new SyntaxValue.LocalDeclaration(local.name(), local.writtenType(), local.writtenModifiers(), Optional.empty()));
     }
     return node;
   }
@@ -1645,7 +1648,7 @@ class LocalBindingAdmissionTest {
   private static SyntaxNode select(SyntaxNode node, ReferenceKind kind, String bindingKey) {
     var reference = node.semanticReference().orElseThrow();
     return rebuild(node, node.value(), node.children(), Optional.of(new SemanticReference(kind, reference.status(),
-        Optional.of(bindingKey), reference.typeName(), reference.typeAlternativeNames(), reference.assignableToTypeNames())));
+        Optional.of(bindingKey), reference.typeName(), reference.typeAlternativeNames(), reference.assignableToTypeNames(), Optional.empty())));
   }
 
   private static CopiedAstValues copy(AstResult result, UnaryOperator<SyntaxNode> change) {
