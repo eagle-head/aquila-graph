@@ -2,9 +2,37 @@
 
 Source capture produces immutable values with a canonical order and content-derived identity. The factories derive identities; public constructors validate supplied values within their declared bounds. Capture and identity are distinct from language acceptance and run completion.[1][2]
 
+## Captured locations
+
+`CapturedLocation` represents POSIX or Windows syntax, a root kind, root
+components, normalized path components, and preserved normalized spelling. A
+value may be rootless, POSIX absolute, Windows drive absolute, or Windows UNC.
+Windows UNC accepts either separator. Windows drive-relative paths, incomplete
+UNC roots, and root-relative paths without a drive or share are rejected.
+Parsing removes dot segments and rejects traversal above the root or outside a
+rootless name. It preserves case and surviving separator spelling.
+
+Value equality compares both syntax and normalized spelling. Containment
+compares case-sensitive root and path components within the same syntax and
+root kind. Resolution appends a rootless value of the same syntax. A source
+file's canonical relative name joins its components with `/` and preserves
+case. These operations use captured values independently of the host.
+
+Native discovery captures paths at the frontend boundary.
+`SnapshotSourceCatalog` supplies syntax-qualified URIs and retained source
+text to the compiler. For native compiler dependency access, `NativeLocations`
+requires an absolute location of the host syntax and checks that native
+conversion preserves the root and components. Retained queries read the
+captured values after compiler closure. [CapturedLocation](../../src/main/java/org.aquilagraph.identity/org/aquilagraph/identity/api/CapturedLocation.java),
+[NativeLocations](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/NativeLocations.java),
+and [SnapshotSourceCatalog](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/SnapshotSourceCatalog.java)
+own these boundaries.
+
 ## Canonical sources
 
-`SourceFile.fromContent` normalizes a root-relative path, rejects absolute or escaping paths, captures decoded UTF-8 content, computes its SHA-256 digest, and derives the framed source key from canonical path and content digest. `canonicalRelativePath` preserves case and uses `/` separators without reading the filesystem.[1]
+`SourceFile.fromContent` takes a captured relative location and decoded text.
+It derives the content digest from the UTF-8 encoding and frames the canonical
+relative name and content digest to derive the source key.[1]
 
 `InputSnapshot.fromSources` sorts a copy by case-sensitive lexicographic canonical path and derives the snapshot digest from ordered path/digest pairs. Duplicate keys or canonical paths are rejected. Empty and singleton snapshots are valid. The absolute checkout root is not a snapshot-digest component.[1]
 
@@ -12,8 +40,8 @@ Source capture produces immutable values with a canonical order and content-deri
 
 | Boundary | Validation and responsibility |
 | --- | --- |
-| `SourceFile` constructor | Nonnull fields and a normalized, relative, non-escaping path. It retains the supplied key, digest, and content without authenticating them or requiring a `.java` suffix. |
-| `InputSnapshot` constructor | Normalized absolute root, copied list, unique source keys, and strictly increasing canonical paths. It rejects incorrect ordering rather than repairing it. It does not check root existence or rederive supplied identities. |
+| `SourceFile` constructor | Nonnull fields and a rootless captured location. The supplied key, digest, and content retain caller provenance. |
+| `InputSnapshot` constructor | Absolute captured root, copied list, file locations of the root's syntax, unique source keys, and strictly increasing canonical paths. Supplied digest labels remain caller assertions. |
 | `InputSnapshot.fromSources` | Canonical ordering and snapshot derivation from the supplied source facts; it does not rederive each source content digest. |
 | `JavaSourceLoader.discover` | Directory admission, recursive discovery of regular `.java` files, UTF-8 reads, path-aware I/O causes, and traversal closure. Partial capture is not returned after failure. |
 | `JavaFrontend` path facade | Source-capture `IOException` and `IllegalArgumentException` become `AnalysisInputException`; analysis-environment `IOException` becomes `AnalysisEnvironmentException`. Lazy source-traversal `UncheckedIOException` retains its family and cause. The snapshot overload retains checked I/O. |
@@ -22,17 +50,42 @@ These validation limits matter for callers that construct records directly. Prod
 
 ## Compiler environment and software version
 
-The environment snapshot records the compiler implementation, runtime and vendor, actual analysis options, compiler configuration, and separate ordered class-path and module-path dependency snapshots. Both sequences retain repeated configured entries and their positions; neither is deduplicated or merged with the other. Dependency capture includes content fingerprints and entry/byte counts. For nonempty compiler work the pipeline recaptures the environment before returning and rejects detected changes; empty capture returns without acquiring a compiler session.[3]
+The environment snapshot records the compiler implementation, runtime and vendor,
+actual analysis options, compiler configuration, and separate ordered class-path
+and module-path dependency snapshots. Both sequences retain repeated entries.
+Each captured dependency must match the configured location at its role and
+position. Dependency capture includes interpretation state, module candidates,
+content fingerprints, and entry/byte counts. For nonempty compiler work the
+pipeline recaptures the environment before returning and rejects detected
+changes. Empty capture returns without acquiring a compiler session.[3]
 
-The production environment digest includes compiler identity, ordered options, dependency roles and fingerprints. Separate dependency-location metadata is excluded, but an option containing a location remains an input. The stored compiler-configuration key includes its configured paths. Relocating a checkout therefore does not change the source digest, while relocating configured options can change the environment digest.[3]
+The `analysis-environment/2` digest includes the release, compiler identity,
+ordered actual options, dependency roles, kinds, fingerprints, interpretation
+states, and module lookup names, optional descriptor names and name origins.
+Separate dependency-location provenance and module member locations are excluded
+from this digest. Option text remains significant. The configuration's separate
+`compiler-configuration/2` frame includes its configured locations and caller
+options. The checkout root is excluded from the source snapshot digest.[3]
 
 `SoftwareVersion` combines source and environment signatures. `AnalysisRequestIdentity.key()` separately derives the application request key from the operation, qualified source subject, and exact selection descriptor. A software signature alone does not identify the current analysis request. Changing either identity algorithm or migrating older stored projections requires an explicit compatibility decision.[4]
 
 ## Target qualified analysis identity
 
-**Implemented contract; independent migration acceptance pending:** preserve the source/environment/software-version algorithms above. Add result qualification because source identity alone cannot distinguish AST formats, evidence revisions or graph profiles. The [analysis design](java-analysis.md#target-identity-and-retention-crossings) assigns ownership and defines the target crossing.
+Result qualification distinguishes source-model formats, source profiles and
+semantic-production revisions for an exact represented source. The
+[analysis design](java-analysis.md#target-identity-and-retention-crossings)
+assigns ownership across source, CFG, and application.
 
-**Canonical captured values:** available AST content and unavailable request subjects use the same versioned capture-value encoding. It covers every retained snapshot, source, environment, compiler-configuration and dependency value: supplied identity/digest/fingerprint and algorithm fields, canonical source paths and decoded content in canonical source order, compiler implementation/runtime/vendor, configured release, configured paths and options, actual ordered analysis options, and separate ordered class-path/module-path dependency facts including kinds, fingerprints, byte/entry counts and repeated positions. Any retained configuration identity and source/environment/software signature is included; these labels do not substitute for their retained component values. Explicit tags distinguish variants and absent captures; framed fields preserve meaningful ordering. Absolute checkout-root provenance and separate dependency-location metadata are the only excluded retained capture values. Configured paths and path-bearing options remain encoded even when they also describe a dependency location. Changes only to the excluded provenance can share identity. This encoding preserves the existing source/environment/software identity algorithms and direct-constructor assurance limits; it does not authenticate supplied content or fingerprints.[1][3][4] The [retained format](../repository/neo4j-schema.md#target-ast-retention-schema) and [codec contract](analysis-repository.md#target-ast-retention) must retain and revalidate these same values. Result-derived references remain subject to the noncircular qualification rule below.
+The [AST canonical encoding](ast-value-format.md#qualification-and-canonical-content)
+uses registered shapes for the represented snapshot, source, environment,
+configuration, and dependencies. Locations carry explicit syntax, root and
+spelling. Dependency shapes retain role-separated lists and module semantics.
+The tagged source input encodes retained values directly, with their supplied
+labels and constructor assurance limits. It excludes absolute checkout-root
+and separate dependency-location provenance. Configured locations and path-bearing
+options remain identity inputs. The binary and graph forms retain the excluded
+provenance. The separate [Identity capture API](captured-value-encoding.md)
+defines its own value frame.[1][3][4]
 
 `AstIdentity` retains the software signature, source-model format version, AST-profile version, semantic-production revision and canonical AST-content digest. Define `astResultKey = StableId.sha256("ast-result", softwareSignature, sourceModelVersion, astProfileVersion, semanticProductionRevision, canonicalContentDigest)`. Each component has explicit framing; no opaque key is parsed to recover ownership. The canonical digest covers the full canonical captured values above, declarations, occurrence facts/ranges/edges, body provenance, evidence states/values, profile coverage and ordered creating-site diagnostics, including failed/negative/gap states. Supplied source/environment/software identities do not substitute for encoding retained content under the constructor assurance limits above. Use a versioned canonical encoding with distinct variant tags, framed fields, explicit absence and preserved ordered positions. AST qualification is derived from those facts; supplied labels cannot certify completion. Reordered unordered input must normalize to the same encoding; semantically relevant ordering stays encoded. Diagnostic codes, causes, addresses, ordered slots and retained messages are content and therefore digest inputs.
 
@@ -42,11 +95,46 @@ Canonical AST content encodes local source/semantic roles, facts and event addre
 
 `derivationKey = StableId.sha256("cfg-derivation", astResultKey, cfgProfileVersion, graphModelVersion, methodKey, canonicalGraphContentDigest)`. Graph content includes every retained public value/operation/edge attribute, typed operands/definitions, selected references/invocation, detail, exception categories, diagnostics/provenance and source associations in canonical order; identifiers that derive from this key must be excluded or represented as local roles during digest derivation to avoid circular hashing. Existing operation/value/transfer local role semantics are retained inside this qualified graph identity. The [public graph contract](java-analysis.md#public-cfg-values-and-queries) owns payload and query ordering.
 
-Application request identity is a content identity, not a unique execution-attempt identifier. Define `requestIdentity = StableId.sha256("analysis-request", operationKind, sourceSubject, selectionDescriptor)` using framed variant tags. `operationKind` distinguishes AST-only execution, production with derivation, and derive-existing. For an available AST, `sourceSubject` is the `AST` tag and exact `astResultKey`. For an unavailable outcome it is the `UNAVAILABLE` tag, declared profile version and a versioned canonical digest of the full canonical captured values above when present, explicit absence when not captured, and retained ordered coverage/gap/diagnostic facts. The same capture fields, ordering, provenance exclusions and constructor assurance limits apply to both branches. Diagnostic codes, causes, addresses, ordered slots and retained messages are digest inputs, as for available AST content; no retained diagnostic value is excluded. Do not fabricate a source/environment/result identity for an absent value. Two requests with the same represented facts may share this content identity.
+Application request identity derives from the operation, a framed source subject,
+and a framed selection descriptor. The operation distinguishes AST-only execution,
+production with derivation, and derivation of existing source. The `AST` subject
+contains the exact `astResultKey`. The `UNAVAILABLE` subject contains the requested
+profile and a source-owned canonical digest. For unavailable production with copied
+input, [source admission](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/AstResultAdmission.java)
+uses the tagged source input, including its retained coverage and diagnostics.
+For an empty capture, [the empty-source frame](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/CanonicalAstEncoding.java)
+retains the captured snapshot, explicit absence of an environment, requested
+configuration, empty coverage and empty diagnostic list. An unavailable subject
+has no AST result identity. Requests with the same represented inputs can share
+a content key across attempts.[4]
 
-**Target application selection decision:** production requests carry `CfgSelection`, an immutable ordered method-key list and complete `CfgProfile` (including CFG-profile/graph-model versions), without an expected AST identity. After an available production result is established, the coordinator binds that unchanged selection to the exact result identity to create `CfgRequest`. It does not repair duplicate/unknown keys or preempt CFG admission. When production is `UNAVAILABLE`, no `CfgRequest` is created and no deriver is called; the rejected run retains the original selection with an explicit `UNBOUND` identity tag. An empty requested list is still a requested selection. Direct `deriveExisting` instead receives the caller's already identity-bound `CfgRequest`; even an unavailable supplied outcome retains that exact requested identity and list.
+### Application selection and CFG request identity
 
-`selectionDescriptor` has three framed variants: `NOT_REQUESTED`; `PRODUCTION_SELECTION` containing `BOUND(exact AstIdentity)` or `UNBOUND`, the unchanged ordered method-key list and complete CFG-profile/graph-model versions; and `EXISTING_SELECTION` containing the exact caller-requested AST identity, ordered method-key list and complete versions. `BOUND` is present only when production established a result; `UNBOUND` does not represent an absent identity as a fabricated key. For an available production result, the bound identity equals the `AST` source subject. Preserve even an invalid duplicate/unknown selection in a rejected request, rather than repairing it during identity derivation. `CfgOutcome` retains the exact `CfgRequest`; its domain request identity is the framed digest of that request's mandatory AST identity, ordered method-key list and complete versions, independent of the application descriptor variant, outcome and graphs. Computed completion, CFG results, publication intent/status, timestamps and storage attempts do not enter either request identity. Thus unavailable AST and rejected/empty derivation have defined request provenance without inventing an AST result key.
+Production carries a [`CfgSelection`](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/CfgSelection.java)
+with a scope, the requested ordered keys, and a CFG profile. `METHODS` keeps
+the caller's keys, including invalid entries. `ALL_BODIES` has an empty
+requested list and resolves the produced declarations that have bodies in
+canonical method order. The CLI requests `ALL_BODIES`. Available production
+binds the effective keys to the exact produced AST for derivation. With
+unavailable source the descriptor is unbound, the effective `ALL_BODIES` list
+is empty, and the application makes no CFG request. [`SourceComputation`](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/SourceComputation.java),
+[`AnalyzeCommandArguments`](../../src/main/java/org.aquilagraph.cli/org/aquilagraph/cli/AnalyzeCommandArguments.java),
+and the [application contract](../contracts/analysis.md#target-independent-analysis-contracts)
+define this crossing.
+
+In `AnalysisRequestIdentity.key()`, the `analysis-selection/2` frame starts
+with a selection variant. Each counted list preserves its order and entries.
+
+| Variant | Remaining fields in frame order |
+| --- | --- |
+| `NOT_REQUESTED` | None. An explicitly requested empty list uses a selection variant. |
+| `PRODUCTION_SELECTION` | `BOUND` with the exact produced `AstIdentity`, or `UNBOUND` with no identity fields. Then scope, counted requested method keys, CFG profile version, graph model version, and counted effective method keys. |
+| `EXISTING_SELECTION` | Exact caller-requested `AstIdentity`, counted requested method keys, CFG profile version, and graph model version. These fields survive unavailable supplied source. |
+
+[`CfgRequest.identityKey()`](../../src/main/java/org.aquilagraph.cfg/org/aquilagraph/cfg/api/CfgRequest.java)
+separately frames the exact AST identity, ordered method-key list, CFG profile
+and graph model in `cfg-request/1`. Computed completion, graph results and
+publication effects are absent as independent fields in both request keys.
 
 Foreign snapshot/environment/result/profile/format associations reject, even when method signatures, coordinates or node keys happen to match. Decoding revalidates source membership, qualified references, canonical order and intrinsic consistency before returning `FOUND`. Current direct-record assurance limits remain visible: consistent supplied values do not authenticate compiler production.
 

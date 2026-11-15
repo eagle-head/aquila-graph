@@ -45,7 +45,12 @@ A successful graph does not establish source completeness. A body can be structu
 
 ## Supported source profiles
 
-Source capabilities are selected by the versioned `AstProfile`. `JavaTranslationPolicy` derives the frontend capabilities and producer semantic revision from that selection. The CLI creates an explicit `AstProductionRequest` with `JAVA_SOURCE_BOUNDED`; independent callers select their supported profile in the request. See [AnalyzeCommandArguments.toAnalysisRequest](../../src/main/java/org.aquilagraph.cli/org/aquilagraph/cli/AnalyzeCommandArguments.java).[2][15]
+The versioned `AstProfile` selects capabilities and qualification for
+non-preview Java 25 source. `JavaTranslationPolicy` supplies the built-in
+producer revision independently of that selection. The CLI uses `JAVA_SOURCE_BOUNDED`.
+Independent callers select a supported profile in their `AstProductionRequest`.
+See [AnalyzeCommandArguments](../../src/main/java/org.aquilagraph.cli/org/aquilagraph/cli/AnalyzeCommandArguments.java)
+and the [format and provenance contract](ast-value-format.md#format-source-profile-and-producer-revision).[2][15]
 
 | Source profile | Representation contract |
 | --- | --- |
@@ -56,6 +61,8 @@ Source capabilities are selected by the versioned `AstProfile`. `JavaTranslation
 | `JAVA_SOURCE_ENUM_INITIALIZATION` | Nested declarations plus enum arguments and constant-specific bodies. |
 | `JAVA_SOURCE_DECLARATIONS` | Enum initialization plus declaration fidelity, including standalone body declarations. |
 | `JAVA_SOURCE_UNITS` | Declaration fidelity plus captured compilation-unit envelopes, including legal units without types. |
+| `JAVA_SOURCE_FIDELITY` | The unit profile's supported forms plus independent proof for applicable normalized written-expression regions. |
+| `JAVA_SOURCE_MODULE_SERVICES` | The fidelity profile plus required resolved targets for applicable written module service and provider operands. |
 
 These profiles require their selected source forms, required semantic facts, and independently reconciled coverage. An accepted compiler input alone does not establish a complete source result. `SourceRequirements` owns source qualification; `CfgAdmission` separately decides whether a requested concrete method is lowerable. Expanded source support for loops, lambdas, references, initialization, and other forms does not add a corresponding CFG lowering contract.[6][9][15]
 
@@ -75,7 +82,7 @@ Exception edges describe the modeled routes for the accepted operations and boun
 
 Source inspection and diagrams describe contracts; executable evidence comes from the relevant unit, packaged-process, and Community database controls. Use the existing [build targets](../build-quality.md#commands). A documentation revision does not constitute a new runtime result.[7]
 
-No analyzed program execution, annotation processing, bytecode input, whole-program analysis or universal Java 25 completeness is claimed. Explicit retention/query preserves independently complete results under their declared supported source-model format; the [retained-value contract](ast-value-format.md) owns format compatibility. Directly supplied values retain their assurance limits; source admission derives source qualification, CFG owns derivation qualification, and application owns request/publication decisions.[1][2][3]
+No analyzed program execution, annotation processing, bytecode input, whole-program analysis or universal Java 25 completeness is claimed. Explicit retention and query preserve independently complete results in the [active retained format](ast-value-format.md). Directly supplied values retain their assurance limits. Source admission derives source qualification, CFG owns derivation qualification, and application owns request and publication decisions.[1][2][3]
 
 ## Separation decision
 
@@ -129,7 +136,16 @@ The selected separation is justified by existing consumer-neutral data and priva
 
 `AstProductionRequest` supplies captured input or a source root, compiler configuration, and an explicit `AstProfile`. A returned `AstOutcome` contains that declared profile, input/environment provenance when captured, ordered AST diagnostics, coverage qualification, a completion state, and zero or one `AstResult`. An available result and its outcome share the same profile/qualification evidence; unavailable outcomes retain diagnosed coverage gaps without fabricating an aggregate. `AstResult` contains `AstIdentity`, canonical `JavaProgram`, the single sealed `JavaAstAggregate`, semantic evidence, and profile/coverage metadata. It retains no compiler tree, mirror, path, file manager, callback into a session, or CFG value.
 
-The AST owns written source occurrences and containment; declarations own canonical symbols and source ownership; semantic edges distinguish owned occurrences from qualified external declaration references. Bodyless declarations are retained without body roots. Written method bodies reuse their owned source occurrence. Compiler-inserted execution facts have explicit provenance and remain outside written source-node queries; they must never create written arguments, type children, annotations, ranges, or declarations. Existing source/auxiliary distinctions and exact executable/body correlation remain obligations, but synthetic evaluation topology is removed from the AST and assigned to CFG lowering plans.
+The AST owns written occurrences and containment. Declarations own canonical
+symbols and source ownership. Semantic edges distinguish owned occurrences
+from qualified external declaration references. The aggregate retains bodyless
+declarations without body roots. A published written body reuses its owned
+source occurrence. A written body withheld for a missing position can retain
+an auxiliary execution registration with no written body occurrence.
+The [body origin contract](ast-value-format.md#method-body-origin) defines
+that provenance and the available references. Compiler-inserted execution
+facts keep explicit provenance outside written source-node queries. CFG
+lowering plans own evaluation topology.[3][19]
 
 **Intrinsic validity** requires unique qualified occurrence identities; source membership and bounded same-source ranges; acyclic, closed containment; contiguous role-local positions; root order matching the snapshot; exact declaration/body association; valid typed semantic endpoints; consistent supplied facts; and independent coverage/event-slot correlations. Sealing rejects foreign, duplicate, contradictory, fabricated, or structurally invalid values (`AstContractException` for public admission). A failed seal exposes no valid aggregate; its builder is abandoned. Missing or erroneous attribution can be represented by typed evidence states and does not itself violate these structural invariants. Compiler semantic errors do prevent complete qualification. Direct construction validates consistency, not authenticity; real compiler correlation remains the producer's duty.
 
@@ -164,12 +180,20 @@ Every applicable required source slot must be `KNOWN` with a consistent value. `
 | Selected-fact family | AST-required slots in `java-source-bounded/1` | Optional AST evidence | Initial CFG prerequisite when the corresponding operation is reached |
 | --- | --- | --- | --- |
 | Use/conversion | Attributed source-expression type, written target type or selected assignment/parameter/return target where applicable; exact owned use/child position and source/target consistency. | Selected conversion-step classification, checked wrapper target and runtime reference-cast-check classification, including known false. | Known conversion sequence and any required wrapper/cast-check classification; missing optional classification refuses CFG, not an otherwise complete AST. |
-| Invocation | Actual selected method/constructor target, source invocation form/mode and qualifying type where applicable, ordered written arguments and explicit receiver/enclosing roles. | Fixed/variable applicability and its formal count/array/erased element/argument-target classification slots. | Known applicability and all selected argument/formal targets required by the chosen call form; operand/packing/allocation policy is CFG-owned. |
-| Static member | Selected member and declaring owner, qualifying source type/form and actual source access kind. | Compiler constant-variable classification. | Known owner and constant-variable classification for the chosen static access; initialization trigger/stage is derived by CFG. |
-| String expression | Attributed result and operand types and actual PLUS/operand roles; no semantic classification is guessed from spelling. | Compiler constant-expression classification and independently corroborated String/non-String classification slots beyond known types. | Known classifications needed for reached String conversion/concatenation effects; a CFG policy may derive a classification from available authoritative source types only when its explicit rule permits it. |
+| Invocation | Selected method or constructor reference, invocation semantics, written argument order and receiver or enclosing roles where applicable, and the selected target type for each argument. | The independent applicability slot, including fixed or variable mode, formal count, and variable-arity array, erased array and element types. | Known applicability when the call form requires it and use facts for applicable arguments. CFG owns operand order, allocation, and packing. |
+| Static member | Selected member with its declaring owner, qualifying source type where applicable, and access kind. | The independent constant-variable classification slot for field reads. | Known declaring owner and, for field reads, known constant-variable classification. CFG derives initialization effects. |
+| String expression | Attributed result and operand types, PLUS, and operand roles. | Separate operand String classifications and compile-time constant classification. | Known classification slots for the reached String concatenation. |
 | Enum constructor | Canonical containing enum/constructor, selected written delegation target/form when present, actual ordered source arguments, and provenance for every retained compiler-inserted fact. | Corroborated inserted superclass invocation context beyond written declarations/arguments. It remains typed unavailable if not established, without fabricating source arguments. | Known inserted-call facts required for the enum binding plan. Incoming name/ordinal values, one binding consumer and arity adaptation are CFG decisions. |
 
-Required source types, selected references and recursive annotation/type structures have the intrinsic states retained below; unresolved/unsupported required structure is a source gap even when a coarse display type exists. The family rows do not make a whole payload mandatory when only one slot is missing. Separate selected-reference/type/classification slots allow, for example, known call target plus missing applicability. In that case AST can be `COMPLETE` with no source error, while the initial CFG profile returns `INSUFFICIENT_EVIDENCE`. Missing selected call target instead makes this AST `INCOMPLETE`. A known target/type plus missing reference-cast runtime-check classification likewise need not make AST incomplete but refuses CFG when that check is required. Contradictory supplied known facts always reject admission. These concrete distinctions make walkthrough 4 decidable without moving graph policy into AST.
+Required types, selected references and annotation/type structure are qualified
+from the available source facts. For example, a known call target with
+complete required source facts can yield AST `COMPLETE` when applicability is
+missing. The CFG profile can return `INSUFFICIENT_EVIDENCE` when it requires
+that applicability. A missing selected call target or required argument
+target makes the AST `INCOMPLETE`. Missing reference-cast classification
+can also refuse CFG while the source stays complete. Contradictory supplied
+known facts reject intrinsic admission. The [evidence ownership table](#semantic-evidence-and-cfg-policy)
+identifies the current types for these facts.[6][9]
 
 ### Qualified construction and enclosing type composition
 
@@ -184,9 +208,10 @@ rules are specified by
 [class instance creation](https://docs.oracle.com/javase/specs/jls/se25/html/jls-15.html#jls-15.9).
 
 When the original instantiated constructor signature has no unresolved method variables,
-[`JavaConstructorSelection`](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaConstructorSelection.java)
-copies that signature's applicability and conversions directly. It does not replace an
-enclosing type variable with its bound and reinfer a different constructor signature.
+[`ConstructorCorrelationPreparer`](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/ConstructorCorrelationPreparer.java)
+uses that signature directly.
+[`ConstructorWitnessCorrelation.attributedSelection`](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/ConstructorWitnessCorrelation.java)
+copies its applicability and conversions with the original enclosing type variables.
 Otherwise, the private witness uses the original enclosing expression through an instance
 receiver projection on the lexical enclosing declaration. This preserves compiler capture
 and lexical method variables without rendering captured types as source names. Source and
@@ -209,9 +234,9 @@ projected text and maps its local declarations independently of compiler binary 
 Restoring a copied nominal type preserves its actual arguments; semantic capture mappings
 cannot copy unrelated class-argument annotations into a selected constructor target.
 
-Retained format `java-source/22` adds `Declared.enclosingOwnerType`. `enclosingType`
+The current [retained format](ast-value-format.md) preserves `Declared.enclosingOwnerType`. `enclosingType`
 continues to hold the original instance, including a variable or captured variable. The
-optional new field holds its parametrized lexical-owner view, with an independent complete
+optional field holds its parametrized lexical-owner view, with an independent complete
 capture scope. It cannot override a directly declared instance or identify another lexical
 owner. Aggregate admission checks the written qualifier and available source bounds, including
 inherited substitutions and capture renumbering. Unavailable external hierarchy facts remain
@@ -220,11 +245,11 @@ The representation and admission owners are
 [`JavaTypeStructure`](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/api/JavaTypeStructure.java) and
 [`EnclosingTypeAdmission`](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/EnclosingTypeAdmission.java).
 
-The existing source profiles retain their meanings. Supported historical payloads retain
-their schema, semantic revision, identity, facts, completion and bytes on decode/re-encode;
-decoding never reproduces the source or synthesizes an enclosing-owner view. A new nonempty
-view cannot be encoded in an older schema. Public producer, supplied-value and retention
-obligations are exercised by
+The existing source profiles retain their meanings under the current retained
+format. Prior envelopes are refused under the
+[retired-format policy](ast-value-format.md#read-admission-and-retired-formats).
+Readmission checks the captured enclosing-owner view and its identity.
+Public producer, supplied-value and retention obligations are exercised by
 [`EnclosingConstructorCompositionTest`](../../src/test/java/org/aquilagraph/frontend/internal/EnclosingConstructorCompositionTest.java),
 [`EnclosingTypeAdmissionTest`](../../src/test/java/org/aquilagraph/frontend/internal/EnclosingTypeAdmissionTest.java),
 [`QualifiedConstructorCompositionTest`](../../src/test/java/org/aquilagraph/frontend/internal/QualifiedConstructorCompositionTest.java), and
@@ -296,7 +321,7 @@ or adding spelling-specific exceptions cannot satisfy them.
 
 ### Module service and provider identities
 
-**Profile contract:** Resolved service and provider declaration identities are required source facts in `java-source-expanded/8`. They are not optional CFG classifications. This capability uses semantic production `javac-public/11` and retained format `java-source/20`, separately from earlier source-fidelity profiles. The requirement is a product decision, not a claim that Java mandates a particular AST API. This document performs no new runtime verification.[16][18][20]
+**Profile contract.** Resolved service and provider declaration identities are required source facts for `COMPLETE` in `java-source-expanded/8`. Their qualification belongs to Source. The [retained format guide](ast-value-format.md#format-source-profile-and-producer-revision) owns current encoding and production provenance.[16][18][20]
 
 The delivered profile must preserve both the written operands and their compiler-attributed targets in the captured compilation environment:
 
@@ -316,27 +341,62 @@ For `java-source-expanded/8`, every applicable service/provider identity is requ
 
 Queries after compiler closure must preserve the same target identities, written associations, ordering, and evidence states. Applicable codec and actual completed-AST save/query paths must preserve those values and their qualification. Existing opt-in publication and incomplete-AST ineligibility remain in force; no new CLI behavior, automatic saving, or storage backend follows from this decision.[18]
 
-**Historical compatibility:** The requirement is introduced by the distinct `java-source-expanded/8` profile, `javac-public/11` semantic production, and `java-source/20` retained format. These identities distinguish the profile, semantic production, and retained format. Existing bounded profiles, `java-source-expanded/7` and its predecessors, their defaults, accepted outcomes, and supported stored results retain their declared meanings. Decoding or querying an older result must neither synthesize these endpoints nor apply the successor's stronger completeness rule to it. Reproduction under the new contract is a separate analysis with its own qualified identity; absent and incompatible results remain distinguishable. This capability adds no runtime profile selector or CLI behavior.[18][19][20]
+**Profile and format history.** This capability was introduced with `javac-public/11` and `java-source/20`. All supported source profiles keep their declared qualification boundaries in the active format. Stored envelopes from the earlier delivery keep their bytes and identities and follow the [retired-format lookup policy](ast-value-format.md#read-admission-and-retired-formats). Reproduction is a new analysis with its own qualified identity. Existing profile defaults and CLI behavior remain in force.[18][19][20]
 
 **Excluded scope:** This capability does not discover all possible providers, choose a provider for a consumer, execute `ServiceLoader` or `provider()`, infer instantiated runtime classes, index `META-INF/services`, expand CFG coverage, or introduce whole-program analysis. It retains the attributed declarations corresponding to the written module operands.[18]
 
-**Verification obligations:** Verification must cover exact public targets and associations for imported/simple and qualified operands, module identity distinctions, written provider ordering, constructor-based and provider-method forms, truthful required-fact failures, compiler-free queries, codec and actual retention preservation, and historical compatibility on the same capability. Required build, paired-review, and resource-closure duties remain binding. Source inspection, a contract edit, a matrix status, or successful compilation alone does not establish delivery. Preserve valid prior acceptance within its recorded scope and apply the [development verification boundary](../build-quality.md#development-verification-scope) to new work; deferred integrations require an explicit decision.[18][19][20]
+**Verification obligations.** Verification covers exact public targets and associations for imported, simple and qualified operands, module identity distinctions, written provider ordering, constructor-based and provider-method forms, truthful required-fact failures, compiler-free queries, active codec and retention preservation, and refusal of retired formats. Prior acceptance retains its recorded scope. The [development verification boundary](../build-quality.md#development-verification-scope) governs new work and reserves real-environment verification for an explicit decision.[18][19][20]
 
 ### Semantic evidence and CFG policy
 
-Each family is split by meaning. Rename target fact types to describe source semantics; do not copy an AST to bridge the boundary. A fact lookup returns a typed `EvidenceValue<T>`: `KNOWN(value)`, `MISSING`, `ERRONEOUS`, or `NOT_APPLICABLE`, with creating-site provenance and the actual diagnostic for erroneous evidence. Only `KNOWN` carries a selected value. An optional field inside a known fact means that field is inapplicable under the fact's variant, not that attribution is missing. Independently corroborated facts have separate keyed slots: a missing selected target must not discard a known source type or constant classification. Fact-family records in the focused view describe known payloads; `SemanticEvidence` owns ordered indexes of typed values, not one mandatory record per family. Contradictory known facts reject intrinsic admission; missing facts never become invented selections. Evidence is keyed by qualified method/occurrence and, where applicable, direct-child role/position.
+Each family is split by meaning. A slot retains an
+[`EvidenceValue<T>`](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/api/EvidenceValue.java)
+in state `KNOWN`, `MISSING`, `ERRONEOUS`, or `NOT_APPLICABLE`, with creating-site
+provenance. Only `KNOWN` carries a value. An `ERRONEOUS` slot can retain its
+originating frontend error if one is available. Optional components of a known
+payload follow that fact's variant. Independently corroborated facts have
+separate slots, so a missing selection can coexist with a known source type or
+constant classification. Contradictory known facts reject intrinsic admission.
+The [retained evidence contract](ast-value-format.md#executable-evidence)
+describes the owning execution scopes, occurrence keys and direct-child roles.
 
-| Existing family / locator | Source Model facts produced by frontend | CFG-owned decisions and prerequisites |
+| Fact family | Current Source Model owners | CFG-owned decisions and prerequisites |
 | --- | --- | --- |
-| `TypedUseDecision`; `JavaBodyDecisionProducer.conversion` | `UseConversionEvidence`: actual source/target type, selected identity/widening/unboxing/boxing/constant-narrowing steps, checked wrapper target, and compiler-corroborated reference-cast check classification (including explicit false). | Which uses must have evidence; how facts become CAST/UNBOX/BOX operations, values, exception routes, and operation IDs. Remove `supportsFixedRole` and lowering eligibility from the fact type. |
-| `InvocationArityDecision`; producer `invocation`/`constructorInvocation` | `InvocationEvidence`: selected target and qualifying type/form/mode, fixed/variable applicability, formal count, formal array/erased array/element types, argument targets. | Required call facts, graph operand order, allocation/packing/store policy, and supported call forms. Count alone cannot prove compiler selection. |
-| `StaticAccessDecision`; producer `staticAccess` | `StaticMemberEvidence`: selected member, declaring owner, source access kind, and attributed constant-variable classification. Qualifying and declaring types remain distinct. | `triggersInitialization` becomes CFG initialization policy, together with stage placement and exceptional categories. The initial Source profile requires the selected declaring owner: a missing or erroneous owner yields `INCOMPLETE`, while missing optional constant classification may leave source complete and refuse CFG. Source fact shape remains intrinsically admissible with a typed required gap. |
-| `StringConcatenationDecision`; producer `concatenation` | `StringExpressionEvidence`: attributed String PLUS, result type, operand String/non-String classification and compiler-backed constant-expression fact. | Selecting conversion operations, concatenation steps/effects and their ordering; a `convertedSide` execution choice belongs to the lowering plan, derived from operand facts. |
-| `EnumConstructorContextDecision`; `JavaEnumConstructorContextProducer.produce` | `ConstructorEvidence`: containing enum, actual selected constructor/delegation form, source argument list, and provenance of compiler-inserted superclass invocation. Canonical selected keys and exact source ownership remain facts. | `EnumBindingPlan`: incoming name/ordinal `IMPLICIT_PARAMETER` values, String/int binding shape, receiver/context operand placement, and the special inserted-call arity adaptation. These are graph bindings, not AST parameters or arguments. |
+| Child use | `ChildUseEvidence` retains source and selected target types, a `ConversionEvidence` slot, and a separate reference-check slot. The conversion payload carries the selected checked wrapper, unboxing, widening and boxing type components where applicable. | `CfgAdmission` determines required evidence. `UseConversionLowerer` uses the facts to construct casts, unboxing, boxing, and associated effects. |
+| Invocation | The syntax occurrence retains its selected semantic reference and its invocation value with `InvocationSemantics` for the mode, qualifier and form. `InvocationEvidence` retains only its independent applicability slot. Known `InvocationApplicability` retains fixed/variable mode, formal count and applicable array, erased-array and element types. Argument target types belong to the corresponding `ChildUseEvidence`. | CFG checks the call facts and owns operand order and varargs allocation, packing, and stores. |
+| Static member | `StaticMemberEvidence` retains the selected member and access kind, with independent declaring-owner and constant-variable slots. The qualifying type and declaring owner can differ. | CFG chooses initialization effects, placement, and exceptional routes. A required declaring-owner gap affects source qualification, and an optional constant-classification gap can leave source complete while CFG refuses the body. |
+| String expression | `StringExpressionEvidence` retains the attributed String result type and separate left-operand, right-operand, and constant-expression facts. | `StringOperandPlan` derives the converted side using admitted operand facts. The lowerer owns conversion and concatenation steps and their order. |
+| Constructor context | `ConstructorEvidence` retains the owning type, selected constructor and delegation form. Its independent `ConstructorContext` corroboration carries the superclass parameter types and any compiler-inserted invocation provenance. Written arguments remain syntax children. | `EnumBindingPlan` supplies the runtime name/ordinal bindings. CFG owns incoming values, context operand order, and inserted-call adaptation. |
 
-`MethodDecisionValidation` splits: owned-slot uniqueness, actual source/target consistency, selected reference/owner correlations, conversion shape and mutually exclusive fields remain intrinsic Source Model checks. `eligibleUses`, `hasMissingDecisions`, `hasMissingEnumContext`, required owner/catch checks and supported runtime-node rules become `CfgAdmission`. The rule that a particular enum body has one graph-context consumer belongs to the CFG binding plan; source fact consistency does not depend on that cardinality. Existing recursive type distinctions, capture binder scope, explicit annotation values/defaults and exact annotation targets stay Source Model concepts, even when CFG consumes selected parts.[9]
+`ExecutionDecisionValidation.validate` checks owned slots and correlations with
+the selected references, declarations, and actual child occurrences. Source
+value constructors check conversion shape and mutually exclusive components.
+`SourceRequirements` decides which evidence gaps affect the source profile.
+`CfgAdmission` separately checks evidence and construct support for the
+selected body, including the supported cardinality of incoming enum binding
+consumers. [Source fact and CFG references](#references) identify these owners,
+and the [format guide](ast-value-format.md#executable-evidence) owns the ordered
+retained fields.[6][9]
 
-`AstResultAdmission.admit(copiedFacts, qualificationEvidence): AstOutcome` is the separately exported Source Model value-admission facade for frontend finalization and repository decoding. It validates intrinsic structure and profile qualification, derives the canonical identity, and rejects inconsistent supplied identities/completion labels with `AstContractException`. Its closure is copied source/identity values and Java base. Mutable builders and intrinsic validators remain private construction machinery; CFG has access to neither the facade nor that machinery. A decoder does not import frontend code or bypass admission by setting a completion flag. Production root-request failures retain the named `AnalysisInputException` and `AnalysisEnvironmentException` contracts moved from application ports into the Source Model production API. The uniform `AstProducer.produce(AstProductionRequest)` port uses those named failures for either input variant: its captured-snapshot branch translates environment `IOException` into `AnalysisEnvironmentException`. The direct `JavaFrontend.produce(snapshot, configuration, profile)` overload retains checked `IOException`; no checked exception escapes an undeclared uniform-port signature. This is an explicit new-port adaptation; cause/cleanup and the existing path/snapshot facade translation scopes remain as inspected in `JavaFrontend`.[2][8]
+The Source module exports qualified entry points for two consumers. The frontend
+finalizes copied facts through
+[`AstProductionAdmission.outcome`](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/admission/AstProductionAdmission.java),
+which takes `SyntaxAnalysisInput`, `AstProfile`, and the semantic-production
+revision and returns an `AstOutcome`. The repository restores available results
+through [`AstCodec.decode`](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/retention/AstCodec.java),
+which takes payload bytes and the expected `AstIdentity` and returns an
+`AstResult`. Source owns the shared qualification and canonical identity
+derivation. The codec performs internal readmission and rejects inconsistent
+values, identity, or completion with `AstContractException`. CFG consumes the
+public `AstResult` and its queries.[16][19]
+
+The uniform `AstProducer.produce(AstProductionRequest)` port uses the Source
+Model's `AnalysisInputException` and `AnalysisEnvironmentException`. Its
+captured-snapshot branch translates environment `IOException` into
+`AnalysisEnvironmentException`. The direct
+`JavaFrontend.produce(snapshot, configuration, profile)` overload retains
+checked `IOException`. `JavaFrontend` owns the path and snapshot failure
+translation and associated cause and cleanup evidence.[2][8]
 
 ### CFG admission, construction, and result
 
@@ -426,7 +486,16 @@ The current [import-control.xml](../../config/checkstyle/import-control.xml) and
 
 ## Target coordination, completion, and failures
 
-Production with requested CFG uses application-owned `CfgSelection` before an AST identity exists. It preserves the ordered method keys and complete profile, then binds them unchanged to an available result's exact identity. Unavailable production returns a rejected run with the original selection explicitly `UNBOUND`; it creates no CFG request or result. Direct `deriveExisting` retains the caller's identity-bound request, including on unavailable input. The [identity contract](source-snapshots.md#target-qualified-analysis-identity) owns the complete descriptor variants, and the [analysis contract](../contracts/analysis.md#target-independent-analysis-contracts) owns operation behavior.
+Production retains the requested `CfgSelection` and binds effective keys to
+the available result's exact identity. `METHODS` preserves the caller's
+ordered keys. The CLI requests `ALL_BODIES` with an empty requested list.
+Production resolves its effective keys from the available AST's declarations
+with bodies in canonical method order. Unavailable production returns a
+rejected run with an `UNBOUND` selection and makes no CFG request. Direct
+`deriveExisting` keeps the caller's identity-bound request on either available
+or unavailable input. The [selection identity](source-snapshots.md#application-selection-and-cfg-request-identity)
+owns the framed variants, and the [analysis contract](../contracts/analysis.md#target-independent-analysis-contracts)
+owns operation behavior.[1]
 
 `AnalysisCapabilities` composes independent public interfaces with package-private implementation owners. `SourceComputation` implements `AnalysisComputation.analyze(AnalysisComputationRequest)` using injected `AstProducer` and `CfgDeriver`, without storage. `EstablishedSourceDerivation` implements `ExistingSourceDerivation.deriveExisting(AstOutcome, CfgRequest)` using only the derivation port; unavailable source yields a rejected run. Both owners share `CfgInvocation` for exact request validation and declared abrupt derivation translation. `StandaloneAstRetention` and `RetainedAstQuery` implement independently composable retention and lookup with only an AST repository factory.[1][8]
 
@@ -451,11 +520,11 @@ Returned domain refusal differs from abrupt failure. A declared recoverable cons
 
 ## Target identity and retention crossings
 
-Source files, snapshots, environment and software-version algorithms stay as defined in [source snapshots](source-snapshots.md). Add qualified `AstIdentity` containing software signature, source-model format version and declared AST-profile version. Its opaque result key uses length-framed inputs, rather than concatenating keys. Evidence production revision must be an explicit identity input if it changes retained facts under otherwise identical source/environment/profile/format; the serialized canonical AST content must be bound as specified in the identity contract. This is an explicit migration from the current run ID's exclusion of analyzer/model version.
+The [source snapshot contract](source-snapshots.md) defines source, environment and software identity. `AstIdentity` qualifies the software signature with the source-model format, selected source profile, semantic-production revision and canonical content digest. The complete tuple derives the framed result key. The [retained format](ast-value-format.md) owns current encoding and read admission.
 
 Every `BodyRef` binds `AstIdentity`, canonical method key and written-body occurrence or explicit nonwritten provenance. `GraphSourceRef` binds that body and, for source-correlated operations, a qualified occurrence; generated operations retain body-level provenance and no fabricated span. A graph's derivation identity includes AST result identity, CFG-profile/graph-model version, selected method and graph-content identity. Graph node/value/edge local role algorithms remain stable inside that qualified derivation. Do not trust method key, matching display name or a same-looking node ID alone: current method signatures can recur across snapshots, and current source/auxiliary node IDs can coincide without aliasing.[6][9]
 
-AST retention uses application-owned `AstResultRepository.saveComplete(AstOutcome)` and `find(AstIdentity): AstLookup`. The explicit `retainAst` use case opens storage only on a requested `SAVE_COMPLETE_AST` for `COMPLETE` AST, regardless of CFG/request outcome. Each new repository is acquired with its exact operation/subject context; the [failure crossing](../contracts/analysis.md#target-repository-failure-crossing) carries internal phase and conservative commit knowledge. `INCOMPLETE` AST remains queryable in the returned outcome but is not durably admitted by this decision; broader retention would require a separate product decision. `findAst` can return a validated retained result without loading CFG. Lookup states `FOUND`, `NOT_FOUND`, and `INCOMPATIBLE` differ from query failure; only supported present facts are decoded. Unknown versions are not silently reinterpreted. No automatic saving, new backend, existing retrieval capability, or new CLI flag is inferred.
+The application owns `AstRetentionRepository.saveComplete(AstOutcome)` and `AstQueryRepository.find(AstIdentity)`. The `retainAst` use case stores a `COMPLETE` AST on an explicit `SAVE_COMPLETE_AST` request, independently of CFG. Each repository is acquired with its exact operation and subject context. The [failure crossing](../contracts/analysis.md#target-repository-failure-crossing) defines phase and commit knowledge. An `INCOMPLETE` AST remains queryable in the returned outcome and is ineligible for retention. `findAst` returns distinct `FOUND`, `NOT_FOUND`, and `INCOMPATIBLE` results and propagates query failures. It reads only the supported source representation and leaves CFG unloaded. The [retired-format policy](ast-value-format.md#read-admission-and-retired-formats) governs incompatible source envelopes.
 
 Independent retention requires AST format, mapping, decoder, schema/constraint inspection, qualified source references, lossless fact/annotation/evidence/coverage/diagnostic ordering and actual storage round-trip observations. The [repository design](analysis-repository.md#target-ast-retention) and [schema migration](../repository/neo4j-schema.md#target-ast-retention-schema) define the chosen crossing. Legacy runs cannot reconstruct an AST from graphs; recapture/reproduction is a new operation, not decoding. Legacy and target projections must coexist without same-run deletion removing independently retained ASTs.
 
@@ -501,7 +570,7 @@ Historical model verdicts, test totals, and resource-closure claims without acce
 1. [AnalysisCapabilities](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisCapabilities.java), independent inputs and composition; [SourceComputation](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/SourceComputation.java), `analyze`; [AnalysisExecutionCoordinator](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisExecutionCoordinator.java), `execute`; [AnalysisQualification](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisQualification.java), `assess`; [CompletedRunPublicationEligibility](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/CompletedRunPublicationEligibility.java), `accepts`; [PublicationCoordinator](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/PublicationCoordinator.java), shared policy; [application contracts](../contracts/analysis.md#target-repository-failure-crossing), public failure and ownership boundaries.
 2. [JavaFrontend](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaFrontend.java), overloads; [JavaAnalysisPipeline](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaAnalysisPipeline.java), lifecycle; [JavaCompilerInvocation](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaCompilerInvocation.java), controlled options; [JavaRelease](../../src/main/java/org.aquilagraph.identity/org/aquilagraph/identity/api/JavaRelease.java), supported releases; [SnapshotSourceCatalog](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/SnapshotSourceCatalog.java), `find`; [CompilerDiagnosticTranslator](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/CompilerDiagnosticTranslator.java), `origins`.
 3. [JavaAstAggregate](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/api/JavaAstAggregate.java), sealing and method views; [SyntaxAnalysisInput](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/admission/SyntaxAnalysisInput.java), neutral admission; [ProgramRepresentation](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/ProgramRepresentation.java), durable result; [SyntaxType](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/api/SyntaxType.java), type outcomes.
-4. [JavaProgramTranslator](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaProgramTranslator.java), declarations; [JavaTypeUseTranslator](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaTypeUseTranslator.java), written type uses; [JavaAnnotationCompleteness](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaAnnotationCompleteness.java), annotation reconciliation; [JavaConstructorSelection](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaConstructorSelection.java), witnesses; [ConstructorTypeCorrespondence](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/ConstructorTypeCorrespondence.java), `MatchAttempt` and `originalType`; [CompilerFileManager](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/CompilerFileManager.java), resource ownership.
+4. [JavaProgramTranslator](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaProgramTranslator.java), declarations; [JavaTypeUseTranslator](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaTypeUseTranslator.java), written type uses; [JavaAnnotationCompleteness](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaAnnotationCompleteness.java), annotation reconciliation; [ConstructorCorrelationPreparer](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/ConstructorCorrelationPreparer.java), `prepare` and `attribute`; [ConstructorWitnessCorrelation](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/ConstructorWitnessCorrelation.java), `attributedSelection` and `correlate`; [ConstructorTypeCorrespondence](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/ConstructorTypeCorrespondence.java), `MatchAttempt` and `originalType`; [CompilerFileManager](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/CompilerFileManager.java), resource ownership.
 5. [JavaLanguageFeatureCoverage](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaLanguageFeatureCoverage.java), policies; [JavaSourceCoverageCapture](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaSourceCoverageCapture.java), written obligations; [JavaSourceCoverageReconciler](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaSourceCoverageReconciler.java), reconciliation; [DiagnosticEmissions](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/DiagnosticEmissions.java), event transport.
 6. [JavaExecutableSyntaxProfile](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaExecutableSyntaxProfile.java), source projection; [CfgAdmission](../../src/main/java/org.aquilagraph.cfg/org/aquilagraph/cfg/internal/CfgAdmission.java), consumer readiness; [ControlFlowGraphBuilder](../../src/main/java/org.aquilagraph.cfg/org/aquilagraph/cfg/internal/ControlFlowGraphBuilder.java), build; [ExpressionGraphLowerer](../../src/main/java/org.aquilagraph.cfg/org/aquilagraph/cfg/internal/ExpressionGraphLowerer.java), expressions; [StatementGraphLowerer](../../src/main/java/org.aquilagraph.cfg/org/aquilagraph/cfg/internal/StatementGraphLowerer.java), statements; [UseConversionLowerer](../../src/main/java/org.aquilagraph.cfg/org/aquilagraph/cfg/internal/UseConversionLowerer.java), conversions; [CallArgumentLowerer](../../src/main/java/org.aquilagraph.cfg/org/aquilagraph/cfg/internal/CallArgumentLowerer.java), arguments; [ControlFlowGraphConstruction](../../src/main/java/org.aquilagraph.cfg/org/aquilagraph/cfg/internal/ControlFlowGraphConstruction.java), graph identities and transfers.
 7. [AquilaGraphProcessIT](../../src/test/java/org/aquilagraph/AquilaGraphProcessIT.java), packaged command outcomes; [Neo4j integration tests](../../src/test/java/org/aquilagraph/repository/internal/neo4j/Neo4jAnalysisRunRepositoryNeo4jIT.java), database observations; [build quality](../build-quality.md), gate responsibilities.
@@ -516,5 +585,5 @@ Historical model verdicts, test totals, and resource-closure claims without acce
 16. Oracle Java SE 25, [JLS 7.3](https://docs.oracle.com/javase/specs/jls/se25/html/jls-7.html#jls-7.3), imports in modular compilation units; [JLS 7.7.3](https://docs.oracle.com/javase/specs/jls/se25/html/jls-7.html#jls-7.7.3) and [JLS 7.7.4](https://docs.oracle.com/javase/specs/jls/se25/html/jls-7.html#jls-7.7.4), service operands and provider-method semantics; [UsesDirective](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/ModuleElement.UsesDirective.html) and [ProvidesDirective](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/element/ModuleElement.ProvidesDirective.html), resolved declaration endpoints. These establish Java semantics, not delivery by this project.
 17. Oracle Java SE 25, [Elements](https://docs.oracle.com/en/java/javase/25/docs/api/java.compiler/javax/lang/model/util/Elements.html), `getAllTypeElements` and `getModuleOf`: distinct type elements may have the same canonical name in different modules.
 18. [Intrinsic AST qualification](#ast-result-and-intrinsic-validity), independent source completion and required facts; [qualified source identity](source-snapshots.md#target-qualified-analysis-identity), retained content, external references, and compatibility; [publication and retention](../contracts/analysis.md#target-publication-and-retention), completion-based eligibility; [build responsibilities](../build-quality.md#responsibility-boundaries) and [acceptance ownership](#model-acceptance-and-verification), applicable verification duties.
-19. [Retained AST value format](ast-value-format.md), versioned envelopes and qualified content; [source identity](source-snapshots.md#target-qualified-analysis-identity), historical identity and compatibility boundaries.
+19. [Retained AST value format](ast-value-format.md), active envelope, read admission and retired-format policy, and [source identity](source-snapshots.md#target-qualified-analysis-identity), qualified result content.
 20. [AstProfile](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/api/AstProfile.java), supported profile versions and capability predicates; [JavaTranslationPolicy](../../src/main/java/org.aquilagraph.frontend/org/aquilagraph/frontend/internal/JavaTranslationPolicy.java), profile-derived translation policy; [SourceRequirements](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/SourceRequirements.java), required source facts. These source anchors identify implementation responsibilities, not a new runtime acceptance result.

@@ -16,10 +16,13 @@ import java.io.StringWriter;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -78,10 +81,12 @@ import org.aquilagraph.identity.api.CapturedLocation;
 import org.aquilagraph.identity.api.CapturedLocation.RootKind;
 import org.aquilagraph.identity.api.CapturedLocation.Syntax;
 import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.DependencySemantics;
 import org.aquilagraph.identity.api.GraphIdentity;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.repository.internal.neo4j.AstRepositoryDriverStub.Statement;
 import org.aquilagraph.repository.neo4j.Neo4jConnectionSettings;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
@@ -97,6 +102,7 @@ import org.aquilagraph.source.api.InvocationApplicabilityMode;
 import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
+import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
@@ -404,6 +410,166 @@ class PublicAnalysisCompositionTest {
     assertEquals(retained.occurrence(creation), allocation.sourceRef().occurrence());
     assertEquals("driver.close", write.events.getLast());
     assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), read.events);
+  }
+
+  @Test
+  void givenConfiguredCapturedJavaUnits_whenReportedRetainedAndQueried_thenDetachedSourceAndSelectedGraphKeepTheirExactOwners()
+      throws IOException {
+    // Arrange
+    var moduleName = "sample.consumer";
+    var sample = """
+        package sample;
+        import java.util.function.IntSupplier;
+        @Label(7) public class Sample {
+          static IntSupplier capture(int seed) {
+            int captured = seed;
+            class Local { IntSupplier supplier() { return () -> captured; } }
+            return new Local().supplier();
+          }
+          static int classify(int key) {
+            return switch (key) { case 1, 2 -> 7; default -> 9; };
+          }
+          static int choose(boolean flag) {
+            if (flag) return 7;
+            return 9;
+          }
+        }
+        """;
+    var sampleFile = SourceFile.fromContent(capturedPath(Path.of("sample", "Sample.java")), sample);
+    var labelFile = SourceFile.fromContent(capturedPath(Path.of("sample", "Label.java")),
+        "package sample; @interface Label { int value(); }");
+    var moduleFile = SourceFile.fromContent(capturedPath(Path.of("module-info.java")),
+        "module sample.consumer { requires sample.dependency; }");
+    var root = capturedAbsolute(directory.resolve("sources"));
+    var snapshot = InputSnapshot.fromSources(root, List.of(sampleFile, moduleFile, labelFile));
+    var classPath = capturedAbsolute(Files.createDirectory(directory.resolve("classes")));
+    var modulePath = capturedAbsolute(automaticModule());
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(classPath), List.of(modulePath), List.of());
+    var source = new AstProductionRequest(snapshot, configuration, PROFILE);
+    var owner = new JavaTypeDeclarationIdentity(Optional.of(moduleName), "sample.Sample").declarationKey();
+    var method = owner + "#choose(boolean)";
+    var selection = new CfgSelection(List.of(method), CFG);
+    var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
+    var application = AnalysisCapabilities.execution(computation, NO_AST_STORAGE, NO_RUN_STORAGE);
+    // The CLI supplies the intent. The application request supplies the compiler options and explicit graph selection.
+    var runner = CliPublicationReporting.runner(command -> application.execute(
+        new AnalysisRequest(new AnalysisComputationRequest(source, Optional.of(selection)), command.publicationIntent())));
+    var output = new StringWriter();
+    var error = new StringWriter();
+    var write = new AstRepositoryDriverStub();
+    var read = new AstRepositoryDriverStub();
+
+    // Act
+    var invocation = runner.run(new String[] {directory.toString()}, CommandDestination.throwingWriter(output),
+        CommandDestination.throwingWriter(error));
+    var execution = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, invocation.outcome()).execution();
+    var run = execution.run();
+    var outcome = run.representation().ast();
+    var original = outcome.result().orElseThrow(() -> new AssertionError(run.diagnostics().values()));
+    var identity = original.identity();
+    write.lockedAstSubject = identity.astResultKey();
+    var publication = AnalysisCapabilities.astRetention(astFactory(write)::openRetention)
+        .retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
+    read.stored = writtenAst(identity, write);
+    var lookup = AnalysisCapabilities.astQuery(astFactory(read)::openQuery).findAst(identity);
+    var restored = lookup.outcome().orElseThrow();
+    var requested = new CfgRequest(identity, List.of(method), CFG);
+    var derived = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(restored, requested);
+
+    // Assert
+    assertEquals(AnalysisCompletion.COMPLETE, run.completion(), run.diagnostics().values().toString());
+    assertEquals(List.of(), run.qualification().reasons());
+    assertEquals(List.of(), run.diagnostics().values());
+    assertEquals(List.of(Impediment.BODY_COVERAGE_INCOMPLETE), run.publicationEligibility().impediments());
+    assertEquals(new AvailableSource(identity), run.identity().source());
+    var binding = assertInstanceOf(ProductionSelection.class, run.identity().selection());
+    assertEquals(Optional.of(identity), binding.boundIdentity());
+    assertEquals(List.of(method), binding.methodKeys());
+    assertPublication(execution.publication(), PublicationIntent.DO_NOT_SAVE, Optional.of(new Ast(identity)),
+        PublicationStatus.NOT_REQUESTED, CommitKnowledge.NOT_STARTED);
+    assertEquals(CommandExitPolicy.EXIT_COMPLETED, invocation.exitCode(), error.toString());
+    assertEquals("", error.toString());
+    assertTrue(output.toString().lines().toList().containsAll(List.of("Run: \"" + run.identity().key() + "\"",
+        "Completion: COMPLETE", "Java source files: 3", "AST: COMPLETE", "CFG: COMPLETE", "Analyzed method bodies: 1",
+        "Method CFG: \"" + method + "\" AVAILABLE", "Repository: NOT_REQUESTED")), output.toString());
+
+    assertPublication(publication, PublicationIntent.SAVE_COMPLETE_AST, Optional.of(new Ast(identity)), PublicationStatus.SAVED,
+        CommitKnowledge.KNOWN_COMMIT);
+    assertEquals(AstLookupStatus.FOUND, lookup.status());
+    assertEquals(identity, lookup.requestedIdentity());
+    var retained = restored.result().orElseThrow();
+    assertEquals(identity, retained.identity());
+    assertEquals("java-source/23", identity.sourceModelVersion());
+    assertEquals("javac-public/14", identity.semanticProductionRevision());
+    for (var result : List.of(original, retained)) {
+      assertEquals(root, result.snapshot().sourceRoot());
+      assertEquals(List.of(moduleFile, labelFile, sampleFile), result.snapshot().sourceFiles());
+      var classDependency = result.environment().classPath().getFirst();
+      assertEquals(classPath, classDependency.location());
+      assertEquals(DependencySemantics.State.CLASS_PATH, classDependency.semantics().state());
+      var moduleDependency = result.environment().modulePath().getFirst();
+      assertEquals(modulePath, moduleDependency.location());
+      assertEquals(List.of("sample.dependency"),
+          moduleDependency.semantics().modules().stream().map(module -> module.lookupName()).toList());
+      assertCapturedSample(result, sampleFile, owner);
+    }
+    assertEquals(AnalysisCompletion.COMPLETE, derived.completion());
+    assertEquals(new AvailableSource(identity), derived.identity().source());
+    assertNotEquals(run.identity().key(), derived.identity().key());
+    assertEquals(requested, assertInstanceOf(ExistingSelection.class, derived.identity().selection()).request());
+    var graph = derived.representation().cfg().orElseThrow().methods().getFirst().graph().orElseThrow();
+    assertEquals(Map.of(method, graph.identity()), graphIdentitiesByMethod(run));
+    assertEquals(identity, graph.identity().astIdentity());
+    assertEquals(retained.bodyRef(method).orElseThrow(), graph.body());
+    var branch = retained.body(method).orElseThrow().root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.IF).findFirst().orElseThrow();
+    var flag = branch.requiredChild(SyntaxRole.CONDITION).descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS).findFirst().orElseThrow();
+    assertEquals(List.of(retained.occurrence(flag)), graph.operationNodes().stream()
+        .filter(operation -> operation.kind() == OperationKind.READ).map(operation -> operation.sourceRef().occurrence()).toList());
+    assertEquals("driver.close", write.events.getLast());
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), read.events);
+    assertAstStatements(identity, read.statements, AST_RESULT_LOOKUP, AST_NODE_LOOKUP, AST_RELATIONSHIP_LOOKUP);
+  }
+
+  private Path automaticModule() throws IOException {
+    var manifest = new Manifest();
+    manifest.getMainAttributes().putValue("Manifest-Version", "1.0");
+    manifest.getMainAttributes().putValue("Automatic-Module-Name", "sample.dependency");
+    var jar = directory.resolve("dependency.jar");
+    try (var archive = new JarOutputStream(Files.newOutputStream(jar), manifest)) {
+      archive.finish();
+    }
+    return jar;
+  }
+
+  private static void assertCapturedSample(AstResult result, SourceFile sample, String owner) {
+    var nodes = result.aggregate().nodes();
+    var declaration = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.LOCAL_DECLARATION
+        && node.value(SyntaxValue.LocalDeclaration.class).name().equals("captured")).findFirst().orElseThrow();
+    var lambda = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.LAMBDA_EXPRESSION).findFirst().orElseThrow();
+    var access = lambda.requiredChild(SyntaxRole.BODY);
+    assertEquals(SyntaxKind.VARIABLE_ACCESS, access.syntaxKind());
+    assertEquals(ReferenceKind.LOCAL, access.requiredReference().referenceKind());
+    assertEquals(declaration.requiredReference().symbolKey(), access.requiredReference().symbolKey());
+    assertEquals(sample.sourceFileKey(), declaration.sourceFileKey());
+    var offset = sample.content().indexOf("-> captured") + "-> ".length();
+    assertEquals(Optional.of(new SourceSpan(sample.sourceFileKey(), offset, offset + "captured".length())), access.origin());
+    assertSame(access, result.node(result.occurrence(access).orElseThrow()).orElseThrow());
+
+    var annotation = nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION).findFirst().orElseThrow();
+    var argument = annotation.requiredChild(SyntaxRole.ANNOTATION_ARGUMENT).value(SyntaxValue.AnnotationArgument.class);
+    var labelKey = new JavaTypeDeclarationIdentity(Optional.of("sample.consumer"), "sample.Label").declarationKey();
+    assertEquals(Optional.of(labelKey), annotation.requiredReference().symbolKey());
+    assertEquals(labelKey + "#value()", argument.selectedElementKey());
+    assertEquals(sample.sourceFileKey(), annotation.sourceFileKey());
+    var cases = result.body(owner + "#classify(int)").orElseThrow().root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.CASE).toList();
+    assertEquals(2, cases.size());
+    assertEquals(List.of("1", "2"), cases.getFirst().children(SyntaxRole.LABEL).stream()
+        .map(node -> node.value(SyntaxValue.Literal.class).text()).toList());
+    assertEquals(List.of(SyntaxValue.SwitchLabel.Default.INSTANCE), cases.getLast().value(SyntaxValue.SwitchCase.class).labels());
+    assertTrue(cases.stream().allMatch(node -> node.sourceFileKey().equals(sample.sourceFileKey())));
   }
 
   @Test
@@ -1091,6 +1257,41 @@ class PublicAnalysisCompositionTest {
     assertAstStatements(identity, absent.statements, AST_RESULT_LOOKUP, AST_ENTITY_SCOPE + "count(entity) AS count");
     assertAstStatements(identity, incompatible.statements, AST_RESULT_LOOKUP);
     for (var driver : List.of(absent, incompatible)) {
+      assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
+    }
+  }
+
+  @Test
+  void givenRetiredRootWithMalformedPayload_whenQueried_thenMetadataRefusesItAndSessionCloseFailureTakesPrecedence()
+      throws IOException {
+    // Arrange
+    var fixture = HistoricalAstFixtures.read(21);
+    var identity = fixture.identity();
+    var root = HistoricalAstFixtures.storedRoot(fixture).root();
+    var properties = new HashMap<>(root.properties());
+    properties.put("payload", "not base64!");
+    var stored = new Neo4jAstProjection(identity, List.of(new Neo4jNode(root.key(), root.label(), properties)), List.of());
+    var refused = new AstRepositoryDriverStub();
+    refused.stored = stored;
+    var unclosed = new AstRepositoryDriverStub();
+    unclosed.stored = stored;
+    unclosed.failingClose = 0;
+    var closeFailure = new Neo4jException("Controlled retired-result read-session close failure");
+    unclosed.closeFailure = closeFailure;
+
+    // Act
+    var lookup = AnalysisCapabilities.astQuery(astFactory(refused)::openQuery).findAst(identity);
+    var failure = assertThrows(Neo4jRepositoryOperationException.class,
+        () -> AnalysisCapabilities.astQuery(astFactory(unclosed)::openQuery).findAst(identity));
+
+    // Assert
+    assertEquals(new AstLookup(identity, AstLookupStatus.INCOMPATIBLE, Optional.empty(), Optional.of("java-source/21")), lookup);
+    assertEquals(Neo4jRepositoryPhase.READ_SESSION_CLOSE, failure.phase());
+    assertEquals(RepositoryOperationContext.queryAst(identity), failure.context());
+    assertEquals(Optional.of(CommitKnowledge.NOT_STARTED), failure.knowledge());
+    assertSame(closeFailure, assertInstanceOf(RepositoryException.class, failure.effectivePrimary()).getCause());
+    for (var driver : List.of(refused, unclosed)) {
+      assertAstStatements(identity, driver.statements, AST_RESULT_LOOKUP);
       assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
     }
   }
