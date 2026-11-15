@@ -1,6 +1,8 @@
 # Project documents
 pdf/
 books/
+/private-docs/
+/diagrams/
 
 # Local CodeGraph index
 .codegraph/
@@ -55,17 +57,31 @@ out/
 .gradle/
 hs_err_pid*
 replay_pid*
+*.hprof
+*.jfr
+
+# Maven maintenance output
+pom.xml.versionsBackup
+pom.xml.releaseBackup
+pom.xml.tag
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
 
 # Logs and temporary files
 *.log
+*.log.*
 *.tmp
 *.swp
 *.swo
 *~
 tmp/
 
-# Local Neo4j credentials
-deployment/neo4j/.env
+# Local environment configuration; keep reusable examples
+.env
+.env.*
+!.env.example
+!.env.*.example
 
 # IDE metadata
 .vscode/
@@ -73,7 +89,12 @@ deployment/neo4j/.env
 *.iml
 *.ipr
 *.iws
+.project
+.classpath
+.settings/
+.metadata/
 
 # Operating system files
 .DS_Store
 Thumbs.db
+[Dd]esktop.ini

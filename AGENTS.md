@@ -62,7 +62,7 @@ These instructions apply to the entire directory tree rooted at this file. More 
 
 ## Diagram Navigation (Explicit Requests Only)
 
-- Before creating, selecting, reviewing, or modifying a diagram, consult the [diagram index](D:/Projects/aquila-graph/aquila-graph/diagrams/README.md).
+- Before creating, selecting, reviewing, or modifying a diagram, consult the local `diagrams/README.md` index. The ignored diagram directory is not included in public checkouts; if it is unavailable, report that limitation before diagram work.
 - Use the routing triggers in the index to identify the appropriate view, its model, and its companion documentation.
 - Update the index in the same change whenever a diagram is added, renamed, moved, or removed, or when its routing triggers or scope change materially.
 - Keep the index limited to navigation and scope discrimination. Record model-specific explanations in the companion documentation located with the diagram.
@@ -70,8 +70,11 @@ These instructions apply to the entire directory tree rooted at this file. More 
 ## Repository Content
 
 - Keep versioned documentation limited to current contracts, design decisions, build and deployment instructions, navigation, and outstanding product requirements.
+- Keep public documentation in `docs/`. Store internal epics, task plans, prompts, detailed roadmaps, and review procedures in the ignored root `private-docs/` directory. When those local materials are available and relevant to an explicitly requested task, use `private-docs/README.md` for navigation.
+- Keep `diagrams/` local and ignored by Git. Preserve its canonical sources on disk when changing Git tracking. Private materials require a separate backup or private version-control location; this repository does not track their future revisions.
+- Public documentation must not depend on private documents or local diagrams. Preserve shared product contracts in `docs/` and update links when moving internal materials.
 - For explicitly requested diagram work, keep one canonical source for each diagram. Put generated previews and exports under ignored build output such as `target/diagrams/`.
-- Use Git history for previous source and model versions. Do not commit source snapshots, copied repository trees, review packets, session logs, or repeated historical exports.
+- Use Git history for previous versioned source and document revisions. Do not commit source snapshots, copied repository trees, review packets, session logs, or repeated historical exports.
 - When removing or consolidating documentation, preserve applicable contracts and outstanding requirements in their owning documents and update inbound links.
 
 ## Evidence and Inference

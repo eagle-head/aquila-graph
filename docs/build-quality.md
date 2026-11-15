@@ -59,12 +59,10 @@ Real Neo4j/Docker, external service endpoints, packaged child processes, native 
 lifecycle controls and nested Maven/compiler process campaigns remain preserved
 but deferred until a new explicit user decision. Finishing implementation, reaching
 acceptance, editing or removing code, starting a review or selecting another task
-does not authorize them. This decision applies to every epic and task through the
-[shared lifecycle](epics/README.md#current-verification-scope-for-every-epic-and-task).
+does not authorize them. This decision applies to every epic and task.
 Each plan names its isolated deliverables and manual-only owners for deferred
-real-environment requirements. The accepted [build development validation](tasks/incremental-verification-build/complete-local-validation.md)
-and deferred [build integrated validation](tasks/incremental-verification-build/build-verification-integration.md)
-are one application of that separation, not its scope limit.
+real-environment requirements. Build development validation and deferred build
+integration validation are one application of that separation, not its scope limit.
 
 Scope/command revisions execute no tests or acceptance campaigns. The earlier
 authorization for build development validation's complete isolated suite and fresh

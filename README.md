@@ -29,25 +29,23 @@ Database integration tests manage their own memory-limited container and discard
 
 The command reports source, declaration, and graph counts on standard output and diagnostics on standard error. Normal exit codes are `0` for a completed analysis without a publication failure or observed output failure, `1` for a partial or failed analysis or a named environment failure, `2` for rejected usage, rejected input, or a returned `REJECTED` analysis, `3` for a returned publication failure, and `4` for semantic success followed by observed output failure. Semantic exits `1`, `2`, and `3` retain precedence over output failure. The [analysis contract](docs/contracts/analysis.md#command-line-results) defines the exact boundaries.
 
-Unsupported constructs block completion. The analyzer does not execute the analyzed program, run annotation processors, provide whole-program analysis, or accept bytecode as an input. Completed-run publication and explicit AST retention have separate [contracts](docs/contracts/analysis.md#target-publication-and-retention). The [Java AST epics](docs/epics/java-ast-epics.md) define the current expansion round; the [roadmap](docs/roadmap.md) retains open prerequisites.
+Unsupported constructs block completion. The analyzer does not execute the analyzed program, run annotation processors, provide whole-program analysis, or accept bytecode as an input. Completed-run publication and explicit AST retention have separate [contracts](docs/contracts/analysis.md#target-publication-and-retention). The [roadmap](docs/roadmap.md) describes development priorities and scope boundaries.
 
 ## Project documentation
 
 | Subject | Document |
 | --- | --- |
 | Analysis inputs, completion, publication, and failures | [Analysis contract](docs/contracts/analysis.md) |
+| CLI fields, quoting, channel ordering, and exit behavior | [Command-line reporting contract](docs/contracts/command-line-reporting.md) |
 | Java frontend, source profile, coverage, and graph semantics | [Java analysis design](docs/design/java-analysis.md) |
 | Captured source and environment identity | [Source snapshots](docs/design/source-snapshots.md) |
 | Retained AST and captured-value formats | [AST value format](docs/design/ast-value-format.md) · [Captured-value encoding](docs/design/captured-value-encoding.md) |
 | Repository responsibilities and lifecycle | [Repository design](docs/design/analysis-repository.md) |
 | Neo4j labels, relationships, keys, and constraints | [Stored schema](docs/repository/neo4j-schema.md) |
 | Build, tests, and quality requirements | [Build quality](docs/build-quality.md) |
-| Models by question and responsibility | [Diagram index](diagrams/README.md) |
 | Examples and local database operations | [Analysis targets](analysis-targets/README.md) · [Neo4j runbook](deployment/neo4j/README.md) |
-| Current expansion requirements | [Java AST epics](docs/epics/java-ast-epics.md) |
-| Executable construct implementation tasks | [Task index and dependencies](docs/tasks/java-executable-constructs/README.md) |
 | Open prerequisites and scope boundaries | [Roadmap](docs/roadmap.md) |
-| Paired review and acceptance procedure | [Independent review protocol](docs/review-protocol.md) |
+| Java 25 specifications and compiler APIs | [Official source map](docs/reference/java-25/README.md) |
 
 ## References
 
