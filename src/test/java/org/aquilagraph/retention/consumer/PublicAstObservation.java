@@ -4,7 +4,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +13,7 @@ import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.ControlFlowGraph;
+import org.aquilagraph.identity.api.CapturedLocation;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.ExecutionSyntax;
@@ -63,7 +63,8 @@ public final class PublicAstObservation {
       case Map<?, ?> values -> tuple("map", values.entrySet().stream().map(entry -> tuple("entry", entry.getKey(), entry.getValue())).sorted().toList());
       case List<?> values -> atom("list", String.join("", values.stream().map(PublicAstObservation::render).toList()));
       case Enum<?> enumeration -> atom(enumeration.getDeclaringClass().getName(), enumeration.name());
-      case Path path -> atom("path", path.toString());
+      case CapturedLocation location -> tuple("captured-location", location.syntax(), location.rootKind(), location.rootComponents(),
+          location.components(), location.spelling());
       case String text -> atom("text", text);
       case Number number -> atom(number.getClass().getSimpleName(), number.toString());
       case Boolean flag -> atom("flag", flag.toString());

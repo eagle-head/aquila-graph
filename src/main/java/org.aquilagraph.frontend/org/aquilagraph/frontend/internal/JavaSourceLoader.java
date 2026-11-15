@@ -38,7 +38,7 @@ public final class JavaSourceLoader {
       for (var sourcePath : sourcePaths) {
         sourceFiles.add(readSource(normalizedRoot, sourcePath));
       }
-      return InputSnapshot.fromSources(normalizedRoot, sourceFiles);
+      return InputSnapshot.fromSources(NativeLocations.capture(normalizedRoot), sourceFiles);
     }
   }
 
@@ -46,7 +46,7 @@ public final class JavaSourceLoader {
     try {
       var relativePath = sourceRoot.relativize(sourcePath).normalize();
       var content = Files.readString(sourcePath, StandardCharsets.UTF_8);
-      return SourceFile.fromContent(relativePath, content);
+      return SourceFile.fromContent(NativeLocations.capture(relativePath), content);
     } catch (IOException exception) {
       throw new IOException("Cannot read Java source: " + sourcePath, exception);
     }

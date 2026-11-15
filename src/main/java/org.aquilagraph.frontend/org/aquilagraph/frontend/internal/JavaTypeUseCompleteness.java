@@ -83,7 +83,7 @@ final class JavaTypeUseCompleteness {
   private static String sourcePath(InputSnapshot snapshot, String sourceFileKey) {
     return snapshot.sourceFiles().stream().filter(sourceFile -> sourceFile.sourceFileKey().equals(sourceFileKey)).findFirst()
         .orElseThrow(() -> new IllegalStateException("Observed compiler tree is not owned by the input snapshot")).relativePath()
-        .toString();
+        .spelling();
   }
 
   private record TypeOccurrence(String sourceFileKey, JavaSourceKind kind, SourceSpan range) {

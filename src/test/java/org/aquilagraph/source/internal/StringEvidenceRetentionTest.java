@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.retention.AstCodec;
@@ -46,7 +49,7 @@ class StringEvidenceRetentionTest {
   void givenSourceOnlyStringExpressionWithUnavailableClassification_whenDeriving_thenExecutableBodyAndSourceQualificationArePreserved()
       throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), """
         import java.lang.annotation.ElementType;
         import java.lang.annotation.Target;
         @Target(ElementType.TYPE_USE) @interface Label { String value(); }
@@ -122,7 +125,7 @@ class StringEvidenceRetentionTest {
   }
 
   private AstResult produce() throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")),
         "class Stored { String join(Object value) { return \"prefix\" + value; } }")));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot,
         new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(), List.of()), AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
@@ -142,7 +145,7 @@ class StringEvidenceRetentionTest {
                 .filter(value -> !value.binaryNodeId().equals(replacement.binaryNodeId())), Stream.of(replacement)).toList()
             : body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), bodies, copied.memberOrders(),
-        copied.associations(), copied.declarationTypes()));
+        copied.associations(), copied.declarationTypes(), copied.scopes()));
     return AstResultAdmission.admit(new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(),
         Optional.of(aggregate), original.diagnostics(), original.coverage()), original.profile(), original.identity().semanticProductionRevision());
   }

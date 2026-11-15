@@ -1,5 +1,8 @@
 package org.aquilagraph.source.api;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.function.Function;
@@ -28,11 +31,11 @@ final class MethodDecisionFixtures {
 
   static AggregateFixture builder() {
     var content = "class Source {}";
-    var source = new SourceFile(SOURCE, Path.of("Source.java"), "digest", content);
-    var snapshot = new InputSnapshot(Path.of("sources"), "SHA-256", "snapshot", List.of(source));
+    var source = new SourceFile(SOURCE, capturedPath(Path.of("Source.java")), "digest", content);
+    var snapshot = new InputSnapshot(capturedAbsolute(Path.of("sources")), "SHA-256", "snapshot", List.of(source));
     var root = SyntaxNode.source(SOURCE, SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.COMPILATION_UNIT,
         SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), List.of(), Optional.empty(),
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE), List.of(), Optional.empty(),
         new SourceSpan(SOURCE, 0, content.length()));
     return AggregateFixture.builder(snapshot).add(new SyntaxSourceContribution(SOURCE, root, List.of(root), List.of(), List.of()));
   }
@@ -40,8 +43,8 @@ final class MethodDecisionFixtures {
   static AggregateFixture builderWithField(Set<JavaDeclarationModifier> modifiers, boolean initializer,
       JavaTypeIdentity declaredType) {
     var content = "class Owner { static int field; }";
-    var source = new SourceFile(SOURCE, Path.of("Source.java"), "digest", content);
-    var snapshot = new InputSnapshot(Path.of("sources"), "SHA-256", "snapshot", List.of(source));
+    var source = new SourceFile(SOURCE, capturedPath(Path.of("Source.java")), "digest", content);
+    var snapshot = new InputSnapshot(capturedAbsolute(Path.of("sources")), "SHA-256", "snapshot", List.of(source));
     var typePath = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0);
     var fieldPath = typePath.child(SyntaxRole.MEMBER, 0);
     var typeUse = SyntaxNode.source(SOURCE, fieldPath.child(SyntaxRole.DECLARED_TYPE, 0), JavaSourceKind.PRIMITIVE_TYPE, SyntaxKind.TYPE_USE,
@@ -58,7 +61,7 @@ final class MethodDecisionFixtures {
         typeValue, List.of(new SyntaxChild(SyntaxRole.MEMBER, 0, field)), Optional.empty(), new SourceSpan(SOURCE, 0, content.length()));
     var root = SyntaxNode.source(SOURCE, SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.COMPILATION_UNIT,
         SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, typeNode)),
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE), List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, typeNode)),
         Optional.empty(), new SourceSpan(SOURCE, 0, content.length()));
     var nodes = root.descendantsAndSelf();
     var structural = nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList();
@@ -184,7 +187,7 @@ final class MethodDecisionFixtures {
   }
 
   static SemanticReference reference(ReferenceKind kind, String key) {
-    return new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of());
+    return new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of(), Optional.empty());
   }
 
   static JavaTypeIdentity type(JavaTypeCategory category, String name) {

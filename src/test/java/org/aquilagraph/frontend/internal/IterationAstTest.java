@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.AstPublicationRequest;
@@ -55,7 +58,7 @@ class IterationAstTest {
   @Test
   void givenExpandedIterationRequest_whenApplicationAnalyzesWithAndWithoutCfg_thenTheSameCompleteSourceSurvivesRefusal() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { void subject(int n) { while (n > 0) n--; } }")));
     var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
@@ -184,7 +187,7 @@ class IterationAstTest {
   }
 
   private AstResult produce(String source, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile).result().orElseThrow();
   }
 
@@ -230,7 +233,7 @@ class IterationAstTest {
   @Test
   void givenMissingRequiredIterableType_whenAdmitted_thenSourceIsIncompleteAndRetentionCannotAcquireStorage() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { void subject(int[] values) { for (var value : values) ; } }")));
     var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
     var captured = SourceValueCapture.capture(original.aggregate().orElseThrow());
@@ -240,7 +243,7 @@ class IterationAstTest {
         source.structuralEdges(), source.semanticEdges())).toList();
     var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), missingIterableType(body.root(), replacements),
         body.origin(), List.of(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
-    var supplied = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes()));
+    var supplied = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes(), captured.scopes()));
     var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied), JavaCoverageTestSupport.emissions(original));
     // Act
     var outcome = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");

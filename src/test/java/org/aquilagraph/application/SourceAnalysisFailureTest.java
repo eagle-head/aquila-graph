@@ -1,5 +1,8 @@
 package org.aquilagraph.application;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -107,7 +110,7 @@ class SourceAnalysisFailureTest {
   void givenUnavailableSource_whenConstructingApplicationFailureDirectly_thenNoEstablishedOwnerIsInvented() {
     assertAll(PROFILES.stream().map(profile -> (Executable) () -> {
       var ast = produce(profile, 7);
-      var unavailable = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory, List.of()),
+      var unavailable = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory), List.of()),
           CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile);
       var request = new CfgRequest(ast.result().orElseThrow().identity(), List.of(key(ast, "first")), CfgProfile.JAVA_BOUNDED);
       var carrier = new CfgDerivationException(request, List.of(), new IllegalStateException("Construction observation"));
@@ -152,7 +155,7 @@ class SourceAnalysisFailureTest {
   }
 
   private AstOutcome produce(AstProfile profile, int literal) throws IOException {
-    var input = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Failure.java"),
+    var input = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Failure.java")),
         "interface Failure { static int first() { return " + literal + "; } static int second() { return 9; } }")));
     var ast = new JavaFrontend(new JavaSourceLoader()).produce(input, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile);
     assertEquals(AstCompletion.COMPLETE, ast.completion());

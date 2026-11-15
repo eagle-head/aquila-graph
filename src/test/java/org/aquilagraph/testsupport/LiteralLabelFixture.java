@@ -1,22 +1,17 @@
 package org.aquilagraph.testsupport;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Properties;
-import java.util.zip.GZIPInputStream;
 import org.aquilagraph.cfg.api.CfgOutcome;
 import org.aquilagraph.cfg.api.TransferKind;
-import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.source.retention.AstCodec;
-import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -33,32 +28,16 @@ public final class LiteralLabelFixture {
   private LiteralLabelFixture() {}
 
   public static InputSnapshot snapshot(Path directory) {
-    return InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), SOURCE)));
+    return InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), SOURCE)));
   }
 
-  public static AstResult historical(AstProfile profile) throws IOException {
-    if (!List.of(AstProfile.JAVA_SOURCE_BOUNDED, AstProfile.JAVA_SOURCE_FIDELITY).contains(profile)) {
-      throw new IllegalArgumentException("No historical literal-label fixture for " + profile.version());
-    }
-    var prefix = "/retained-ast/normalized-literal-labels/" + (profile.equals(AstProfile.JAVA_SOURCE_BOUNDED) ? "bounded/" : "fidelity/");
-    var properties = new Properties();
-    try (var stream = LiteralLabelFixture.class.getResourceAsStream(prefix + "identity.properties")) {
-      if (stream == null) { throw new IOException("Missing historical literal-label identity"); }
-      properties.load(new InputStreamReader(stream, StandardCharsets.UTF_8));
-    }
-    var identity = AstIdentity.fromContent(properties.getProperty("softwareSignature"), properties.getProperty("format"),
-        properties.getProperty("profile"), properties.getProperty("semanticRevision"), properties.getProperty("digest"));
-    assertEquals(properties.getProperty("key"), identity.astResultKey());
-    byte[] bytes;
-    try (var stream = LiteralLabelFixture.class.getResourceAsStream(prefix + "source.ast.gz")) {
-      if (stream == null) { throw new IOException("Missing historical literal-label payload"); }
-      try (var gzip = new GZIPInputStream(stream)) { bytes = gzip.readAllBytes(); }
-    }
-    var result = AstCodec.decode(bytes, identity);
-    assertEquals(identity, result.identity());
-    assertEquals(AstCompletion.valueOf(properties.getProperty("completion")), result.completion());
-    assertArrayEquals(bytes, AstCodec.encode(result));
-    return result;
+  public static RetiredSourceFixture historical(AstProfile profile) throws IOException {
+    var directory = switch (profile.version()) {
+      case "java-source-bounded/1" -> "bounded";
+      case "java-source-expanded/7" -> "fidelity";
+      default -> throw new IllegalArgumentException("No historical literal-label fixture for " + profile.version());
+    };
+    return RetiredSourceFixture.read("/retained-ast/normalized-literal-labels/" + directory);
   }
 
   public static void assertLabels(CfgOutcome outcome, AstResult result) {

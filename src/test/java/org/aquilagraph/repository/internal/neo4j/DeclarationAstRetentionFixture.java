@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -31,8 +34,8 @@ final class DeclarationAstRetentionFixture {
   private DeclarationAstRetentionFixture() {}
 
   static AstOutcome produce(Path root, String filename, String source) throws IOException {
-    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(root,
-        List.of(SourceFile.fromContent(Path.of(filename), source))), configuration(), AstProfile.JAVA_SOURCE_UNITS);
+    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(root),
+        List.of(SourceFile.fromContent(capturedPath(Path.of(filename)), source))), configuration(), AstProfile.JAVA_SOURCE_UNITS);
   }
 
   static CompilerConfiguration configuration() {
@@ -105,7 +108,7 @@ final class DeclarationAstRetentionFixture {
 
   static void assertMixed(AstResult retained) {
     assertEquals(AstCompletion.COMPLETE, retained.completion(), retained.diagnostics().toString());
-    assertEquals("java-source/22", retained.identity().sourceModelVersion());
+    assertEquals("java-source/23", retained.identity().sourceModelVersion());
     assertEquals(AstProfile.JAVA_SOURCE_UNITS, retained.profile());
     var first = field(retained, "first");
     var scope = retained.aggregate().executionSyntax(first.value(SyntaxValue.VariableDeclaration.class).declarationKey()).orElseThrow();

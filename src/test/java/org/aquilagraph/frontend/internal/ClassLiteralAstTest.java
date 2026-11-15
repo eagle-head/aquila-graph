@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AstPublicationRequest;
 import org.aquilagraph.application.PublicationIntent;
@@ -124,7 +127,7 @@ class ClassLiteralAstTest {
   }
 
   private AstResult produce(String source, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)
         .result().orElseThrow();
   }
@@ -132,8 +135,8 @@ class ClassLiteralAstTest {
   @Test
   void givenSuppliedMissingClassLiteralType_whenAdmitted_thenIncompleteSourceCannotAcquireRetention() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { Class<?> subject() { return int[].class; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { Class<?> subject() { return int[].class; } }")));
     var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
     var captured = SourceValueCapture.capture(original.aggregate().orElseThrow());
     var replacements = new IdentityHashMap<SyntaxNode, SyntaxNode>();
@@ -143,7 +146,7 @@ class ClassLiteralAstTest {
     var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), missingLiteralType(body.root(), replacements),
         body.origin(), List.of(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var supplied = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(),
-        captured.associations(), captured.declarationTypes()));
+        captured.associations(), captured.declarationTypes(), captured.scopes()));
     var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied),
         JavaCoverageTestSupport.emissions(original));
 

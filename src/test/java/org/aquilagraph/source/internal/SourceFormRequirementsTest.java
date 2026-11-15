@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.retention.AstCodec;
 
@@ -41,7 +44,7 @@ class SourceFormRequirementsTest {
           int choice(int input) { return switch (input) { case 1: yield 2; default: yield 3; }; }
         }
         """;
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), text)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), text)));
     var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
     var supplied = SourceValueCapture.capture(original.aggregate());
@@ -50,6 +53,8 @@ class SourceFormRequirementsTest {
     var admitted = AstValueAdmission.admit(supplied);
     var writer = new CanonicalValueWriter("retained-source-values/1");
     writer.text("source-aggregate");
+    writer.count(1);
+    writer.text("copiedValues");
     new RetainedValueCodec(false).write(writer, supplied);
     var decoded = (JavaAstAggregate) new RetainedValueCodec(false)
         .read(new CanonicalValueReader(writer.toByteArray(), "retained-source-values/1"));

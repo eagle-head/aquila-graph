@@ -1,5 +1,8 @@
 package org.aquilagraph.application;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -52,7 +55,7 @@ class CompilationUnitAnalysisTest {
   @Test
   void givenACompleteNoTypeUnit_whenTheApplicationRequestsNoSaveAndDerivesAnEmptySelection_thenSourceAndItsIdentitySurvive() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Empty.java"), "")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Empty.java")), "")));
     var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     var request = new AnalysisComputationRequest(
         new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS), Optional.empty());
@@ -79,8 +82,8 @@ class CompilationUnitAnalysisTest {
     // Arrange
     var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     var retention = AnalysisCapabilities.astRetention(ignored -> { throw new AssertionError("Ineligible input must not acquire storage"); });
-    var snapshots = List.of(InputSnapshot.fromSources(directory, List.of()), InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "import missing.Type;"))));
+    var snapshots = List.of(InputSnapshot.fromSources(capturedAbsolute(directory), List.of()), InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "import missing.Type;"))));
     // Act
     var outcomes = snapshots.stream().map(snapshot -> runner.analyze(new AnalysisComputationRequest(
         new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS), Optional.empty()))

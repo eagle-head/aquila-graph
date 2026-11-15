@@ -19,25 +19,10 @@ import org.aquilagraph.identity.api.JavaRelease;
  * @param contexts
  *          distinct snapshot-owned contexts in evidence partition order
  * @param writtenExpressions
- *          independent grammar regions, absent only for historical inventories
+ *          independent grammar regions, absent when an inventory has no written-expression evidence
  */
 public record SourceCoverageInventory(InputSnapshot snapshot, JavaRelease release, String contractIdentity, List<SourceContext> contexts,
     Optional<List<WrittenExpressionRegion>> writtenExpressions) {
-  /**
-   * Creates an inventory without a written-expression proof requirement.
-   *
-   * @param snapshot
-   *          captured source
-   * @param release
-   *          language release
-   * @param contractIdentity
-   *          coverage contract
-   * @param contexts
-   *          captured contexts
-   */
-  public SourceCoverageInventory(InputSnapshot snapshot, JavaRelease release, String contractIdentity, List<SourceContext> contexts) {
-    this(snapshot, release, contractIdentity, contexts, Optional.empty());
-  }
   /** Validates snapshot ownership, distinct addresses and partition order. */
   public SourceCoverageInventory {
     Objects.requireNonNull(snapshot, "snapshot");

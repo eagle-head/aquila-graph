@@ -127,7 +127,7 @@ class OperationNodeTest {
 
   private static SemanticReference reference(ReferenceKind kind, ResolutionStatus status, Optional<String> key, Optional<String> name,
       List<String> alternatives, List<String> hierarchy) {
-    return new SemanticReference(kind, status, key, name, alternatives, hierarchy);
+    return new SemanticReference(kind, status, key, name, alternatives, hierarchy, Optional.empty());
   }
   private static GraphSourceRef provenance() {
     var identity = AstIdentity.fromContent("software", "java-source/19", "java-source-bounded/1", "javac-public/10", "content");

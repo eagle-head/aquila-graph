@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstProductionAdmission;
 
 
@@ -22,7 +25,6 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.DependencyKind;
 import org.aquilagraph.identity.api.DependencySemantics;
 import org.aquilagraph.identity.api.DependencySnapshot;
-import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.ModuleCandidate;
@@ -42,8 +44,8 @@ class EnvironmentQualificationTest {
   @Test
   void givenCopiedUnavailableSourceWithDifferentModuleFacts_whenAdmitted_thenCapturedFactsQualifyTheUnavailableSubject() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { int value() { return 1; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { int value() { return 1; } }")));
     var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_MODULE_SERVICES).result().orElseThrow();
     var firstEnvironment = environment(original.environment(), "alpha");
@@ -58,7 +60,7 @@ class EnvironmentQualificationTest {
     // Act
     var first = AstProductionAdmission.outcome(firstInput, original.profile(), original.identity().semanticProductionRevision());
     var second = AstProductionAdmission.outcome(secondInput, original.profile(), original.identity().semanticProductionRevision());
-    var empty = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory, List.of()),
+    var empty = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory), List.of()),
         firstEnvironment.compilerConfiguration(), original.profile());
 
     // Assert
@@ -76,35 +78,13 @@ class EnvironmentQualificationTest {
     assertTrue(empty.result().isEmpty());
   }
 
-  @Test
-  void givenUnsupportedSchemesAndOlderEnvelopes_whenValuesAreEncodedOrDecoded_thenNoSemanticFactsCanBeSilentlyDropped() {
-    // Arrange
-    var writer = new CanonicalValueWriter("java-source/21");
-    writer.text("environment-identity-scheme");
-    writer.text("UNSUPPORTED");
-    var semantics = new DependencySemantics(DependencySemantics.State.MODULES,
-        List.of(new ModuleCandidate(".", "alpha", Optional.empty(), ModuleNameOrigin.FILENAME)));
-
-    // Act
-    var unknown = assertThrows(IllegalArgumentException.class,
-        () -> new RetainedValueCodec(false, "java-source/21").read(new CanonicalValueReader(writer.toByteArray(), "java-source/21")));
-
-    // Assert
-    assertTrue(unknown.getMessage().contains("Unknown retained enum value"));
-    for (var version = 2; version <= 20; version++) {
-      var format = "java-source/" + version;
-      assertThrows(IllegalArgumentException.class,
-          () -> new RetainedValueCodec(false, format).write(new CanonicalValueWriter(format), semantics));
-    }
-  }
-
   private AnalysisEnvironmentSnapshot environment(AnalysisEnvironmentSnapshot original, String name) {
     var path = directory.resolve("dependency.jar");
-    var dependency = new DependencySnapshot(path, DependencyKind.REGULAR_FILE, 7, 1, "supplied-physical-label",
+    var dependency = new DependencySnapshot(capturedAbsolute(path), DependencyKind.REGULAR_FILE, 7, 1, "supplied-physical-label",
         new DependencySemantics(DependencySemantics.State.MODULES,
             List.of(new ModuleCandidate(".", name, Optional.empty(), ModuleNameOrigin.FILENAME))));
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(path), List.of());
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(capturedAbsolute(path)), List.of());
     return new AnalysisEnvironmentSnapshot(configuration, original.compilerImplementation(), original.compilerVendor(), original.compilerVersion(),
-        original.analysisOptions(), List.of(), List.of(dependency), EnvironmentIdentityScheme.MODULE_SEMANTICS);
+        original.analysisOptions(), List.of(), List.of(dependency));
   }
 }

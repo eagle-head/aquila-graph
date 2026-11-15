@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.identity.api.SourceOccurrence;
@@ -49,7 +52,7 @@ class AstSemanticAdmissionTest {
       var node = ast.aggregate().nodes().stream().filter(value -> value.syntaxKind() == kind).findFirst().orElseThrow();
       var selected = node.requiredReference();
       var conflicting = new SemanticReference(selected.referenceKind(), selected.status(), Optional.of("different-selected-declaration"),
-          selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames());
+          selected.typeName(), selected.typeAlternativeNames(), selected.assignableToTypeNames(), Optional.empty());
       var edge = new SyntaxSemanticEdge(node.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
           new SyntaxSemanticTarget.Declaration(conflicting));
       var supplied = withEdge(ast, edge);
@@ -113,7 +116,7 @@ class AstSemanticAdmissionTest {
   }
 
   private AstResult fixture() throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { int field; int called() { return 1; } int value(int x) { return called() + field + x + new Example().called(); } }")));
     var outcome = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_EXPANDED);
@@ -128,12 +131,14 @@ class AstSemanticAdmissionTest {
     edges.add(edge);
     var supplied = new SyntaxSourceContribution(source.sourceFileKey(), source.root(), source.nodes(), source.structuralEdges(), edges);
     return new CopiedAstValues(original.snapshot(), List.of(supplied), original.bodies(), original.memberOrders(), original.associations(),
-        original.declarationTypes());
+        original.declarationTypes(), original.scopes());
   }
 
   private static Object decode(CopiedAstValues values) {
     var writer = new CanonicalValueWriter("retained-source-values/1");
     writer.text("source-aggregate");
+    writer.count(1);
+    writer.text("copiedValues");
     new RetainedValueCodec(false).write(writer, values);
     return new RetainedValueCodec(false).read(new CanonicalValueReader(writer.toByteArray(), "retained-source-values/1"));
   }

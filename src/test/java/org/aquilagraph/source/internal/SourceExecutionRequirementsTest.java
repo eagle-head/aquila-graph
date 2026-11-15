@@ -128,28 +128,6 @@ class SourceExecutionRequirementsTest {
   }
 
   @Test
-  void givenPatternLiteralEnumAndLocalCaseLabels_whenCheckingTheHistoricalBoundedContract_thenOnlyLiteralOrEnumSelectionIsAccepted() {
-    // Arrange
-    var binding = pattern(type(JavaTypeCategory.DECLARED, "java.lang.String"), LocalBindingEvidence.TypeForm.DECLARED);
-    var patternCase = rule(binding, new SyntaxValue.SwitchLabel.Pattern(0));
-    var literalCase = rule(literal(), new SyntaxValue.SwitchLabel.Expression(0));
-    var enumCase = rule(variable(type(JavaTypeCategory.DECLARED, "Subject"), ReferenceKind.ENUM_CONSTANT), new SyntaxValue.SwitchLabel.Expression(0));
-    var localCase = rule(variable(type(JavaTypeCategory.INT, "int"), ReferenceKind.LOCAL), new SyntaxValue.SwitchLabel.Expression(0));
-
-    // Act
-    var patternAccepted = SourceSwitchRequirements.isBoundedCase(patternCase);
-    var literalAccepted = SourceSwitchRequirements.isBoundedCase(literalCase);
-    var enumAccepted = SourceSwitchRequirements.isBoundedCase(enumCase);
-    var localAccepted = SourceSwitchRequirements.isBoundedCase(localCase);
-
-    // Assert
-    assertFalse(patternAccepted);
-    assertTrue(literalAccepted);
-    assertTrue(enumAccepted);
-    assertFalse(localAccepted);
-  }
-
-  @Test
   void givenSwitchesWithoutCases_whenQualifyingTheirContexts_thenOnlyTheStatementFormIsAccepted() {
     // Arrange
     var children = List.of(new SyntaxChild(SyntaxRole.SELECTOR, 0, literal()));
@@ -193,7 +171,7 @@ class SourceExecutionRequirementsTest {
   private static SyntaxNode variable(SyntaxType type, ReferenceKind referenceKind) {
     return SyntaxNode.withoutDirectSource("source:syntax", SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.IDENTIFIER,
         SyntaxKind.VARIABLE_ACCESS, type, new SyntaxValue.SourceSymbol("value"), List.of(), Optional.of(new SemanticReference(referenceKind,
-            ResolutionStatus.RESOLVED, Optional.of("declaration:value"), Optional.empty(), List.of(), List.of())));
+            ResolutionStatus.RESOLVED, Optional.of("declaration:value"), Optional.empty(), List.of(), List.of(), Optional.empty())));
   }
 
   private static SyntaxType type(JavaTypeCategory category, String name) {

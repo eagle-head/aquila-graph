@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.retention.AstCodec;
@@ -21,7 +24,6 @@ import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.CanonicalValueWriter;
-import org.aquilagraph.identity.api.CapturedValueEncoding;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
@@ -36,6 +38,7 @@ import org.aquilagraph.source.api.JavaProgram;
 import org.aquilagraph.source.api.MethodBodyOrigin;
 import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
+import org.aquilagraph.source.internal.AstValueSchema.Fields;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -57,7 +60,7 @@ class SourceBodyOriginAdmissionTest {
       var original = twoFileFixture(profile);
       var foreign = foreignBody(original);
       var values = new CopiedAstValues(foreign.snapshot(), foreign.sources(), foreign.bodies(), List.of(), foreign.associations(),
-          foreign.declarationTypes());
+          foreign.declarationTypes(), foreign.scopes());
       var aggregate = AstValueAdmission.admit(values);
 
       // Act
@@ -233,9 +236,9 @@ class SourceBodyOriginAdmissionTest {
     return PROFILES.stream().map(profile -> DynamicTest.dynamicTest("given" + profile.version()
         + "OriginlessBodiesInReversedProgramOrder_whenAdmittedAndDecoded_thenReasonsFollowCapturedFilesAndCanonicalDeclarations", () -> {
       // Arrange
-      var snapshot = InputSnapshot.fromSources(directory, List.of(
-          SourceFile.fromContent(Path.of("First.java"), "class Zulu {} class Alpha {}"),
-          SourceFile.fromContent(Path.of("Second.java"), "class Bravo {}")));
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+          SourceFile.fromContent(capturedPath(Path.of("First.java")), "class Zulu {} class Alpha {}"),
+          SourceFile.fromContent(capturedPath(Path.of("Second.java")), "class Bravo {}")));
       var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)
           .result().orElseThrow();
       assertEquals(AstCompletion.COMPLETE, original.completion());
@@ -246,7 +249,7 @@ class SourceBodyOriginAdmissionTest {
           MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION, body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(),
           body.constructors(), body.attributedOccurrences())).toList();
       var values = new CopiedAstValues(captured.snapshot(), captured.sources(), bodies, captured.memberOrders(), captured.associations(),
-          captured.declarationTypes());
+          captured.declarationTypes(), captured.scopes());
       var program = new JavaProgram(original.program().types().reversed());
 
       // Act
@@ -275,7 +278,7 @@ class SourceBodyOriginAdmissionTest {
   private AstResult fixture(AstProfile profile, boolean explicitConstructor) throws IOException {
     var source = "class BodyOrigins { " + (explicitConstructor ? "BodyOrigins() { return; } " : "")
         + "void subject() { return; } }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("BodyOrigins.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("BodyOrigins.java")), source)));
     var result = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)
         .result().orElseThrow();
     assertEquals(AstCompletion.COMPLETE, result.completion());
@@ -283,8 +286,8 @@ class SourceBodyOriginAdmissionTest {
   }
 
   private AstResult twoFileFixture(AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("First.java"), "class First {}"),
-        SourceFile.fromContent(Path.of("Second.java"), "class Second { void subject() { return; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("First.java")), "class First {}"),
+        SourceFile.fromContent(capturedPath(Path.of("Second.java")), "class Second { void subject() { return; } }")));
     var result = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)
         .result().orElseThrow();
     assertEquals(AstCompletion.COMPLETE, result.completion());
@@ -300,7 +303,7 @@ class SourceBodyOriginAdmissionTest {
     var bodies = values.bodies().stream().map(body -> body.methodKey().equals(methodKey)
         ? new Body(methodKey, copy(otherRoot, true), body.origin(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of())
         : body).toList();
-    return new CopiedAstValues(values.snapshot(), values.sources(), bodies, values.memberOrders(), values.associations(), values.declarationTypes());
+    return new CopiedAstValues(values.snapshot(), values.sources(), bodies, values.memberOrders(), values.associations(), values.declarationTypes(), values.scopes());
   }
 
   private static String writtenMethodKey(AstResult original, boolean constructor) {
@@ -314,7 +317,7 @@ class SourceBodyOriginAdmissionTest {
         ? new Body(methodKey, copy(body.root(), preserveOrigins), origin, body.uses(), body.invocations(), body.staticAccesses(),
             body.concatenations(), body.constructors(), body.attributedOccurrences())
         : body).toList();
-    return new CopiedAstValues(values.snapshot(), values.sources(), bodies, values.memberOrders(), values.associations(), values.declarationTypes());
+    return new CopiedAstValues(values.snapshot(), values.sources(), bodies, values.memberOrders(), values.associations(), values.declarationTypes(), values.scopes());
   }
 
   private static SyntaxNode copy(SyntaxNode node, boolean preserveOrigins) {
@@ -331,15 +334,14 @@ class SourceBodyOriginAdmissionTest {
     canonical.text(original.identity().sourceModelVersion());
     canonical.text(original.profile().version());
     canonical.text(original.identity().semanticProductionRevision());
-    canonical.bytes(CapturedValueEncoding.encode(Optional.of(original.snapshot()), Optional.of(original.environment())));
-    writeInput(canonical, new RetainedValueCodec(true, original.identity().sourceModelVersion()), original, values);
+    writeInput(canonical, new RetainedValueCodec(true), original, values);
     var identity = AstIdentity.fromContent(SoftwareVersion.from(original.snapshot(), original.environment()).signature(),
         original.identity().sourceModelVersion(), original.profile().version(), original.identity().semanticProductionRevision(), canonical.digest("ast-content"));
     var full = new CanonicalValueWriter(original.identity().sourceModelVersion());
     full.text(original.profile().version());
     full.text(original.identity().semanticProductionRevision());
     full.text(completion.name());
-    var codec = new RetainedValueCodec(false, original.identity().sourceModelVersion());
+    var codec = new RetainedValueCodec(false);
     codec.write(full, identity);
     writeInput(full, codec, original, values);
     return new StoredSourceValue(identity, full.toByteArray());
@@ -348,20 +350,21 @@ class SourceBodyOriginAdmissionTest {
   private static void writeInput(CanonicalValueWriter writer, RetainedValueCodec codec, AstResult original, CopiedAstValues values) {
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());
-    var shape = AstValueSchema.type(SyntaxAnalysisInput.class);
-    var components = shape.components(input);
+    var shape = (Fields) AstValueSchema.shape(input);
+    var components = shape.components(input, false);
     writer.text(shape.tag());
-    writer.count(shape.fields().size());
-    for (var index = 0; index < shape.fields().size(); index++) {
-      var field = shape.fields().get(index);
+    writer.count(components.size());
+    for (var fieldValue : components) {
+      var field = fieldValue.name();
       writer.text(field);
       if (field.equals("aggregate")) {
-        writer.text("optional");
-        writer.flag(true);
+        writer.text("optional/present");
         writer.text("source-aggregate");
+        writer.count(1);
+        writer.text("copiedValues");
         codec.write(writer, values);
       } else {
-        codec.write(writer, components.get(index));
+        codec.write(writer, fieldValue.value());
       }
     }
   }

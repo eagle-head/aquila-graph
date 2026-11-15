@@ -9,7 +9,7 @@ import java.util.Optional;
  * @param kind
  *          nesting category
  * @param ownerDetails
- *          copied compiler owner description, absent in historical values
+ *          copied compiler owner description, absent when unavailable or inapplicable
  * @param lexicalOwnerKey
  *          compiler declaration enclosing this type, absent for a top-level type
  */
@@ -35,17 +35,6 @@ public record JavaTypeNesting(Kind kind, Optional<String> lexicalOwnerKey, Optio
     }
   }
 
-  /**
-   * Creates historical nesting without a separately retained owner description.
-   *
-   * @param kind
-   *          nesting category
-   * @param lexicalOwnerKey
-   *          canonical owner
-   */
-  public JavaTypeNesting(Kind kind, Optional<String> lexicalOwnerKey) {
-    this(kind, lexicalOwnerKey, Optional.empty());
-  }
   /** Written type nesting categories. */
   public enum Kind {
     /** Compilation-unit declaration. */

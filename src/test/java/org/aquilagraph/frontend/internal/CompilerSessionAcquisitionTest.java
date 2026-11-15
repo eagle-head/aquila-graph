@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -141,8 +144,8 @@ class CompilerSessionAcquisitionTest {
       throws IOException {
     // Arrange
     try (var fixture = new CompilerFixture()) {
-      var source = SourceFile.fromContent(Path.of("Sample.java"), "class Sample { Missing value; }");
-      var sources = new SnapshotSourceCatalog(InputSnapshot.fromSources(temporaryDirectory, List.of(source)));
+      var source = SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample { Missing value; }");
+      var sources = new SnapshotSourceCatalog(InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory), List.of(source)));
       List<String> diagnosticCodes;
       int unitCount;
 
@@ -240,8 +243,8 @@ class CompilerSessionAcquisitionTest {
   }
 
   private SnapshotSourceCatalog sources() {
-    return new SnapshotSourceCatalog(InputSnapshot.fromSources(temporaryDirectory,
-        List.of(SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}"))));
+    return new SnapshotSourceCatalog(InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample {}"))));
   }
 
   private static List<Throwable> taskFailures() {

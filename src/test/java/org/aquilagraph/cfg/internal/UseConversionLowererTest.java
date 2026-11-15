@@ -142,7 +142,7 @@ class UseConversionLowererTest {
     var graph = new ControlFlowGraphConstruction(method);
     var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.STATEMENT, 0);
     var reference = new SemanticReference(ReferenceKind.LOCAL, ResolutionStatus.RESOLVED, Optional.of("local:value"),
-        Optional.of(source.erasedName()), List.of(), List.of());
+        Optional.of(source.erasedName()), List.of(), List.of(), Optional.empty());
     var child = SyntaxNode.withoutDirectSource("source", path.child(SyntaxRole.EXPRESSION, 0), JavaSourceKind.IDENTIFIER,
         SyntaxKind.VARIABLE_ACCESS, new SyntaxType.Resolved(source), new SyntaxValue.SourceSymbol("value"), List.of(), Optional.of(reference));
     var consumer = SyntaxNode.withoutDirectSource("source", path, JavaSourceKind.TYPE_CAST, SyntaxKind.TYPE_CAST,

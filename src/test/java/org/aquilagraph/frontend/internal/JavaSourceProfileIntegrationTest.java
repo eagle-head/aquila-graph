@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -71,7 +74,7 @@ class JavaSourceProfileIntegrationTest {
     // Act
     var observations = cases.stream().map(value -> DynamicTest.dynamicTest(
         "given" + value.name() + "_whenProducedAndDecoded_thenExactWrittenRolesAndOwnersSurvive", () -> {
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), value.source())));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), value.source())));
           var request = new AstProductionRequest(new SourceInput.Snapshot(snapshot),
               CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS);
           var original = new JavaFrontend(new JavaSourceLoader()).produce(request).result().orElseThrow();
@@ -80,7 +83,7 @@ class JavaSourceProfileIntegrationTest {
           // Assert
           assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
           assertEquals(AstProfile.JAVA_SOURCE_UNITS, retained.profile());
-          assertEquals("java-source/22", retained.identity().sourceModelVersion());
+          assertEquals("java-source/23", retained.identity().sourceModelVersion());
           assertEquals("javac-public/14", retained.identity().semanticProductionRevision());
           assertEquals(original.aggregate(), retained.aggregate());
           assertEquals(original.program(), retained.program());
@@ -130,7 +133,7 @@ class JavaSourceProfileIntegrationTest {
     // Act
     var observations = sources.map(source -> DynamicTest.dynamicTest(
         "given" + source + "_whenConstructorFactsAreCopied_thenWrittenArgumentsUseSubstitutedTargets", () -> {
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
           var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot,
               CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS).result().orElseThrow();
           var retained = AstCodec.decode(AstCodec.encode(original), original.identity());
@@ -165,7 +168,7 @@ class JavaSourceProfileIntegrationTest {
     // Arrange
     var source = "class Outer<T> { class Inner { <U extends T> Inner(U value) {} } } "
         + "class Example { Outer<String> owner = new Outer<>(); Runnable action = () -> { Object value = owner.new Inner(\"x\") {}; }; }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
 
     // Act
     var result = new JavaFrontend(new JavaSourceLoader()).produce(snapshot,

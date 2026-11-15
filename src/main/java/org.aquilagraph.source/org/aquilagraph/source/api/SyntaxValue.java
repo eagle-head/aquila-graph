@@ -612,7 +612,7 @@ public sealed interface SyntaxValue {
    * @param writtenModifiers
    *          copied written flags in sorted public modifier-name order
    * @param bindingEvidence
-   *          copied binding identity and source shape, absent in compatible legacy values
+   *          copied binding identity and source shape, when independently available
    */
   record LocalDeclaration(String name, Optional<WrittenTypeEvidence> writtenType, List<String> writtenModifiers,
       Optional<LocalBindingEvidence> bindingEvidence) implements SyntaxValue {
@@ -630,41 +630,6 @@ public sealed interface SyntaxValue {
       }
     }
 
-    /**
-     * Creates a compatible declaration with copied written type and modifier evidence.
-     *
-     * @param name
-     *          source declaration name
-     * @param writtenType
-     *          copied written type
-     * @param writtenModifiers
-     *          copied source flags
-     */
-    public LocalDeclaration(String name, Optional<WrittenTypeEvidence> writtenType, List<String> writtenModifiers) {
-      this(name, writtenType, writtenModifiers, Optional.empty());
-    }
-
-    /**
-     * Creates a declaration without separately retained written type evidence.
-     *
-     * @param name
-     *          declaration name
-     */
-    public LocalDeclaration(String name) {
-      this(name, Optional.empty(), List.of());
-    }
-
-    /**
-     * Creates a declaration with copied written type evidence and no written flags.
-     *
-     * @param name
-     *          declaration name
-     * @param writtenType
-     *          copied written type
-     */
-    public LocalDeclaration(String name, Optional<WrittenTypeEvidence> writtenType) {
-      this(name, writtenType, List.of());
-    }
   }
 
   /**
@@ -2116,16 +2081,6 @@ public sealed interface SyntaxValue {
   final class CompilationUnit extends Symbol {
     private final CompilationUnitForm sourceForm;
     private final CompilationUnitRange sourceRange;
-
-    /**
-     * Creates a typed compilation-unit value.
-     *
-     * @param form
-     *          the parsed unit form
-     */
-    public CompilationUnit(CompilationUnitForm form) {
-      this(form, CompilationUnitRange.LEGACY_PROFILE);
-    }
 
     /**
      * Creates a unit value with explicit root-range policy.

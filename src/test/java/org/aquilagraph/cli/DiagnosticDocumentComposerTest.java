@@ -1,5 +1,7 @@
 package org.aquilagraph.cli;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.List;
@@ -40,8 +42,8 @@ class DiagnosticDocumentComposerTest {
   @Test
   void givenEvidenceFromSameNamedFilesAndUncapturedRevision_whenRendered_thenOrderedPathAvailabilityAndRoleRemainExplicit() {
     // Arrange
-    var left = SourceFile.fromContent(Path.of("left sources", "Entry.java"), "package left; class Entry {}");
-    var right = SourceFile.fromContent(Path.of("right sources", "Entry.java"), "package right; class Entry {}");
+    var left = SourceFile.fromContent(capturedPath(Path.of("left sources", "Entry.java")), "package left; class Entry {}");
+    var right = SourceFile.fromContent(capturedPath(Path.of("right sources", "Entry.java")), "package right; class Entry {}");
     var uncaptured = SourceFile.fromContent(left.relativePath(), "package left; class Entry { int value; }");
     var origins = List.of(new Origin(new SourceSpan(right.sourceFileKey(), 0, 0), Optional.of(right.relativePath().toString())),
         new Origin(new SourceSpan(uncaptured.sourceFileKey(), 1, 2), Optional.empty()),

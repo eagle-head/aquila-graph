@@ -1,6 +1,6 @@
 package org.aquilagraph.identity.api;
 
-import java.nio.file.Path;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 
@@ -16,12 +16,15 @@ import java.util.Objects;
  * @param options
  *          caller-supplied non-managed compiler options
  */
-public record CompilerConfiguration(JavaRelease release, List<Path> classPath, List<Path> modulePath, List<String> options) {
-  /** Validates the release and normalizes paths and options. */
+public record CompilerConfiguration(JavaRelease release, List<CapturedLocation> classPath, List<CapturedLocation> modulePath,
+    List<String> options) {
+  /** Validates the release, absolute dependency locations, and options. */
   public CompilerConfiguration {
     Objects.requireNonNull(release, "release");
-    classPath = normalizePaths(classPath, "classPath");
-    modulePath = normalizePaths(modulePath, "modulePath");
+    classPath = List.copyOf(Objects.requireNonNull(classPath, "classPath"));
+    requireAbsolute(classPath, "classPath");
+    modulePath = List.copyOf(Objects.requireNonNull(modulePath, "modulePath"));
+    requireAbsolute(modulePath, "modulePath");
     options = List.copyOf(Objects.requireNonNull(options, "options"));
     for (var option : options) {
       Objects.requireNonNull(option, "option");
@@ -43,41 +46,23 @@ public record CompilerConfiguration(JavaRelease release, List<Path> classPath, L
   }
 
   /**
-   * Returns an immutable copy of normalized class-path entries.
-   *
-   * @return class path
-   */
-  @Override
-  public List<Path> classPath() {
-    return List.copyOf(classPath);
-  }
-
-  /**
-   * Returns an immutable copy of normalized module-path entries.
-   *
-   * @return module path
-   */
-  @Override
-  public List<Path> modulePath() {
-    return List.copyOf(modulePath);
-  }
-
-  /**
    * Serializes the configuration deterministically for stable identity.
    *
-   * @return canonical configuration text
+   * @return a hexadecimal representation of the framed canonical configuration
    */
   public String canonicalForm() {
-    return release.feature() + "\n" + join(classPath) + "\n" + join(modulePath) + "\n" + String.join("\u0000", options);
+    var writer = new CanonicalValueWriter("compiler-configuration/2");
+    writer.integer(release.feature());
+    CapturedValueEncoding.writeLocations(writer, classPath);
+    CapturedValueEncoding.writeLocations(writer, modulePath);
+    CapturedValueEncoding.writeStrings(writer, options);
+    return HexFormat.of().formatHex(writer.toByteArray());
   }
 
-  private static List<Path> normalizePaths(List<Path> paths, String name) {
-    return Objects.requireNonNull(paths, name).stream()
-        .map(path -> Objects.requireNonNull(path, name + " entry").toAbsolutePath().normalize()).toList();
-  }
-
-  private static String join(List<Path> paths) {
-    return paths.stream().map(Path::toString).reduce((left, right) -> left + "\u0000" + right).orElse("");
+  private static void requireAbsolute(List<CapturedLocation> locations, String name) {
+    if (locations.stream().anyMatch(location -> !location.isAbsolute())) {
+      throw new IllegalArgumentException(name + " requires absolute captured locations");
+    }
   }
 
   private static boolean isManagedOption(String option) {

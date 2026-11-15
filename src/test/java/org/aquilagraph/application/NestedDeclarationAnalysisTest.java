@@ -1,5 +1,8 @@
 package org.aquilagraph.application;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,7 +36,7 @@ class NestedDeclarationAnalysisTest {
   @Test
   void givenLocalTypeWithSimpleAndLoopBodies_whenApplicationSelectsNestedMethods_thenOuterRefusalAndIndependentNestedResultsRemainDistinct() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         class Example {
           int outer() {
             class Local {
@@ -81,7 +84,7 @@ class NestedDeclarationAnalysisTest {
   @Test
   void givenAnonymousMemberSelectionWithConstructorArgument_whenAnalyzedAndNestedBodyDerived_thenCompleteSourceAndExactTargetRemain() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), """
         class Example {
           static class Base { Base(int n) {} }
           int subject() { return new Base(1) { int extra() { return 2; } }.extra(); }

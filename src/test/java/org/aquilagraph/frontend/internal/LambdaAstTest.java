@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.AstPublicationRequest;
@@ -246,7 +249,7 @@ class LambdaAstTest {
   }
 
   private AstResult produce(String source, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile).result().orElseThrow();
   }
 
@@ -305,7 +308,7 @@ class LambdaAstTest {
         new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.OTHER, "unknown", "unknown")))
         .map(target -> DynamicTest.dynamicTest(target.toString(), () -> {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { Runnable subject() { return () -> {}; } }")));
     var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
     var captured = SourceValueCapture.capture(original.aggregate().orElseThrow());
@@ -315,7 +318,7 @@ class LambdaAstTest {
         source.structuralEdges(), source.semanticEdges())).toList();
     var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), replaceTargetType(body.root(), replacements, target),
         body.origin(), List.of(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
-    var supplied = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes()));
+    var supplied = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes(), captured.scopes()));
     var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied), JavaCoverageTestSupport.emissions(original));
     // Act
     var outcome = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
@@ -332,7 +335,7 @@ class LambdaAstTest {
   @Test
   void givenExpandedLambdaRequests_whenApplicationSelectsAstOnlyOrCfg_thenActualRefusalPreservesTheCompleteSource() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { Runnable subject() { return () -> {}; } }")));
     var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
@@ -550,7 +553,7 @@ class LambdaAstTest {
         new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.NULL, "null", "null")))
         .map(returnType -> DynamicTest.dynamicTest(returnType.toString(), () -> {
           // Arrange
-          var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
               "class Example { Runnable subject() { return () -> {}; } }")));
           var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
           var captured = SourceValueCapture.capture(original.aggregate().orElseThrow());
@@ -560,7 +563,7 @@ class LambdaAstTest {
               source.structuralEdges(), source.semanticEdges())).toList();
           var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), replaceReturnType(body.root(), replacements, returnType),
               body.origin(), body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
-          var supplied = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes()));
+          var supplied = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes(), captured.scopes()));
           var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied), JavaCoverageTestSupport.emissions(original));
           // Act
           var outcome = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");

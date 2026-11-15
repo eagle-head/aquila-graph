@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.retention.AstCodec;
 
 
@@ -31,49 +34,25 @@ import org.junit.jupiter.api.io.TempDir;
 class ClassLiteralCodecTest {
   @TempDir Path directory;
 
-  @TestFactory
-  Stream<DynamicTest> givenExecutableClassLiteral_whenOlderSchemasReadOrWrite_thenTheNewKindCannotMasqueradeAsOlderSyntax() {
-    return IntStream.rangeClosed(2, 12).mapToObj(version -> DynamicTest.dynamicTest("java-source/" + version, () -> {
-      // Arrange
-      var result = produce("Class<?> subject() { return int[].class; }");
-      var literal = result.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.CLASS_LITERAL).findFirst().orElseThrow();
-      var format = "java-source/" + version;
-      var previous = new RetainedValueCodec(false, format);
-      var current = new CanonicalValueWriter(AstResult.SOURCE_MODEL_VERSION);
-      new RetainedValueCodec(false).write(current, literal);
-
-      // Act
-      var write = assertThrows(IllegalArgumentException.class, () -> previous.write(new CanonicalValueWriter(format), literal));
-      var read = assertThrows(IllegalArgumentException.class,
-          () -> previous.read(new CanonicalValueReader(current.toByteArray(), AstResult.SOURCE_MODEL_VERSION)));
-
-      // Assert
-      assertEquals("Executable class literals require retained AST format java-source/13", write.getMessage());
-      assertEquals(write.getMessage(), read.getMessage());
-      assertEquals(AstCompletion.COMPLETE, result.completion());
-    }));
-  }
-
   @Test
-  void givenCompatibleExceptionSource_whenRetainedWithItsOriginalSchema_thenIdentityAndQualificationRemainUnchanged() throws IOException {
+  void givenExecutableClassLiteral_whenRetained_thenTheArrayClassValueAndQualificationRemain() throws IOException {
     // Arrange
-    var current = produce("int subject(int value) { try { value += 1; } finally { value += 2; } return value; }");
-    var previous = SourceAnalysisFixture.exceptionResult(current);
+    var original = produce("Class<?> subject() { return int[].class; }");
+    var bytes = AstCodec.encode(original);
 
     // Act
-    var retained = AstCodec.decode(AstCodec.encode(previous), previous.identity());
+    var retained = AstCodec.decode(bytes, original.identity());
 
     // Assert
-    assertEquals("java-source/12", retained.identity().sourceModelVersion());
-    assertEquals(previous.identity(), retained.identity());
-    assertEquals(current.aggregate(), retained.aggregate());
+    assertEquals("java-source/23", retained.identity().sourceModelVersion());
+    assertEquals(original.identity(), retained.identity());
+    assertEquals(original.aggregate(), retained.aggregate());
     assertEquals(AstCompletion.COMPLETE, retained.completion());
-    assertEquals("java-language-feature-coverage:f39568916d81bfafc9f3300c9d8cb9a69aacf1073874cea3855a628d77d5f54c",
-        retained.coverage().coverage().contractIdentity());
+    assertEquals(1, retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.CLASS_LITERAL).count());
   }
 
   private AstResult produce(String method) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { " + method + " }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { " + method + " }")));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_EXPANDED).result().orElseThrow();
   }

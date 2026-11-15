@@ -1,5 +1,8 @@
 package org.aquilagraph.cfg.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.AstProfile;
@@ -145,8 +148,8 @@ class EnumConstructorContextLoweringTest {
   }
 
   private AstResult analyze(String content) throws IOException {
-    var source = SourceFile.fromContent(Path.of("Enums.java"), content);
-    return new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(InputSnapshot.fromSources(sourceRoot, List.of(source)),
+    var source = SourceFile.fromContent(capturedPath(Path.of("Enums.java")), content);
+    return new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(InputSnapshot.fromSources(capturedAbsolute(sourceRoot), List.of(source)),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
   }
 

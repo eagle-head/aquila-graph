@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
@@ -49,8 +52,8 @@ class CompilationUnitAdmissionTest {
   @Test
   void givenARequiredCapturedUnit_whenItsCopiedRootIsMissing_thenAtomicAdmissionRejectsTheWholeResult() throws IOException {
     // Arrange
-    var ast = produce(List.of(SourceFile.fromContent(Path.of("Empty.java"), ""),
-        SourceFile.fromContent(Path.of("Other.java"), "package example;")), AstProfile.JAVA_SOURCE_UNITS);
+    var ast = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Empty.java")), ""),
+        SourceFile.fromContent(capturedPath(Path.of("Other.java")), "package example;")), AstProfile.JAVA_SOURCE_UNITS);
     var values = SourceValueCapture.capture(ast.aggregate());
     var partial = new CopiedAstValues(values.snapshot(), values.sources().subList(0, 1), values.bodies(), values.memberOrders(),
         values.associations(), values.declarationTypes(), values.scopes());
@@ -65,7 +68,7 @@ class CompilationUnitAdmissionTest {
   @Test
   void givenReversedUnitSemicolonRanges_whenCopiedWithTheSameRolePositions_thenWrittenOrderIsRejected() throws IOException {
     // Arrange
-    var ast = produce(List.of(SourceFile.fromContent(Path.of("Empty.java"), "; ;")), AstProfile.JAVA_SOURCE_UNITS);
+    var ast = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Empty.java")), "; ;")), AstProfile.JAVA_SOURCE_UNITS);
     var root = ast.aggregate().roots().getFirst();
     var first = root.children().getFirst();
     var second = root.children().getLast();
@@ -84,7 +87,7 @@ class CompilationUnitAdmissionTest {
   @Test
   void givenAnEnvelopeWithATruncatedRange_whenCopied_thenTheCapturedFileContractRejectsIt() throws IOException {
     // Arrange
-    var ast = produce(List.of(SourceFile.fromContent(Path.of("Comment.java"), "// comment\n")), AstProfile.JAVA_SOURCE_UNITS);
+    var ast = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Comment.java")), "// comment\n")), AstProfile.JAVA_SOURCE_UNITS);
     var values = SourceValueCapture.capture(ast.aggregate());
     var root = values.sources().getFirst().root();
     var truncated = SyntaxNode.source(root.sourceFileKey(), root.structuralPath(), root.sourceKind(), root.syntaxKind(), root.type(),
@@ -101,7 +104,7 @@ class CompilationUnitAdmissionTest {
   @Test
   void givenMissingCompilerPositions_whenTheOriginalUnitAssociationIsDropped_thenCapturedRootProvenanceStillRejects() throws IOException {
     // Arrange
-    var ast = produce(List.of(SourceFile.fromContent(Path.of("Comment.java"), "// comment\n")), AstProfile.JAVA_SOURCE_UNITS);
+    var ast = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Comment.java")), "// comment\n")), AstProfile.JAVA_SOURCE_UNITS);
     var values = SourceValueCapture.capture(ast.aggregate());
     var changed = new CopiedAstValues(values.snapshot(), values.sources(), values.bodies(), values.memberOrders(), List.of(),
         values.declarationTypes(), values.scopes());
@@ -118,7 +121,7 @@ class CompilationUnitAdmissionTest {
     var ordinals = List.of(List.of(1, 1), List.of(1, 0), List.of(0, 99));
     // Act
     var tests = ordinals.stream().map(order -> DynamicTest.dynamicTest("given" + order + "UnitOrdinals_whenCopied_thenRejected", () -> {
-      var ast = produce(List.of(SourceFile.fromContent(Path.of("Empty.java"), "; ;")), AstProfile.JAVA_SOURCE_UNITS);
+      var ast = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Empty.java")), "; ;")), AstProfile.JAVA_SOURCE_UNITS);
       var values = SourceValueCapture.capture(ast.aggregate());
       var associations = values.associations().stream().map(value -> value.ownerPath().isEmpty() ? value
           : new WrittenSourceAssociation(value.nodeKey(), value.sourceFileKey(), SourceOwnerPath.root()
@@ -136,18 +139,16 @@ class CompilationUnitAdmissionTest {
   }
 
   @Test
-  void givenTheUnitProfile_whenReadmittedAsAnOlderProfileOrFormat_thenHistoricalMeaningCannotBeReinterpreted() throws IOException {
+  void givenUnitProfileFacts_whenReadmittedUnderTheDeclarationProfile_thenTheProfileContradictionIsRejected() throws IOException {
     // Arrange
-    var ast = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example {}")), AstProfile.JAVA_SOURCE_UNITS);
+    var ast = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example {}")), AstProfile.JAVA_SOURCE_UNITS);
     var input = input(ast);
     // Act
     var profileError = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(input, AstProfile.JAVA_SOURCE_DECLARATIONS, "javac-public/6"));
-    var formatError = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input), ast.profile(), "javac-public/6", AstResult.DECLARATION_SOURCE_MODEL_VERSION));
     // Assert
     assertTrue(profileError.getMessage().contains("profile"), profileError.toString());
-    assertTrue(formatError.getMessage().contains("java-source/18"), formatError.toString());
     assertEquals("javac-public/14", ast.identity().semanticProductionRevision());
-    assertEquals("java-source/22", ast.identity().sourceModelVersion());
+    assertEquals("java-source/23", ast.identity().sourceModelVersion());
     assertEquals("java-source-expanded/6", ast.profile().version());
   }
 
@@ -159,7 +160,7 @@ class CompilationUnitAdmissionTest {
     // Act
     var tests = cases.stream().map(value -> DynamicTest.dynamicTest("given" + value.getKey().version() + "Values" + value.getValue() + "_whenContradicted_thenPublicAdmissionRejects", () -> {
       var profile = value.getKey();
-      var ast = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), value.getValue())), profile);
+      var ast = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), value.getValue())), profile);
       var copied = input(ast);
       var contradictory = profile.equals(AstProfile.JAVA_SOURCE_UNITS) ? AstProfile.JAVA_SOURCE_DECLARATIONS : AstProfile.JAVA_SOURCE_UNITS;
       var admitted = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(copied, contradictory, "javac-public/6"));
@@ -178,12 +179,12 @@ class CompilationUnitAdmissionTest {
   @Test
   void givenActualEmptyCoverageAndCapturedUnitValues_whenUsingZeroCaptureAdmission_thenOnlyMatchingEmptyCaptureIsUnavailable() throws IOException {
     // Arrange
-    var empty = InputSnapshot.fromSources(directory, List.of());
+    var empty = InputSnapshot.fromSources(capturedAbsolute(directory), List.of());
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var produced = frontend.produce(empty, configuration(), AstProfile.JAVA_SOURCE_UNITS);
     var coverage = produced.coverageQualification().orElseThrow();
-    var captured = produce(List.of(SourceFile.fromContent(Path.of("Empty.java"), "")), AstProfile.JAVA_SOURCE_UNITS);
-    var foreignEmpty = InputSnapshot.fromSources(directory.resolve("foreign"), List.of());
+    var captured = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Empty.java")), "")), AstProfile.JAVA_SOURCE_UNITS);
+    var foreignEmpty = InputSnapshot.fromSources(capturedAbsolute(directory.resolve("foreign")), List.of());
     // Act
     var accepted = AstProductionAdmission.empty(empty, configuration(), AstProfile.JAVA_SOURCE_UNITS, coverage);
     var nonempty = assertThrows(AstContractException.class,
@@ -203,8 +204,8 @@ class CompilationUnitAdmissionTest {
   @Test
   void givenAnUnrecognizedProfile_whenOfferedToEveryPublicResultAdmission_thenTheOriginalPolicyRejectionIsRetained() throws IOException {
     // Arrange
-    var ast = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example {}")), AstProfile.JAVA_SOURCE_UNITS);
-    var empty = InputSnapshot.fromSources(directory, List.of());
+    var ast = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example {}")), AstProfile.JAVA_SOURCE_UNITS);
+    var empty = InputSnapshot.fromSources(capturedAbsolute(directory), List.of());
     var unavailable = new JavaFrontend(new JavaSourceLoader()).produce(empty, configuration(), AstProfile.JAVA_SOURCE_UNITS);
     var unknown = new AstProfile("java-source-expanded/unknown");
     // Act
@@ -222,66 +223,38 @@ class CompilationUnitAdmissionTest {
   }
 
   @Test
-  void givenSuppliedDeclarationValuesInThePrecedingFormat_whenClosed_thenIdentityBytesAndMaterializationRemainCompatible() throws IOException {
+  void givenDeclarationProfileValues_whenRetained_thenTheLegacyRangePolicyAndExactIdentityRemain() throws IOException {
     // Arrange
-    var ast = produce(List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { ; int value() { return 1; } }")), AstProfile.JAVA_SOURCE_DECLARATIONS);
-    var historical = AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input(ast)), ast.profile(), "javac-public/5", AstResult.DECLARATION_SOURCE_MODEL_VERSION);
-    var bytes = AstCodec.encode(historical);
+    var ast = produce(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { ; int value() { return 1; } }")), AstProfile.JAVA_SOURCE_DECLARATIONS);
+    var bytes = AstCodec.encode(ast);
     // Act
-    var decoded = AstCodec.decode(bytes, historical.identity());
+    var decoded = AstCodec.decode(bytes, ast.identity());
     var projection = AstCodec.materialize(decoded);
     // Assert
     assertEquals(AstCompletion.COMPLETE, decoded.completion());
-    assertEquals(historical.identity(), decoded.identity());
+    assertEquals(ast.identity(), decoded.identity());
     assertEquals(ast.aggregate(), decoded.aggregate());
     assertArrayEquals(bytes, AstCodec.encode(decoded));
-    assertEquals(AstCodec.materialize(historical), projection);
-    assertTrue(projection.nodes().stream().noneMatch(node -> node.tag().equals("syntax-value/compilation-unit-range")));
-  }
-
-  @TestFactory
-  Stream<DynamicTest> givenIndependentOriginalUnitFrames_whenDecoded_thenTheOriginalRangePolicyAndBytesRemain() {
-    // Arrange
-    var format = AstResult.DECLARATION_SOURCE_MODEL_VERSION;
-    var forms = List.of(SyntaxValue.CompilationUnitForm.ORDINARY, SyntaxValue.CompilationUnitForm.COMPACT);
-    // Act
-    var tests = forms.stream().map(form -> DynamicTest.dynamicTest("givenOriginal" + form + "Frame_whenDecoded_thenPolicyAndBytesRemain", () -> {
-      var original = new CanonicalValueWriter(format);
-      original.text("syntax-value/compilation-unit");
-      original.count(1);
-      original.text("form");
-      original.text("syntax-value/compilation-unit-form");
-      original.text(form.name());
-      var reader = new CanonicalValueReader(original.toByteArray(), format);
-      var retained = new RetainedValueCodec(false, format);
-      var copied = new CanonicalValueWriter(format);
-      var decoded = (SyntaxValue.CompilationUnit) retained.read(reader);
-      retained.write(copied, decoded);
-      // Assert
-      reader.requireFinished();
-      assertEquals(form, decoded.form());
-      assertEquals(SyntaxValue.CompilationUnitRange.LEGACY_PROFILE, decoded.range());
-      assertArrayEquals(original.toByteArray(), copied.toByteArray());
-    }));
-    // Assert
-    return tests;
+    assertEquals(AstCodec.materialize(ast), projection);
+    assertTrue(projection.nodes().stream().anyMatch(node -> node.tag().equals("syntax-value/compilation-unit-range")));
+    assertEquals(SyntaxValue.CompilationUnitRange.LEGACY_PROFILE,
+        decoded.aggregate().roots().getFirst().value(SyntaxValue.CompilationUnit.class).range());
   }
 
   @Test
-  void givenARealOriginalCompactUnit_whenClosedInThePrecedingFormat_thenItsRangePolicyDoesNotClaimCompilerPositions() throws IOException {
+  void givenACompactUnit_whenRetainedUnderTheDeclarationProfile_thenItsRangePolicyDoesNotClaimCompilerPositions() throws IOException {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Compact.java"), "void main() {}");
+    var source = SourceFile.fromContent(capturedPath(Path.of("Compact.java")), "void main() {}");
     var original = produce(List.of(source), AstProfile.JAVA_SOURCE_DECLARATIONS);
-    var historical = AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(input(original)), original.profile(), "javac-public/5", AstResult.DECLARATION_SOURCE_MODEL_VERSION);
-    var bytes = AstCodec.encode(historical);
+    var bytes = AstCodec.encode(original);
     // Act
-    var decoded = AstCodec.decode(bytes, historical.identity());
+    var decoded = AstCodec.decode(bytes, original.identity());
     var current = produce(List.of(source), AstProfile.JAVA_SOURCE_UNITS);
     // Assert
     assertEquals(AstCompletion.COMPLETE, decoded.completion());
-    assertEquals(historical.identity(), decoded.identity());
+    assertEquals(original.identity(), decoded.identity());
     assertArrayEquals(bytes, AstCodec.encode(decoded));
-    assertEquals(AstCodec.materialize(historical), AstCodec.materialize(decoded));
+    assertEquals(AstCodec.materialize(original), AstCodec.materialize(decoded));
     assertEquals(original.aggregate(), decoded.aggregate());
     var root = decoded.aggregate().roots().getFirst();
     assertEquals(SyntaxValue.CompilationUnitForm.COMPACT, root.value(SyntaxValue.CompilationUnit.class).form());
@@ -298,10 +271,10 @@ class CompilationUnitAdmissionTest {
   @Test
   void givenEqualContentAtDifferentRootsAndChangedContentAtTheSamePath_whenProduced_thenOnlySpecifiedProvenanceIsExcluded() throws IOException {
     // Arrange
-    var file = SourceFile.fromContent(Path.of("Empty.java"), "");
-    var first = InputSnapshot.fromSources(directory.resolve("first"), List.of(file));
-    var relocated = InputSnapshot.fromSources(directory.resolve("second"), List.of(file));
-    var changed = InputSnapshot.fromSources(first.sourceRoot(), List.of(SourceFile.fromContent(Path.of("Empty.java"), "// changed\n")));
+    var file = SourceFile.fromContent(capturedPath(Path.of("Empty.java")), "");
+    var first = InputSnapshot.fromSources(capturedAbsolute(directory.resolve("first")), List.of(file));
+    var relocated = InputSnapshot.fromSources(capturedAbsolute(directory.resolve("second")), List.of(file));
+    var changed = InputSnapshot.fromSources(first.sourceRoot(), List.of(SourceFile.fromContent(capturedPath(Path.of("Empty.java")), "// changed\n")));
     var frontend = new JavaFrontend(new JavaSourceLoader());
     // Act
     var left = frontend.produce(first, configuration(), AstProfile.JAVA_SOURCE_UNITS).result().orElseThrow();
@@ -318,7 +291,7 @@ class CompilationUnitAdmissionTest {
   }
 
   private AstResult produce(List<SourceFile> sources, AstProfile profile) throws IOException {
-    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory, sources), configuration(), profile).result().orElseThrow();
+    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory), sources), configuration(), profile).result().orElseThrow();
   }
 
   private static SyntaxAnalysisInput input(AstResult ast) {

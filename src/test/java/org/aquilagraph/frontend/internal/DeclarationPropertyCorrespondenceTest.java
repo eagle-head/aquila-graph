@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.CoverageAdmission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -333,7 +336,7 @@ class DeclarationPropertyCorrespondenceTest {
     var first = changedMembers.stream().filter(member -> member.declarationKey().equals("type:Sample#field:first")).findFirst().orElseThrow();
     var method = changedMembers.stream().filter(member -> member.declarationKey().equals("type:Sample#one()")).findFirst().orElseThrow();
     Collections.swap(changedMembers, changedMembers.indexOf(first), changedMembers.indexOf(method));
-    var changedOrder = new DeclarationMemberOrder(order.sourceFileKey(), order.ownerTypeKey(), changedMembers);
+    var changedOrder = new DeclarationMemberOrder(order.sourceFileKey(), order.ownerTypeKey(), changedMembers, Optional.empty());
     assertEquals(List.of("type:Sample#field:first", "type:Sample#field:second"), changedOrder.members().stream()
         .filter(member -> member.kind().equals("FIELD")).map(DeclarationMemberOrder.Member::declarationKey).toList());
     assertEquals(order.members().stream().filter(member -> member.kind().equals("METHOD") || member.kind().equals("CONSTRUCTOR"))
@@ -423,7 +426,7 @@ class DeclarationPropertyCorrespondenceTest {
     var original = analyze();
     var selected = property(original, UNIT_SOURCE);
     var source = original.snapshot().sourceFiles().getFirst();
-    var wrong = change.equals("different-file") ? SourceFile.fromContent(Path.of("Other.java"), "class Other {}")
+    var wrong = change.equals("different-file") ? SourceFile.fromContent(capturedPath(Path.of("Other.java")), "class Other {}")
         : new SourceFile(source.sourceFileKey(), source.relativePath(), source.contentDigest(), "class Changed {}");
     var support = new Support(Mode.SOURCE_FILE, List.of(), Optional.empty(), Optional.of(wrong), Optional.empty());
 
@@ -439,7 +442,7 @@ class DeclarationPropertyCorrespondenceTest {
   }
 
   private SyntaxAnalysisInput analyze(String source) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Sample.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), source)));
     var input = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CONFIGURATION, JavaTranslationPolicy.legacyAnalysis());
     assertEquals(List.of(), input.diagnostics());
     return input;
@@ -515,7 +518,8 @@ class DeclarationPropertyCorrespondenceTest {
   private static JavaType copyType(JavaType actual, List<JavaField> fields, List<JavaMethod> methods) {
     return new JavaType(actual.typeKey(), actual.qualifiedName(), actual.kind(), actual.modifiers(), actual.enclosingType(), actual.directSuperclass(),
         actual.directInterfaces(), actual.permittedSubclasses(), actual.typeParameters(), actual.sourceDeclared(), fields, actual.recordComponents(), methods,
-        actual.synthesizedDeclarations(), actual.origins());
+        actual.synthesizedDeclarations(), actual.origins(),
+    actual.nesting(), actual.staticType(), actual.displayName());
   }
 
   private static JavaAstAggregate copyAggregate(SyntaxAnalysisInput original, DeclarationMemberOrder changedOrder) {

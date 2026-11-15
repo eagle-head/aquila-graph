@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -66,9 +69,9 @@ class TranslationDiagnosticTransportTest {
         "enum Sample { FIRST(new Object() { @MissingFirst class First {} }), SECOND(new Object() { @MissingSecond class Second {} }); Sample(Object value) {} }")
         .map(source -> DynamicTest.dynamicTest(source, () -> {
           // Arrange
-          var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Sample.java"), source)));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(sourceRoot), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), source)));
           var sourceFile = snapshot.sourceFiles().getFirst();
-          var healthy = InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Sample.java"),
+          var healthy = InputSnapshot.fromSources(capturedAbsolute(sourceRoot), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")),
               source.replace("@MissingFirst", "@Deprecated").replace("@MissingSecond", "@Deprecated"))));
           var frontend = new JavaFrontend(new JavaSourceLoader());
 
@@ -104,7 +107,7 @@ class TranslationDiagnosticTransportTest {
   void givenWrittenAnnotationsInsideEnumConstantBodies_whenPublicProductionCloses_thenImplicitConstructionEnvelopesDoNotInventOwnerMismatches()
       throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(SourceFile.fromContent(Path.of("Sample.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(sourceRoot), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")),
         "enum Sample { FIRST { @Deprecated class First {} }, SECOND { @Deprecated class Second {} }; }")));
 
     // Act
@@ -134,7 +137,7 @@ class TranslationDiagnosticTransportTest {
     var creating = new ArrayList<DiagnosticEmission>();
     withCompilation(source, fixture -> creating.addAll(eventsFrom(programTranslation(fixture), BODY_PRODUCER)));
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var ordinary = InputSnapshot.fromSources(sourceRoot.resolve("ordinary"), List.of(SourceFile.fromContent(Path.of("Sample.java"),
+    var ordinary = InputSnapshot.fromSources(capturedAbsolute(sourceRoot.resolve("ordinary")), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")),
         "class Sample { Object first() { return new Object(); } }")));
 
     // Act

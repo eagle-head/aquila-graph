@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -107,8 +110,8 @@ class LexicalSourceAstTest {
     // Arrange
     var owner = "class Box { <T> Box(T x) {} " + unicode("007d");
     var use = "class Probe { Object make() { return new Box(1); } }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Box.java"), owner),
-        SourceFile.fromContent(Path.of("Probe.java"), use)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Box.java")), owner),
+        SourceFile.fromContent(capturedPath(Path.of("Probe.java")), use)));
     assertCompilerAccepts(snapshot.sourceFiles());
 
     // Act
@@ -121,7 +124,7 @@ class LexicalSourceAstTest {
       var creation = ast.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.OBJECT_CREATION).findFirst().orElseThrow();
       assertConstructorEvidence(ast, creation);
       var file = ast.snapshot().sourceFiles().stream().filter(value -> value.sourceFileKey().equals(creation.sourceFileKey())).findFirst().orElseThrow();
-      assertEquals(Path.of("Probe.java"), file.relativePath());
+      assertEquals(capturedPath(Path.of("Probe.java")), file.relativePath());
       assertEquals("new Box(1)", slice(creation, file.content()));
       assertEquals(original.aggregate(), ast.aggregate());
     }
@@ -264,13 +267,13 @@ class LexicalSourceAstTest {
   }
 
   private void assertCompilerAccepts(String source) throws IOException {
-    assertCompilerAccepts(List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    assertCompilerAccepts(List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
   }
 
   private void assertCompilerAccepts(List<SourceFile> sources) throws IOException {
     var paths = new ArrayList<Path>();
     for (var source : sources) {
-      var file = directory.resolve(source.relativePath());
+      var file = directory.resolve(source.canonicalRelativePath());
       Files.writeString(file, source.content());
       paths.add(file);
     }
@@ -747,7 +750,7 @@ class LexicalSourceAstTest {
   }
 
   private AstOutcome produce(String source) {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return JavaFrontends.standard().produce(request(new SourceInput.Snapshot(snapshot)));
   }
 

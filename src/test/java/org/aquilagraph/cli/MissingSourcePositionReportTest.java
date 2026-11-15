@@ -142,7 +142,7 @@ class MissingSourcePositionReportTest {
             body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())
         : body).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), bodies, copied.memberOrders(),
-        copied.associations(), copied.declarationTypes()));
+        copied.associations(), copied.declarationTypes(), copied.scopes()));
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(aggregate),
         original.diagnostics(), original.coverage());
     var ast = AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision());

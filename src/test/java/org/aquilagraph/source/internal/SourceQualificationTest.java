@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -95,7 +98,7 @@ class SourceQualificationTest {
   @Test
   void givenEmptyCaptureAndAnEmptyWrittenFile_whenProducing_thenSemanticAbsenceAndHistoricalEnvelopeRemainDistinct() throws IOException {
     // Arrange
-    var empty = InputSnapshot.fromSources(directory, List.of());
+    var empty = InputSnapshot.fromSources(capturedAbsolute(directory), List.of());
     var file = snapshot("");
 
     // Act
@@ -119,9 +122,9 @@ class SourceQualificationTest {
   @Test
   void givenNestedProfileRestrictionsAcrossCapturedFiles_whenProducing_thenAllDescendantCausesRetainCanonicalSourceOrder() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(
-        SourceFile.fromContent(Path.of("First.java"), "class First { void run(Object lock, boolean flag) { synchronized (lock) { assert flag; } } }"),
-        SourceFile.fromContent(Path.of("Second.java"), "class Second { void run(boolean flag) { assert flag; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+        SourceFile.fromContent(capturedPath(Path.of("First.java")), "class First { void run(Object lock, boolean flag) { synchronized (lock) { assert flag; } } }"),
+        SourceFile.fromContent(capturedPath(Path.of("Second.java")), "class Second { void run(boolean flag) { assert flag; } }")));
 
     // Act
     var ast = produce(snapshot, AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
@@ -156,7 +159,7 @@ class SourceQualificationTest {
   }
 
   @Test
-  void givenIncompleteCurrentAndHistoricalResults_whenDecodingAndQueryingWithoutCompilerOrCfg_thenReasonsBytesAndIdentityRemainEqual()
+  void givenIncompleteResultsWithSuppliedProducerRevisions_whenDecodingAndQueryingWithoutCompilerOrCfg_thenReasonsBytesAndIdentityRemainEqual()
       throws IOException {
     // Arrange
     var ast = produce(snapshot("class Subject { int run() { return missing; } }"), AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
@@ -181,7 +184,7 @@ class SourceQualificationTest {
   }
 
   @Test
-  void givenCompleteHistoricalFormats_whenDecoded_thenOriginalProfilesAndSemanticRevisionsStillHaveNoBlockingReason() throws IOException {
+  void givenCompleteResultsWithSuppliedProducerRevisions_whenDecoded_thenProfilesAndProvenanceStillHaveNoBlockingReason() throws IOException {
     // Arrange
     var ast = produce(snapshot("class Subject { int run() { return 1; } }"), AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
     var results = retainedVariants(ast);
@@ -200,23 +203,15 @@ class SourceQualificationTest {
   }
 
   private static List<AstResult> retainedVariants(AstResult ast) {
-    var variants = new ArrayList<>(List.of(ast, SourceAnalysisFixture.legacyResult(ast), SourceAnalysisFixture.previousResult(ast),
-        SourceAnalysisFixture.updateResult(ast), SourceAnalysisFixture.arrayResult(ast), SourceAnalysisFixture.iterationResult(ast),
-        SourceAnalysisFixture.assertionResult(ast), SourceAnalysisFixture.lambdaResult(ast), SourceAnalysisFixture.referenceResult(ast),
-        SourceAnalysisFixture.patternResult(ast), SourceAnalysisFixture.switchResult(ast), SourceAnalysisFixture.exceptionResult(ast),
-        SourceAnalysisFixture.classLiteralResult(ast)));
-    var historical = SourceAnalysisFixture.historicalInput(SourceValueCapture.capture(ast));
-    for (var version = 14; version <= 20; version++) {
-      variants.add(AstResultAdmission.admit(historical, ast.profile(), ast.identity().semanticProductionRevision(), "java-source/" + version));
-    }
-    variants.add(AstResultAdmission.admit(SourceValueCapture.capture(ast), ast.profile(), ast.identity().semanticProductionRevision(),
-        AstResult.ENVIRONMENT_IDENTITY_MODEL_VERSION));
-    assertEquals(21, variants.stream().map(value -> value.identity().sourceModelVersion()).distinct().count());
-    return List.copyOf(variants);
+    var copied = SourceValueCapture.capture(ast);
+    var supplied = AstResultAdmission.admit(copied, ast.profile(), "javac-public/9");
+    assertEquals(AstResult.SOURCE_MODEL_VERSION, supplied.identity().sourceModelVersion());
+    assertEquals("javac-public/9", supplied.identity().semanticProductionRevision());
+    return List.of(ast, supplied);
   }
 
   private InputSnapshot snapshot(String source) throws IOException {
-    return InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Subject.java"), source)));
+    return InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Subject.java")), source)));
   }
 
   private static CompilerConfiguration configuration() {

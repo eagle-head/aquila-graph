@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import org.aquilagraph.source.admission.CoverageAdmission;
 import org.aquilagraph.source.retention.AstCodec;
@@ -24,7 +27,6 @@ import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.CanonicalValueWriter;
-import org.aquilagraph.identity.api.CapturedValueEncoding;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
@@ -43,6 +45,7 @@ import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
+import org.aquilagraph.source.internal.AstValueSchema.Fields;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.io.TempDir;
@@ -224,7 +227,7 @@ class SourceDiagnosticAdmissionTest {
   }
 
   private InputSnapshot snapshot(String source) throws IOException {
-    return InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("SourceDiagnostics.java"), source)));
+    return InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("SourceDiagnostics.java")), source)));
   }
 
   private static AnalysisDiagnostic diagnostic(DiagnosticStage stage, DiagnosticSeverity severity, String key) {
@@ -267,15 +270,14 @@ class SourceDiagnosticAdmissionTest {
     canonical.text(original.identity().sourceModelVersion());
     canonical.text(original.profile().version());
     canonical.text(original.identity().semanticProductionRevision());
-    canonical.bytes(CapturedValueEncoding.encode(Optional.of(original.snapshot()), Optional.of(original.environment())));
-    writeInput(canonical, new RetainedValueCodec(true, original.identity().sourceModelVersion()), original, diagnostics, emissions);
+    writeInput(canonical, new RetainedValueCodec(true), original, diagnostics, emissions);
     var identity = AstIdentity.fromContent(SoftwareVersion.from(original.snapshot(), original.environment()).signature(),
         original.identity().sourceModelVersion(), original.profile().version(), original.identity().semanticProductionRevision(), canonical.digest("ast-content"));
     var full = new CanonicalValueWriter(original.identity().sourceModelVersion());
     full.text(original.profile().version());
     full.text(original.identity().semanticProductionRevision());
     full.text(original.completion().name());
-    var codec = new RetainedValueCodec(false, original.identity().sourceModelVersion());
+    var codec = new RetainedValueCodec(false);
     codec.write(full, identity);
     writeInput(full, codec, original, diagnostics, emissions);
     return new StoredSourceValue(identity, full.toByteArray());
@@ -285,35 +287,38 @@ class SourceDiagnosticAdmissionTest {
       List<AnalysisDiagnostic> diagnostics, List<DiagnosticEmission> emissions) {
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());
-    var shape = AstValueSchema.type(SyntaxAnalysisInput.class);
-    var components = shape.components(input);
+    var shape = (Fields) AstValueSchema.shape(input);
+    var components = shape.components(input, false);
     writer.text(shape.tag());
-    writer.count(shape.fields().size());
-    for (var index = 0; index < shape.fields().size(); index++) {
-      var field = shape.fields().get(index);
+    writer.count(components.size());
+    for (var fieldValue : components) {
+      var field = fieldValue.name();
       writer.text(field);
       if (field.equals("diagnostics")) {
         codec.write(writer, diagnostics);
       } else if (field.equals("languageFeatureCoverageResult")) {
         writer.text("source-coverage-result");
+        writer.count(2);
+        writer.text("coverage");
         codec.write(writer, original.coverage().coverage());
+        writer.text("validationEvidence");
         writeEvidence(writer, codec, original.coverage().validationEvidence(), emissions);
       } else {
-        codec.write(writer, components.get(index));
+        codec.write(writer, fieldValue.value());
       }
     }
   }
 
   private static void writeEvidence(CanonicalValueWriter writer, RetainedValueCodec codec, CoverageValidationEvidence evidence,
       List<DiagnosticEmission> emissions) {
-    var shape = AstValueSchema.type(CoverageValidationEvidence.class);
-    var components = shape.components(evidence);
+    var shape = (Fields) AstValueSchema.shape(evidence);
+    var components = shape.components(evidence, false);
     writer.text(shape.tag());
-    writer.count(shape.fields().size());
-    for (var index = 0; index < shape.fields().size(); index++) {
-      var field = shape.fields().get(index);
+    writer.count(components.size());
+    for (var fieldValue : components) {
+      var field = fieldValue.name();
       writer.text(field);
-      codec.write(writer, field.equals("diagnosticEmissions") ? emissions : components.get(index));
+      codec.write(writer, field.equals("diagnosticEmissions") ? emissions : fieldValue.value());
     }
   }
 

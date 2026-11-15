@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -224,8 +227,8 @@ class Neo4jAstResultCodecTest {
   }
 
   private AstOutcome produce(String source) throws IOException {
-    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Stored.java"), source))), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), source))), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_BOUNDED);
   }
 }

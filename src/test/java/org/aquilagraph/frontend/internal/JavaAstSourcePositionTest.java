@@ -1,5 +1,7 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -141,7 +143,7 @@ class JavaAstSourcePositionTest {
       throws IOException {
     // Arrange
     var compiler = ToolProvider.getSystemJavaCompiler();
-    var sourceFile = new SourceFile("source", Path.of("Example.java"), "fixture-content", CONTENT);
+    var sourceFile = new SourceFile("source", capturedPath(Path.of("Example.java")), "fixture-content", CONTENT);
     var source = new SimpleJavaFileObject(URI.create("string:///Example.java"), JavaFileObject.Kind.SOURCE) {
       @Override
       public CharSequence getCharContent(boolean ignoreEncodingErrors) {
@@ -197,7 +199,7 @@ class JavaAstSourcePositionTest {
   @Test
   void givenExactContentBoundary_whenPositionIsRead_thenHalfOpenRangeIsRetained() throws IOException {
     // Arrange
-    var sourceFile = new SourceFile("source", Path.of("Example.java"), "fixture-content", CONTENT);
+    var sourceFile = new SourceFile("source", capturedPath(Path.of("Example.java")), "fixture-content", CONTENT);
     var compiler = ToolProvider.getSystemJavaCompiler();
     var source = new SimpleJavaFileObject(URI.create("string:///Example.java"), JavaFileObject.Kind.SOURCE) {
       @Override
@@ -997,7 +999,7 @@ class JavaAstSourcePositionTest {
 
   private static void withCompiledSource(String content, String filename, Consumer<CompiledSource> assertion) throws IOException {
     var compiler = ToolProvider.getSystemJavaCompiler();
-    var sourceFile = new SourceFile("source", Path.of(filename), "fixture-content", content);
+    var sourceFile = new SourceFile("source", capturedPath(Path.of(filename)), "fixture-content", content);
     var source = new SimpleJavaFileObject(URI.create("string:///" + filename), JavaFileObject.Kind.SOURCE) {
       @Override
       public CharSequence getCharContent(boolean ignoreEncodingErrors) {

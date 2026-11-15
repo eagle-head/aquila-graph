@@ -1,5 +1,8 @@
 package org.aquilagraph.application;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -121,7 +124,7 @@ class AstRetentionAndQueryTest {
   void givenIncompleteOrUnavailableAst_whenRetaining_thenNoRepositoryIsAcquiredAndNoIdentityIsFabricated() throws IOException {
     // Arrange
     var incomplete = produce("class Stored { int field = 1; int value() { return 1; } }");
-    var unavailable = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory, List.of()),
+    var unavailable = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory), List.of()),
         configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
     var retention = AnalysisCapabilities.astRetention(ignored -> {
       throw new AssertionError("Ineligible source must not acquire storage");
@@ -627,8 +630,8 @@ class AstRetentionAndQueryTest {
   }
 
   private AstOutcome produce(String source) throws IOException {
-    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Stored.java"), source))), configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
+    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), source))), configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
   }
 
   private static CompilerConfiguration configuration() {

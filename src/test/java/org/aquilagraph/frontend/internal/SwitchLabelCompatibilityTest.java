@@ -1,8 +1,13 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -22,7 +27,7 @@ import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.SourceQualificationReason;
+import org.aquilagraph.source.api.AstContractException;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -39,7 +44,7 @@ class SwitchLabelCompatibilityTest {
     // Arrange
     var profiles = List.of(AstProfile.JAVA_SOURCE_BOUNDED, AstProfile.JAVA_SOURCE_EXPANDED, AstProfile.JAVA_SOURCE_INITIALIZATION,
         AstProfile.JAVA_SOURCE_NESTED, AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION, AstProfile.JAVA_SOURCE_DECLARATIONS,
-        AstProfile.JAVA_SOURCE_UNITS, AstProfile.JAVA_SOURCE_FIDELITY);
+        AstProfile.JAVA_SOURCE_UNITS, AstProfile.JAVA_SOURCE_FIDELITY, AstProfile.JAVA_SOURCE_MODULE_SERVICES);
 
     // Act
     var observations = profiles.stream().map(profile -> DynamicTest.dynamicTest("given" + profile.version()
@@ -84,32 +89,24 @@ class SwitchLabelCompatibilityTest {
   }
 
   @TestFactory
-  Stream<DynamicTest> givenOriginalNormalizedLabels_whenHistoricalValuesReachConsumers_thenOwnQualificationAndBytesRemain() {
+  Stream<DynamicTest> givenOriginalNormalizedLabels_whenTheRetiredPayloadIsDecoded_thenItIsRefused() {
     // Arrange
     var profiles = List.of(AstProfile.JAVA_SOURCE_BOUNDED, AstProfile.JAVA_SOURCE_FIDELITY);
 
     // Act
     var observations = profiles.stream().map(profile -> DynamicTest.dynamicTest("givenHistorical" + profile.version()
-        + "_whenDecodedAndDerived_thenOriginalQualificationAndSupportedLabelsRemain", () -> {
+        + "_whenItsRetiredPayloadIsDecoded_thenTheUnsupportedFormatCauseSurvives", () -> {
           // Arrange
           var original = LiteralLabelFixture.historical(profile);
-          var methods = List.of("negative", "text").stream().map(name -> original.program().methods().stream()
-              .filter(method -> method.name().equals(name)).findFirst().orElseThrow().methodKey()).toList();
 
           // Act
-          var decoded = AstCodec.decode(AstCodec.encode(original), original.identity());
-          var direct = CfgDerivers.standard().derive(original, new CfgRequest(original.identity(), methods, CfgProfile.JAVA_BOUNDED));
+          var failure = assertThrows(AstContractException.class, () -> AstCodec.decode(original.payload(), original.identity()));
 
           // Assert
           assertEquals("javac-public/9", original.identity().semanticProductionRevision());
-          assertEquals(original.qualification(), decoded.qualification());
-          assertEquals(profile.equals(AstProfile.JAVA_SOURCE_BOUNDED), decoded.qualification().reasons().stream()
-              .anyMatch(reason -> reason.category() == SourceQualificationReason.Category.PROFILE_RESTRICTION));
-          assertArrayEquals(AstCodec.encode(original), AstCodec.encode(decoded));
-          assertEquals(profile.equals(AstProfile.JAVA_SOURCE_BOUNDED) ? AstCompletion.INCOMPLETE : AstCompletion.COMPLETE,
-              original.completion());
-          assertEquals(List.of(MethodCfgState.AVAILABLE, MethodCfgState.AVAILABLE), direct.methods().stream().map(method -> method.state()).toList());
-          LiteralLabelFixture.assertLabels(direct, original);
+          assertEquals(profile.version(), original.identity().astProfileVersion());
+          var cause = assertInstanceOf(IllegalArgumentException.class, failure.getCause());
+          assertTrue(cause.getMessage().contains("Unsupported retained AST format: java-source/19"), cause::getMessage);
         }));
 
     // Assert
@@ -147,7 +144,7 @@ class SwitchLabelCompatibilityTest {
   }
 
   private AstProductionRequest request(String source, AstProfile profile) {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new AstProductionRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile);
   }
 

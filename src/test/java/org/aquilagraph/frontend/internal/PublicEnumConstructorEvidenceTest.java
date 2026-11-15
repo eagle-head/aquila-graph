@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.api.ConstructorEvidence;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -139,8 +142,8 @@ class PublicEnumConstructorEvidenceTest {
   @Test
   void givenSyntheticEnumSuperArgumentsAbsentFromPublicTrees_whenFrontendProducesDecisions_thenSeparateContextSuppliesExactSelectedEnumFormals() throws IOException {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Enums.java"), SOURCE);
-    var snapshot = InputSnapshot.fromSources(output, List.of(source));
+    var source = SourceFile.fromContent(capturedPath(Path.of("Enums.java")), SOURCE);
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(output), List.of(source));
 
     // Act
     var input = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
@@ -234,7 +237,7 @@ class PublicEnumConstructorEvidenceTest {
         .findFirst().orElseThrow();
     var loadedSlots = instructions.subList(0, instructions.indexOf(selectedCall)).stream().filter(LoadInstruction.class::isInstance)
         .map(LoadInstruction.class::cast).map(LoadInstruction::slot).toList();
-    var snapshot = InputSnapshot.fromSources(output, List.of(SourceFile.fromContent(Path.of("Delegated.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(output), List.of(SourceFile.fromContent(capturedPath(Path.of("Delegated.java")), source)));
     var input = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
     var declaration = input.program().types().stream().filter(type -> type.qualifiedName().equals("Delegated")).findFirst().orElseThrow()
         .methods().stream().filter(method -> method.constructor() && method.parameters().isEmpty()).findFirst().orElseThrow();

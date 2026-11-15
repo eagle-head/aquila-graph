@@ -27,11 +27,14 @@ class CompilerDependencyCaptureTest {
     Files.createDirectory(directory.resolve("a"));
     Files.write(directory.resolve("a/A.jar"), new byte[] {0, (byte) 0xff});
     Files.write(directory.resolve("B.jar"), new byte[0]);
-    var locations = new ArrayList<>(List.of(missing, file, empty, directory, file));
+    var locations = List.of(missing, file, empty, directory, file);
 
     // Act
-    var dependencies = new CompilerDependencyCapture().capture(locations);
-    locations.clear();
+    var capture = new CompilerDependencyCapture();
+    var dependencies = new ArrayList<PhysicalDependency>();
+    for (var location : locations) {
+      dependencies.add(capture.capture(location));
+    }
 
     // Assert
     assertEquals(List.of(DependencyKind.MISSING, DependencyKind.REGULAR_FILE, DependencyKind.DIRECTORY, DependencyKind.DIRECTORY,
@@ -45,6 +48,5 @@ class CompilerDependencyCaptureTest {
         "sha256:612eac982e79c10fd799c7814d2f50a5fdfeb4e0c0a38a4b8b421753d8f5c3de"),
         dependencies.stream().map(dependency -> dependency.fingerprint()).toList());
     assertEquals(dependencies.get(1), dependencies.get(4));
-    assertThrows(UnsupportedOperationException.class, dependencies::clear);
   }
 }

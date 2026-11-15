@@ -1,9 +1,13 @@
 package org.aquilagraph.source.internal;
 
+import java.util.List;
 import java.util.Optional;
 import org.aquilagraph.identity.api.CanonicalValueWriter;
-import org.aquilagraph.identity.api.CapturedValueEncoding;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
 
 /** Canonical source content identity, independent of retained provenance. */
@@ -22,30 +26,41 @@ public final class CanonicalAstEncoding {
    * @return the resulting string
    */
   public static String canonicalDigest(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision) {
-    return canonicalDigest(input, profile, semanticRevision, AstResultAdmission.formatFor(profile, input.environmentSnapshot()));
-  }
-
-  /**
-   * Hashes the canonical source fields under the specified format and semantic contract.
-   *
-   * @param input
-   *          captured source input
-   * @param profile
-   *          selected source profile
-   * @param semanticRevision
-   *          source semantic contract revision
-   * @param format
-   *          retained format identifier
-   * @return the resulting string
-   */
-  public static String canonicalDigest(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision, String format) {
-    var writer = new CanonicalValueWriter("canonical-java-source/1");
-    writer.text(format);
-    writer.text(profile.version());
+    var writer = sourceFrame("canonical-java-source/1", profile);
     writer.text(semanticRevision);
-    writer.bytes(CapturedValueEncoding.encode(Optional.of(input.snapshot()), Optional.of(input.environmentSnapshot())));
-    new RetainedValueCodec(true, format).write(writer, input);
+    new RetainedValueCodec(true).write(writer, input);
     return writer.digest("ast-content");
   }
 
+  /**
+   * Hashes the captured empty source subject with explicit absent compiler evidence.
+   *
+   * @param snapshot
+   *          captured empty source input
+   * @param configuration
+   *          requested compiler configuration
+   * @param profile
+   *          requested source profile
+   * @param coverage
+   *          independently admitted empty coverage
+   * @return canonical empty source subject digest
+   */
+  public static String emptyDigest(InputSnapshot snapshot, CompilerConfiguration configuration, AstProfile profile,
+      LanguageFeatureCoverageResult coverage) {
+    var writer = sourceFrame("unavailable-java-source/1", profile);
+    var codec = new RetainedValueCodec(true);
+    codec.write(writer, Optional.of(snapshot));
+    codec.write(writer, Optional.empty());
+    codec.write(writer, configuration);
+    codec.write(writer, coverage);
+    codec.write(writer, List.of());
+    return writer.digest("source-subject");
+  }
+
+  private static CanonicalValueWriter sourceFrame(String domain, AstProfile profile) {
+    var writer = new CanonicalValueWriter(domain);
+    writer.text(AstResult.SOURCE_MODEL_VERSION);
+    writer.text(profile.version());
+    return writer;
+  }
 }

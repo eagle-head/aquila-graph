@@ -2,6 +2,8 @@ package org.aquilagraph.repository.internal.neo4j;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -23,10 +25,13 @@ import org.aquilagraph.cfg.api.ExitNode;
 import org.aquilagraph.cfg.api.OperationNode;
 import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
+import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
+import org.aquilagraph.identity.api.CapturedLocation;
+import org.aquilagraph.identity.api.CapturedLocation.Syntax;
 import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.DependencyKind;
 import org.aquilagraph.identity.api.DependencySnapshot;
 import org.aquilagraph.identity.api.DependencySemantics;
-import org.aquilagraph.identity.api.EnvironmentIdentityScheme;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SoftwareVersion;
@@ -106,6 +111,28 @@ class Neo4jStoredSurfaceContractTest {
     assertEquals(1, projection.relationships().stream().filter(value -> value.type().equals("HAS_MODULE_PATH_ENTRY")).count());
     assertFamily(expected, projection, ENVIRONMENT_LABELS,
         Set.of("HAS_ENVIRONMENT", "HAS_CONFIGURATION", "HAS_CLASS_PATH_ENTRY", "HAS_MODULE_PATH_ENTRY"));
+  }
+
+  @Test
+  void givenSameSpellingDependencyLocationsWithDifferentSyntax_whenMapped_thenConfigurationKeysBindTheCapturedMeaning() {
+    // Arrange
+    var spelling = "//server/share/dependency.jar";
+    var posix = CapturedLocation.parse(Syntax.POSIX, spelling);
+    var windows = CapturedLocation.parse(Syntax.WINDOWS, spelling);
+
+    // Act
+    var posixProjection = projectEnvironment(posix);
+    var windowsProjection = projectEnvironment(windows);
+
+    // Assert
+    var posixConfiguration = nodesWithLabel(posixProjection, "CompilerConfiguration").entrySet().iterator().next();
+    var windowsConfiguration = nodesWithLabel(windowsProjection, "CompilerConfiguration").entrySet().iterator().next();
+    assertEquals(List.of(spelling), posixConfiguration.getValue().properties().get("classPath"));
+    assertEquals(List.of(spelling), windowsConfiguration.getValue().properties().get("classPath"));
+    assertNotEquals(posixConfiguration.getKey(), windowsConfiguration.getKey());
+    assertEquals(nodesWithLabel(posixProjection, "AnalysisEnvironmentSnapshot"),
+        nodesWithLabel(windowsProjection, "AnalysisEnvironmentSnapshot"));
+    assertEquals(nodesWithLabel(posixProjection, "DependencySnapshot"), nodesWithLabel(windowsProjection, "DependencySnapshot"));
   }
 
   @Test
@@ -217,8 +244,20 @@ class Neo4jStoredSurfaceContractTest {
     return producedRun(temporaryDirectory.resolve("source-root"), List.of(), List.of());
   }
 
+  private static Neo4jGraphProjection projectEnvironment(CapturedLocation location) {
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(location), List.of(), List.of());
+    var dependency = new DependencySnapshot(location, DependencyKind.REGULAR_FILE, 12, 1, "fixture-content",
+        new DependencySemantics(DependencySemantics.State.CLASS_PATH, List.of()));
+    var environment = new AnalysisEnvironmentSnapshot(configuration, "compiler", "vendor", "25", List.of(), List.of(dependency),
+        List.of());
+    var projection = new Neo4jProjectionBuilder("run");
+    projection.node("SoftwareVersion", "software");
+    new Neo4jEnvironmentMapper().map("software", environment, projection);
+    return projection.build();
+  }
+
   private AnalysisRun producedRun(Path root, List<Path> dependencies, List<Path> modules) {
-    var main = SourceFile.fromContent(Path.of("z", "Owner.java"), """
+    var main = SourceFile.fromContent(capturedPath(Path.of("z", "Owner.java")), """
         sealed interface Owner permits Owner.Record {
           record Record<T extends Number & Comparable<T>>(String value, String... rest) implements Owner {
             public Record(String value, String... rest) { this.value = value; this.rest = rest; }
@@ -230,9 +269,10 @@ class Neo4jStoredSurfaceContractTest {
           }
         }
         """);
-    var support = SourceFile.fromContent(Path.of("a", "Support.java"), "enum Mode { ; Mode() {} } class Implicit {}");
-    var input = InputSnapshot.fromSources(root, List.of(main, support));
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, dependencies, modules, List.of("-Xlint:all"));
+    var support = SourceFile.fromContent(capturedPath(Path.of("a", "Support.java")), "enum Mode { ; Mode() {} } class Implicit {}");
+    var input = InputSnapshot.fromSources(capturedAbsolute(root), List.of(main, support));
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, dependencies.stream().map(path -> capturedAbsolute(path)).toList(),
+        modules.stream().map(path -> capturedAbsolute(path)).toList(), List.of("-Xlint:all"));
     var request = new AnalysisComputationRequest(
         new AstProductionRequest(input, configuration, AstProfile.JAVA_SOURCE_BOUNDED), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)));
     var original = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard()).analyze(request);
@@ -265,10 +305,11 @@ class Neo4jStoredSurfaceContractTest {
         version.signature(), "sourceSignature", snapshot.snapshotDigest(), "environmentSignature", environment.environmentDigest()));
     expected.edge("ANALYZED_SOFTWARE", runId, version.signature(), "software-version");
     var inputKey = StableId.sha256("input-snapshot", snapshot.snapshotDigest());
-    expected.node("InputSnapshot", inputKey, properties("sourceRoot", snapshot.sourceRoot().toString(), "digestAlgorithm", "SHA-256",
+    expected.node("InputSnapshot", inputKey, properties("sourceRoot", snapshot.sourceRoot().spelling(), "digestAlgorithm", "SHA-256",
         "snapshotDigest", snapshot.snapshotDigest()));
     expected.edge("HAS_INPUT", version.signature(), inputKey, "input");
-    var canonicalPaths = Map.of(Path.of("a", "Support.java"), "a/Support.java", Path.of("z", "Owner.java"), "z/Owner.java");
+    var canonicalPaths = Map.of(capturedPath(Path.of("a", "Support.java")), "a/Support.java", capturedPath(Path.of("z", "Owner.java")),
+        "z/Owner.java");
     for (var file : snapshot.sourceFiles()) {
       var canonicalPath = canonicalPaths.get(file.relativePath());
       expected.node("SourceFile", file.sourceFileKey(), properties("relativePath", canonicalPath, "contentDigest",
@@ -278,16 +319,15 @@ class Neo4jStoredSurfaceContractTest {
     var environmentKey = environment.environmentDigest();
     var environmentProperties = properties("digestAlgorithm", environment.digestAlgorithm(),
         "environmentDigest", environmentKey, "compilerImplementation", environment.compilerImplementation(), "compilerVendor",
-        environment.compilerVendor(), "compilerVersion", environment.compilerVersion(), "analysisOptions", environment.analysisOptions());
-    if (environment.identityScheme() == EnvironmentIdentityScheme.MODULE_SEMANTICS) {
-      environmentProperties.put("identityScheme", "analysis-environment/2");
-    }
+        environment.compilerVendor(), "compilerVersion", environment.compilerVersion(), "analysisOptions", environment.analysisOptions(),
+        "identityScheme", "analysis-environment/2");
     expected.node("AnalysisEnvironmentSnapshot", environmentKey, environmentProperties);
     expected.edge("HAS_ENVIRONMENT", version.signature(), environmentKey, "environment");
     var config = environment.compilerConfiguration();
     var configKey = StableId.sha256("compiler-configuration", config.canonicalForm());
-    expected.node("CompilerConfiguration", configKey, properties("release", 25, "classPath", config.classPath().stream().map(Path::toString).toList(),
-        "modulePath", config.modulePath().stream().map(Path::toString).toList(), "options", List.of("-Xlint:all")));
+    expected.node("CompilerConfiguration", configKey, properties("release", 25, "classPath",
+        config.classPath().stream().map(CapturedLocation::spelling).toList(), "modulePath",
+        config.modulePath().stream().map(CapturedLocation::spelling).toList(), "options", List.of("-Xlint:all")));
     expected.edge("HAS_CONFIGURATION", environmentKey, configKey, "configuration");
     expectedDependencies(expected, environmentKey, "class-path", "HAS_CLASS_PATH_ENTRY", environment.classPath());
     expectedDependencies(expected, environmentKey, "module-path", "HAS_MODULE_PATH_ENTRY", environment.modulePath());
@@ -440,15 +480,10 @@ class Neo4jStoredSurfaceContractTest {
     for (var position = 0; position < dependencies.size(); position++) {
       var dependency = dependencies.get(position);
       var key = StableId.sha256("dependency-snapshot", environment, role, Integer.toString(position), dependency.fingerprint());
-      var values = properties("location", dependency.location().toString(), "kind", dependency.kind().name(),
-          "byteCount", dependency.byteCount(), "entryCount", dependency.entryCount(), "fingerprint", dependency.fingerprint(), "position", position);
-      if (dependency.semantics().state() != DependencySemantics.State.UNOBSERVED) {
-        values.put("interpretation", role.equals("class-path") ? "CLASS_PATH" : "MODULES");
-        values.put("moduleMembers", List.of());
-        values.put("moduleLookupNames", List.of());
-        values.put("moduleDescriptorNames", List.of());
-        values.put("moduleNameOrigins", List.of());
-      }
+      var values = properties("location", dependency.location().spelling(), "kind", dependency.kind().name(), "byteCount",
+          dependency.byteCount(), "entryCount", dependency.entryCount(), "fingerprint", dependency.fingerprint(), "position", position,
+          "interpretation", role.equals("class-path") ? "CLASS_PATH" : "MODULES", "moduleMembers", List.of(), "moduleLookupNames", List.of(),
+          "moduleDescriptorNames", List.of(), "moduleNameOrigins", List.of());
       expected.node("DependencySnapshot", key, values);
       expected.edge(relation, environment, key, Integer.toString(position), "position", position);
     }

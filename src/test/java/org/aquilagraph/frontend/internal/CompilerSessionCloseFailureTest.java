@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -52,9 +55,9 @@ class CompilerSessionCloseFailureTest {
       manager.setLocationFromPaths(StandardLocation.CLASS_PATH, List.of(archive));
       var entry = manager.list(StandardLocation.CLASS_PATH, "dependency", Set.of(Kind.CLASS), false).iterator().next();
       var compiler = new CompilerManagerSource(delegate, manager);
-      var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(archive), List.of(), List.of());
-      var snapshot = InputSnapshot.fromSources(temporaryDirectory,
-          List.of(SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}")));
+      var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(archive)), List.of(), List.of());
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory),
+          List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample {}")));
       var session = CompilerSessionAcquisition.open(compiler, JavaCompilerInvocation.from(configuration), new SnapshotSourceCatalog(snapshot));
 
       // Act

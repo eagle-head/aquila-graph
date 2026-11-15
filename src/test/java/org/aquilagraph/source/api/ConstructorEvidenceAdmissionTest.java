@@ -1,5 +1,8 @@
 package org.aquilagraph.source.api;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -231,8 +234,8 @@ class ConstructorEvidenceAdmissionTest {
   }
 
   private Fixture fixture(String content, String signature) throws IOException {
-    var source = SourceFile.fromContent(Path.of("Status.java"), content);
-    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(InputSnapshot.fromSources(sourceRoot, List.of(source)),
+    var source = SourceFile.fromContent(capturedPath(Path.of("Status.java")), content);
+    var input = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(InputSnapshot.fromSources(capturedAbsolute(sourceRoot), List.of(source)),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
     var aggregate = input.aggregate();
     var method = input.program().methods().stream().filter(candidate -> candidate.signature().equals(signature)).findFirst().orElseThrow();

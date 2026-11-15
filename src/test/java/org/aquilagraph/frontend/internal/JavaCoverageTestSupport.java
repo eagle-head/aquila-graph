@@ -26,7 +26,7 @@ public final class JavaCoverageTestSupport {
   }
 
   static LanguageFeatureCoverageResult emptyResult(LanguageFeatureCoverage coverage, InputSnapshot snapshot) {
-    var written = new SourceCoverageInventory(snapshot, coverage.release(), coverage.contractIdentity(), List.of());
+    var written = new SourceCoverageInventory(snapshot, coverage.release(), coverage.contractIdentity(), List.of(), Optional.empty());
     return CoverageAdmission.fromEvidence(coverage, written, new AttributedCoverageExpectations(written, List.of()),
         List.of(), List.of(), List.of());
   }

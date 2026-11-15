@@ -5,10 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Path;
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
+import org.aquilagraph.identity.api.CapturedLocation.Syntax;
 import org.junit.jupiter.api.Test;
 
 class EnvironmentSemanticsTest {
@@ -22,11 +24,9 @@ class EnvironmentSemanticsTest {
     var invalid = List.<Supplier<ModuleCandidate>>of(
         () -> new ModuleCandidate("", "name", Optional.empty(), ModuleNameOrigin.FILENAME),
         () -> new ModuleCandidate(" ", "name", Optional.empty(), ModuleNameOrigin.FILENAME),
-        () -> new ModuleCandidate(Path.of("absolute").toAbsolutePath().toString(), "name", Optional.empty(), ModuleNameOrigin.FILENAME),
         () -> new ModuleCandidate("/root", "name", Optional.empty(), ModuleNameOrigin.FILENAME),
         () -> new ModuleCandidate("../parent", "name", Optional.empty(), ModuleNameOrigin.FILENAME),
         () -> new ModuleCandidate("a/../b", "name", Optional.empty(), ModuleNameOrigin.FILENAME),
-        () -> new ModuleCandidate("a\\b", "name", Optional.empty(), ModuleNameOrigin.FILENAME),
         () -> new ModuleCandidate("a//b", "name", Optional.empty(), ModuleNameOrigin.FILENAME),
         () -> new ModuleCandidate("a/", "name", Optional.empty(), ModuleNameOrigin.FILENAME),
         () -> new ModuleCandidate("a.jar", " ", Optional.empty(), ModuleNameOrigin.FILENAME),
@@ -55,6 +55,37 @@ class EnvironmentSemanticsTest {
   }
 
   @Test
+  void givenModuleMembersWithWindowsPathTokens_whenDependenciesAreAdmitted_thenOnlyCompatibleCanonicalRelativeSpellingsPass() {
+    // Arrange
+    var posix = CapturedLocation.parse(Syntax.POSIX, "/module-path");
+    var windows = CapturedLocation.parse(Syntax.WINDOWS, "C:/module-path");
+    var literalBackslash = new ModuleCandidate("with\\backslash.jar", "named.module", Optional.empty(), ModuleNameOrigin.MANIFEST);
+    var driveAbsolute = new ModuleCandidate("D:/other.jar", "named.module", Optional.empty(), ModuleNameOrigin.MANIFEST);
+    var driveRelative = new ModuleCandidate("D:other.jar", "named.module", Optional.empty(), ModuleNameOrigin.MANIFEST);
+    var child = new ModuleCandidate("child.jar", "named.module", Optional.empty(), ModuleNameOrigin.MANIFEST);
+    var direct = new ModuleCandidate(".", "named.module", Optional.empty(), ModuleNameOrigin.MANIFEST);
+
+    // Act
+    var posixDirectory = modularDependency(posix, DependencyKind.DIRECTORY, literalBackslash);
+    var windowsDirectory = modularDependency(windows, DependencyKind.DIRECTORY, child);
+    var windowsArchive = modularDependency(windows.resolve(CapturedLocation.parse(Syntax.WINDOWS, "direct.jar")),
+        DependencyKind.REGULAR_FILE, direct);
+
+    // Assert
+    assertEquals(List.of(literalBackslash), posixDirectory.semantics().modules());
+    assertEquals(List.of(child), windowsDirectory.semantics().modules());
+    assertEquals(List.of(direct), windowsArchive.semantics().modules());
+    for (var invalid : List.of(literalBackslash, driveAbsolute, driveRelative)) {
+      assertThrows(IllegalArgumentException.class, () -> modularDependency(windows, DependencyKind.DIRECTORY, invalid));
+    }
+  }
+
+  private static DependencySnapshot modularDependency(CapturedLocation location, DependencyKind kind, ModuleCandidate member) {
+    return new DependencySnapshot(location, kind, 7, 1, "content-fingerprint",
+        new DependencySemantics(DependencySemantics.State.MODULES, List.of(member)));
+  }
+
+  @Test
   void givenUnorderedCandidatesAndExplicitStates_whenCopied_thenAssociationsMultiplicityAndImmutabilityRemain() {
     // Arrange
     var first = new ModuleCandidate("a.jar", "same", Optional.empty(), ModuleNameOrigin.FILENAME);
@@ -73,7 +104,7 @@ class EnvironmentSemanticsTest {
     assertThrows(IllegalArgumentException.class, () -> new DependencySemantics(DependencySemantics.State.MODULES, List.of(first, first)));
     assertThrows(IllegalArgumentException.class, () -> new DependencySemantics(DependencySemantics.State.MODULES,
         List.of(first, new ModuleCandidate(".", "direct", Optional.empty(), ModuleNameOrigin.FILENAME))));
-    for (var state : List.of(DependencySemantics.State.UNOBSERVED, DependencySemantics.State.CLASS_PATH, DependencySemantics.State.MISSING)) {
+    for (var state : List.of(DependencySemantics.State.CLASS_PATH, DependencySemantics.State.MISSING)) {
       assertEquals(List.of(), new DependencySemantics(state, List.of()).modules());
       assertThrows(IllegalArgumentException.class, () -> new DependencySemantics(state, List.of(first)));
     }
@@ -84,24 +115,20 @@ class EnvironmentSemanticsTest {
   }
 
   @Test
-  void givenRoleSchemeAndPhysicalContradictions_whenEnvironmentIsConstructed_thenInconsistentCopiedValuesAreRejected() {
+  void givenRoleAndPhysicalContradictions_whenEnvironmentIsConstructed_thenInconsistentCopiedValuesAreRejected() {
     // Arrange
     var path = Path.of("dependency.jar").toAbsolutePath();
     var automatic = new ModuleCandidate(".", "name", Optional.empty(), ModuleNameOrigin.FILENAME);
-    var historical = new DependencySnapshot(path, DependencyKind.REGULAR_FILE, 7, 1, "caller-label");
     var modular = dependency(path, DependencyKind.REGULAR_FILE, DependencySemantics.State.MODULES, List.of(automatic));
     var classPath = dependency(path, DependencyKind.REGULAR_FILE, DependencySemantics.State.CLASS_PATH, List.of());
 
     // Act
-    var accepted = environment(List.of(), List.of(modular), EnvironmentIdentityScheme.MODULE_SEMANTICS);
+    var accepted = environment(List.of(), List.of(modular));
 
     // Assert
     assertEquals(List.of(modular), accepted.modulePath());
-    assertEquals(EnvironmentIdentityScheme.HISTORICAL, environment(List.of(), List.of(historical), EnvironmentIdentityScheme.HISTORICAL).identityScheme());
-    assertThrows(IllegalArgumentException.class, () -> environment(List.of(), List.of(historical), EnvironmentIdentityScheme.MODULE_SEMANTICS));
-    assertThrows(IllegalArgumentException.class, () -> environment(List.of(), List.of(modular), EnvironmentIdentityScheme.HISTORICAL));
-    assertThrows(IllegalArgumentException.class, () -> environment(List.of(modular), List.of(), EnvironmentIdentityScheme.MODULE_SEMANTICS));
-    assertThrows(IllegalArgumentException.class, () -> environment(List.of(), List.of(classPath), EnvironmentIdentityScheme.MODULE_SEMANTICS));
+    assertThrows(IllegalArgumentException.class, () -> environment(List.of(modular), List.of()));
+    assertThrows(IllegalArgumentException.class, () -> environment(List.of(), List.of(classPath)));
     assertThrows(IllegalArgumentException.class, () -> dependency(path, DependencyKind.MISSING, DependencySemantics.State.MODULES, List.of()));
     assertThrows(IllegalArgumentException.class, () -> dependency(path, DependencyKind.MISSING, DependencySemantics.State.INVALID, List.of()));
     assertThrows(IllegalArgumentException.class, () -> dependency(path, DependencyKind.REGULAR_FILE, DependencySemantics.State.MISSING, List.of()));
@@ -114,15 +141,14 @@ class EnvironmentSemanticsTest {
     assertEquals(DependencySemantics.State.INVALID,
         dependency(path, DependencyKind.DIRECTORY, DependencySemantics.State.INVALID,
             List.of(new ModuleCandidate("child.jar", "name", Optional.empty(), ModuleNameOrigin.FILENAME))).semantics().state());
-    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(path, DependencyKind.DIRECTORY, 0, 0, "label",
+    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(capturedAbsolute(path), DependencyKind.DIRECTORY, 0, 0, "label",
         new DependencySemantics(DependencySemantics.State.MODULES,
             List.of(new ModuleCandidate("child.jar", "name", Optional.empty(), ModuleNameOrigin.FILENAME)))));
-    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(path, DependencyKind.DIRECTORY, 7, 1, "label",
+    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(capturedAbsolute(path), DependencyKind.DIRECTORY, 7, 1, "label",
         new DependencySemantics(DependencySemantics.State.MODULES, List.of(
             new ModuleCandidate("a.jar", "alpha", Optional.empty(), ModuleNameOrigin.FILENAME),
             new ModuleCandidate("b.jar", "beta", Optional.empty(), ModuleNameOrigin.FILENAME)))));
-    assertThrows(NullPointerException.class, () -> environment(List.of(), List.of(), null));
-    assertThrows(NullPointerException.class, () -> new DependencySnapshot(path, DependencyKind.REGULAR_FILE, 7, 1, "label", null));
+    assertThrows(NullPointerException.class, () -> new DependencySnapshot(capturedAbsolute(path), DependencyKind.REGULAR_FILE, 7, 1, "label", null));
   }
 
   @Test
@@ -147,12 +173,10 @@ class EnvironmentSemanticsTest {
             List.of(new ModuleCandidate("child.jar", "automatic.module", Optional.empty(), origin))));
       }
     }
-    var captured = environment(List.of(), accepted, EnvironmentIdentityScheme.MODULE_SEMANTICS);
+    var captured = environment(List.of(), accepted);
 
     // Assert
     assertEquals(accepted, captured.modulePath());
-    assertEquals(DependencySemantics.State.UNOBSERVED,
-        new DependencySnapshot(path, DependencyKind.DIRECTORY, 7, 1, "supplied").semantics().state());
     for (var state : states) {
       for (var origin : automaticOrigins) {
         var failure = assertThrows(IllegalArgumentException.class, () -> dependency(path, DependencyKind.DIRECTORY, state,
@@ -167,7 +191,7 @@ class EnvironmentSemanticsTest {
     // Arrange
     var module = new ModuleCandidate(".", "alpha", Optional.empty(), ModuleNameOrigin.FILENAME);
     var dependency = dependency(Path.of("alpha.jar"), DependencyKind.REGULAR_FILE, DependencySemantics.State.MODULES, List.of(module));
-    var original = environment(List.of(), List.of(dependency), EnvironmentIdentityScheme.MODULE_SEMANTICS);
+    var original = environment(List.of(), List.of(dependency));
     var relocated = dependency(Path.of("other/alpha.jar"), DependencyKind.REGULAR_FILE, DependencySemantics.State.MODULES, List.of(module));
     var changed = dependency(Path.of("beta.jar"), DependencyKind.REGULAR_FILE, DependencySemantics.State.MODULES,
         List.of(new ModuleCandidate(".", "beta", Optional.empty(), ModuleNameOrigin.FILENAME)));
@@ -180,15 +204,13 @@ class EnvironmentSemanticsTest {
 
     // Assert
     assertEquals(expected, actual);
-    assertEquals(actual, environment(List.of(), List.of(relocated), EnvironmentIdentityScheme.MODULE_SEMANTICS).environmentDigest());
-    assertNotEquals(actual, environment(List.of(), List.of(changed), EnvironmentIdentityScheme.MODULE_SEMANTICS).environmentDigest());
-    assertNotEquals(actual, environment(List.of(), List.of(dependency, dependency), EnvironmentIdentityScheme.MODULE_SEMANTICS).environmentDigest());
-    assertEquals("analysis-environment/1", EnvironmentIdentityScheme.HISTORICAL.version());
-    assertEquals("analysis-environment/2", EnvironmentIdentityScheme.MODULE_SEMANTICS.version());
+    assertEquals(actual, environment(List.of(), List.of(relocated)).environmentDigest());
+    assertNotEquals(actual, environment(List.of(), List.of(changed)).environmentDigest());
+    assertNotEquals(actual, environment(List.of(), List.of(dependency, dependency)).environmentDigest());
   }
 
   private static DependencySnapshot dependency(Path path, DependencyKind kind, DependencySemantics.State state, List<ModuleCandidate> modules) {
-    return new DependencySnapshot(path, kind, kind == DependencyKind.MISSING ? 0 : 7, kind == DependencyKind.MISSING ? 0 : Math.max(1, modules.size()), "physical",
+    return new DependencySnapshot(capturedAbsolute(path), kind, kind == DependencyKind.MISSING ? 0 : 7, kind == DependencyKind.MISSING ? 0 : Math.max(1, modules.size()), "physical",
         new DependencySemantics(state, modules));
   }
 
@@ -206,8 +228,8 @@ class EnvironmentSemanticsTest {
         new ModuleCandidate("z.jar", "same", Optional.empty(), ModuleNameOrigin.MANIFEST)));
 
     // Act
-    var first = environment(List.of(), List.of(original), EnvironmentIdentityScheme.MODULE_SEMANTICS);
-    var second = environment(List.of(), List.of(reassociated), EnvironmentIdentityScheme.MODULE_SEMANTICS);
+    var first = environment(List.of(), List.of(original));
+    var second = environment(List.of(), List.of(reassociated));
 
     // Assert
     assertEquals(first.environmentDigest(), second.environmentDigest());
@@ -219,12 +241,12 @@ class EnvironmentSemanticsTest {
     assertEquals(List.of(manifest, filename, explicit), original.semantics().modules());
     for (var modules : List.of(List.of(manifest), List.of(filename), List.of(explicit))) {
       var changed = dependency(Path.of("modules"), DependencyKind.DIRECTORY, DependencySemantics.State.MODULES, modules);
-      assertNotEquals(first.environmentDigest(), environment(List.of(), List.of(changed), EnvironmentIdentityScheme.MODULE_SEMANTICS).environmentDigest());
+      assertNotEquals(first.environmentDigest(), environment(List.of(), List.of(changed)).environmentDigest());
     }
     assertNotEquals(environment(List.of(), List.of(dependency(Path.of("modules"), DependencyKind.DIRECTORY,
-        DependencySemantics.State.MODULES, List.of(manifest))), EnvironmentIdentityScheme.MODULE_SEMANTICS).environmentDigest(),
+        DependencySemantics.State.MODULES, List.of(manifest)))).environmentDigest(),
         environment(List.of(), List.of(dependency(Path.of("modules"), DependencyKind.DIRECTORY,
-            DependencySemantics.State.MODULES, List.of(filename))), EnvironmentIdentityScheme.MODULE_SEMANTICS).environmentDigest());
+            DependencySemantics.State.MODULES, List.of(filename)))).environmentDigest());
   }
 
   @Test
@@ -235,13 +257,13 @@ class EnvironmentSemanticsTest {
       var nameOrigin = descriptorName.isPresent() ? ModuleNameOrigin.DESCRIPTOR : ModuleNameOrigin.FILENAME;
       var module = new ModuleCandidate(".", "alpha", descriptorName, nameOrigin);
     var dependency = dependency(path, DependencyKind.REGULAR_FILE, DependencySemantics.State.MODULES, List.of(module));
-    var environment = environment(List.of(), List.of(dependency), EnvironmentIdentityScheme.MODULE_SEMANTICS);
+    var environment = environment(List.of(), List.of(dependency));
 
     // Act
     var encoded = CapturedValueEncoding.encode(Optional.empty(), Optional.of(environment));
 
     // Assert
-    var reader = new CanonicalValueReader(encoded, "captured-values/2");
+    var reader = new CanonicalValueReader(encoded, "captured-values/3");
     assertEquals("input", reader.text());
     assertEquals(false, reader.flag());
     assertEquals("environment", reader.text());
@@ -252,7 +274,14 @@ class EnvironmentSemanticsTest {
     assertEquals(25, reader.integer());
     assertEquals(0, reader.count());
     assertEquals(1, reader.count());
-    assertEquals(path.toString(), reader.text());
+    var location = capturedAbsolute(path);
+    assertEquals(location.syntax().name(), reader.text());
+    assertEquals(location.rootKind().name(), reader.text());
+    assertEquals(location.rootComponents().size(), reader.count());
+    location.rootComponents().forEach(component -> assertEquals(component, reader.text()));
+    assertEquals(location.components().size(), reader.count());
+    location.components().forEach(component -> assertEquals(component, reader.text()));
+    assertEquals(location.spelling(), reader.text());
     assertEquals(0, reader.count());
     assertEquals(environment.compilerConfiguration().canonicalForm(), reader.text());
     assertEquals("compiler", reader.text());
@@ -280,10 +309,9 @@ class EnvironmentSemanticsTest {
     }
   }
 
-  private static AnalysisEnvironmentSnapshot environment(List<DependencySnapshot> classPath, List<DependencySnapshot> modulePath,
-      EnvironmentIdentityScheme scheme) {
+  private static AnalysisEnvironmentSnapshot environment(List<DependencySnapshot> classPath, List<DependencySnapshot> modulePath) {
     var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, classPath.stream().map(DependencySnapshot::location).toList(),
         modulePath.stream().map(DependencySnapshot::location).toList(), List.of());
-    return new AnalysisEnvironmentSnapshot(configuration, "compiler", "vendor", "25", List.of(), classPath, modulePath, scheme);
+    return new AnalysisEnvironmentSnapshot(configuration, "compiler", "vendor", "25", List.of(), classPath, modulePath);
   }
 }

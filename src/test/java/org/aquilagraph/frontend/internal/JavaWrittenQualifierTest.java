@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.internal.SourceValueCapture;
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -41,7 +44,7 @@ class JavaWrittenQualifierTest {
   @Test
   void givenQualifierWithoutItsIndependentSourceAssociation_whenReconcilingAndDecoding_thenContainingCallCannotHideTheGap() throws IOException {
     // Arrange: remove one supplied provenance association, preserving the real captured expectations.
-    var input = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"),
+    var input = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
         "class Example { static int call() { return 1; } int value() { return Example.call(); } }")));
     var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(input, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
     var aggregate = original.aggregate().orElseThrow();
@@ -50,7 +53,7 @@ class JavaWrittenQualifierTest {
         .requiredChild(SyntaxRole.QUALIFIER);
     var copied = SourceValueCapture.capture(aggregate);
     var supplied = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), copied.bodies(), copied.memberOrders(),
-        copied.associations().stream().filter(value -> !value.nodeKey().equals(qualifier.nodeId())).toList(), copied.declarationTypes()));
+        copied.associations().stream().filter(value -> !value.nodeKey().equals(qualifier.nodeId())).toList(), copied.declarationTypes(), copied.scopes()));
 
     // Act
     var reconciled = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied),
@@ -85,7 +88,7 @@ class JavaWrittenQualifierTest {
           }
         }
         """;
-    var input = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Outer.java"), text)));
+    var input = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Outer.java")), text)));
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var forms = Set.of(InvocationForm.STATIC_TYPE, InvocationForm.INSTANCE_THIS, InvocationForm.INSTANCE_QUALIFIED_THIS,
         InvocationForm.SUPER, InvocationForm.QUALIFIED_SUPER);

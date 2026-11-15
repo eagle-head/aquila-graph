@@ -122,8 +122,9 @@ final class JavaExecutableSyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapp
     var children = new ChildMappings(context);
     children.add(SyntaxRole.INITIALIZER, variable.getInitializer());
     var unnamed = variable.getName().length() == 0;
-    return accepted(SyntaxKind.LOCAL_DECLARATION, new SyntaxValue.LocalDeclaration(unnamed ? "_" : variable.getName().toString()), children,
-        unnamed ? Optional.empty() : semantics.reference(context.treePath(), ReferenceKind.LOCAL));
+    return accepted(SyntaxKind.LOCAL_DECLARATION,
+        new SyntaxValue.LocalDeclaration(unnamed ? "_" : variable.getName().toString(), Optional.empty(), List.of(), Optional.empty()),
+        children, unnamed ? Optional.empty() : semantics.reference(context.treePath(), ReferenceKind.LOCAL));
   }
 
   @Override

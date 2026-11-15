@@ -1,5 +1,8 @@
 package org.aquilagraph.cfg.api;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -76,7 +79,7 @@ class ControlFlowGraphTest {
   }
 
   private ControlFlowGraph graph(String text) {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), text)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), text)));
     var ast = JavaFrontends.standard().produce(new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow();
     var method = ast.program().methods().stream().filter(value -> value.name().equals("value")).findFirst().orElseThrow();

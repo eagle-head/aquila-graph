@@ -1,5 +1,8 @@
 package org.aquilagraph.build;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -53,7 +56,7 @@ class PreparedConsumerNeo4jIT {
     var invocation = System.getProperty("aquila.consumer.invocation");
     var consumer = PreparedConsumer.open(root, receipt, invocation);
     var settings = Neo4jIntegration.settings();
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Subject.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Subject.java")),
         "class Subject { int value(int input) { if (input > 0) return input + 7; return -1; } }")));
     var outcome = new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(snapshot,
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES));

@@ -1,5 +1,11 @@
 package org.aquilagraph.source.api;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+import org.aquilagraph.identity.api.CapturedLocation;
+import org.aquilagraph.identity.api.CapturedLocation.Syntax;
+import java.util.List;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -16,25 +22,25 @@ class SourceFileTest {
   @Test
   void givenSourceContentAndNormalizedPath_whenCaptured_thenExistingContentDigestAndSourceKeyArePreserved() {
     // Arrange
-    var path = Path.of("sample/../Sample.java");
+    var path = capturedPath(Path.of("sample/../Sample.java"));
     var content = "class Sample {}";
 
     // Act
     var source = SourceFile.fromContent(path, content);
 
     // Assert
-    assertEquals(Path.of("Sample.java"), source.relativePath());
+    assertEquals(capturedPath(Path.of("Sample.java")), source.relativePath());
     assertEquals("Sample.java", source.canonicalRelativePath());
     assertEquals(content, source.content());
     assertEquals("857549eae38e7d257853af1350165d1067a49f7148b797e186d51cc8d8d9edc3", source.contentDigest());
     assertEquals("source:5b7d302b83ed255231899a484fac0ec5daf17b2311738c6a8d6eb46f7687faf7", source.sourceFileKey());
-    assertEquals(source, SourceFile.fromContent(Path.of("Sample.java"), content));
+    assertEquals(source, SourceFile.fromContent(capturedPath(Path.of("Sample.java")), content));
   }
 
   @Test
   void givenNestedMixedCasePath_whenCanonicalPathIsQueried_thenCaseAndSlashSeparatedNamesArePreserved() {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Upper", "nested", "É.java"), "class Example {}");
+    var source = SourceFile.fromContent(capturedPath(Path.of("Upper", "nested", "É.java")), "class Example {}");
 
     // Act
     var path = source.canonicalRelativePath();
@@ -46,10 +52,10 @@ class SourceFileTest {
   @Test
   void givenChangedPathCaseOrContent_whenCaptured_thenSourceIdentityDistinguishesEachChange() {
     // Arrange
-    var original = SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}");
+    var original = SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample {}");
 
     // Act
-    var renamed = SourceFile.fromContent(Path.of("sample.java"), original.content());
+    var renamed = SourceFile.fromContent(capturedPath(Path.of("sample.java")), original.content());
     var edited = SourceFile.fromContent(original.relativePath(), "class Sample { int value; }");
 
     // Assert
@@ -60,52 +66,43 @@ class SourceFileTest {
   }
 
   @Test
-  void givenAbsoluteOrEscapingPath_whenCaptured_thenSourceOwnershipIsRejected() {
+  void givenAbsoluteLocation_whenUsedAsASourceName_thenBothAdmissionRoutesRejectIt() {
     // Arrange
-    var absolute = Path.of("Sample.java").toAbsolutePath();
-    var escaping = Path.of("sample/../../Sample.java");
+    var absolute = CapturedLocation.parse(Syntax.POSIX, "/Sample.java");
 
     // Act
-    var absoluteFailure = assertThrows(IllegalArgumentException.class, () -> SourceFile.fromContent(absolute, "class Sample {}"));
-    var escapingFailure = assertThrows(IllegalArgumentException.class, () -> SourceFile.fromContent(escaping, "class Sample {}"));
+    var produced = assertThrows(IllegalArgumentException.class, () -> SourceFile.fromContent(absolute, "class Sample {}"));
+    var copied = assertThrows(IllegalArgumentException.class, () -> new SourceFile("supplied-key", absolute, "digest", ""));
 
     // Assert
-    assertEquals("Source-file paths must be relative to the source root", absoluteFailure.getMessage());
-    assertEquals(absoluteFailure.getMessage(), escapingFailure.getMessage());
+    assertTrue(produced.getMessage().contains("relative"), produced::getMessage);
+    assertEquals(produced.getMessage(), copied.getMessage());
   }
 
   @Test
-  void givenRootedPath_whenCapturedOrConstructed_thenSourceOwnershipIsRejected() {
+  void givenEscapingAndPartialWindowsRoots_whenCaptured_thenTheyAreRejectedBeforeSourceConstruction() {
     // Arrange
-    var paths = new ArrayList<Path>();
-    paths.add(Path.of("/Sample.java"));
-    if (FileSystems.getDefault().getSeparator().equals("\\")) {
-      paths.add(Path.of("\\Sample.java"));
-      paths.add(Path.of("D:Sample.java"));
-      paths.add(Path.of("C:Sample.java"));
-    }
+    var names = List.of("nested/../../Sample.java", "\\Sample.java", "C:Sample.java");
 
-    // Act and assert
-    assertAll(paths.stream().<Executable>map(path -> () -> assertAll(path.toString(),
-        () -> assertEquals("Source-file paths must be relative to the source root",
-            assertThrows(IllegalArgumentException.class, () -> SourceFile.fromContent(path, "class Sample {}"))
-                .getMessage()),
-        () -> assertEquals("Source-file paths must be relative to the source root",
-            assertThrows(IllegalArgumentException.class,
-                () -> new SourceFile("supplied-key", path, "supplied-digest", "class Sample {}"))
-                .getMessage()))));
+    // Act
+    var failures = names.stream().map(name -> assertThrows(IllegalArgumentException.class,
+        () -> CapturedLocation.parse(Syntax.WINDOWS, name))).toList();
+
+    // Assert
+    assertEquals(3, failures.size());
+    assertTrue(failures.stream().allMatch(failure -> failure.getMessage() != null && !failure.getMessage().isBlank()));
   }
 
   @Test
   void givenSuppliedRelativePathAndIdentity_whenConstructed_thenOnlyThePathIsNormalized() {
     // Arrange
-    var path = Path.of("nested/discard/../Sample.java");
+    var path = capturedPath(Path.of("nested/discard/../Sample.java"));
 
     // Act
     var source = new SourceFile("supplied-key", path, "supplied-digest", "class Sample {}");
 
     // Assert
-    assertEquals(Path.of("nested/Sample.java"), source.relativePath());
+    assertEquals(capturedPath(Path.of("nested/Sample.java")), source.relativePath());
     assertEquals("nested/Sample.java", source.canonicalRelativePath());
     assertEquals("supplied-key", source.sourceFileKey());
     assertEquals("supplied-digest", source.contentDigest());

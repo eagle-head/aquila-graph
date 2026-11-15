@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.CoverageAdmission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -435,8 +438,8 @@ class JavaCoverageAdmissionTest {
   }
 
   private static void invokeFailingAccessor(Throwable failure) throws IOException {
-    var snapshot = InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/sources"),
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example {}")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/sources")),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example {}")));
     var sources = new SnapshotSourceCatalog(snapshot);
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
       var parsed = session.parse();
@@ -1023,7 +1026,7 @@ class JavaCoverageAdmissionTest {
         List.of(new CoveragePropertyValue.Item("PRIMITIVE_TYPE:0", "String", CoveragePropertyValue.Provenance.WRITTEN)));
     var contexts = evidence.writtenInventory().contexts().stream().map(context -> context.address().equals(selected.address())
         ? new SourceContext(context.address(), context.feature(), context.origins(), Optional.of(altered), context.requiresAttribution()) : context).toList();
-    var inventory = new SourceCoverageInventory(original.snapshot(), evidence.writtenInventory().release(), evidence.writtenInventory().contractIdentity(), contexts);
+    var inventory = new SourceCoverageInventory(original.snapshot(), evidence.writtenInventory().release(), evidence.writtenInventory().contractIdentity(), contexts, Optional.empty());
     var outcomes = evidence.outcomes().stream().map(outcome -> outcome.address().equals(selected.address())
         ? new FeatureContextOutcome(outcome.address(), outcome.occurrence(), outcome.observation(), Optional.of(altered), outcome.support(), outcome.emissions()) : outcome).toList();
     var result = CoverageAdmission.fromEvidence(original.languageFeatureCoverage(), inventory,
@@ -1208,7 +1211,7 @@ class JavaCoverageAdmissionTest {
     var absent = new CoveragePropertyValue(CoveragePropertyValue.State.EMPTY, List.of());
     var contexts = evidence.writtenInventory().contexts().stream().map(context -> context.address().role().equals(JavaDeclarationPropertyCoverage.COMPILATION_UNIT_IMPORTS)
         ? new SourceContext(context.address(), context.feature(), context.origins(), Optional.of(absent), false) : context).toList();
-    var written = new SourceCoverageInventory(original.snapshot(), CONFIGURATION.release(), original.languageFeatureCoverage().contractIdentity(), contexts);
+    var written = new SourceCoverageInventory(original.snapshot(), CONFIGURATION.release(), original.languageFeatureCoverage().contractIdentity(), contexts, Optional.empty());
     var attributed = new AttributedCoverageExpectations(written, evidence.attributedExpectations().projections());
     var outcomes = evidence.outcomes().stream().map(outcome -> outcome.address().role().equals(JavaDeclarationPropertyCoverage.COMPILATION_UNIT_IMPORTS)
         ? new FeatureContextOutcome(outcome.address(), outcome.occurrence(), outcome.observation(), Optional.of(absent),
@@ -1470,7 +1473,7 @@ class JavaCoverageAdmissionTest {
     var order = aggregate.declarationMemberOrders().getFirst();
     var reversed = new ArrayList<>(order.members());
     Collections.reverse(reversed);
-    var changed = copyAggregate(original, aggregate.roots().getFirst(), List.of(new DeclarationMemberOrder(order.sourceFileKey(), order.ownerTypeKey(), reversed)));
+    var changed = copyAggregate(original, aggregate.roots().getFirst(), List.of(new DeclarationMemberOrder(order.sourceFileKey(), order.ownerTypeKey(), reversed, Optional.empty())));
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class, () -> new SyntaxAnalysisInput(original.snapshot(), original.environmentSnapshot(), original.program(),
@@ -1879,7 +1882,7 @@ class JavaCoverageAdmissionTest {
     var evidence = original.languageFeatureCoverageResult().validationEvidence();
     var inventory = new SourceCoverageInventory(original.snapshot(), evidence.writtenInventory().release(), evidence.writtenInventory().contractIdentity(),
         evidence.writtenInventory().contexts().stream().map(context -> context.address().equals(selected.address()) && !context.requiresAttribution()
-            ? new SourceContext(context.address(), context.feature(), context.origins(), Optional.of(value), false) : context).toList());
+            ? new SourceContext(context.address(), context.feature(), context.origins(), Optional.of(value), false) : context).toList(), Optional.empty());
     var attributed = new AttributedCoverageExpectations(inventory, evidence.attributedExpectations().projections().stream().map(projection ->
         projection.address().equals(selected.address()) ? new AttributedCoverageExpectations.Projection(projection.address(), value, projection.ownerIdentity()) : projection).toList());
     var outcomes = evidence.outcomes().stream().map(outcome -> outcome.address().equals(selected.address())
@@ -1943,8 +1946,8 @@ class JavaCoverageAdmissionTest {
   }
 
   private static SyntaxAnalysisInput analyze(String content) throws IOException {
-    var snapshot = InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/sources"),
-        List.of(SourceFile.fromContent(Path.of("Example.java"), content)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/sources")),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), content)));
     return new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CONFIGURATION, JavaTranslationPolicy.legacyAnalysis());
   }
 }

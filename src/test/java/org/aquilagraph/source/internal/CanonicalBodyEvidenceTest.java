@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
@@ -122,7 +125,7 @@ class CanonicalBodyEvidenceTest {
   }
 
   private SyntaxAnalysisInput fixture() throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Calls.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Calls.java")), """
         class Calls {
           static int left() { return 1; }
           static int right() { return 2; }
@@ -193,7 +196,7 @@ class CanonicalBodyEvidenceTest {
           body.concatenations(), body.constructors(), body.attributedOccurrences());
     }).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), bodies, copied.memberOrders(),
-        copied.associations(), copied.declarationTypes()));
+        copied.associations(), copied.declarationTypes(), copied.scopes()));
     return new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), Optional.of(aggregate),
         input.diagnostics(), input.languageFeatureCoverageResult());
   }
@@ -221,7 +224,7 @@ class CanonicalBodyEvidenceTest {
             body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences()))
         .toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), sources, bodies, copied.memberOrders(),
-        copied.associations(), copied.declarationTypes()));
+        copied.associations(), copied.declarationTypes(), copied.scopes()));
     return new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), Optional.of(aggregate),
         input.diagnostics(), coverageFor(input, reference -> permuteFact(reference, binaryKey)));
   }

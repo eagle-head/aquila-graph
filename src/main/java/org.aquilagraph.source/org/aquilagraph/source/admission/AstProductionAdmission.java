@@ -4,8 +4,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
-import org.aquilagraph.identity.api.CanonicalValueWriter;
-import org.aquilagraph.identity.api.CapturedValueEncoding;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
@@ -16,7 +14,7 @@ import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
 import org.aquilagraph.source.internal.AdmittedAstOutcome;
 import org.aquilagraph.source.internal.AstResultAdmission;
-import org.aquilagraph.source.internal.RetainedValueCodec;
+import org.aquilagraph.source.internal.CanonicalAstEncoding;
 import org.aquilagraph.source.internal.SourceRequirements;
 
 /** Qualifies copied production and empty captures into truthful source outcomes. */
@@ -77,15 +75,9 @@ public final class AstProductionAdmission {
           || coverage.coverage().release() != configuration.release()) {
         throw new IllegalArgumentException("Empty source admission requires exact empty capture, coverage, and supported profile");
       }
-      var writer = new CanonicalValueWriter("unavailable-java-source/1");
-      writer.text(profile.version());
-      writer.bytes(CapturedValueEncoding.encode(Optional.of(snapshot), Optional.empty()));
-      var codec = new RetainedValueCodec(true, AstResultAdmission.formatFor(profile));
-      codec.write(writer, configuration);
-      codec.write(writer, coverage);
-      codec.write(writer, List.of());
+      var digest = CanonicalAstEncoding.emptyDigest(snapshot, configuration, profile, coverage);
       return unavailable(profile, SourceRequirements.empty(profile), Optional.of(snapshot), Optional.empty(), Optional.of(configuration),
-          Optional.of(coverage), List.of(), writer.digest("source-subject"));
+          Optional.of(coverage), List.of(), digest);
     } catch (IllegalArgumentException exception) {
       throw rejection(exception);
     }

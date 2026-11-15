@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -96,7 +99,7 @@ class InvocationSelectorCorrespondenceTest {
   void givenLegalInvocationForms_whenAttributedProducedAndDecoded_thenSelectorKindsAndDetachedFactsRemainExact() throws IOException {
     // Arrange
     var cases = invocationCases();
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Calls.java"), SOURCE)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Calls.java")), SOURCE)));
     var request = new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_MODULE_SERVICES);
 
@@ -124,7 +127,7 @@ class InvocationSelectorCorrespondenceTest {
   @Test
   void givenRetainedMethodInvocations_whenGraphsAreDerived_thenTargetsFormsAndSourceAssociationsRemainExact() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Calls.java"), SOURCE)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Calls.java")), SOURCE)));
     var original = JavaFrontends.standard().produce(new AstProductionRequest(snapshot,
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES)).result().orElseThrow();
     var retained = AstCodec.decode(AstCodec.encode(original), original.identity());

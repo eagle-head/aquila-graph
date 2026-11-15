@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -35,7 +38,7 @@ class UnitTranslationLifecycleTest {
   @Test
   void givenDeclarationFreeUnit_whenGatedAndFinalizedOnce_thenCapturedEnvelopeAndTerminalProgressionRemain() throws IOException {
     // Arrange
-    withCompilation(List.of(SourceFile.fromContent(Path.of("Empty.java"), "")), fixture -> {
+    withCompilation(List.of(SourceFile.fromContent(capturedPath(Path.of("Empty.java")), "")), fixture -> {
       var reached = new ArrayList<String>();
       var coordinator = fixture.factory(fixture.compilation().sourceEvidence(), recording(reached)).create(
           fixture.compilation().units().getFirst(), fixture.snapshot().sourceFiles().getFirst());
@@ -165,7 +168,7 @@ class UnitTranslationLifecycleTest {
       // Arrange
       var files = new ArrayList<>(validSources());
       var name = List.of("A", "B", "C").get(position);
-      files.set(position, SourceFile.fromContent(Path.of(name + ".java"), "class " + name + " { void value() {} void value() {} }"));
+      files.set(position, SourceFile.fromContent(capturedPath(Path.of(name + ".java")), "class " + name + " { void value() {} void value() {} }"));
       withCompilation(files, fixture -> {
         var reached = new ArrayList<String>();
         var program = new JavaProgramTranslator(fixture.sources(), fixture.factory(fixture.compilation().sourceEvidence(), recording(reached)));
@@ -191,7 +194,7 @@ class UnitTranslationLifecycleTest {
       // Arrange
       var files = new ArrayList<>(validSources());
       var name = List.of("A", "B", "C").get(position);
-      files.set(position, SourceFile.fromContent(Path.of(name + ".java"), "class " + name + " {} class " + name + " {}"));
+      files.set(position, SourceFile.fromContent(capturedPath(Path.of(name + ".java")), "class " + name + " {} class " + name + " {}"));
       withCompilation(files, fixture -> {
         var reached = new ArrayList<String>();
         var program = new JavaProgramTranslator(fixture.sources(),
@@ -215,8 +218,8 @@ class UnitTranslationLifecycleTest {
   @Test
   void givenLaterDuplicateType_whenAnEarlierUnitAlreadyProjected_thenCurrentProjectionIsPreventedAndAggregateIsWithheld() throws IOException {
     // Arrange
-    withCompilation(List.of(SourceFile.fromContent(Path.of("A.java"), "class Shared {}"),
-        SourceFile.fromContent(Path.of("B.java"), "class Shared {}"), SourceFile.fromContent(Path.of("C.java"), "class C {}")), fixture -> {
+    withCompilation(List.of(SourceFile.fromContent(capturedPath(Path.of("A.java")), "class Shared {}"),
+        SourceFile.fromContent(capturedPath(Path.of("B.java")), "class Shared {}"), SourceFile.fromContent(capturedPath(Path.of("C.java")), "class C {}")), fixture -> {
       var reached = new ArrayList<String>();
       var program = new JavaProgramTranslator(fixture.sources(), fixture.factory(fixture.compilation().sourceEvidence(), recording(reached)));
 
@@ -242,7 +245,7 @@ class UnitTranslationLifecycleTest {
       // Arrange
       var files = new ArrayList<>(validSources());
       var name = List.of("A", "B", "C").get(position);
-      files.set(position, SourceFile.fromContent(Path.of(name + ".java"), "record " + name + "(int value) {}"));
+      files.set(position, SourceFile.fromContent(capturedPath(Path.of(name + ".java")), "record " + name + "(int value) {}"));
       withCompilation(files, fixture -> {
         var damaged = new AtomicBoolean(true);
         var actual = fixture.compilation().sourceEvidence();
@@ -291,7 +294,7 @@ class UnitTranslationLifecycleTest {
       var program = new JavaProgramTranslator(fixture.sources(), fixture.factory(fixture.compilation().sourceEvidence(), recording(reached)));
       var duplicate = new ArrayList<>(fixture.compilation().units());
       duplicate.add(fixture.compilation().units().getFirst());
-      var narrowed = InputSnapshot.fromSources(directory, List.of(fixture.snapshot().sourceFiles().getFirst()));
+      var narrowed = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(fixture.snapshot().sourceFiles().getFirst()));
       var foreignProgram = new JavaProgramTranslator(new SnapshotSourceCatalog(narrowed),
           fixture.factory(fixture.compilation().sourceEvidence(), recording(reached)));
 
@@ -318,12 +321,12 @@ class UnitTranslationLifecycleTest {
   }
 
   private static List<SourceFile> validSources() {
-    return List.of(SourceFile.fromContent(Path.of("A.java"), "class A {}"), SourceFile.fromContent(Path.of("B.java"), "class B {}"),
-        SourceFile.fromContent(Path.of("C.java"), "class C {}"));
+    return List.of(SourceFile.fromContent(capturedPath(Path.of("A.java")), "class A {}"), SourceFile.fromContent(capturedPath(Path.of("B.java")), "class B {}"),
+        SourceFile.fromContent(capturedPath(Path.of("C.java")), "class C {}"));
   }
 
   private void withCompilation(List<SourceFile> files, Observation observation) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, files);
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), files);
     var sources = new SnapshotSourceCatalog(snapshot);
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
       observation.observe(new Fixture(snapshot, sources, session.analyze(session.parse(), POLICY)));

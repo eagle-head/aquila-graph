@@ -1,5 +1,7 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -572,7 +574,7 @@ class JavaFrontendTest {
     var written = sourceCreation.requiredChild(SyntaxRole.TYPE_OPERAND);
     var selected = written.requiredReference();
     var foreign = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of("type:Foreign"), selected.typeName(),
-        selected.typeAlternativeNames(), selected.assignableToTypeNames());
+        selected.typeAlternativeNames(), selected.assignableToTypeNames(), Optional.empty());
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source(written.sourceFileKey(), written.structuralPath(),
@@ -699,7 +701,7 @@ class JavaFrontendTest {
     var snapshot = loader.discover(temporaryDirectory);
     var brokenSource =
         snapshot.sourceFiles().stream()
-            .filter(sourceFile -> sourceFile.relativePath().endsWith("Broken.java"))
+            .filter(sourceFile -> sourceFile.canonicalRelativePath().endsWith("Broken.java"))
             .findFirst()
             .orElseThrow();
     var sourceKeys = snapshot.sourceFiles().stream().map(sourceFile -> sourceFile.sourceFileKey()).collect(Collectors.toSet());
@@ -747,7 +749,7 @@ class JavaFrontendTest {
     Files.writeString(sourceRoot.resolve("Stable.java"), "final class Stable { int value() { return 1; } }");
     var dependencyFile = dependencyRoot.resolve("version.txt");
     Files.writeString(dependencyFile, "first");
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(dependencyRoot), List.of(), List.of());
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(dependencyRoot)), List.of(), List.of());
 
     // Act
     var first = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(new JavaSourceLoader().discover(sourceRoot), configuration, JavaTranslationPolicy.legacyAnalysis());

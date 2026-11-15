@@ -21,8 +21,8 @@ record JavaDeclarationReference(SyntaxNode source, SemanticReference reference) 
     if (key.isEmpty() || kind.isEmpty()) {
       return Optional.empty();
     }
-    return Optional.of(new JavaDeclarationReference(node,
-        new SemanticReference(kind.orElseThrow(), ResolutionStatus.RESOLVED, key, Optional.empty(), List.of(), List.of())));
+    return Optional.of(new JavaDeclarationReference(node, new SemanticReference(kind.orElseThrow(), ResolutionStatus.RESOLVED, key,
+        Optional.empty(), List.of(), List.of(), Optional.empty())));
   }
 
   private static Optional<ReferenceKind> referenceKind(ElementKind kind) {

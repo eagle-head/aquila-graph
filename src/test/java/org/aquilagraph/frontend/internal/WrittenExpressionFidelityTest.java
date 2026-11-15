@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -47,7 +50,7 @@ class WrittenExpressionFidelityTest {
   void givenNestedWrittenRegionsWithTheSameStart_whenTheSameRequestIsRepeated_thenCoverageEncodingAndIdentityAreDeterministic() {
     // Arrange
     var source = "class Example { String value() { return -1 * 2 + \"a\" + \"b\"; } int neighbor() { return -2; } }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var request = new AstProductionRequest(new SourceInput.Snapshot(snapshot), CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_FIDELITY);
     var frontend = new JavaFrontend(new JavaSourceLoader());
@@ -95,9 +98,9 @@ class WrittenExpressionFidelityTest {
       // Arrange
       var frontend = new JavaFrontend(new JavaSourceLoader());
       var source = "class Invalid { long value() { return " + expression + "; } }";
-      var invalid = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Invalid.java"), source),
-          SourceFile.fromContent(Path.of("Neighbor.java"), "class Neighbor { String text() { return \"a\" + \"b\"; } }")));
-      var valid = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Valid.java"),
+      var invalid = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Invalid.java")), source),
+          SourceFile.fromContent(capturedPath(Path.of("Neighbor.java")), "class Neighbor { String text() { return \"a\" + \"b\"; } }")));
+      var valid = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Valid.java")),
           "class Valid { int number() { return -1; } String text() { return \"c\" + \"d\"; } }")));
 
       // Act
@@ -250,7 +253,7 @@ class WrittenExpressionFidelityTest {
 
           // Assert
           assertEquals(AstCompletion.COMPLETE, result.completion(), result.diagnostics().toString());
-          assertEquals("java-source/22", result.identity().sourceModelVersion());
+          assertEquals("java-source/23", result.identity().sourceModelVersion());
           assertEquals("javac-public/14", result.identity().semanticProductionRevision());
           assertEquals(value.shape(), shape(occurrence(result, source, value.expression()), source));
           assertEquals(result.aggregate(), decoded.aggregate());
@@ -437,7 +440,7 @@ class WrittenExpressionFidelityTest {
   }
 
   private AstResult produce(String source, AstProfile profile) {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(new SourceInput.Snapshot(snapshot),
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)).result().orElseThrow();
   }

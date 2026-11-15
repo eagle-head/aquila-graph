@@ -19,8 +19,6 @@ import org.jspecify.annotations.Nullable;
 
 /** Complete AST envelope and every ordered materialized field, independent of CFG. */
 final class Neo4jAstResultCodec {
-  static final String FORMAT_VERSION = AstCodec.FORMAT_VERSION;
-
   Neo4jAstProjection map(AstOutcome outcome) {
     var nodes = new ArrayList<Neo4jNode>();
     var relationships = new ArrayList<Neo4jRelationship>();

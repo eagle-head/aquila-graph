@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.CoverageAdmission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -197,8 +200,8 @@ class DiagnosticEventOwnershipTest {
   }
 
   private static SyntaxAnalysisInput analyze(String source) throws IOException {
-    var snapshot = InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/context-check/sources"),
-        List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of("D:/Projects/aquila-graph/aquila-graph/target/context-check/sources")),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CONFIGURATION, JavaTranslationPolicy.legacyAnalysis());
   }
 
@@ -252,7 +255,7 @@ class DiagnosticEventOwnershipTest {
     outcomes.add(outcome);
     outcomes.sort(Comparator.comparing(value -> value.address().partition()));
     var written = new SourceCoverageInventory(input.snapshot(), input.languageFeatureCoverage().release(),
-        input.languageFeatureCoverage().contractIdentity(), contexts);
+        input.languageFeatureCoverage().contractIdentity(), contexts, Optional.empty());
     var events = new ArrayList<>(evidence.diagnosticEmissions());
     if (shared) {
       var owners = new ArrayList<>(event.contexts());

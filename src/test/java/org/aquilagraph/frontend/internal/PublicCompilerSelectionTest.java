@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.api.ConstructorEvidence;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -138,14 +141,14 @@ class PublicCompilerSelectionTest {
   void givenGenericConstructorInCapturedSource_whenFrontendAnalyzes_thenCurrentProfileAdmitsItsCallAndAuxiliaryConstructorBody()
       throws IOException {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Selection.java"), """
+    var source = SourceFile.fromContent(capturedPath(Path.of("Selection.java")), """
         class Selection {
           <T> Selection(T value) {}
           static Selection create() { return new Selection("text"); }
         }
         class Auxiliary {}
         """);
-    var snapshot = InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/compiler-input"), List.of(source));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of("D:/Projects/aquila-graph/aquila-graph/target/compiler-input")), List.of(source));
 
     // Act
     var input = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());

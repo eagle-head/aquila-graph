@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -79,8 +82,8 @@ class SemanticEvidenceContractTest {
 
       // Assert
       assertEquals(Optional.empty(), absent);
-      assertEquals(new SemanticReference(ReferenceKind.LOCAL, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of()), unresolved);
-      assertEquals(new SemanticReference(ReferenceKind.FIELD, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of()), wrongKind);
+      assertEquals(new SemanticReference(ReferenceKind.LOCAL, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of(), Optional.empty()), unresolved);
+      assertEquals(new SemanticReference(ReferenceKind.FIELD, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of(), Optional.empty()), wrongKind);
       assertEquals(ResolutionStatus.RESOLVED, resolved.status());
       assertEquals(Optional.of("type:Sample#read(int):parameter:0"), resolved.symbolKey());
       assertEquals(ResolutionStatus.ERROR, erroneous.status());
@@ -249,8 +252,8 @@ class SemanticEvidenceContractTest {
     private final List<TreePath> literals = new ArrayList<>();
 
     private CompilerObservation(String content, boolean attribute) throws IOException {
-      var source = SourceFile.fromContent(Path.of("Sample.java"), content);
-      var sources = new SnapshotSourceCatalog(InputSnapshot.fromSources(temporaryDirectory, List.of(source)));
+      var source = SourceFile.fromContent(capturedPath(Path.of("Sample.java")), content);
+      var sources = new SnapshotSourceCatalog(InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory), List.of(source)));
       var compiler = ToolProvider.getSystemJavaCompiler();
       manager = compiler.getStandardFileManager(null, null, null);
       task = (JavacTask) compiler.getTask(null, manager, new DiagnosticCollector<JavaFileObject>(),

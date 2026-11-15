@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.retention.AstCodec;
 
 
@@ -31,65 +34,29 @@ class MemberInitializationCodecTest {
   @TempDir Path directory;
 
   @Test
-  void givenOriginalMethodOnlyFormat_whenDecodedAndMaterialized_thenHistoricalFactNamesIdentityAndQualificationRemainIntact() throws IOException {
+  void givenWrittenInitializerAndExecutionScope_whenRetained_thenTheirProofAndQueryValuesSurvive() throws IOException {
     // Arrange
-    var current = produce("class Example { int subject(int value) { return Math.abs(value); } }", AstProfile.JAVA_SOURCE_EXPANDED);
-    var previous = SourceAnalysisFixture.classLiteralResult(current);
-    var bytes = AstCodec.encode(previous);
+    var original = produce("class Example { int field = Math.abs(-1); { field++; } }", AstProfile.JAVA_SOURCE_INITIALIZATION);
+    var bytes = AstCodec.encode(original);
 
     // Act
-    var retained = AstCodec.decode(bytes, previous.identity());
+    var retained = AstCodec.decode(bytes, original.identity());
     var projection = AstCodec.materialize(retained);
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, retained.completion());
-    assertEquals(previous.identity(), retained.identity());
-    assertEquals(current.aggregate(), retained.aggregate());
-    assertEquals("java-source/13", retained.identity().sourceModelVersion());
-    assertEquals("java-language-feature-coverage:aa7f14c098cdf30b107ec6b2c7670c85cc1f66fd4001c71b0287f664a907503d",
-        retained.coverage().coverage().contractIdentity());
+    assertEquals(original.identity(), retained.identity());
+    assertEquals(original.aggregate(), retained.aggregate());
+    assertEquals(original.coverage(), retained.coverage());
+    assertFalse(retained.coverage().validationEvidence().writtenInventory().writtenExpressions().orElseThrow().isEmpty());
     assertArrayEquals(bytes, AstCodec.encode(retained));
-    assertFalse(projection.links().stream().anyMatch(link -> link.field().equals("scopeKey") || link.field().equals("scopes")));
-    assertTrue(projection.links().stream().anyMatch(link -> link.field().equals("methodKey")));
-  }
-
-  @Test
-  void givenDeclarationScopes_whenOriginalMethodOnlyFormatIsRequested_thenTheNewValuesCannotBeEncodedAsHistoricalResults() throws IOException {
-    // Arrange
-    var original = produce("class Example { int field = Math.abs(1); { field++; } }", AstProfile.JAVA_SOURCE_INITIALIZATION);
-
-    // Act
-    var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(copiedInput(original)), original.profile(),
-        original.identity().semanticProductionRevision(), "java-source/13"));
-
-    // Assert
-    assertTrue(failure.getMessage().contains("Declaration execution scopes require retained AST format java-source/14"));
-    assertEquals(AstCompletion.COMPLETE, original.completion());
-  }
-
-  @Test
-  void givenNormalizedInitializer_whenPreviousFormatIsRequested_thenWrittenProofCannotBeDowngraded() throws IOException {
-    // Arrange
-    var original = produce("class Example { int field = Math.abs(-1); { field++; } }", AstProfile.JAVA_SOURCE_INITIALIZATION);
-
-    // Act
-    var failure = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(SourceAnalysisFixture.historicalInput(copiedInput(original)), original.profile(),
-        original.identity().semanticProductionRevision(), AstResult.SOURCE_ENVELOPE_MODEL_VERSION));
-
-    // Assert
-    assertTrue(failure.getMessage().contains("Written expression obligations require retained AST format java-source/19"), failure.toString());
-    assertFalse(original.coverage().validationEvidence().writtenInventory().writtenExpressions().orElseThrow().isEmpty());
-    assertEquals(AstCompletion.COMPLETE, original.completion());
+    assertTrue(projection.links().stream().anyMatch(link -> link.field().equals("scopes")));
   }
 
   private AstResult produce(String source, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)
         .result().orElseThrow();
   }
 
-  private static SyntaxAnalysisInput copiedInput(AstResult result) {
-    return new SyntaxAnalysisInput(result.snapshot(), result.environment(), result.program(), Optional.of(result.aggregate()),
-        result.diagnostics(), result.coverage());
-  }
 }

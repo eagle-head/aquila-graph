@@ -34,20 +34,6 @@ public record DeclarationMemberOrder(String sourceFileKey, String ownerTypeKey, 
   }
 
   /**
-   * Creates the historical element-order value without attributed tree correspondence.
-   *
-   * @param sourceFileKey
-   *          captured source identity
-   * @param ownerTypeKey
-   *          canonical declaring type identity
-   * @param members
-   *          copied element members
-   */
-  public DeclarationMemberOrder(String sourceFileKey, String ownerTypeKey, List<Member> members) {
-    this(sourceFileKey, ownerTypeKey, members, Optional.empty());
-  }
-
-  /**
    * Independent parsed ownership in the actual attributed ClassTree member order.
    *
    * @param ownerPath

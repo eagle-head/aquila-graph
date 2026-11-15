@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.source.api.AstProductionRequest;
@@ -288,7 +291,7 @@ class RecursiveDeclarationCompositionAstTest {
   @Test
   void givenMixedDeclarationsThroughApplication_whenCfgIsAbsentRefusedOrFails_thenRealSourceAndNestedSelectionRemainIndependent() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), mixedSource())));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), mixedSource())));
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var runner = AnalysisCapabilities.computation(frontend, CfgDerivers.standard());
     var cause = new IllegalStateException("Supplied CFG construction failure");
@@ -484,7 +487,7 @@ class RecursiveDeclarationCompositionAstTest {
   }
 
   private AstResult produce(String source) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_UNITS).result().orElseThrow();
   }

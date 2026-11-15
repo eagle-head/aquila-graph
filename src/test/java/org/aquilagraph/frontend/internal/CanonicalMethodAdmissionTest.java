@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -34,8 +37,8 @@ class CanonicalMethodAdmissionTest {
 
   private void assertChangedDeclaration(AstProfile profile, boolean signature) throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { int subject(int input) { return input; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { int subject(int input) { return input; } }")));
     var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
     var baseline = AstResultAdmission.admit(original, profile, "javac-public/1");
     var method = original.program().methods().stream().filter(value -> value.name().equals("subject")).findFirst().orElseThrow();
@@ -45,7 +48,8 @@ class CanonicalMethodAdmissionTest {
     var program = new JavaProgram(original.program().types().stream().map(type -> new JavaType(type.typeKey(), type.qualifiedName(),
         type.kind(), type.modifiers(), type.enclosingType(), type.directSuperclass(), type.directInterfaces(), type.permittedSubclasses(),
         type.typeParameters(), type.sourceDeclared(), type.fields(), type.recordComponents(),
-        type.methods().stream().map(value -> value.equals(method) ? changed : value).toList(), type.synthesizedDeclarations(), type.origins()))
+        type.methods().stream().map(value -> value.equals(method) ? changed : value).toList(), type.synthesizedDeclarations(), type.origins(),
+    type.nesting(), type.staticType(), type.displayName()))
         .toList());
 
     // Act

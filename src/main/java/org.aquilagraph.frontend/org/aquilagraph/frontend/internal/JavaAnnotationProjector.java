@@ -120,8 +120,8 @@ final class JavaAnnotationProjector {
     if (!validType) {
       diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(sourceFile.sourceFileKey() + ':' + occurrencePath,
           "frontend.unresolved-annotation-type", "The written annotation does not select a resolved annotation type", range));
-      reference = Optional.of(
-          new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of()));
+      reference = Optional.of(new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(),
+          List.of(), List.of(), Optional.empty()));
     } else {
       var annotationType = (TypeElement) Objects.requireNonNull(element);
       var applicable = applicableTargets(annotationType);

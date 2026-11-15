@@ -91,7 +91,7 @@ class MethodSyntaxCatchReadinessTest {
     var tryPath = BODY_PATH.child(SyntaxRole.STATEMENT, 0);
     var catchPath = tryPath.child(SyntaxRole.CATCH_CLAUSE, 0);
     var parameter = node(catchPath.child(SyntaxRole.PARAMETER, 0), JavaSourceKind.VARIABLE, SyntaxKind.LOCAL_DECLARATION, type,
-        new SyntaxValue.LocalDeclaration("failure"), List.of(), reference);
+        new SyntaxValue.LocalDeclaration("failure", Optional.empty(), List.of(), Optional.empty()), List.of(), reference);
     var handler = node(catchPath, JavaSourceKind.CATCH, SyntaxKind.CATCH, SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
         List.of(new SyntaxChild(SyntaxRole.PARAMETER, 0, parameter),
             new SyntaxChild(SyntaxRole.BODY, 0, block(catchPath.child(SyntaxRole.BODY, 0), List.of()))), Optional.empty());
@@ -108,6 +108,6 @@ class MethodSyntaxCatchReadinessTest {
 
   private static SemanticReference reference(ResolutionStatus status, List<String> alternatives) {
     return new SemanticReference(ReferenceKind.LOCAL, status, status == ResolutionStatus.RESOLVED ? Optional.of(METHOD + ":exception_parameter:0:0") : Optional.empty(),
-        Optional.of(EXCEPTION.erasedName()), alternatives, List.of(EXCEPTION.erasedName(), "java.lang.Throwable", "java.lang.Object"));
+        Optional.of(EXCEPTION.erasedName()), alternatives, List.of(EXCEPTION.erasedName(), "java.lang.Throwable", "java.lang.Object"), Optional.empty());
   }
 }

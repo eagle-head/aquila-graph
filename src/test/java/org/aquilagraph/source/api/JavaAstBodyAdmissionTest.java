@@ -1,5 +1,8 @@
 package org.aquilagraph.source.api;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -233,14 +236,14 @@ class JavaAstBodyAdmissionTest {
   private static InputSnapshot snapshot(String... sourceKeys) {
     var files = new ArrayList<SourceFile>();
     for (var key : sourceKeys) {
-      files.add(new SourceFile(key, Path.of(key + ".java"), "digest-" + key, CONTENT));
+      files.add(new SourceFile(key, capturedPath(Path.of(key + ".java")), "digest-" + key, CONTENT));
     }
-    return new InputSnapshot(Path.of("sources"), "SHA-256", "snapshot", files);
+    return new InputSnapshot(capturedAbsolute(Path.of("sources")), "SHA-256", "snapshot", files);
   }
 
   private static SyntaxNode root(String key, List<SyntaxChild> children) {
     return SyntaxNode.source(key, SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT,
-        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), children,
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE), children,
         Optional.empty(), new SourceSpan(key, 0, CONTENT.length()));
   }
 
@@ -280,7 +283,7 @@ class JavaAstBodyAdmissionTest {
           : node.value() instanceof SyntaxValue.ExecutableDeclaration declaration ? Optional.of(declaration.declarationKey()) : Optional.<String>empty();
       return key.stream().map(target -> new SyntaxSemanticEdge(node.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
           new SyntaxSemanticTarget.Declaration(new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(target), Optional.empty(),
-              List.of(), List.of()))));
+              List.of(), List.of(), Optional.empty()))));
     }).toList();
     return new SyntaxSourceContribution(root.sourceFileKey(), root, nodes, structural, semantic);
   }

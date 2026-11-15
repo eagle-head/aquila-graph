@@ -1,5 +1,12 @@
 package org.aquilagraph.source.api;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import org.aquilagraph.identity.api.CapturedLocation;
+import org.aquilagraph.identity.api.CapturedLocation.Syntax;
+import org.aquilagraph.identity.api.DependencySemantics;
+import org.aquilagraph.identity.api.DependencySemantics.State;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -21,23 +28,25 @@ import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.Test;
 
 class SourceEnvironmentValueContractTest {
+  private static final DependencySemantics CLASS_PATH = new DependencySemantics(State.CLASS_PATH, List.of());
+  private static final DependencySemantics MODULES = new DependencySemantics(State.MODULES, List.of());
   private static final List<String> ANALYSIS_OPTIONS = List.of("--release", "25", "-encoding", "UTF-8", "-proc:none");
 
   @Test
   void givenNullSnapshotFieldsAndSourceElements_whenValuesAreConstructed_thenRequiredInputIsRejectedAtItsOwner() {
     // Arrange
-    var source = SourceFile.fromContent(Path.of("Sample.java"), "class Sample {}");
+    var source = SourceFile.fromContent(capturedPath(Path.of("Sample.java")), "class Sample {}");
     List<Executable> invalidInputs = List.of(
         () -> new InputSnapshot(null, "SHA-256", "digest", List.of()),
-        () -> new InputSnapshot(Path.of("sources"), null, "digest", List.of()),
-        () -> new InputSnapshot(Path.of("sources"), "SHA-256", null, List.of()),
-        () -> new InputSnapshot(Path.of("sources"), "SHA-256", "digest", null),
-        () -> new InputSnapshot(Path.of("sources"), "SHA-256", "digest", Collections.singletonList(null)),
-        () -> InputSnapshot.fromSources(Path.of("sources"), null),
-        () -> InputSnapshot.fromSources(Path.of("sources"), Collections.singletonList(null)),
+        () -> new InputSnapshot(capturedAbsolute(Path.of("sources")), null, "digest", List.of()),
+        () -> new InputSnapshot(capturedAbsolute(Path.of("sources")), "SHA-256", null, List.of()),
+        () -> new InputSnapshot(capturedAbsolute(Path.of("sources")), "SHA-256", "digest", null),
+        () -> new InputSnapshot(capturedAbsolute(Path.of("sources")), "SHA-256", "digest", Collections.singletonList(null)),
+        () -> InputSnapshot.fromSources(capturedAbsolute(Path.of("sources")), null),
+        () -> InputSnapshot.fromSources(capturedAbsolute(Path.of("sources")), Collections.singletonList(null)),
         () -> InputSnapshot.fromSources(null, List.of(source)),
         () -> SourceFile.fromContent(null, ""),
-        () -> SourceFile.fromContent(Path.of("Sample.java"), null));
+        () -> SourceFile.fromContent(capturedPath(Path.of("Sample.java")), null));
 
     // Act
     var failures = invalidInputs.stream().map(input -> assertThrows(NullPointerException.class, input)).toList();
@@ -93,28 +102,33 @@ class SourceEnvironmentValueContractTest {
   }
 
   @Test
-  void givenNormalizedAbsoluteDependencyRolesAndOrderedOptions_whenCanonicalConfigurationIsQueried_thenLiteralNullAndNewlineSeparatorsAreRetained() {
+  void givenSameTextDependenciesAndOrderedOptions_whenConfigurationIsIdentified_thenSyntaxRoleAndOptionOrderAllMatter() {
     // Arrange
-    var dependencies = Path.of("Dependencies").toAbsolutePath();
-    var modules = Path.of("Modules").toAbsolutePath();
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25,
-        List.of(dependencies.resolve("nested").resolve("..").resolve("alpha.jar"), dependencies.resolve("beta.jar")),
-        List.of(modules.resolve("alpha.jar")), List.of("-Xlint:all", "-parameters"));
+    var text = "//server/share/alpha.jar";
+    var windows = CapturedLocation.parse(Syntax.WINDOWS, text);
+    var posix = CapturedLocation.parse(Syntax.POSIX, text);
+    var second = CapturedLocation.parse(Syntax.POSIX, "/modules/beta.jar");
+    var options = List.of("-Xlint:all", "-parameters");
+    var windowsConfiguration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(windows), List.of(second), options);
+    var posixConfiguration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(posix), List.of(second), options);
+    var differentRole = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(second), List.of(windows), options);
+    var differentOrder = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(windows), List.of(second), options.reversed());
 
     // Act
-    var canonical = configuration.canonicalForm();
+    var canonical = windowsConfiguration.canonicalForm();
 
     // Assert
-    assertEquals("25\n" + dependencies.resolve("alpha.jar") + "\u0000" + dependencies.resolve("beta.jar") + "\n"
-        + modules.resolve("alpha.jar") + "\n-Xlint:all\u0000-parameters", canonical);
-    assertEquals("25\n\n\n", CompilerConfiguration.forRelease(JavaRelease.JAVA_25).canonicalForm());
+    assertEquals(canonical, new CompilerConfiguration(JavaRelease.JAVA_25, List.of(windows), List.of(second), options).canonicalForm());
+    assertNotEquals(canonical, posixConfiguration.canonicalForm());
+    assertNotEquals(canonical, differentRole.canonicalForm());
+    assertNotEquals(canonical, differentOrder.canonicalForm());
   }
 
   @Test
   void givenNullCompilerDependencyAndVersionInputs_whenValuesAreConstructed_thenRequiredFieldsAndEntriesAreRejected() {
     // Arrange
     var environment = environment(List.of(), List.of());
-    var snapshot = InputSnapshot.fromSources(Path.of("sources"), List.of());
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of("sources")), List.of());
     List<Executable> invalidInputs = List.of(
         () -> new CompilerConfiguration(null, List.of(), List.of(), List.of()),
         () -> new CompilerConfiguration(JavaRelease.JAVA_25, null, List.of(), List.of()),
@@ -123,9 +137,9 @@ class SourceEnvironmentValueContractTest {
         () -> new CompilerConfiguration(JavaRelease.JAVA_25, Collections.singletonList(null), List.of(), List.of()),
         () -> new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), Collections.singletonList(null), List.of()),
         () -> new CompilerConfiguration(JavaRelease.JAVA_25, List.of(), List.of(), Collections.singletonList(null)),
-        () -> new DependencySnapshot(null, DependencyKind.MISSING, 0, 0, ""),
-        () -> new DependencySnapshot(Path.of("missing"), null, 0, 0, ""),
-        () -> new DependencySnapshot(Path.of("missing"), DependencyKind.MISSING, 0, 0, null),
+        () -> new DependencySnapshot(null, DependencyKind.MISSING, 0, 0, "", CLASS_PATH),
+        () -> new DependencySnapshot(capturedAbsolute(Path.of("missing")), null, 0, 0, "", CLASS_PATH),
+        () -> new DependencySnapshot(capturedAbsolute(Path.of("missing")), DependencyKind.MISSING, 0, 0, null, CLASS_PATH),
         () -> SoftwareVersion.from(null, environment),
         () -> SoftwareVersion.from(snapshot, null),
         () -> new SoftwareVersion(null, "environment"),
@@ -146,7 +160,7 @@ class SourceEnvironmentValueContractTest {
   void givenNullBlankAndMismatchedEnvironmentInputs_whenEnvironmentIsConstructed_thenItsLocalAdmissionBoundaryRejectsEachPartition() {
     // Arrange
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
-    var configuredDependency = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(Path.of("dependency")), List.of(), List.of());
+    var configuredDependency = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(Path.of("dependency"))), List.of(), List.of());
     List<Executable> nullInputs = List.of(
         () -> new AnalysisEnvironmentSnapshot(null, "compiler", "vendor", "version", List.of(), List.of(), List.of()),
         () -> new AnalysisEnvironmentSnapshot(configuration, null, "vendor", "version", List.of(), List.of(), List.of()),
@@ -177,93 +191,96 @@ class SourceEnvironmentValueContractTest {
   @Test
   void givenCallerAssuredSourceAndSnapshotSignatures_whenValuesAreConstructed_thenSuppliedSignaturesAreRetainedWithoutAuthentication() {
     // Arrange
-    var source = new SourceFile("", Path.of("nested/../input.txt"), "", "");
+    var source = new SourceFile("", capturedPath(Path.of("nested/../input.txt")), "", "");
     var sources = new ArrayList<>(List.of(source));
 
     // Act
-    var snapshot = new InputSnapshot(Path.of("source"), "caller-algorithm", "caller-signature", sources);
+    var snapshot = new InputSnapshot(capturedAbsolute(Path.of("source")), "caller-algorithm", "caller-signature", sources);
     sources.clear();
 
     // Assert
-    assertEquals(Path.of("input.txt"), source.relativePath());
+    assertEquals(capturedPath(Path.of("input.txt")), source.relativePath());
     assertEquals("", source.sourceFileKey());
     assertEquals("", source.contentDigest());
     assertEquals("caller-algorithm", snapshot.digestAlgorithm());
     assertEquals("caller-signature", snapshot.snapshotDigest());
     assertEquals(List.of(source), snapshot.sourceFiles());
-    assertThrows(NullPointerException.class, () -> new SourceFile(null, Path.of("input.txt"), "", ""));
+    assertThrows(NullPointerException.class, () -> new SourceFile(null, capturedPath(Path.of("input.txt")), "", ""));
     assertThrows(NullPointerException.class, () -> new SourceFile("", null, "", ""));
-    assertThrows(NullPointerException.class, () -> new SourceFile("", Path.of("input.txt"), null, ""));
-    assertThrows(NullPointerException.class, () -> new SourceFile("", Path.of("input.txt"), "", null));
+    assertThrows(NullPointerException.class, () -> new SourceFile("", capturedPath(Path.of("input.txt")), null, ""));
+    assertThrows(NullPointerException.class, () -> new SourceFile("", capturedPath(Path.of("input.txt")), "", null));
   }
 
   @Test
   void givenCallerAssuredDependencyMetadata_whenValuesAreConstructed_thenNarrowCountChecksAndUnauthenticatedFingerprintAreRetained() {
     // Arrange
-    var location = Path.of("library.jar");
+    var location = capturedAbsolute(Path.of("library.jar"));
 
     // Act
-    var file = new DependencySnapshot(location, DependencyKind.REGULAR_FILE, 3, 1, "");
-    var directory = new DependencySnapshot(location, DependencyKind.DIRECTORY, 7, 0, "caller-fingerprint");
-    var missing = new DependencySnapshot(location, DependencyKind.MISSING, 0, 0, "caller-fingerprint");
+    var file = new DependencySnapshot(location, DependencyKind.REGULAR_FILE, 3, 1, "", CLASS_PATH);
+    var directory = new DependencySnapshot(location, DependencyKind.DIRECTORY, 7, 0, "caller-fingerprint", CLASS_PATH);
+    var missing = new DependencySnapshot(location, DependencyKind.MISSING, 0, 0, "caller-fingerprint", CLASS_PATH);
 
     // Assert
-    assertEquals(location.toAbsolutePath().normalize(), file.location());
+    assertEquals(location, file.location());
     assertEquals("", file.fingerprint());
     assertEquals(7, directory.byteCount());
     assertEquals(0, missing.entryCount());
-    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(location, DependencyKind.DIRECTORY, -1, 0, ""));
-    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(location, DependencyKind.DIRECTORY, 0, -1, ""));
-    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(location, DependencyKind.MISSING, 1, 0, ""));
-    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(location, DependencyKind.MISSING, 0, 1, ""));
-    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(location, DependencyKind.REGULAR_FILE, 0, 0, ""));
+    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(location, DependencyKind.DIRECTORY, -1, 0, "", CLASS_PATH));
+    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(location, DependencyKind.DIRECTORY, 0, -1, "", CLASS_PATH));
+    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(location, DependencyKind.MISSING, 1, 0, "", CLASS_PATH));
+    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(location, DependencyKind.MISSING, 0, 1, "", CLASS_PATH));
+    assertThrows(IllegalArgumentException.class, () -> new DependencySnapshot(location, DependencyKind.REGULAR_FILE, 0, 0, "", CLASS_PATH));
   }
 
   @Test
   void givenOrderedDuplicateDependencyRolesAndMutableOptions_whenEnvironmentIsConstructed_thenPositionsAndDefensiveCopiesAreRetained() {
     // Arrange
-    var first = Path.of("first.jar");
-    var second = Path.of("second.jar");
+    var first = capturedAbsolute(Path.of("first.jar"));
+    var second = capturedAbsolute(Path.of("second.jar"));
     var paths = new ArrayList<>(List.of(first, second, first));
     var options = new ArrayList<>(List.of("-Xlint:all"));
     var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, paths, List.of(first), options);
-    var firstValue = new DependencySnapshot(first, DependencyKind.REGULAR_FILE, 1, 1, "first");
-    var secondValue = new DependencySnapshot(second, DependencyKind.REGULAR_FILE, 1, 1, "second");
+    var firstValue = new DependencySnapshot(first, DependencyKind.REGULAR_FILE, 1, 1, "first", CLASS_PATH);
+    var secondValue = new DependencySnapshot(second, DependencyKind.REGULAR_FILE, 1, 1, "second", CLASS_PATH);
+    var firstModule = new DependencySnapshot(first, DependencyKind.REGULAR_FILE, 1, 1, "first", MODULES);
     var captured = new ArrayList<>(List.of(firstValue, secondValue, firstValue));
     var analysisOptions = new ArrayList<>(ANALYSIS_OPTIONS);
 
     // Act
     var environment = new AnalysisEnvironmentSnapshot(configuration, "compiler.Implementation", "Vendor", "25.0.4+1", analysisOptions,
-        captured, List.of(firstValue));
+        captured, List.of(firstModule));
     paths.clear();
     options.clear();
     analysisOptions.clear();
     captured.clear();
 
     // Assert
-    assertEquals(List.of(first.toAbsolutePath().normalize(), second.toAbsolutePath().normalize(), first.toAbsolutePath().normalize()),
+    assertEquals(List.of(first, second, first),
         configuration.classPath());
     assertEquals(List.of("-Xlint:all"), configuration.options());
     assertEquals(ANALYSIS_OPTIONS, environment.analysisOptions());
     assertEquals(List.of(firstValue, secondValue, firstValue), environment.classPath());
-    assertEquals(List.of(firstValue), environment.modulePath());
+    assertEquals(List.of(firstModule), environment.modulePath());
     assertThrows(UnsupportedOperationException.class, environment.classPath()::clear);
     assertThrows(IllegalArgumentException.class, () -> new AnalysisEnvironmentSnapshot(configuration, "compiler.Implementation", "Vendor",
-        "25.0.4+1", ANALYSIS_OPTIONS, List.of(firstValue, firstValue, secondValue), List.of(firstValue)));
+        "25.0.4+1", ANALYSIS_OPTIONS, List.of(firstValue, firstValue, secondValue), List.of(firstModule)));
     assertThrows(IllegalArgumentException.class, () -> new AnalysisEnvironmentSnapshot(configuration, "compiler.Implementation", "Vendor",
-        "25.0.4+1", ANALYSIS_OPTIONS, List.of(firstValue), List.of(firstValue)));
+        "25.0.4+1", ANALYSIS_OPTIONS, List.of(firstValue), List.of(firstModule)));
   }
 
   @Test
   void givenDependenciesWithDistinctFingerprints_whenPositionOrRoleChanges_thenEnvironmentIdentityDistinguishesEachOrderedRole() {
     // Arrange
-    var first = new DependencySnapshot(Path.of("first.jar"), DependencyKind.REGULAR_FILE, 1, 1, "first");
-    var second = new DependencySnapshot(Path.of("second.jar"), DependencyKind.REGULAR_FILE, 1, 1, "second");
+    var first = new DependencySnapshot(capturedAbsolute(Path.of("first.jar")), DependencyKind.REGULAR_FILE, 1, 1, "first", CLASS_PATH);
+    var second = new DependencySnapshot(capturedAbsolute(Path.of("second.jar")), DependencyKind.REGULAR_FILE, 1, 1, "second", CLASS_PATH);
     var baseline = environment(List.of(first, second), List.of());
 
     // Act
     var reversed = environment(List.of(second, first), List.of());
-    var moved = environment(List.of(), List.of(first, second));
+    var moved = environment(List.of(), List.of(
+        new DependencySnapshot(first.location(), first.kind(), first.byteCount(), first.entryCount(), first.fingerprint(), MODULES),
+        new DependencySnapshot(second.location(), second.kind(), second.byteCount(), second.entryCount(), second.fingerprint(), MODULES)));
     var duplicated = environment(List.of(first, second, first), List.of());
 
     // Assert
@@ -276,19 +293,19 @@ class SourceEnvironmentValueContractTest {
   void givenFixedCompilerFactsAndSourceDigest_whenCombinedSignaturesAreDerived_thenIndependentLiteralFourByteFramesArePreserved() {
     // Arrange
     var environment = environment(List.of(), List.of());
-    var snapshot = new InputSnapshot(Path.of("sources"), "SHA-256",
+    var snapshot = new InputSnapshot(capturedAbsolute(Path.of("sources")), "SHA-256",
         "snapshot:59ea0f249b25412396bb902ec3fc0ab7cc48048f7a75d1484a86288fe005fa14", List.of());
 
     // Act
     var version = SoftwareVersion.from(snapshot, environment);
 
     // Assert
-    assertEquals("analysis-environment:9fcabc1ba8f477f6713d73fa6c7dc79089046bd0c1b48b6afa80befbdcc120de", environment.environmentDigest());
+    assertEquals("analysis-environment/2:ab3ce46b097dea7c9982782e8e785be360207363da2b4997fc34dbc4afe4c859", environment.environmentDigest());
     assertEquals(snapshot.snapshotDigest(), version.sourceSignature());
     assertEquals(environment.environmentDigest(), version.environmentSignature());
-    assertEquals("software-version:410089fc896eebc780c559b3488447e63394a32eeba17c33f877f27c3bfcbbb6", version.signature());
+    assertEquals("software-version:eb6aa27b840e9ccef37692844e4675b3685e59ba30d8e8be0387d3877855cc15", version.signature());
     assertThrows(IllegalArgumentException.class,
-        () -> SoftwareVersion.from(new InputSnapshot(Path.of("sources"), "caller-algorithm", "caller-signature", List.of()), environment));
+        () -> SoftwareVersion.from(new InputSnapshot(capturedAbsolute(Path.of("sources")), "caller-algorithm", "caller-signature", List.of()), environment));
     assertThrows(IllegalArgumentException.class, () -> new SoftwareVersion("", "environment"));
     assertThrows(IllegalArgumentException.class, () -> new SoftwareVersion("source", " "));
   }

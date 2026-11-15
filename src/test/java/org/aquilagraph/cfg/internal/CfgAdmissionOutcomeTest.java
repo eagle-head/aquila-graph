@@ -1,5 +1,8 @@
 package org.aquilagraph.cfg.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -72,7 +75,7 @@ class CfgAdmissionOutcomeTest {
             target(2);
         """ + (unsupportedConstruct ? "int result = switch (1) { case 1 -> 2; default -> 3; };\n" : "")
         + (unavailableSource ? "class Local {}\n" : "") + "return 0; } }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Stored.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), source)));
     var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot,
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
     var method = original.program().methods().stream().filter(value -> value.name().equals("run")).findFirst().orElseThrow();
@@ -89,7 +92,7 @@ class CfgAdmissionOutcomeTest {
                   : EvidenceValue.missing(value.applicability().origin(), "Supplied missing call classification"))
               : value).toList(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
       var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), bodies, copied.memberOrders(),
-          copied.associations(), copied.declarationTypes()));
+          copied.associations(), copied.declarationTypes(), copied.scopes()));
       var ast = AstResultAdmission.admit(new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(),
           Optional.of(aggregate), original.diagnostics(), original.coverage()), original.profile(),
           original.identity().semanticProductionRevision());

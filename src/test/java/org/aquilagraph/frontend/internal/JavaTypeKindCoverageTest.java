@@ -332,7 +332,7 @@ class JavaTypeKindCoverageTest {
       var parsed = session.parse();
       var compilation = session.analyze(parsed, JavaTranslationPolicy.legacyAnalysis());
       var bUnit = compilation.units().stream()
-          .filter(unit -> sources.find(unit).orElseThrow().relativePath().equals(Path.of("B.java"))).findFirst().orElseThrow();
+          .filter(unit -> sources.find(unit).orElseThrow().canonicalRelativePath().equals("B.java")).findFirst().orElseThrow();
       var declaration = (ClassTree) bUnit.getTypeDecls().getFirst();
       var fields = declaration.getMembers().stream().filter(VariableTree.class::isInstance).map(VariableTree.class::cast).toList();
       var missing = new ArrayList<Tree>(fields.stream().map(VariableTree::getType).toList());

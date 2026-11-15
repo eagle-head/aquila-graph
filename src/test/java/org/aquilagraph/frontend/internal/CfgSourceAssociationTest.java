@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.internal.SourceValueCapture;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -49,7 +52,7 @@ class CfgSourceAssociationTest {
     // Arrange: auxiliary copies keep the compiler's independent inventories and actual source tree unchanged.
     var source = refused ? "class Example { int subject() { return 7; } }"
         : "class Example { void subject() { return; } }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
     var writtenKey = original.program().methods().stream().filter(method -> method.name().equals("subject")).findFirst().orElseThrow().methodKey();
     var auxiliaryKey = original.program().methods().stream().filter(method -> method.constructor()).findFirst().orElseThrow().methodKey();
@@ -60,7 +63,7 @@ class CfgSourceAssociationTest {
             List.of(), List.of(), List.of(), List.of())
         : body).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), captured.sources(), bodies, captured.memberOrders(),
-        captured.associations(), captured.declarationTypes()));
+        captured.associations(), captured.declarationTypes(), captured.scopes()));
     var supplied = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate),
         JavaCoverageTestSupport.emissions(original));
     var admitted = AstResultAdmission.admit(supplied, profile, "javac-public/1");

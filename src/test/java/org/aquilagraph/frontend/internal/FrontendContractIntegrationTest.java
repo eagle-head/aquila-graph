@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -47,10 +50,10 @@ class FrontendContractIntegrationTest {
     // Arrange
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
-    var snapshot = InputSnapshot.fromSources(directory, List.of(
-        SourceFile.fromContent(Path.of("Empty.java"), "package sample; import java.util.List;"),
-        SourceFile.fromContent(Path.of("Legacy.java"), "package sample; @Deprecated(forRemoval=true) class Legacy {}"),
-        SourceFile.fromContent(Path.of("Subject.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+        SourceFile.fromContent(capturedPath(Path.of("Empty.java")), "package sample; import java.util.List;"),
+        SourceFile.fromContent(capturedPath(Path.of("Legacy.java")), "package sample; @Deprecated(forRemoval=true) class Legacy {}"),
+        SourceFile.fromContent(capturedPath(Path.of("Subject.java")), """
             package sample;
             @java.lang.annotation.Target(java.lang.annotation.ElementType.FIELD)
             @interface Mark {}
@@ -83,7 +86,7 @@ class FrontendContractIntegrationTest {
     var retained = AstCodec.decode(encoded, result.identity());
     var graphs = consumer.deriveExisting(outcome, new CfgRequest(result.identity(),
         List.of("type:sample.Subject#plain()", "type:sample.Subject#subject()"), CfgProfile.JAVA_BOUNDED));
-    var empty = frontend.produce(InputSnapshot.fromSources(directory.resolve("empty"), List.of()), configuration,
+    var empty = frontend.produce(InputSnapshot.fromSources(capturedAbsolute(directory.resolve("empty")), List.of()), configuration,
         AstProfile.JAVA_SOURCE_UNITS);
     var repeated = frontend.produce(request).result().orElseThrow();
 
@@ -142,8 +145,8 @@ class FrontendContractIntegrationTest {
   void givenGenericHeadersAndRecursiveAttachmentsAcrossUnits_whenClosedAstFeedsDetachedConsumers_thenCompositionAndIndependentGatesSurvive()
       throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(
-        SourceFile.fromContent(Path.of("Matrix.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+        SourceFile.fromContent(capturedPath(Path.of("Matrix.java")), """
             import java.lang.annotation.*;
             @Target({ElementType.TYPE_USE, ElementType.LOCAL_VARIABLE}) @interface Use {}
             @interface Options { int[] value() default {1, 2}; }
@@ -168,7 +171,7 @@ class FrontendContractIntegrationTest {
               }
             }
             """),
-        SourceFile.fromContent(Path.of("Following.java"), "class Following { int plain() { return 11; } }")));
+        SourceFile.fromContent(capturedPath(Path.of("Following.java")), "class Following { int plain() { return 11; } }")));
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var request = new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_UNITS);
     var deriver = CfgDerivers.standard();
@@ -188,7 +191,7 @@ class FrontendContractIntegrationTest {
     // Assert
     assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
     assertTrue(outcome.diagnostics().isEmpty());
-    assertEquals("java-source/22", result.identity().sourceModelVersion());
+    assertEquals("java-source/23", result.identity().sourceModelVersion());
     assertEquals(List.of("field", "STATIC_INITIALIZER_BLOCK", "INSTANCE_INITIALIZER_BLOCK", "subject", "plain", "Choice", "Pair"),
         type(result, "Matrix").children(SyntaxRole.MEMBER).stream().map(FrontendContractIntegrationTest::memberName).toList());
     var declaration = result.aggregate().nodes().stream().filter(node -> node.value() instanceof ExecutableDeclaration value

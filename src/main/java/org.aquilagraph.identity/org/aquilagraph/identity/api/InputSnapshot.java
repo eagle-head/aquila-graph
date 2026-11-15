@@ -1,6 +1,5 @@
 package org.aquilagraph.identity.api;
 
-import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -20,12 +19,15 @@ import org.jspecify.annotations.Nullable;
  * @param sourceFiles
  *          files in case-sensitive lexicographic canonical relative-path order
  */
-public record InputSnapshot(Path sourceRoot, String digestAlgorithm, String snapshotDigest, List<SourceFile> sourceFiles) {
+public record InputSnapshot(CapturedLocation sourceRoot, String digestAlgorithm, String snapshotDigest, List<SourceFile> sourceFiles) {
   private static final Comparator<SourceFile> SOURCE_ORDER = Comparator.comparing(SourceFile::canonicalRelativePath);
 
   /** Validates snapshot identity, uniqueness, and deterministic ordering. */
   public InputSnapshot {
-    sourceRoot = Objects.requireNonNull(sourceRoot, "sourceRoot").toAbsolutePath().normalize();
+    Objects.requireNonNull(sourceRoot, "sourceRoot");
+    if (!sourceRoot.isAbsolute()) {
+      throw new IllegalArgumentException("A captured source root must be absolute");
+    }
     Objects.requireNonNull(digestAlgorithm, "digestAlgorithm");
     Objects.requireNonNull(snapshotDigest, "snapshotDigest");
     sourceFiles = List.copyOf(Objects.requireNonNull(sourceFiles, "sourceFiles"));
@@ -34,6 +36,9 @@ public record InputSnapshot(Path sourceRoot, String digestAlgorithm, String snap
     SourceFile previous = null;
     for (var sourceFile : sourceFiles) {
       Objects.requireNonNull(sourceFile, "sourceFile");
+      if (sourceFile.relativePath().syntax() != sourceRoot.syntax()) {
+        throw new IllegalArgumentException("A source file must use the syntax of its captured root");
+      }
       if (!keys.add(sourceFile.sourceFileKey())) {
         throw new IllegalArgumentException("Source-file keys must be unique");
       }
@@ -53,9 +58,9 @@ public record InputSnapshot(Path sourceRoot, String digestAlgorithm, String snap
    *          captured source files in any encounter order
    * @return immutable snapshot with a digest derived from canonical paths and content digests
    * @throws IllegalArgumentException
-   *           if source keys or canonical paths are duplicated
+   *           if the root is relative, source syntax differs, or source keys or canonical paths are duplicated
    */
-  public static InputSnapshot fromSources(Path sourceRoot, List<SourceFile> sourceFiles) {
+  public static InputSnapshot fromSources(CapturedLocation sourceRoot, List<SourceFile> sourceFiles) {
     var ordered = Objects.requireNonNull(sourceFiles, "sourceFiles").stream().sorted(SOURCE_ORDER).toList();
     var components = ordered.stream().flatMap(source -> Stream.of(source.canonicalRelativePath(), source.contentDigest()))
         .toArray(String[]::new);

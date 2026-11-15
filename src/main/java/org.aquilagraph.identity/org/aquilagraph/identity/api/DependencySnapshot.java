@@ -1,8 +1,6 @@
 package org.aquilagraph.identity.api;
 
-import java.nio.file.Path;
 import java.util.Objects;
-import java.util.List;
 
 /**
  * Captured identity and size metadata for one compiler dependency entry.
@@ -20,32 +18,18 @@ import java.util.List;
  * @param semantics
  *          detached interpretation for the configured role
  */
-public record DependencySnapshot(Path location, DependencyKind kind, long byteCount, int entryCount, String fingerprint,
+public record DependencySnapshot(CapturedLocation location, DependencyKind kind, long byteCount, int entryCount, String fingerprint,
     DependencySemantics semantics) {
-  /**
-   * Constructs historical metadata without claiming observed module semantics.
-   *
-   * @param location
-   *          dependency location
-   * @param kind
-   *          physical kind
-   * @param byteCount
-   *          captured bytes
-   * @param entryCount
-   *          captured files
-   * @param fingerprint
-   *          supplied physical fingerprint
-   */
-  public DependencySnapshot(Path location, DependencyKind kind, long byteCount, int entryCount, String fingerprint) {
-    this(location, kind, byteCount, entryCount, fingerprint, new DependencySemantics(DependencySemantics.State.UNOBSERVED, List.of()));
-  }
-
-  /** Validates and normalizes dependency metadata. */
+  /** Validates an absolute location and consistent dependency metadata. */
   public DependencySnapshot {
-    location = Objects.requireNonNull(location, "location").toAbsolutePath().normalize();
+    Objects.requireNonNull(location, "location");
+    if (!location.isAbsolute()) {
+      throw new IllegalArgumentException("A captured dependency location must be absolute");
+    }
     Objects.requireNonNull(kind, "kind");
     Objects.requireNonNull(fingerprint, "fingerprint");
     Objects.requireNonNull(semantics, "semantics");
+    semantics.modules().forEach(module -> module.requireMemberSyntax(location.syntax()));
     if ((semantics.state() == DependencySemantics.State.MISSING && kind != DependencyKind.MISSING) || (kind == DependencyKind.MISSING
         && (semantics.state() == DependencySemantics.State.MODULES || semantics.state() == DependencySemantics.State.INVALID))) {
       throw new IllegalArgumentException("Module interpretation must agree with physical absence");

@@ -139,8 +139,9 @@ final class AstRepositoryDriverStub {
       if (replacementResult != null) {
         return replacementResult.apply(attempt, statement);
       }
-      if (query.contains("RETURN properties(result)") && readFailure != null) { throw readFailure; }
-      var rows = query.contains("RETURN properties(result)") && !version.equals("absent")
+      var readsRootMetadata = query.contains("RETURN result { .formatVersion, .astProfileVersion } AS properties");
+      if (readsRootMetadata && readFailure != null) { throw readFailure; }
+      var rows = readsRootMetadata && !version.equals("absent")
           ? List.of(record(Map.of("properties", Map.of("formatVersion", version)))) : List.<Record>of();
       if (query.contains("RETURN entity.key AS key, elementId(entity) AS address")) {
         rows = ((Value) arguments[1]).get("nodes").asList(value -> value.asMap()).stream()
@@ -151,8 +152,8 @@ final class AstRepositoryDriverStub {
         rows = List.of(record(Map.of("key", key, "address", "node/" + key, "labels", List.of("AstEntity"),
             "properties", Map.of("key", key, "astResultKey", key))));
       } else if (stored != null) {
-        if (query.contains("RETURN properties(result)")) {
-          rows = List.of(record(Map.of("properties", stored.root().properties())));
+        if (readsRootMetadata) {
+          rows = List.of(rootMetadata(stored.root().properties()));
         } else if (query.contains("labels(entity)")) {
           rows = nodeRows.apply(stored.nodes().stream().map(node -> Map.<String, Object>of("key", node.key(), "labels",
               malformedNodeRecords ? List.of("AstEntity", node.label(), "Unexpected") : List.of("AstEntity", node.label()),
@@ -173,8 +174,8 @@ final class AstRepositoryDriverStub {
               .stream().map(AstRepositoryDriverStub::record).toList();
         }
       }
-      if (query.contains("RETURN properties(result)") && rootProperties != null) {
-        rows = rootProperties.stream().map(properties -> record(Map.of("properties", properties))).toList();
+      if (readsRootMetadata && rootProperties != null) {
+        rows = rootProperties.stream().map(AstRepositoryDriverStub::rootMetadata).toList();
       }
       if (query.contains("RETURN count(entity)")) {
         rows = List.of(record(Map.of("count", scopedNodeCount)));
@@ -184,6 +185,13 @@ final class AstRepositoryDriverStub {
       }
       return result(rows, query.contains("type(relation)") ? relationshipStreamFailure : null);
     });
+  }
+
+  private static Record rootMetadata(Map<String, Object> properties) {
+    var selected = new HashMap<String, Object>();
+    selected.put("formatVersion", properties.get("formatVersion"));
+    selected.put("astProfileVersion", properties.get("astProfileVersion"));
+    return record(Map.of("properties", selected));
   }
 
   private static Result result(List<Record> records) {

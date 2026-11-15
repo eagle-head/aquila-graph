@@ -1,5 +1,7 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,7 +30,7 @@ class DeclarationAstEligibilityTest {
     // Arrange
     var complete = DeclarationAstRetentionFixture.mixed(directory);
     var incomplete = DeclarationAstRetentionFixture.produce(directory, "Broken.java", "class Broken { int field = missing; }");
-    var unavailable = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory, List.of()),
+    var unavailable = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory), List.of()),
         DeclarationAstRetentionFixture.configuration(), AstProfile.JAVA_SOURCE_UNITS);
     var retention = AnalysisCapabilities.astRetention(ignored -> { throw new AssertionError("No-save or ineligible input must not acquire a repository"); });
 

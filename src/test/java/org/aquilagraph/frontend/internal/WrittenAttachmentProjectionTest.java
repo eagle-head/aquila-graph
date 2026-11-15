@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -181,7 +184,7 @@ class WrittenAttachmentProjectionTest {
   private InputSnapshot snapshot(String name, String source) {
     var preservation = System.getProperty("frontend.preservation.directory");
     var root = preservation == null ? directory.resolve(name) : Path.of(preservation).resolve("inputs").resolve(name);
-    return InputSnapshot.fromSources(root, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    return InputSnapshot.fromSources(capturedAbsolute(root), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
   }
 
   private static SyntaxNode local(List<SyntaxNode> nodes, String name) {

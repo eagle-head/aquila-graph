@@ -1,5 +1,8 @@
 package org.aquilagraph.application;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,7 +35,7 @@ class EnumInitializationAnalysisTest {
   @Test
   void givenConstantArgumentsAndSeparateBodyMethods_whenApplicationDerivesSelectedMethods_thenSourceRemainsCompleteAcrossCfgRefusal() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), "enum Example { FIRST(Math.abs(-2)) { int simple() { return 5; } int complex() { int n = 0; while(n < 2) { n++; } return n; } }; Example(int n) {} }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "enum Example { FIRST(Math.abs(-2)) { int simple() { return 5; } int complex() { int n = 0; while(n < 2) { n++; } return n; } }; Example(int n) {} }")));
     var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     var request = new AnalysisComputationRequest(
         new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_ENUM_INITIALIZATION), Optional.empty());

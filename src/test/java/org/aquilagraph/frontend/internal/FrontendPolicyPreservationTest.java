@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -86,8 +89,8 @@ class FrontendPolicyPreservationTest {
         "package sample;");
     var frontend = new JavaFrontend(new JavaSourceLoader());
     for (var index = 0; index < sources.size(); index++) {
-      var snapshot = InputSnapshot.fromSources(sourceRoot("boundary-" + index),
-          List.of(SourceFile.fromContent(Path.of("Example.java"), sources.get(index))));
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(sourceRoot("boundary-" + index)),
+          List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), sources.get(index))));
       var earlier = PROFILES.get(index);
       var capable = PROFILES.get(index + 1);
 
@@ -118,7 +121,7 @@ class FrontendPolicyPreservationTest {
     // Arrange
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var unknown = new AstProfile("java-source-expanded/unknown");
-    var snapshot = InputSnapshot.fromSources(sourceRoot("valid"), List.of(SourceFile.fromContent(Path.of("Example.java"), ORDINARY)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(sourceRoot("valid")), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), ORDINARY)));
 
     // Act
     var refusal = assertThrows(IllegalArgumentException.class,
@@ -140,7 +143,7 @@ class FrontendPolicyPreservationTest {
   void givenInvalidDirectArguments_whenPublicEntriesAreCalled_thenExistingNullAndInputFailureFamiliesRemain() throws IOException {
     // Arrange
     var frontend = new JavaFrontend(new JavaSourceLoader());
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), ORDINARY)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), ORDINARY)));
     var missing = directory.resolve("missing-root");
 
     // Act
@@ -172,8 +175,9 @@ class FrontendPolicyPreservationTest {
       try (var observation = new DependencyFileSystemObservation(dependency)) {
         observation.inputOpenFailureAttempt = 1;
         observation.inputOpenFailure = failure;
-        var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(observation.observe(dependency)), List.of(), List.of());
-        var frontend = new JavaFrontend(new JavaSourceLoader());
+        var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(dependency)), List.of(), List.of());
+        var environmentCapture = new AnalysisEnvironmentCapture(path -> new CompilerDependencyCapture().capture(observation.observe(path)));
+        var frontend = new JavaFrontend(new JavaSourceLoader(), new JavaAnalysisPipeline(environmentCapture));
 
         // Act
         var observed = entry.equals("direct")

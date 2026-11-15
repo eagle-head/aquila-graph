@@ -291,7 +291,7 @@ class ExceptionDomainTest {
         InvocationForm.OBJECT_CREATION);
     var reference = new SemanticReference(ReferenceKind.CONSTRUCTOR, status,
         status == ResolutionStatus.RESOLVED ? Optional.of("constructor") : Optional.empty(), Optional.of(PROBLEM), List.of(PROBLEM),
-        List.of(PROBLEM, "sample.Parent", "java.lang.Throwable"));
+        List.of(PROBLEM, "sample.Parent", "java.lang.Throwable"), Optional.empty());
     return SyntaxNode.withoutDirectSource("source", path, JavaSourceKind.NEW_CLASS, SyntaxKind.OBJECT_CREATION,
         new SyntaxType.Resolved(PROBLEM_TYPE), new SyntaxValue.Invocation("Problem", InvocationForm.OBJECT_CREATION, Optional.of(semantics)),
         List.of(), Optional.of(reference));
@@ -304,7 +304,7 @@ class ExceptionDomainTest {
 
   private static SyntaxNode variable(SyntaxType type, ResolutionStatus status, List<String> hierarchy) {
     var reference = new SemanticReference(ReferenceKind.LOCAL, status,
-        status == ResolutionStatus.RESOLVED ? Optional.of("local") : Optional.empty(), Optional.of(PROBLEM), List.of(PROBLEM), hierarchy);
+        status == ResolutionStatus.RESOLVED ? Optional.of("local") : Optional.empty(), Optional.of(PROBLEM), List.of(PROBLEM), hierarchy, Optional.empty());
     return SyntaxNode.withoutDirectSource("source", PATH, JavaSourceKind.IDENTIFIER, SyntaxKind.VARIABLE_ACCESS, type,
         new SyntaxValue.SourceSymbol("problem"), List.of(), Optional.of(reference));
   }

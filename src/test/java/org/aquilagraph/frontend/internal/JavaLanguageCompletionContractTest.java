@@ -1,5 +1,7 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+
 import org.aquilagraph.source.admission.CoverageAdmission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -92,11 +94,11 @@ class JavaLanguageCompletionContractTest {
 
     // Act
     var reducedException = assertThrows(IllegalArgumentException.class,
-        () -> JavaCoverageTestSupport.emptyResult(reducedCoverage, InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/empty"), List.of())));
+        () -> JavaCoverageTestSupport.emptyResult(reducedCoverage, InputSnapshot.fromSources(capturedAbsolute(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/empty")), List.of())));
     var augmentedException = assertThrows(IllegalArgumentException.class,
-        () -> JavaCoverageTestSupport.emptyResult(augmentedCoverage, InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/empty"), List.of())));
+        () -> JavaCoverageTestSupport.emptyResult(augmentedCoverage, InputSnapshot.fromSources(capturedAbsolute(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/empty")), List.of())));
     var reclassifiedException = assertThrows(IllegalArgumentException.class,
-        () -> JavaCoverageTestSupport.emptyResult(reclassifiedCoverage, InputSnapshot.fromSources(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/empty"), List.of())));
+        () -> JavaCoverageTestSupport.emptyResult(reclassifiedCoverage, InputSnapshot.fromSources(capturedAbsolute(Path.of("D:/Projects/aquila-graph/aquila-graph/target/coverage-check/empty")), List.of())));
 
     // Assert
     var expectedMessage = "Language-feature coverage must match the authoritative release contract";

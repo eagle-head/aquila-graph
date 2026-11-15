@@ -649,7 +649,8 @@ final class SemanticResolver {
   }
 
   private static SemanticReference unresolvedReference(ReferenceKind kind) {
-    return new SemanticReference(kind, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of());
+    return new SemanticReference(kind, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of(),
+        Optional.empty());
   }
 
   private static Optional<ReferenceKind> referenceKind(ElementKind kind) {

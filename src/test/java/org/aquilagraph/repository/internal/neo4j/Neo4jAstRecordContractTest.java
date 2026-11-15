@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,11 +27,21 @@ import org.aquilagraph.application.AstLookup;
 import org.aquilagraph.application.AstLookupStatus;
 import org.aquilagraph.application.CommitKnowledge;
 import org.aquilagraph.application.RepositoryOperationContext;
+import org.aquilagraph.frontend.JavaFrontends;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryOperationException;
 import org.aquilagraph.repository.neo4j.Neo4jRepositoryPhase;
 import org.aquilagraph.identity.api.AstIdentity;
+import org.aquilagraph.identity.api.CapturedLocation;
+import org.aquilagraph.identity.api.CapturedLocation.RootKind;
+import org.aquilagraph.identity.api.CapturedLocation.Syntax;
+import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.identity.api.JavaRelease;
+import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstContractException;
+import org.aquilagraph.source.api.AstProductionRequest;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -46,6 +57,51 @@ import org.neo4j.driver.exceptions.value.Uncoercible;
 
 class Neo4jAstRecordContractTest {
   @TempDir Path directory;
+
+  @Test
+  void givenSameSpellingCapturedRoots_whenOnlyStoredSyntaxChanges_thenLookupRejectsTheProjectedContradiction() {
+    // Arrange
+    var windows = projectWithRoot(Syntax.WINDOWS);
+    var posix = projectWithRoot(Syntax.POSIX);
+    var windowsRoot = capturedRootFields(windows);
+    var posixRoot = capturedRootFields(posix);
+    assertEquals(List.of("syntax", "rootKind", "rootComponents", "components", "spelling"),
+        windowsRoot.stream().map(link -> link.properties().get("field")).toList());
+    var windowsSyntax = targetNode(windows, windowsRoot.getFirst());
+    var posixSyntax = targetNode(posix, posixRoot.getFirst());
+    assertEquals("captured-location/syntax", windowsSyntax.properties().get("tag"));
+    assertEquals(windowsSyntax.properties().get("tag"), posixSyntax.properties().get("tag"));
+    var posixScalar = posixSyntax.properties().get("scalarEncoding");
+    assertNotEquals(posixScalar, windowsSyntax.properties().get("scalarEncoding"));
+    var controlDriver = supplied(windows);
+    var contradictoryDriver = supplied(windows);
+    contradictoryDriver.nodeRows = rows -> changeRow(rows, windowsSyntax.key(), row -> {
+      var changed = properties(row);
+      changed.put("scalarEncoding", posixScalar);
+      row.put("properties", Map.copyOf(changed));
+      return row;
+    });
+
+    // Act
+    var lookup = query(windows.identity(), controlDriver);
+    var contradiction = assertThrows(Neo4jRepositoryOperationException.class,
+        () -> find(windows.identity(), contradictoryDriver));
+
+    // Assert
+    assertEquals(AstLookupStatus.FOUND, lookup.status());
+    assertEquals(windows.identity(), lookup.requestedIdentity());
+    var decoded = lookup.outcome().orElseThrow().result().orElseThrow();
+    assertEquals(Syntax.WINDOWS, decoded.snapshot().sourceRoot().syntax());
+    assertEquals(RootKind.WINDOWS_UNC, decoded.snapshot().sourceRoot().rootKind());
+    assertEquals(List.of("server", "share"), decoded.snapshot().sourceRoot().rootComponents());
+    assertEquals(List.of("sources"), decoded.snapshot().sourceRoot().components());
+    assertEquals("//server/share/sources", decoded.snapshot().sourceRoot().spelling());
+    assertEquals(RepositoryOperationContext.queryAst(windows.identity()), contradiction.context());
+    assertEquals(Neo4jRepositoryPhase.DECODE, contradiction.phase());
+    assertTrue(contradiction.effectivePrimary().getMessage().contains("Materialized AST fields"));
+    assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), controlDriver.events);
+    assertEquals(controlDriver.events, contradictoryDriver.events);
+  }
 
   @Test
   void givenDistinctOrderedChildren_whenOneStoredPositionChanges_thenDecodeFailsWithTheRequestedIdentity() throws IOException {
@@ -195,11 +251,15 @@ class Neo4jAstRecordContractTest {
     // Arrange
     var fixture = fixture();
     var original = fixture.original().identity();
-    return Stream.of("format", "profile").map(component -> DynamicTest.dynamicTest(
+    return Stream.of("retiredFormat", "unknownFormat", "profile").map(component -> DynamicTest.dynamicTest(
         "givenUnsupported" + component + "_whenFindingMalformedPayload_thenRequestedIdentityRemainsIncompatible", () -> {
           // Arrange
-          var unknown = AstIdentity.fromContent(original.softwareSignature(),
-              component.equals("format") ? "java-source/99" : original.sourceModelVersion(),
+          var format = switch (component) {
+            case "retiredFormat" -> "java-source/22";
+            case "unknownFormat" -> "java-source/99";
+            default -> original.sourceModelVersion();
+          };
+          var unknown = AstIdentity.fromContent(original.softwareSignature(), format,
               component.equals("profile") ? "java-source-expanded/99" : original.astProfileVersion(),
               original.semanticProductionRevision(), original.canonicalContentDigest());
           var properties = new HashMap<>(fixture.projection().root().properties());
@@ -218,9 +278,10 @@ class Neo4jAstRecordContractTest {
           // Assert
           assertEquals(unknown, lookup.requestedIdentity());
           assertEquals(AstLookupStatus.INCOMPATIBLE, lookup.status());
-          assertEquals(component.equals("format") ? unknown.sourceModelVersion() : unknown.astProfileVersion(),
+          assertEquals(component.equals("profile") ? unknown.astProfileVersion() : unknown.sourceModelVersion(),
               lookup.unsupportedFormat().orElseThrow());
           assertTrue(lookup.outcome().isEmpty());
+          assertEquals(component.equals("profile") ? 3 : 1, driver.queries.size());
           assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
           assertOriginal(fixture);
         }));
@@ -511,6 +572,26 @@ class Neo4jAstRecordContractTest {
     assertSourceValues(retained);
     assertEquals(List.of("session.open:0", "session.close:0", "driver.close"), driver.events);
     return new Fixture(original, projection, AstCodec.encode(original));
+  }
+
+  private static Neo4jAstProjection projectWithRoot(Syntax syntax) {
+    var source = SourceFile.fromContent(CapturedLocation.parse(syntax, "Example.java"), "class Example { int value() { return 7; } }");
+    var snapshot = InputSnapshot.fromSources(CapturedLocation.parse(syntax, "//server/share/sources"), List.of(source));
+    var request = new AstProductionRequest(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED);
+    return new Neo4jAstResultCodec().map(JavaFrontends.standard().produce(request));
+  }
+
+  private static List<Neo4jRelationship> capturedRootFields(Neo4jAstProjection projection) {
+    var snapshot = projection.nodes().stream().filter(node -> node.label().equals("AstInput")).findFirst().orElseThrow();
+    var sourceRoot = projection.relationships().stream().filter(link -> link.sourceKey().equals(snapshot.key())
+        && "sourceRoot".equals(link.properties().get("field"))).findFirst().orElseThrow();
+    assertEquals("captured-location", targetNode(projection, sourceRoot).properties().get("tag"));
+    return projection.relationships().stream().filter(link -> link.sourceKey().equals(sourceRoot.targetKey()))
+        .sorted(Comparator.comparingLong(link -> (long) link.properties().get("position"))).toList();
+  }
+
+  private static Neo4jNode targetNode(Neo4jAstProjection projection, Neo4jRelationship link) {
+    return projection.nodes().stream().filter(node -> node.key().equals(link.targetKey())).findFirst().orElseThrow();
   }
 
   private static void assertSourceValues(AstResult result) {

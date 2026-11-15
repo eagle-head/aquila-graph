@@ -1,5 +1,8 @@
 package org.aquilagraph.cfg.api;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -181,7 +184,7 @@ class CfgDiagnosticAdmissionTest {
   }
 
   private Fixture fixture(AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("DiagnosticInputs.java"), """
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("DiagnosticInputs.java")), """
         interface DiagnosticInputs {
           int bodyless();
           default int available() { return 7; }

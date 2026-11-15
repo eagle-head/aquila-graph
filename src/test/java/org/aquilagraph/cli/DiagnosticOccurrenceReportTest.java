@@ -1,5 +1,8 @@
 package org.aquilagraph.cli;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.aquilagraph.cli.NativeReportAssertions.assertNativeReport;
 import static org.aquilagraph.cli.NativeReportAssertions.qualificationBlocks;
 import static org.aquilagraph.cli.NativeReportAssertions.relatedFromOwner;
@@ -268,8 +271,8 @@ class DiagnosticOccurrenceReportTest {
     return Stream.of("Originless", "Input", "Assignment", "Target", "TargetStart", "Body", "BeforeBody", "BeyondBody", "ForeignAndTarget")
         .map(location -> DynamicTest.dynamicTest("given" + location + "ProducerNote_whenPresented_thenWrittenDiagnosticOrderIsPreserved", () -> {
           // Arrange
-          var companion = SourceFile.fromContent(Path.of("Context.java"), "class Context {}");
-          var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(SourceFile.fromContent(Path.of("Example.java"),
+          var companion = SourceFile.fromContent(capturedPath(Path.of("Context.java")), "class Context {}");
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of(".")), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")),
               "class Example { int subject(int value) { (value) = 1; return value; } }"), companion));
           var original = CliTestFixtures.produce(snapshot, AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
           var method = original.program().methods().stream().filter(value -> value.name().equals("subject")).findFirst().orElseThrow();
@@ -347,9 +350,9 @@ class DiagnosticOccurrenceReportTest {
   @Test
   void givenRefusalsInSeveralFilesAndBodylessDeclarations_whenPresented_thenNativeEventsAndOwnerReasonsRemainVisible() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(Path.of("."), List.of(
-        SourceFile.fromContent(Path.of("First.java"), "interface First { void bodyless(); default void first(boolean flag) { while (flag) {} } }"),
-        SourceFile.fromContent(Path.of("Second.java"), "class Second { int second(int value) { (value) = 1; class Local {} return value; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(Path.of(".")), List.of(
+        SourceFile.fromContent(capturedPath(Path.of("First.java")), "interface First { void bodyless(); default void first(boolean flag) { while (flag) {} } }"),
+        SourceFile.fromContent(capturedPath(Path.of("Second.java")), "class Second { int second(int value) { (value) = 1; class Local {} return value; } }")));
     var ast = CliTestFixtures.produce(snapshot, AstProfile.JAVA_SOURCE_BOUNDED);
     var run = CliTestFixtures.analyze(ast);
 
@@ -403,7 +406,7 @@ class DiagnosticOccurrenceReportTest {
         body.invocations(), body.staticAccesses().isEmpty() ? body.staticAccesses() : List.of(replacement), body.concatenations(),
         body.constructors(), body.attributedOccurrences())).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), bodies, copied.memberOrders(),
-        copied.associations(), copied.declarationTypes()));
+        copied.associations(), copied.declarationTypes(), copied.scopes()));
     var ast = AstResultAdmission.admit(new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(),
         Optional.of(aggregate), List.of(error), coverage), original.profile(), original.identity().semanticProductionRevision());
     var outcome = AstOutcome.available(ast);
@@ -502,7 +505,7 @@ class DiagnosticOccurrenceReportTest {
     // Arrange
     var original = CliTestFixtures.completedRun();
     var captured = original.representation().ast().capturedInput().orElseThrow().sourceFiles().getFirst();
-    var foreign = SourceFile.fromContent(Path.of("Outside.java"), "class Outside {}");
+    var foreign = SourceFile.fromContent(capturedPath(Path.of("Outside.java")), "class Outside {}");
     var origins = List.of(new SourceSpan(captured.sourceFileKey(), 1, 3), new SourceSpan(foreign.sourceFileKey(), 2, 5), new SourceSpan(captured.sourceFileKey(), 1, 3));
     var diagnostic = new AnalysisDiagnostic("origin:notice", "application.notice", DiagnosticStage.INPUT, DiagnosticSeverity.INFO, "notice", origins, AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR);
     var run = AnalysisRun.create(original.identity(), original.representation(), List.of(diagnostic));

@@ -222,6 +222,6 @@ class JavaAstContractTest {
 
   private static SemanticReference typeReference(String key) {
     return new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(key), Optional.of("int"),
-        List.of("int"), List.of("int"));
+        List.of("int"), List.of("int"), Optional.empty());
   }
 }

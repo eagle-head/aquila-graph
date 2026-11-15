@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AstPublicationRequest;
 import org.aquilagraph.application.PublicationIntent;
@@ -213,7 +216,7 @@ class ArrayCreationAstTest {
           var source = "class Example { Object subject() { return " + expression + "; } }";
           // Act
           var outcome = new JavaFrontend(new JavaSourceLoader()).produce(
-              InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source))),
+              InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source))),
               CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_EXPANDED);
           // Assert
           assertTrue(outcome.completion() != AstCompletion.COMPLETE);
@@ -225,8 +228,8 @@ class ArrayCreationAstTest {
   @Test
   void givenSuppliedMissingArrayType_whenAdmitted_thenClosedSourceIsIncompleteAndRetentionDoesNotAcquireARepository() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Example.java"), "class Example { int[] subject(int n) { return new int[n]; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), "class Example { int[] subject(int n) { return new int[n]; } }")));
     var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
     var captured = SourceValueCapture.capture(original.aggregate().orElseThrow());
     var replacements = new IdentityHashMap<SyntaxNode, SyntaxNode>();
@@ -236,7 +239,7 @@ class ArrayCreationAstTest {
     var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), missingArrayType(body.root(), replacements),
         body.origin(), List.of(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var supplied = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(),
-        captured.associations(), captured.declarationTypes()));
+        captured.associations(), captured.declarationTypes(), captured.scopes()));
     var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied),
         JavaCoverageTestSupport.emissions(original));
 
@@ -288,7 +291,7 @@ class ArrayCreationAstTest {
   }
 
   private AstResult produce(String source, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)
         .result().orElseThrow();
   }

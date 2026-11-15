@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.retention.AstCodec;
 
 
@@ -29,6 +32,7 @@ import org.aquilagraph.source.api.AstContractException;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
+import org.aquilagraph.source.internal.AstValueSchema.Fields;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.io.TempDir;
@@ -149,7 +153,7 @@ class NonPreviewAdmissionTest {
   }
 
   private InputSnapshot snapshot(String source) {
-    return InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("LanguageMode.java"), source)));
+    return InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("LanguageMode.java")), source)));
   }
 
   private static List<String> withPreview(List<String> options) {
@@ -163,7 +167,7 @@ class NonPreviewAdmissionTest {
     writer.text(original.profile().version());
     writer.text(original.identity().semanticProductionRevision());
     writer.text(original.completion().name());
-    var codec = new RetainedValueCodec(false, original.identity().sourceModelVersion());
+    var codec = new RetainedValueCodec(false);
     codec.write(writer, original.identity());
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());
@@ -172,13 +176,13 @@ class NonPreviewAdmissionTest {
   }
 
   private static void writeRecord(CanonicalValueWriter writer, RetainedValueCodec codec, Object value, String changedOwner) {
-    var shape = AstValueSchema.type(value.getClass());
-    var components = shape.components(value);
+    var shape = (Fields) AstValueSchema.shape(value);
+    var components = shape.components(value, false);
     writer.text(shape.tag());
-    writer.count(shape.fields().size());
-    for (var index = 0; index < shape.fields().size(); index++) {
-      var field = shape.fields().get(index);
-      var component = components.get(index);
+    writer.count(components.size());
+    for (var fieldValue : components) {
+      var field = fieldValue.name();
+      var component = fieldValue.value();
       writer.text(field);
       if (component instanceof AnalysisEnvironmentSnapshot environment) {
         writeRecord(writer, codec, environment, changedOwner);

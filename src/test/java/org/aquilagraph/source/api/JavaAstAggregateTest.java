@@ -1,5 +1,8 @@
 package org.aquilagraph.source.api;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import java.util.Optional;
 import java.util.List;
 import org.aquilagraph.identity.api.SourceOccurrence;
@@ -36,7 +39,7 @@ class JavaAstAggregateTest {
     var root = root("a", List.of());
     var base = contribution(root);
     var identity = new JavaTypeDeclarationIdentity(Optional.of("service.sample"), "api.Service");
-    var plain = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(identity.declarationKey()), Optional.of("api.Service"), List.of("api.Service"), List.of("api.Service"));
+    var plain = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(identity.declarationKey()), Optional.of("api.Service"), List.of("api.Service"), List.of("api.Service"), Optional.empty());
     var typed = new SemanticReference(plain.referenceKind(), plain.status(), plain.symbolKey(), plain.typeName(), plain.typeAlternativeNames(), plain.assignableToTypeNames(), Optional.of(identity));
     var first = new SyntaxSemanticEdge(root.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE, new Declaration(plain));
     var second = new SyntaxSemanticEdge(root.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE, new Declaration(typed));
@@ -57,7 +60,7 @@ class JavaAstAggregateTest {
     var valuePath = methodPath.child(SyntaxRole.DEFAULT_VALUE, 0);
     var range = new SourceSpan("a", 2, 8);
     var unresolvedType = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED,
-        Optional.of("type:Inner"), Optional.empty(), List.of(), List.of());
+        Optional.of("type:Inner"), Optional.empty(), List.of(), List.of(), Optional.empty());
     var unresolved = SyntaxNode.source("a", valuePath, JavaSourceKind.ANNOTATION, SyntaxKind.ANNOTATION,
         SyntaxType.NotApplicable.INSTANCE,
         new SyntaxValue.Annotation(SyntaxValue.AnnotationForm.MARKER, List.of(), SyntaxValue.AnnotationLocation.VALUE),
@@ -184,7 +187,7 @@ class JavaAstAggregateTest {
         List.of(new SyntaxChild(SyntaxRole.VALUE, 0, literal)), Optional.empty(), new SourceSpan("a", 2, 5));
     var selectedKey = "type:Owned#value()";
     var selected = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED, Optional.of(selectedKey),
-        Optional.empty(), List.of(), List.of());
+        Optional.empty(), List.of(), List.of(), Optional.empty());
 
     // Act
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
@@ -248,7 +251,7 @@ class JavaAstAggregateTest {
     var intType = new SyntaxType.Resolved(new JavaTypeIdentity(JavaTypeCategory.INT, "int", "int"),
         new JavaTypeStructure.Primitive(JavaTypeCategory.INT));
     var unresolved = new SemanticReference(ReferenceKind.FIELD, ResolutionStatus.UNRESOLVED, Optional.empty(),
-        Optional.empty(), List.of(), List.of());
+        Optional.empty(), List.of(), List.of(), Optional.empty());
 
     // Act
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", valuePath,
@@ -331,7 +334,7 @@ class JavaAstAggregateTest {
         List.of(), Optional.empty(), new SourceSpan("a", 5, 6));
     var selectedKey = "type:Owned#x()";
     var selected = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED, Optional.of(selectedKey),
-        Optional.empty(), List.of(), List.of());
+        Optional.empty(), List.of(), List.of(), Optional.empty());
 
     // Act
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
@@ -439,7 +442,7 @@ class JavaAstAggregateTest {
     var pair = base.root().requiredChild(SyntaxRole.PACKAGE_DECLARATION).requiredChild(SyntaxRole.ANNOTATION)
         .requiredChild(SyntaxRole.ANNOTATION_ARGUMENT);
     var conflicting = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED,
-        Optional.of("type:Owned#other()"), Optional.empty(), List.of(), List.of());
+        Optional.of("type:Owned#other()"), Optional.empty(), List.of(), List.of(), Optional.empty());
     var extra = new SyntaxSemanticEdge(pair.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.Declaration(conflicting));
 
@@ -507,7 +510,7 @@ class JavaAstAggregateTest {
             new SyntaxValue.TypeDeclaration.Shape(0, 0, false, 0, 0, 0, 0)),
         List.of(), Optional.empty());
     var root = SyntaxNode.source("a", rootPath, JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT,
-        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY),
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE),
         List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, type)), Optional.empty(),
         new SourceSpan("a", 0, CONTENT.length()));
 
@@ -531,11 +534,11 @@ class JavaAstAggregateTest {
     // Act
     var empty = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
         JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.COMPACT), List.of(), Optional.empty(),
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.COMPACT, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE), List.of(), Optional.empty(),
         new SourceSpan("a", 0, CONTENT.length())));
     var fieldOnly = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
         JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.COMPACT),
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.COMPACT, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE),
         List.of(new SyntaxChild(SyntaxRole.COMPACT_MEMBER, 0, field)), Optional.empty(),
         new SourceSpan("a", 0, CONTENT.length())));
 
@@ -558,7 +561,7 @@ class JavaAstAggregateTest {
     // Act
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", rootPath,
         JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY),
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE),
         List.of(new SyntaxChild(SyntaxRole.PACKAGE_DECLARATION, 0, first),
             new SyntaxChild(SyntaxRole.PACKAGE_DECLARATION, 1, second)),
         Optional.empty(), new SourceSpan("a", 0, CONTENT.length())));
@@ -578,7 +581,7 @@ class JavaAstAggregateTest {
     // Act
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", rootPath,
         JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY),
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE),
         List.of(new SyntaxChild(SyntaxRole.IMPORT_DECLARATION, 0, packageNode)), Optional.empty(),
         new SourceSpan("a", 0, CONTENT.length())));
 
@@ -594,7 +597,7 @@ class JavaAstAggregateTest {
     // Act
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
         JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR), List.of(), Optional.empty(),
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE), List.of(), Optional.empty(),
         new SourceSpan("a", 0, CONTENT.length())));
 
     // Assert
@@ -611,7 +614,7 @@ class JavaAstAggregateTest {
     // Act
     var error = assertThrows(IllegalArgumentException.class, () -> SyntaxNode.source("a", path,
         JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR),
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE),
         List.of(new SyntaxChild(SyntaxRole.MODULE_DECLARATION, 0, first),
             new SyntaxChild(SyntaxRole.MODULE_DECLARATION, 1, second)), Optional.empty(),
         new SourceSpan("a", 0, CONTENT.length())));
@@ -644,7 +647,7 @@ class JavaAstAggregateTest {
     var foreign = requires("b", modulePath.child(SyntaxRole.MODULE_DIRECTIVE, 0));
     var declaredModule = module("a", modulePath, List.of(new SyntaxChild(SyntaxRole.MODULE_DIRECTIVE, 0, foreign)));
     var root = SyntaxNode.source("a", rootPath, JavaSourceKind.COMPILATION_UNIT, SyntaxKind.COMPILATION_UNIT,
-        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR),
+        SyntaxType.NotApplicable.INSTANCE, new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.MODULAR, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE),
         List.of(new SyntaxChild(SyntaxRole.MODULE_DECLARATION, 0, declaredModule)), Optional.empty(),
         new SourceSpan("a", 0, CONTENT.length()));
 
@@ -796,8 +799,8 @@ class JavaAstAggregateTest {
   @Test
   void givenMutableCallerCollections_whenAggregateIsSealed_thenMutationCannotChangeOwnedFacts() {
     // Arrange
-    var sourceFiles = new ArrayList<>(List.of(new SourceFile("a", Path.of("a.java"), "digest-a", CONTENT)));
-    var snapshot = new InputSnapshot(Path.of("sources"), "SHA-256", "snapshot", sourceFiles);
+    var sourceFiles = new ArrayList<>(List.of(new SourceFile("a", capturedPath(Path.of("a.java")), "digest-a", CONTENT)));
+    var snapshot = new InputSnapshot(capturedAbsolute(Path.of("sources")), "SHA-256", "snapshot", sourceFiles);
     var child = type("a", SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0));
     var children = new ArrayList<>(List.of(new SyntaxChild(SyntaxRole.TYPE_DECLARATION, 0, child)));
     var root = root("a", children);
@@ -1136,7 +1139,7 @@ class JavaAstAggregateTest {
     // Arrange
     var root = SyntaxNode.source("a", SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.COMPILATION_UNIT,
         SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), List.of(),
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE), List.of(),
         Optional.empty(), new SourceSpan("a", 0, CONTENT.length() + 1));
 
     // Act
@@ -1324,10 +1327,10 @@ class JavaAstAggregateTest {
     var bodyPath = methodPath.child(SyntaxRole.BODY, 0);
     var localPath = bodyPath.child(SyntaxRole.STATEMENT, 0);
     var localReference = new SemanticReference(ReferenceKind.LOCAL, ResolutionStatus.RESOLVED,
-        Optional.of(constructorValue().declarationKey() + ":local_variable:0:0"), Optional.empty(), List.of(), List.of());
+        Optional.of(constructorValue().declarationKey() + ":local_variable:0:0"), Optional.empty(), List.of(), List.of(), Optional.empty());
     var local = SyntaxNode.source("a", localPath, JavaSourceKind.VARIABLE, SyntaxKind.LOCAL_DECLARATION,
         new SyntaxType.StructureUnavailable(new JavaTypeIdentity(JavaTypeCategory.UNION, "First | Second", "First")),
-        new SyntaxValue.LocalDeclaration("problem"), List.of(), Optional.of(localReference), new SourceSpan("a", 1, 2));
+        new SyntaxValue.LocalDeclaration("problem", Optional.empty(), List.of(), Optional.empty()), List.of(), Optional.of(localReference), new SourceSpan("a", 1, 2));
     var body = SyntaxNode.source("a", bodyPath, JavaSourceKind.BLOCK, SyntaxKind.BLOCK,
         SyntaxType.NotApplicable.INSTANCE, SyntaxValue.None.INSTANCE,
         List.of(new SyntaxChild(SyntaxRole.STATEMENT, 0, local)), Optional.empty(), new SourceSpan("a", 1, 2));
@@ -1480,7 +1483,7 @@ class JavaAstAggregateTest {
   void givenUnresolvedAnnotationTypeWithDeclarationTarget_whenAggregateIsSealed_thenLocationIsRejected() {
     // Arrange
     var unresolved = new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(),
-        List.of(), List.of());
+        List.of(), List.of(), Optional.empty());
     var root = annotatedPackageRoot("a", List.of(new SourceSpan("a", 2, 4)), unresolved);
     var packageNode = root.requiredChild(SyntaxRole.PACKAGE_DECLARATION);
     var annotation = packageNode.requiredChild(SyntaxRole.ANNOTATION);
@@ -1554,15 +1557,15 @@ class JavaAstAggregateTest {
   private static InputSnapshot snapshot(String... sourceKeys) {
     var files = new ArrayList<SourceFile>();
     for (var key : sourceKeys) {
-      files.add(new SourceFile(key, Path.of(key + ".java"), "digest-" + key, CONTENT));
+      files.add(new SourceFile(key, capturedPath(Path.of(key + ".java")), "digest-" + key, CONTENT));
     }
-    return new InputSnapshot(Path.of("sources"), "SHA-256", "snapshot", files);
+    return new InputSnapshot(capturedAbsolute(Path.of("sources")), "SHA-256", "snapshot", files);
   }
 
   private static SyntaxNode root(String sourceKey, List<SyntaxChild> children) {
     return SyntaxNode.source(sourceKey, SyntaxStructuralPath.sourceFileRoot(), JavaSourceKind.COMPILATION_UNIT,
         SyntaxKind.COMPILATION_UNIT, SyntaxType.NotApplicable.INSTANCE,
-        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY), children,
+        new SyntaxValue.CompilationUnit(SyntaxValue.CompilationUnitForm.ORDINARY, SyntaxValue.CompilationUnitRange.LEGACY_PROFILE), children,
         Optional.empty(), new SourceSpan(sourceKey, 0, CONTENT.length()));
   }
 
@@ -1641,7 +1644,7 @@ class JavaAstAggregateTest {
         : node.value(SyntaxValue.ExecutableDeclaration.class).declarationKey();
     return new SyntaxSemanticEdge(node.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
         new SyntaxSemanticTarget.Declaration(new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(),
-            List.of(), List.of())));
+            List.of(), List.of(), Optional.empty())));
   }
 
   private static SyntaxSourceContribution contribution(SyntaxNode root, List<SyntaxStructuralEdge> structural,
@@ -1651,7 +1654,7 @@ class JavaAstAggregateTest {
 
   private static SemanticReference reference(String key) {
     return new SemanticReference(ReferenceKind.TYPE, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(),
-        List.of(), List.of());
+        List.of(), List.of(), Optional.empty());
   }
 
   private static SyntaxNode scalarArgument(SyntaxStructuralPath annotationPath, AnnotationScalar scalar, String selectedKey,
@@ -1681,7 +1684,7 @@ class JavaAstAggregateTest {
             List.of(), Optional.empty(), new SourceSpan("a", 2, 7)))));
     children.add(new SyntaxChild(SyntaxRole.VALUE, 0, value));
     var selected = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED, Optional.of(selectedKey),
-        Optional.empty(), List.of(), List.of());
+        Optional.empty(), List.of(), List.of(), Optional.empty());
     return SyntaxNode.source("a", path, sourceKind,
         SyntaxKind.ANNOTATION_ARGUMENT, intType, new SyntaxValue.AnnotationArgument(writtenName, selectedKey, scalar),
         children, Optional.of(selected), new SourceSpan("a", writtenName.isPresent() ? 2 : 3,
@@ -1701,7 +1704,7 @@ class JavaAstAggregateTest {
         new SourceSpan("a", start + 2, start + 3));
     var selectedKey = "type:Owned#" + name + "()";
     var selected = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED, Optional.of(selectedKey),
-        Optional.empty(), List.of(), List.of());
+        Optional.empty(), List.of(), List.of(), Optional.empty());
     return SyntaxNode.source("a", path, JavaSourceKind.ASSIGNMENT, SyntaxKind.ANNOTATION_ARGUMENT, intType,
         new SyntaxValue.AnnotationArgument(Optional.of(name), selectedKey,
             new AnnotationScalar.IntValue(Integer.parseInt(literalText))),

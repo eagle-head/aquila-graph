@@ -1,5 +1,8 @@
 package org.aquilagraph.identity.api;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -11,6 +14,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import org.aquilagraph.identity.api.CapturedLocation.Syntax;
 import org.junit.jupiter.api.Test;
 
 class QualifiedIdentityTest {
@@ -265,11 +269,14 @@ class QualifiedIdentityTest {
   }
 
   @Test
-  void givenSuppliedContentWithEqualLegacyLabels_whenCaptureIsEncoded_thenActualContentAndExplicitAbsenceRemainDistinct() {
+  void givenSuppliedContentWithEqualLabels_whenCaptureIsEncoded_thenActualContentAndExplicitAbsenceRemainDistinct() {
     // Arrange
-    var first = new InputSnapshot(Path.of("first-root"), "SHA-256", "supplied", List.of(new SourceFile("key", Path.of("A.java"), "digest", "a")));
-    var second = new InputSnapshot(Path.of("second-root"), "SHA-256", "supplied", List.of(new SourceFile("key", Path.of("A.java"), "digest", "b")));
-    var relocated = new InputSnapshot(Path.of("other-root"), "SHA-256", "supplied", first.sourceFiles());
+    var sourceName = CapturedLocation.parse(Syntax.POSIX, "A.java");
+    var first = new InputSnapshot(CapturedLocation.parse(Syntax.POSIX, "/first-root"), "SHA-256", "supplied",
+        List.of(new SourceFile("key", sourceName, "digest", "a")));
+    var second = new InputSnapshot(CapturedLocation.parse(Syntax.POSIX, "/second-root"), "SHA-256", "supplied",
+        List.of(new SourceFile("key", sourceName, "digest", "b")));
+    var relocated = new InputSnapshot(CapturedLocation.parse(Syntax.POSIX, "/other-root"), "SHA-256", "supplied", first.sourceFiles());
 
     // Act
     var firstBytes = CapturedValueEncoding.encode(Optional.of(first), Optional.empty());
@@ -277,12 +284,13 @@ class QualifiedIdentityTest {
 
     // Assert
     assertArrayEquals(HexFormat.of().parseHex(
-        "0000001100630061007000740075007200650064002d00760061006c007500650073002f0031000000050069006e00700075007401"
-            + "00000007005300480041002d003200350036000000080073007500700070006c0069006500640000000100000003006b00650079"
-            + "000000060041002e006a006100760061000000060064006900670065007300740000000100610000000b0065006e007600690072"
-            + "006f006e006d0065006e007400000000080073006f00660074007700610072006500"), firstBytes);
+        "0000001100630061007000740075007200650064002d00760061006c007500650073002f0033000000050069006e00700075007401"
+            + "00000007005300480041002d003200350036000000080073007500700070006c0069006500640000000100000003006b0065007900"
+            + "0000060041002e006a006100760061000000050050004f0053004900580000000800520045004c0041005400490056004500000000"
+            + "00000001000000060041002e006a006100760061000000060041002e006a0061007600610000000600640069006700650073007400"
+            + "00000100610000000b0065006e007600690072006f006e006d0065006e007400000000080073006f00660074007700610072006500"), firstBytes);
     assertArrayEquals(HexFormat.of().parseHex(
-        "0000001100630061007000740075007200650064002d00760061006c007500650073002f0031000000050069006e00700075007400"
+        "0000001100630061007000740075007200650064002d00760061006c007500650073002f0033000000050069006e00700075007400"
             + "0000000b0065006e007600690072006f006e006d0065006e007400000000080073006f00660074007700610072006500"),
         CapturedValueEncoding.encode(Optional.empty(), Optional.empty()));
     assertArrayEquals(firstBytes, CapturedValueEncoding.encode(Optional.of(relocated), Optional.empty()));
@@ -295,9 +303,11 @@ class QualifiedIdentityTest {
   void givenDependencyCountsAndRepeatedPositions_whenEnvironmentIsEncoded_thenRetainedFactsChangeDespiteEqualLegacySignature() {
     // Arrange
     var path = Path.of("library.jar").toAbsolutePath();
-    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(path, path), List.of(), List.of());
-    var a = new DependencySnapshot(path, DependencyKind.REGULAR_FILE, 1, 1, "same-fingerprint");
-    var b = new DependencySnapshot(path, DependencyKind.REGULAR_FILE, 2, 1, "same-fingerprint");
+    var configuration = new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(path), capturedAbsolute(path)), List.of(), List.of());
+    var a = new DependencySnapshot(capturedAbsolute(path), DependencyKind.REGULAR_FILE, 1, 1, "same-fingerprint",
+        new DependencySemantics(DependencySemantics.State.CLASS_PATH, List.of()));
+    var b = new DependencySnapshot(capturedAbsolute(path), DependencyKind.REGULAR_FILE, 2, 1, "same-fingerprint",
+        new DependencySemantics(DependencySemantics.State.CLASS_PATH, List.of()));
     var first = new AnalysisEnvironmentSnapshot(configuration, "compiler", "vendor", "version", List.of(), List.of(a, b), List.of());
     var second = new AnalysisEnvironmentSnapshot(configuration, "compiler", "vendor", "version", List.of(), List.of(b, a), List.of());
 

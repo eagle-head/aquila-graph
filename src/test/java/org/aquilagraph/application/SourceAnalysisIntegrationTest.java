@@ -1,5 +1,8 @@
 package org.aquilagraph.application;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.api.AstProductionRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -43,7 +46,7 @@ class SourceAnalysisIntegrationTest {
 
     // Act
     for (var body : bodies) {
-      var snapshot = InputSnapshot.fromSources(temporaryDirectory, List.of(SourceFile.fromContent(Path.of("Parenthesized.java"),
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory), List.of(SourceFile.fromContent(capturedPath(Path.of("Parenthesized.java")),
           "class Parenthesized { int value(int a) { " + body + " return a; } }")));
       var ast = frontend.produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED);
       var run = new SourceAnalysisFixture().analyze(ast);
@@ -68,7 +71,7 @@ class SourceAnalysisIntegrationTest {
   @Test
   void givenSourceSupportedParenthesizedTargets_whenDerivedThroughNativePorts_thenCfgRefusalsRetainQualifiedOccurrencesAndOrder() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(temporaryDirectory, List.of(SourceFile.fromContent(Path.of("Parenthesized.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(temporaryDirectory), List.of(SourceFile.fromContent(capturedPath(Path.of("Parenthesized.java")),
         "class Parenthesized { int value(int a) { (a) = 1; (a) = 2; return a; } }")));
     var ast = new JavaFrontend(new JavaSourceLoader()).produce(snapshot,
         CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_BOUNDED);
@@ -276,7 +279,7 @@ class SourceAnalysisIntegrationTest {
     var dependency = Files.createDirectory(temporaryDirectory.resolve("dependency"));
     Files.writeString(dependency.resolve("marker.txt"), "first");
     var configuration =
-        new CompilerConfiguration(JavaRelease.JAVA_25, List.of(dependency), List.of(), List.of());
+        new CompilerConfiguration(JavaRelease.JAVA_25, List.of(capturedAbsolute(dependency)), List.of(), List.of());
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var engine = new SourceAnalysisFixture();
 
@@ -309,13 +312,13 @@ class SourceAnalysisIntegrationTest {
             frontend.produce(new AstProductionRequest(
                 temporaryDirectory,
                 new CompilerConfiguration(
-                    JavaRelease.JAVA_25, List.of(firstDependency), List.of(), List.of()), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
+                    JavaRelease.JAVA_25, List.of(capturedAbsolute(firstDependency)), List.of(), List.of()), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
     var secondRun =
         engine.analyze(
             frontend.produce(new AstProductionRequest(
                 temporaryDirectory,
                 new CompilerConfiguration(
-                    JavaRelease.JAVA_25, List.of(secondDependency), List.of(), List.of()), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
+                    JavaRelease.JAVA_25, List.of(capturedAbsolute(secondDependency)), List.of(), List.of()), AstProfile.JAVA_SOURCE_BOUNDED)).result().orElseThrow());
 
     // Assert
     var firstAst = firstRun.representation().ast().result().orElseThrow();

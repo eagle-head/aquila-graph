@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -346,8 +349,8 @@ class JavaBodyDecisionProducerTest {
   }
 
   private SyntaxAnalysisInput analyze(String content) throws IOException {
-    var source = SourceFile.fromContent(Path.of("Example.java"), content);
-    var snapshot = InputSnapshot.fromSources(sourceRoot, List.of(source));
+    var source = SourceFile.fromContent(capturedPath(Path.of("Example.java")), content);
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(sourceRoot), List.of(source));
     return new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
   }
 

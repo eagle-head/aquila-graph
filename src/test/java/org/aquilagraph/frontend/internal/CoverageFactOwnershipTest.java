@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.CoverageAdmission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -199,7 +202,7 @@ class CoverageFactOwnershipTest {
   }
 
   private SyntaxAnalysisInput analyze(String source) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Sample.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Sample.java")), source)));
     return new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
   }
 
@@ -220,7 +223,7 @@ class CoverageFactOwnershipTest {
     actual.writtenSourceAssociations().forEach(builder::addWrittenSourceAssociation);
     actual.declarationTypeEvidence().forEach(builder::addDeclarationTypeEvidence);
     actual.declarationMemberOrders().stream().map(order -> order.ownerTypeKey().equals("type:Second")
-        ? new DeclarationMemberOrder(order.sourceFileKey(), order.ownerTypeKey(), order.members().stream().map(change).toList()) : order)
+        ? new DeclarationMemberOrder(order.sourceFileKey(), order.ownerTypeKey(), order.members().stream().map(change).toList(), Optional.empty()) : order)
         .forEach(builder::addDeclarationMemberOrder);
     for (var key : actual.methodBodyKeys()) {
       var syntax = actual.methodSyntax(key).orElseThrow();

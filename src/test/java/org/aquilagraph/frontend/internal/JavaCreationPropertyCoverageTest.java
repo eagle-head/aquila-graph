@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.source.admission.CoverageAdmission;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -63,7 +66,7 @@ class JavaCreationPropertyCoverageTest {
       var source = "class Target { Target(int x, int y) {} <T> Target(T value) {} } "
           + "class Outer<T> { class Inner { <U> Inner(U value) {} } } "
           + "class Example { Outer<String> owner; Object value = " + value.expression() + "; }";
-      var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+      var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
       var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS)
           .result().orElseThrow();
       var retained = AstCodec.decode(AstCodec.encode(original), original.identity());
@@ -130,7 +133,7 @@ class JavaCreationPropertyCoverageTest {
     var empty = sequence(List.of());
     var contexts = evidence.writtenInventory().contexts().stream().map(context -> context.address().role().equals(ARGUMENTS)
         ? new SourceContext(context.address(), context.feature(), context.origins(), Optional.of(empty), false) : context).toList();
-    var written = new SourceCoverageInventory(original.snapshot(), CONFIGURATION.release(), original.languageFeatureCoverage().contractIdentity(), contexts);
+    var written = new SourceCoverageInventory(original.snapshot(), CONFIGURATION.release(), original.languageFeatureCoverage().contractIdentity(), contexts, Optional.empty());
     var outcomes = evidence.outcomes().stream().map(outcome -> outcome.address().role().equals(ARGUMENTS)
         ? new FeatureContextOutcome(outcome.address(), outcome.occurrence(), outcome.observation(), Optional.of(empty),
             new FeatureContextOutcome.Support(FeatureContextOutcome.Mode.NEGATIVE, List.of(), Optional.empty(), Optional.empty(), Optional.of(empty)), List.of())
@@ -148,7 +151,7 @@ class JavaCreationPropertyCoverageTest {
   }
 
   private SyntaxAnalysisInput analyze(String source) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var result = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS).result().orElseThrow();
     return new SyntaxAnalysisInput(result.snapshot(), result.environment(), result.program(), Optional.of(result.aggregate()),
         result.diagnostics(), result.coverage());

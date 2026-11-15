@@ -244,7 +244,8 @@ final class JavaAnnotationValueProjector {
           "The attributed annotation value conflicts with its selected element type", range, diagnostics);
       return SourceProjectionResult.failure(projectedRange.failure().orElse(failure));
     }
-    var reference = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED, key, Optional.empty(), List.of(), List.of());
+    var reference = new SemanticReference(ReferenceKind.METHOD, ResolutionStatus.RESOLVED, key, Optional.empty(), List.of(), List.of(),
+        Optional.empty());
     return SourceProjectionResult.success(sourceAssociations.created(SyntaxNode.source(source.sourceFileKey(), path,
         name.isPresent() ? JavaSourceKind.ASSIGNMENT : result.node().sourceKind(), SyntaxKind.ANNOTATION_ARGUMENT, selectedType,
         new SyntaxValue.AnnotationArgument(name, key.orElseThrow(), result.value()), children, Optional.of(reference), range.orElseThrow()),

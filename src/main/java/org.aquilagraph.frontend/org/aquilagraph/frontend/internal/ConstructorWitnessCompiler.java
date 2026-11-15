@@ -35,6 +35,7 @@ final class ConstructorWitnessCompiler {
         var manager = new CompilerFileManager(Objects.requireNonNull(
             compiler.getStandardFileManager(diagnostics, Locale.ROOT, StandardCharsets.UTF_8), "constructor witness file manager"));
         var files = new ConstructorWitnessFileManager(manager, input.binaries())) {
+      invocation.configurePaths(manager.standardFileManager());
       var task = (JavacTask) compiler.getTask(new StringWriter(), files, diagnostics, invocation.compilerOptions(), null, input.sources());
       var units = new ArrayList<CompilationUnitTree>();
       task.parse().forEach(units::add);

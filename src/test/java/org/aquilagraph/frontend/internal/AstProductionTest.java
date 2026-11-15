@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -92,9 +95,9 @@ class AstProductionTest {
   @Test
   void givenNormalizedRelativeSources_whenCataloguedAndProduced_thenEachSourceKeepsItsOwnCorrelation() throws IOException {
     // Arrange
-    var left = SourceFile.fromContent(Path.of("discard/../Left.java"), "class Left { int value() { return 1; } }");
-    var right = SourceFile.fromContent(Path.of("nested/Right.java"), "class Right { int value() { return 2; } }");
-    var input = InputSnapshot.fromSources(directory, List.of(right, left));
+    var left = SourceFile.fromContent(capturedPath(Path.of("discard/../Left.java")), "class Left { int value() { return 1; } }");
+    var right = SourceFile.fromContent(capturedPath(Path.of("nested/Right.java")), "class Right { int value() { return 2; } }");
+    var input = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(right, left));
     var catalog = new SnapshotSourceCatalog(input);
     var frontend = new JavaFrontend(new JavaSourceLoader());
 
@@ -123,7 +126,7 @@ class AstProductionTest {
       throw new AssertionError("Empty source capture must not acquire a compiler");
     });
     var frontend = new JavaFrontend(new JavaSourceLoader(), pipeline);
-    var input = InputSnapshot.fromSources(directory, List.of());
+    var input = InputSnapshot.fromSources(capturedAbsolute(directory), List.of());
 
     // Act
     var outcome = frontend.produce(input, configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
@@ -197,7 +200,7 @@ class AstProductionTest {
   }
 
   private static InputSnapshot snapshot(Path root, String source) {
-    return InputSnapshot.fromSources(root, List.of(SourceFile.fromContent(Path.of("Stored.java"), source)));
+    return InputSnapshot.fromSources(capturedAbsolute(root), List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), source)));
   }
 
   private static CompilerConfiguration configuration() {

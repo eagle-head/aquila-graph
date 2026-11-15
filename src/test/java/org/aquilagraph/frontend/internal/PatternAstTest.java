@@ -1,5 +1,8 @@
 package org.aquilagraph.frontend.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.source.api.AstProductionRequest;
@@ -207,7 +210,7 @@ class PatternAstTest {
   void givenExpandedPatternRequest_whenApplicationSelectsCfg_thenRefusalPreservesCompleteSourceAndBoundedQualification() throws IOException {
     // Arrange
     var source = "class Example { boolean subject(Object value) { return value instanceof String text && text.length() > 0; } }";
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     var runner = AnalysisCapabilities.computation(new JavaFrontend(new JavaSourceLoader()), CfgDerivers.standard());
     var configuration = CompilerConfiguration.forRelease(JavaRelease.JAVA_25);
     // Act
@@ -305,7 +308,7 @@ class PatternAstTest {
     var booleanType = original.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.INSTANCE_OF).findFirst().orElseThrow().type();
     var sources = captured.sources().stream().map(source -> new SyntaxSourceContribution(source.sourceFileKey(), replace(source.root(), replacements, fact, inputAccess, booleanType), source.nodes().stream().map(node -> replace(node, replacements, fact, inputAccess, booleanType)).toList(), source.structuralEdges(), source.semanticEdges())).toList();
     var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), replace(body.root(), replacements, fact, inputAccess, booleanType), body.origin(), body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
-    return AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes()));
+    return AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes(), captured.scopes()));
   }
 
   private static SyntaxNode replace(SyntaxNode node, Map<SyntaxNode, SyntaxNode> replacements, String fact, SourceSpan inputAccess, SyntaxType booleanType) {
@@ -334,7 +337,7 @@ class PatternAstTest {
   }
 
   private AstResult produce(String source, AstProfile profile) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Example.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), profile)
         .result().orElseThrow();
   }

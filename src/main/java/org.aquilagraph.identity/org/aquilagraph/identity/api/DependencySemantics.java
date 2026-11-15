@@ -30,8 +30,6 @@ public record DependencySemantics(State state, List<ModuleCandidate> modules) {
 
   /** Closed outcomes of dependency interpretation. */
   public enum State {
-    /** Historical capture did not observe module semantics. */
-    UNOBSERVED,
     /** Class-path use does not discover named modules. */
     CLASS_PATH,
     /** The configured module-path artifact is physically absent. */

@@ -1,5 +1,8 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -71,8 +74,8 @@ class SourceQualificationWitnessTest {
     return cases.stream().map(example -> DynamicTest.dynamicTest(
         "given" + example.name() + "_whenProducingAndDecoding_thenTheProfileCauseRetainsItsSubject", () -> {
           // Arrange
-          var snapshot = InputSnapshot.fromSources(directory,
-              List.of(SourceFile.fromContent(Path.of("Subject.java"), example.source())));
+          var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+              List.of(SourceFile.fromContent(capturedPath(Path.of("Subject.java")), example.source())));
           var frontend = new JavaFrontend(new JavaSourceLoader());
 
           // Act
@@ -97,9 +100,9 @@ class SourceQualificationWitnessTest {
   void givenAnEmptyCopiedCapture_whenAdmittingProduction_thenCaptureAndRootAbsenceRemainSeparateNativeCauses() throws IOException {
     // Arrange
     var original = expanded("class Subject {}");
-    var snapshot = InputSnapshot.fromSources(directory, List.of());
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of());
     var contract = original.coverage().coverage();
-    var inventory = new SourceCoverageInventory(snapshot, JavaRelease.JAVA_25, contract.contractIdentity(), List.of());
+    var inventory = new SourceCoverageInventory(snapshot, JavaRelease.JAVA_25, contract.contractIdentity(), List.of(), Optional.empty());
     var coverage = CoverageAdmission.fromEvidence(contract, inventory, new AttributedCoverageExpectations(inventory, List.of()),
         List.of(), List.of(), List.of());
     var input = new SyntaxAnalysisInput(snapshot, original.environment(), new JavaProgram(List.of()), Optional.empty(), List.of(), coverage);
@@ -129,7 +132,7 @@ class SourceQualificationWitnessTest {
             return new JavaType(target.typeKey(), target.qualifiedName(), target.kind(), target.modifiers(), target.enclosingType(),
               target.directSuperclass(), target.directInterfaces(), target.permittedSubclasses(), target.typeParameters(), target.sourceDeclared(),
               target.fields(), target.recordComponents(), target.methods(), target.synthesizedDeclarations(), target.origins(),
-              erroneous ? target.nesting() : new JavaTypeNesting(target.nesting().kind(), target.nesting().lexicalOwnerKey()),
+              erroneous ? target.nesting() : new JavaTypeNesting(target.nesting().kind(), target.nesting().lexicalOwnerKey(), Optional.empty()),
               erroneous ? new JavaTypeIdentity(JavaTypeCategory.ERROR, "<error>", "<error>") : target.staticType(), target.displayName());
           }).toList());
           var copied = SourceValueCapture.capture(original.aggregate());
@@ -178,7 +181,7 @@ class SourceQualificationWitnessTest {
   @Test
   void givenCopiedUnavailableBodiesWithoutWrittenDeclarationTrees_whenAdmittingAndDecoding_thenReasonsUseTheRetainedBodySource() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Subject.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Subject.java")),
         "interface Subject { static int first() { return 1; } static int second() { return 2; } }")));
     var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
@@ -192,7 +195,7 @@ class SourceQualificationWitnessTest {
         MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION, List.of(), List.of(), List.of(), List.of(), List.of(), List.of())).toList();
     var rootKeys = sources.stream().map(source -> source.root().nodeId()).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), sources, bodies, List.of(),
-        copied.associations().stream().filter(value -> rootKeys.contains(value.nodeKey())).toList(), List.of()));
+        copied.associations().stream().filter(value -> rootKeys.contains(value.nodeKey())).toList(), List.of(), List.of()));
     var input = JavaCoverageTestSupport.withFacts(SourceValueCapture.capture(original), original.program(), Optional.of(aggregate),
         original.coverage().validationEvidence().diagnosticEmissions());
 
@@ -214,8 +217,8 @@ class SourceQualificationWitnessTest {
   @Test
   void givenErroneousCopiedImplicitTypesInSeveralFiles_whenAdmittingAndDecoding_thenReasonsKeepTheirCapturedFileOrder() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(
-        SourceFile.fromContent(Path.of("First.java"), "void main() {}"), SourceFile.fromContent(Path.of("Second.java"), "void main() {}")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(
+        SourceFile.fromContent(capturedPath(Path.of("First.java")), "void main() {}"), SourceFile.fromContent(capturedPath(Path.of("Second.java")), "void main() {}")));
     var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_MODULE_SERVICES).result().orElseThrow();
     var program = new JavaProgram(original.program().types().stream().map(type -> new JavaType(type.typeKey(), type.qualifiedName(), type.kind(),
@@ -244,7 +247,7 @@ class SourceQualificationWitnessTest {
   @Test
   void givenCopiedNestedSourceUnderAnEarlierExecutionProfile_whenAdmittingAndDecoding_thenEveryNestedFormKeepsItsRestriction() throws IOException {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Subject.java"),
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Subject.java")),
         "class Subject { Object run() { class Local {} return new Object() {}; } }")));
     var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_NESTED).result().orElseThrow();
@@ -302,7 +305,7 @@ class SourceQualificationWitnessTest {
                 unnamed ? Optional.empty() : Optional.of(new LocalBindingEvidence(Optional.empty(), binding.typeForm(), binding.context(),
                     binding.initialized(), binding.annotations(), binding.sharedAnnotationKeys())));
             var reference = unnamed ? node.semanticReference() : Optional.of(new SemanticReference(ReferenceKind.LOCAL,
-                ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of()));
+                ResolutionStatus.UNRESOLVED, Optional.empty(), Optional.empty(), List.of(), List.of(), Optional.empty()));
             return SyntaxNode.source(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind(), node.type(),
                 value, node.children(), reference, node.origin().orElseThrow());
           });
@@ -333,7 +336,7 @@ class SourceQualificationWitnessTest {
               return scope;
             }
             var reference = erroneous ? Optional.of(new SemanticReference(ReferenceKind.CONSTRUCTOR, ResolutionStatus.ERROR,
-                Optional.empty(), Optional.empty(), List.of(), List.of())) : Optional.<SemanticReference>empty();
+                Optional.empty(), Optional.empty(), List.of(), List.of(), Optional.empty())) : Optional.<SemanticReference>empty();
             return new CopiedAstValues.Scope(new ExecutionScope.EnumConstant(constant.key(), constant.ownerKey(), reference),
                 scope.root(), scope.uses(), scope.invocations(), scope.staticAccesses(), scope.concatenations(), scope.attributedOccurrences());
           }).toList();
@@ -354,7 +357,7 @@ class SourceQualificationWitnessTest {
   }
 
   private AstResult expanded(String source) throws IOException {
-    var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Subject.java"), source)));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory), List.of(SourceFile.fromContent(capturedPath(Path.of("Subject.java")), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
         AstProfile.JAVA_SOURCE_MODULE_SERVICES).result().orElseThrow();
   }

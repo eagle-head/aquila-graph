@@ -1,5 +1,8 @@
 package org.aquilagraph.application;
 
+import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
+import static org.aquilagraph.testsupport.TestLocations.capturedPath;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -50,8 +53,8 @@ class AnalysisComputationTest {
   @Test
   void givenExplicitSourceRequestWithoutSelection_whenComputing_thenTheProducerReceivesTheOriginalAndCfgIsAbsent() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Stored.java"), "class Stored { int value() { return 1; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), "class Stored { int value() { return 1; } }")));
     var source = new AstProductionRequest(snapshot, configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
     var frontend = new JavaFrontend(new JavaSourceLoader());
     var supplied = new AtomicReference<AstProductionRequest>();
@@ -93,8 +96,8 @@ class AnalysisComputationTest {
   @Test
   void givenRealSourceAndInvalidSelection_whenAnalyzing_thenExplicitRequestCausesPreserveAstAndPreventRepositoryAcquisition() {
     // Arrange
-    var snapshot = InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Stored.java"), "class Stored { int value() { return 1; } }")));
+    var snapshot = InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), "class Stored { int value() { return 1; } }")));
     var selection = new CfgSelection(List.of("unknown", "unknown", ""), CfgProfile.JAVA_BOUNDED);
     var request = new AnalysisComputationRequest(
         new AstProductionRequest(snapshot, configuration(), AstProfile.JAVA_SOURCE_BOUNDED), Optional.of(selection));
@@ -364,7 +367,7 @@ class AnalysisComputationTest {
   @Test
   void givenUnavailableProductionAndInvalidSelection_whenAnalyzing_thenSelectionRemainsUnboundWithoutDeriverAcquisition() throws IOException {
     // Arrange
-    var ast = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory, List.of()),
+    var ast = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory), List.of()),
         configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
     var selection = new CfgSelection(List.of("missing", "missing", ""), CfgProfile.JAVA_BOUNDED);
     var runner = AnalysisCapabilities.computation(ignored -> ast, (source, request) -> {
@@ -390,7 +393,7 @@ class AnalysisComputationTest {
   void givenUnavailableSourceAndExistingRequest_whenDeriving_thenTheCallerBindingSurvivesWithoutAnInventedCfgOutcome() throws IOException {
     // Arrange
     var available = produce("class Stored { int value() { return 1; } }");
-    var unavailable = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory, List.of()),
+    var unavailable = new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory), List.of()),
         configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
     var request = new CfgRequest(available.result().orElseThrow().identity(), List.of(key(available, "value")), CfgProfile.JAVA_BOUNDED);
     var runner = AnalysisCapabilities.existingSourceDerivation((source, ignored) -> {
@@ -516,8 +519,8 @@ class AnalysisComputationTest {
   }
 
   private AstOutcome produce(String source) throws IOException {
-    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(directory,
-        List.of(SourceFile.fromContent(Path.of("Stored.java"), source))), configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
+    return new JavaFrontend(new JavaSourceLoader()).produce(InputSnapshot.fromSources(capturedAbsolute(directory),
+        List.of(SourceFile.fromContent(capturedPath(Path.of("Stored.java")), source))), configuration(), AstProfile.JAVA_SOURCE_BOUNDED);
   }
 
   private static AnalysisComputationRequest request(AstOutcome ast, Optional<CfgSelection> selection) {

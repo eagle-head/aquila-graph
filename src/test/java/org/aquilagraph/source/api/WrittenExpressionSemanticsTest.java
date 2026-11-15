@@ -69,7 +69,7 @@ class WrittenExpressionSemanticsTest {
         .child(SyntaxRole.BODY, 0).child(SyntaxRole.EXPRESSION, 0);
     var operandType = new SyntaxType.Resolved(new JavaTypeIdentity(value.operandCategory(), value.operandName(), value.operandName()));
     var reference = new SemanticReference(ReferenceKind.PARAMETER, ResolutionStatus.RESOLVED, Optional.of("parameter:value"),
-        Optional.of(value.operandName()), List.of(value.operandName()), List.of(value.operandName()));
+        Optional.of(value.operandName()), List.of(value.operandName()), List.of(value.operandName()), Optional.empty());
     var operand = SyntaxNode.source("source", path.child(SyntaxRole.OPERAND, 0), JavaSourceKind.IDENTIFIER, SyntaxKind.VARIABLE_ACCESS,
         operandType, new SyntaxValue.SourceSymbol("value"), List.of(), Optional.of(reference), new SourceSpan("source", 1, 2));
     var resultName = value.resultCategory().name().toLowerCase(Locale.ROOT);

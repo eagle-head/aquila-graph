@@ -239,7 +239,7 @@ final class SourceSemanticValidation {
 
   private static Declaration declarationTarget(ReferenceKind kind, String key) {
     return new Declaration(
-        new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of()));
+        new SemanticReference(kind, ResolutionStatus.RESOLVED, Optional.of(key), Optional.empty(), List.of(), List.of(), Optional.empty()));
   }
 
   private static int compareTargets(SyntaxSemanticEdge left, SyntaxSemanticEdge right) {
