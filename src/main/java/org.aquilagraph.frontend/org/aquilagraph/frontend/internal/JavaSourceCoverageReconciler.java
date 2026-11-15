@@ -141,7 +141,7 @@ final class JavaSourceCoverageReconciler {
       var expected = attributed.projections().stream().filter(projection -> projection.address().equals(context.address()))
           .map(AttributedCoverageExpectations.Projection::value).findFirst().orElseThrow();
       var facts = CoverageActualFacts.ownedBy(context, actualFacts);
-      var supported = CoverageActualFacts.supportsProperty(context, expected, facts, actualFacts, inventory.snapshot());
+      var supported = CoverageActualFacts.supportsProperty(context, expected, facts, actualFacts);
       var emissions = supported
           ? List.<DiagnosticEmission.Address>of()
           : failure(context, MISSING_SOURCE_EVIDENCE, "A required module operand lacks its independently attributed exact declaration");
@@ -318,8 +318,9 @@ final class JavaSourceCoverageReconciler {
       } else {
         var owned = ownerFacts(context);
         var expected = encountered.isPresent() ? Optional.of(projection(context)) : Optional.<CoveragePropertyValue>empty();
-        var supported = !owned.isEmpty() && expected.map(value -> value.equals(encountered.orElseThrow())
-            && CoverageActualFacts.supportsProperty(context, value, owned, actualFacts, inventory.snapshot())).orElse(true);
+        var supported = !owned.isEmpty() && expected.map(
+            value -> value.equals(encountered.orElseThrow()) && CoverageActualFacts.supportsProperty(context, value, owned, actualFacts))
+            .orElse(true);
         if (!supported) {
           disposition = support(Mode.FAILED);
           addresses.addAll(failure(context,

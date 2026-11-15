@@ -1,13 +1,15 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.source.internal.CoverageWrittenAttachments.Cardinality.LIST;
+import static org.aquilagraph.source.internal.CoverageWrittenAttachments.Cardinality.OPTIONAL_VALUE;
+
 import org.aquilagraph.source.admission.CoverageActualFactView;
+import org.aquilagraph.source.api.CoverageFactReference;
 import org.aquilagraph.source.api.CoveragePropertyValue;
-import org.aquilagraph.source.api.CoverageSyntaxFactValue;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
 import java.util.ArrayList;
 import java.util.List;
-import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.source.api.CoveragePropertyValue.Item;
 import org.aquilagraph.source.api.CoveragePropertyValue.Provenance;
 import org.aquilagraph.source.api.CoveragePropertyValue.State;
@@ -28,23 +30,20 @@ public final class CoverageSwitchFacts {
    *          owner
    * @param facts
    *          facts
-   * @param snapshot
-   *          snapshot
    * @return whether the facts satisfy the required relation
    */
-  public static boolean supports(String accessor, CoveragePropertyValue expected, CoverageSyntaxFactValue owner,
-      CoverageActualFactView facts, InputSnapshot snapshot) {
-    var value = (SyntaxValue.SwitchCase) owner.value();
+  public static boolean supports(String accessor, CoveragePropertyValue expected, CoverageFactReference owner,
+      CoverageActualFactView facts) {
+    var value = (SyntaxValue.SwitchCase) facts.requiredSyntax(owner).value();
     return switch (accessor) {
       case "getKind" -> expected.equals(scalar("CASE"));
       case "getCaseKind" -> expected.equals(scalar(value.form() == SyntaxValue.SwitchCaseForm.RULE ? "RULE" : "STATEMENT"));
-      case "getGuard" -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.GUARD), facts, snapshot, true);
-      case "getBody" -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.BODY), facts, snapshot, true);
+      case "getGuard" -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.GUARD), facts, OPTIONAL_VALUE);
+      case "getBody" -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.BODY), facts, OPTIONAL_VALUE);
       case "getStatements" -> value.form() == SyntaxValue.SwitchCaseForm.RULE
-          ? expected.state() == State.ABSENT && expected.items().isEmpty()
-              && owner.children().stream().noneMatch(child -> child.role() == SyntaxRole.STATEMENT)
-          : CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.STATEMENT), facts, snapshot, false);
-      case "getLabels", "getExpressions" -> labels(accessor, expected, value, owner, facts, snapshot);
+          ? expected.state() == State.ABSENT && expected.items().isEmpty() && facts.children(owner, List.of(SyntaxRole.STATEMENT)).isEmpty()
+          : CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.STATEMENT), facts, LIST);
+      case "getLabels", "getExpressions" -> labels(accessor, expected, value, owner, facts);
       default -> false;
     };
   }
@@ -53,8 +52,8 @@ public final class CoverageSwitchFacts {
     return new CoveragePropertyValue(State.SCALAR, List.of(new Item(text, text, Provenance.WRITTEN)));
   }
 
-  private static boolean labels(String accessor, CoveragePropertyValue expected, SyntaxValue.SwitchCase value,
-      CoverageSyntaxFactValue owner, CoverageActualFactView facts, InputSnapshot snapshot) {
+  private static boolean labels(String accessor, CoveragePropertyValue expected, SyntaxValue.SwitchCase value, CoverageFactReference owner,
+      CoverageActualFactView facts) {
     var items = new ArrayList<Item>();
     var expressions = "getExpressions".equals(accessor);
     for (var label : value.labels()) {
@@ -70,27 +69,19 @@ public final class CoverageSwitchFacts {
       var ordinal = label instanceof SyntaxValue.SwitchLabel.Expression expression
           ? expression.childPosition()
           : ((SyntaxValue.SwitchLabel.Pattern) label).childPosition();
-      var child = owner.children().stream().filter(candidate -> candidate.role() == SyntaxRole.LABEL && candidate.ordinal() == ordinal)
-          .findFirst();
-      if (child.isEmpty()) {
+      var child = facts.child(owner, SyntaxRole.LABEL, ordinal);
+      var text = child.flatMap(facts::capturedText);
+      if (text.isEmpty()) {
         return false;
       }
-      var fact = facts.stream().filter(candidate -> candidate.identity().equals(child.orElseThrow().nodeKey())).findFirst();
-      if (fact.isEmpty() || fact.orElseThrow().origin().isEmpty()) {
-        return false;
-      }
-      var source = snapshot.sourceFiles().stream().filter(file -> file.sourceFileKey().equals(fact.orElseThrow().sourceFileKey()))
-          .findFirst().orElseThrow();
-      var origin = fact.orElseThrow().origin().orElseThrow();
-      var text = source.content().substring(Math.toIntExact(origin.startOffset()), Math.toIntExact(origin.endOffsetExclusive()));
-      var observed = facts.requiredSyntax(fact.orElseThrow()).observedCompilerKind();
+      var observed = child.map(facts::requiredSyntax).flatMap(syntax -> syntax.observedCompilerKind());
       if (expressions && observed.isEmpty()) {
         return false;
       }
       var kind = expressions
           ? observed.orElseThrow().name()
           : label instanceof SyntaxValue.SwitchLabel.Pattern ? "PATTERN_CASE_LABEL" : "CONSTANT_CASE_LABEL";
-      items.add(new Item(kind + ':' + items.size(), text, Provenance.WRITTEN));
+      items.add(new Item(kind + ':' + items.size(), text.orElseThrow(), Provenance.WRITTEN));
     }
     return expected.equals(new CoveragePropertyValue(items.isEmpty() ? State.EMPTY : State.ITEMS, items));
   }

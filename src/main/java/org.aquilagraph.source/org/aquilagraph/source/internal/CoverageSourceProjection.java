@@ -20,7 +20,7 @@ import org.aquilagraph.source.api.CoverageEvidenceValue.Field;
 import org.aquilagraph.source.api.CoverageEvidenceValue.Structure;
 import org.aquilagraph.source.api.CoverageEvidenceValue.Tag;
 
-/** Explicit lossless conversion from closed syntax values to closed neutral fact values. */
+/** Copies the source occurrence facts used by coverage into their closed neutral representation. */
 public final class CoverageSourceProjection {
   private static final String ANNOTATIONS_FIELD = "annotations";
   private static final String ARGUMENTS_FIELD = "arguments";

@@ -118,7 +118,8 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
           .orElseThrow();
       var owned = actualOwner(context, evidence, facts);
       for (var reference : outcome.support().facts()) {
-        accounted.add(actualReference(reference, facts));
+        accounted.add(facts.reference(reference).orElseThrow(
+            () -> new IllegalArgumentException("Claimed positive coverage support must match an exact actual owned fact value")));
       }
       if (outcome.support().mode() == FeatureContextOutcome.Mode.FACTS) {
         if (context.address().partition() == SourceContext.Partition.WRITTEN_EXPRESSION) {
@@ -141,10 +142,7 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
           throw new IllegalArgumentException("Empty declaration support requires its exact actual member occurrence and order");
         }
         if (context.address().partition().isEmptyDeclaration()) {
-          var range = context.origins().getFirst();
-          var source = snapshot.sourceFiles().stream().filter(file -> file.sourceFileKey().equals(range.sourceFileKey())).findFirst()
-              .orElseThrow();
-          var text = source.content().substring(Math.toIntExact(range.startOffset()), Math.toIntExact(range.endOffsetExclusive()));
+          var text = facts.capturedText(outcome.support().facts().getFirst()).orElseThrow();
           if (!";".equals(text) && !text.matches("\\\\u+003[bB]")) {
             throw new IllegalArgumentException("An empty declaration must retain its actual written semicolon");
           }
@@ -172,13 +170,12 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
         }
       }
       if (outcome.support().mode() == FeatureContextOutcome.Mode.NEGATIVE) {
-        if (!CoverageActualFacts.supportsProperty(context, outcome.support().negativeState().orElseThrow(), owned, facts, snapshot)) {
+        if (!CoverageActualFacts.supportsProperty(context, outcome.support().negativeState().orElseThrow(), owned, facts)) {
           throw new IllegalArgumentException(
               "Claimed negative coverage support requires an actual existing owner with absent or empty accessor state");
         }
       } else if (outcome.support().mode() == FeatureContextOutcome.Mode.FACTS && outcome.encounteredValue().isPresent()
-          && !CoverageActualFacts.supportsProperty(context, outcome.encounteredValue().orElseThrow(), outcome.support().facts(), facts,
-              snapshot)) {
+          && !CoverageActualFacts.supportsProperty(context, outcome.encounteredValue().orElseThrow(), outcome.support().facts(), facts)) {
         throw new IllegalArgumentException("Claimed accessor support disagrees with the actual retained owner facts");
       }
     }
@@ -200,11 +197,6 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
             "Every actual retained fact requires exact positive support or a diagnosed captured-owner unmatched entry");
       }
     }
-  }
-
-  private static CoverageFactReference actualReference(CoverageFactReference reference, CoverageActualFactView facts) {
-    return facts.stream().filter(fact -> fact.equals(reference)).findFirst()
-        .orElseThrow(() -> new IllegalArgumentException("Claimed positive coverage support must match an exact actual owned fact value"));
   }
 
   private static boolean treeSupport(SourceContext context, List<CoverageFactReference> claimed, CoverageValidationEvidence evidence,
@@ -377,9 +369,8 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
     if ("PATTERN_CASE_LABEL".equals(context.feature().orElseThrow().identifier()) != (label instanceof SyntaxValue.SwitchLabel.Pattern)) {
       return false;
     }
-    return position >= 0 && syntax.children().stream().filter(child -> child.role() == SyntaxRole.LABEL && child.ordinal() == position)
-        .anyMatch(child -> facts.stream()
-            .anyMatch(actual -> actual.identity().equals(child.nodeKey()) && actual.origin().stream().toList().equals(context.origins())));
+    return position >= 0 && facts.child(fact, SyntaxRole.LABEL, position)
+        .filter(actual -> actual.origin().stream().toList().equals(context.origins())).isPresent();
   }
 
   private static boolean capturedOwnerContains(SourceContext owner, CoverageFactReference fact, CoverageValidationEvidence evidence,

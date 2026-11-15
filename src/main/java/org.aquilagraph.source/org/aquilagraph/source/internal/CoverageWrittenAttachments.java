@@ -2,10 +2,8 @@ package org.aquilagraph.source.internal;
 
 import java.util.List;
 import java.util.Optional;
-import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.source.admission.CoverageActualFactView;
 import org.aquilagraph.source.api.CoverageFactReference;
-import org.aquilagraph.source.api.CoverageFactReference.Kind;
 import org.aquilagraph.source.api.CoveragePropertyValue;
 import org.aquilagraph.source.api.CoveragePropertyValue.State;
 import org.aquilagraph.source.api.CoverageSyntaxFactValue;
@@ -17,30 +15,22 @@ public final class CoverageWrittenAttachments {
   private CoverageWrittenAttachments() {
   }
 
-  /**
-   * Derives the written attachment facts for the selected declaration or source node.
-   *
-   * @param expected
-   *          expected
-   * @param owner
-   *          owner
-   * @param roles
-   *          roles
-   * @param actualFacts
-   *          actual facts
-   * @param snapshot
-   *          snapshot
-   * @return whether the facts satisfy the required relation
-   */
-  public static boolean matches(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, List<SyntaxRole> roles,
-      CoverageActualFactView actualFacts, InputSnapshot snapshot) {
-    var scalar = roles.size() == 1 && switch (roles.getFirst()) {
-      case BODY, DEFAULT_VALUE, RECEIVER_PARAMETER, QUALIFIER, RETURN_TYPE, INITIALIZER, PACKAGE_DECLARATION, MODULE_DECLARATION,
-          SUPERCLASS, DECLARED_TYPE, TYPE_OPERAND ->
-        true;
-      default -> false;
-    };
-    return matches(expected, owner, roles, actualFacts, snapshot, scalar);
+  /** Written attachment states selected by the actual accessor's syntax contract. */
+  public enum Cardinality {
+    /** A missing or single written value. */
+    OPTIONAL_VALUE(State.ABSENT, State.SCALAR),
+    /** An empty or populated written list. */
+    LIST(State.EMPTY, State.ITEMS),
+    /** A missing or populated written list. */
+    OPTIONAL_LIST(State.ABSENT, State.ITEMS);
+
+    private final State whenEmpty;
+    private final State whenPresent;
+
+    Cardinality(State whenEmpty, State whenPresent) {
+      this.whenEmpty = whenEmpty;
+      this.whenPresent = whenPresent;
+    }
   }
 
   /**
@@ -54,19 +44,14 @@ public final class CoverageWrittenAttachments {
    *          roles
    * @param actualFacts
    *          actual facts
-   * @param snapshot
-   *          snapshot
-   * @param scalar
-   *          scalar
+   * @param cardinality
+   *          actual accessor's written attachment cardinality
    * @return whether the facts satisfy the required relation
    */
-  public static boolean matches(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, List<SyntaxRole> roles,
-      CoverageActualFactView actualFacts, InputSnapshot snapshot, boolean scalar) {
-    var children = select(owner, roles, actualFacts).stream()
-        .filter(child -> !roles.equals(List.of(SyntaxRole.TYPE_DECLARATION)) || actualFacts.requiredSyntax(child).sourceAssociation()
-            .flatMap(value -> value.ownerPath().lastStep()).filter(step -> step.role() == SourceOwnerPath.Role.EMPTY_DECLARATION).isEmpty())
-        .toList();
-    var actualState = children.isEmpty() ? (scalar ? State.ABSENT : State.EMPTY) : (scalar ? State.SCALAR : State.ITEMS);
+  public static boolean matches(CoveragePropertyValue expected, CoverageFactReference owner, List<SyntaxRole> roles,
+      CoverageActualFactView actualFacts, Cardinality cardinality) {
+    var children = select(owner, roles, actualFacts);
+    var actualState = children.isEmpty() ? cardinality.whenEmpty : cardinality.whenPresent;
     if (expected.state() != actualState) {
       return false;
     }
@@ -79,37 +64,17 @@ public final class CoverageWrittenAttachments {
     for (var index = 0; index < children.size(); index++) {
       var child = children.get(index);
       var item = expected.items().get(index);
-      if (child.origin().isEmpty()) {
-        return false;
-      }
-      var syntax = actualFacts.requiredSyntax(child);
-      var source = snapshot.sourceFiles().stream().filter(file -> file.sourceFileKey().equals(child.sourceFileKey())).findFirst()
-          .orElseThrow();
-      var origin = child.origin().orElseThrow();
-      var text = source.content().substring(Math.toIntExact(origin.startOffset()), Math.toIntExact(origin.endOffsetExclusive()));
-      if (!writtenItem(syntax, index, text).filter(item::equals).isPresent()) {
+      var text = actualFacts.capturedText(child);
+      if (text.isEmpty() || writtenItem(actualFacts.requiredSyntax(child), index, text.orElseThrow()).filter(item::equals).isEmpty()) {
         return false;
       }
     }
     return true;
   }
 
-  /**
-   * Selects actual written child facts in their retained structural order.
-   *
-   * @param owner
-   *          copied structural owner
-   * @param roles
-   *          selected attachment roles
-   * @param actualFacts
-   *          complete retained fact view
-   * @return ordered actual written children
-   */
-  public static List<CoverageFactReference> select(CoverageSyntaxFactValue owner, List<SyntaxRole> roles,
+  private static List<CoverageFactReference> select(CoverageFactReference owner, List<SyntaxRole> roles,
       CoverageActualFactView actualFacts) {
-    return owner.children().stream().filter(child -> roles.contains(child.role()))
-        .map(child -> actualFacts.stream().filter(fact -> fact.kind() == Kind.SYNTAX && fact.identity().equals(child.nodeKey())).findFirst()
-            .orElseThrow())
+    return actualFacts.children(owner, roles).stream()
         .filter(fact -> actualFacts.requiredSyntax(fact).sourceAssociation().flatMap(association -> association.ownerPath().lastStep())
             .filter(step -> step.role() == SourceOwnerPath.Role.EMPTY_DECLARATION).isEmpty())
         .toList();
