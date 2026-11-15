@@ -3,17 +3,13 @@ package org.aquilagraph.source.internal;
 import org.aquilagraph.source.api.AttributedBodyOccurrence;
 import org.aquilagraph.source.api.CompilerExpressionAnchor;
 import org.aquilagraph.source.api.ExecutionScope;
-import org.aquilagraph.source.api.SourceExecutionTraversal;
 import org.aquilagraph.source.api.SourceOwnerPath;
-import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
 
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -22,38 +18,22 @@ public final class NormalizedExecutionPaths {
   private NormalizedExecutionPaths() {
   }
 
-  /**
-   * Checks normalized execution paths against the copied compiler attribution.
-   *
-   * @param facts
-   *          facts
-   * @param addresses
-   *          addresses
-   * @param associations
-   *          associations
-   * @param statementOffset
-   *          statement offset
-   * @param validatedRegions
-   *          validated regions
-   */
-  public static void validate(SourceExecutionFacts facts, Map<String, AttributedBodyOccurrence> addresses,
-      Map<String, WrittenSourceAssociation> associations, int statementOffset, Set<String> validatedRegions) {
+  static void validate(ExecutionRegion region, OccurrenceIndex<SyntaxNode> parents, OccurrenceIndex<WrittenSourceAssociation> associations,
+      int statementOffset, Set<String> validatedRegions) {
+    var facts = region.facts();
     var root = facts.root();
-    var nodes = SourceExecutionTraversal.nodes(root);
-    var parents = new HashMap<String, Parent>();
-    for (var node : nodes) {
-      if (node.syntaxKind() != SyntaxKind.TYPE_DECLARATION) {
-        node.children().forEach(child -> parents.put(child.node().nodeId(), new Parent(node, child.role(), child.position())));
-      }
-    }
-    for (var node : nodes) {
+    var addresses = region.addresses();
+    for (var node : region.nodes().values()) {
       var occurrence = addresses.get(node.nodeId());
-      var normalized = Optional.ofNullable(associations.get(node.nodeId())).flatMap(WrittenSourceAssociation::normalizedExpression)
+      var normalized = Optional.ofNullable(associations.get(node)).flatMap(WrittenSourceAssociation::normalizedExpression)
           .filter(value -> value.occurrencePath().isEmpty() && value.compilerAnchor() instanceof CompilerExpressionAnchor.Execution);
       if (node.nodeId().equals(root.nodeId()) || (occurrence == null && normalized.isEmpty())) {
         continue;
       }
-      var parent = Objects.requireNonNull(parents.get(node.nodeId()), "execution occurrence parent");
+      var parent = parents.get(node);
+      if (parent == null) {
+        throw new IllegalArgumentException("A normalized execution occurrence requires its exact parent");
+      }
       var expected = expected(facts, parent, node, addresses, associations, statementOffset);
       if (occurrence != null && !expected.equals(occurrence.compilerPath())) {
         throw new IllegalArgumentException("An intact execution occurrence must preserve its actual parent or normalized operand address");
@@ -68,24 +48,27 @@ public final class NormalizedExecutionPaths {
     }
   }
 
-  private static SyntaxStructuralPath expected(SourceExecutionFacts facts, Parent parent, SyntaxNode node,
-      Map<String, AttributedBodyOccurrence> addresses, Map<String, WrittenSourceAssociation> associations, int statementOffset) {
-    var observedParent = addresses.get(parent.node().nodeId());
+  private static SyntaxStructuralPath expected(SourceExecutionFacts facts, SyntaxNode parent, SyntaxNode node,
+      Map<String, AttributedBodyOccurrence> addresses, OccurrenceIndex<WrittenSourceAssociation> associations, int statementOffset) {
+    var attachment = node.structuralPath().steps().getLast();
+    var observedParent = addresses.get(parent.nodeId());
     if (observedParent != null) {
       var path = observedParent.compilerPath();
-      var rootChild = parent.node().nodeId().equals(facts.root().nodeId());
+      var rootChild = parent.nodeId().equals(facts.root().nodeId());
       if (rootChild && facts.scope() instanceof ExecutionScope.EnumConstant
-          && (parent.role() == SyntaxRole.ARGUMENT || parent.role() == SyntaxRole.CLASS_BODY)) {
+          && (attachment.role() == SyntaxRole.ARGUMENT || attachment.role() == SyntaxRole.CLASS_BODY)) {
         path = path.child(SyntaxRole.INITIALIZER, 0);
       }
-      return path.child(parent.role(), parent.position() + (rootChild && parent.role() == SyntaxRole.STATEMENT ? statementOffset : 0));
+      return path.child(attachment.role(),
+          attachment.position() + (rootChild && attachment.role() == SyntaxRole.STATEMENT ? statementOffset : 0));
     }
-    var normalized = Optional.ofNullable(associations.get(parent.node().nodeId())).flatMap(WrittenSourceAssociation::normalizedExpression)
+    var normalized = Optional.ofNullable(associations.get(parent)).flatMap(WrittenSourceAssociation::normalizedExpression)
         .orElseThrow(() -> new IllegalArgumentException("An execution occurrence requires its exact or explicitly normalized parent"));
     if (!(normalized.compilerAnchor() instanceof CompilerExpressionAnchor.Execution anchor)) {
       throw new IllegalArgumentException("An execution operand cannot borrow an annotation source address");
     }
-    var association = Objects.requireNonNull(associations.get(node.nodeId()), "intact operand source owner");
+    var association = Optional.ofNullable(associations.get(node))
+        .orElseThrow(() -> new IllegalArgumentException("An intact normalized operand requires its original source owner"));
     var owner = normalized.region().compilerOwner();
     if (!owner.isAncestorOf(association.ownerPath()) || owner.equals(association.ownerPath())) {
       throw new IllegalArgumentException("An intact operand requires its original owner within the normalized compiler region");
@@ -101,6 +84,4 @@ public final class NormalizedExecutionPaths {
     return path;
   }
 
-  private record Parent(SyntaxNode node, SyntaxRole role, int position) {
-  }
 }

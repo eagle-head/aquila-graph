@@ -469,7 +469,8 @@ class MethodDecisionReadinessTest {
   private static SyntaxNode assignmentBody() {
     return expressionBody(path -> {
       var location = node(path.child(SyntaxRole.LOCATION, 0), JavaSourceKind.IDENTIFIER, SyntaxKind.VARIABLE_ACCESS,
-          new SyntaxType.Resolved(INT), new SyntaxValue.SourceSymbol("input"), List.of(), Optional.of(reference(ReferenceKind.PARAMETER, "input")));
+          new SyntaxType.Resolved(INT), new SyntaxValue.SourceSymbol("input"), List.of(),
+          Optional.of(reference(ReferenceKind.PARAMETER, METHOD + ":parameter:0")));
       return node(path, JavaSourceKind.ASSIGNMENT, SyntaxKind.ASSIGNMENT, new SyntaxType.Resolved(INT), SyntaxValue.None.INSTANCE,
           List.of(new SyntaxChild(SyntaxRole.LOCATION, 0, location),
               new SyntaxChild(SyntaxRole.VALUE, 0, literal(path.child(SyntaxRole.VALUE, 0), INT))), Optional.empty());

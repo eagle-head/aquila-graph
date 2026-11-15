@@ -5,7 +5,6 @@ import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.JavaSourcePathRoles;
 import org.aquilagraph.source.api.NormalizedExpressionCorrespondence;
 import org.aquilagraph.source.api.SourceOwnerPath;
-import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SyntaxValue;
@@ -25,7 +24,7 @@ public final class AttributedDeclarationPaths {
   private final Map<String, Map<SourceOwnerPath, JavaSourceKind>> sourceKinds;
   private final Map<String, Map<SourceOwnerPath, Integer>> statementOffsets = new HashMap<>();
 
-  AttributedDeclarationPaths(List<DeclarationMemberOrder> declarations, Map<String, SyntaxNode> nodes,
+  AttributedDeclarationPaths(List<DeclarationMemberOrder> declarations, SourceDeclarations sourceDeclarations,
       Map<String, WrittenSourceAssociation> associations) {
     sourceKinds = associations.values().stream()
         .filter(
@@ -45,7 +44,7 @@ public final class AttributedDeclarationPaths {
                             })));
     for (var declaration : declarations) {
       declaration.attributedTreeOrder().ifPresent(order -> {
-        validateOwner(declaration, order, nodes, associations);
+        validateOwner(declaration, order, sourceDeclarations, associations);
       });
     }
     orders = declarations.stream().filter(declaration -> declaration.attributedTreeOrder().isPresent())
@@ -97,22 +96,16 @@ public final class AttributedDeclarationPaths {
   }
 
   private static void validateOwner(DeclarationMemberOrder declaration, DeclarationMemberOrder.TreeOrder order,
-      Map<String, SyntaxNode> nodes, Map<String, WrittenSourceAssociation> associations) {
-    var owner = nodes.values().stream().filter(node -> node.sourceFileKey().equals(declaration.sourceFileKey()))
-        .filter(
-            node -> node.value() instanceof SyntaxValue.TypeDeclaration type && type.declarationKey().equals(declaration.ownerTypeKey()))
-        .findFirst();
+      SourceDeclarations sourceDeclarations, Map<String, WrittenSourceAssociation> associations) {
+    var owners = sourceDeclarations.typeOccurrences(declaration.sourceFileKey(), declaration.ownerTypeKey());
+    var owner = owners.stream().filter(node -> node.value() instanceof SyntaxValue.TypeDeclaration).findFirst();
     if (owner.isPresent()) {
       var association = associations.get(owner.orElseThrow().nodeId());
       if (association == null || !association.ownerPath().equals(order.ownerPath())) {
         throw new IllegalArgumentException("Attributed tree order requires its exact parsed type declaration");
       }
     } else {
-      var compact = nodes.values().stream().filter(node -> node.sourceFileKey().equals(declaration.sourceFileKey())).anyMatch(
-          node -> node.value() instanceof SyntaxValue.CompilationUnit unit && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT
-              && node.children(SyntaxRole.COMPACT_MEMBER).stream()
-                  .anyMatch(member -> member.value() instanceof SyntaxValue.ExecutableDeclaration executable
-                      && executable.ownerKey().equals(declaration.ownerTypeKey())));
+      var compact = owners.stream().anyMatch(node -> node.value() instanceof SyntaxValue.CompilationUnit);
       if (!compact || !order.ownerPath().equals(SourceOwnerPath.root().child(SourceOwnerPath.Role.TYPE_DECLARATION, 0))) {
         throw new IllegalArgumentException("Attributed tree order requires its actual compact type owner");
       }

@@ -11,6 +11,8 @@ import org.aquilagraph.source.retention.AstCodec;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -51,9 +53,12 @@ import org.aquilagraph.source.api.AttributedBodyOccurrence;
 import org.aquilagraph.source.api.ExecutionScope;
 import org.aquilagraph.source.api.ExecutionSyntax;
 import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.MethodBodyOrigin;
 import org.aquilagraph.source.api.DeclarationMemberOrder;
 import org.aquilagraph.source.api.SourceOwnerPath;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.SyntaxChild;
+import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.application.CommitKnowledge;
@@ -207,10 +212,85 @@ class ExecutionAttributionAdmissionTest {
 
     // Act
     var failure = assertThrows(AstContractException.class, () -> qualify(original, supplied));
+    var recovered = AstValueAdmission.admit(values);
 
     // Assert
     assertTrue(failure.getMessage().contains("multiple execution occurrences"), failure.getMessage());
+    assertTrue(failure.getCause() instanceof IllegalArgumentException, failure.toString());
+    assertSame(first.root(), recovered.methodSyntax(first.methodKey()).orElseThrow().root());
+    assertSame(second.root(), recovered.methodSyntax(second.methodKey()).orElseThrow().root());
     assertEquals(AstCompletion.COMPLETE, original.completion());
+  }
+
+  @Test
+  void givenNestedAttributedBodies_whenEnclosingBodyClaimsAnInnerOccurrence_thenCopiedAndRetainedAdmissionRefuse() throws IOException {
+    // Arrange
+    for (var expression : List.of("\"a\" + \"b\" + null", "\"ab\"")) {
+      var original = produce("class Example { String outer() { class Inner { int inner() { return 1; } } "
+          + "return " + expression + "; } }", AstProfile.JAVA_SOURCE_UNITS);
+      var values = SourceValueCapture.capture(original.aggregate());
+      var outer = body(values, "#outer(");
+      var inner = body(values, "#inner(");
+      var statement = inner.root().requiredChild(SyntaxRole.STATEMENT);
+      var wrong = new AttributedBodyOccurrence(outer.methodKey(), statement.nodeId(), statement.sourceFileKey(), statement.sourceKind(),
+          SyntaxStructuralPath.sourceFileRoot());
+      var changed = new ArrayList<>(outer.attributedOccurrences());
+      changed.add(wrong);
+      var supplied = replaceBody(values, new CopiedAstValues.Body(outer.methodKey(), outer.root(), outer.origin(), outer.uses(),
+          outer.invocations(), outer.staticAccesses(), outer.concatenations(), outer.constructors(), changed));
+      var malformed = replaceFrames(AstCodec.encode(original), outer.attributedOccurrences(), changed, true);
+
+      // Act
+      var failure = assertThrows(AstContractException.class, () -> qualify(original, supplied));
+      var decode = assertThrows(AstContractException.class, () -> AstCodec.decode(malformed, original.identity()));
+      var recovered = AstValueAdmission.admit(values);
+
+      // Assert
+      assertEquals(AstCompletion.COMPLETE, original.completion());
+      assertEquals(expression.contains(" + "), values.associations().stream()
+          .anyMatch(association -> association.normalizedExpression().isPresent()));
+      assertTrue(failure.getMessage().contains("owned occurrences"), failure.toString());
+      assertTrue(decode.getMessage().contains("owned occurrences"), decode.toString());
+      assertEquals(outer.attributedOccurrences(), recovered.executionSyntax(outer.methodKey()).orElseThrow().attributedOccurrences());
+      assertEquals(inner.attributedOccurrences(), recovered.executionSyntax(inner.methodKey()).orElseThrow().attributedOccurrences());
+    }
+  }
+
+  @Test
+  void givenDetachedBodyWithWrittenCoordinates_whenAdmittedAndDecoded_thenItsOwnAddressesRemainIndependent() throws IOException {
+    // Arrange
+    var original = produce("class Example { int member; String subject() { return \"a\" + \"b\" + null; } }",
+        AstProfile.JAVA_SOURCE_UNITS);
+    var values = SourceValueCapture.capture(original.aggregate());
+    var written = body(values, "#subject(");
+    var auxiliary = body(values, "#<init>(");
+    var detachedRoot = detachedCopy(written.root());
+    var copiedRoot = new AttributedBodyOccurrence(auxiliary.methodKey(), detachedRoot.nodeId(), detachedRoot.sourceFileKey(),
+        detachedRoot.sourceKind(), detachedRoot.structuralPath());
+    var supplied = replaceBody(values, new CopiedAstValues.Body(auxiliary.methodKey(), detachedRoot,
+        MethodBodyOrigin.COMPILER_ATTRIBUTED_BODY, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(copiedRoot)));
+
+    // Act
+    var isolated = AstValueAdmission.admit(supplied);
+    var qualified = qualify(original, supplied);
+    var decoded = AstCodec.decode(AstCodec.encode(qualified), qualified.identity());
+    var wrong = copiedRoot.compilerPath().child(SyntaxRole.STATEMENT, 0);
+    var malformed = replaceFrames(AstCodec.encode(qualified), copiedRoot,
+        new AttributedBodyOccurrence(copiedRoot.scopeKey(), copiedRoot.nodeKey(), copiedRoot.sourceFileKey(), copiedRoot.sourceKind(), wrong),
+        true);
+    var invalid = assertThrows(AstContractException.class, () -> qualify(original, replace(supplied, copiedRoot, wrong)));
+    var decodeFailure = assertThrows(AstContractException.class, () -> AstCodec.decode(malformed, qualified.identity()));
+
+    // Assert
+    assertTrue(values.associations().stream().anyMatch(association -> association.normalizedExpression().isPresent()));
+    assertEquals(written.root().nodeId(), detachedRoot.nodeId());
+    assertNotSame(written.root(), detachedRoot);
+    assertSame(written.root(), isolated.node(detachedRoot.nodeId()).orElseThrow());
+    assertSame(detachedRoot, isolated.methodSyntax(auxiliary.methodKey()).orElseThrow().root());
+    assertEquals(List.of(copiedRoot), decoded.aggregate().executionSyntax(auxiliary.methodKey()).orElseThrow().attributedOccurrences());
+    assertEquals(written.attributedOccurrences(), decoded.aggregate().executionSyntax(written.methodKey()).orElseThrow().attributedOccurrences());
+    assertTrue(invalid.getMessage().contains("cannot be rebased"), invalid.toString());
+    assertTrue(decodeFailure.getMessage().contains("cannot be rebased"), decodeFailure.toString());
   }
 
   @Test
@@ -354,9 +434,32 @@ class ExecutionAttributionAdmissionTest {
   }
 
   private AstResult produce(String source) throws IOException {
+    return produce(source, AstProfile.JAVA_SOURCE_INITIALIZATION);
+  }
+
+  private AstResult produce(String source, AstProfile profile) throws IOException {
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
-        AstProfile.JAVA_SOURCE_INITIALIZATION).result().orElseThrow();
+        profile).result().orElseThrow();
+  }
+
+  private static CopiedAstValues.Body body(CopiedAstValues values, String name) {
+    return values.bodies().stream().filter(body -> body.methodKey().contains(name)).findFirst().orElseThrow();
+  }
+
+  private static CopiedAstValues replaceBody(CopiedAstValues values, CopiedAstValues.Body replacement) {
+    var bodies = values.bodies().stream().map(body -> body.methodKey().equals(replacement.methodKey()) ? replacement : body).toList();
+    return new CopiedAstValues(values.snapshot(), values.sources(), bodies, values.memberOrders(), values.associations(),
+        values.declarationTypes(), values.scopes());
+  }
+
+  private static SyntaxNode detachedCopy(SyntaxNode node) {
+    var children = node.children().stream()
+        .map(child -> new SyntaxChild(child.role(), child.position(), detachedCopy(child.node()))).toList();
+    return node.origin().map(origin -> SyntaxNode.source(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind(),
+        node.type(), node.value(), children, node.semanticReference(), origin)).orElseGet(() -> SyntaxNode.withoutDirectSource(
+            node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind(), node.type(), node.value(), children,
+            node.semanticReference()));
   }
 
   @TestFactory

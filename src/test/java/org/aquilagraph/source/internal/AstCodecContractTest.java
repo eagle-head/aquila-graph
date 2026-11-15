@@ -14,6 +14,7 @@ import org.aquilagraph.source.retention.AstValueProjection;
 
 
 import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.aquilagraph.source.internal.RetainedSourceFixture.payloadWithAggregate;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,6 +36,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.IntStream;
@@ -70,6 +72,7 @@ import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.JavaProgram;
 import org.aquilagraph.source.api.JavaType;
+import org.aquilagraph.source.api.MethodBodyOrigin;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.JavaTypeCategory;
@@ -884,9 +887,16 @@ class AstCodecContractTest {
 
   @TestFactory
   Stream<DynamicTest> givenPartialCanonicalHeaders_whenKnownTypesDisagree_thenReturnAndEachParameterRemainBinding() {
-    return Stream.of("return", "parameter", "parameter-with-missing-peer").map(part -> DynamicTest.dynamicTest(part, () -> {
+    // Arrange
+    var parts = Stream.of("return", "parameter", "parameter-with-missing-peer");
+    // Act
+    var tests = parts.map(part -> DynamicTest.dynamicTest(switch (part) {
+      case "return" -> "givenAPartialReturnHeader_whenItsKnownTypeConflicts_thenCanonicalCorrespondenceRefuses";
+      case "parameter" -> "givenAPartialParameterHeader_whenItsKnownTypeConflicts_thenCanonicalCorrespondenceRefuses";
+      default -> "givenAParameterWithAMissingPeerType_whenItsKnownTypeConflicts_thenCanonicalCorrespondenceRefuses";
+    }, () -> {
       // Arrange
-      var original = referenceResult("String subject(String value, String other) { return value; }");
+      var original = referenceResult("String subject(String value, String other) { return \"result\"; }");
       var declaration = original.aggregate().nodes().stream().filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration executable
           && executable.name().equals("subject")).findFirst().orElseThrow();
       var node = part.equals("return") ? declaration.requiredChild(SyntaxRole.RETURN_TYPE)
@@ -915,6 +925,8 @@ class AstCodecContractTest {
       assertEquals(AstCompletion.INCOMPLETE, decoded.completion());
       assertEquals(positive.aggregate(), decoded.aggregate());
     }));
+    // Assert
+    return tests;
   }
 
   @TestFactory
@@ -1957,6 +1969,154 @@ class AstCodecContractTest {
 
   private record ReferenceCase(String target, String expression) {}
 
+  @TestFactory
+  Stream<DynamicTest> givenDetachedBodyWithCanonicalFormals_whenItsSelectionContradictsTheSignature_thenResultAndDecoderReject() {
+    // Arrange
+    var primitiveSignature = "int first(int value)";
+    var referenceSignature = "Object first(java.util.List<?> value)";
+    var arraySignature = "Object first(String[] value)";
+    var cases = List.of(new FormalSelection("UnknownKey", primitiveSignature, "value", 1, Optional.empty()),
+        new FormalSelection("WrongName", primitiveSignature, "different", 0, Optional.empty()),
+        new FormalSelection("WrongPrimitiveType", primitiveSignature, "value", 0,
+            Optional.of(new JavaTypeIdentity(JavaTypeCategory.CHAR, "char", "char"))),
+        new FormalSelection("WrongDeclaredErasure", referenceSignature, "value", 0,
+            Optional.of(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "java.util.Set<?>", "java.util.Set"))),
+        new FormalSelection("WrongArrayErasure", arraySignature, "value", 0,
+            Optional.of(new JavaTypeIdentity(JavaTypeCategory.ARRAY, "java.lang.Integer[]", "java.lang.Integer[]"))));
+
+    // Act
+    var observations = cases.stream().map(value -> DynamicTest.dynamicTest("givenDetachedFormalWith" + value.variant()
+        + "_whenTheResultIsAdmittedAndDecoded_thenTheCanonicalFormalIsRequired", () -> {
+          // Arrange
+          var original = formalResult(value.signature());
+          var method = original.program().methods().getFirst();
+          var values = SourceValueCapture.capture(original.aggregate());
+          var positive = detachedBodyWithoutHeader(values, UnaryOperator.identity());
+          var control = admitDetachedFormal(original, positive);
+          var negative = detachedBodyWithoutHeader(values, node -> {
+            var reference = node.semanticReference().orElseThrow();
+            var typeName = value.type().map(JavaTypeIdentity::displayName);
+            var erasedNames = value.type().map(JavaTypeIdentity::erasedName).stream().toList();
+            var selected = new SemanticReference(reference.referenceKind(), reference.status(),
+                Optional.of(method.methodKey() + ":parameter:" + value.ordinal()), typeName.or(reference::typeName),
+                value.type().isPresent() ? erasedNames : reference.typeAlternativeNames(),
+                value.type().isPresent() ? erasedNames : reference.assignableToTypeNames());
+            return SyntaxNode.withoutDirectSource(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind(),
+                value.type().<SyntaxType>map(SyntaxType.Resolved::new).orElse(node.type()), new SyntaxValue.SourceSymbol(value.name()),
+                node.children(), Optional.of(selected));
+          });
+          var aggregate = AstValueAdmission.admit(negative);
+          var bytes = payloadWithAggregate(control, negative);
+
+          // Act
+          var decoded = AstCodec.decode(AstCodec.encode(control), control.identity());
+          var copied = assertThrows(IllegalArgumentException.class, () -> AstProductionAdmission.outcome(
+              new SyntaxAnalysisInput(control.snapshot(), control.environment(), control.program(), Optional.of(aggregate),
+                  control.diagnostics(), control.coverage()), control.profile(), control.identity().semanticProductionRevision()));
+          var retained = assertThrows(AstContractException.class, () -> AstCodec.decode(bytes, control.identity()));
+
+          // Assert
+          assertEquals(AstCompletion.COMPLETE, original.completion());
+          assertEquals(AstCompletion.INCOMPLETE, decoded.completion());
+          assertEquals(MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION, decoded.aggregate().methodBodyOrigin(method.methodKey()).orElseThrow());
+          var operand = formalAccess(decoded);
+          var parameter = method.parameters().getFirst();
+          var operandType = operand.resolvedType().orElseThrow();
+          assertEquals(parameter.parameterKey(), operand.requiredReference().symbolKey().orElseThrow());
+          assertEquals(parameter.name(), operand.value(SyntaxValue.SourceSymbol.class).name());
+          assertEquals(parameter.staticType().category(), operandType.category());
+          assertEquals(parameter.staticType().erasedName(), operandType.erasedName());
+          if (value.signature().equals(referenceSignature)) {
+            assertNotEquals(parameter.staticType().displayName(), operandType.displayName());
+            assertTrue(operandType.displayName().contains(" of ?"), operandType.displayName());
+          }
+          var diagnostic = value.type().isPresent() ? "detached formal reference type" : "exact canonical name and source";
+          assertTrue(copied.getMessage().contains(diagnostic), copied.toString());
+          var construction = assertInstanceOf(AstContractException.class, retained.getCause());
+          assertEquals(copied.getMessage(), construction.getCause().getMessage());
+        }));
+
+    // Assert
+    return observations;
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenDetachedFormalWithMissingOrErroneousType_whenTheResultIsAdmittedAndDecoded_thenTypeEvidenceRemainsExplicit() {
+    // Arrange
+    var evidence = List.of(SyntaxType.Unresolved.INSTANCE, SyntaxType.Erroneous.INSTANCE);
+
+    // Act
+    var observations = evidence.stream().map(type -> DynamicTest.dynamicTest("givenDetachedFormalWith" + type.getClass().getSimpleName()
+        + "Type_whenTheResultIsAdmittedAndDecoded_thenTheTypeOutcomeIsRetained", () -> {
+          // Arrange
+          var original = formalResult("int first(int value)");
+          var parameter = original.program().methods().getFirst().parameters().getFirst();
+          var status = type == SyntaxType.Erroneous.INSTANCE ? ResolutionStatus.ERROR : ResolutionStatus.RESOLVED;
+          var values = detachedBodyWithoutHeader(SourceValueCapture.capture(original.aggregate()), operand -> {
+            var reference = new SemanticReference(ReferenceKind.PARAMETER, status, Optional.of(parameter.parameterKey()), Optional.empty(),
+                List.of(), List.of());
+            return SyntaxNode.withoutDirectSource(operand.sourceFileKey(), operand.structuralPath(), operand.sourceKind(), operand.syntaxKind(),
+                type, operand.value(), operand.children(), Optional.of(reference));
+          });
+
+          // Act
+          var result = admitDetachedFormal(original, values);
+          var decoded = AstCodec.decode(AstCodec.encode(result), result.identity());
+          var operand = formalAccess(decoded);
+
+          // Assert
+          assertEquals(AstCompletion.INCOMPLETE, decoded.completion());
+          assertEquals(type, operand.type());
+          assertEquals(status, operand.semanticReference().orElseThrow().status());
+          assertEquals(Optional.of(parameter.parameterKey()), operand.semanticReference().orElseThrow().symbolKey());
+        }));
+
+    // Assert
+    return observations;
+  }
+
+  private AstResult formalResult(String signature) throws IOException {
+    var source = SourceFile.fromContent(Path.of("Example.java"), "interface Example { static " + signature + " { return value; } }");
+    var snapshot = InputSnapshot.fromSources(directory, List.of(source));
+    return new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25),
+        AstProfile.JAVA_SOURCE_BOUNDED).result().orElseThrow();
+  }
+
+  private static AstResult admitDetachedFormal(AstResult original, CopiedAstValues values) {
+    return AstProductionAdmission.outcome(JavaCoverageTestSupport.withFacts(SourceValueCapture.capture(original), original.program(),
+        Optional.of(AstValueAdmission.admit(values)), original.coverage().validationEvidence().diagnosticEmissions()),
+        original.profile(), original.identity().semanticProductionRevision()).result().orElseThrow();
+  }
+
+  private static SyntaxNode formalAccess(AstResult result) {
+    var method = result.program().methods().getFirst();
+    return result.aggregate().methodSyntax(method.methodKey()).orElseThrow().root().requiredChild(SyntaxRole.STATEMENT)
+        .requiredChild(SyntaxRole.EXPRESSION);
+  }
+
+  private record FormalSelection(String variant, String signature, String name, int ordinal, Optional<JavaTypeIdentity> type) {
+  }
+
+  private static CopiedAstValues detachedBodyWithoutHeader(CopiedAstValues values, UnaryOperator<SyntaxNode> operandChange) {
+    var original = values.sources().getFirst().root();
+    var root = SyntaxNode.source(original.sourceFileKey(), original.structuralPath(), original.sourceKind(), original.syntaxKind(),
+        original.type(), original.value(), List.of(), original.semanticReference(), original.origin().orElseThrow());
+    var source = new SyntaxSourceContribution(root.sourceFileKey(), root, List.of(root), List.of(), root.semanticEdges());
+    var body = values.bodies().getFirst();
+    var detached = new CopiedAstValues.Body(body.methodKey(), withoutPositions(body.root(), operandChange),
+        MethodBodyOrigin.UNAVAILABLE_SOURCE_POSITION, List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+    return new CopiedAstValues(values.snapshot(), List.of(source), List.of(detached), List.of(),
+        values.associations().stream().filter(association -> association.nodeKey().equals(root.nodeId())).toList(), List.of());
+  }
+
+  private static SyntaxNode withoutPositions(SyntaxNode node, UnaryOperator<SyntaxNode> operandChange) {
+    var children = node.children().stream().map(child -> new SyntaxChild(child.role(), child.position(),
+        withoutPositions(child.node(), operandChange))).toList();
+    var copied = SyntaxNode.withoutDirectSource(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind(),
+        node.type(), node.value(), children, node.semanticReference());
+    return node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS ? operandChange.apply(copied) : copied;
+  }
+
   private static CopiedAstValues withAdditionalEdge(CopiedAstValues captured, SyntaxSemanticEdge edge) {
     var sources = captured.sources().stream().map(source -> {
       if (source.nodes().stream().noneMatch(node -> node.nodeId().equals(edge.sourceKey()))) return source;
@@ -1965,35 +2125,6 @@ class AstCodecContractTest {
       return new SyntaxSourceContribution(source.sourceFileKey(), source.root(), source.nodes(), source.structuralEdges(), edges);
     }).toList();
     return new CopiedAstValues(captured.snapshot(), sources, captured.bodies(), captured.memberOrders(), captured.associations(), captured.declarationTypes());
-  }
-
-  private static byte[] payloadWithAggregate(AstResult result, CopiedAstValues aggregate) {
-    return payloadWithAggregate(result, aggregate, result.coverage());
-  }
-
-  private static byte[] payloadWithAggregate(AstResult result, CopiedAstValues aggregate, LanguageFeatureCoverageResult coverage) {
-    var writer = new CanonicalValueWriter(result.identity().sourceModelVersion());
-    var codec = new RetainedValueCodec(false, result.identity().sourceModelVersion());
-    writer.text(result.profile().version());
-    writer.text(result.identity().semanticProductionRevision());
-    writer.text(result.completion().name());
-    codec.write(writer, result.identity());
-    var input = new SyntaxAnalysisInput(result.snapshot(), result.environment(), result.program(), Optional.of(result.aggregate()), result.diagnostics(), result.coverage());
-    var shape = AstValueSchema.type(SyntaxAnalysisInput.class);
-    var components = shape.components(input);
-    writer.text(shape.tag());
-    writer.count(shape.fields().size());
-    for (var index = 0; index < shape.fields().size(); index++) {
-      var field = shape.fields().get(index);
-      writer.text(field);
-      if (field.equals("aggregate")) {
-        writer.text("optional");
-        writer.flag(true);
-        writer.text("source-aggregate");
-        codec.write(writer, aggregate);
-      } else codec.write(writer, field.equals("languageFeatureCoverageResult") ? coverage : components.get(index));
-    }
-    return writer.toByteArray();
   }
 
   @TestFactory
