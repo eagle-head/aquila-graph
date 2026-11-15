@@ -173,29 +173,58 @@ Neo4j Community is the supported verification baseline. Credentials, health chec
 
 The independent completed-AST adapter uses the namespace below. Existing labels and constraints above remain the legacy completed-run format. Focused database verification is recorded in the repository design. Eligibility belongs to the [analysis contract](../contracts/analysis.md#target-publication-and-retention); mapping/query phases belong to the [repository design](../design/analysis-repository.md#target-ast-retention).
 
-Each target retained AST entity has label `AstEntity`, a domain label, `astResultKey` and `key`; AST relationships carry the same scope and stable relationship key. The root `AstResult` stores the qualified identity components, canonical content digest, format/profile/semantic-production versions, completion, and software signature. It references captured input/environment and its canonical source files under that scope. Do not use `AnalysisEntity` on AST-retention entities: legacy same-run deletion must not remove them.
+Each retained AST entity has label `AstEntity`, a domain label, `astResultKey`
+and `key`. Relationships carry the same scope and their own stable key.
+The root `AstResult` stores the qualified identity, format, and completion.
+Its `HAS_AST_VALUES` relationship enters the materialized source input, which
+contains the captured snapshot and environment. The separate AST namespace
+keeps these entities outside completed-run replacement.[7][9]
 
 An admitted `Neo4jAstProjection` has exactly one node with the domain label `AstResult`, and its `key` equals the projection's `astResultKey`. Projection admission and `root()` use the same `AstResult` label predicate. The [repository design](../design/analysis-repository.md#target-ast-retention) defines how lookup discovers scoped roots and reaches projection admission.[9]
 
-| Target domain family | Required retained distinctions / relationships |
+| Domain family | Retained values |
 | --- | --- |
-| `AstResult`, `AstInput`, `AstEnvironment`, `AstSourceFile` | Complete snapshots/configuration/dependencies/content and assurance/provenance; `HAS_AST_INPUT`, `HAS_AST_ENVIRONMENT`, ordered dependency links, canonical source identities. |
-| `AstDeclaration` | Tagged canonical declaration variants for types/members/generics/components/synthesized facts, exact external/owned references, modifiers, hierarchy, parameters and counterpart identities; ordered `DECLARES_AST`. |
-| `AstOccurrence`, `AstType`, `AstAnnotationValue` | Full tagged source values, recursive types/capture scope and annotation values/defaults; source-kind/path/source identity, optional bounded ranges, explicit written/implicit provenance; ordered `AST_CHILD` with role and position; typed `AST_SEMANTIC` targets. |
-| `AstBody`, `AstEvidence` | Canonical executable/body-origin association without synthetic evaluation topology; keyed typed evidence variants, `KNOWN`/`MISSING`/`ERRONEOUS`/`NOT_APPLICABLE`, all selected facts and provenance; `HAS_AST_BODY`, ordered `HAS_AST_EVIDENCE`. |
-| `AstCoverage`, `AstDiagnostic` | Both expectation stages, policies, source-owner addresses, positive/negative/gap/unmatched support and diagnostic creating addresses; ordered `HAS_AST_COVERAGE`/`HAS_AST_DIAGNOSTIC`, exact event-slot links. |
+| `AstResult`, `AstInput`, `AstEnvironment`, `AstSourceFile` | Qualified result root, captured snapshots, source keys and content. |
+| `AstDeclaration` | Canonical declaration and declaration-support values, including types, members, generics, and synthesized facts. |
+| `AstOccurrence`, `AstType`, `AstAnnotationValue` | Owned occurrences, recursive type and capture structure, written annotation facts, and annotation values. |
+| `AstBody`, `AstEvidence` | Body registrations and origin values, and tagged executable evidence with its exact slot and state. |
+| `AstCoverage`, `AstDiagnostic` | Coverage expectations and observations, and ordered creating-site diagnostic events. |
 
-The tagged encoding preserves every field and variant defined by the selected source-model version, including canonical types, ordering, uniqueness, and negative states. The source codec and its version-aware value schemas define the field encoding. Adding retained tags or changing field interpretation requires a new source-model storage format and qualified identity. Authenticating compiler provenance requires evidence beyond supplied values or stored completion claims.[7][9]
+The tagged encoding preserves the complete closed shape of the [active retained format](../design/ast-value-format.md), including types, ordering, uniqueness, and negative states. Binary and graph forms share the source schema. Changes to the retained representation require an explicit format and identity decision. Stored values and completion carry the assurance limits of source admission.[7][9]
 
 Required AST uniqueness definitions are `ast_entity_identity` on `(AstEntity.astResultKey, AstEntity.key)` and `ast_result_identity` on `AstResult.astResultKey`. The same exact constraint inspection applies, and the schema session must close before replacement. In each managed write attempt the adapter acquires the exact subject and incrementally reconciles the immutable projection for its `astResultKey`. It retains exact nodes, removes stale nodes, updates changed nodes, and creates missing nodes. After node reconciliation it retains exact relationships and removes stale, misplaced, and duplicate links before creating missing links. The [repository design](../design/analysis-repository.md#exact-ast-replacement) defines the comparison, batching, and retry boundaries.[1][7]
 
 ### Complete retained value materialization
 
-`Neo4jAstResultCodec` stores the full source envelope as Base64 in the result root's `payload` property. `AstCodec.encode` uses the result's `AstIdentity.sourceModelVersion()` as the envelope format, and the root's `formatVersion` and `sourceModelVersion` properties record that same value. Supported historical results use their own version. The root also stores the remaining `AstIdentity` components and the `COMPLETE` qualification required for retention. `AstCodec.materialize` uses the same source version to emit the closed schema's fields as ordered value nodes and component links. `AstValue` is the auxiliary label for scalar, collection, optional, identity, and structural values outside the domain families above.[7][9]
+`Neo4jAstResultCodec` stores the full `java-source/23` envelope as Base64 in the result root's `payload` property. Both `formatVersion` and `sourceModelVersion` record that active version. The root also carries the remaining `AstIdentity` components and the `COMPLETE` qualification required for retention. `AstCodec.materialize` emits ordered nodes and component links from the same closed source shapes. `AstValue` is the auxiliary label for values outside the domain families above.[7][9]
 
-Value keys are `StableId.sha256("ast-value", astResultKey, decimalEncounterOrdinal)`. Each value node stores its closed `tag` and a `long` encounter `ordinal`. A scalar stores `scalarEncoding`, the Base64 encoding of its full tagged `source-value/1` value. This preserves UTF-16 code units, numeric widths, raw floating-point bits, enum variants, and paths without relying on database display conversions. An owned source occurrence also stores its exact `sourceNodeKey`; repeated references to the same canonical source object resolve to the same value node. Other repeated value occurrences have distinct ordered slots.
+Value keys are `StableId.sha256("ast-value", astResultKey, decimalEncounterOrdinal)`. Each value node stores its closed `tag` and a `long` encounter `ordinal`. A scalar stores `scalarEncoding`, the Base64 encoding of its full tagged `source-value/1` value. This preserves UTF-16 code units, numeric widths, raw floating-point bits and enum variants. A captured location uses ordered fields for syntax, root, components and spelling. An owned source occurrence also stores its exact `sourceNodeKey`. Repeated references to the same occurrence resolve to the same value node, and other repeated values occupy distinct ordered slots.
 
-Links store exact `field` and `long` `position` properties. Their keys are `StableId.sha256("ast-field", astResultKey, sourceKey, targetKey, relationshipType, field, decimalPosition)`. `HAS_AST_VALUES` links the result root to the complete `SyntaxAnalysisInput` materialization. Closed family relationships in the table identify matching fields; `AST_FIELD` retains all other named components. Lists and sets use ordered `item` links, with sets ordered by their retained tagged byte encoding. Optional presence is explicit in `optional/present` and `optional/absent` tags. Schema field order and repeated list positions remain visible through these links.
+Links store exact `field` and `long` `position` properties. Their keys are
+`StableId.sha256("ast-field", astResultKey, sourceKey, targetKey, relationshipType, field, decimalPosition)`.
+The result root uses `HAS_AST_VALUES` with field `values` and position zero.
+For retained components, the adapter selects relationship type by exact field
+name. This mapping is independent of the source and target node labels.[9]
+
+| Current component fields | Relationship type |
+| --- | --- |
+| `snapshot` | `HAS_AST_INPUT` |
+| `environmentSnapshot` | `HAS_AST_ENVIRONMENT` |
+| `program` | `DECLARES_AST` |
+| `children` | `AST_CHILD` |
+| `semanticReference`, `semanticEdges` | `AST_SEMANTIC` |
+| `bodies`, `root` | `HAS_AST_BODY` |
+| `uses`, `invocations`, `staticAccesses`, `concatenations` | `HAS_AST_EVIDENCE` |
+| `languageFeatureCoverageResult`, `validationEvidence` | `HAS_AST_COVERAGE` |
+| `diagnostics`, `diagnosticEmissions` | `HAS_AST_DIAGNOSTIC` |
+
+Other active fields use `AST_FIELD`, including body `constructors` and body
+or scope `attributedOccurrences`. A container uses ordered `item` links of
+type `AST_FIELD`, with sets ordered by retained tagged bytes. The
+`AST_CHILD` field link reaches the children container. Its items carry
+each child's role and role-local position as components of the child record.
+The link's own position indexes the component or container slot. Optional
+presence is explicit in the `optional/present` and `optional/absent` tags.[9]
 
 When lookup reaches the codec, `AstCodec.decode` recomputes qualification through intrinsic source admission and compares it with completion encoded in the envelope. `Neo4jAstResultCodec` rematerializes the admitted result and checks the root's `completion` property as part of exact node and relationship equality by key. That comparison includes labels, tags, properties, scope, endpoints, field names, and positions. An invalid envelope or altered materialization fails admission. A nonblank unsupported format yields `INCOMPATIBLE` before full materialization loading and decoding. The [repository design](../design/analysis-repository.md#target-ast-retention) defines absence, profile checks, and failure precedence. Lookup is compiler-independent and leaves CFG unloaded. Actual database effects require separate verification.[7][9]
 
@@ -213,4 +242,4 @@ The AST namespace has its own label and relationship allowlists and validates ex
 6. [Compose deployment](../../deployment/neo4j/compose.yaml) and [Neo4j runbook](../../deployment/neo4j/README.md), configured database and operations.
 7. [ProgramRepresentation](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/ProgramRepresentation.java) and [AnalysisRun](../../src/main/java/org.aquilagraph.application/org/aquilagraph/application/AnalysisRun.java), independent domain outcomes; [Neo4jAstResultRepository](../../src/main/java/org.aquilagraph.repository/org/aquilagraph/repository/internal/neo4j/Neo4jAstResultRepository.java), `saveComplete` and `find`; [Neo4jAstResultCodec](../../src/main/java/org.aquilagraph.repository/org/aquilagraph/repository/internal/neo4j/Neo4jAstResultCodec.java), complete projection and validated decoding; [bounded implementation and remaining requirements](../roadmap.md#remaining-source-model-work).
 8. [Neo4jInputMapper](../../src/main/java/org.aquilagraph.repository/org/aquilagraph/repository/internal/neo4j/Neo4jInputMapper.java), `map`; [SourceFile](../../src/main/java/org.aquilagraph.identity/org/aquilagraph/identity/api/SourceFile.java), `canonicalRelativePath`; [canonical source identity](../design/source-snapshots.md#canonical-sources); [stable keys and constraints](#stable-keys-and-constraints), explicit replacement of stored projections.
-9. [AstCodec](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/retention/AstCodec.java), `encode`, `materialize`, and `decode`; [AstResult](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/api/AstResult.java), `supportsSourceModelVersion`; [AstValueSchema](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/AstValueSchema.java), `Shape.retainedFields` and `retainedComponents`; [RetainedValueCodec](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/RetainedValueCodec.java) and [AstValueProjector](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/AstValueProjector.java), tagged field encoding and materialization; [Neo4jStoredAstAdmission](../../src/main/java/org.aquilagraph.repository/org/aquilagraph/repository/internal/neo4j/Neo4jStoredAstAdmission.java), `requiresMaterialization` and `admit`; [Neo4jAstProjection](../../src/main/java/org.aquilagraph.repository/org/aquilagraph/repository/internal/neo4j/Neo4jAstProjection.java), constructor, `isRoot`, and `root`.
+9. [AstCodec](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/retention/AstCodec.java), `encode`, `materialize`, and `decode`. [AstResult](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/api/AstResult.java), `supportsSourceModelVersion`. [AstValueSchema.Fields](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/AstValueSchema.java), `fields`, `components`, and `reconstruct`. [RetainedValueCodec](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/RetainedValueCodec.java) and [AstValueProjector](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/AstValueProjector.java), tagged field encoding and materialization. [Neo4jAstResultCodec](../../src/main/java/org.aquilagraph.repository/org/aquilagraph/repository/internal/neo4j/Neo4jAstResultCodec.java), `project` and `decode`. [Neo4jAstSchema](../../src/main/java/org.aquilagraph.repository/org/aquilagraph/repository/internal/neo4j/Neo4jAstSchema.java), `label` and `relationship`. [Neo4jStoredAstAdmission](../../src/main/java/org.aquilagraph.repository/org/aquilagraph/repository/internal/neo4j/Neo4jStoredAstAdmission.java), `requiresMaterialization` and `admit`. [Neo4jAstProjection](../../src/main/java/org.aquilagraph.repository/org/aquilagraph/repository/internal/neo4j/Neo4jAstProjection.java), constructor, `isRoot`, and `root`.

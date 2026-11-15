@@ -16,10 +16,10 @@ obligations. Changes must preserve valid raw inputs and reject contradictory
 supplied evidence without weakening diagnostics.
 
 The [module service and provider identity contract](design/java-analysis.md#module-service-and-provider-identities)
-defines required endpoint facts for `java-source-expanded/8`, semantic production
-`javac-public/11`, and retained format `java-source/20`. Preserve historical
-profiles and stored outcomes under their own identities; stronger successor
-requirements must not be applied retroactively.
+defines required endpoint facts for `java-source-expanded/8`. That profile
+retains its qualification rules in the [active retained format](design/ast-value-format.md),
+which also defines refusal of retired envelopes. Prior stored results retain
+their original bytes and identities.
 
 ## Frontend maintainability
 
