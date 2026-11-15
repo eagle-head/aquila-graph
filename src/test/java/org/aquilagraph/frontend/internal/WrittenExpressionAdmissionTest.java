@@ -22,17 +22,23 @@ import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.internal.AstResultAdmission;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
+import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AnnotationScalar;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstContractException;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.AttributedCoverageExpectations;
+import org.aquilagraph.source.api.AttributedBodyOccurrence;
 import org.aquilagraph.source.api.CompilerExpressionAnchor;
 import org.aquilagraph.source.api.FeatureContextOutcome;
 import org.aquilagraph.source.api.JavaSourceKind;
+import org.aquilagraph.source.api.JavaTypeCategory;
+import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.MethodBodyOrigin;
 import org.aquilagraph.source.api.NormalizedExpressionCorrespondence;
 import org.aquilagraph.source.api.SourceContext;
 import org.aquilagraph.source.api.SourceOwnerPath;
@@ -43,9 +49,11 @@ import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxSourceContribution;
+import org.aquilagraph.source.api.SyntaxType;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
 import org.aquilagraph.source.api.WrittenExpressionRegion;
+import org.aquilagraph.source.retention.AstCodec;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.DynamicTest;
@@ -249,6 +257,129 @@ class WrittenExpressionAdmissionTest {
     assertTrue(failure.getMessage().contains("Derived written values"), failure.toString());
   }
 
+  @TestFactory
+  Stream<DynamicTest> givenNonValueOperands_whenCompleteNormalizedExecutionValuesAreAdmitted_thenStringConcatenationRejectsThem() {
+    // Arrange
+    var original = produce("class Example { Object operand() { return null; } String value() { return operand() + \"a\" + \"b\"; } }");
+    var copied = SourceValueCapture.capture(original.aggregate());
+    var operand = original.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION
+        && node.value(SyntaxValue.Invocation.class).name().equals("operand")).findFirst().orElseThrow();
+    var owner = original.aggregate().writtenSourceAssociation(operand.nodeId()).orElseThrow().ownerPath();
+    var cases = List.of(new JavaTypeIdentity(JavaTypeCategory.VOID, "void", "void"),
+        new JavaTypeIdentity(JavaTypeCategory.OTHER, "other", "other"));
+
+    // Act
+    var observations = cases.stream().map(type -> DynamicTest.dynamicTest(
+        "given" + type.category() + "Operand_whenCompleteNormalizedExecutionValuesAreAdmitted_thenStringConcatenationRejectsIt", () -> {
+          // Arrange
+          var invalid = withOperandType(copied, operand, owner, new SyntaxType.Resolved(type));
+
+          // Act
+          var admitted = AstValueAdmission.admit(copied);
+          var failure = assertThrows(AstContractException.class, () -> AstValueAdmission.admit(invalid));
+
+          // Assert
+          assertEquals(AstCompletion.COMPLETE, original.completion());
+          assertEquals(original.aggregate(), admitted);
+          var cause = assertInstanceOf(IllegalArgumentException.class, failure.getCause());
+          assertTrue(cause.getMessage().contains("operand must identify a resolved value type"), failure.toString());
+        }));
+
+    // Assert
+    return observations;
+  }
+
+  @TestFactory
+  Stream<DynamicTest> givenSupportedAdditiveOperands_whenNormalizedExecutionIsRetained_thenTypesAndAddressesSurviveReadmission() {
+    // Arrange
+    var cases = List.of(new AdditiveCase("boolean operand", "\"a\" + \"b\" + operand", JavaTypeCategory.BOOLEAN, Optional.empty()),
+        new AdditiveCase("Object operand", "operand + \"a\" + \"b\"", JavaTypeCategory.DECLARED, Optional.empty()),
+        new AdditiveCase("", "\"a\" + \"b\" + null", JavaTypeCategory.NULL, Optional.empty()),
+        new AdditiveCase("", "-1 + 2L + \"a\" + \"b\"", JavaTypeCategory.LONG, Optional.of(new AnnotationScalar.StringValue("1ab"))));
+
+    // Act
+    var observations = cases.stream().map(value -> DynamicTest.dynamicTest(
+        "given" + value.operand() + "Operand_whenNormalizedExecutionIsRetained_thenTypesAndAddressesSurviveReadmission", () -> {
+          // Arrange
+          var original = produce("class Example { String value(" + value.parameter() + ") { return " + value.expression() + "; } }");
+          var copied = SourceValueCapture.capture(original.aggregate());
+          var associatedNode = copied.associations().stream()
+              .filter(association -> association.sourceKind() == JavaSourceKind.PLUS
+                  && association.normalizedExpression().filter(relation -> relation.occurrencePath().isEmpty()).isPresent())
+              .findFirst().orElseThrow();
+          var expression = associatedNode.normalizedExpression().orElseThrow();
+
+          // Act
+          var admitted = AstValueAdmission.admit(copied);
+          var retained = AstCodec.decode(AstCodec.encode(original), original.identity());
+          var syntax = retained.aggregate().node(associatedNode.nodeKey()).orElseThrow();
+
+          // Assert
+          assertEquals(AstCompletion.COMPLETE, original.completion(), original.diagnostics().toString());
+          assertEquals(AstCompletion.COMPLETE, retained.completion());
+          assertEquals(original.aggregate(), admitted);
+          assertEquals(original.identity(), retained.identity());
+          assertInstanceOf(CompilerExpressionAnchor.Execution.class, expression.compilerAnchor());
+          assertEquals("java.lang.String", syntax.resolvedType().orElseThrow().erasedName());
+          assertTrue(syntax.descendantsAndSelf().stream().filter(node -> node != syntax).flatMap(node -> node.resolvedType().stream())
+              .anyMatch(type -> type.category() == value.operand() && (value.operand() != JavaTypeCategory.DECLARED
+                  || type.erasedName().equals("java.lang.Object"))));
+          var retainedExpression = retained.aggregate().writtenSourceAssociation(syntax.nodeId()).orElseThrow()
+              .normalizedExpression().orElseThrow();
+          assertEquals(expression.compilerAnchor(), retainedExpression.compilerAnchor());
+          assertEquals(value.constant(), retainedExpression.derivedConstant());
+          assertEquals(Optional.of(value.constant().isPresent()), retainedExpression.derivedConstantExpression());
+        }));
+
+    // Assert
+    return observations;
+  }
+
+  @Test
+  void givenReassociatedOperandWithAWrongCompilerPath_whenCopiedValuesAreAdmitted_thenItsOriginalAddressIsRequired() {
+    // Arrange
+    var original = produce("class Example { String value(Object operand) { return operand + \"a\" + \"b\"; } }");
+    var values = SourceValueCapture.capture(original.aggregate());
+    var operand = original.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.VARIABLE_ACCESS).findFirst()
+        .orElseThrow();
+    var body = values.bodies().stream().filter(value -> value.attributedOccurrences().stream()
+        .anyMatch(address -> address.nodeKey().equals(operand.nodeId()))).findFirst().orElseThrow();
+    var originalAddress = body.attributedOccurrences().stream().filter(address -> address.nodeKey().equals(operand.nodeId())).findFirst()
+        .orElseThrow();
+    var wrong = new AttributedBodyOccurrence(body.methodKey(), operand.nodeId(), operand.sourceFileKey(), operand.sourceKind(),
+        operand.structuralPath());
+    var addresses = body.attributedOccurrences().stream().map(address -> address == originalAddress ? wrong : address).toList();
+    var replacement = new CopiedAstValues.Body(body.methodKey(), body.root(), body.origin(), body.uses(), body.invocations(),
+        body.staticAccesses(), body.concatenations(), body.constructors(), addresses);
+    var invalid = withBodies(values, values.bodies().stream().map(value -> value == body ? replacement : value).toList());
+
+    // Act
+    var admitted = AstValueAdmission.admit(values);
+    var failure = assertThrows(AstContractException.class, () -> AstValueAdmission.admit(invalid));
+
+    // Assert
+    assertEquals(original.aggregate(), admitted);
+    assertTrue(failure.getMessage().contains("actual parent or normalized operand address"), failure.toString());
+  }
+
+  @Test
+  void givenVoidInvocationInWrittenConcatenation_whenTheCompilerProducesSource_thenItsErrorIsRetainedWithoutNormalizedEvidence() {
+    // Arrange
+    var source = "class Example { void operand() {} String value() { return operand() + \"a\" + \"b\"; } }";
+
+    // Act
+    var outcome = produceOutcome(source);
+
+    // Assert
+    assertTrue(outcome.completion() != AstCompletion.COMPLETE, outcome.diagnostics().toString());
+    assertTrue(outcome.diagnostics().stream().anyMatch(diagnostic -> diagnostic.outcomeKind() == AnalysisOutcomeKind.COMPILER_ERROR));
+    assertTrue(outcome.result().stream().flatMap(result -> result.aggregate().writtenSourceAssociations().stream())
+        .noneMatch(association -> association.sourceKind() == JavaSourceKind.PLUS && association.normalizedExpression().isPresent()));
+  }
+
+  private record AdditiveCase(String parameter, String expression, JavaTypeCategory operand, Optional<AnnotationScalar> constant) {
+  }
+
   @Test
   void givenWrongCompilerAnchorOnADerivedChild_whenCopiedValuesAreAdmitted_thenTheSharedActualRegionIsEnforced() {
     // Arrange
@@ -310,16 +441,26 @@ class WrittenExpressionAdmissionTest {
   }
 
   private AstResult produce(String source) {
+    return produceOutcome(source).result().orElseThrow();
+  }
+
+  private AstOutcome produceOutcome(String source) {
     var snapshot = InputSnapshot.fromSources(directory, List.of(SourceFile.fromContent(Path.of("Example.java"), source)));
     return new JavaFrontend(new JavaSourceLoader()).produce(new AstProductionRequest(new SourceInput.Snapshot(snapshot),
-        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_FIDELITY)).result().orElseThrow();
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_FIDELITY));
   }
 
   private static SyntaxNode replace(SyntaxNode node, String key, UnaryOperator<SyntaxNode> operation) {
     if (node.nodeId().equals(key)) {
       return operation.apply(node);
     }
-    var children = node.children().stream().map(child -> new SyntaxChild(child.role(), child.position(), replace(child.node(), key, operation))).toList();
+    var children = node.children().stream().map(child -> {
+      var replacement = replace(child.node(), key, operation);
+      return replacement == child.node() ? child : new SyntaxChild(child.role(), child.position(), replacement);
+    }).toList();
+    if (children.equals(node.children())) {
+      return node;
+    }
     return SyntaxNode.source(node.sourceFileKey(), node.structuralPath(), node.sourceKind(), node.syntaxKind(), node.type(), node.value(),
         children, node.semanticReference(), node.origin().orElseThrow());
   }
@@ -338,6 +479,51 @@ class WrittenExpressionAdmissionTest {
         ? new WrittenSourceAssociation(value.nodeKey(), value.sourceFileKey(), value.ownerPath(), value.sourceKind(), value.origin(), Optional.of(relation))
         : value).toList();
     return new CopiedAstValues(values.snapshot(), values.sources(), values.bodies(), values.memberOrders(), associations, values.declarationTypes(), values.scopes());
+  }
+
+  private static CopiedAstValues withOperandType(CopiedAstValues values, SyntaxNode operand, SourceOwnerPath owner, SyntaxType type) {
+    var root = replace(values.sources().getFirst().root(), operand.nodeId(), node -> SyntaxNode.source(node.sourceFileKey(),
+        node.structuralPath(), node.sourceKind(), node.syntaxKind(), type, node.value(), node.children(), node.semanticReference(),
+        node.origin().orElseThrow()));
+    var associations = values.associations().stream().map(association -> {
+      var normalized = association.normalizedExpression().filter(relation -> relation.observations().stream()
+          .anyMatch(observation -> observation.ownerPath().equals(owner)));
+      if (normalized.isEmpty()) {
+        return association;
+      }
+      var relation = normalized.orElseThrow();
+      var observations = relation.observations().stream().map(observation -> observation.ownerPath().equals(owner)
+          ? new NormalizedExpressionCorrespondence.Observation(owner, observation.sourceKind(), observation.origin(), type,
+              observation.constant(), observation.constantExpression())
+          : observation).toList();
+      var replacement = new NormalizedExpressionCorrespondence(relation.region(), relation.occurrencePath(), relation.compilerAnchor(),
+          relation.compilerKind(), relation.compilerType(), relation.derivedConstant(), relation.derivedConstantExpression(), observations);
+      return new WrittenSourceAssociation(association.nodeKey(), association.sourceFileKey(), association.ownerPath(),
+          association.sourceKind(), association.origin(), Optional.of(replacement));
+    }).toList();
+    var source = withRoot(values, root, associations);
+    var nodes = root.descendantsAndSelf();
+    var bodies = source.bodies().stream().map(body -> {
+      if (body.origin() != MethodBodyOrigin.SOURCE_AST) {
+        return body;
+      }
+      var copiedRoot = nodes.stream().filter(node -> node.nodeId().equals(body.root().nodeId())).findFirst();
+      if (copiedRoot.orElseThrow() == body.root()) {
+        return body;
+      }
+      // Value-conversion evidence cannot represent the proposed non-value type.
+      var uses = body.uses().stream().filter(use -> nodes.stream().filter(node -> node.nodeId().equals(use.consumerNodeId()))
+          .flatMap(node -> node.children().stream()).noneMatch(child -> child.role() == use.role() && child.position() == use.position()
+              && child.node().nodeId().equals(operand.nodeId()))).toList();
+      return new CopiedAstValues.Body(body.methodKey(), copiedRoot.orElseThrow(), body.origin(), uses, body.invocations(),
+          body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences());
+    }).toList();
+    return withBodies(source, bodies);
+  }
+
+  private static CopiedAstValues withBodies(CopiedAstValues values, List<CopiedAstValues.Body> bodies) {
+    return new CopiedAstValues(values.snapshot(), values.sources(), bodies, values.memberOrders(), values.associations(),
+        values.declarationTypes(), values.scopes());
   }
 
   private static CopiedAstValues withLiteralScalar(CopiedAstValues values, SyntaxNode literal, AnnotationScalar scalar, boolean captured) {

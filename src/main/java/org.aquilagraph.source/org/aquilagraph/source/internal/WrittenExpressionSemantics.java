@@ -12,6 +12,7 @@ import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.WrittenExpressionConstants;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
+import org.aquilagraph.source.internal.values.DecisionValueValidation;
 
 import java.util.List;
 import java.util.ArrayList;
@@ -161,6 +162,8 @@ public final class WrittenExpressionSemantics {
   private static JavaTypeCategory binary(SyntaxNode node) {
     var left = type(node.requiredChild(SyntaxRole.LEFT_OPERAND));
     var right = type(node.requiredChild(SyntaxRole.RIGHT_OPERAND));
+    DecisionValueValidation.requireValueType(left, "A written additive left operand");
+    DecisionValueValidation.requireValueType(right, "A written additive right operand");
     if (node.sourceKind() == JavaSourceKind.PLUS && (isString(left) || isString(right))) {
       return JavaTypeCategory.DECLARED;
     }
