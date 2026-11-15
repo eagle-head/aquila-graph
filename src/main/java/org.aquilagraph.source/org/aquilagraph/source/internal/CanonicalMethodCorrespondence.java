@@ -8,12 +8,14 @@ import org.aquilagraph.source.api.JavaParameter;
 import org.aquilagraph.source.api.JavaProgram;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.JavaType;
-import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
 import org.aquilagraph.source.api.JavaTypeStructure;
+import org.aquilagraph.source.api.MethodBodyOrigin;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.ResolutionStatus;
 import org.aquilagraph.source.api.SemanticReference;
+import org.aquilagraph.source.api.SourceExecutionTraversal;
+import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxType;
@@ -28,14 +30,14 @@ import org.aquilagraph.source.api.SyntaxValue.ExecutableDeclaration;
 import org.aquilagraph.source.api.SyntaxValue.ExecutableDeclaration.ExecutableKind;
 import org.aquilagraph.source.api.SyntaxValue.ParameterDeclaration;
 
-/** Correlates canonical declaration values with independently retained written headers. */
+/** Correlates canonical method declarations with independently retained source evidence. */
 public final class CanonicalMethodCorrespondence {
   private static final String OWNED_ERASURE_CONFLICT = "A selected erasure must match its available owned type-variable bounds";
   private CanonicalMethodCorrespondence() {
   }
 
   /**
-   * Checks canonical method declarations against independently retained written headers.
+   * Checks canonical method declarations against written headers and detached formal selections.
    *
    * @param program
    *          program
@@ -50,6 +52,9 @@ public final class CanonicalMethodCorrespondence {
         var node = declarations.get(method.methodKey());
         if (node != null) {
           validate(owner, method, node, (ExecutableDeclaration) node.value());
+        }
+        if (aggregate.methodBodyOrigin(method.methodKey()).filter(origin -> origin != MethodBodyOrigin.SOURCE_AST).isPresent()) {
+          validateDetachedFormals(method, aggregate.methodSyntax(method.methodKey()).orElseThrow().root());
         }
       }
     }
@@ -67,6 +72,36 @@ public final class CanonicalMethodCorrespondence {
           }
         });
       }
+    }
+  }
+
+  private static void validateDetachedFormals(JavaMethod method, SyntaxNode body) {
+    for (var node : SourceExecutionTraversal.nodes(body)) {
+      if (node.syntaxKind() != SyntaxKind.VARIABLE_ACCESS) {
+        continue;
+      }
+      node.semanticReference()
+          .filter(reference -> reference.status() == ResolutionStatus.RESOLVED && reference.referenceKind() == ReferenceKind.PARAMETER)
+          .flatMap(SemanticReference::symbolKey).ifPresent(key -> {
+            var selected = method.parameters().stream().filter(parameter -> parameter.parameterKey().equals(key)).toList();
+            if (selected.size() != 1 || !matchesFormal(node, selected.getFirst())) {
+              throw new IllegalArgumentException("A detached formal reference must select its exact canonical name and source: " + key);
+            }
+            validateFormalType(node, selected.getFirst());
+          });
+    }
+  }
+
+  private static boolean matchesFormal(SyntaxNode access, JavaParameter parameter) {
+    var name = access.value(SyntaxValue.SourceSymbol.class).name();
+    return !"_".equals(name) && parameter.name().equals(name)
+        && parameter.origins().stream().allMatch(origin -> origin.sourceFileKey().equals(access.sourceFileKey()));
+  }
+
+  private static void validateFormalType(SyntaxNode access, JavaParameter parameter) {
+    if (BindingTypeCorrespondence.contradicts(access, parameter.staticType())) {
+      throw new IllegalArgumentException(
+          "A detached formal reference type must agree with its canonical parameter: " + parameter.parameterKey());
     }
   }
 
@@ -93,8 +128,8 @@ public final class CanonicalMethodCorrespondence {
       ExecutableDeclaration declaration) {
     if (declaration.kind() == ExecutableKind.COMPACT_CONSTRUCTOR) {
       var components = owner.recordComponents();
-      if (components.stream().anyMatch(value -> value.canonicalParameterKey().isEmpty()
-          || value.staticType().category() == JavaTypeCategory.ERROR || value.staticType().category() == JavaTypeCategory.OTHER)) {
+      if (components.stream()
+          .anyMatch(value -> value.canonicalParameterKey().isEmpty() || !BindingTypeCorrespondence.available(value.staticType()))) {
         return Optional.empty();
       }
       return Optional.of(components.stream()
@@ -247,8 +282,8 @@ public final class CanonicalMethodCorrespondence {
 
   private static void validateKnownStructure(SyntaxType written, SyntaxType selected) {
     if (written.knownIdentity()
-        .filter(identity -> selected.knownIdentity()
-            .filter(value -> identity.category() != value.category() || !identity.erasedName().equals(value.erasedName())).isPresent())
+        .filter(identity -> selected.knownIdentity().filter(value -> !BindingTypeCorrespondence.sameCategoryAndErasure(identity, value))
+            .isPresent())
         .isPresent()
         || (written instanceof SyntaxType.Resolved resolved && selected instanceof SyntaxType.Resolved selectedResolved
             && resolved.structure().isPresent() && selectedResolved.structure().isPresent()

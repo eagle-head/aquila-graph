@@ -24,7 +24,6 @@ import org.aquilagraph.source.api.JavaTypeStructure;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.ResolutionStatus;
 import org.aquilagraph.source.api.SemanticReference;
-import org.aquilagraph.source.api.SourceExecutionTraversal;
 import org.aquilagraph.source.api.StaticMemberEvidence;
 import org.aquilagraph.source.api.StaticMemberKind;
 import org.aquilagraph.source.api.StringExpressionEvidence;
@@ -50,33 +49,21 @@ public final class ExecutionDecisionValidation {
   private ExecutionDecisionValidation() {
   }
 
-  /**
-   * Validates execution evidence and builds immutable lookup indexes.
-   *
-   * @param scope
-   *          scope
-   * @param root
-   *          root
-   * @param registration
-   *          registration
-   * @param sourceNodes
-   *          source nodes
-   * @param attributions
-   *          attributions
-   * @param memberOrders
-   *          member orders
-   * @return the resulting execution decision index
-   */
-  public static ExecutionDecisionIndex validate(ExecutionScope scope, SyntaxNode root, ExecutionDecisionRegistration registration,
-      Map<String, SyntaxNode> sourceNodes, List<AttributedBodyOccurrence> attributions, Map<String, DeclarationMemberOrder> memberOrders) {
+  static ExecutionDecisionIndex validate(ExecutionRegion region, Map<String, SyntaxNode> sourceNodes,
+      OccurrenceIndex<SyntaxNode> sourceParents, SourceDeclarations declarations, Map<String, DeclarationMemberOrder> memberOrders) {
+    var facts = region.facts();
+    var scope = facts.scope();
+    var root = facts.root();
     var scopeKey = scope.key();
-    var nodes = new HashMap<String, SyntaxNode>();
-    SourceExecutionTraversal.nodes(root).forEach(node -> nodes.put(node.nodeId(), node));
-    var uses = validateUses(scopeKey, root, registration.uses(), nodes, sourceNodes);
-    var constructors = validateEnumContexts(scopeKey, root, registration.constructors(), nodes, sourceNodes, attributions, memberOrders);
+    var nodes = region.nodes();
+    var attributions = facts.attributedOccurrences();
+    var registration = region.registration().decisions();
+    var uses = validateUses(scopeKey, root, registration.uses(), nodes, declarations.executables(scopeKey));
+    var constructors = validateEnumContexts(scopeKey, root, registration.constructors(), nodes, declarations.executables(scopeKey),
+        attributions, memberOrders);
     var invocations = validateInvocations(scopeKey, registration.invocations(), nodes, uses, constructors);
-    validateEnumConstructorSignature(scope, root, sourceNodes, invocations);
-    validateParameterTargets(scope, nodes, sourceNodes, uses, invocations);
+    validateEnumConstructorSignature(scope, root, declarations, invocations);
+    validateParameterTargets(scope, nodes, sourceParents, declarations, uses, invocations);
     var staticAccesses = validateStaticAccesses(scopeKey, registration.staticAccesses(), nodes, sourceNodes);
     var concatenations = validateConcatenations(scopeKey, registration.concatenations(), nodes);
     nodes.values().stream().filter(ExecutionDecisionValidation::isCreation).forEach(ExecutionDecisionValidation::validateCreation);
@@ -86,12 +73,10 @@ public final class ExecutionDecisionValidation {
   }
 
   private static Map<UseKey, ChildUseEvidence> validateUses(String scopeKey, SyntaxNode root, List<ChildUseEvidence> decisions,
-      Map<String, SyntaxNode> nodes, Map<String, SyntaxNode> sourceNodes) {
+      Map<String, SyntaxNode> nodes, List<SyntaxNode> executables) {
     var uses = new HashMap<UseKey, ChildUseEvidence>();
     var resultTargets = new HashMap<String, JavaTypeIdentity>();
-    var returnTarget = sourceNodes.values().stream()
-        .filter(
-            node -> node.value() instanceof SyntaxValue.ExecutableDeclaration declaration && declaration.declarationKey().equals(scopeKey))
+    var returnTarget = executables.stream().filter(node -> node.sourceFileKey().equals(root.sourceFileKey()))
         .flatMap(node -> node.children(SyntaxRole.RETURN_TYPE).stream()).findFirst().flatMap(SyntaxNode::resolvedType);
     collectExecutionTargets(root, Optional.empty(), returnTarget, resultTargets);
     for (var decision : decisions) {
@@ -218,8 +203,8 @@ public final class ExecutionDecisionValidation {
     return invocations;
   }
 
-  private static void validateParameterTargets(ExecutionScope scope, Map<String, SyntaxNode> nodes, Map<String, SyntaxNode> sourceNodes,
-      Map<UseKey, ChildUseEvidence> uses, Map<String, InvocationEvidence> invocations) {
+  private static void validateParameterTargets(ExecutionScope scope, Map<String, SyntaxNode> nodes, OccurrenceIndex<SyntaxNode> parents,
+      SourceDeclarations declarations, Map<UseKey, ChildUseEvidence> uses, Map<String, InvocationEvidence> invocations) {
     for (var use : uses.values()) {
       var call = Objects.requireNonNull(nodes.get(use.consumerNodeId()), "owned use consumer");
       if (use.role() != SyntaxRole.ARGUMENT || !isInvocation(call)) {
@@ -228,12 +213,11 @@ public final class ExecutionDecisionValidation {
       var selected = (call.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION && scope instanceof ExecutionScope.EnumConstant constant
           ? constant.selectedConstructor()
           : call.semanticReference()).flatMap(SemanticReference::symbolKey);
-      var declaration = sourceNodes.values().stream().filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration executable
-          && selected.equals(Optional.of(executable.declarationKey()))).findFirst();
+      var declaration = selected.flatMap(key -> declarations.executables(key).stream().findFirst());
       if (declaration.isEmpty()) {
         continue;
       }
-      var parameters = sourceParameters(declaration.orElseThrow(), sourceNodes);
+      var parameters = sourceParameters(declaration.orElseThrow(), declarations);
       if (parameters.isEmpty()) {
         continue;
       }
@@ -252,7 +236,7 @@ public final class ExecutionDecisionValidation {
       if (variable && call.children(SyntaxRole.ARGUMENT).size() > parameters.size()) {
         mode = Optional.of(InvocationApplicabilityMode.VARIABLE);
       }
-      var exact = unchangedParameterTypes(declaration.orElseThrow(), sourceNodes);
+      var exact = unchangedParameterTypes(declaration.orElseThrow(), parents);
       var targets = parameterTargets(resolved, variable, mode, exactIdentity(resolved, exact),
           componentType(typeNode.orElseThrow()).flatMap(component -> exactIdentity(component, exact)));
       if (!targets.isEmpty() && targets.stream().noneMatch(target -> target.matches(use.selectedTarget()))) {
@@ -261,18 +245,18 @@ public final class ExecutionDecisionValidation {
     }
   }
 
-  private static void validateEnumConstructorSignature(ExecutionScope scope, SyntaxNode root, Map<String, SyntaxNode> sourceNodes,
+  private static void validateEnumConstructorSignature(ExecutionScope scope, SyntaxNode root, SourceDeclarations declarations,
       Map<String, InvocationEvidence> invocations) {
     if (!(scope instanceof ExecutionScope.EnumConstant constant)) {
       return;
     }
     var selected = constant.selectedConstructor().flatMap(SemanticReference::symbolKey);
-    var declaration = sourceNodes.values().stream().filter(node -> node.value() instanceof SyntaxValue.ExecutableDeclaration executable
-        && selected.equals(Optional.of(executable.declarationKey()))).findFirst();
+    var declaration = selected.flatMap(
+        key -> declarations.executables(key).stream().filter(node -> node.sourceFileKey().equals(root.sourceFileKey())).findFirst());
     if (declaration.isEmpty()) {
       return;
     }
-    var parameters = sourceParameters(declaration.orElseThrow(), sourceNodes);
+    var parameters = sourceParameters(declaration.orElseThrow(), declarations);
     var variable = !parameters.isEmpty() && parameters.getLast().value() instanceof SyntaxValue.ParameterDeclaration formal
         && formal.varArgs();
     var argumentCount = root.children(SyntaxRole.ARGUMENT).size();
@@ -286,15 +270,14 @@ public final class ExecutionDecisionValidation {
     }
   }
 
-  private static List<SyntaxNode> sourceParameters(SyntaxNode node, Map<String, SyntaxNode> sourceNodes) {
+  private static List<SyntaxNode> sourceParameters(SyntaxNode node, SourceDeclarations declarations) {
     var declaration = node.value(SyntaxValue.ExecutableDeclaration.class);
     if (declaration.kind() != ExecutableKind.COMPACT_CONSTRUCTOR) {
       return node.children(SyntaxRole.PARAMETER);
     }
-    return sourceNodes.values().stream()
-        .filter(candidate -> candidate.value() instanceof SyntaxValue.TypeDeclaration type
-            && type.declarationKey().equals(declaration.ownerKey()))
-        .findFirst().map(owner -> owner.children(SyntaxRole.RECORD_COMPONENT)).orElse(List.of());
+    return declarations.typeOccurrences(node.sourceFileKey(), declaration.ownerKey()).stream()
+        .filter(candidate -> candidate.value() instanceof SyntaxValue.TypeDeclaration).findFirst()
+        .map(owner -> owner.children(SyntaxRole.RECORD_COMPONENT)).orElse(List.of());
   }
 
   private static List<ParameterTarget> parameterTargets(SyntaxType.Resolved type, boolean variable,
@@ -332,7 +315,7 @@ public final class ExecutionDecisionValidation {
     };
   }
 
-  private static boolean unchangedParameterTypes(SyntaxNode node, Map<String, SyntaxNode> sourceNodes) {
+  private static boolean unchangedParameterTypes(SyntaxNode node, OccurrenceIndex<SyntaxNode> parents) {
     var declaration = node.value(SyntaxValue.ExecutableDeclaration.class);
     if (declaration.shape().typeParameters() != 0) {
       return false;
@@ -340,13 +323,17 @@ public final class ExecutionDecisionValidation {
     if (declaration.effectiveModifiers().contains(JavaDeclarationModifier.STATIC)) {
       return true;
     }
-    var owners = sourceNodes.values().stream().filter(candidate -> candidate.value() instanceof SyntaxValue.TypeDeclaration)
-        .filter(candidate -> candidate.descendantsAndSelf().contains(node)).toList();
-    return owners.stream().filter(owner -> owner.value(SyntaxValue.TypeDeclaration.class).shape().typeParameters() != 0)
-        .noneMatch(generic -> owners.stream()
-            .noneMatch(boundary -> !boundary.equals(generic)
-                && boundary.value(SyntaxValue.TypeDeclaration.class).effectiveModifiers().contains(JavaTypeModifier.STATIC)
-                && generic.descendantsAndSelf().contains(boundary)));
+    for (var parent = parents.get(node); parent != null; parent = parents.get(parent)) {
+      if (parent.value() instanceof SyntaxValue.TypeDeclaration owner) {
+        if (owner.shape().typeParameters() != 0) {
+          return false;
+        }
+        if (owner.effectiveModifiers().contains(JavaTypeModifier.STATIC)) {
+          return true;
+        }
+      }
+    }
+    return true;
   }
 
   private static Optional<JavaTypeIdentity> exactIdentity(SyntaxType.Resolved type, boolean unchanged) {
@@ -384,7 +371,7 @@ public final class ExecutionDecisionValidation {
   }
 
   private static Map<String, ConstructorEvidence> validateEnumContexts(String scopeKey, SyntaxNode root,
-      List<ConstructorEvidence> decisions, Map<String, SyntaxNode> nodes, Map<String, SyntaxNode> sourceNodes,
+      List<ConstructorEvidence> decisions, Map<String, SyntaxNode> nodes, List<SyntaxNode> executables,
       List<AttributedBodyOccurrence> attributions, Map<String, DeclarationMemberOrder> memberOrders) {
     var contexts = new HashMap<String, ConstructorEvidence>();
     var directInvocations = new IdentityHashMap<SyntaxNode, Boolean>();
@@ -398,15 +385,13 @@ public final class ExecutionDecisionValidation {
             requireEqual(root.sourceFileKey(), order.sourceFileKey(), "Constructor containing source");
             requireEqual(decision.ownerTypeKey(), order.ownerTypeKey(), "Constructor containing declaration");
           });
-      sourceNodes.values().stream().filter(
-          value -> value.value() instanceof SyntaxValue.ExecutableDeclaration declaration && declaration.declarationKey().equals(scopeKey))
-          .forEach(value -> {
-            var declaration = value.value(SyntaxValue.ExecutableDeclaration.class);
-            requireEqual(decision.ownerTypeKey(), declaration.ownerKey(), "Constructor source owner");
-            if (declaration.kind() != ExecutableKind.CONSTRUCTOR && declaration.kind() != ExecutableKind.COMPACT_CONSTRUCTOR) {
-              throw new IllegalArgumentException("Constructor evidence requires a constructor declaration");
-            }
-          });
+      executables.stream().filter(value -> value.sourceFileKey().equals(root.sourceFileKey())).forEach(value -> {
+        var declaration = value.value(SyntaxValue.ExecutableDeclaration.class);
+        requireEqual(decision.ownerTypeKey(), declaration.ownerKey(), "Constructor source owner");
+        if (declaration.kind() != ExecutableKind.CONSTRUCTOR && declaration.kind() != ExecutableKind.COMPACT_CONSTRUCTOR) {
+          throw new IllegalArgumentException("Constructor evidence requires a constructor declaration");
+        }
+      });
       if (node.equals(root) && node.syntaxKind() == SyntaxKind.BLOCK) {
         validateInsertedBody(decision, root, attributions);
         putUnique(contexts, node.nodeId(), decision, "constructor");
