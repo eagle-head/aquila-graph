@@ -1,5 +1,8 @@
 package org.aquilagraph.source.admission;
 
+import static org.aquilagraph.source.internal.CoverageWrittenAttachments.Cardinality.LIST;
+import static org.aquilagraph.source.internal.CoverageWrittenAttachments.Cardinality.OPTIONAL_VALUE;
+
 import org.aquilagraph.source.internal.CoverageWrittenAttachments;
 
 import org.aquilagraph.source.internal.CoverageActualFactUniverse;
@@ -129,7 +132,7 @@ public final class CoverageActualFacts {
       result.add(new CoverageFactReference(Kind.SYNTAX, node.nodeId(), node.sourceFileKey(),
           new CoverageFactValue.Source(CoverageSourceProjection.copy(view)), node.origin()));
     }));
-    return new CoverageActualFactUniverse(result, sourceValues);
+    return new CoverageActualFactUniverse(result, sourceValues, aggregate.map(value -> value.snapshot().sourceFiles()).orElseGet(List::of));
   }
 
   private static void validatePackageQualifier(SyntaxNode node, InputSnapshot snapshot) {
@@ -446,10 +449,9 @@ public final class CoverageActualFacts {
 
   private static List<SourceContext> compactTypeOwners(CoverageFactReference typeFact, JavaType type, SourceCoverageInventory inventory,
       CoverageActualFactView facts) {
-    var roots = facts.stream().filter(candidate -> candidate.sourceFileKey().equals(typeFact.sourceFileKey())).flatMap(facts::syntaxValues)
-        .filter(syntax -> syntax.value() instanceof SyntaxValue.CompilationUnit unit
-            && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT && compactOwns(syntax, type.typeKey(), facts))
-        .flatMap(syntax -> syntax.sourceAssociation().stream()).toList();
+    var roots = facts.stream().filter(candidate -> candidate.sourceFileKey().equals(typeFact.sourceFileKey()))
+        .filter(root -> compactOwns(root, type.typeKey(), facts)).flatMap(root -> facts.requiredSyntax(root).sourceAssociation().stream())
+        .toList();
     if (roots.size() != EXPECTED_COMPACT_SOURCE_ROOTS) {
       return List.of();
     }
@@ -462,11 +464,12 @@ public final class CoverageActualFacts {
         .toList();
   }
 
-  private static boolean compactOwns(CoverageSyntaxFactValue root, String typeKey, CoverageActualFactView facts) {
-    return root.children().stream().filter(child -> child.role() == SyntaxRole.COMPACT_MEMBER)
-        .anyMatch(child -> facts.stream().filter(fact -> fact.identity().equals(child.nodeKey())).flatMap(facts::syntaxValues)
+  private static boolean compactOwns(CoverageFactReference root, String typeKey, CoverageActualFactView facts) {
+    return facts.isSource(root,
+        syntax -> syntax.value() instanceof SyntaxValue.CompilationUnit unit && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT)
+        && facts.children(root, List.of(SyntaxRole.COMPACT_MEMBER)).stream().map(facts::requiredSyntax)
             .anyMatch(syntax -> (syntax.value() instanceof SyntaxValue.ExecutableDeclaration method && method.ownerKey().equals(typeKey))
-                || (syntax.value() instanceof SyntaxValue.VariableDeclaration field && field.ownerKey().equals(typeKey))));
+                || (syntax.value() instanceof SyntaxValue.VariableDeclaration field && field.ownerKey().equals(typeKey)));
   }
 
   private static List<String> canonicalOwnerKeys(SyntaxValue value) {
@@ -492,12 +495,10 @@ public final class CoverageActualFacts {
    *          actual owner facts
    * @param actualFacts
    *          independently enumerated actual references and syntax views
-   * @param snapshot
-   *          captured source input used to inspect written attachment text
    * @return whether the represented accessor is supported by actual facts
    */
   public static boolean supportsProperty(SourceContext context, CoveragePropertyValue expected, List<CoverageFactReference> owned,
-      CoverageActualFactView actualFacts, InputSnapshot snapshot) {
+      CoverageActualFactView actualFacts) {
     if (context.address().partition() == SourceContext.Partition.MODULE_ENDPOINT) {
       return ModuleServiceFacts.supports(context, expected, owned, actualFacts);
     }
@@ -509,12 +510,13 @@ public final class CoverageActualFacts {
     }
     var role = context.address().role();
     var method = role.substring(role.indexOf('#') + 1, role.indexOf('('));
-    var sourceSyntax = owned.stream().flatMap(actualFacts::syntaxValues).filter(value -> matchingOwner(role, value)).findFirst();
+    var sourceOwner = owned.stream().filter(fact -> actualFacts.isSource(fact, value -> matchingOwner(role, value))).findFirst();
+    var sourceSyntax = sourceOwner.map(actualFacts::requiredSyntax);
     if (CoverageExecutableFacts.isSurface(role)) {
-      return sourceSyntax.map(value -> CoverageExecutableFacts.supports(method, expected, value, actualFacts, snapshot)).orElse(false);
+      return sourceOwner.map(owner -> CoverageExecutableFacts.supports(method, expected, owner, actualFacts)).orElse(false);
     }
     if (role.startsWith("NewArrayTree")) {
-      return sourceSyntax.map(value -> CoverageArrayFacts.supports(method, expected, value, actualFacts, snapshot)).orElse(false);
+      return sourceOwner.map(owner -> CoverageArrayFacts.supports(method, expected, owner, actualFacts)).orElse(false);
     }
     var type = owned.stream().map(CoverageFactReference::value).filter(CoverageFactValue.Type.class::isInstance)
         .map(CoverageFactValue.Type.class::cast).map(CoverageFactValue.Type::value).findFirst();
@@ -534,109 +536,115 @@ public final class CoverageActualFacts {
               .orElseGet(() -> sourceSyntax.map(value -> name(value.value()).filter(text -> scalarText(expected, text, false)).isPresent())
                   .orElse(false)));
       case "getQualifiedName" -> type.map(value -> scalarText(expected, value.qualifiedName(), true)).orElse(false);
-      case "getBody" -> sourceSyntax
-          .map(value -> CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.BODY), actualFacts, snapshot)).orElse(false);
-      case "getDefaultValue" -> sourceSyntax
-          .map(value -> value.value() instanceof SyntaxValue.ExecutableDeclaration declaration
+      case "getBody" ->
+        sourceOwner.map(owner -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.BODY), actualFacts, OPTIONAL_VALUE))
+            .orElse(false);
+      case "getDefaultValue" -> sourceOwner
+          .map(owner -> actualFacts.requiredSyntax(owner).value() instanceof SyntaxValue.ExecutableDeclaration declaration
               && (role.startsWith(EXECUTABLE_ELEMENT_SURFACE)
                   ? CoverageAnnotationFacts.defaultValue(expected, declaration,
-                      CoverageWrittenAttachments.select(value, List.of(SyntaxRole.DEFAULT_VALUE), actualFacts).stream()
-                          .map(actualFacts::requiredSyntax).toList(),
-                      actualFacts)
-                  : CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.DEFAULT_VALUE), actualFacts, snapshot)))
+                      actualFacts.children(owner, List.of(SyntaxRole.DEFAULT_VALUE)), actualFacts)
+                  : CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.DEFAULT_VALUE), actualFacts, OPTIONAL_VALUE)))
           .orElse(false);
       case "getReceiverParameter",
           "getNameExpression" ->
-        sourceSyntax.map(value -> CoverageWrittenAttachments.matches(expected, value,
-            List.of("getReceiverParameter".equals(method) ? SyntaxRole.RECEIVER_PARAMETER : SyntaxRole.QUALIFIER), actualFacts, snapshot))
-            .orElse(false);
+        sourceOwner.map(owner -> CoverageWrittenAttachments.matches(expected, owner,
+            List.of("getReceiverParameter".equals(method) ? SyntaxRole.RECEIVER_PARAMETER : SyntaxRole.QUALIFIER), actualFacts,
+            OPTIONAL_VALUE)).orElse(false);
       case "getReturnType" -> role.startsWith(EXECUTABLE_ELEMENT_SURFACE)
-          ? sourceSyntax.map(value -> value.value() instanceof SyntaxValue.ExecutableDeclaration declaration
+          ? sourceOwner.map(owner -> actualFacts.requiredSyntax(owner).value() instanceof SyntaxValue.ExecutableDeclaration declaration
               && ((declaration.kind() == SyntaxValue.ExecutableDeclaration.ExecutableKind.CONSTRUCTOR
                   || declaration.kind() == SyntaxValue.ExecutableDeclaration.ExecutableKind.COMPACT_CONSTRUCTOR)
                       ? scalarType(expected, new JavaTypeIdentity(JavaTypeCategory.VOID, VOID_TYPE_NAME, VOID_TYPE_NAME))
-                      : CoverageWrittenAttachments.select(value, List.of(SyntaxRole.RETURN_TYPE), actualFacts).stream()
-                          .map(actualFacts::requiredSyntax).flatMap(syntax -> resolvedIdentity(syntax.type()).stream())
+                      : actualFacts.children(owner, List.of(SyntaxRole.RETURN_TYPE)).stream().map(actualFacts::requiredSyntax)
+                          .flatMap(syntax -> resolvedIdentity(syntax.type()).stream())
                           .anyMatch(identity -> scalarType(expected, identity))))
               .orElse(false)
-          : sourceSyntax
-              .map(value -> CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.RETURN_TYPE), actualFacts, snapshot))
+          : sourceOwner.map(
+              owner -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.RETURN_TYPE), actualFacts, OPTIONAL_VALUE))
               .orElse(false);
-      case "getInitializer" -> sourceSyntax.map(value -> CoverageWrittenAttachments.matches(expected, value,
-          value.syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION && (expected.state() == State.ITEMS || expected.state() == State.EMPTY)
-              ? List.of(SyntaxRole.ARGUMENT, SyntaxRole.CLASS_BODY)
-              : List.of(SyntaxRole.INITIALIZER),
-          actualFacts, snapshot)).orElse(false);
-      case "getPackage" -> sourceSyntax
-          .map(value -> CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.PACKAGE_DECLARATION), actualFacts, snapshot))
-          .orElse(false);
-      case "getPackageName" -> sourceSyntax.map(value -> {
-        var declarations = CoverageWrittenAttachments.select(value, List.of(SyntaxRole.PACKAGE_DECLARATION), actualFacts);
+      case "getInitializer" ->
+        sourceOwner
+            .map(owner -> actualFacts.requiredSyntax(owner).syntaxKind() == SyntaxKind.ENUM_CONSTANT_DECLARATION
+                ? CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.ARGUMENT, SyntaxRole.CLASS_BODY), actualFacts,
+                    LIST)
+                : CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.INITIALIZER), actualFacts, OPTIONAL_VALUE))
+            .orElse(false);
+      case "getPackage" -> sourceOwner.map(owner -> CoverageWrittenAttachments.matches(expected, owner,
+          List.of(SyntaxRole.PACKAGE_DECLARATION), actualFacts, OPTIONAL_VALUE)).orElse(false);
+      case "getPackageName" -> sourceOwner.map(owner -> {
+        var declarations = actualFacts.children(owner, List.of(SyntaxRole.PACKAGE_DECLARATION));
         return expected.state() == State.ABSENT
             ? declarations.isEmpty()
             : declarations.size() == 1
                 && actualFacts.requiredSyntax(declarations.getFirst()).value() instanceof SyntaxValue.PackageDeclaration declaration
-                && writtenPackageName(expected, declaration, snapshot);
+                && writtenPackageName(expected, declarations.getFirst(), declaration, actualFacts);
       }).orElse(false);
-      case "getModule" -> sourceSyntax
-          .map(value -> CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.MODULE_DECLARATION), actualFacts, snapshot))
+      case "getModule" -> sourceOwner.map(
+          owner -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.MODULE_DECLARATION), actualFacts, OPTIONAL_VALUE))
           .orElse(false);
-      case "getImports" -> sourceSyntax
-          .map(value -> CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.IMPORT_DECLARATION), actualFacts, snapshot))
+      case "getImports" -> sourceOwner
+          .map(owner -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.IMPORT_DECLARATION), actualFacts, LIST))
           .orElse(false);
-      case "getTypeDecls" -> sourceSyntax
-          .map(
-              value -> (value.value() instanceof SyntaxValue.CompilationUnit unit && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT)
+      case "getTypeDecls" -> sourceOwner
+          .map(owner -> (actualFacts.requiredSyntax(owner).value() instanceof SyntaxValue.CompilationUnit unit
+              && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT)
                   ? expected.equals(
                       elements(List.of(new CoveragePropertyValue.Item("CLASS:0", "CLASS", CoveragePropertyValue.Provenance.WRITTEN))))
                       && type.filter(declaration -> !declaration.sourceDeclared()).isPresent()
-                  : CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.TYPE_DECLARATION), actualFacts, snapshot))
+                  : CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.TYPE_DECLARATION), actualFacts, LIST))
           .orElse(false);
-      case "getMembers" -> sourceSyntax.map(value -> CoverageWrittenAttachments.matches(expected, value,
-          List.of(SyntaxRole.RECORD_COMPONENT, SyntaxRole.MEMBER, SyntaxRole.COMPACT_MEMBER), actualFacts, snapshot)).orElse(false);
+      case "getMembers" -> sourceOwner.map(owner -> CoverageWrittenAttachments.matches(expected, owner,
+          List.of(SyntaxRole.RECORD_COMPONENT, SyntaxRole.MEMBER, SyntaxRole.COMPACT_MEMBER), actualFacts, LIST)).orElse(false);
       case "getParameters" -> role.startsWith(EXECUTABLE_ELEMENT_SURFACE)
           ? executable.map(value -> expected.equals(elements(value.parameters().stream()
               .map(parameter -> new CoveragePropertyValue.Item(parameter.parameterKey(), "PARAMETER:" + parameter.name(),
                   provenance(parameter.sourceDeclared())))
               .toList()))).orElse(false)
-          : sourceSyntax
-              .map(value -> CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.PARAMETER), actualFacts, snapshot))
+          : sourceOwner.map(owner -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.PARAMETER), actualFacts, LIST))
               .orElse(false);
-      case "getTypeParameters" -> role.startsWith(TYPE_ELEMENT_SURFACE)
-          ? type.map(value -> expected.equals(elements(value.typeParameters().stream()
-              .map(parameter -> new CoveragePropertyValue.Item(parameter.typeParameterKey(), "TYPE_PARAMETER:" + parameter.name(),
-                  provenance(parameter.sourceDeclared())))
-              .toList()))).orElse(false)
-          : role.startsWith(EXECUTABLE_ELEMENT_SURFACE)
-              ? sourceSyntax.map(value -> expected.equals(elements(CoverageWrittenAttachments
-                  .select(value, List.of(SyntaxRole.TYPE_PARAMETER), actualFacts).stream().map(actualFacts::requiredSyntax)
-                  .map(CoverageSyntaxFactValue::value).map(SyntaxValue.TypeParameterDeclaration.class::cast)
-                  .map(parameter -> new CoveragePropertyValue.Item(parameter.declarationKey(), "TYPE_PARAMETER:" + parameter.name(),
-                      CoveragePropertyValue.Provenance.WRITTEN))
-                  .toList()))).orElse(false)
-              : sourceSyntax.map(
-                  value -> CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.TYPE_PARAMETER), actualFacts, snapshot))
-                  .orElse(false);
-      case "getThrows" -> sourceSyntax
-          .map(value -> CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.THROWN_TYPE), actualFacts, snapshot))
-          .orElse(false);
+      case "getTypeParameters" ->
+        role.startsWith(
+            TYPE_ELEMENT_SURFACE)
+                ? type
+                    .map(
+                        value -> expected.equals(elements(value.typeParameters().stream()
+                            .map(parameter -> new CoveragePropertyValue.Item(parameter.typeParameterKey(),
+                                "TYPE_PARAMETER:" + parameter.name(), provenance(parameter.sourceDeclared())))
+                            .toList())))
+                    .orElse(false)
+                : role.startsWith(EXECUTABLE_ELEMENT_SURFACE)
+                    ? sourceOwner
+                        .map(owner -> expected.equals(elements(
+                            actualFacts.children(owner, List.of(SyntaxRole.TYPE_PARAMETER)).stream().map(actualFacts::requiredSyntax)
+                                .map(CoverageSyntaxFactValue::value).map(SyntaxValue.TypeParameterDeclaration.class::cast)
+                                .map(parameter -> new CoveragePropertyValue.Item(parameter.declarationKey(),
+                                    "TYPE_PARAMETER:" + parameter.name(), CoveragePropertyValue.Provenance.WRITTEN))
+                                .toList())))
+                        .orElse(false)
+                    : sourceOwner.map(
+                        owner -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.TYPE_PARAMETER), actualFacts, LIST))
+                        .orElse(false);
+      case "getThrows" ->
+        sourceOwner.map(owner -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.THROWN_TYPE), actualFacts, LIST))
+            .orElse(false);
       case "getThrownTypes" -> sourceSyntax.map(value -> value.value() instanceof SyntaxValue.ExecutableDeclaration declaration
           && typeSequence(expected, declaration.thrownTypes().stream().flatMap(thrown -> resolvedIdentity(thrown).stream()).toList())
           && cardinality(expected, declaration.thrownTypes().size())).orElse(false);
       case "getImplementsClause" ->
-        sourceSyntax.map(value -> CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.INTERFACE), actualFacts, snapshot))
+        sourceOwner.map(owner -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.INTERFACE), actualFacts, LIST))
             .orElse(false);
       case "getInterfaces" ->
         type.map(value -> typeSequence(expected, value.directInterfaces().stream().map(reference -> reference.identity()).toList()))
             .orElse(false);
-      case "getPermitsClause" -> sourceSyntax
-          .map(value -> CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.PERMITTED_SUBCLASS), actualFacts, snapshot))
+      case "getPermitsClause" -> sourceOwner
+          .map(owner -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.PERMITTED_SUBCLASS), actualFacts, LIST))
           .orElse(false);
       case "getPermittedSubclasses" ->
         type.map(value -> typeSequence(expected, value.permittedSubclasses().stream().map(reference -> reference.identity()).toList()))
             .orElse(false);
-      case "getExtendsClause" -> sourceSyntax
-          .map(value -> CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.SUPERCLASS), actualFacts, snapshot))
+      case "getExtendsClause" -> sourceOwner
+          .map(owner -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.SUPERCLASS), actualFacts, OPTIONAL_VALUE))
           .orElse(false);
       case "getRecordComponents" -> type
           .map(
@@ -652,18 +660,14 @@ public final class CoverageActualFacts {
         executable.map(value -> scalarText(expected, Boolean.toString(value.modifiers().contains("default")), true)).orElse(false);
       case "isVarArgs" -> sourceSyntax.map(value -> value.value() instanceof SyntaxValue.ExecutableDeclaration declaration
           && scalarText(expected, Boolean.toString(declaration.shape().varArgs()), true)).orElse(false);
-      case "getAnnotationMirrors" -> sourceSyntax
-          .map(value -> CoverageAnnotationFacts.mirrors(expected, CoverageWrittenAttachments
-              .select(value, List.of(SyntaxRole.ANNOTATION), actualFacts).stream().map(actualFacts::requiredSyntax).toList(), actualFacts))
+      case "getAnnotationMirrors" -> sourceOwner
+          .map(owner -> CoverageAnnotationFacts.mirrors(expected, actualFacts.children(owner, List.of(SyntaxRole.ANNOTATION)), actualFacts))
           .orElse(false);
       case "getPackageAnnotations" ->
-        sourceSyntax
+        sourceOwner.map(owner -> actualFacts.children(owner, List.of(SyntaxRole.PACKAGE_DECLARATION)).stream().findFirst()
             .map(
-                value -> CoverageWrittenAttachments.select(value, List.of(SyntaxRole.PACKAGE_DECLARATION), actualFacts).stream()
-                    .map(actualFacts::requiredSyntax).findFirst().map(declaration -> CoverageWrittenAttachments.matches(expected,
-                        declaration, List.of(SyntaxRole.ANNOTATION), actualFacts, snapshot))
-                    .orElse(expected.state() == State.EMPTY))
-            .orElse(false);
+                declaration -> CoverageWrittenAttachments.matches(expected, declaration, List.of(SyntaxRole.ANNOTATION), actualFacts, LIST))
+            .orElse(expected.state() == State.EMPTY)).orElse(false);
       case "getEnclosedElements" -> owned.stream().map(CoverageFactReference::value).filter(CoverageFactValue.MemberOrder.class::isInstance)
           .map(CoverageFactValue.MemberOrder.class::cast).map(CoverageFactValue.MemberOrder::value).findFirst()
           .map(order -> expected.items().equals(order.members().stream()
@@ -711,18 +715,18 @@ public final class CoverageActualFacts {
                       CoveragePropertyValue.Provenance.COMPILER_DERIVED, Optional.empty(), Optional.of(evidence.identity()),
                       Optional.empty(), Optional.empty(), Optional.of(evidence.structure())))))))
           .orElseGet(() -> executable
-              .map(value -> sourceSyntax.filter(owner -> supportsExecutableType(expected, owner, value, actualFacts)).isPresent())
+              .map(value -> sourceOwner.filter(owner -> supportsExecutableType(expected, owner, value, actualFacts)).isPresent())
               .orElse(false));
-      case "getType" -> sourceSyntax
-          .map(value -> value.value() instanceof SyntaxValue.LocalDeclaration local
-              ? writtenLocalType(expected, value, local, snapshot)
-              : CoverageWrittenAttachments.matches(expected, value, List.of(SyntaxRole.DECLARED_TYPE), actualFacts, snapshot))
+      case "getType" -> sourceOwner
+          .map(owner -> actualFacts.requiredSyntax(owner).value() instanceof SyntaxValue.LocalDeclaration local
+              ? writtenLocalType(expected, owner, local, actualFacts)
+              : CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.DECLARED_TYPE), actualFacts, OPTIONAL_VALUE))
           .orElse(false);
       default -> false;
     };
   }
 
-  private static boolean supportsExecutableType(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, JavaMethod method,
+  private static boolean supportsExecutableType(CoveragePropertyValue expected, CoverageFactReference owner, JavaMethod method,
       CoverageActualFactView actualFacts) {
     return actualExecutableType(owner, method, actualFacts)
         .filter(actual -> expected.equals(new CoveragePropertyValue(State.SCALAR, List.of(new CoveragePropertyValue.Item("EXECUTABLE:0",
@@ -730,14 +734,13 @@ public final class CoverageActualFacts {
         .isPresent();
   }
 
-  private static Optional<CoverageExecutableType> actualExecutableType(CoverageSyntaxFactValue owner, JavaMethod method,
+  private static Optional<CoverageExecutableType> actualExecutableType(CoverageFactReference owner, JavaMethod method,
       CoverageActualFactView actualFacts) {
-    if (!(owner.value() instanceof SyntaxValue.ExecutableDeclaration declaration)
+    if (!(actualFacts.requiredSyntax(owner).value() instanceof SyntaxValue.ExecutableDeclaration declaration)
         || !declaration.declarationKey().equals(method.methodKey())) {
       return Optional.empty();
     }
-    var variables = CoverageWrittenAttachments.select(owner, List.of(SyntaxRole.TYPE_PARAMETER), actualFacts).stream()
-        .map(actualFacts::requiredSyntax).toList();
+    var variables = actualFacts.children(owner, List.of(SyntaxRole.TYPE_PARAMETER));
     var copiedVariables = new ArrayList<CoverageExecutableType.Variable>();
     for (var ordinal = 0; ordinal < variables.size(); ordinal++) {
       var variable = actualExecutableVariable(variables.get(ordinal), ordinal, method.methodKey(), actualFacts);
@@ -746,8 +749,8 @@ public final class CoverageActualFacts {
       }
       copiedVariables.add(variable.orElseThrow());
     }
-    var returnTypes = CoverageWrittenAttachments.select(owner, List.of(SyntaxRole.RETURN_TYPE), actualFacts).stream()
-        .map(actualFacts::requiredSyntax).map(CoverageSyntaxFactValue::type).flatMap(value -> resolvedIdentity(value).stream()).toList();
+    var returnTypes = actualFacts.children(owner, List.of(SyntaxRole.RETURN_TYPE)).stream().map(actualFacts::requiredSyntax)
+        .map(CoverageSyntaxFactValue::type).flatMap(value -> resolvedIdentity(value).stream()).toList();
     var returnType = method.constructor()
         ? Optional.of(new JavaTypeIdentity(JavaTypeCategory.VOID, VOID_TYPE_NAME, VOID_TYPE_NAME))
         : returnTypes.size() == 1 ? Optional.of(returnTypes.getFirst()) : Optional.<JavaTypeIdentity>empty();
@@ -761,19 +764,19 @@ public final class CoverageActualFacts {
             returnType.orElseThrow(), thrownTypes, resolvedIdentity(declaration.receiverType())));
   }
 
-  private static Optional<CoverageExecutableType.Variable> actualExecutableVariable(CoverageSyntaxFactValue source, int ordinal,
+  private static Optional<CoverageExecutableType.Variable> actualExecutableVariable(CoverageFactReference source, int ordinal,
       String ownerKey, CoverageActualFactView actualFacts) {
-    if (!(source.value() instanceof SyntaxValue.TypeParameterDeclaration variable) || variable.ordinal() != ordinal
-        || !variable.ownerKey().equals(ownerKey)) {
+    if (!(actualFacts.requiredSyntax(source).value() instanceof SyntaxValue.TypeParameterDeclaration variable)
+        || variable.ordinal() != ordinal || !variable.ownerKey().equals(ownerKey)) {
       return Optional.empty();
     }
     return typeParameterErasure(source, variable, actualFacts).map(erasure -> new CoverageExecutableType.Variable(variable.declarationKey(),
         new JavaTypeIdentity(JavaTypeCategory.TYPE_VARIABLE, variable.name(), erasure)));
   }
 
-  private static Optional<String> typeParameterErasure(CoverageSyntaxFactValue source, SyntaxValue.TypeParameterDeclaration variable,
+  private static Optional<String> typeParameterErasure(CoverageFactReference source, SyntaxValue.TypeParameterDeclaration variable,
       CoverageActualFactView actualFacts) {
-    var bounds = CoverageWrittenAttachments.select(source, List.of(SyntaxRole.TYPE_BOUND), actualFacts);
+    var bounds = actualFacts.children(source, List.of(SyntaxRole.TYPE_BOUND));
     if (bounds.size() != variable.bounds()) {
       return Optional.empty();
     }
@@ -894,34 +897,20 @@ public final class CoverageActualFacts {
           && expected.items().getFirst().value().startsWith(kind + ':');
     }
     return facts.stream().map(CoverageFactReference::value).filter(CoverageFactValue.Type.class::isInstance)
-        .map(CoverageFactValue.Type.class::cast).map(CoverageFactValue.Type::value).filter(
-            type -> type.typeKey().equals(key))
-        .anyMatch(
-            type -> expected
-                .equals(new CoveragePropertyValue(State.SCALAR,
-                    List.of(new CoveragePropertyValue.Item(key,
-                        (ANNOTATION_KIND.equals(type.kind().name()) ? ANNOTATION_TYPE_KIND : type.kind().name()) + ':' + type.displayName(),
-                        provenance(type.sourceDeclared() || facts.stream().flatMap(facts::syntaxValues)
-                            .anyMatch(syntax -> syntax.value() instanceof SyntaxValue.CompilationUnit unit
-                                && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT
-                                && compactOwns(syntax, type.typeKey(), facts))))))));
+        .map(CoverageFactValue.Type.class::cast).map(CoverageFactValue.Type::value).filter(type -> type.typeKey().equals(key))
+        .anyMatch(type -> expected.equals(new CoveragePropertyValue(State.SCALAR,
+            List.of(new CoveragePropertyValue.Item(key,
+                (ANNOTATION_KIND.equals(type.kind().name()) ? ANNOTATION_TYPE_KIND : type.kind().name()) + ':' + type.displayName(),
+                provenance(type.sourceDeclared() || facts.stream().anyMatch(root -> compactOwns(root, type.typeKey(), facts))))))));
   }
 
-  private static boolean writtenPackageName(CoveragePropertyValue expected, SyntaxValue.PackageDeclaration declaration,
-      InputSnapshot snapshot) {
-    if (declaration.qualifier().isEmpty()) {
-      return false;
-    }
-    var qualifier = declaration.qualifier().orElseThrow();
-    var origin = qualifier.origin();
-    var source = snapshot.sourceFiles().stream().filter(file -> file.sourceFileKey().equals(origin.sourceFileKey())).findFirst();
-    if (source.isEmpty() || origin.endOffsetExclusive() > source.orElseThrow().content().length()) {
-      return false;
-    }
-    var text = source.orElseThrow().content().substring(Math.toIntExact(origin.startOffset()),
-        Math.toIntExact(origin.endOffsetExclusive()));
-    return expected.equals(new CoveragePropertyValue(State.SCALAR,
-        List.of(new CoveragePropertyValue.Item(qualifier.sourceKind().name() + ":0", text, CoveragePropertyValue.Provenance.WRITTEN))));
+  private static boolean writtenPackageName(CoveragePropertyValue expected, CoverageFactReference owner,
+      SyntaxValue.PackageDeclaration declaration, CoverageActualFactView facts) {
+    return declaration.qualifier()
+        .map(qualifier -> expected
+            .equals(new CoveragePropertyValue(State.SCALAR, List.of(new CoveragePropertyValue.Item(qualifier.sourceKind().name() + ":0",
+                facts.capturedText(owner, qualifier.origin()), CoveragePropertyValue.Provenance.WRITTEN)))))
+        .orElse(false);
   }
 
   private static boolean packageOwner(CoveragePropertyValue expected, String sourceKey, CoverageActualFactView facts) {
@@ -932,26 +921,22 @@ public final class CoverageActualFacts {
         .of(new CoveragePropertyValue.Item("package:" + packageName, "PACKAGE:" + packageName, CoveragePropertyValue.Provenance.WRITTEN))));
   }
 
-  private static boolean writtenLocalType(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, SyntaxValue.LocalDeclaration local,
-      InputSnapshot snapshot) {
+  private static boolean writtenLocalType(CoveragePropertyValue expected, CoverageFactReference owner, SyntaxValue.LocalDeclaration local,
+      CoverageActualFactView facts) {
     if (expected.state() == State.ABSENT
         && local.bindingEvidence().filter(binding -> binding.typeForm() != LocalBindingEvidence.TypeForm.DECLARED).isPresent()) {
-      return local.writtenType().isEmpty() && owner.children().stream().noneMatch(child -> child.role() == SyntaxRole.DECLARED_TYPE);
+      return local.writtenType().isEmpty() && facts.children(owner, List.of(SyntaxRole.DECLARED_TYPE)).isEmpty();
     }
     if (expected.state() != State.SCALAR || local.writtenType().isEmpty()) {
       return false;
     }
     var written = local.writtenType().orElseThrow();
-    var source = snapshot.sourceFiles().stream().filter(file -> file.sourceFileKey().equals(written.origin().sourceFileKey())).findFirst();
-    if (source.isEmpty() || written.origin().endOffsetExclusive() > source.orElseThrow().content().length()) {
-      return false;
-    }
-    var sameType = (owner.type() instanceof SyntaxType.Resolved resolved && written.type() instanceof SyntaxType.Resolved copied)
+    var type = facts.requiredSyntax(owner).type();
+    var sameType = (type instanceof SyntaxType.Resolved resolved && written.type() instanceof SyntaxType.Resolved copied)
         ? resolved.identity().category() == copied.identity().category()
             && resolved.identity().erasedName().equals(copied.identity().erasedName()) && resolved.structure().equals(copied.structure())
-        : owner.type().equals(written.type());
-    var text = source.orElseThrow().content().substring(Math.toIntExact(written.origin().startOffset()),
-        Math.toIntExact(written.origin().endOffsetExclusive()));
+        : type.equals(written.type());
+    var text = facts.capturedText(owner, written.origin());
     return sameType && expected.equals(new CoveragePropertyValue(State.SCALAR,
         List.of(new CoveragePropertyValue.Item(written.sourceKind().name() + ":0", text, CoveragePropertyValue.Provenance.WRITTEN))));
   }
@@ -979,18 +964,13 @@ public final class CoverageActualFacts {
     }
     var parentPath = context.address().ownerPath().parent().orElseThrow();
     var unitOwned = context.address().partition() == SourceContext.Partition.EMPTY_UNIT_DECLARATION;
-    var parents = facts.stream().flatMap(facts::syntaxValues).filter(
-        parent -> (unitOwned ? parent.value() instanceof SyntaxValue.CompilationUnit : parent.syntaxKind() == SyntaxKind.TYPE_DECLARATION)
-            && parent.sourceAssociation()
-                .filter(value -> value.sourceFileKey().equals(fact.sourceFileKey()) && value.ownerPath().equals(parentPath)).isPresent())
+    var parents = facts.stream().filter(parent -> facts.isSource(parent,
+        syntax -> (unitOwned ? syntax.value() instanceof SyntaxValue.CompilationUnit : syntax.syntaxKind() == SyntaxKind.TYPE_DECLARATION)
+            && syntax.sourceAssociation()
+                .filter(value -> value.sourceFileKey().equals(fact.sourceFileKey()) && value.ownerPath().equals(parentPath)).isPresent()))
         .toList();
-    if (parents.size() != EXPECTED_EMPTY_DECLARATION_OWNERS) {
-      return false;
-    }
-    return parents.getFirst().children().stream()
-        .anyMatch(child -> (unitOwned
-            ? child.role() == SyntaxRole.TYPE_DECLARATION || child.role() == SyntaxRole.COMPACT_MEMBER
-            : child.role() == SyntaxRole.MEMBER) && child.nodeKey().equals(fact.identity()));
+    var roles = unitOwned ? List.of(SyntaxRole.TYPE_DECLARATION, SyntaxRole.COMPACT_MEMBER) : List.of(SyntaxRole.MEMBER);
+    return parents.size() == EXPECTED_EMPTY_DECLARATION_OWNERS && facts.children(parents.getFirst(), roles).contains(fact);
   }
 
   private static Optional<String> name(SyntaxValue value) {

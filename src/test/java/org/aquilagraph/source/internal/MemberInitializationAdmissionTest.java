@@ -283,7 +283,7 @@ class MemberInitializationAdmissionTest {
       assertTrue(failure.getMessage().contains("fact") || failure.getMessage().contains("source"), failure.toString());
       assertEquals(new CoveragePropertyValue(CoveragePropertyValue.State.SCALAR,
           List.of(new CoveragePropertyValue.Item("item:0", Boolean.toString(!modifier.isEmpty()), CoveragePropertyValue.Provenance.WRITTEN))), expected);
-      assertFalse(CoverageActualFacts.supportsProperty(context, expected, owned, actual, original.snapshot()));
+      assertFalse(CoverageActualFacts.supportsProperty(context, expected, owned, actual));
     }));
   }
 
@@ -415,7 +415,7 @@ class MemberInitializationAdmissionTest {
       var actual = CoverageActualFacts.capture(original.program(), Optional.of(supplied));
       var rootKey = scopes.stream().filter(scope -> scope.root().syntaxKind() == removedKind).findFirst().orElseThrow().root().nodeId();
       assertFalse(CoverageActualFacts.supportsProperty(context, context.writtenValue().orElseThrow(),
-          actual.stream().filter(fact -> fact.identity().equals(rootKey)).toList(), actual, snapshot));
+          actual.stream().filter(fact -> fact.identity().equals(rootKey)).toList(), actual));
     }
     }));
   }

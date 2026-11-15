@@ -1,16 +1,17 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.source.internal.CoverageWrittenAttachments.Cardinality.LIST;
+import static org.aquilagraph.source.internal.CoverageWrittenAttachments.Cardinality.OPTIONAL_VALUE;
+
 import org.aquilagraph.source.admission.CoverageActualFactView;
 import org.aquilagraph.source.api.CoverageFactReference;
 import org.aquilagraph.source.api.CoveragePropertyValue;
-import org.aquilagraph.source.api.CoverageSyntaxFactValue;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxValue;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.source.api.CoveragePropertyValue.Item;
 import org.aquilagraph.source.api.CoveragePropertyValue.Provenance;
 import org.aquilagraph.source.api.CoveragePropertyValue.State;
@@ -31,36 +32,33 @@ public final class CoverageArrayFacts {
    *          owner
    * @param facts
    *          facts
-   * @param snapshot
-   *          snapshot
    * @return whether the facts satisfy the required relation
    */
-  public static boolean supports(String accessor, CoveragePropertyValue expected, CoverageSyntaxFactValue owner,
-      CoverageActualFactView facts, InputSnapshot snapshot) {
-    var form = owner.value() instanceof SyntaxValue.ArrayCreation array ? array : new SyntaxValue.ArrayCreation(false, true, List.of());
+  public static boolean supports(String accessor, CoveragePropertyValue expected, CoverageFactReference owner,
+      CoverageActualFactView facts) {
+    var syntax = facts.requiredSyntax(owner);
+    var form = syntax.value() instanceof SyntaxValue.ArrayCreation array ? array : new SyntaxValue.ArrayCreation(false, true, List.of());
     return switch (accessor) {
       case "getKind" ->
         expected.equals(new CoveragePropertyValue(State.SCALAR, List.of(new Item("NEW_ARRAY", "NEW_ARRAY", Provenance.WRITTEN))));
-      case "getType" -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.TYPE_OPERAND), facts, snapshot);
-      case "getDimensions" -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.DIMENSION), facts, snapshot);
+      case "getType" -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.TYPE_OPERAND), facts, OPTIONAL_VALUE);
+      case "getDimensions" -> CoverageWrittenAttachments.matches(expected, owner, List.of(SyntaxRole.DIMENSION), facts, LIST);
       case "getInitializers" -> form.initializer()
           ? CoverageWrittenAttachments.matches(expected, owner,
-              List.of(owner.syntaxKind() == SyntaxKind.ANNOTATION_ARRAY ? SyntaxRole.VALUE : SyntaxRole.ARRAY_ELEMENT), facts, snapshot)
-          : expected.state() == State.ABSENT && owner.children().stream().noneMatch(child -> child.role() == SyntaxRole.ARRAY_ELEMENT);
-      case "getAnnotations" -> form.initializer()
-          ? annotations(expected, owner, facts, snapshot)
-          : expected.equals(new CoveragePropertyValue(State.EMPTY, List.of()));
-      case "getDimAnnotations" -> dimensions(expected, owner, form, facts, snapshot);
+              List.of(syntax.syntaxKind() == SyntaxKind.ANNOTATION_ARRAY ? SyntaxRole.VALUE : SyntaxRole.ARRAY_ELEMENT), facts, LIST)
+          : expected.state() == State.ABSENT && facts.children(owner, List.of(SyntaxRole.ARRAY_ELEMENT)).isEmpty();
+      case "getAnnotations" ->
+        form.initializer() ? annotations(expected, owner, facts) : expected.equals(new CoveragePropertyValue(State.EMPTY, List.of()));
+      case "getDimAnnotations" -> dimensions(expected, owner, form, facts);
       default -> false;
     };
   }
 
-  private static boolean annotations(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, CoverageActualFactView facts,
-      InputSnapshot snapshot) {
-    var children = owner.children().stream().filter(child -> child.role() == SyntaxRole.ANNOTATION).toList();
+  private static boolean annotations(CoveragePropertyValue expected, CoverageFactReference owner, CoverageActualFactView facts) {
+    var children = facts.children(owner, List.of(SyntaxRole.ANNOTATION));
     var items = new ArrayList<Item>();
     for (var ordinal = 0; ordinal < children.size(); ordinal++) {
-      var item = annotationItem(children.get(ordinal), ordinal, facts, snapshot);
+      var item = annotationItem(children.get(ordinal), ordinal, facts);
       if (item.isEmpty()) {
         return false;
       }
@@ -69,29 +67,21 @@ public final class CoverageArrayFacts {
     return expected.equals(new CoveragePropertyValue(items.isEmpty() ? State.EMPTY : State.ITEMS, items));
   }
 
-  private static Optional<Item> annotationItem(CoverageSyntaxFactValue.Child child, int ordinal, CoverageActualFactView facts,
-      InputSnapshot snapshot) {
-    var node = facts.stream().filter(fact -> fact.kind() == CoverageFactReference.Kind.SYNTAX && fact.identity().equals(child.nodeKey()))
-        .findFirst().orElseThrow();
-    var syntax = facts.requiredSyntax(node);
-    if (node.origin().isEmpty() || syntax.syntaxKind() != SyntaxKind.ANNOTATION
-        || !(syntax.value() instanceof SyntaxValue.Annotation annotation)
+  private static Optional<Item> annotationItem(CoverageFactReference child, int ordinal, CoverageActualFactView facts) {
+    var syntax = facts.requiredSyntax(child);
+    if (syntax.syntaxKind() != SyntaxKind.ANNOTATION || !(syntax.value() instanceof SyntaxValue.Annotation annotation)
         || annotation.location() != SyntaxValue.AnnotationLocation.TYPE_USE) {
       return Optional.empty();
     }
-    var origin = node.origin().orElseThrow();
-    var source = snapshot.sourceFiles().stream().filter(file -> file.sourceFileKey().equals(origin.sourceFileKey())).findFirst()
-        .orElseThrow();
-    var text = source.content().substring(Math.toIntExact(origin.startOffset()), Math.toIntExact(origin.endOffsetExclusive()));
-    return Optional.of(new Item("TYPE_ANNOTATION:" + ordinal, text, Provenance.WRITTEN));
+    return facts.capturedText(child).map(text -> new Item("TYPE_ANNOTATION:" + ordinal, text, Provenance.WRITTEN));
   }
 
-  private static boolean dimensions(CoveragePropertyValue expected, CoverageSyntaxFactValue owner, SyntaxValue.ArrayCreation form,
-      CoverageActualFactView facts, InputSnapshot snapshot) {
+  private static boolean dimensions(CoveragePropertyValue expected, CoverageFactReference owner, SyntaxValue.ArrayCreation form,
+      CoverageActualFactView facts) {
     if (form.initializer()) {
       return expected.equals(new CoveragePropertyValue(State.EMPTY, List.of()));
     }
-    var annotations = owner.children().stream().filter(child -> child.role() == SyntaxRole.ANNOTATION).toList();
+    var annotations = facts.children(owner, List.of(SyntaxRole.ANNOTATION));
     var items = new ArrayList<Item>();
     var position = 0;
     for (var dimension = 0; dimension < form.dimensionAnnotationCounts().size(); dimension++) {
@@ -101,7 +91,7 @@ public final class CoverageArrayFacts {
         if (position >= annotations.size()) {
           return false;
         }
-        var item = annotationItem(annotations.get(position), ordinal, facts, snapshot);
+        var item = annotationItem(annotations.get(position), ordinal, facts);
         position++;
         if (item.isEmpty()) {
           return false;

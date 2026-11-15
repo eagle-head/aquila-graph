@@ -1,21 +1,31 @@
 package org.aquilagraph.source.internal;
 
-import org.aquilagraph.source.admission.CoverageActualFactView;
-
-import org.aquilagraph.source.api.CoverageFactReference;
-import org.aquilagraph.source.api.CoverageFactValue;
-import org.aquilagraph.source.api.CoverageSyntaxFactValue;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.admission.CoverageActualFactView;
+import org.aquilagraph.source.api.CoverageFactReference;
+import org.aquilagraph.source.api.CoverageFactValue;
+import org.aquilagraph.source.api.CoverageSyntaxFactValue;
+import org.aquilagraph.source.api.CoverageSyntaxFactValue.Child;
+import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
+import org.aquilagraph.source.api.SyntaxStructuralPath.Step;
 
 /** Immutable actual references and syntax-local typed views, independently read from actual retained values. */
 public final class CoverageActualFactUniverse implements CoverageActualFactView {
+  private static final int MAX_ATTACHMENTS_PER_POSITION = 1;
   private final List<CoverageFactReference> orderedReferences;
   private final Map<String, SourceEntry> sourceValues;
+  private final Map<String, String> capturedSources;
 
   /**
    * Owns the copied nodes and declaration lookup used by coverage admission.
@@ -24,8 +34,11 @@ public final class CoverageActualFactUniverse implements CoverageActualFactView 
    *          references
    * @param syntaxValues
    *          syntax values
+   * @param sources
+   *          source files captured in the same input snapshot
    */
-  public CoverageActualFactUniverse(List<CoverageFactReference> references, Map<String, CoverageSyntaxFactValue> syntaxValues) {
+  public CoverageActualFactUniverse(List<CoverageFactReference> references, Map<String, CoverageSyntaxFactValue> syntaxValues,
+      List<SourceFile> sources) {
     orderedReferences = List.copyOf(references);
     var entries = new HashMap<String, SourceEntry>();
     for (var reference : orderedReferences) {
@@ -37,6 +50,7 @@ public final class CoverageActualFactUniverse implements CoverageActualFactView 
       throw new IllegalArgumentException("Every actual typed source view requires one exact neutral reference");
     }
     sourceValues = Map.copyOf(entries);
+    capturedSources = sources.stream().collect(Collectors.toUnmodifiableMap(SourceFile::sourceFileKey, SourceFile::content));
   }
 
   private static void registerSource(CoverageFactReference reference, Map<String, CoverageSyntaxFactValue> syntaxValues,
@@ -87,6 +101,61 @@ public final class CoverageActualFactUniverse implements CoverageActualFactView 
   public CoverageSyntaxFactValue requiredSyntax(CoverageFactReference reference) {
     return sourceValue(reference)
         .orElseThrow(() -> new IllegalArgumentException("A syntax view requires the exact independently copied actual reference"));
+  }
+
+  @Override
+  public List<CoverageFactReference> children(CoverageFactReference parent, List<SyntaxRole> roles) {
+    var syntax = requiredSyntax(parent);
+    var selected = new ArrayList<CoverageFactReference>();
+    var positions = new HashSet<Step>();
+    for (var child : syntax.children()) {
+      if (roles.contains(child.role())) {
+        if (!positions.add(new Step(child.role(), child.ordinal()))) {
+          throw new IllegalArgumentException("An actual child position requires one exact attachment");
+        }
+        selected.add(resolveChild(parent, syntax.structuralPath(), child));
+      }
+    }
+    return List.copyOf(selected);
+  }
+
+  @Override
+  public Optional<CoverageFactReference> child(CoverageFactReference parent, SyntaxRole role, int position) {
+    var syntax = requiredSyntax(parent);
+    var matches = syntax.children().stream().filter(child -> child.role() == role && child.ordinal() == position).toList();
+    if (matches.size() > MAX_ATTACHMENTS_PER_POSITION) {
+      throw new IllegalArgumentException("An actual child position requires one exact attachment");
+    }
+    return matches.stream().findFirst().map(child -> resolveChild(parent, syntax.structuralPath(), child));
+  }
+
+  private CoverageFactReference resolveChild(CoverageFactReference parent, SyntaxStructuralPath path, Child child) {
+    var entry = sourceValues.get(child.nodeKey());
+    if (entry == null || !entry.reference().sourceFileKey().equals(parent.sourceFileKey())
+        || !entry.value().structuralPath().equals(path.child(child.role(), child.ordinal()))) {
+      throw new IllegalArgumentException("An actual child attachment requires its exact source occurrence");
+    }
+    return entry.reference();
+  }
+
+  @Override
+  public Optional<String> capturedText(CoverageFactReference reference) {
+    requiredSyntax(reference);
+    return reference.origin().map(span -> readSpan(reference, span));
+  }
+
+  @Override
+  public String capturedText(CoverageFactReference reference, SourceSpan span) {
+    requiredSyntax(reference);
+    return readSpan(reference, span);
+  }
+
+  private String readSpan(CoverageFactReference reference, SourceSpan span) {
+    var content = capturedSources.get(reference.sourceFileKey());
+    if (content == null || !span.sourceFileKey().equals(reference.sourceFileKey()) || span.endOffsetExclusive() > content.length()) {
+      throw new IllegalArgumentException("An actual source span must belong to its captured source");
+    }
+    return content.substring(Math.toIntExact(span.startOffset()), Math.toIntExact(span.endOffsetExclusive()));
   }
 
   /**

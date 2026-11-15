@@ -1,7 +1,6 @@
 package org.aquilagraph.source.admission;
 
 import org.aquilagraph.source.api.CoverageFactReference;
-import org.aquilagraph.source.api.CoverageSyntaxFactValue;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -30,17 +29,20 @@ public final class CoverageWrittenTypeUseTopology {
       return false;
     }
     var association = source.orElseThrow().sourceAssociation().orElseThrow();
-    var parents = facts.stream().filter(fact -> fact.sourceFileKey().equals(reference.sourceFileKey())).flatMap(facts::syntaxValues)
-        .flatMap(parent -> parent.children().stream().filter(child -> child.nodeKey().equals(reference.identity()))
-            .map(child -> new Parent(parent, child)))
-        .toList();
+    var steps = source.orElseThrow().structuralPath().steps();
+    var step = steps.getLast();
+    var parentSteps = steps.subList(0, steps.size() - 1);
+    var parents = facts.stream().filter(fact -> fact.sourceFileKey().equals(reference.sourceFileKey()))
+        .filter(fact -> facts.isSource(fact, syntax -> syntax.structuralPath().steps().equals(parentSteps)))
+        .filter(parent -> facts.child(parent, step.role(), step.position()).filter(reference::equals).isPresent())
+        .map(facts::requiredSyntax).toList();
     if (parents.size() != EXPECTED_PARENT_ATTACHMENTS) {
       return false;
     }
     var parent = parents.getFirst();
-    var role = parsedRole(parent.source().sourceKind(), parent.child().role());
-    return role.isPresent() && parent.source().sourceAssociation().filter(owner -> owner.sourceFileKey().equals(association.sourceFileKey())
-        && owner.ownerPath().child(role.orElseThrow(), parent.child().ordinal()).equals(association.ownerPath())).isPresent();
+    var role = parsedRole(parent.sourceKind(), step.role());
+    return role.isPresent() && parent.sourceAssociation().filter(owner -> owner.sourceFileKey().equals(association.sourceFileKey())
+        && owner.ownerPath().child(role.orElseThrow(), step.position()).equals(association.ownerPath())).isPresent();
   }
 
   private static Optional<Role> parsedRole(JavaSourceKind parent, SyntaxRole role) {
@@ -74,6 +76,4 @@ public final class CoverageWrittenTypeUseTopology {
     };
   }
 
-  private record Parent(CoverageSyntaxFactValue source, CoverageSyntaxFactValue.Child child) {
-  }
 }

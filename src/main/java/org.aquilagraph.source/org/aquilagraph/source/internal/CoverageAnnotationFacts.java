@@ -5,7 +5,7 @@ import org.aquilagraph.source.api.AnnotationScalar;
 import org.aquilagraph.source.admission.CoverageActualFactView;
 import org.aquilagraph.source.api.CoverageAnnotationValue;
 import org.aquilagraph.source.api.CoveragePropertyValue;
-import org.aquilagraph.source.api.CoverageSyntaxFactValue;
+import org.aquilagraph.source.api.CoverageFactReference;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeStructure;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -34,11 +34,12 @@ public final class CoverageAnnotationFacts {
    *          facts
    * @return whether the facts satisfy the required relation
    */
-  public static boolean mirrors(CoveragePropertyValue expected, List<CoverageSyntaxFactValue> annotations, CoverageActualFactView facts) {
+  public static boolean mirrors(CoveragePropertyValue expected, List<CoverageFactReference> annotations, CoverageActualFactView facts) {
     var source = annotations.stream()
-        .filter(value -> value.value() instanceof SyntaxValue.Annotation annotation
-            && (annotation.location() == SyntaxValue.AnnotationLocation.DECLARATION
-                || annotation.location() == SyntaxValue.AnnotationLocation.DUAL))
+        .filter(reference -> facts.isSource(reference,
+            value -> value.value() instanceof SyntaxValue.Annotation annotation
+                && (annotation.location() == SyntaxValue.AnnotationLocation.DECLARATION
+                    || annotation.location() == SyntaxValue.AnnotationLocation.DUAL)))
         .toList();
     if (expected.state() == CoveragePropertyValue.State.EMPTY) {
       return source.isEmpty();
@@ -62,7 +63,7 @@ public final class CoverageAnnotationFacts {
           return false;
         }
         for (var nested : array.elements()) {
-          if (!(nested instanceof CoverageAnnotationValue.Annotation written) || source.stream()
+          if (!(nested instanceof CoverageAnnotationValue.Annotation written) || source.stream().map(facts::requiredSyntax)
               .noneMatch(value -> value.value() instanceof SyntaxValue.Annotation actual
                   && actual.repeatableContainerKey().filter(annotation.typeKey()::equals).isPresent()
                   && value.semanticReference().flatMap(reference -> reference.symbolKey()).filter(written.typeKey()::equals).isPresent())) {
@@ -97,7 +98,7 @@ public final class CoverageAnnotationFacts {
    * @return whether the facts satisfy the required relation
    */
   public static boolean defaultValue(CoveragePropertyValue expected, SyntaxValue.ExecutableDeclaration declaration,
-      List<CoverageSyntaxFactValue> expressions, CoverageActualFactView facts) {
+      List<CoverageFactReference> expressions, CoverageActualFactView facts) {
     if (expected.state() == CoveragePropertyValue.State.ABSENT) {
       return declaration.defaultValue().isEmpty() && expressions.isEmpty();
     }
@@ -114,20 +115,21 @@ public final class CoverageAnnotationFacts {
         && item.annotationValue().map(CoverageAnnotationValue::canonicalText).filter(item.value()::equals).isPresent();
   }
 
-  private static Optional<CoverageAnnotationValue.Annotation> annotation(CoverageSyntaxFactValue expression, CoverageActualFactView facts) {
-    if (!(expression.value() instanceof SyntaxValue.Annotation annotation) || annotation.argumentFailureCode().isPresent()) {
+  private static Optional<CoverageAnnotationValue.Annotation> annotation(CoverageFactReference expression, CoverageActualFactView facts) {
+    var syntax = facts.requiredSyntax(expression);
+    if (!(syntax.value() instanceof SyntaxValue.Annotation annotation) || annotation.argumentFailureCode().isPresent()) {
       return Optional.empty();
     }
-    var key = expression.semanticReference().flatMap(reference -> reference.symbolKey());
+    var key = syntax.semanticReference().flatMap(reference -> reference.symbolKey());
     if (key.isEmpty()) {
       return Optional.empty();
     }
     var entries = new ArrayList<CoverageAnnotationValue.Entry>();
-    for (var argument : children(expression, SyntaxRole.ANNOTATION_ARGUMENT, facts)) {
-      if (!(argument.value() instanceof SyntaxValue.AnnotationArgument pair)) {
+    for (var argument : facts.children(expression, List.of(SyntaxRole.ANNOTATION_ARGUMENT))) {
+      if (!(facts.requiredSyntax(argument).value() instanceof SyntaxValue.AnnotationArgument pair)) {
         return Optional.empty();
       }
-      var values = children(argument, SyntaxRole.VALUE, facts);
+      var values = facts.children(argument, List.of(SyntaxRole.VALUE));
       if (values.size() != SINGLE_VALUE_COUNT) {
         return Optional.empty();
       }
@@ -140,7 +142,7 @@ public final class CoverageAnnotationFacts {
     return Optional.of(new CoverageAnnotationValue.Annotation(key.orElseThrow(), entries, CoveragePropertyValue.Provenance.WRITTEN));
   }
 
-  private static Optional<CoverageAnnotationValue> value(AnnotationElementValue value, CoverageSyntaxFactValue expression,
+  private static Optional<CoverageAnnotationValue> value(AnnotationElementValue value, CoverageFactReference expression,
       CoverageActualFactView facts) {
     return switch (value) {
       case AnnotationScalar.BooleanValue scalar -> Optional.of(new Scalar(Scalar.Kind.BOOLEAN, Boolean.toString(scalar.value())));
@@ -158,8 +160,8 @@ public final class CoverageAnnotationFacts {
       case AnnotationElementValue.Nested nested -> annotation(expression, facts)
           .filter(annotation -> annotation.typeKey().equals(nested.annotationTypeKey())).map(CoverageAnnotationValue.class::cast);
       case AnnotationElementValue.Array array -> {
-        var expressions = expression.syntaxKind() == SyntaxKind.ANNOTATION_ARRAY
-            ? children(expression, SyntaxRole.VALUE, facts)
+        var expressions = facts.requiredSyntax(expression).syntaxKind() == SyntaxKind.ANNOTATION_ARRAY
+            ? facts.children(expression, List.of(SyntaxRole.VALUE))
             : List.of(expression);
         if (expressions.size() != array.elements().size()) {
           yield Optional.empty();
@@ -193,8 +195,4 @@ public final class CoverageAnnotationFacts {
     };
   }
 
-  private static List<CoverageSyntaxFactValue> children(CoverageSyntaxFactValue owner, SyntaxRole role, CoverageActualFactView facts) {
-    return owner.children().stream().filter(child -> child.role() == role).map(child -> facts.stream()
-        .filter(fact -> fact.identity().equals(child.nodeKey())).flatMap(facts::syntaxValues).findFirst().orElseThrow()).toList();
-  }
 }

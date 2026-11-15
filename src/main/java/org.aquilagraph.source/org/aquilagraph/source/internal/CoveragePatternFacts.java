@@ -1,13 +1,13 @@
 package org.aquilagraph.source.internal;
 
+import static org.aquilagraph.source.internal.CoverageWrittenAttachments.Cardinality.OPTIONAL_VALUE;
+
 import org.aquilagraph.source.admission.CoverageActualFactView;
+import org.aquilagraph.source.api.CoverageFactReference;
 import org.aquilagraph.source.api.CoveragePropertyValue;
-import org.aquilagraph.source.api.CoverageSyntaxFactValue;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
 import java.util.List;
-import java.util.Optional;
-import org.aquilagraph.identity.api.InputSnapshot;
 
 /** Reconciles a compiler type accessor that aliases the written type inside a binding pattern. */
 public final class CoveragePatternFacts {
@@ -23,26 +23,19 @@ public final class CoveragePatternFacts {
    *          test
    * @param facts
    *          facts
-   * @param snapshot
-   *          snapshot
    * @return whether the facts satisfy the required relation
    */
-  public static boolean testedType(CoveragePropertyValue expected, CoverageSyntaxFactValue test, CoverageActualFactView facts,
-      InputSnapshot snapshot) {
-    var pattern = child(test, SyntaxRole.PATTERN, facts);
+  public static boolean testedType(CoveragePropertyValue expected, CoverageFactReference test, CoverageActualFactView facts) {
+    var pattern = facts.child(test, SyntaxRole.PATTERN, 0);
     if (pattern.isEmpty()) {
-      return CoverageWrittenAttachments.matches(expected, test, List.of(SyntaxRole.TYPE_OPERAND), facts, snapshot, true);
+      return CoverageWrittenAttachments.matches(expected, test, List.of(SyntaxRole.TYPE_OPERAND), facts, OPTIONAL_VALUE);
     }
-    if (pattern.orElseThrow().syntaxKind() != SyntaxKind.BINDING_PATTERN) {
+    if (facts.requiredSyntax(pattern.orElseThrow()).syntaxKind() != SyntaxKind.BINDING_PATTERN) {
       return expected.state() == CoveragePropertyValue.State.ABSENT;
     }
-    return child(pattern.orElseThrow(), SyntaxRole.PARAMETER, facts)
-        .map(binding -> CoverageWrittenAttachments.matches(expected, binding, List.of(SyntaxRole.DECLARED_TYPE), facts, snapshot, true))
+    return facts.child(pattern.orElseThrow(), SyntaxRole.PARAMETER, 0)
+        .map(binding -> CoverageWrittenAttachments.matches(expected, binding, List.of(SyntaxRole.DECLARED_TYPE), facts, OPTIONAL_VALUE))
         .orElse(false);
   }
 
-  private static Optional<CoverageSyntaxFactValue> child(CoverageSyntaxFactValue owner, SyntaxRole role, CoverageActualFactView facts) {
-    return owner.children().stream().filter(child -> child.role() == role)
-        .flatMap(child -> facts.stream().filter(fact -> fact.identity().equals(child.nodeKey())).flatMap(facts::syntaxValues)).findFirst();
-  }
 }
