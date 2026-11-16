@@ -23,7 +23,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.aquilagraph.CliPublicationReporting;
@@ -156,15 +155,6 @@ class PublicAnalysisCompositionTest {
   private static final AnalysisRunRepositoryFactory NO_RUN_STORAGE = context -> {
     throw new AssertionError("Unexpected completed-run repository acquisition: " + context);
   };
-  private static final Pattern AST_NODE_INSERT = Pattern.compile(
-      "UNWIND \\$nodes AS expected CREATE \\(entity:AstEntity:`([^`]+)`\\) SET entity = expected "
-          + "RETURN entity.key AS key, elementId\\(entity\\) AS address");
-  private static final Pattern AST_RELATIONSHIP_INSERT = Pattern.compile(
-      "UNWIND \\$relationships AS item MATCH \\(source\\), \\(target\\) "
-          + "WHERE elementId\\(source\\) = item.source AND elementId\\(target\\) = item.target "
-          + "CREATE \\(source\\)-\\[relation:`([^`]+)`\\]->\\(target\\) SET relation = item.properties");
-  private static final String AST_ROOT_UPDATE = "UNWIND $nodes AS item MATCH (entity) WHERE elementId(entity) = item.address "
-      + "SET entity:`AstResult`, entity = item.properties";
   private static final String AST_RESULT_LOOKUP =
       "MATCH (result:AstEntity:AstResult {astResultKey: $scope}) RETURN result { .formatVersion, .astProfileVersion } AS properties LIMIT 2";
   private static final String AST_ENTITY_SCOPE = "MATCH (entity:AstEntity {astResultKey: $scope}) RETURN ";
@@ -200,7 +190,7 @@ class PublicAnalysisCompositionTest {
     write.lockedAstSubject = identity.astResultKey();
     var publication = AnalysisCapabilities.astRetention(astFactory(write)::openRetention)
         .retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
-    read.stored = writtenAst(identity, write);
+    read.stored = write.writtenAst(identity);
     var lookup = AnalysisCapabilities.astQuery(astFactory(read)::openQuery).findAst(identity);
     var retainedOutcome = lookup.outcome().orElseThrow();
     var retained = retainedOutcome.result().orElseThrow();
@@ -285,7 +275,7 @@ class PublicAnalysisCompositionTest {
     astWrite.lockedAstSubject = identity.astResultKey();
     var retained = AnalysisCapabilities.astRetention(astFactory(astWrite)::openRetention)
         .retainAst(new AstPublicationRequest(ast, PublicationIntent.SAVE_COMPLETE_AST));
-    astRead.stored = writtenAst(identity, astWrite);
+    astRead.stored = astWrite.writtenAst(identity);
     var lookup = AnalysisCapabilities.astQuery(astFactory(astRead)::openQuery).findAst(identity);
     var retainedAst = lookup.outcome().orElseThrow();
     var rederived = deriveAndSaveAllBodies(retainedAst, derivedWrite);
@@ -361,7 +351,7 @@ class PublicAnalysisCompositionTest {
     write.lockedAstSubject = identity.astResultKey();
     var publication = AnalysisCapabilities.astRetention(astFactory(write)::openRetention)
         .retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
-    read.stored = writtenAst(identity, write);
+    read.stored = write.writtenAst(identity);
     var lookup = AnalysisCapabilities.astQuery(astFactory(read)::openQuery).findAst(identity);
     var retainedOutcome = lookup.outcome().orElseThrow();
     var retained = retainedOutcome.result().orElseThrow();
@@ -470,7 +460,7 @@ class PublicAnalysisCompositionTest {
     write.lockedAstSubject = identity.astResultKey();
     var publication = AnalysisCapabilities.astRetention(astFactory(write)::openRetention)
         .retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
-    read.stored = writtenAst(identity, write);
+    read.stored = write.writtenAst(identity);
     var lookup = AnalysisCapabilities.astQuery(astFactory(read)::openQuery).findAst(identity);
     var restored = lookup.outcome().orElseThrow();
     var requested = new CfgRequest(identity, List.of(method), CFG);
@@ -793,7 +783,7 @@ class PublicAnalysisCompositionTest {
     astWrite.lockedAstSubject = identity.astResultKey();
     var retention = AnalysisCapabilities.astRetention(astFactory(astWrite)::openRetention)
         .retainAst(new AstPublicationRequest(produced, PublicationIntent.SAVE_COMPLETE_AST));
-    astRead.stored = writtenAst(identity, astWrite);
+    astRead.stored = astWrite.writtenAst(identity);
     var lookup = AnalysisCapabilities.astQuery(astFactory(astRead)::openQuery).findAst(identity);
     var restoredOutcome = lookup.outcome().orElseThrow();
     var restored = restoredOutcome.result().orElseThrow();
@@ -1068,7 +1058,7 @@ class PublicAnalysisCompositionTest {
     var coverage = run.methodCoverages();
     var ast = run.representation().ast();
     var result = ast.result().orElseThrow();
-    reader.stored = writtenAst(result.identity(), driver);
+    reader.stored = driver.writtenAst(result.identity());
     var lookup = AnalysisCapabilities.astQuery(astFactory(reader)::openQuery).findAst(result.identity());
 
     // Assert
@@ -1434,39 +1424,4 @@ class PublicAnalysisCompositionTest {
     }
   }
 
-  // Replay the root update and insert batches on the controlled read boundary.
-  private static Neo4jAstProjection writtenAst(AstIdentity identity, AstRepositoryDriverStub write) {
-    var rootUpdates = write.statements.stream().filter(statement -> AST_ROOT_UPDATE.equals(statement.query())).toList();
-    assertEquals(1, rootUpdates.size(), "Expected the locked subject to receive its AST label and payload");
-    var updates = rootUpdates.getFirst().parameters().get("nodes").asList(value -> value);
-    assertEquals(1, updates.size());
-    var update = updates.getFirst();
-    var rootKey = identity.astResultKey();
-    var properties = update.get("properties").asMap();
-    assertEquals(Map.of("address", "node/" + rootKey, "properties", properties), update.asMap());
-    assertEquals(rootKey, properties.get("key"));
-    var root = new Neo4jNode(rootKey, "AstResult", properties);
-
-    var nodeBatches = write.statements.stream().filter(statement -> AST_NODE_INSERT.matcher(statement.query()).matches()).toList();
-    var relationshipBatches = write.statements.stream().filter(statement -> AST_RELATIONSHIP_INSERT.matcher(statement.query()).matches()).toList();
-    // A first save adds one lock, two reconciliation reads, and one root update to the insert batches.
-    assertEquals(4 + nodeBatches.size() + relationshipBatches.size(), write.statements.size());
-    var insertedNodes = nodeBatches.stream().flatMap(statement -> AST_NODE_INSERT.matcher(statement.query()).results()
-        .flatMap(match -> statement.parameters().get("nodes").asList(value -> value.asMap()).stream()
-            .map(row -> new Neo4jNode((String) row.get("key"), match.group(1), row))));
-    var nodes = Stream.concat(Stream.of(root), insertedNodes).toList();
-    var relationships = relationshipBatches.stream()
-        .flatMap(statement -> AST_RELATIONSHIP_INSERT.matcher(statement.query()).results()
-            .flatMap(match -> statement.parameters().get("relationships").asList(value -> value).stream().map(row -> {
-              var values = row.get("properties").asMap();
-              return new Neo4jRelationship((String) values.get("key"), match.group(1), nodeKey(row.get("source").asString()),
-                  nodeKey(row.get("target").asString()), values);
-            }))).toList();
-    return new Neo4jAstProjection(identity, nodes, relationships);
-  }
-
-  private static String nodeKey(String address) {
-    assertTrue(address.startsWith("node/"), address);
-    return address.substring("node/".length());
-  }
 }

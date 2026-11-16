@@ -16,8 +16,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.aquilagraph.application.AnalysisCompletion;
 import org.aquilagraph.application.AstLookupStatus;
@@ -48,14 +50,17 @@ import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
+import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.ExecutionScope;
 import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
+import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxOperator;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxSemanticRelation;
 import org.aquilagraph.source.api.SyntaxSemanticTarget.AnnotationApplication;
+import org.aquilagraph.source.api.SyntaxSemanticTarget.AnnotationApplication.FieldDeclaratorApplication;
 import org.aquilagraph.source.api.SyntaxSemanticTarget.AnnotationTypeLocation;
 import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.retention.AstCodec;
@@ -67,6 +72,30 @@ import org.neo4j.driver.SessionConfig;
 import org.neo4j.driver.exceptions.Neo4jException;
 
 class SourceContractCompositionTest {
+  private static final String ANNOTATIONS = """
+      import java.lang.annotation.ElementType;
+      import java.lang.annotation.Target;
+      @Target({ElementType.FIELD, ElementType.LOCAL_VARIABLE, ElementType.TYPE_USE}) @interface Both {}
+      @Target(ElementType.TYPE_USE) @interface Use { int value(); }
+      """;
+  private static final String ANNOTATED_DECLARATIONS = """
+      import java.util.function.IntUnaryOperator;
+      class Sample {
+        @Both int first, second;
+        int supported(int input) {
+          @Both int localFirst = 1, localSecond = 2;
+          return input + localFirst + localSecond;
+        }
+        int refused(int input) {
+          IntUnaryOperator next = value -> value + input;
+          return next.applyAsInt(input);
+        }
+      }
+      """;
+  private static final String ANNOTATED_RECORD = """
+      import java.util.List;
+      record Bundle(List<? extends List<? super @Use(1) String @Use(2) []>> value) {}
+      """;
   private static final String SOURCE = mixedTerminators("""
       import java.lang.annotation.*;
       @Target(ElementType.TYPE_USE) @interface Mark {}
@@ -102,6 +131,113 @@ class SourceContractCompositionTest {
       """);
 
   @TempDir Path directory;
+
+  @Test
+  void givenSharedAnnotationsAndRecursiveRecordInSeparateUnits_whenRetainedAndDerived_thenExactDetachedTargetsSurviveCfgRefusal() {
+    // Arrange
+    var input = annotatedRequest(Optional.empty());
+    var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
+    var noSave = AnalysisCapabilities.astRetention(context -> {
+      throw new AssertionError("Source-only analysis must not acquire storage");
+    });
+    var write = new AstRepositoryDriverStub();
+    var retention = AnalysisCapabilities.astRetention(context ->
+        new Neo4jAstResultRepository(write.driver(), SessionConfig.defaultConfig(), context));
+    var read = new AstRepositoryDriverStub();
+    var query = AnalysisCapabilities.astQuery(context ->
+        new Neo4jAstResultRepository(read.driver(), SessionConfig.defaultConfig(), context));
+
+    // Act
+    var analysis = computation.analyze(new AnalysisComputationRequest(input, Optional.empty()));
+    var outcome = analysis.representation().ast();
+    var original = outcome.result().orElseThrow();
+    var unrequested = noSave.retainAst(new AstPublicationRequest(outcome, PublicationIntent.DO_NOT_SAVE));
+    write.lockedAstSubject = original.identity().astResultKey();
+    var publication = retention.retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
+    read.stored = write.writtenAst(original.identity());
+    var lookup = query.findAst(original.identity());
+    var retained = lookup.outcome().orElseThrow().result().orElseThrow();
+    var selected = List.of(typeKey("Sample") + "#supported(int)", typeKey("Sample") + "#refused(int)");
+    var derived = AnalysisCapabilities.existingSourceDerivation(CfgDerivers.standard()).deriveExisting(AstOutcome.available(retained),
+        new CfgRequest(retained.identity(), selected, CfgProfile.JAVA_BOUNDED));
+
+    // Assert
+    assertEquals(AnalysisCompletion.COMPLETE, analysis.completion(), outcome.diagnostics().toString());
+    assertEquals(AstCompletion.COMPLETE, outcome.completion());
+    assertTrue(analysis.representation().cfg().isEmpty());
+    assertEquals(PublicationStatus.NOT_REQUESTED, unrequested.status());
+    assertEquals(CommitKnowledge.NOT_STARTED, unrequested.knowledge());
+    assertEquals(PublicationStatus.SAVED, publication.status());
+    assertEquals(CommitKnowledge.KNOWN_COMMIT, publication.knowledge());
+    assertEquals(AstLookupStatus.FOUND, lookup.status());
+    assertEquals(original.identity(), lookup.requestedIdentity());
+    assertEquals(original.identity(), retained.identity());
+    assertEquals("java-source/23", retained.identity().sourceModelVersion());
+    assertEquals("java-source-expanded/8", retained.identity().astProfileVersion());
+    assertEquals("javac-public/14", retained.identity().semanticProductionRevision());
+    assertEquals(original.aggregate(), retained.aggregate());
+    assertEquals(original.coverage(), retained.coverage());
+    assertEquals(original.qualification(), retained.qualification());
+    assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retained));
+    assertEquals(AnalysisCompletion.PARTIAL, derived.completion());
+    var methods = derived.representation().cfg().orElseThrow().methods();
+    assertEquals(selected, methods.stream().map(method -> method.methodKey()).toList());
+    assertEquals(List.of(MethodCfgState.AVAILABLE, MethodCfgState.UNSUPPORTED), methods.stream().map(method -> method.state()).toList());
+    assertTrue(methods.getFirst().graph().isPresent());
+    assertTrue(methods.getLast().graph().isEmpty());
+    assertEquals(AstCompletion.COMPLETE, derived.representation().ast().completion());
+    for (var ast : List.of(original, retained, derived.representation().ast().result().orElseThrow())) {
+      assertTrue(ast.diagnostics().isEmpty(), ast.diagnostics().toString());
+      assertAnnotatedTargets(ast);
+    }
+    assertEquals("driver.close", write.events.getLast());
+    assertEquals("driver.close", read.events.getLast());
+  }
+
+  @Test
+  void givenAnnotatedUnitsWithErroneousNeighbor_whenProducedAndDecoded_thenDiagnosticsAndTargetsRemainDetachedWithoutPublication() {
+    // Arrange
+    var invalid = SourceFile.fromContent(capturedPath(Path.of("Invalid.java")),
+        "class Invalid { void invalid() { return; int unreachable = 1; } }");
+    var input = annotatedRequest(Optional.of(invalid));
+    var retention = AnalysisCapabilities.astRetention(context -> {
+      throw new AssertionError("Incomplete source must not acquire storage");
+    });
+
+    // Act
+    var outcome = JavaFrontends.standard().produce(input);
+    var original = outcome.result().orElseThrow();
+    var decoded = AstCodec.decode(AstCodec.encode(original), original.identity());
+    var publication = retention.retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
+
+    // Assert
+    assertEquals(AstCompletion.INCOMPLETE, outcome.completion());
+    var compilerErrors = outcome.diagnostics().stream().filter(diagnostic -> diagnostic.code().startsWith("compiler.err.")).toList();
+    assertEquals(List.of("compiler.err.unreachable.stmt"), compilerErrors.stream().map(diagnostic -> diagnostic.code()).toList());
+    assertEquals(DiagnosticSeverity.ERROR, compilerErrors.getFirst().severity());
+    assertEquals(List.of(invalid.sourceFileKey()), compilerErrors.getFirst().origins().stream().map(SourceSpan::sourceFileKey).toList());
+    assertEquals(PublicationStatus.NOT_ELIGIBLE, publication.status());
+    assertEquals(CommitKnowledge.NOT_STARTED, publication.knowledge());
+    assertEquals(original.identity(), decoded.identity());
+    assertEquals(original.qualification(), decoded.qualification());
+    assertEquals(original.coverage(), decoded.coverage());
+    assertArrayEquals(AstCodec.encode(original), AstCodec.encode(decoded));
+    for (var ast : List.of(original, decoded)) {
+      assertAnnotatedTargets(ast);
+      assertEquals(outcome.diagnostics(), ast.diagnostics());
+      var evidence = ast.coverage().validationEvidence();
+      var events = evidence.diagnosticEmissions();
+      assertFalse(events.isEmpty());
+      assertEquals(IntStream.range(0, outcome.diagnostics().size()).boxed().toList(), events.stream().map(DiagnosticEmission::slot).toList());
+      assertEquals(outcome.diagnostics(), events.stream().map(DiagnosticEmission::diagnostic).toList());
+      assertEquals(events.size(), events.stream().map(DiagnosticEmission::address).distinct().count());
+      for (var event : events) {
+        assertEquals(event.diagnostic().outcomeKind(), event.cause());
+        assertEquals(evidence.outcomes().stream().filter(context -> context.emissions().contains(event.address()))
+            .map(context -> context.address()).toList(), event.contexts());
+      }
+    }
+  }
 
   @Test
   void givenCorrectedLexicalSource_whenApplicationRetainsAndQueriesThroughAdapter_thenExactFactsSurviveCfgRefusal() {
@@ -352,6 +488,88 @@ class SourceContractCompositionTest {
 
   private AstOutcome produce() {
     return JavaFrontends.standard().produce(request(SOURCE));
+  }
+
+  private AstProductionRequest annotatedRequest(Optional<SourceFile> neighbor) {
+    var files = new ArrayList<>(List.of(
+        SourceFile.fromContent(capturedPath(Path.of("Annotations.java")), ANNOTATIONS),
+        SourceFile.fromContent(capturedPath(Path.of("Bundle.java")), ANNOTATED_RECORD),
+        SourceFile.fromContent(capturedPath(Path.of("Sample.java")), ANNOTATED_DECLARATIONS)));
+    neighbor.ifPresent(files::add);
+    return new AstProductionRequest(InputSnapshot.fromSources(capturedAbsolute(directory), files),
+        CompilerConfiguration.forRelease(JavaRelease.JAVA_25), AstProfile.JAVA_SOURCE_MODULE_SERVICES);
+  }
+
+  private static void assertAnnotatedTargets(AstResult ast) {
+    var aggregate = ast.aggregate();
+    for (var names : List.of(List.of("first", "second"), List.of("localFirst", "localSecond"))) {
+      var first = namedVariable(ast, names.getFirst());
+      var second = namedVariable(ast, names.getLast());
+      var annotation = first.requiredChild(SyntaxRole.ANNOTATION);
+      assertEquals(new AnnotationApplication(first.nodeId(), Optional.of(first.nodeId()),
+          Optional.of(new AnnotationTypeLocation.Written(first.requiredChild(SyntaxRole.DECLARED_TYPE).nodeId())), List.of(),
+          List.of(new FieldDeclaratorApplication(second.nodeId(), true,
+              Optional.of(new AnnotationTypeLocation.Written(second.requiredChild(SyntaxRole.DECLARED_TYPE).nodeId()))))),
+          annotationApplication(ast, annotation));
+      assertTrue(second.children(SyntaxRole.ANNOTATION).isEmpty());
+      assertSame(annotation, ast.node(new SourceOccurrence(ast.identity(), annotation.nodeId())).orElseThrow());
+    }
+    var recordFile = ast.snapshot().sourceFiles().stream().filter(file -> file.canonicalRelativePath().equals("Bundle.java"))
+        .findFirst().orElseThrow();
+    var components = aggregate.nodes().stream().filter(node -> node.sourceFileKey().equals(recordFile.sourceFileKey())
+        && node.syntaxKind() == SyntaxKind.RECORD_COMPONENT_DECLARATION).toList();
+    assertEquals(1, components.size());
+    var component = components.getFirst();
+    assertEquals("value", component.value(SyntaxValue.RecordComponentDeclaration.class).name());
+    var annotations = component.requiredChild(SyntaxRole.DECLARED_TYPE).descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.ANNOTATION).toList();
+    assertEquals(2, annotations.size());
+    for (var value : List.of(1, 2)) {
+      var spelling = "@Use(" + value + ")";
+      var start = ANNOTATED_RECORD.indexOf(spelling);
+      var annotation = annotations.stream().filter(node -> node.origin().equals(Optional.of(
+          new SourceSpan(recordFile.sourceFileKey(), start, start + spelling.length())))).findFirst().orElseThrow();
+      assertEquals(new AnnotationScalar.IntValue(value), annotation.requiredChild(SyntaxRole.ANNOTATION_ARGUMENT)
+          .value(SyntaxValue.AnnotationArgument.class).value());
+      var owner = component.requiredChild(SyntaxRole.DECLARED_TYPE).descendantsAndSelf().stream()
+          .filter(node -> node.children(SyntaxRole.ANNOTATION).contains(annotation)).findFirst().orElseThrow();
+      var application = annotationApplication(ast, annotation);
+      assertEquals(owner.nodeId(), application.ownerNodeKey());
+      assertEquals(Optional.empty(), application.declarationNodeKey());
+      assertEquals(Optional.of(new AnnotationTypeLocation.Written(owner.nodeId())), application.typeLocation());
+      assertTrue(application.fieldDeclarators().isEmpty());
+      var roles = owner.structuralPath().steps().stream().map(step -> step.role()).toList();
+      assertTrue(roles.containsAll(List.of(SyntaxRole.RECORD_COMPONENT, SyntaxRole.TYPE_ARGUMENT,
+          SyntaxRole.UPPER_BOUND, SyntaxRole.LOWER_BOUND)));
+      assertEquals(value == 1, roles.contains(SyntaxRole.COMPONENT_TYPE));
+      assertEquals(List.of(ReferenceKind.FIELD, ReferenceKind.METHOD, ReferenceKind.PARAMETER),
+          application.propagatedCounterparts().stream().map(counterpart -> counterpart.reference().referenceKind()).toList());
+      assertEquals(List.of(typeKey("Bundle") + "#field:value", typeKey("Bundle") + "#value()",
+          typeKey("Bundle") + "#<init>(java.util.List):parameter:0"),
+          application.propagatedCounterparts().stream().map(counterpart -> counterpart.reference().symbolKey().orElseThrow()).toList());
+      for (var counterpart : application.propagatedCounterparts()) {
+        assertFalse(counterpart.declarationApplicable());
+        assertEquals(Optional.of(new AnnotationTypeLocation.Written(owner.nodeId())), counterpart.typeLocation());
+      }
+      assertSame(owner, ast.node(new SourceOccurrence(ast.identity(), owner.nodeId())).orElseThrow());
+    }
+  }
+
+  private static SyntaxNode namedVariable(AstResult ast, String name) {
+    var matches = ast.aggregate().nodes().stream().filter(node -> switch (node.value()) {
+      case SyntaxValue.VariableDeclaration field -> node.syntaxKind() == SyntaxKind.FIELD_DECLARATION && field.name().equals(name);
+      case SyntaxValue.LocalDeclaration local -> local.name().equals(name);
+      default -> false;
+    }).toList();
+    assertEquals(1, matches.size(), name);
+    return matches.getFirst();
+  }
+
+  private static AnnotationApplication annotationApplication(AstResult ast, SyntaxNode annotation) {
+    var edges = ast.aggregate().semanticEdges().stream().filter(edge -> edge.sourceKey().equals(annotation.nodeId())
+        && edge.relation() == SyntaxSemanticRelation.ANNOTATED_TARGET).toList();
+    assertEquals(1, edges.size());
+    return assertInstanceOf(AnnotationApplication.class, edges.getFirst().target());
   }
 
   private AstProductionRequest request(String source) {

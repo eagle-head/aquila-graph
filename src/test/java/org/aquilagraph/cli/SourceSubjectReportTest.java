@@ -2,11 +2,16 @@ package org.aquilagraph.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.aquilagraph.cli.NativeReportAssertions.assertNativeReport;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 import org.aquilagraph.frontend.internal.JavaCoverageTestSupport;
 import org.aquilagraph.source.admission.AstProductionAdmission;
 import org.aquilagraph.source.admission.AstValueAdmission;
@@ -17,8 +22,52 @@ import org.aquilagraph.source.api.DeclarationMemberOrder;
 import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class SourceSubjectReportTest {
+  @TempDir Path directory;
+
+  @Test
+  void givenAnnotatedSharedDeclarationsAcrossUnits_whenCommandRuns_thenNativeEvidenceAndIncompleteExitRemainFaithful()
+      throws IOException {
+    // Arrange
+    Files.writeString(directory.resolve("Fields.java"), """
+        interface Fields {
+          @Deprecated int first = 1, second = 2;
+          static int read() { @Deprecated int left = 1, right = 2; return left + right; }
+        }
+        """);
+    Files.writeString(directory.resolve("Neighbor.java"), "interface Neighbor { static int read() { return Fields.first; } }");
+    var command = new AnalyzeCommand(CliTestFixtures.service(CliTestFixtures.runner(), CliTestFixtures.repositoriesMustNotOpen()));
+    var streams = new CliStreams();
+
+    // Act
+    var invocation = new CommandRunner(command).run(new String[] {directory.toString(), "--persist"},
+        CommandDestination.printStream(streams.output()), CommandDestination.printStream(streams.error()));
+    var execution = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, invocation.outcome()).execution();
+    var run = execution.run();
+    var report = CliTestFixtures.report(run);
+
+    // Assert
+    assertEquals(CommandExitPolicy.EXIT_INCOMPLETE, invocation.exitCode());
+    var ast = run.representation().ast();
+    assertEquals(AstCompletion.INCOMPLETE, ast.completion());
+    assertEquals(List.of("Fields.java", "Neighbor.java"), ast.result().orElseThrow().snapshot().sourceFiles().stream()
+        .map(source -> source.canonicalRelativePath()).toList());
+    assertFalse(ast.diagnostics().isEmpty());
+    var sourceEvents = report.diagnostics().stream().filter(event -> event.owner() instanceof ReportDiagnostic.Owner.Source).toList();
+    assertEquals(IntStream.range(0, ast.diagnostics().size()).boxed().toList(),
+        sourceEvents.stream().map(ReportDiagnostic::nativePosition).toList());
+    assertEquals(ast.diagnostics().stream().map(diagnostic -> diagnostic.diagnosticKey()).toList(),
+        sourceEvents.stream().map(event -> event.value().key()).toList());
+    assertTrue(sourceEvents.stream().flatMap(event -> event.value().origins().stream())
+        .anyMatch(origin -> origin.relativePath().equals(Optional.of("Fields.java"))));
+    assertTrue(streams.outputLines().contains("Completion: PARTIAL"));
+    assertTrue(streams.outputLines().contains("Repository: NOT_ELIGIBLE"));
+    assertTrue(streams.outputLines().contains("Publication intent: SAVE_COMPLETED"));
+    assertNativeReport(run, streams);
+  }
+
   @Test
   void givenReconciledCopiedMemberContradiction_whenActualSourceOutcomeIsProjected_thenContextsAndFactIdentitiesRemainDetachedAndQualified()
       throws IOException {
