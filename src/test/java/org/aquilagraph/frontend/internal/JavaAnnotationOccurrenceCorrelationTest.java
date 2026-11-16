@@ -19,13 +19,13 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.SourceInput;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AnnotationScalar;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProductionRequest;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.DiagnosticStage;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -258,7 +258,7 @@ class JavaAnnotationOccurrenceCorrelationTest {
       var annotation = owner.getModifiers().getAnnotations().getFirst();
       var annotationType = (TypeElement) compilation.semantics().element(new TreePath(
           compilation.treeInventory().annotationPath(annotation).orElseThrow(), annotation.getAnnotationType()));
-      var collector = new DiagnosticEmissionCollector("annotation-observation", "written-owner");
+      var collector = new DiagnosticEmissionCollector("annotation-observation", "written-owner", DiagnosticSubject.None.INSTANCE);
       var unrelated = collector.emit(FrontendDiagnosticFactory.otherError("neighbor", "frontend.neighbor-evidence",
           "Independent neighbor evidence", Optional.empty()));
       var projector = new JavaAnnotationValueProjector(compilation.semantics(), parsed.sourceEvidence(), compilation.treeInventory());

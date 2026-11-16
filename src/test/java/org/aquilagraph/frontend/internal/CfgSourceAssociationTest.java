@@ -30,9 +30,9 @@ import org.aquilagraph.source.internal.AstResultAdmission;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.admission.CopiedAstValues.Body;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxNode;
-import org.aquilagraph.source.api.AstProfile;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.io.TempDir;
@@ -64,8 +64,7 @@ class CfgSourceAssociationTest {
         : body).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), captured.sources(), bodies, captured.memberOrders(),
         captured.associations(), captured.declarationTypes(), captured.scopes()));
-    var supplied = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate),
-        JavaCoverageTestSupport.emissions(original));
+    var supplied = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(aggregate));
     var admitted = AstResultAdmission.admit(supplied, profile, "javac-public/1");
     var ast = AstCodec.decode(AstCodec.encode(admitted), admitted.identity());
     var written = ast.body(writtenKey).orElseThrow().root();

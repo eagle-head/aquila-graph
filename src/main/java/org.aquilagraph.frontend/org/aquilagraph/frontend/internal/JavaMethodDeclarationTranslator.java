@@ -58,7 +58,8 @@ final class JavaMethodDeclarationTranslator {
             + origin.map(value -> value.startOffset() + ":" + value.endOffsetExclusive())
                 .orElseGet(() -> StableId.sha256("unresolved-executable", ownerTypeKey, name))
         : semantics.declarationKey(executable).orElseThrow();
-    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, methodKey + ":declaration");
+    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, methodKey + ":declaration",
+        new DiagnosticSubject.Declaration(methodKey));
     if (executable == null) {
       diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey, "frontend.unresolved-method",
           "A method declaration element is unavailable", origin));
@@ -77,7 +78,8 @@ final class JavaMethodDeclarationTranslator {
   private ParameterTranslation parameters(CompilationUnitTree unit, SourceFile sourceFile, String methodKey, TreePath methodPath,
       MethodTree methodTree, @Nullable ExecutableElement executable) {
     var parameters = new ArrayList<JavaParameter>();
-    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, methodKey + ":parameters");
+    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, methodKey + ":parameters",
+        new DiagnosticSubject.Declaration(methodKey));
     var parameterCount = executable == null ? methodTree.getParameters().size() : executable.getParameters().size();
     if (executable != null && methodTree.getParameters().size() != parameterCount) {
       diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(methodKey, "frontend.parameter-inventory-mismatch",

@@ -33,8 +33,8 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
-import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.FeatureContextOutcome;
@@ -240,8 +240,7 @@ class ArrayCreationAstTest {
         body.origin(), List.of(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var supplied = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(),
         captured.associations(), captured.declarationTypes(), captured.scopes()));
-    var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied),
-        JavaCoverageTestSupport.emissions(original));
+    var input = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(supplied));
 
     // Act
     var outcome = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");

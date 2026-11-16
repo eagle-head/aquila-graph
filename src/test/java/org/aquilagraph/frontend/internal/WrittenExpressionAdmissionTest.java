@@ -25,11 +25,11 @@ import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.source.internal.AstResultAdmission;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AnnotationScalar;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstContractException;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.SourceInput;
@@ -222,14 +222,10 @@ class WrittenExpressionAdmissionTest {
     associations.add(new WrittenSourceAssociation(folded.nodeId(), folded.sourceFileKey(), normalized.region().compilerOwner(),
         JavaSourceKind.STRING_LITERAL, folded.origin()));
     var aggregate = AstValueAdmission.admit(withRoot(values, root, associations));
-    var evidence = original.coverage().validationEvidence();
 
     // Act
-    var reconciled = new JavaSourceCoverageReconciler(evidence.writtenInventory(), evidence.attributedExpectations(), original.program(),
-        Optional.of(aggregate), new DiagnosticEmissions(evidence.diagnosticEmissions()))
-        .reconcileRetained(original.coverage().coverage(), evidence.outcomes());
-    var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(aggregate),
-        reconciled.diagnostics(), reconciled.coverageResult());
+    var input = JavaCoverageTestSupport.capture(SourceValueCapture.capture(original), original.profile())
+        .withFacts(original.program(), Optional.of(aggregate));
     var result = AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision());
 
     // Assert

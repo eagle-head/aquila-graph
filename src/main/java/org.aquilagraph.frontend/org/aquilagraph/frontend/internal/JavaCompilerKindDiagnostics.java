@@ -41,7 +41,7 @@ final class JavaCompilerKindDiagnostics {
     Objects.requireNonNull(units, "units");
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
-    var diagnostics = new DiagnosticEmissionCollector("JavaCompilerKindDiagnostics", "input-tree-scan");
+    var diagnostics = new DiagnosticEmissionCollector("JavaCompilerKindDiagnostics", "input-tree-scan", DiagnosticSubject.None.INSTANCE);
     var scanner = new DiagnosticScanner(occurrences, observations, diagnostics);
     for (var unit : units) {
       scanUnit(scanner, unit);

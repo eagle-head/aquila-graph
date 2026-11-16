@@ -53,7 +53,8 @@ final class JavaUnitTranslator {
       var translatedTypes = new ArrayList<JavaType>();
       var orders = new ArrayList<DeclarationMemberOrder>();
       var declarationTypes = new ArrayList<DeclarationTypeEvidence>();
-      var diagnostics = new DiagnosticEmissionCollector("JavaProgramTranslator", "input-program-translation");
+      var diagnostics = new DiagnosticEmissionCollector("JavaProgramTranslator", "input-program-translation",
+          DiagnosticSubject.None.INSTANCE);
       var complete = true;
       var eligibility = ProjectionEligibility.ELIGIBLE;
       var unitPath = new TreePath(unit);

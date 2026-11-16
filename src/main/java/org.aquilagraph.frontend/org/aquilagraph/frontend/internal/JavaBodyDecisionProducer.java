@@ -39,7 +39,7 @@ final class JavaBodyDecisionProducer {
   TranslationResult<JavaBodyDecisions> produce(Projection projection) {
     var bindings = JavaExecutableProjectionProof.corroborate(projection, semantics);
     var scopeKey = projection.scopeKey();
-    var diagnostics = new DiagnosticEmissionCollector("JavaBodyDecisionProducer", scopeKey);
+    var diagnostics = new DiagnosticEmissionCollector("JavaBodyDecisionProducer", scopeKey, DiagnosticSubject.None.INSTANCE);
     var root = projection.translation().value();
     var uses = new ArrayList<ChildUseEvidence>();
     var invocations = new ArrayList<InvocationApplicability>();

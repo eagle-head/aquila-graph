@@ -28,9 +28,9 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProductionRequest;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -56,8 +56,7 @@ class JavaWrittenQualifierTest {
         copied.associations().stream().filter(value -> !value.nodeKey().equals(qualifier.nodeId())).toList(), copied.declarationTypes(), copied.scopes()));
 
     // Act
-    var reconciled = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied),
-        JavaCoverageTestSupport.emissions(original));
+    var reconciled = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(supplied));
     var outcome = AstProductionAdmission.outcome(reconciled, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
     var ast = outcome.result().orElseThrow();
     var decoded = AstCodec.decode(AstCodec.encode(ast), ast.identity());

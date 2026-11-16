@@ -19,6 +19,7 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AttributedCoverageExpectations;
@@ -207,8 +208,7 @@ class DiagnosticEventOwnershipTest {
 
   private static SyntaxAnalysisInput withheldFacts() throws IOException {
     var input = analyze("class Example { int value() { return 1; } }");
-    return JavaCoverageTestSupport.withFacts(input, new JavaProgram(List.of()), Optional.empty(),
-        JavaCoverageTestSupport.emissions(input));
+    return JavaCoverageTestSupport.capture(input, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(new JavaProgram(List.of()), Optional.empty());
   }
 
   private static DiagnosticEmission capabilityEvent(SyntaxAnalysisInput input) {

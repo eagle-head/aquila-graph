@@ -131,7 +131,7 @@ class LocalProjectionOutcomeTest {
       var owner = (TypeElement) semantics.element(path);
       var types = fixture.factory().create(unit, fixture.source()).translateDeclarations().value().types();
       var type = types.getFirst();
-      var diagnostics = new DiagnosticEmissionCollector("declaration-observation", fixture.source().sourceFileKey());
+      var diagnostics = new DiagnosticEmissionCollector("declaration-observation", fixture.source().sourceFileKey(), DiagnosticSubject.None.INSTANCE);
       var supplied = (TypeElement) Proxy.newProxyInstance(TypeElement.class.getClassLoader(), new Class<?>[] {TypeElement.class},
           (proxy, method, arguments) -> {
             if (method.getName().equals("getEnclosedElements")) {
@@ -182,7 +182,7 @@ class LocalProjectionOutcomeTest {
         withCompilation(example.source(), fixture -> {
           var unit = fixture.compilation().units().getFirst();
           var annotation = ((ClassTree) unit.getTypeDecls().getLast()).getModifiers().getAnnotations().getFirst();
-          var diagnostics = new DiagnosticEmissionCollector("annotation-observation", fixture.source().sourceFileKey());
+          var diagnostics = new DiagnosticEmissionCollector("annotation-observation", fixture.source().sourceFileKey(), DiagnosticSubject.None.INSTANCE);
           var injected = new AtomicBoolean();
           var base = fixture.compilation().sourceEvidence();
           var evidence = new JavaSourceEvidence(new SourcePositions() {
@@ -243,7 +243,7 @@ class LocalProjectionOutcomeTest {
       var inventory = fixture.compilation().treeInventory();
       var type = (TypeElement) fixture.compilation().semantics().element(inventory.annotationTypePath(annotation).orElseThrow());
       var wrong = (TypeElement) fixture.compilation().semantics().element(TreePath.getPath(unit, unit.getTypeDecls().getLast()));
-      var collector = new DiagnosticEmissionCollector("annotation-observation", fixture.source().sourceFileKey());
+      var collector = new DiagnosticEmissionCollector("annotation-observation", fixture.source().sourceFileKey(), DiagnosticSubject.None.INSTANCE);
       var projector = new JavaAnnotationValueProjector(fixture.compilation().semantics(), fixture.compilation().sourceEvidence(), inventory);
       var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.ANNOTATION, 0);
 

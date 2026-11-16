@@ -29,6 +29,7 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.identity.api.StableId;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AttributedCoverageExpectations;
@@ -738,8 +739,7 @@ class JavaCoverageAdmissionTest {
     var changed = copyPackageValue(original, new SyntaxValue.PackageDeclaration("sample.nested"));
 
     // Act
-    var partial = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(changed),
-        JavaCoverageTestSupport.emissions(original));
+    var partial = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(changed));
     var selected = property(partial, "CompilationUnitTree::CompilationUnitTree#getPackageName()", CoveragePropertyValue.State.SCALAR);
 
     // Assert
@@ -1178,10 +1178,10 @@ class JavaCoverageAdmissionTest {
   void givenKnownPairsWithWithheldFacts_whenSupportIsReconciled_thenPairsSurviveWithBlockingFailedSupport() throws IOException {
     // Arrange
     var original = analyze("class Example { int value() { return 1; } }");
-    var diagnostics = JavaCoverageTestSupport.emissions(original);
+
 
     // Act
-    var partial = JavaCoverageTestSupport.withFacts(original, new JavaProgram(List.of()), Optional.empty(), diagnostics);
+    var partial = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(new JavaProgram(List.of()), Optional.empty());
 
     // Assert
     assertEquals(original.languageFeatureCoverageResult().occurrences(), partial.languageFeatureCoverageResult().occurrences());
@@ -1304,11 +1304,11 @@ class JavaCoverageAdmissionTest {
   @Test
   void givenSiblingCreatingCollectorsWithEqualValues_whenNestedTransportJoinsThem_thenCreatingOwnersKeepTwoEvents() {
     // Arrange
-    var left = new DiagnosticEmissionCollector("nested-producer", "left-source-path");
-    var right = new DiagnosticEmissionCollector("nested-producer", "right-source-path");
+    var left = new DiagnosticEmissionCollector("nested-producer", "left-source-path", DiagnosticSubject.None.INSTANCE);
+    var right = new DiagnosticEmissionCollector("nested-producer", "right-source-path", DiagnosticSubject.None.INSTANCE);
     left.emit("nested-error-site", note());
     right.emit("nested-error-site", note());
-    var joined = new DiagnosticEmissionCollector("parent", "source-root");
+    var joined = new DiagnosticEmissionCollector("parent", "source-root", DiagnosticSubject.None.INSTANCE);
 
     // Act
     joined.include(left.snapshot());
@@ -1325,9 +1325,9 @@ class JavaCoverageAdmissionTest {
   @Test
   void givenOneCreatingEventTransportedByTwoCarriers_whenJoined_thenOneEventKeepsItsOriginalAddress() {
     // Arrange
-    var created = new DiagnosticEmissionCollector("nested-producer", "shared-source-path");
+    var created = new DiagnosticEmissionCollector("nested-producer", "shared-source-path", DiagnosticSubject.None.INSTANCE);
     created.emit("nested-error-site", note());
-    var joined = new DiagnosticEmissionCollector("parent", "source-root");
+    var joined = new DiagnosticEmissionCollector("parent", "source-root", DiagnosticSubject.None.INSTANCE);
 
     // Act
     joined.include(created.snapshot());
@@ -1342,7 +1342,7 @@ class JavaCoverageAdmissionTest {
   void givenUnequalCreatingEvents_whenActualDiagnosticSlotsAreReversed_thenInputRejectsTheChangedOrder() throws IOException {
     // Arrange
     var original = analyze("class Example {}");
-    var events = new DiagnosticEmissionCollector("notes", "source-root");
+    var events = new DiagnosticEmissionCollector("notes", "source-root", DiagnosticSubject.None.INSTANCE);
     events.emit("first-note", note());
     events.emit("second-note", new AnalysisDiagnostic(StableId.sha256("diagnostic", "second-note"), "frontend.second-note",
         DiagnosticStage.FRONTEND, DiagnosticSeverity.INFO, "Second copied note", List.of(), AnalysisOutcomeKind.OTHER_ANALYSIS_ERROR));
@@ -1439,7 +1439,7 @@ class JavaCoverageAdmissionTest {
     var changed = copyAggregate(original, changedRoot, aggregate.declarationMemberOrders());
 
     // Act
-    var partial = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(changed), JavaCoverageTestSupport.emissions(original));
+    var partial = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(changed));
     var outcome = partial.languageFeatureCoverageResult().validationEvidence().outcomes().stream().filter(value -> value.address().role().equals(JavaDeclarationPropertyCoverage.COMPILATION_UNIT_IMPORTS)).findFirst().orElseThrow();
 
     // Assert
@@ -1860,10 +1860,10 @@ class JavaCoverageAdmissionTest {
   @Test
   void givenAReusedCreatingCollector_whenEarlierEventsAreTransportedThenCleared_thenLaterEqualEventsKeepDistinctAddresses() {
     // Arrange
-    var producer = new DiagnosticEmissionCollector("nested-producer", "one-source-path");
+    var producer = new DiagnosticEmissionCollector("nested-producer", "one-source-path", DiagnosticSubject.None.INSTANCE);
     producer.emit("one-creating-site", note());
     var earlier = producer.snapshot();
-    var joined = new DiagnosticEmissionCollector("parent", "source-root");
+    var joined = new DiagnosticEmissionCollector("parent", "source-root", DiagnosticSubject.None.INSTANCE);
 
     // Act
     producer.startBatch();
@@ -1933,9 +1933,9 @@ class JavaCoverageAdmissionTest {
   void givenExceptionFactsWithheld_whenSupportIsReconciled_thenMissingRequiredSourceEvidenceRemainsBlocking() throws IOException {
     // Arrange
     var original = analyze("class Example { void subject() throws Exception { try (AutoCloseable first = null) {} catch (IllegalArgumentException | IllegalStateException failure) {} finally {} } }");
-    var diagnostics = JavaCoverageTestSupport.emissions(original);
+
     // Act
-    var partial = JavaCoverageTestSupport.withFacts(original, new JavaProgram(List.of()), Optional.empty(), diagnostics);
+    var partial = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(new JavaProgram(List.of()), Optional.empty());
     // Assert
     assertEquals(original.languageFeatureCoverageResult().occurrences(), partial.languageFeatureCoverageResult().occurrences());
     assertEquals(original.languageFeatureCoverageResult().observations(), partial.languageFeatureCoverageResult().observations());

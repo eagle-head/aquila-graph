@@ -17,8 +17,8 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
-import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.internal.AstResultAdmission;
 
 /** Supplies compiler source-position failures through the normal translation and admission boundaries. */
@@ -54,8 +54,7 @@ public final class SourcePositionFixtures {
       };
       var translated = new JavaProgramTranslator(sources, compilation.semantics(), new JavaSourceEvidence(positions),
           compilation.treeInventory(), policy).translate(snapshot, compilation.units());
-      var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(), translated.value().aggregate(),
-          translated.emissions().events());
+      var input = JavaCoverageTestSupport.capture(baseline, profile).withFacts(translated.value().program(), translated.value().aggregate(), translated.emissions());
       return AstResultAdmission.admit(input, policy.profile(), policy.semanticRevision());
     }
   }

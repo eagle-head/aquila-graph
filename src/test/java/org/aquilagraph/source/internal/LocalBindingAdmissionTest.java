@@ -28,10 +28,10 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstContractException;
 import org.aquilagraph.source.api.AstOutcome;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.JavaTypeCategory;
@@ -179,8 +179,7 @@ class LocalBindingAdmissionTest {
 
           // Act
           var aggregate = AstValueAdmission.admit(supplied);
-          var reconciled = JavaCoverageTestSupport.withFacts(input, original.program(), Optional.of(aggregate),
-              JavaCoverageTestSupport.emissions(input));
+          var reconciled = JavaCoverageTestSupport.capture(input, original.profile()).withFacts(original.program(), Optional.of(aggregate));
           var partial = AstProductionAdmission.outcome(reconciled, original.profile(), original.identity().semanticProductionRevision())
               .result().orElseThrow();
           var retained = AstCodec.decode(AstCodec.encode(partial), partial.identity());
@@ -281,7 +280,7 @@ class LocalBindingAdmissionTest {
     // Act
     var admitted = AstValueAdmission.admit(values);
     var input = SourceValueCapture.capture(original);
-    var reconciled = JavaCoverageTestSupport.withFacts(input, original.program(), Optional.of(admitted), JavaCoverageTestSupport.emissions(input));
+    var reconciled = JavaCoverageTestSupport.capture(input, original.profile()).withFacts(original.program(), Optional.of(admitted));
     var incomplete = AstProductionAdmission.outcome(reconciled, original.profile(), original.identity().semanticProductionRevision())
         .result().orElseThrow();
     var retained = AstCodec.decode(AstCodec.encode(incomplete), incomplete.identity());

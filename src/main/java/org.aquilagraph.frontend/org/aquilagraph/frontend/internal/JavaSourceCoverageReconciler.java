@@ -3,12 +3,9 @@ package org.aquilagraph.frontend.internal;
 import org.aquilagraph.source.admission.CoverageAdmission;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Objects;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AttributedCoverageExpectations;
 import org.aquilagraph.source.api.CoverageFactReference;
@@ -54,9 +51,7 @@ final class JavaSourceCoverageReconciler {
   private final AttributedCoverageExpectations attributed;
   private final CoverageActualFactView actualFacts;
   private final Optional<JavaAstAggregate> sourceAggregate;
-  private final List<DiagnosticEmission> events;
-  private final Map<DiagnosticIdentity, DiagnosticEmission.Address> policyEvents = new HashMap<>();
-  private final Map<DiagnosticEmission.Address, List<SourceContext.Address>> associations = new HashMap<>();
+  private final DiagnosticAssociations diagnostics;
   private final List<FeatureContextOutcome> outcomes = new ArrayList<>();
   private final List<UnmatchedSourceFact> unmatched = new ArrayList<>();
 
@@ -66,17 +61,7 @@ final class JavaSourceCoverageReconciler {
     this.attributed = attributed;
     sourceAggregate = aggregate;
     actualFacts = CoverageActualFacts.capture(program, aggregate);
-    events = new ArrayList<>(emissions.events());
-    for (var event : events) {
-      registerEvent(event);
-    }
-  }
-
-  private void registerEvent(DiagnosticEmission event) {
-    if (policyEvents.put(identity(event.diagnostic()), event.address()) != null) {
-      throw new IllegalArgumentException("One diagnostic instance cannot be reminted as a second emission");
-    }
-    associations.put(event.address(), new ArrayList<>(event.contexts()));
+    diagnostics = new DiagnosticAssociations(emissions);
   }
 
   ReconciledCoverage reconcile(LanguageFeatureCoverage coverage, ObservedLanguageFeatures trees,
@@ -197,31 +182,6 @@ final class JavaSourceCoverageReconciler {
         .add(new FeatureContextOutcome(context.address(), Optional.empty(), Optional.empty(), Optional.empty(), disposition, emissions));
   }
 
-  ReconciledCoverage reconcileRetained(LanguageFeatureCoverage coverage, List<FeatureContextOutcome> actualEncounters) {
-    if (!inventory.contexts().stream().map(SourceContext::address).toList()
-        .equals(actualEncounters.stream().map(FeatureContextOutcome::address).toList())) {
-      throw new IllegalArgumentException("Retained encounters must exactly cover the independent context inventory");
-    }
-    for (var index = 0; index < actualEncounters.size(); index++) {
-      var context = inventory.contexts().get(index);
-      var encounter = actualEncounters.get(index);
-      if (encounter.observation().isPresent()) {
-        addKnown(context, encounter.occurrence().orElseThrow(), encounter.observation().orElseThrow(), encounter.encounteredValue());
-      } else if (context.address().partition() == Partition.WRITTEN_TYPE_USE) {
-        writtenTypeUse(context);
-      } else if (!context.address().partition().isEmptyDeclaration() && context.address().partition() != Partition.WRITTEN_EXPRESSION
-          && context.address().partition() != Partition.MODULE_ENDPOINT) {
-        var addresses = failure(context, "frontend.unresolved-attributed-type-kind", unavailableTypeMessage(context));
-        outcomes.add(new FeatureContextOutcome(context.address(), Optional.empty(), Optional.empty(), encounter.encounteredValue(),
-            support(Mode.FAILED), addresses));
-      }
-    }
-    emptyBodyDeclarations();
-    writtenExpressions();
-    moduleEndpoints();
-    return finish(coverage);
-  }
-
   private void writtenTypeUses() {
     inventory.contexts().stream().filter(context -> context.address().partition() == Partition.WRITTEN_TYPE_USE)
         .forEach(this::writtenTypeUse);
@@ -255,13 +215,9 @@ final class JavaSourceCoverageReconciler {
 
   private ReconciledCoverage finish(LanguageFeatureCoverage coverage) {
     reconcileLeftovers();
-    var retained = new ArrayList<DiagnosticEmission>();
-    for (var index = 0; index < events.size(); index++) {
-      var event = events.get(index);
-      retained.add(finalEvent(event, index));
-    }
-    var result = CoverageAdmission.fromEvidence(coverage, inventory, attributed, outcomes, unmatched, retained);
-    return new ReconciledCoverage(result, retained.stream().map(DiagnosticEmission::diagnostic).toList());
+    var finalized = diagnostics.finish();
+    var result = CoverageAdmission.fromEvidence(coverage, inventory, attributed, outcomes, unmatched, finalized.events());
+    return new ReconciledCoverage(result, finalized.diagnostics());
   }
 
   private void properties(Partition partition, ObservedPropertyEncounters evidence) {
@@ -280,14 +236,7 @@ final class JavaSourceCoverageReconciler {
   private void addKnown(SourceContext context, LanguageFeatureOccurrence occurrence, LanguageFeatureObservation observation,
       Optional<CoveragePropertyValue> encountered) {
     var addresses = new ArrayList<DiagnosticEmission.Address>();
-    observation.diagnostic().ifPresent(diagnostic -> {
-      var address = policyEvents.get(identity(diagnostic));
-      if (address == null) {
-        throw new IllegalArgumentException("Known policy diagnostics require creating-site event transport");
-      }
-      associate(address, context.address());
-      addresses.add(address);
-    });
+    observation.diagnostic().ifPresent(diagnostic -> addresses.add(diagnostics.associateKnown(diagnostic, context.address())));
     var disposition = support(Mode.NOT_REQUIRED);
     if (observation.classification().policy() == LanguageFeaturePolicy.REPRESENTED) {
       if (context.address().partition() == Partition.TYPE) {
@@ -504,38 +453,24 @@ final class JavaSourceCoverageReconciler {
       var declarationOwners = actualFacts.stream().filter(fact -> fact.kind() != CoverageFactReference.Kind.SYNTAX
           && fact.sourceFileKey().equals(context.address().sourceFileKey()) && fact.origin().filter(enclosingOrigins::contains).isPresent())
           .map(CoverageFactReference::identity).toList();
-      var existing = events.stream()
-          .filter(
-              event -> !"JavaSourceCoverageReconciler".equals(event.address().producer()) && event.diagnostic().isError()
-                  && (declarationOwners.stream().anyMatch(owner -> event.address().owner().equals(owner + ":field")
-                      || event.address().owner().equals(owner + ":declaration") || event.address().owner().equals(owner + ":parameters"))
-                      || event.diagnostic().origins().stream()
-                          .anyMatch(diagnosticOrigin -> origins.stream()
-                              .anyMatch(owner -> diagnosticOrigin.sourceFileKey().equals(owner.sourceFileKey())
-                                  && ((diagnosticOrigin.startOffset() >= owner.startOffset()
-                                      && diagnosticOrigin.endOffsetExclusive() <= owner.endOffsetExclusive())
-                                      || (owner.startOffset() >= diagnosticOrigin.startOffset()
-                                          && owner.endOffsetExclusive() <= diagnosticOrigin.endOffsetExclusive()))))))
-          .findFirst();
+      var existing = diagnostics.associateFirst(
+          entry -> entry.event().diagnostic().isError() && ((entry.subject() instanceof DiagnosticSubject.Declaration declaration
+              && declarationOwners.contains(declaration.declarationKey()))
+              || entry.event().diagnostic().origins().stream()
+                  .anyMatch(diagnosticOrigin -> origins.stream()
+                      .anyMatch(owner -> diagnosticOrigin.sourceFileKey().equals(owner.sourceFileKey())
+                          && ((diagnosticOrigin.startOffset() >= owner.startOffset()
+                              && diagnosticOrigin.endOffsetExclusive() <= owner.endOffsetExclusive())
+                              || (owner.startOffset() >= diagnosticOrigin.startOffset()
+                                  && owner.endOffsetExclusive() <= diagnosticOrigin.endOffsetExclusive()))))),
+          context.address());
       if (existing.isPresent()) {
-        var address = existing.orElseThrow().address();
-        associate(address, context.address());
-        return List.of(address);
+        return List.of(existing.orElseThrow());
       }
     }
     var diagnostic = FrontendDiagnosticFactory.otherError(context.address().toString(), code, message,
         context.origins().stream().findFirst());
-    var address = new DiagnosticEmission.Address("JavaSourceCoverageReconciler", context.address().toString(), events.size());
-    events.add(new DiagnosticEmission(address, diagnostic, diagnostic.outcomeKind(), List.of(context.address()), -1));
-    associations.put(address, new ArrayList<>(List.of(context.address())));
-    return List.of(address);
-  }
-
-  private void associate(DiagnosticEmission.Address event, SourceContext.Address context) {
-    var owners = Objects.requireNonNull(associations.get(event), "creating-event context associations");
-    if (!owners.contains(context)) {
-      owners.add(context);
-    }
+    return List.of(diagnostics.createFailure(diagnostic, context.address()));
   }
 
   private static boolean ancestor(SourceOwnerPath candidate, SourceOwnerPath path) {
@@ -546,11 +481,6 @@ final class JavaSourceCoverageReconciler {
     return new Support(mode, List.of(), Optional.empty(), Optional.empty(), Optional.empty());
   }
 
-  private DiagnosticEmission finalEvent(DiagnosticEmission event, int finalSlot) {
-    return new DiagnosticEmission(event.address(), event.diagnostic(), event.cause(),
-        Objects.requireNonNull(associations.get(event.address()), "creating-event context associations"), finalSlot);
-  }
-
   private static CoveragePropertyValue typeKindValue(String kind) {
     return new CoveragePropertyValue(State.SCALAR, List.of(new Item("type-kind", kind, Provenance.WRITTEN)));
   }
@@ -559,22 +489,6 @@ final class JavaSourceCoverageReconciler {
     return CoverageActualFacts.MATCH_ALL_TYPE_ROLE.equals(context.address().role())
         ? "A required match-all component type has no compiler attribution"
         : "A written declaration-header type has no compiler attribution";
-  }
-
-  private static DiagnosticIdentity identity(AnalysisDiagnostic diagnostic) {
-    return new DiagnosticIdentity(diagnostic);
-  }
-
-  private record DiagnosticIdentity(AnalysisDiagnostic diagnostic) {
-    @Override
-    public boolean equals(Object other) {
-      return other instanceof DiagnosticIdentity identity && JavaProjectionIdentity.sameInstance(diagnostic, identity.diagnostic());
-    }
-
-    @Override
-    public int hashCode() {
-      return System.identityHashCode(diagnostic);
-    }
   }
 
   record ReconciledCoverage(LanguageFeatureCoverageResult coverageResult, List<AnalysisDiagnostic> diagnostics) {

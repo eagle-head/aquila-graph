@@ -30,9 +30,9 @@ import org.aquilagraph.source.internal.AstResultAdmission;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.admission.CopiedAstValues.Body;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.FeatureContextOutcome.Mode;
 import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.JavaTypeCategory;
@@ -199,8 +199,7 @@ class WrittenBodyTypeAdmissionTest {
     var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CompilerConfiguration.forRelease(JavaRelease.JAVA_25), JavaTranslationPolicy.legacyAnalysis());
     var baseline = AstResultAdmission.admit(original, profile, "javac-public/1");
     var changed = AstValueAdmission.admit(omitTypeTarget(original.aggregate().orElseThrow(), kind, role));
-    var supplied = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(changed),
-        JavaCoverageTestSupport.emissions(original));
+    var supplied = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(changed));
 
     // Act
     var admitted = AstResultAdmission.admit(supplied, profile, "javac-public/1");

@@ -16,14 +16,15 @@ import org.aquilagraph.source.api.DiagnosticStage;
 import org.junit.jupiter.api.Test;
 
 class DiagnosticEmissionCollectorTest {
+  private static final DiagnosticSubject SUBJECT = new DiagnosticSubject.Declaration("type:Sample#method()");
   @Test
   void givenLargestCreatingOrdinal_whenImportedAndAllocationIsExhausted_thenRetainedEventsRemainValidAndOtherProducersStillAllocate() {
     // Arrange
     var largest = event("body", "unit", Integer.MAX_VALUE);
-    var collector = new DiagnosticEmissionCollector("body", "unit");
+    var collector = new DiagnosticEmissionCollector("body", "unit", SUBJECT);
 
     // Act
-    collector.include(new DiagnosticEmissions(List.of(largest)));
+    collector.include(new DiagnosticEmissions(List.of(new DiagnosticEntry(largest, SUBJECT))));
     var retained = collector.snapshot();
     assertThrows(ArithmeticException.class, () -> collector.emit(note("exhausted")));
     collector.emit("annotation", note("independent"));
@@ -42,12 +43,12 @@ class DiagnosticEmissionCollectorTest {
     // Arrange
     var imported = List.of(event("body", "unit", 2), event("body", "unit", 7), event("body", "another-unit", 90),
         event("annotation", "unit", 4), event("annotation", "another-unit", 100));
-    var collector = new DiagnosticEmissionCollector("body", "unit");
+    var collector = new DiagnosticEmissionCollector("body", "unit", SUBJECT);
 
     // Act
     collector.include(DiagnosticEmissions.empty());
-    collector.include(new DiagnosticEmissions(imported));
-    collector.include(new DiagnosticEmissions(imported));
+    collector.include(new DiagnosticEmissions(imported.stream().map(event -> new DiagnosticEntry(event, SUBJECT)).toList()));
+    collector.include(new DiagnosticEmissions(imported.stream().map(event -> new DiagnosticEntry(event, SUBJECT)).toList()));
     collector.emit(note("next-body"));
     collector.emit("annotation", note("next-annotation"));
     collector.emit("type-use", note("first-type-use"));
@@ -67,9 +68,9 @@ class DiagnosticEmissionCollectorTest {
   void givenCallerAndCollectorAliases_whenSnapshotsReturnThroughResultsAndFailures_thenMembershipAndInstancesRemainImmutable() {
     // Arrange
     var original = event("body", "unit", 0);
-    var caller = new ArrayList<>(List.of(original));
+    var caller = new ArrayList<>(List.of(new DiagnosticEntry(original, SUBJECT)));
     var batch = new DiagnosticEmissions(caller);
-    var collector = new DiagnosticEmissionCollector("body", "unit");
+    var collector = new DiagnosticEmissionCollector("body", "unit", SUBJECT);
     collector.include(batch);
     var result = new TranslationResult<>("translated", collector.snapshot());
     var failure = new JavaSourceProjectionFailure(collector.snapshot());
@@ -83,10 +84,14 @@ class DiagnosticEmissionCollectorTest {
     assertEquals(List.of(original), joined.events());
     assertEquals(List.of(original), result.emissions().events());
     assertSame(original, joined.events().getFirst());
+    assertEquals(List.of(new DiagnosticEntry(original, SUBJECT)), joined.entries());
+    assertEquals(joined.entries(), result.emissions().entries());
+    assertEquals(joined.entries(), failure.emissions().entries());
     assertSame(original.diagnostic(), result.diagnostics().getFirst());
     assertSame(original.diagnostic(), failure.emissions().diagnostics().getFirst());
     assertEquals(2, collector.emissionCount());
     assertThrows(UnsupportedOperationException.class, () -> batch.events().clear());
+    assertThrows(UnsupportedOperationException.class, () -> batch.entries().clear());
     assertThrows(UnsupportedOperationException.class, () -> result.diagnostics().clear());
   }
 
@@ -95,15 +100,15 @@ class DiagnosticEmissionCollectorTest {
     // Arrange
     var original = event("body", "unit", 0);
     var conflict = new DiagnosticEmission(original.address(), note("changed"), original.cause(), List.of(), -1);
-    var collector = new DiagnosticEmissionCollector("body", "unit");
-    collector.include(new DiagnosticEmissions(List.of(original)));
-    var incompatible = new DiagnosticEmissions(List.of(event("body", "unit", 8), conflict));
+    var collector = new DiagnosticEmissionCollector("body", "unit", SUBJECT);
+    collector.include(new DiagnosticEmissions(List.of(new DiagnosticEntry(original, SUBJECT))));
+    var incompatible = new DiagnosticEmissions(List.of(new DiagnosticEntry(event("body", "unit", 8), SUBJECT), new DiagnosticEntry(conflict, SUBJECT)));
 
     // Act
-    assertThrows(IllegalArgumentException.class, () -> new DiagnosticEmissions(List.of(original, conflict)));
+    assertThrows(IllegalArgumentException.class, () -> new DiagnosticEmissions(List.of(new DiagnosticEntry(original, SUBJECT), new DiagnosticEntry(conflict, SUBJECT))));
     assertThrows(IllegalArgumentException.class, () -> collector.include(incompatible));
     assertThrows(IllegalArgumentException.class,
-        () -> DiagnosticEmissions.combine(new DiagnosticEmissions(List.of(original)), incompatible));
+        () -> DiagnosticEmissions.combine(new DiagnosticEmissions(List.of(new DiagnosticEntry(original, SUBJECT))), incompatible));
     collector.emit(note("after-rejection"));
 
     // Assert
@@ -113,9 +118,50 @@ class DiagnosticEmissionCollectorTest {
   }
 
   @Test
+  void givenConflictingSubjectsForOneEvent_whenImportIsRejected_thenMembershipSnapshotsAndAllocationRemainUnchanged() {
+    // Arrange
+    var original = event("body", "unit", 0);
+    var entry = new DiagnosticEntry(original, SUBJECT);
+    var collector = new DiagnosticEmissionCollector("body", "unit", SUBJECT);
+    collector.include(new DiagnosticEmissions(List.of(entry)));
+    var before = collector.snapshot();
+    var conflict = new DiagnosticEntry(original, DiagnosticSubject.None.INSTANCE);
+    var incoming = new DiagnosticEmissions(List.of(new DiagnosticEntry(event("body", "unit", 8), SUBJECT), conflict));
+
+    // Act
+    assertThrows(IllegalArgumentException.class, () -> collector.include(incoming));
+    assertThrows(IllegalArgumentException.class, () -> new DiagnosticEmissions(List.of(entry, conflict)));
+    assertThrows(IllegalArgumentException.class, () -> DiagnosticEmissions.combine(before, incoming));
+    var following = collector.emit(note("following"));
+
+    // Assert
+    assertEquals(List.of(entry), before.entries());
+    assertSame(entry, collector.snapshot().entries().getFirst());
+    assertEquals(List.of(entry, new DiagnosticEntry(following, SUBJECT)), collector.snapshot().entries());
+    assertEquals(new DiagnosticEmission.Address("body", "unit", 1), following.address());
+  }
+
+  @Test
+  void givenMissingOrBlankSubjectMetadata_whenTransportIsConstructed_thenIncompleteEntriesAreRejected() {
+    // Arrange
+    var event = event("body", "unit", 0);
+
+    // Act
+    var noSubject = new DiagnosticEntry(event, DiagnosticSubject.None.INSTANCE);
+
+    // Assert
+    assertEquals(DiagnosticSubject.None.INSTANCE, noSubject.subject());
+    assertThrows(NullPointerException.class, () -> new DiagnosticEntry(event, null));
+    assertThrows(NullPointerException.class, () -> new DiagnosticEntry(null, SUBJECT));
+    assertThrows(NullPointerException.class, () -> new DiagnosticSubject.Declaration(null));
+    assertThrows(IllegalArgumentException.class, () -> new DiagnosticSubject.Declaration("  "));
+    assertThrows(NullPointerException.class, () -> new DiagnosticEmissionCollector("body", "unit", null));
+  }
+
+  @Test
   void givenReusedCollectorAndAnEmptyBatch_whenNewBatchesStart_thenEarlierMembershipFreezesAndAllocationContinues() {
     // Arrange
-    var collector = new DiagnosticEmissionCollector("body", "unit");
+    var collector = new DiagnosticEmissionCollector("body", "unit", SUBJECT);
     collector.emit(note("same-value"));
     var first = collector.snapshot();
 
@@ -135,13 +181,15 @@ class DiagnosticEmissionCollectorTest {
     assertEquals(List.of(1, 1, 1), List.of(first, second, third).stream().map(batch -> batch.events().size()).toList());
     assertEquals(first.diagnostics(), second.diagnostics());
     assertEquals(first.diagnostics(), third.diagnostics());
+    assertEquals(List.of(SUBJECT, SUBJECT, SUBJECT), List.of(first, second, third).stream()
+        .map(batch -> batch.entries().getFirst().subject()).toList());
   }
 
   @Test
   void givenEqualValuesFromSeparateCreatingOwners_whenBranchesJoin_thenIndependentEventsRemainInEncounterOrder() {
     // Arrange
-    var left = new DiagnosticEmissionCollector("body", "left");
-    var right = new DiagnosticEmissionCollector("body", "right");
+    var left = new DiagnosticEmissionCollector("body", "left", SUBJECT);
+    var right = new DiagnosticEmissionCollector("body", "right", SUBJECT);
     left.emit(note("same-value"));
     right.emit(note("same-value"));
 
@@ -159,8 +207,8 @@ class DiagnosticEmissionCollectorTest {
   @Test
   void givenIndependentOperationsAndEmptyResults_whenConstructed_thenTypedContractsKeepDeterministicLocalAllocation() {
     // Arrange
-    var first = new DiagnosticEmissionCollector("body", "unit");
-    var second = new DiagnosticEmissionCollector("body", "unit");
+    var first = new DiagnosticEmissionCollector("body", "unit", SUBJECT);
+    var second = new DiagnosticEmissionCollector("body", "unit", SUBJECT);
 
     // Act
     var emptyResult = new TranslationResult<>("empty", first.snapshot());
@@ -181,7 +229,7 @@ class DiagnosticEmissionCollectorTest {
   @Test
   void givenConcurrentNestedBatchesForOneOwner_whenCreationAndImportsInterleave_thenAllocationIsSharedAndMembershipStaysLocal() {
     // Arrange
-    var root = new DiagnosticEmissionCollector("body", "unit");
+    var root = new DiagnosticEmissionCollector("body", "unit", SUBJECT);
     root.emit(note("root"));
     var left = root.newBatch();
     var right = left.newBatch();
@@ -190,7 +238,7 @@ class DiagnosticEmissionCollectorTest {
     left.emit(note("left"));
     var returned = left.snapshot();
     right.emit(note("right"));
-    left.include(new DiagnosticEmissions(List.of(event("body", "unit", 8), event("body", "other", 100))));
+    left.include(new DiagnosticEmissions(List.of(new DiagnosticEntry(event("body", "unit", 8), SUBJECT), new DiagnosticEntry(event("body", "other", 100), DiagnosticSubject.None.INSTANCE))));
     root.emit(note("after-import"));
     right.startBatch();
     right.emit(note("after-empty-batch"));
@@ -200,7 +248,11 @@ class DiagnosticEmissionCollectorTest {
     assertEquals(List.of(1), returned.events().stream().map(event -> event.address().ordinal()).toList());
     assertEquals(List.of(1, 8, 100), left.snapshot().events().stream().map(event -> event.address().ordinal()).toList());
     assertEquals(List.of(10), right.snapshot().events().stream().map(event -> event.address().ordinal()).toList());
-    var independent = new DiagnosticEmissionCollector("body", "unit");
+    assertEquals(SUBJECT, returned.entries().getFirst().subject());
+    assertEquals(List.of(SUBJECT, SUBJECT, DiagnosticSubject.None.INSTANCE), left.snapshot().entries().stream()
+        .map(DiagnosticEntry::subject).toList());
+    assertEquals(SUBJECT, right.snapshot().entries().getFirst().subject());
+    var independent = new DiagnosticEmissionCollector("body", "unit", SUBJECT);
     independent.emit(note("independent"));
     assertEquals(0, independent.snapshot().events().getFirst().address().ordinal());
   }
@@ -208,7 +260,7 @@ class DiagnosticEmissionCollectorTest {
   @Test
   void givenPriorEventsAndADeclaredProjectionFailure_whenComposed_thenOriginalEventsAndFailureChainRemainFrozen() {
     // Arrange
-    var earlier = new DiagnosticEmissionCollector("body", "unit");
+    var earlier = new DiagnosticEmissionCollector("body", "unit", SUBJECT);
     var later = earlier.newBatch();
     earlier.emit(note("earlier"));
     later.emit(note("later"));
@@ -226,6 +278,7 @@ class DiagnosticEmissionCollectorTest {
     assertEquals(List.of(1), original.emissions().events().stream().map(event -> event.address().ordinal()).toList());
     assertSame(original.emissions().events().getFirst(), composed.emissions().events().getLast());
     assertSame(original, composed.getCause());
+    assertEquals(List.of(SUBJECT, SUBJECT), composed.emissions().entries().stream().map(DiagnosticEntry::subject).toList());
     assertSame(cleanup, original.getSuppressed()[0]);
     var emptyPrefix = new JavaSourceProjectionFailure(DiagnosticEmissions.empty(), composed);
     assertEquals(composed.emissions(), emptyPrefix.emissions());

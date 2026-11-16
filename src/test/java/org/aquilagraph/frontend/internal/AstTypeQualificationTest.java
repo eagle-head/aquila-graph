@@ -34,8 +34,8 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
-import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.FeatureContextOutcome;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
@@ -179,8 +179,7 @@ class AstTypeQualificationTest {
         body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var supplied = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), sources, bodies, copied.memberOrders(), copied.associations(),
         copied.declarationTypes(), copied.scopes()));
-    return JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied),
-        JavaCoverageTestSupport.emissions(original));
+    return JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(supplied));
   }
 
   private static SyntaxNode copyNode(SyntaxNode node, SyntaxNode selected, SyntaxType type, Map<SyntaxNode, SyntaxNode> replacements) {

@@ -6,6 +6,7 @@ import static org.aquilagraph.testsupport.TestLocations.capturedPath;
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import org.aquilagraph.source.admission.AstProductionAdmission;
@@ -41,7 +42,6 @@ import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxSourceContribution;
 import org.aquilagraph.source.api.AstCompletion;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaSourceKind;
@@ -320,7 +320,7 @@ class MemberReferenceAstTest {
       var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), replaceFact(body.root(), replacements, missingFact),
           body.origin(), body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
       var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes(), captured.scopes()));
-      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(original));
+      var input = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(aggregate));
       // Act
       var outcome = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
       var result = outcome.result().orElseThrow();
@@ -409,7 +409,7 @@ class MemberReferenceAstTest {
           var bodies = captured.bodies().stream().map(body -> new CopiedAstValues.Body(body.methodKey(), replaceFact(body.root(), replacements, "member"),
               body.origin(), body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
           var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes(), captured.scopes()));
-          var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(original));
+          var input = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(aggregate));
           // Act
           var outcome = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1");
           var result = outcome.result().orElseThrow();
@@ -439,7 +439,7 @@ class MemberReferenceAstTest {
         body.origin(), body.uses(), body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), sources, bodies, captured.memberOrders(), captured.associations(), captured.declarationTypes(), captured.scopes()));
     // Act
-    var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(original));
+    var input = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(aggregate));
     var result = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1").result().orElseThrow();
     // Assert
     var failed = result.coverage().validationEvidence().outcomes().stream()

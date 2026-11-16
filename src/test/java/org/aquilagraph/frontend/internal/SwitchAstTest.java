@@ -5,6 +5,7 @@ import static org.aquilagraph.testsupport.TestLocations.capturedPath;
 
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import org.aquilagraph.source.admission.AstProductionAdmission;
@@ -25,7 +26,6 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.api.AstCompletion;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -267,7 +267,7 @@ class SwitchAstTest {
       var originalInput = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()), original.diagnostics(), original.coverage());
       // Act
       var aggregate = withoutAttribution(original, slot);
-      var input = JavaCoverageTestSupport.withFacts(originalInput, original.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(originalInput));
+      var input = JavaCoverageTestSupport.capture(originalInput, original.profile()).withFacts(original.program(), Optional.of(aggregate));
       var result = AstProductionAdmission.outcome(input, AstProfile.JAVA_SOURCE_EXPANDED, "javac-public/1").result().orElseThrow();
       var decoded = AstCodec.decode(AstCodec.encode(result), result.identity());
       // Assert

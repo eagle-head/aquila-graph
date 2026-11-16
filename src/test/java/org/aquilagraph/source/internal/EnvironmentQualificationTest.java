@@ -30,9 +30,9 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.ModuleCandidate;
 import org.aquilagraph.identity.api.ModuleNameOrigin;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.SourceQualificationReason;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.JavaProgram;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
 import org.junit.jupiter.api.Test;
@@ -52,8 +52,7 @@ class EnvironmentQualificationTest {
     var secondEnvironment = environment(original.environment(), "beta");
     var originalInput = new SyntaxAnalysisInput(snapshot, original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());
-    var unavailable = JavaCoverageTestSupport.withFacts(originalInput, new JavaProgram(List.of()), Optional.empty(),
-        original.coverage().validationEvidence().diagnosticEmissions());
+    var unavailable = JavaCoverageTestSupport.capture(originalInput, original.profile()).withFacts(new JavaProgram(List.of()), Optional.empty());
     var firstInput = new SyntaxAnalysisInput(snapshot, firstEnvironment, unavailable.program(), Optional.empty(), unavailable.diagnostics(), unavailable.languageFeatureCoverageResult());
     var secondInput = new SyntaxAnalysisInput(snapshot, secondEnvironment, unavailable.program(), Optional.empty(), unavailable.diagnostics(), unavailable.languageFeatureCoverageResult());
 

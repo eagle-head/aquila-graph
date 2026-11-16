@@ -55,6 +55,7 @@ import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.MethodCfgState;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
@@ -67,7 +68,6 @@ import org.aquilagraph.source.api.CoverageEvidenceValue;
 import org.aquilagraph.source.api.FeatureContextOutcome;
 import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
 import org.aquilagraph.source.api.AstContractException;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.JavaAstAggregate;
@@ -1619,8 +1619,7 @@ class AstCodecContractTest {
   private static AstResult reconciledResult(AstResult original, JavaAstAggregate aggregate) {
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());
-    var reconciled = JavaCoverageTestSupport.withFacts(input, input.program(), Optional.of(aggregate),
-        JavaCoverageTestSupport.emissions(input));
+    var reconciled = JavaCoverageTestSupport.capture(input, original.profile()).withFacts(input.program(), Optional.of(aggregate));
     return AstProductionAdmission.outcome(reconciled, original.profile(), original.identity().semanticProductionRevision()).result().orElseThrow();
   }
 
@@ -2089,8 +2088,7 @@ class AstCodecContractTest {
   }
 
   private static AstResult admitDetachedFormal(AstResult original, CopiedAstValues values) {
-    return AstProductionAdmission.outcome(JavaCoverageTestSupport.withFacts(SourceValueCapture.capture(original), original.program(),
-        Optional.of(AstValueAdmission.admit(values)), original.coverage().validationEvidence().diagnosticEmissions()),
+    return AstProductionAdmission.outcome(JavaCoverageTestSupport.capture(SourceValueCapture.capture(original), original.profile()).withFacts(original.program(), Optional.of(AstValueAdmission.admit(values))),
         original.profile(), original.identity().semanticProductionRevision()).result().orElseThrow();
   }
 

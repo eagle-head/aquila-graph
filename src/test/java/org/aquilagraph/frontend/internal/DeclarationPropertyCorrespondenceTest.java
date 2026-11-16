@@ -48,6 +48,7 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AttributedCoverageExpectations;
 import org.aquilagraph.source.api.CoveragePropertyValue;
 import org.aquilagraph.source.api.CoveragePropertyValue.Provenance;
@@ -259,8 +260,7 @@ class DeclarationPropertyCorrespondenceTest {
     var order = original.aggregate().orElseThrow().declarationMemberOrder(type.typeKey()).orElseThrow();
 
     // Act
-    var admitted = JavaCoverageTestSupport.withFacts(original, original.program(), original.aggregate(),
-        JavaCoverageTestSupport.emissions(original));
+    var admitted = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), original.aggregate());
 
     // Assert
     assertEquals(List.of("first", "second"), type.fields().stream().map(JavaField::name).toList());
@@ -288,8 +288,7 @@ class DeclarationPropertyCorrespondenceTest {
         .filter(item -> item.identity().equals(fields.getFirst().fieldKey())).findFirst().orElseThrow().value());
 
     // Act
-    var partial = JavaCoverageTestSupport.withFacts(original, changed, original.aggregate(),
-        JavaCoverageTestSupport.emissions(original));
+    var partial = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(changed, original.aggregate());
 
     // Assert
     assertEquals(Mode.FAILED, members(partial).support().mode());
@@ -319,8 +318,7 @@ class DeclarationPropertyCorrespondenceTest {
         .findFirst().orElseThrow().sourceDeclared());
 
     // Act
-    var failure = assertThrows(IllegalArgumentException.class, () -> JavaCoverageTestSupport.withFacts(original, changed,
-        original.aggregate(), JavaCoverageTestSupport.emissions(original)));
+    var failure = assertThrows(IllegalArgumentException.class, () -> JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(changed, original.aggregate()));
 
     // Assert
     assertTrue(failure.getMessage().contains("provenance") || failure.getMessage().contains("source") || failure.getMessage().contains("member"));
@@ -346,8 +344,7 @@ class DeclarationPropertyCorrespondenceTest {
     var changed = copyAggregate(original, changedOrder);
 
     // Act
-    var partial = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(changed),
-        JavaCoverageTestSupport.emissions(original));
+    var partial = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(changed));
 
     // Assert
     assertFrozenStages(original, partial);

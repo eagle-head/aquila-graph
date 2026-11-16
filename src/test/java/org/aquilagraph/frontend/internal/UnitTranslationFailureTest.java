@@ -26,8 +26,8 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
-import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.JavaTypeNesting;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
@@ -48,8 +48,8 @@ class UnitTranslationFailureTest {
     var sources = new SnapshotSourceCatalog(snapshot);
     var policy = JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_UNITS);
     var damaged = new AtomicBoolean(true);
-    var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS);
-    var originalEvidence = original.coverageQualification().orElseThrow().validationEvidence();
+    var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CONFIGURATION, policy);
+    var captured = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_UNITS);
     DiagnosticEmissions creating;
     TranslatedProgram withheld;
     var expected = List.of(new DiagnosticEmission.Address("JavaAnnotationProjector", source.sourceFileKey(), 0),
@@ -93,9 +93,7 @@ class UnitTranslationFailureTest {
       creating = DiagnosticEmissions.combine(new CompilerDiagnosticTranslator(sources).translate(compilation.diagnostics()), failed.emissions());
       withheld = failed.value();
     }
-    var reconciled = new JavaSourceCoverageReconciler(originalEvidence.writtenInventory(), originalEvidence.attributedExpectations(),
-        withheld.program(), withheld.aggregate(), creating)
-        .reconcileRetained(JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION), originalEvidence.outcomes());
+    var reconciled = captured.reconcile(withheld.program(), withheld.aggregate(), creating);
     var finalEvidence = reconciled.coverageResult().validationEvidence();
     assertFalse(finalEvidence.diagnosticEmissions().getFirst().contexts().isEmpty());
     assertEquals(creating.events().stream().map(DiagnosticEmission::address).toList(),
@@ -128,8 +126,8 @@ class UnitTranslationFailureTest {
     var sources = new SnapshotSourceCatalog(snapshot);
     var policy = JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_UNITS);
     var damaged = new AtomicBoolean(true);
-    var original = new JavaFrontend(new JavaSourceLoader()).produce(snapshot, CONFIGURATION, AstProfile.JAVA_SOURCE_UNITS);
-    var originalEvidence = original.coverageQualification().orElseThrow().validationEvidence();
+    var original = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(snapshot, CONFIGURATION, policy);
+    var captured = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_UNITS);
     TranslationResult<TranslatedProgram> failed;
     List<DiagnosticEmission.Address> expected;
     try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(CONFIGURATION), sources)) {
@@ -176,9 +174,7 @@ class UnitTranslationFailureTest {
       assertEquals(List.of(), complete.diagnostics());
       assertTrue(complete.value().aggregate().isPresent());
     }
-    var reconciled = new JavaSourceCoverageReconciler(originalEvidence.writtenInventory(), originalEvidence.attributedExpectations(),
-        failed.value().program(), failed.value().aggregate(), failed.emissions())
-        .reconcileRetained(JavaLanguageFeatureCoverage.fromConfiguration(CONFIGURATION), originalEvidence.outcomes());
+    var reconciled = captured.reconcile(failed.value().program(), failed.value().aggregate(), failed.emissions());
     var finalEvidence = reconciled.coverageResult().validationEvidence();
     for (var index = 0; index < expected.size(); index++) {
       var creating = failed.emissions().events().get(index);

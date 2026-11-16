@@ -97,7 +97,8 @@ final class JavaTypeTranslator {
     var nestedTypes = new ArrayList<JavaType>();
     var memberOrders = new ArrayList<DeclarationMemberOrder>();
     var declarationTypes = new ArrayList<DeclarationTypeEvidence>();
-    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, typeKey + ":declaration");
+    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, typeKey + ":declaration",
+        new DiagnosticSubject.Declaration(typeKey));
     if (policy.supportsMemberInitialization()
         && (!policy.supportsDeclarationFidelity() || (origin.isEmpty() && !policy.supportsSourceEnvelope()))) {
       for (var declaration : treeInventory.emptyBodyDeclarations(classTree)) {
@@ -439,7 +440,8 @@ final class JavaTypeTranslator {
             + origin.map(value -> value.startOffset() + ":" + value.endOffsetExclusive())
                 .orElseGet(() -> StableId.sha256("unresolved-field", typeKey, variableTree.getName().toString()))
         : semantics.declarationKey(variable).orElseThrow();
-    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, fieldKey + ":field");
+    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, fieldKey + ":field",
+        new DiagnosticSubject.Declaration(fieldKey));
     if (variable == null) {
       diagnostics.emit(DIAGNOSTIC_PRODUCER, FrontendDiagnosticFactory.otherError(fieldKey, "frontend.unresolved-field",
           "A field declaration element is unavailable", origin));

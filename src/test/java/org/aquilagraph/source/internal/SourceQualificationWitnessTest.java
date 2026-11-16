@@ -28,10 +28,10 @@ import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.admission.CoverageAdmission;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AttributedCoverageExpectations;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.AstCompletion;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.ExecutionScope;
 import org.aquilagraph.source.api.JavaProgram;
@@ -138,8 +138,7 @@ class SourceQualificationWitnessTest {
           var copied = SourceValueCapture.capture(original.aggregate());
           var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), copied.bodies(), copied.memberOrders(),
               copied.associations(), List.of(), copied.scopes()));
-          var input = JavaCoverageTestSupport.withFacts(SourceValueCapture.capture(original), program, Optional.of(aggregate),
-              original.coverage().validationEvidence().diagnosticEmissions());
+          var input = JavaCoverageTestSupport.capture(SourceValueCapture.capture(original), original.profile()).withFacts(program, Optional.of(aggregate));
 
           // Act
           var result = AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision());
@@ -196,8 +195,7 @@ class SourceQualificationWitnessTest {
     var rootKeys = sources.stream().map(source -> source.root().nodeId()).toList();
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), sources, bodies, List.of(),
         copied.associations().stream().filter(value -> rootKeys.contains(value.nodeKey())).toList(), List.of(), List.of()));
-    var input = JavaCoverageTestSupport.withFacts(SourceValueCapture.capture(original), original.program(), Optional.of(aggregate),
-        original.coverage().validationEvidence().diagnosticEmissions());
+    var input = JavaCoverageTestSupport.capture(SourceValueCapture.capture(original), original.profile()).withFacts(original.program(), Optional.of(aggregate));
 
     // Act
     var result = AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision());
@@ -228,8 +226,7 @@ class SourceQualificationWitnessTest {
     var copied = SourceValueCapture.capture(original.aggregate());
     var aggregate = AstValueAdmission.admit(new CopiedAstValues(copied.snapshot(), copied.sources(), copied.bodies(), copied.memberOrders(),
         copied.associations(), List.of(), copied.scopes()));
-    var input = JavaCoverageTestSupport.withFacts(SourceValueCapture.capture(original), program, Optional.of(aggregate),
-        original.coverage().validationEvidence().diagnosticEmissions());
+    var input = JavaCoverageTestSupport.capture(SourceValueCapture.capture(original), original.profile()).withFacts(program, Optional.of(aggregate));
 
     // Act
     var result = AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision());
@@ -364,8 +361,7 @@ class SourceQualificationWitnessTest {
 
   private static AstResult readmit(AstResult original, CopiedAstValues copied) {
     var aggregate = AstValueAdmission.admit(copied);
-    var input = JavaCoverageTestSupport.withFacts(SourceValueCapture.capture(original), original.program(), Optional.of(aggregate),
-        original.coverage().validationEvidence().diagnosticEmissions());
+    var input = JavaCoverageTestSupport.capture(SourceValueCapture.capture(original), original.profile()).withFacts(original.program(), Optional.of(aggregate));
     return AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision());
   }
 

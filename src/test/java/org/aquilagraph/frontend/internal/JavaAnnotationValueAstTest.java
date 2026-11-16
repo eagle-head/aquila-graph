@@ -460,9 +460,9 @@ class JavaAnnotationValueAstTest {
       var invalidValue = new JavaAnnotationValueProjector(compilation.semantics(),
           new JavaSourceEvidence(faultedPositions(parsed.sourceEvidence(), source, written.value(), false)),
           compilation.treeInventory());
-      var unavailableDiagnostics = new DiagnosticEmissionCollector("source-observation", "unavailableDiagnostics");
-      var missingDiagnostics = new DiagnosticEmissionCollector("source-observation", "missingDiagnostics");
-      var invalidDiagnostics = new DiagnosticEmissionCollector("source-observation", "invalidDiagnostics");
+      var unavailableDiagnostics = new DiagnosticEmissionCollector("source-observation", "unavailableDiagnostics", DiagnosticSubject.None.INSTANCE);
+      var missingDiagnostics = new DiagnosticEmissionCollector("source-observation", "missingDiagnostics", DiagnosticSubject.None.INSTANCE);
+      var invalidDiagnostics = new DiagnosticEmissionCollector("source-observation", "invalidDiagnostics", DiagnosticSubject.None.INSTANCE);
 
       // Act
       var unavailable = projector.arguments(unit, source, annotation, wrongType, path, unavailableDiagnostics);

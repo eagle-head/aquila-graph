@@ -6,6 +6,7 @@ import static org.aquilagraph.testsupport.TestLocations.capturedPath;
 import org.aquilagraph.application.AnalysisCapabilities;
 import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.AstPublicationRequest;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import org.aquilagraph.source.admission.AstProductionAdmission;
@@ -41,7 +42,6 @@ import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.api.AstCompletion;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.FeatureContextOutcome;
 import org.aquilagraph.source.api.InvocationForm;
@@ -345,8 +345,7 @@ class ExecutableCompositionAstTest {
         body.invocations(), body.staticAccesses(), body.concatenations(), body.constructors(), body.attributedOccurrences())).toList();
     var supplied = AstValueAdmission.admit(new CopiedAstValues(captured.snapshot(), captured.sources(), bodies, captured.memberOrders(),
         captured.associations(), captured.declarationTypes(), captured.scopes()));
-    var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(supplied),
-        JavaCoverageTestSupport.emissions(original));
+    var input = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(supplied));
     var retention = AnalysisCapabilities.astRetention(ignored -> { throw new AssertionError("Incomplete source cannot acquire storage"); });
 
     // Act
