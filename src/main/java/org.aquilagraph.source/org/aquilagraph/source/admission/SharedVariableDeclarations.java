@@ -16,7 +16,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /** Validates and indexes source declarators that share one written variable header. */
-public final class SharedVariableDeclarations {
+final class SharedVariableDeclarations {
   private static final int UNIQUE_SOURCE_OWNER_COUNT = 1;
   private SharedVariableDeclarations() {
   }
@@ -28,7 +28,7 @@ public final class SharedVariableDeclarations {
    *          owned source nodes
    * @return immutable source-ordered groups indexed by field and type node identities
    */
-  public static Map<String, List<SyntaxNode>> index(List<SyntaxNode> nodes) {
+  static Map<String, List<SyntaxNode>> index(List<SyntaxNode> nodes) {
     Objects.requireNonNull(nodes, "nodes");
     var groups = new HashMap<String, List<SyntaxNode>>();
     for (var parent : nodes) {

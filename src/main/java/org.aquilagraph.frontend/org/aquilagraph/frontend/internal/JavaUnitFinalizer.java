@@ -1,16 +1,12 @@
 package org.aquilagraph.frontend.internal;
 
-import org.aquilagraph.source.admission.AnnotationAttachmentAdmission;
+import org.aquilagraph.source.admission.AnnotationApplicationContext;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.DeclarationMemberOrder;
-import org.aquilagraph.source.admission.SharedVariableDeclarations;
-import org.aquilagraph.source.api.SyntaxChild;
-import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxSemanticEdge;
@@ -45,17 +41,11 @@ final class JavaUnitFinalizer {
     var structural = nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList();
     var semantic = new ArrayList<>(bodyCorrelation.declarationEdges(declarations));
     nodes.forEach(node -> semantic.addAll(node.semanticEdges()));
-    var recordTypeOwners = new HashMap<String, SyntaxNode>();
-    var fieldGroups = SharedVariableDeclarations.index(nodes);
-    nodes.stream().filter(node -> node.syntaxKind() == SyntaxKind.RECORD_COMPONENT_DECLARATION).forEach(component -> component
-        .children(SyntaxRole.DECLARED_TYPE).forEach(type -> collectRecordTypeOwners(type, component, recordTypeOwners)));
+    var annotations = new AnnotationApplicationContext(nodes);
     nodes.forEach(parent -> parent.children().stream()
-        .filter(child -> child.role() == SyntaxRole.ANNOTATION && child.node().value() instanceof SyntaxValue.Annotation annotation
-            && annotation.location() != SyntaxValue.AnnotationLocation.VALUE
-            && annotation.location() != SyntaxValue.AnnotationLocation.UNRESOLVED)
+        .filter(child -> child.role() == SyntaxRole.ANNOTATION && annotations.requiresApplication(child.node()))
         .forEach(child -> semantic.add(new SyntaxSemanticEdge(child.node().nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-            AnnotationAttachmentAdmission.forAttachment(parent, child.node(), Optional.ofNullable(recordTypeOwners.get(parent.nodeId())),
-                fieldGroups.getOrDefault(parent.nodeId(), List.of()))))));
+            annotations.forAttachment(parent, child.node())))));
     var contribution = new SyntaxSourceContribution(sourceFile.sourceFileKey(), root, nodes, structural, semantic);
     var contributionValue = Optional.of(contribution);
     return new FinalizedUnit(contributionValue, bodyCorrelation.registrations(sourceFile), emissions, sourceAssociations.forNodes(nodes),
@@ -64,12 +54,6 @@ final class JavaUnitFinalizer {
             .filter(evidence -> retainsTypeOwner(contribution, evidence.sourceFileKey(), evidence.ownerTypeKey())).toList(),
         metadata.memberOrders().stream().filter(order -> retainsTypeOwner(contribution, order.sourceFileKey(), order.ownerTypeKey()))
             .map(order -> attachWrittenOrder(order, contribution)).toList());
-  }
-
-  private static void collectRecordTypeOwners(SyntaxNode type, SyntaxNode component, Map<String, SyntaxNode> owners) {
-    owners.put(type.nodeId(), component);
-    type.children().stream().map(SyntaxChild::node).filter(child -> child.syntaxKind() == SyntaxKind.TYPE_USE)
-        .forEach(child -> collectRecordTypeOwners(child, component, owners));
   }
 
   private static boolean retainsTypeOwner(SyntaxSourceContribution source, String sourceFileKey, String ownerTypeKey) {

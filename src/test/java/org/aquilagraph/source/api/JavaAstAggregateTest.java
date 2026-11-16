@@ -8,7 +8,7 @@ import java.util.List;
 import org.aquilagraph.identity.api.SourceOccurrence;
 
 
-import org.aquilagraph.source.admission.AnnotationAttachmentAdmission;
+import org.aquilagraph.source.admission.AnnotationApplicationContext;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -1405,7 +1405,7 @@ class JavaAstAggregateTest {
     var annotation = packageNode.requiredChild(SyntaxRole.ANNOTATION);
     var base = contribution(root);
     var correct = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-        AnnotationAttachmentAdmission.forAttachment(packageNode, annotation, Optional.empty(), List.of()));
+        new AnnotationApplicationContext(root.descendantsAndSelf()).forAttachment(packageNode, annotation));
     var wrong = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
         new SyntaxSemanticTarget.AnnotationApplication(root.nodeId(), Optional.of(root.nodeId()), Optional.empty(), List.of(), List.of()));
     var extraType = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.DECLARATION_REFERENCE,
@@ -1489,7 +1489,7 @@ class JavaAstAggregateTest {
     var annotation = packageNode.requiredChild(SyntaxRole.ANNOTATION);
     var base = contribution(root);
     var target = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-        AnnotationAttachmentAdmission.forAttachment(packageNode, annotation, Optional.empty(), List.of()));
+        new AnnotationApplicationContext(root.descendantsAndSelf()).forAttachment(packageNode, annotation));
 
     // Act
     var error = failure(snapshot("a"), contribution(root, base.structuralEdges(), append(base.semanticEdges(), target)));
@@ -1522,7 +1522,7 @@ class JavaAstAggregateTest {
     var root = root("a", List.of(new SyntaxChild(SyntaxRole.PACKAGE_DECLARATION, 0, declaration)));
     var base = contribution(root);
     var target = new SyntaxSemanticEdge(annotation.nodeId(), SyntaxSemanticRelation.ANNOTATED_TARGET,
-        AnnotationAttachmentAdmission.forAttachment(declaration, annotation, Optional.empty(), List.of()));
+        new AnnotationApplicationContext(root.descendantsAndSelf()).forAttachment(declaration, annotation));
     return contribution(root, base.structuralEdges(), append(base.semanticEdges(), target));
   }
 
