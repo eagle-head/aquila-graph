@@ -1,14 +1,23 @@
 package org.aquilagraph.frontend.internal;
 
-import org.aquilagraph.source.admission.CoverageAdmission;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import javax.tools.Diagnostic;
+import javax.tools.ToolProvider;
+import org.aquilagraph.frontend.internal.JavaSourceCoverageReconciler.ReconciledCoverage;
+import org.aquilagraph.frontend.internal.JavaTypeKindObserver.ObservedTypeKinds;
 import org.aquilagraph.identity.api.InputSnapshot;
+import org.aquilagraph.source.admission.CoverageAdmission;
+import org.aquilagraph.source.admission.SyntaxAnalysisInput;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AttributedCoverageExpectations;
 import org.aquilagraph.source.api.DiagnosticEmission;
 import org.aquilagraph.source.api.FeatureContextOutcome;
+import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.JavaProgram;
 import org.aquilagraph.source.api.LanguageFeatureCoverage;
 import org.aquilagraph.source.api.LanguageFeatureCoverageResult;
@@ -17,8 +26,6 @@ import org.aquilagraph.source.api.LanguageFeatureOccurrence;
 import org.aquilagraph.source.api.SourceContext;
 import org.aquilagraph.source.api.SourceCoverageInventory;
 import org.aquilagraph.source.api.SourceOwnerPath;
-import org.aquilagraph.source.api.JavaAstAggregate;
-import org.aquilagraph.source.admission.SyntaxAnalysisInput;
 
 /** Supplies altered actual evidence while retaining the independently captured expectation stages. */
 public final class JavaCoverageTestSupport {
@@ -59,27 +66,62 @@ public final class JavaCoverageTestSupport {
         outcomes, evidence.unmatchedFacts(), events);
   }
 
-  public static List<DiagnosticEmission> emissions(SyntaxAnalysisInput original) {
-    return original.languageFeatureCoverageResult().validationEvidence().diagnosticEmissions();
+  public static Captured capture(SyntaxAnalysisInput original, AstProfile profile) {
+    var configuration = original.environmentSnapshot().compilerConfiguration();
+    var policy = JavaTranslationPolicy.forProfile(profile);
+    var coverage = JavaLanguageFeatureCoverage.fromConfiguration(configuration);
+    var sources = new SnapshotSourceCatalog(original.snapshot());
+    try (var session = CompilerSessionAcquisition.open(ToolProvider.getSystemJavaCompiler(), JavaCompilerInvocation.from(configuration), sources)) {
+      var parsed = session.parse();
+      var capture = JavaSourceCoverageCapture.capture(original.snapshot(), parsed, sources, coverage, policy);
+      var properties = new JavaDeclarationPropertyEncounterProducer(parsed.units(), sources, parsed.sourceEvidence(), coverage, policy);
+      var written = properties.observeWritten();
+      var annotations = JavaAnnotationSourceInventory.capture(parsed, sources);
+      var trees = new JavaCompilerKindDiagnostics(sources, parsed.sourceEvidence(), coverage, policy).observe(parsed.units());
+      var compilation = session.analyze(parsed, policy);
+      var attributed = capture.captureAttributed(compilation.semantics());
+      var attributedProperties = properties.observeAttributed(compilation.semantics());
+      var types = new JavaTypeKindObserver(sources, compilation.semantics(), compilation.sourceEvidence(), compilation.treeInventory(), coverage, policy)
+          .observe(compilation.units());
+      var translated = new JavaProgramTranslator(sources, compilation.semantics(), compilation.sourceEvidence(), compilation.treeInventory(), policy)
+          .translate(original.snapshot(), compilation.units(), compilation.diagnostics().stream().anyMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR));
+      var completeness = new JavaAnnotationCompleteness(annotations, compilation.semantics(), translated.diagnostics());
+      var emissions = DiagnosticEmissions.combine(new CompilerDiagnosticTranslator(sources).translate(compilation.diagnostics()), trees.emissions(),
+          types.emissions(), translated.emissions(), JavaTypeUseCompleteness.reconcile(original.snapshot(), trees.observations(), translated.value().aggregate()),
+          completeness.reconcile(translated.value().aggregate()));
+      return new Captured(original, capture.inventory(), attributed, trees, types, written, attributedProperties, emissions);
+    } catch (IOException failure) {
+      throw new UncheckedIOException("Cannot capture compiler evidence for supplied-fact reconciliation", failure);
+    }
   }
 
-  static DiagnosticEmissionCollector collector(SyntaxAnalysisInput original, String producer) {
-    var collector = new DiagnosticEmissionCollector(producer, "retained-events");
-    collector.include(new DiagnosticEmissions(emissions(original)));
-    return collector;
-  }
+  public record Captured(SyntaxAnalysisInput original, SourceCoverageInventory inventory, AttributedCoverageExpectations attributed,
+      ObservedLanguageFeatures trees, ObservedTypeKinds types, ObservedPropertyEncounters writtenProperties,
+      ObservedPropertyEncounters attributedProperties, DiagnosticEmissions emissions) {
 
-  public static SyntaxAnalysisInput withFacts(SyntaxAnalysisInput original, JavaProgram program, Optional<JavaAstAggregate> aggregate,
-      List<DiagnosticEmission> emissions) {
-    return withFacts(original, program, aggregate, emissions, original.languageFeatureCoverageResult().validationEvidence().writtenInventory());
-  }
+    ReconciledCoverage reconcile(JavaProgram program, Optional<JavaAstAggregate> aggregate, DiagnosticEmissions creating) {
+      return reconcile(inventory, attributed, program, aggregate, creating);
+    }
 
-  public static SyntaxAnalysisInput withFacts(SyntaxAnalysisInput original, JavaProgram program, Optional<JavaAstAggregate> aggregate,
-      List<DiagnosticEmission> emissions, SourceCoverageInventory inventory) {
-    var evidence = original.languageFeatureCoverageResult().validationEvidence();
-    var attributed = new AttributedCoverageExpectations(inventory, evidence.attributedExpectations().projections());
-    var reconciled = new JavaSourceCoverageReconciler(inventory, attributed, program, aggregate,
-        new DiagnosticEmissions(emissions)).reconcileRetained(original.languageFeatureCoverage(), evidence.outcomes());
-    return new SyntaxAnalysisInput(original.snapshot(), original.environmentSnapshot(), program, aggregate, reconciled.diagnostics(), reconciled.coverageResult());
+    ReconciledCoverage reconcile(SourceCoverageInventory written, AttributedCoverageExpectations expectations,
+        JavaProgram program, Optional<JavaAstAggregate> aggregate, DiagnosticEmissions creating) {
+      return new JavaSourceCoverageReconciler(written, expectations, program, aggregate, creating)
+          .reconcile(original.languageFeatureCoverage(), trees, types, writtenProperties, attributedProperties);
+    }
+
+    public SyntaxAnalysisInput withFacts(JavaProgram program, Optional<JavaAstAggregate> aggregate) {
+      return withFacts(program, aggregate, emissions);
+    }
+
+    public SyntaxAnalysisInput withInventoryFacts(SourceCoverageInventory suppliedInventory, JavaProgram program, Optional<JavaAstAggregate> aggregate) {
+      var expectations = new AttributedCoverageExpectations(suppliedInventory, attributed.projections());
+      var reconciled = reconcile(suppliedInventory, expectations, program, aggregate, emissions);
+      return new SyntaxAnalysisInput(original.snapshot(), original.environmentSnapshot(), program, aggregate, reconciled.diagnostics(), reconciled.coverageResult());
+    }
+
+    SyntaxAnalysisInput withFacts(JavaProgram program, Optional<JavaAstAggregate> aggregate, DiagnosticEmissions creating) {
+      var reconciled = reconcile(program, aggregate, creating);
+      return new SyntaxAnalysisInput(original.snapshot(), original.environmentSnapshot(), program, aggregate, reconciled.diagnostics(), reconciled.coverageResult());
+    }
   }
 }

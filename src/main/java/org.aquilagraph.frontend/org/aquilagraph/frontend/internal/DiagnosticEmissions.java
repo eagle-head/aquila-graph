@@ -7,18 +7,18 @@ import java.util.Objects;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.DiagnosticEmission;
 
-/** Immutable, ordered creating-site events returned by a translation operation. */
-record DiagnosticEmissions(List<DiagnosticEmission> events) {
+/** Immutable, ordered creating-site entries returned by a translation operation. */
+record DiagnosticEmissions(List<DiagnosticEntry> entries) {
   DiagnosticEmissions {
-    Objects.requireNonNull(events, "events");
-    var retained = new LinkedHashMap<DiagnosticEmission.Address, DiagnosticEmission>();
-    for (var event : events) {
-      var existing = retained.putIfAbsent(event.address(), event);
-      if (existing != null && !existing.equals(event)) {
-        throw new IllegalArgumentException("One creating address cannot identify different diagnostic events");
+    Objects.requireNonNull(entries, "entries");
+    var retained = new LinkedHashMap<DiagnosticEmission.Address, DiagnosticEntry>();
+    for (var entry : entries) {
+      var existing = retained.putIfAbsent(entry.event().address(), entry);
+      if (existing != null && !existing.equals(entry)) {
+        throw new IllegalArgumentException("One creating address cannot identify different diagnostic entries");
       }
     }
-    events = List.copyOf(retained.values());
+    entries = List.copyOf(retained.values());
   }
 
   static DiagnosticEmissions empty() {
@@ -26,14 +26,18 @@ record DiagnosticEmissions(List<DiagnosticEmission> events) {
   }
 
   static DiagnosticEmissions combine(DiagnosticEmissions... groups) {
-    var events = new ArrayList<DiagnosticEmission>();
+    var entries = new ArrayList<DiagnosticEntry>();
     for (var group : groups) {
-      events.addAll(group.events());
+      entries.addAll(group.entries());
     }
-    return new DiagnosticEmissions(events);
+    return new DiagnosticEmissions(entries);
+  }
+
+  List<DiagnosticEmission> events() {
+    return entries.stream().map(DiagnosticEntry::event).toList();
   }
 
   List<AnalysisDiagnostic> diagnostics() {
-    return events.stream().map(DiagnosticEmission::diagnostic).toList();
+    return entries.stream().map(entry -> entry.event().diagnostic()).toList();
   }
 }

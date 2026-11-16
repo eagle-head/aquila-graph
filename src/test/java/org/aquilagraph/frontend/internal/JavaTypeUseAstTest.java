@@ -22,6 +22,7 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.application.AnalysisCompletion;
 
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.DiagnosticSeverity;
 import org.aquilagraph.source.api.JavaTypeCategory;
@@ -899,13 +900,15 @@ class JavaTypeUseAstTest {
 
       for (var index = 0; index < states.size(); index++) {
         // Arrange
-        var diagnostics = JavaCoverageTestSupport.collector(baseline, "type-use-observation");
+        var captured = JavaCoverageTestSupport.capture(baseline, AstProfile.JAVA_SOURCE_BOUNDED);
+      var diagnostics = new DiagnosticEmissionCollector("type-use-observation", "supplied-type-use", DiagnosticSubject.None.INSTANCE);
+      diagnostics.include(captured.emissions());
         var baselineCount = diagnostics.emissionCount();
 
         // Act
         var translated = translator.translateAttributed(unit, sources.find(unit).orElseThrow(), typeTree,
             TreePath.getPath(unit, typeTree), path, path, states.get(index), diagnostics).value().orElseThrow();
-        var analysisInput = JavaCoverageTestSupport.withFacts(baseline, baseline.program(), baseline.aggregate(), diagnostics.snapshot().events());
+        var analysisInput = captured.withFacts(baseline.program(), baseline.aggregate(), diagnostics.snapshot());
         var completion = new SourceAnalysisFixture().analyze(analysisInput).completion();
 
         // Assert
@@ -943,12 +946,14 @@ class JavaTypeUseAstTest {
       var knownType = (SyntaxType.Resolved) compilation.semantics().explicitType(TreePath.getPath(unit, typeTree));
       var type = new SyntaxType.StructureUnavailable(knownType.identity());
       var translator = new JavaTypeUseTranslator(compilation.semantics(), compilation.sourceEvidence(), parsed.treeInventory());
-      var diagnostics = JavaCoverageTestSupport.collector(baseline, "type-use-observation");
+      var captured = JavaCoverageTestSupport.capture(baseline, AstProfile.JAVA_SOURCE_BOUNDED);
+      var diagnostics = new DiagnosticEmissionCollector("type-use-observation", "supplied-type-use", DiagnosticSubject.None.INSTANCE);
+      diagnostics.include(captured.emissions());
 
       // Act
       var translated = translator.translateAttributed(unit, sources.find(unit).orElseThrow(), typeTree,
           TreePath.getPath(unit, typeTree), path, path, type, diagnostics).value();
-      var analysisInput = JavaCoverageTestSupport.withFacts(baseline, baseline.program(), baseline.aggregate(), diagnostics.snapshot().events());
+      var analysisInput = captured.withFacts(baseline.program(), baseline.aggregate(), diagnostics.snapshot());
       var completion = new SourceAnalysisFixture().analyze(analysisInput).completion();
 
       // Assert

@@ -43,7 +43,7 @@ final class JavaProgramTranslator {
     Objects.requireNonNull(snapshot, "snapshot");
     Objects.requireNonNull(units, "units");
     var types = new ArrayList<JavaType>();
-    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, "input-program-translation");
+    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, "input-program-translation", DiagnosticSubject.None.INSTANCE);
     var unitsBySource = new HashMap<String, CompilationUnitTree>();
     var translatedTypeKeys = new HashSet<String>();
     for (var unit : units) {

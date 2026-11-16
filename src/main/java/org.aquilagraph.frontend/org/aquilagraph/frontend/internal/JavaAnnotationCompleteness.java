@@ -42,7 +42,7 @@ final class JavaAnnotationCompleteness {
   private final JavaAnnotationValues values;
   private final List<AnalysisDiagnostic> priorDiagnostics;
   private final DiagnosticEmissionCollector reconciliationDiagnostics = new DiagnosticEmissionCollector("JavaAnnotationCompleteness",
-      "input-annotation-reconciliation");
+      "input-annotation-reconciliation", DiagnosticSubject.None.INSTANCE);
   private final Set<String> checked = new HashSet<>();
 
   JavaAnnotationCompleteness(JavaAnnotationSourceInventory inventory, SemanticResolver semantics,

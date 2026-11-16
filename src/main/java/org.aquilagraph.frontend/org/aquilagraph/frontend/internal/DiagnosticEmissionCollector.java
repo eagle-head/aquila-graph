@@ -12,21 +12,23 @@ import org.aquilagraph.source.api.DiagnosticEmission;
 final class DiagnosticEmissionCollector {
   private final String producer;
   private final String producingOwner;
-  private final Map<DiagnosticEmission.Address, DiagnosticEmission> retained = new LinkedHashMap<>();
+  private final DiagnosticSubject subject;
+  private final Map<DiagnosticEmission.Address, DiagnosticEntry> retained = new LinkedHashMap<>();
   private final Map<String, Long> nextOrdinals;
 
-  DiagnosticEmissionCollector(String producer, String producingOwner) {
-    this(producer, producingOwner, new HashMap<>());
+  DiagnosticEmissionCollector(String producer, String producingOwner, DiagnosticSubject subject) {
+    this(producer, producingOwner, subject, new HashMap<>());
   }
 
-  private DiagnosticEmissionCollector(String producer, String producingOwner, Map<String, Long> nextOrdinals) {
+  private DiagnosticEmissionCollector(String producer, String producingOwner, DiagnosticSubject subject, Map<String, Long> nextOrdinals) {
     this.producer = Objects.requireNonNull(producer, "producer");
     this.producingOwner = Objects.requireNonNull(producingOwner, "producingOwner");
+    this.subject = Objects.requireNonNull(subject, "subject");
     this.nextOrdinals = Objects.requireNonNull(nextOrdinals, "nextOrdinals");
   }
 
   DiagnosticEmissionCollector newBatch() {
-    return new DiagnosticEmissionCollector(producer, producingOwner, nextOrdinals);
+    return new DiagnosticEmissionCollector(producer, producingOwner, subject, nextOrdinals);
   }
 
   DiagnosticEmission emit(AnalysisDiagnostic diagnostic) {
@@ -38,19 +40,20 @@ final class DiagnosticEmissionCollector {
     var address = new DiagnosticEmission.Address(creatingSite, producingOwner, Math.toIntExact(ordinal));
     var event = new DiagnosticEmission(address, diagnostic, diagnostic.outcomeKind(), List.of(), -1);
     nextOrdinals.put(creatingSite, ordinal + 1);
-    retained.put(address, event);
+    retained.put(address, new DiagnosticEntry(event, subject));
     return event;
   }
 
   void include(DiagnosticEmissions emissions) {
-    for (var event : emissions.events()) {
-      var existing = retained.get(event.address());
-      if (existing != null && !existing.equals(event)) {
-        throw new IllegalArgumentException("One creating address cannot identify different diagnostic events");
+    for (var entry : emissions.entries()) {
+      var existing = retained.get(entry.event().address());
+      if (existing != null && !existing.equals(entry)) {
+        throw new IllegalArgumentException("One creating address cannot identify different diagnostic entries");
       }
     }
-    for (var event : emissions.events()) {
-      retained.putIfAbsent(event.address(), event);
+    for (var entry : emissions.entries()) {
+      var event = entry.event();
+      retained.putIfAbsent(event.address(), entry);
       if (event.address().owner().equals(producingOwner)) {
         nextOrdinals.merge(event.address().producer(), event.address().ordinal() + 1L, Math::max);
       }

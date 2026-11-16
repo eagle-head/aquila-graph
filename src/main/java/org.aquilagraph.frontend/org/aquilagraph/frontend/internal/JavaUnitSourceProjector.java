@@ -63,7 +63,7 @@ final class JavaUnitSourceProjector {
 
   TranslationResult<Optional<SyntaxNode>> project(CompilationUnitTree unit, SourceFile sourceFile, List<TranslatedMethodBody> bodies,
       List<JavaType> declaredTypes) {
-    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, sourceFile.sourceFileKey());
+    var diagnostics = new DiagnosticEmissionCollector(DIAGNOSTIC_PRODUCER, sourceFile.sourceFileKey(), DiagnosticSubject.None.INSTANCE);
     try {
       return new TranslationResult<>(projectUnit(unit, sourceFile, bodies, declaredTypes, diagnostics), diagnostics.snapshot());
     } catch (JavaSourceProjectionFailure failure) {

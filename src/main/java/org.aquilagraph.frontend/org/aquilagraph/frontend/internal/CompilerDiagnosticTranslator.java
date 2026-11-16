@@ -23,7 +23,8 @@ final class CompilerDiagnosticTranslator {
 
   DiagnosticEmissions translate(List<Diagnostic<? extends JavaFileObject>> compilerDiagnostics) {
     Objects.requireNonNull(compilerDiagnostics, "compilerDiagnostics");
-    var diagnostics = new DiagnosticEmissionCollector("CompilerDiagnosticTranslator", "input-compiler-diagnostics");
+    var diagnostics = new DiagnosticEmissionCollector("CompilerDiagnosticTranslator", "input-compiler-diagnostics",
+        DiagnosticSubject.None.INSTANCE);
     compilerDiagnostics.forEach(diagnostic -> diagnostics.emit("CompilerDiagnosticTranslator", translate(diagnostic)));
     return diagnostics.snapshot();
   }

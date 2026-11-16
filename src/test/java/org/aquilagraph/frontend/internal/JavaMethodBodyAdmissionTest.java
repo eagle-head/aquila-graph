@@ -54,13 +54,13 @@ import javax.tools.JavaFileObject;
 import javax.tools.ToolProvider;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AggregateFixture;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.frontend.internal.JavaExecutableSyntaxProjector.NodeProjection;
 import org.aquilagraph.source.api.AnnotationScalar;
 import org.aquilagraph.source.api.NormalizedExpressionCorrespondence;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.JavaType;
@@ -315,7 +315,7 @@ class JavaMethodBodyAdmissionTest {
       var fieldPath = TreePath.getPath(unit, field);
       var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0).child(SyntaxRole.MEMBER, 0);
       var policy = JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_INITIALIZATION);
-      var diagnostics = new DiagnosticEmissionCollector("field-initialization", source.sourceFileKey());
+      var diagnostics = new DiagnosticEmissionCollector("field-initialization", source.sourceFileKey(), DiagnosticSubject.None.INSTANCE);
       var associations = new JavaWrittenSourceAssociations(inventory);
       var scope = new JavaDeclarationScope();
       var headers = new JavaDeclarationHeaderProjector(semantics, fixture.evidence(), inventory, new JavaAnnotationMirrorCorrelation(semantics),
@@ -368,7 +368,7 @@ class JavaMethodBodyAdmissionTest {
       var type = (ClassTree) unit.getTypeDecls().getFirst();
       var fields = type.getMembers().stream().filter(VariableTree.class::isInstance).map(VariableTree.class::cast).toList();
       var policy = JavaTranslationPolicy.forProfile(AstProfile.JAVA_SOURCE_INITIALIZATION);
-      var diagnostics = new DiagnosticEmissionCollector("field-initialization", source.sourceFileKey());
+      var diagnostics = new DiagnosticEmissionCollector("field-initialization", source.sourceFileKey(), DiagnosticSubject.None.INSTANCE);
       var associations = new JavaWrittenSourceAssociations(inventory);
       var scope = new JavaDeclarationScope();
       var headers = new JavaDeclarationHeaderProjector(semantics, fixture.evidence(), inventory, new JavaAnnotationMirrorCorrelation(semantics),

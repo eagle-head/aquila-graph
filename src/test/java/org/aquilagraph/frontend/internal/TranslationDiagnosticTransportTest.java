@@ -56,6 +56,38 @@ class TranslationDiagnosticTransportTest {
   private static final String VALUE_PRODUCER = "JavaAnnotationValueProjector";
   @TempDir Path sourceRoot;
 
+  @Test
+  void givenUnsupportedInitializerAndErroneousFieldAndParameterTypes_whenRealTranslationComposes_thenSubjectsIdentifyDeclarationsIndependentlyOfDiagnosticContext()
+      throws IOException {
+    // Arrange
+    withCompilation("class Sample { static {} MissingField field; void method(MissingParameter parameter) {} }", fixture -> {
+      // Act
+      var translation = programTranslation(fixture);
+      var entries = translation.emissions().entries();
+      var type = translation.value().program().types().stream().filter(value -> value.qualifiedName().equals("Sample"))
+          .findFirst().orElseThrow();
+      var field = type.fields().stream().filter(value -> value.name().equals("field")).findFirst().orElseThrow();
+      var method = type.methods().stream().filter(value -> value.name().equals("method")).findFirst().orElseThrow();
+      var declaration = entries.stream().filter(entry -> entry.event().diagnostic().code().equals("frontend.unsupported-initializer"))
+          .findFirst().orElseThrow();
+      var fieldEntry = entries.stream().filter(entry -> entry.event().diagnostic().code().equals("frontend.error-field-type"))
+          .findFirst().orElseThrow();
+      var parameter = entries.stream().filter(entry -> entry.event().diagnostic().code().equals("frontend.error-parameter-type"))
+          .findFirst().orElseThrow();
+      var compiler = new CompilerDiagnosticTranslator(fixture.sources()).translate(fixture.compilation().diagnostics());
+
+      // Assert
+      assertEquals(new DiagnosticSubject.Declaration(type.typeKey()), declaration.subject());
+      assertEquals(new DiagnosticSubject.Declaration(field.fieldKey()), fieldEntry.subject());
+      assertEquals(new DiagnosticSubject.Declaration(method.methodKey()), parameter.subject());
+      assertNotEquals(new DiagnosticSubject.Declaration(method.parameters().getFirst().parameterKey()), parameter.subject());
+      assertFalse(compiler.entries().isEmpty());
+      assertTrue(compiler.entries().stream().allMatch(entry -> entry.subject() == DiagnosticSubject.None.INSTANCE));
+      assertTrue(compiler.events().stream().allMatch(event -> !event.diagnostic().origins().isEmpty()));
+      assertEquals(translation.diagnostics(), entries.stream().map(entry -> entry.event().diagnostic()).toList());
+    });
+  }
+
   @TestFactory
   Stream<DynamicTest> givenEmittingNestedDeclarationsAcrossSourceOperations_whenPublicProductionCloses_thenAllocationAndFinalEvidenceRemainDistinct() {
     return Stream.of(
@@ -270,6 +302,9 @@ class TranslationDiagnosticTransportTest {
       assertEquals(program.diagnostics(), program.emissions().events().stream().map(DiagnosticEmission::diagnostic).toList());
       assertEquals(eventsFrom(body, BODY_PRODUCER), eventsFrom(method, BODY_PRODUCER));
       assertEquals(eventsFrom(declaration, BODY_PRODUCER), emitted);
+      assertEquals(List.of(DiagnosticSubject.None.INSTANCE, DiagnosticSubject.None.INSTANCE, DiagnosticSubject.None.INSTANCE),
+          program.emissions().entries().stream().filter(entry -> entry.event().address().producer().equals(BODY_PRODUCER))
+              .map(DiagnosticEntry::subject).toList());
     });
   }
 
@@ -318,6 +353,10 @@ class TranslationDiagnosticTransportTest {
       assertEquals(expected, addresses(childEvents), () -> child.diagnostics().toString());
       assertEquals(expected, addresses(parentEvents), () -> program.diagnostics().toString());
       assertEquals(childEvents, parentEvents);
+      assertEquals(List.of(DiagnosticSubject.None.INSTANCE, DiagnosticSubject.None.INSTANCE), child.emissions().entries().stream()
+          .filter(entry -> entry.event().address().producer().equals(VALUE_PRODUCER)).map(DiagnosticEntry::subject).toList());
+      assertEquals(List.of(DiagnosticSubject.None.INSTANCE, DiagnosticSubject.None.INSTANCE), program.emissions().entries().stream()
+          .filter(entry -> entry.event().address().producer().equals(VALUE_PRODUCER)).map(DiagnosticEntry::subject).toList());
       assertEquals(expectedOrigins, parentEvents.stream().map(event -> event.diagnostic().origins().getFirst()).toList());
       for (var event : parentEvents) {
         assertEquals("frontend.incomplete-nested-annotation", event.diagnostic().code());

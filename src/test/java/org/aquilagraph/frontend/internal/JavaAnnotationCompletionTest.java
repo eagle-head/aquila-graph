@@ -3,8 +3,8 @@ package org.aquilagraph.frontend.internal;
 import java.util.Optional;
 import java.util.List;
 import org.aquilagraph.source.internal.SourceValueCapture;
-import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.admission.AnnotationAttachmentAdmission;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -169,7 +169,7 @@ class JavaAnnotationCompletionTest {
 
       // Act
       var diagnostics = reconcile(fixture, damaged);
-      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(damaged), diagnostics.events());
+      var input = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(damaged), diagnostics);
 
       // Assert
       assertEquals("Coverage outcomes must exactly match the independent context inventory in order", removedBundle.getMessage());
@@ -491,7 +491,7 @@ class JavaAnnotationCompletionTest {
 
       // Act
       var diagnostics = reconcile(fixture, damaged);
-      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(damaged), diagnostics.events());
+      var input = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(damaged), diagnostics);
 
       // Assert
       assertEquals(List.of(), fixture.inventory().annotations());
@@ -515,7 +515,7 @@ class JavaAnnotationCompletionTest {
 
       // Act
       var diagnostics = reconcile(fixture, damaged);
-      var input = JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(damaged), diagnostics.events());
+      var input = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(damaged), diagnostics);
 
       // Assert
       assertEquals(List.of(), fixture.inventory().annotations());

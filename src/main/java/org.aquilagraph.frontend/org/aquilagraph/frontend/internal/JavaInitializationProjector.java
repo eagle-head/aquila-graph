@@ -201,7 +201,7 @@ final class JavaInitializationProjector {
 
   private void retainEnum(EnumRegistration constant, SyntaxNode node, DiagnosticEmissionCollector diagnostics) {
     var value = constant.value();
-    var emissions = new DiagnosticEmissionCollector("JavaBodyDecisionProducer", value.declarationKey());
+    var emissions = new DiagnosticEmissionCollector("JavaBodyDecisionProducer", value.declarationKey(), DiagnosticSubject.None.INSTANCE);
     var selection = invocations.enumConstant(value.declarationKey(), node, constant.creationPath(), constant.constructor(), emissions);
     diagnostics.include(emissions.snapshot());
     var uses = new ArrayList<>(constant.decisions().uses());

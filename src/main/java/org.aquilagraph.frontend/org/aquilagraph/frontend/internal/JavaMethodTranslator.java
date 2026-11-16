@@ -23,7 +23,8 @@ final class JavaMethodTranslator {
       MethodTree methodTree) {
     var declaration = declarations.translate(unit, classPath, sourceFile, ownerTypeKey, methodTree);
     var method = declaration.value();
-    var diagnostics = new DiagnosticEmissionCollector("JavaMethodTranslator", method.methodKey() + ":declaration");
+    var diagnostics = new DiagnosticEmissionCollector("JavaMethodTranslator", method.methodKey() + ":declaration",
+        new DiagnosticSubject.Declaration(method.methodKey()));
     diagnostics.include(declaration.emissions());
     var body = Optional.<TranslatedMethodBody>empty();
     if (methodTree.getBody() != null) {

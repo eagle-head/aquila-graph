@@ -16,8 +16,8 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.internal.AstResultAdmission;
-import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.JavaMethod;
 import org.aquilagraph.source.api.JavaProgram;
 import org.aquilagraph.source.api.JavaType;
@@ -54,8 +54,7 @@ class CanonicalMethodAdmissionTest {
 
     // Act
     assertThrows(IllegalArgumentException.class, () -> {
-      var supplied = JavaCoverageTestSupport.withFacts(original, program, Optional.of(original.aggregate().orElseThrow()),
-          JavaCoverageTestSupport.emissions(original));
+      var supplied = JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(program, Optional.of(original.aggregate().orElseThrow()));
       assertEquals(original.languageFeatureCoverageResult().validationEvidence().writtenInventory(),
           supplied.languageFeatureCoverageResult().validationEvidence().writtenInventory());
       assertEquals(original.languageFeatureCoverageResult().validationEvidence().attributedExpectations(),

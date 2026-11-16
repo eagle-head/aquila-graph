@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.function.UnaryOperator;
 import org.aquilagraph.frontend.internal.JavaCoverageTestSupport;
 import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.SyntaxSourceContribution;
 import org.aquilagraph.source.api.WrittenSourceAssociation;
@@ -39,7 +40,6 @@ import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.api.AstProductionRequest;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.AttributedCoverageExpectations;
 import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
@@ -388,7 +388,7 @@ class ModuleServiceAdmissionTest {
   }
 
   private static AstResult admitted(AstResult original, JavaAstAggregate aggregate) {
-    var changed = JavaCoverageTestSupport.withFacts(input(original, original.coverage()), original.program(), Optional.of(aggregate), original.coverage().validationEvidence().diagnosticEmissions());
+    var changed = JavaCoverageTestSupport.capture(input(original, original.coverage()), original.profile()).withFacts(original.program(), Optional.of(aggregate));
     return AstResultAdmission.admit(changed, original.profile(), original.identity().semanticProductionRevision());
   }
 

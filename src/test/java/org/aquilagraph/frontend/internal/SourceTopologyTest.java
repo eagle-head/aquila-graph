@@ -22,6 +22,7 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.CoverageFactReference;
 import org.aquilagraph.source.api.CoverageFactValue;
 import org.aquilagraph.source.api.CoverageSourceFact;
@@ -325,15 +326,10 @@ class SourceTopologyTest {
         associations.getLast().nodeKey(), associations.getFirst().ownerPath());
     var changed = changedAssociations(input, association -> swaps.containsKey(association.nodeKey())
         ? association(association, swaps.get(association.nodeKey())) : association);
-    var evidence = input.languageFeatureCoverageResult().validationEvidence();
-    var reconciler = new JavaSourceCoverageReconciler(evidence.writtenInventory(), evidence.attributedExpectations(), input.program(),
-        Optional.of(changed), new DiagnosticEmissions(evidence.diagnosticEmissions()));
+    var captured = JavaCoverageTestSupport.capture(input, AstProfile.JAVA_SOURCE_BOUNDED);
 
     // Act
-    var failure = assertThrows(IllegalArgumentException.class, () -> {
-      var result = reconciler.reconcileRetained(input.languageFeatureCoverage(), evidence.outcomes());
-      new SyntaxAnalysisInput(input.snapshot(), input.environmentSnapshot(), input.program(), Optional.of(changed), result.diagnostics(), result.coverageResult());
-    });
+    var failure = assertThrows(IllegalArgumentException.class, () -> captured.withFacts(input.program(), Optional.of(changed)));
 
     // Assert
     assertTrue(failure.getMessage().contains("parent"), failure::getMessage);

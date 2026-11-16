@@ -22,6 +22,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import javax.tools.ToolProvider;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.identity.api.CompilerConfiguration;
@@ -31,7 +32,6 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProductionRequest;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.ResolutionStatus;
 import org.aquilagraph.source.api.SourceInput;
@@ -379,7 +379,7 @@ class JavaModuleServiceEndpointTest {
       var compilation = session.analyze(parsed, policy);
       var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, parsed.treeInventory(), policy).translate(snapshot, compilation.units());
       var input = new SyntaxAnalysisInput(baseline.snapshot(), baseline.environment(), baseline.program(), Optional.of(baseline.aggregate()), baseline.diagnostics(), baseline.coverage());
-      var altered = JavaCoverageTestSupport.withFacts(input, translated.value().program(), translated.value().aggregate(), translated.emissions().events());
+      var altered = JavaCoverageTestSupport.capture(input, profile).withFacts(translated.value().program(), translated.value().aggregate(), translated.emissions());
       var outcome = AstProductionAdmission.outcome(altered, profile, policy.semanticRevision());
       // Assert
       assertEquals(1, captured.inventory().contexts().stream().filter(context -> context.address().partition() == SourceContext.Partition.MODULE_ENDPOINT && context.origins().isEmpty()).count());
@@ -401,8 +401,10 @@ class JavaModuleServiceEndpointTest {
             ? new AttributedCoverageExpectations.Projection(projection.address(), ModuleServiceFacts.targetValue(other.declarationKey()), Optional.empty())
             : projection).toList();
     var attributed = new AttributedCoverageExpectations(evidence.writtenInventory(), projections);
-    var reconciled = new JavaSourceCoverageReconciler(evidence.writtenInventory(), attributed, original.program(), Optional.of(original.aggregate()),
-        new DiagnosticEmissions(evidence.diagnosticEmissions())).reconcileRetained(original.coverage().coverage(), evidence.outcomes());
+    var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
+        original.diagnostics(), original.coverage());
+    var captured = JavaCoverageTestSupport.capture(input, original.profile());
+    var reconciled = captured.reconcile(evidence.writtenInventory(), attributed, original.program(), Optional.of(original.aggregate()), captured.emissions());
     var endpoints = reconciled.coverageResult().validationEvidence().outcomes().stream()
         .filter(outcome -> outcome.address().partition() == SourceContext.Partition.MODULE_ENDPOINT).toList();
     assertEquals(3, endpoints.size());

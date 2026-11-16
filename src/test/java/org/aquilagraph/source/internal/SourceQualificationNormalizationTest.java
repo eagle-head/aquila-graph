@@ -20,8 +20,8 @@ import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
-import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.NormalizedExpressionCorrespondence;
 import org.aquilagraph.source.api.SourceQualificationReason;
@@ -81,8 +81,7 @@ class SourceQualificationNormalizationTest {
               .filter(value -> value.compilerOwner().equals(region.compilerOwner()) && value.origin().equals(region.origin()))
               .findFirst().orElse(region)).toList());
           var inventory = new SourceCoverageInventory(before.snapshot(), before.release(), before.contractIdentity(), before.contexts(), regions);
-          var input = JavaCoverageTestSupport.withFacts(SourceValueCapture.capture(original), original.program(), Optional.of(aggregate),
-              original.coverage().validationEvidence().diagnosticEmissions(), inventory);
+          var input = JavaCoverageTestSupport.capture(SourceValueCapture.capture(original), original.profile()).withInventoryFacts(inventory, original.program(), Optional.of(aggregate));
 
           // Act
           var result = AstResultAdmission.admit(input, original.profile(), original.identity().semanticProductionRevision());

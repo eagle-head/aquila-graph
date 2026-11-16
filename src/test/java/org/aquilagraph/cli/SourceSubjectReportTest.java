@@ -34,7 +34,7 @@ class SourceSubjectReportTest {
         copied.associations(), copied.declarationTypes(), copied.scopes()));
     var input = new SyntaxAnalysisInput(original.snapshot(), original.environment(), original.program(), Optional.of(original.aggregate()),
         original.diagnostics(), original.coverage());
-    var reconciled = JavaCoverageTestSupport.withFacts(input, input.program(), Optional.of(aggregate), JavaCoverageTestSupport.emissions(input));
+    var reconciled = JavaCoverageTestSupport.capture(input, original.profile()).withFacts(input.program(), Optional.of(aggregate));
     var ast = AstProductionAdmission.outcome(reconciled, original.profile(), original.identity().semanticProductionRevision());
     var run = CliTestFixtures.analyze(ast);
 

@@ -44,6 +44,7 @@ import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
 import org.aquilagraph.identity.api.StableId;
 import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.DiagnosticSeverity;
@@ -52,7 +53,6 @@ import org.aquilagraph.source.api.JavaType;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.MethodBodyOrigin;
 import org.aquilagraph.source.internal.AstResultAdmission;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.SourceQualificationReason;
 import org.aquilagraph.source.api.AstOutcome;
@@ -105,7 +105,7 @@ class JavaAstSourcePositionTest {
       };
       var translated = new JavaProgramTranslator(sources, compilation.semantics(), new JavaSourceEvidence(positions),
           compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
-      var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(), translated.value().aggregate(), translated.emissions().events());
+      var input = JavaCoverageTestSupport.capture(baseline, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(translated.value().program(), translated.value().aggregate(), translated.emissions());
       var ast = AstResultAdmission.admit(input, AstProfile.JAVA_SOURCE_BOUNDED, "javac-public/1");
       var unavailable = ast.program().methods().stream().filter(method -> method.name().equals("unavailable")).findFirst().orElseThrow();
       var available = ast.program().methods().stream().filter(method -> method.name().equals("available")).findFirst().orElseThrow();
@@ -267,8 +267,7 @@ class JavaAstSourcePositionTest {
       for (var position : cases) {
         var evidence = new JavaSourceEvidence(new FixedPositions(position.start(), position.end()));
         var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
-        var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
-            translated.value().aggregate(), translated.emissions().events());
+        var input = JavaCoverageTestSupport.capture(baseline, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(translated.value().program(), translated.value().aggregate(), translated.emissions());
         // Act
         var run = new SourceAnalysisFixture().analyze(input);
 
@@ -529,10 +528,11 @@ class JavaAstSourcePositionTest {
       // Act
       var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
       var aggregate = translated.value().aggregate().orElseThrow();
-      var diagnostics = JavaCoverageTestSupport.collector(baseline, "source-position-observation");
+      var captured = JavaCoverageTestSupport.capture(baseline, AstProfile.JAVA_SOURCE_BOUNDED);
+      var diagnostics = new DiagnosticEmissionCollector("source-position-observation", "supplied-type-use", DiagnosticSubject.None.INSTANCE);
+      diagnostics.include(captured.emissions());
       diagnostics.include(translated.emissions());
-      var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
-          translated.value().aggregate(), diagnostics.snapshot().events());
+      var input = captured.withFacts(translated.value().program(), translated.value().aggregate(), diagnostics.snapshot());
       var run = new SourceAnalysisFixture().analyze(input);
 
       // Assert
@@ -743,7 +743,7 @@ class JavaAstSourcePositionTest {
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, emptyInventory, JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, bodyTranslator);
       var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
-      var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics");
+      var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics", DiagnosticSubject.None.INSTANCE);
 
       // Act
       var synthesized = translator.reconcileEnclosedDeclarations(fixture.unit(), classPath, declaration, owner,
@@ -776,7 +776,7 @@ class JavaAstSourcePositionTest {
       var bodyTranslator = new JavaMethodBodyTranslator(fixture.semantics(), evidence, fixture.inventory(), JavaExecutableProjectionContext.metadata(JavaTranslationPolicy.legacyAnalysis()));
       var methodTranslator = new JavaMethodTranslator(fixture.semantics(), evidence, emptyInventory, bodyTranslator);
       var translator = new JavaTypeTranslator(fixture.semantics(), evidence, emptyInventory, methodTranslator, JavaTranslationPolicy.legacyAnalysis());
-      var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics");
+      var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics", DiagnosticSubject.None.INSTANCE);
 
       // Act
       var synthesized = translator.reconcileEnclosedDeclarations(fixture.unit(), classPath, declaration, owner,
@@ -967,8 +967,7 @@ class JavaAstSourcePositionTest {
       for (var position : cases) {
         var evidence = new JavaSourceEvidence(new MissingPositions(actualPositions, List.of(position.tree())));
         var translated = new JavaProgramTranslator(sources, compilation.semantics(), evidence, compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis()).translate(snapshot, compilation.units());
-        var input = JavaCoverageTestSupport.withFacts(baseline, translated.value().program(),
-            translated.value().aggregate(), translated.emissions().events());
+        var input = JavaCoverageTestSupport.capture(baseline, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(translated.value().program(), translated.value().aggregate(), translated.emissions());
         var run = new SourceAnalysisFixture().analyze(input);
 
         // Assert

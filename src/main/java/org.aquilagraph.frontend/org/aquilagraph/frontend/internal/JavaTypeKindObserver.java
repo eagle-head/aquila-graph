@@ -49,7 +49,7 @@ final class JavaTypeKindObserver {
     Objects.requireNonNull(units, "units");
     var occurrences = new ArrayList<LanguageFeatureOccurrence>();
     var observations = new ArrayList<LanguageFeatureObservation>();
-    var diagnostics = new DiagnosticEmissionCollector("JavaTypeKindObserver", "input-type-scan");
+    var diagnostics = new DiagnosticEmissionCollector("JavaTypeKindObserver", "input-type-scan", DiagnosticSubject.None.INSTANCE);
     var scanner = new HeaderScanner(occurrences, observations, diagnostics);
     for (var unit : units) {
       scanner.observeUnit(unit, sourceFor(unit));

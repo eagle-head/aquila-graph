@@ -19,6 +19,7 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.CoverageFactReference;
 import org.aquilagraph.source.api.CoveragePropertyValue;
@@ -244,8 +245,7 @@ class CoverageFactOwnershipTest {
   }
 
   private static SyntaxAnalysisInput reconcile(SyntaxAnalysisInput original, JavaAstAggregate changed) {
-    return JavaCoverageTestSupport.withFacts(original, original.program(), Optional.of(changed),
-        JavaCoverageTestSupport.emissions(original));
+    return JavaCoverageTestSupport.capture(original, AstProfile.JAVA_SOURCE_BOUNDED).withFacts(original.program(), Optional.of(changed));
   }
 
   private static FeatureContextOutcome enclosedOutcome(SyntaxAnalysisInput input) {

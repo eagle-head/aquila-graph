@@ -20,8 +20,8 @@ import java.util.Optional;
 import javax.lang.model.element.ExecutableElement;
 import javax.tools.ToolProvider;
 import org.aquilagraph.source.internal.SourceAnalysisFixture;
-import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
+import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceSpan;
@@ -214,8 +214,8 @@ class JavaAnnotationDefaultAstTest {
           compilation.treeInventory());
       var path = SyntaxStructuralPath.sourceFileRoot().child(SyntaxRole.TYPE_DECLARATION, 0)
           .child(SyntaxRole.MEMBER, 0).child(SyntaxRole.DEFAULT_VALUE, 0);
-      var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics");
-      var callerDiagnostics = new DiagnosticEmissionCollector("source-observation", "callerDiagnostics");
+      var diagnostics = new DiagnosticEmissionCollector("source-observation", "diagnostics", DiagnosticSubject.None.INSTANCE);
+      var callerDiagnostics = new DiagnosticEmissionCollector("source-observation", "callerDiagnostics", DiagnosticSubject.None.INSTANCE);
       var translator = new UnitSourceFixture(compilation.semantics(), parsed.sourceEvidence(),
           compilation.treeInventory(), JavaTranslationPolicy.legacyAnalysis());
 

@@ -34,7 +34,8 @@ final class JavaTypeUseCompleteness {
       }
     });
 
-    var diagnostics = new DiagnosticEmissionCollector("JavaTypeUseCompleteness", "input-type-use-reconciliation");
+    var diagnostics = new DiagnosticEmissionCollector("JavaTypeUseCompleteness", "input-type-use-reconciliation",
+        DiagnosticSubject.None.INSTANCE);
     var sourceKindOrdinals = new HashMap<String, Integer>();
     for (var observation : observations) {
       var feature = observation.classification().feature();

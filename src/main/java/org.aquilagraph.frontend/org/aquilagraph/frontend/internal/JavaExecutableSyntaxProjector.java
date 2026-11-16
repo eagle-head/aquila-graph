@@ -181,7 +181,8 @@ final class JavaExecutableSyntaxProjector {
     if (writtenExpression.isPresent()) {
       var expression = writtenExpression.orElseThrow();
       var originalOperands = syntaxProfile.compilerOperands(path, compilerPath);
-      var diagnostics = new DiagnosticEmissionCollector("JavaWrittenExpressionProjector", ownerKey + ':' + structuralPath);
+      var diagnostics = new DiagnosticEmissionCollector("JavaWrittenExpressionProjector", ownerKey + ':' + structuralPath,
+          DiagnosticSubject.None.INSTANCE);
       var projected = new JavaWrittenExpressionProjector(semantics, treeInventory).project(expression, sourceFile, structuralPath, false,
           new CompilerExpressionAnchor.Execution(compilerPath), (anchor, destination) -> {
             var original = Objects.requireNonNull(originalOperands.get(anchor.getLeaf()), "original compiler operand");
@@ -279,7 +280,8 @@ final class JavaExecutableSyntaxProjector {
 
   private DiagnosticEmissionCollector diagnostics(String ownerKey, SyntaxNode node, List<SyntaxTreeTranslation> children,
       Optional<AnalysisDiagnostic> erroneousType) {
-    DiagnosticEmissionCollector diagnostics = new DiagnosticEmissionCollector(diagnosticProducer, ownerKey + ':' + node.structuralPath());
+    DiagnosticEmissionCollector diagnostics = new DiagnosticEmissionCollector(diagnosticProducer, ownerKey + ':' + node.structuralPath(),
+        DiagnosticSubject.None.INSTANCE);
     if (node.syntaxKind() == SyntaxKind.UNSUPPORTED) {
       diagnostics.emit(diagnosticProducer, unsupportedDiagnostic(ownerKey, node));
     } else {

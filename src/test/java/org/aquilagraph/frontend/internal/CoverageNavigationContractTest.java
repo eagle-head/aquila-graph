@@ -30,9 +30,9 @@ import org.aquilagraph.source.admission.CoverageActualFacts;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.admission.CoverageAdmission;
 import org.aquilagraph.source.admission.SyntaxAnalysisInput;
+import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstOutcome;
-import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.AttributedCoverageExpectations;
 import org.aquilagraph.source.api.CoveragePropertyValue;
@@ -151,8 +151,7 @@ class CoverageNavigationContractTest {
     // Act
     var originalMatch = CoverageActualFacts.supportsProperty(context, expected, originalOwners, originalFacts);
     var changedMatch = CoverageActualFacts.supportsProperty(context, expected, changedOwners, changedFacts);
-    var failure = assertThrows(IllegalArgumentException.class, () -> JavaCoverageTestSupport.withFacts(input, original.program(),
-        Optional.of(changed), JavaCoverageTestSupport.emissions(input)));
+    var failure = assertThrows(IllegalArgumentException.class, () -> JavaCoverageTestSupport.capture(input, original.profile()).withFacts(original.program(), Optional.of(changed)));
 
     // Assert
     var changedRoot = changed.roots().stream().filter(root -> root.sourceFileKey().equals(selected.address().sourceFileKey()))
