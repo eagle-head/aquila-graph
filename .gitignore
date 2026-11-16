@@ -4,7 +4,8 @@ books/
 /private-docs/
 /diagrams/
 
-# Local CodeGraph index
+# Local CodeGraph configuration and index
+codegraph.json
 .codegraph/
 
 # Local build leases, recovery journal, and retained baselines
