@@ -1,5 +1,8 @@
 package org.aquilagraph.repository.internal.neo4j;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
@@ -9,7 +12,9 @@ import java.util.Map;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import org.aquilagraph.identity.api.AstIdentity;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.Record;
 import org.neo4j.driver.Result;
@@ -22,6 +27,15 @@ import org.neo4j.driver.Values;
 
 /** Supplies driver protocol outcomes without executing queries or database commits. */
 final class AstRepositoryDriverStub {
+  private static final Pattern AST_NODE_INSERT = Pattern.compile(
+      "UNWIND \\$nodes AS expected CREATE \\(entity:AstEntity:`([^`]+)`\\) SET entity = expected "
+          + "RETURN entity.key AS key, elementId\\(entity\\) AS address");
+  private static final Pattern AST_RELATIONSHIP_INSERT = Pattern.compile(
+      "UNWIND \\$relationships AS item MATCH \\(source\\), \\(target\\) "
+          + "WHERE elementId\\(source\\) = item.source AND elementId\\(target\\) = item.target "
+          + "CREATE \\(source\\)-\\[relation:`([^`]+)`\\]->\\(target\\) SET relation = item.properties");
+  private static final String AST_ROOT_UPDATE = "UNWIND $nodes AS item MATCH (entity) WHERE elementId(entity) = item.address "
+      + "SET entity:`AstResult`, entity = item.properties";
   final List<String> events = new ArrayList<>();
   final List<String> queries = new ArrayList<>();
   final List<Statement> statements = new ArrayList<>();
@@ -65,6 +79,42 @@ final class AstRepositoryDriverStub {
   }
 
   record Statement(String query, Value parameters) {
+  }
+
+  // Replay the root update and insert batches on the controlled read boundary.
+  Neo4jAstProjection writtenAst(AstIdentity identity) {
+    var rootUpdates = statements.stream().filter(statement -> AST_ROOT_UPDATE.equals(statement.query())).toList();
+    assertEquals(1, rootUpdates.size(), "Expected the locked subject to receive its AST label and payload");
+    var updates = rootUpdates.getFirst().parameters().get("nodes").asList(value -> value);
+    assertEquals(1, updates.size());
+    var update = updates.getFirst();
+    var rootKey = identity.astResultKey();
+    var properties = update.get("properties").asMap();
+    assertEquals(Map.of("address", "node/" + rootKey, "properties", properties), update.asMap());
+    assertEquals(rootKey, properties.get("key"));
+    var root = new Neo4jNode(rootKey, "AstResult", properties);
+
+    var nodeBatches = statements.stream().filter(statement -> AST_NODE_INSERT.matcher(statement.query()).matches()).toList();
+    var relationshipBatches = statements.stream().filter(statement -> AST_RELATIONSHIP_INSERT.matcher(statement.query()).matches()).toList();
+    // A first save adds one lock, two reconciliation reads, and one root update to the insert batches.
+    assertEquals(4 + nodeBatches.size() + relationshipBatches.size(), statements.size());
+    var insertedNodes = nodeBatches.stream().flatMap(statement -> AST_NODE_INSERT.matcher(statement.query()).results()
+        .flatMap(match -> statement.parameters().get("nodes").asList(value -> value.asMap()).stream()
+            .map(row -> new Neo4jNode((String) row.get("key"), match.group(1), row))));
+    var nodes = Stream.concat(Stream.of(root), insertedNodes).toList();
+    var relationships = relationshipBatches.stream()
+        .flatMap(statement -> AST_RELATIONSHIP_INSERT.matcher(statement.query()).results()
+            .flatMap(match -> statement.parameters().get("relationships").asList(value -> value).stream().map(row -> {
+              var values = row.get("properties").asMap();
+              return new Neo4jRelationship((String) values.get("key"), match.group(1), nodeKey(row.get("source").asString()),
+                  nodeKey(row.get("target").asString()), values);
+            }))).toList();
+    return new Neo4jAstProjection(identity, nodes, relationships);
+  }
+
+  private static String nodeKey(String address) {
+    assertTrue(address.startsWith("node/"), address);
+    return address.substring("node/".length());
   }
 
   Driver driver() {
