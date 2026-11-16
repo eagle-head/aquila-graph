@@ -2,7 +2,7 @@ package org.aquilagraph.frontend.internal;
 
 import java.util.Optional;
 import java.util.List;
-import org.aquilagraph.source.admission.AnnotationAttachmentAdmission;
+import org.aquilagraph.source.admission.AnnotationApplicationContext;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -34,7 +34,6 @@ import org.aquilagraph.source.api.AnnotationScalar;
 import org.aquilagraph.source.api.AggregateFixture;
 import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.JavaSourceKind;
-import org.aquilagraph.source.admission.SharedVariableDeclarations;
 import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
@@ -159,7 +158,8 @@ class JavaAnnotationTargetAstTest {
     var altered = replaceValue(field, written.nodeId(), forged);
 
     // Act and Assert
-    assertThrows(IllegalArgumentException.class, () -> AnnotationAttachmentAdmission.forAttachment(altered, altered.children(SyntaxRole.ANNOTATION).getFirst(), Optional.empty(), List.of()));
+    assertThrows(IllegalArgumentException.class, () -> new AnnotationApplicationContext(altered.descendantsAndSelf())
+        .forAttachment(altered, altered.children(SyntaxRole.ANNOTATION).getFirst()));
   }
 
   @Test
@@ -459,7 +459,7 @@ class JavaAnnotationTargetAstTest {
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class,
-        () -> AnnotationAttachmentAdmission.forAttachment(forgedField, forgedAnnotation, Optional.empty(), List.of()));
+        () -> new AnnotationApplicationContext(forgedField.descendantsAndSelf()).forAttachment(forgedField, forgedAnnotation));
 
     // Assert
     assertTrue(failure.getMessage().contains("package qualifier"), failure::getMessage);
@@ -495,7 +495,7 @@ class JavaAnnotationTargetAstTest {
 
     // Act
     var failure = assertThrows(IllegalArgumentException.class,
-        () -> AnnotationAttachmentAdmission.forAttachment(forgedField, forgedAnnotation, Optional.empty(), List.of()));
+        () -> new AnnotationApplicationContext(forgedField.descendantsAndSelf()).forAttachment(forgedField, forgedAnnotation));
 
     // Assert
     assertTrue(failure.getMessage().contains("static type qualifier"), failure::getMessage);
@@ -1564,11 +1564,12 @@ class JavaAnnotationTargetAstTest {
   private static JavaAstAggregate sealWithRecomputedApplications(InputSnapshot snapshot,
       JavaAstAggregate aggregate, SyntaxNode root) {
     var nodes = root.descendantsAndSelf();
-    var groups = SharedVariableDeclarations.index(nodes);
+    var applications = new AnnotationApplicationContext(nodes);
     var edges = new ArrayList<>(aggregate.semanticEdges().stream()
         .filter(edge -> edge.relation() != SyntaxSemanticRelation.ANNOTATED_TARGET).toList());
-    nodes.forEach(parent -> parent.children(SyntaxRole.ANNOTATION).forEach(annotation -> edges.add(new SyntaxSemanticEdge(annotation.nodeId(),
-        SyntaxSemanticRelation.ANNOTATED_TARGET, AnnotationAttachmentAdmission.forAttachment(parent, annotation, Optional.empty(), groups.getOrDefault(parent.nodeId(), List.of()))))));
+    nodes.forEach(parent -> parent.children(SyntaxRole.ANNOTATION).stream().filter(applications::requiresApplication)
+        .forEach(annotation -> edges.add(new SyntaxSemanticEdge(annotation.nodeId(),
+        SyntaxSemanticRelation.ANNOTATED_TARGET, applications.forAttachment(parent, annotation)))));
     return AggregateFixture.builder(snapshot).add(new SyntaxSourceContribution(root.sourceFileKey(), root, nodes,
         nodes.stream().flatMap(node -> node.structuralEdges().stream()).toList(), edges)).seal();
   }

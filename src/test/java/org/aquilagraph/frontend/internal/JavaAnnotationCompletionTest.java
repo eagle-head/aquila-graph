@@ -5,7 +5,7 @@ import java.util.List;
 import org.aquilagraph.source.internal.SourceValueCapture;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstProductionRequest;
-import org.aquilagraph.source.admission.AnnotationAttachmentAdmission;
+import org.aquilagraph.source.admission.AnnotationApplicationContext;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -621,10 +621,11 @@ class JavaAnnotationCompletionTest {
         .filter(edge -> edge.relation() != SyntaxSemanticRelation.ANNOTATED_TARGET && keys.contains(edge.sourceKey())).toList());
     edges.addAll(nodes.stream().filter(node -> !fixture.aggregate().orderedNodeKeys().contains(node.nodeId()))
         .flatMap(node -> node.semanticEdges().stream()).toList());
+    var applications = new AnnotationApplicationContext(nodes);
     nodes.forEach(parent -> parent.children(SyntaxRole.ANNOTATION).stream()
-        .filter(annotation -> annotation.value(SyntaxValue.Annotation.class).location() != SyntaxValue.AnnotationLocation.UNRESOLVED)
+        .filter(applications::requiresApplication)
         .forEach(annotation -> edges.add(new SyntaxSemanticEdge(annotation.nodeId(),
-        SyntaxSemanticRelation.ANNOTATED_TARGET, AnnotationAttachmentAdmission.forAttachment(parent, annotation, Optional.empty(), List.of())))));
+        SyntaxSemanticRelation.ANNOTATED_TARGET, applications.forAttachment(parent, annotation)))));
     var builder = AggregateFixture.builder(fixture.snapshot());
     for (var sourceRoot : roots) {
       var ownedNodes = sourceRoot.descendantsAndSelf();

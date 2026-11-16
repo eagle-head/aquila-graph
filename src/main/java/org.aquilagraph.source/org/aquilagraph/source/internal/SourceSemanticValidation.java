@@ -1,13 +1,11 @@
 package org.aquilagraph.source.internal;
 
-import org.aquilagraph.source.admission.AnnotationAttachmentAdmission;
+import org.aquilagraph.source.admission.AnnotationApplicationContext;
 import org.aquilagraph.source.api.JavaDeclarationModifier;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.ResolutionStatus;
 import org.aquilagraph.source.api.SemanticReference;
-import org.aquilagraph.source.admission.SharedVariableDeclarations;
-import org.aquilagraph.source.api.SyntaxChild;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -41,13 +39,7 @@ final class SourceSemanticValidation {
     var seen = new HashSet<SyntaxSemanticEdge>();
     var declarationEdges = new HashMap<String, List<SyntaxSemanticEdge>>();
     var annotationTargets = new HashMap<String, List<SyntaxSemanticEdge>>();
-    var recordTypeOwners = new HashMap<String, SyntaxNode>();
-    var fieldGroups = SharedVariableDeclarations.index(List.copyOf(nodes.values()));
-    for (var parent : nodes.values()) {
-      if (parent.syntaxKind() == SyntaxKind.RECORD_COMPONENT_DECLARATION) {
-        parent.children(SyntaxRole.DECLARED_TYPE).forEach(type -> collectRecordTypeOwners(type, parent, recordTypeOwners));
-      }
-    }
+    var annotations = new AnnotationApplicationContext(List.copyOf(nodes.values()));
     for (var edge : edges) {
       Objects.requireNonNull(edge, "semanticEdge");
       if (!seen.add(edge)) {
@@ -77,9 +69,7 @@ final class SourceSemanticValidation {
       validateDeclarationEdge(node, declarationEdges.getOrDefault(node.nodeId(), List.of()), nodes, bindings);
       validateMemberReferenceSelection(node, executables, nodes);
       var targets = annotationTargets.getOrDefault(node.nodeId(), List.of());
-      if (node.sourceKind() == JavaSourceKind.ANNOTATION && node.value() instanceof SyntaxValue.Annotation annotation
-          && annotation.location() != SyntaxValue.AnnotationLocation.UNRESOLVED
-          && annotation.location() != SyntaxValue.AnnotationLocation.VALUE) {
+      if (annotations.requiresApplication(node)) {
         if (node.semanticReference().orElseThrow().status() != ResolutionStatus.RESOLVED) {
           throw new IllegalArgumentException("AST applied annotation requires a resolved annotation type: " + node.nodeId());
         }
@@ -88,8 +78,7 @@ final class SourceSemanticValidation {
         }
         var parent = parents.get(node);
         if (parent == null || node.structuralPath().steps().getLast().role() != SyntaxRole.ANNOTATION
-            || !application.equals(AnnotationAttachmentAdmission.forAttachment(parent, node,
-                Optional.ofNullable(recordTypeOwners.get(parent.nodeId())), fieldGroups.getOrDefault(parent.nodeId(), List.of())))) {
+            || !application.equals(annotations.forAttachment(parent, node))) {
           throw new IllegalArgumentException("AST annotation application does not match its exact source location: " + node.nodeId());
         }
       } else if (!targets.isEmpty()) {
@@ -97,12 +86,6 @@ final class SourceSemanticValidation {
       }
     }
     return edges.stream().sorted(SEMANTIC_ORDER).toList();
-  }
-
-  private static void collectRecordTypeOwners(SyntaxNode type, SyntaxNode component, Map<String, SyntaxNode> owners) {
-    owners.put(type.nodeId(), component);
-    type.children().stream().map(SyntaxChild::node).filter(child -> child.syntaxKind() == SyntaxKind.TYPE_USE)
-        .forEach(child -> collectRecordTypeOwners(child, component, owners));
   }
 
   private static void validateMemberReferenceSelection(SyntaxNode node, Map<String, List<SyntaxNode>> ownedExecutables,

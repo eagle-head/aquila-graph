@@ -25,9 +25,15 @@ import org.aquilagraph.source.api.SyntaxSemanticTarget.AnnotationTypeLocation;
 import org.aquilagraph.source.api.SyntaxSemanticTarget.AnnotationApplication.FieldDeclaratorApplication;
 import org.aquilagraph.source.api.SyntaxSemanticTarget.AnnotationApplication.PropagatedCounterpart;
 /** Derives complete annotation destinations from written owners and copied target evidence. */
-public final class AnnotationAttachmentAdmission {
+final class AnnotationAttachmentAdmission {
   private static final int UNIQUE_TYPE_CHILD_COUNT = 1;
   private AnnotationAttachmentAdmission() {
+  }
+
+  static boolean requiresApplication(SyntaxNode node) {
+    return node.sourceKind() == JavaSourceKind.ANNOTATION && node.value() instanceof SyntaxValue.Annotation annotation
+        && annotation.location() != SyntaxValue.AnnotationLocation.VALUE
+        && annotation.location() != SyntaxValue.AnnotationLocation.UNRESOLVED;
   }
 
   /**
@@ -44,7 +50,7 @@ public final class AnnotationAttachmentAdmission {
    *          complete validated field group in source order
    * @return exact application including additional written destinations
    */
-  public static AnnotationApplication forAttachment(SyntaxNode parent, SyntaxNode annotationNode, Optional<SyntaxNode> recordComponent,
+  static AnnotationApplication forAttachment(SyntaxNode parent, SyntaxNode annotationNode, Optional<SyntaxNode> recordComponent,
       List<SyntaxNode> sharedFields) {
     Objects.requireNonNull(parent, "parent");
     Objects.requireNonNull(annotationNode, "annotationNode");
@@ -62,7 +68,7 @@ public final class AnnotationAttachmentAdmission {
     var location = annotation.location();
     var declaration = location == SyntaxValue.AnnotationLocation.DECLARATION || location == SyntaxValue.AnnotationLocation.DUAL;
     var type = location == SyntaxValue.AnnotationLocation.TYPE_USE || location == SyntaxValue.AnnotationLocation.DUAL;
-    if (!declaration && !type) {
+    if (!requiresApplication(annotationNode)) {
       throw new IllegalArgumentException("An unresolved or nested value annotation has no application target");
     }
     if (declaration && !declarationApplicable(parent, targets)) {
