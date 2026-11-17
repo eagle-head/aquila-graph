@@ -39,12 +39,13 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 import org.junit.jupiter.api.io.TempDir;
+import jdk.jfr.Event;
 
 class ModuleDependencyBoundaryTest {
   private static final String PREFIX = "org.aquilagraph.";
   private static final Set<String> NULLNESS_METADATA = Set.of("org.jspecify.annotations.NullMarked", "org.jspecify.annotations.Nullable");
   private static final Set<String> PUBLIC_PACKAGES = Set.of(PREFIX + "identity.api", PREFIX + "source.api", PREFIX + "cfg.api",
-      PREFIX + "cfg", PREFIX + "frontend", PREFIX + "application", PREFIX + "application.port", PREFIX + "repository.neo4j");
+      PREFIX + "cfg", PREFIX + "frontend", PREFIX + "library", PREFIX + "application", PREFIX + "application.port", PREFIX + "repository.neo4j");
   private static final Map<String, Set<String>> READABLE_PACKAGES = Map.of(
       "identity", Set.of(),
       "source", Set.of(PREFIX + "identity.api"),
@@ -53,14 +54,17 @@ class ModuleDependencyBoundaryTest {
       "application", Set.of(PREFIX + "identity.api", PREFIX + "source.api", PREFIX + "cfg.api"),
       "repository", Set.of(PREFIX + "identity.api", PREFIX + "source.api", PREFIX + "source.retention", PREFIX + "cfg.api",
           PREFIX + "application", PREFIX + "application.port", PREFIX + "application.internal.repository"),
+      "library", PUBLIC_PACKAGES,
       "cli", PUBLIC_PACKAGES);
   private static final Set<String> BASE_TYPES = platformTypes("java.base");
   private static final Set<String> COMPILER_TYPES = publicCompilerTypes();
+  private static final Set<String> FLIGHT_RECORDER_TYPES = Set.of("jdk.jfr.Event", "jdk.jfr.EventFactory", "jdk.jfr.AnnotationElement",
+      "jdk.jfr.ValueDescriptor", "jdk.jfr.Name", "jdk.jfr.Label", "jdk.jfr.Category", "jdk.jfr.Enabled", "jdk.jfr.StackTrace");
   private static final Map<String, String> TYPE_OWNERS = typeOwners();
 
   @TestFactory
   List<DynamicTest> givenCanonicalModuleOutput_whenEveryClassfileAndMetadataChannelIsInspected_thenOnlyItsSelectedDependenciesRemain() {
-    return List.of("identity", "source", "cfg", "frontend", "application", "repository", "cli").stream()
+    return List.of("identity", "source", "cfg", "frontend", "application", "repository", "library", "cli").stream()
         .map(module -> DynamicTest.dynamicTest(module, () -> inspectModule(module))).toList();
   }
 
@@ -91,6 +95,26 @@ class ModuleDependencyBoundaryTest {
         }
       }
     }
+  }
+
+  @Test
+  void givenFlightRecorderDependency_whenTheClassfileGateRuns_thenOnlyTheInternalObservationBoundaryAcceptsIt() throws IOException {
+    // Arrange
+    var references = references(FlightRecorderDependency.class);
+    var dependency = "forbidden type " + Event.class.getName();
+
+    // Act
+    var observation = violations("frontend", PREFIX + "frontend.internal.JavaAnalysisStage", Set.of(), references);
+    var frontend = violations("frontend", PREFIX + "frontend.internal.JavaFrontend", Set.of(), references);
+    var source = violations("source", PREFIX + "source.api.Probe", Set.of(), references);
+
+    // Assert
+    assertFalse(observation.contains(dependency));
+    assertTrue(frontend.contains(dependency));
+    assertTrue(source.contains(dependency));
+  }
+
+  private record FlightRecorderDependency(Event event) {
   }
 
   @Test
@@ -296,6 +320,7 @@ class ModuleDependencyBoundaryTest {
       var allowedOwn = own && (!reader || packageName(type).equals(PREFIX + module + ".api") || intrinsic || permits.contains(type));
       var allowed = BASE_TYPES.contains(type) || allowedOwn || READABLE_PACKAGES.get(module).contains(packageName(type))
           || (module.equals("frontend") && COMPILER_TYPES.contains(type))
+          || (module.equals("frontend") && owner.equals(PREFIX + "frontend.internal.JavaAnalysisStage") && FLIGHT_RECORDER_TYPES.contains(type))
           || (module.equals("repository") && type.startsWith("org.neo4j.driver."));
       if (!allowed || type.startsWith("com.sun.tools.javac.") || type.startsWith("jdk.internal.") || type.startsWith("sun.")) {
         result.add("forbidden type " + type);

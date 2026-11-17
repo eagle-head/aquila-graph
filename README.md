@@ -2,6 +2,10 @@
 
 Aquila Graph analyzes Java source and produces a program representation and a control-flow graph for each accepted concrete method body. It can publish completed analysis runs to Neo4j. The current language release is Java 25, with the bounded source profile described in the [Java analysis design](docs/design/java-analysis.md#supported-source-profiles).
 
+For direct Java consumption through one Maven dependency, see the [library guide](docs/library.md). The CLI remains available and uses the same configured analysis session.
+
+For stage metrics, structured logs, traces, JFR correlation, and the local Docker stack, see the [observability guide](docs/observability.md).
+
 ## Build and run
 
 Use JDK 25 and the checked-in Maven Wrapper. Toolchain requirements and all build targets are defined in the [build quality guide](docs/build-quality.md#required-toolchain).
@@ -35,6 +39,7 @@ Unsupported constructs block completion. The analyzer does not execute the analy
 
 | Subject | Document |
 | --- | --- |
+| Library API, packaging, configuration, and lifecycle | [Library](docs/library.md) |
 | Analysis inputs, completion, publication, and failures | [Analysis contract](docs/contracts/analysis.md) |
 | CLI fields, quoting, channel ordering, and exit behavior | [Command-line reporting contract](docs/contracts/command-line-reporting.md) |
 | Java frontend, source profile, coverage, and graph semantics | [Java analysis design](docs/design/java-analysis.md) |

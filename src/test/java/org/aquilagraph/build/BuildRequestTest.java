@@ -18,6 +18,24 @@ class BuildRequestTest {
   Path directory;
 
   @Test
+  void givenLibraryInstallation_whenBuildingArguments_thenProductArtifactsAndRepositoryDestinationAreOwnedByTheBuild() throws Exception {
+    // Arrange
+    var destination = directory.toAbsolutePath().toString();
+    var flag = "-Daquila.library.repository=" + destination;
+    // Act
+    var request = BuildRequest.parse("--root", Path.of("").toRealPath().toString(), "install-library", flag);
+    // Assert
+    assertTrue(request.mavenArguments().contains(flag));
+    assertTrue(request.mavenArguments().contains("-Dmaven.test.skip=true"));
+    assertEquals("package", request.operation().goals().getFirst());
+    assertEquals(9, request.operation().goals().size());
+    assertTrue(request.operation().goals().contains("install:install-file@install-library-library"));
+    assertThrows(IllegalArgumentException.class, () -> BuildRequest.validateFlag(BuildOperation.COMPILE, flag));
+    assertThrows(IllegalArgumentException.class,
+        () -> BuildRequest.validateFlag(BuildOperation.INSTALL_LIBRARY, "-Daquila.library.repository=relative"));
+  }
+
+  @Test
   void givenCancellationWithoutAWrapper_whenParsed_thenNoMavenExecutableOrGoalIsRequired() throws Exception {
     // Arrange
     var root = directory.toRealPath();

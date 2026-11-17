@@ -54,7 +54,7 @@ public final class EditorModelValidation {
         sources.add(module.toRealPath());
       }
     }
-    for (var source : Set.of("src/test/java", "config/build", "config/build-checks")) {
+    for (var source : Set.of("src/main/observability", "src/test/java", "config/build", "config/build-checks")) {
       sources.add(root.resolve(source).toRealPath());
     }
     return sources;

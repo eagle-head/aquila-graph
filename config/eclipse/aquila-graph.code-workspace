@@ -23,7 +23,13 @@
       "path": "org.aquilagraph.repository"
     },
     {
+      "path": "org.aquilagraph.library"
+    },
+    {
       "path": "org.aquilagraph.cli"
+    },
+    {
+      "path": "org.aquilagraph.observability"
     },
     {
       "path": "aquila-graph-tests"

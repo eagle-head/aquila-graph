@@ -17,4 +17,15 @@ public final class JavaFrontends {
   public static AstProducer standard() {
     return new JavaFrontend(new JavaSourceLoader());
   }
+
+  /**
+   * Creates a producer using a host-owned observer. Closing the observer belongs to the host.
+   *
+   * @param observer
+   *          stage observation backend
+   * @return source producer with unchanged AST admission semantics
+   */
+  public static AstProducer observed(AnalysisObserver observer) {
+    return new JavaFrontend(new JavaSourceLoader(), observer);
+  }
 }

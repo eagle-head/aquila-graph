@@ -1,0 +1,82 @@
+name: aquila-observability
+
+x-runtime: &runtime
+  restart: unless-stopped
+  stop_grace_period: 30s
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '3'
+
+services:
+  collector:
+    <<: *runtime
+    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
+    command: [--config=/etc/otelcol/config.yaml]
+    ports: ['127.0.0.1:4318:4318', '127.0.0.1:13133:13133']
+    volumes:
+      - ./collector.yaml:/etc/otelcol/config.yaml:ro
+      - ../../.local/observability/collector:/var/lib/otelcol
+    mem_limit: 512m
+    cpus: 1
+    depends_on: [prometheus, loki, jaeger]
+
+  prometheus:
+    <<: *runtime
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=1GB
+      - --web.enable-otlp-receiver
+      - --enable-feature=exemplar-storage
+    ports: ['127.0.0.1:9090:9090']
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./alerts.yaml:/etc/prometheus/alerts.yaml:ro
+      - ../../.local/observability/prometheus:/prometheus
+    mem_limit: 512m
+    cpus: 1
+
+  loki:
+    <<: *runtime
+    image: grafana/loki:3.7.10@sha256:b43c257ccfc925d4a50b8717cac61a3b51df8c48d01847936057e5c4075a24a7
+    command: [-config.file=/etc/loki/config.yaml]
+    ports: ['127.0.0.1:3100:3100']
+    volumes:
+      - ./loki.yaml:/etc/loki/config.yaml:ro
+      - ../../.local/observability/loki:/loki
+    mem_limit: 768m
+    cpus: 1
+
+  jaeger:
+    <<: *runtime
+    image: jaegertracing/jaeger:2.23.0@sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e
+    command: [--config=/etc/jaeger/config.yaml]
+    ports: ['127.0.0.1:16686:16686']
+    volumes:
+      - ./jaeger.yaml:/etc/jaeger/config.yaml:ro
+      - ../../.local/observability/jaeger:/var/lib/jaeger
+    mem_limit: 768m
+    cpus: 1
+
+  grafana:
+    <<: *runtime
+    image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
+    ports: ['127.0.0.1:3000:3000']
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_PLUGINS_PREINSTALL_DISABLED: 'true'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ../../.local/observability/grafana:/var/lib/grafana
+    mem_limit: 512m
+    cpus: 1
+    depends_on: [prometheus, loki, jaeger]

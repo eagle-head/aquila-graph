@@ -120,6 +120,7 @@ class EditorModelValidationTest {
     Files.createDirectories(root.resolve("target/maven-repository"));
     Files.writeString(root.resolve("target/maven-repository/api.jar"), "controlled library resource");
     project(root, "sample", "src/main/java/sample");
+    project(root, "observability", "src/main/observability");
     project(root, "tests", "src/test/java");
     project(root, "build", "config/build");
     project(root, "checks", "config/build-checks");

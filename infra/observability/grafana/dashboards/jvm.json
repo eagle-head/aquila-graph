@@ -1,0 +1,956 @@
+{
+  "uid": "aquila-jvm",
+  "title": "Aquila | JVM resources",
+  "tags": [
+    "aquila",
+    "observability"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "5s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "editable": false,
+  "graphTooltip": 1,
+  "links": [
+    {
+      "title": "Aquila dashboards",
+      "type": "dashboards",
+      "tags": [
+        "aquila"
+      ],
+      "asDropdown": false,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "execution",
+        "label": "Execution (newest first)",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "aquila-metrics"
+        },
+        "query": {
+          "query": "query_result(sort_desc(last_over_time(aquila_execution_started_seconds[$__range]) and on(aquila_execution_id) last_over_time(aquila_execution_state[$__range])))",
+          "refId": "ExecutionVariable"
+        },
+        "definition": "query_result(sort_desc(last_over_time(aquila_execution_started_seconds[$__range]) and on(aquila_execution_id) last_over_time(aquila_execution_state[$__range])))",
+        "regex": "/aquila_execution_id=\"([^\"]+)\"/",
+        "refresh": 2,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "options": [],
+        "current": {}
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Measurement boundary",
+      "description": "",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Resources for the selected execution. CPU and GC start at zero for each run. Memory, threads and classes describe the whole JVM, including concurrent host work; do not add concurrent runs together. Values freeze at completion. Use JFR for method, allocation and lock details."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Execution state",
+      "description": "",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Running",
+                  "color": "blue"
+                },
+                "1": {
+                  "text": "Complete",
+                  "color": "green"
+                },
+                "2": {
+                  "text": "Incomplete",
+                  "color": "yellow"
+                },
+                "3": {
+                  "text": "Failed",
+                  "color": "red"
+                },
+                "4": {
+                  "text": "Cancelled",
+                  "color": "orange"
+                },
+                "5": {
+                  "text": "Telemetry interrupted",
+                  "color": "red"
+                },
+                "6": {
+                  "text": "Succeeded",
+                  "color": "green"
+                },
+                "7": {
+                  "text": "Aborted",
+                  "color": "red"
+                },
+                "8": {
+                  "text": "AST unavailable",
+                  "color": "red"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(last_over_time(aquila_execution_state{aquila_execution_id=\"$execution\"}[$__range]) != 0) or ((last_over_time(aquila_execution_state{aquila_execution_id=\"$execution\"}[$__range]) == 0) and on(aquila_execution_id) (time() - last_over_time(aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"}[$__range]) < 20)) or (5 + 0 * ((last_over_time(aquila_execution_state{aquila_execution_id=\"$execution\"}[$__range]) == 0) and on(aquila_execution_id) (time() - last_over_time(aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"}[$__range]) >= 20)))",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Process CPU since start",
+      "description": "",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Not available",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "gray"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "last_over_time(aquila_execution_jvm_cpu_seconds{aquila_execution_id=\"$execution\"}[$__range])",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Available processors",
+      "description": "",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "gray"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "last_over_time(aquila_execution_jvm_processors{aquila_execution_id=\"$execution\"}[$__range])",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Average CPU cores used",
+      "description": "CPU seconds / wall seconds. Can exceed 1 when several JVM threads run.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 4,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "gray"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "last_over_time(aquila_execution_jvm_cpu_seconds{aquila_execution_id=\"$execution\"}[$__range]) / clamp_min(last_over_time(aquila_execution_elapsed_seconds{aquila_execution_id=\"$execution\"}[$__range]), 0.001)",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Heap memory",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Not available",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "auto",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aquila_execution_jvm_memory_used_bytes{aquila_execution_id=\"$execution\",memory_type=\"heap\"} and on(aquila_execution_id) (time() - aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"} < 20)",
+          "legendFormat": "Used",
+          "instant": false,
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        },
+        {
+          "refId": "B",
+          "expr": "aquila_execution_jvm_memory_committed_bytes{aquila_execution_id=\"$execution\",memory_type=\"heap\"} and on(aquila_execution_id) (time() - aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"} < 20)",
+          "legendFormat": "Committed",
+          "instant": false,
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        },
+        {
+          "refId": "C",
+          "expr": "aquila_execution_jvm_memory_limit_bytes{aquila_execution_id=\"$execution\",memory_type=\"heap\"} and on(aquila_execution_id) (time() - aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"} < 20)",
+          "legendFormat": "Limit",
+          "instant": false,
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Memory by area",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Not available",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "auto",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aquila_execution_jvm_memory_used_bytes{aquila_execution_id=\"$execution\"} and on(aquila_execution_id) (time() - aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"} < 20)",
+          "legendFormat": "{{memory_type}}",
+          "instant": false,
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Process CPU cores used \u2014 recent window",
+      "description": "Slope of cumulative CPU since run start. Needs two samples; blank for shorter runs. Not normalized to one core.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "auto",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min(deriv(aquila_execution_jvm_cpu_seconds{aquila_execution_id=\"$execution\"}[30s]), 0) and on(aquila_execution_id) (time() - aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"} < 20)",
+          "legendFormat": "CPU cores",
+          "instant": false,
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "GC collection time since execution start",
+      "description": "Collection-time MXBean delta. Not GC pause duration, not percentiles, and not a cumulative value inherited from earlier analyzers.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Not available",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "auto",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aquila_execution_jvm_gc_duration_seconds{aquila_execution_id=\"$execution\"} and on(aquila_execution_id) (time() - aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"} < 20)",
+          "legendFormat": "{{gc_name}}",
+          "instant": false,
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "GC collections since execution start",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "auto",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aquila_execution_jvm_gc_collections{aquila_execution_id=\"$execution\"} and on(aquila_execution_id) (time() - aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"} < 20)",
+          "legendFormat": "{{gc_name}}",
+          "instant": false,
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "JVM threads",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "auto",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aquila_execution_jvm_threads{aquila_execution_id=\"$execution\"} and on(aquila_execution_id) (time() - aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"} < 20)",
+          "legendFormat": "{{thread_kind}}",
+          "instant": false,
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Loaded JVM classes",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "auto",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aquila_execution_jvm_classes{aquila_execution_id=\"$execution\"} and on(aquila_execution_id) (time() - aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"} < 20)",
+          "legendFormat": "Loaded classes",
+          "instant": false,
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Heap occupancy",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Not available",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "auto",
+            "axisBorderShow": false
+          },
+          "max": 1
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aquila_execution_jvm_memory_used_bytes{aquila_execution_id=\"$execution\",memory_type=\"heap\"} / aquila_execution_jvm_memory_limit_bytes{aquila_execution_id=\"$execution\",memory_type=\"heap\"} and on(aquila_execution_id) (time() - aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"} < 20)",
+          "legendFormat": "Used / limit",
+          "instant": false,
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    }
+  ]
+}

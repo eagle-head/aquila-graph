@@ -72,7 +72,7 @@ public final class ConsumerPreparation {
     var root = request.root();
     var distribution = root.resolve("target/aquila-graph/lib");
     var modules = ModuleFinder.of(distribution).findAll().stream().map(reference -> reference.descriptor().name()).toList();
-    for (var name : List.of("identity", "source", "cfg", "frontend", "application", "repository", "cli")) {
+    for (var name : List.of("identity", "source", "cfg", "frontend", "application", "repository", "library", "cli")) {
       if (!modules.contains("org.aquilagraph." + name)) {
         throw new IOException("Consumer preparation requires the complete packaged distribution; missing module: " + name);
       }

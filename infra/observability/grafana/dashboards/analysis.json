@@ -1,0 +1,1482 @@
+{
+  "uid": "aquila-analysis",
+  "title": "Aquila | Execution and AST",
+  "tags": [
+    "aquila",
+    "observability"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "5s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "editable": false,
+  "graphTooltip": 1,
+  "links": [
+    {
+      "title": "Aquila dashboards",
+      "type": "dashboards",
+      "tags": [
+        "aquila"
+      ],
+      "asDropdown": false,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "execution",
+        "label": "Execution (newest first)",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "aquila-metrics"
+        },
+        "query": {
+          "query": "query_result(sort_desc(last_over_time(aquila_execution_started_seconds[$__range]) and on(aquila_execution_id) last_over_time(aquila_execution_state[$__range])))",
+          "refId": "ExecutionVariable"
+        },
+        "definition": "query_result(sort_desc(last_over_time(aquila_execution_started_seconds[$__range]) and on(aquila_execution_id) last_over_time(aquila_execution_state[$__range])))",
+        "regex": "/aquila_execution_id=\"([^\"]+)\"/",
+        "refresh": 2,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "options": [],
+        "current": {}
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Execution isolation",
+      "description": "",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Select one execution above (newest first). Historical runs remain separate. **Running** requires a recent heartbeat; **Telemetry interrupted** means the final result is unknown. Translated nodes are available before final admission. Use the time picker to find older runs."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Execution state",
+      "description": "",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 5,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Running",
+                  "color": "blue"
+                },
+                "1": {
+                  "text": "Complete",
+                  "color": "green"
+                },
+                "2": {
+                  "text": "Incomplete",
+                  "color": "yellow"
+                },
+                "3": {
+                  "text": "Failed",
+                  "color": "red"
+                },
+                "4": {
+                  "text": "Cancelled",
+                  "color": "orange"
+                },
+                "5": {
+                  "text": "Telemetry interrupted",
+                  "color": "red"
+                },
+                "6": {
+                  "text": "Succeeded",
+                  "color": "green"
+                },
+                "7": {
+                  "text": "Aborted",
+                  "color": "red"
+                },
+                "8": {
+                  "text": "AST unavailable",
+                  "color": "red"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(last_over_time(aquila_execution_state{aquila_execution_id=\"$execution\"}[$__range]) != 0) or ((last_over_time(aquila_execution_state{aquila_execution_id=\"$execution\"}[$__range]) == 0) and on(aquila_execution_id) (time() - last_over_time(aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"}[$__range]) < 20)) or (5 + 0 * ((last_over_time(aquila_execution_state{aquila_execution_id=\"$execution\"}[$__range]) == 0) and on(aquila_execution_id) (time() - last_over_time(aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"}[$__range]) >= 20)))",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Measured elapsed time",
+      "description": "",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 5,
+        "y": 4,
+        "w": 5,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Not available",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "gray"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "last_over_time(aquila_execution_elapsed_seconds{aquila_execution_id=\"$execution\"}[$__range])",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Source files",
+      "description": "Known input source files at execution start. This is not a processed-file progress counter.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "locale",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "gray"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "last_over_time(aquila_execution_source_files{aquila_execution_id=\"$execution\"}[$__range])",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 49,
+      "title": "Translated nodes",
+      "description": "Available after source translation, before coverage and final outcome admission. Does not establish a complete AST.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 4,
+        "w": 5,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "locale",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "gray"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "last_over_time(aquila_execution_source_translated_nodes{aquila_execution_id=\"$execution\"}[$__range])",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Admitted nodes",
+      "description": "Unavailable until an AST outcome exists. Not a progress estimate.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 19,
+        "y": 4,
+        "w": 5,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "locale",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "gray"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "last_over_time(aquila_execution_source_nodes{aquila_execution_id=\"$execution\"}[$__range])",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Stage elapsed time \u2014 exact observations",
+      "description": "Includes unfinished stages. Production is the enclosing operation; do not add it to child stage durations.",
+      "type": "bargauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Not available",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          },
+          "displayName": "${__field.labels.aquila_stage}"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "production"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "environment-capture"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "parse"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "written-inventory"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "compiler-attribution"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "attributed-inventory"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "source-translation"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "coverage-reconciliation"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "cyan"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "syntax-admission"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "pink"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "outcome-admission"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sort_desc(last_over_time(aquila_execution_stage_elapsed_seconds{aquila_execution_id=\"$execution\"}[$__range]))",
+          "legendFormat": "{{aquila_stage}}",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "namePlacement": "left"
+      }
+    },
+    {
+      "id": 7,
+      "title": "Stage state",
+      "description": "",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Running",
+                  "color": "blue"
+                },
+                "1": {
+                  "text": "Complete",
+                  "color": "green"
+                },
+                "2": {
+                  "text": "Incomplete",
+                  "color": "yellow"
+                },
+                "3": {
+                  "text": "Failed",
+                  "color": "red"
+                },
+                "4": {
+                  "text": "Cancelled",
+                  "color": "orange"
+                },
+                "5": {
+                  "text": "Telemetry interrupted",
+                  "color": "red"
+                },
+                "6": {
+                  "text": "Succeeded",
+                  "color": "green"
+                },
+                "7": {
+                  "text": "Aborted",
+                  "color": "red"
+                },
+                "8": {
+                  "text": "AST unavailable",
+                  "color": "red"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "last_over_time(aquila_execution_stage_state{aquila_execution_id=\"$execution\"}[$__range])",
+          "legendFormat": "{{aquila_stage}}",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false,
+          "format": "table"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "aquila_execution_id": true,
+              "aquila_trace_id": true,
+              "aquila_profile": true,
+              "instance": true,
+              "job": true,
+              "service_name": true,
+              "service_version": true,
+              "otel_scope_name": true,
+              "otel_scope_version": true
+            },
+            "renameByName": {
+              "aquila_stage": "Stage",
+              "Value": "State"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Elapsed time while receiving observations",
+      "description": "Gaps after 20 seconds without a heartbeat; no extrapolation across a stopped process.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Not available",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "auto",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aquila_execution_elapsed_seconds{aquila_execution_id=\"$execution\"} and on(aquila_execution_id) (time() - aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"} < 20)",
+          "legendFormat": "Execution",
+          "instant": false,
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Elapsed time by stage",
+      "description": "Finished stages are flat; an active stage grows. These are measured durations, not histogram percentiles.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Not available",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "auto",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "production"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "environment-capture"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "parse"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "written-inventory"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "compiler-attribution"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "attributed-inventory"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "source-translation"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "coverage-reconciliation"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "cyan"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "syntax-admission"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "pink"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "outcome-admission"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aquila_execution_stage_elapsed_seconds{aquila_execution_id=\"$execution\"} and on(aquila_execution_id) (time() - aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"} < 20)",
+          "legendFormat": "{{aquila_stage}}",
+          "instant": false,
+          "range": true,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Observation age",
+      "description": "For a finished execution this is time since its final observation. For a running execution more than 20 seconds means telemetry interrupted.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Not available",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "gray"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min(time() - last_over_time(aquila_execution_heartbeat_seconds{aquila_execution_id=\"$execution\"}[$__range]), 0)",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 11,
+      "title": "Emitted diagnostics",
+      "description": "Logs are capped at 100 diagnostics; the log stream records omitted counts.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 28,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "gray"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(last_over_time(aquila_execution_diagnostics{aquila_execution_id=\"$execution\"}[$__range])) or (0 * last_over_time(aquila_execution_started_seconds{aquila_execution_id=\"$execution\"}[$__range]))",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      }
+    },
+    {
+      "id": 12,
+      "title": "Diagnostics by severity",
+      "description": "",
+      "type": "bargauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          },
+          "displayName": "${__field.labels.diagnostic_severity}"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "last_over_time(aquila_execution_diagnostics{aquila_execution_id=\"$execution\"}[$__range])",
+          "legendFormat": "{{diagnostic_severity}}",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "namePlacement": "left"
+      }
+    },
+    {
+      "id": 13,
+      "title": "Execution and trace identity",
+      "description": "",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "aquila-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "string",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Trace"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open this trace in Jaeger",
+                    "url": "http://127.0.0.1:16686/trace/${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SDK instance"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open telemetry for this SDK instance",
+                    "url": "http://127.0.0.1:3000/d/aquila-telemetry?var-sdk_instance=${__value.raw}&from=${__from}&to=${__to}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "last_over_time(aquila_execution_started_seconds{aquila_execution_id=\"$execution\"}[$__range])",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "datasource": {
+            "type": "prometheus",
+            "uid": "aquila-metrics"
+          },
+          "exemplar": false,
+          "format": "table"
+        }
+      ],
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "Value": true,
+              "otel_scope_name": true,
+              "otel_scope_version": true,
+              "service_name": true
+            },
+            "renameByName": {
+              "aquila_execution_id": "Execution",
+              "aquila_trace_id": "Trace",
+              "aquila_profile": "Profile",
+              "job": "Service",
+              "instance": "SDK instance",
+              "service_version": "Version"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Logs and diagnostics \u2014 selected execution",
+      "description": "",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "aquila-logs"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 24,
+        "h": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Not available",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisBorderShow": false
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=~\".+\"} | aquila_execution_id = \"$execution\"",
+          "queryType": "range",
+          "datasource": {
+            "type": "loki",
+            "uid": "aquila-logs"
+          }
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none",
+        "enableLogDetails": true
+      }
+    }
+  ]
+}

@@ -2,9 +2,9 @@
 
 ## Purpose
 
-The project treats production code under `src/main/java` as a build contract. A focused Checkstyle
-policy also rejects unnecessary fully qualified type references under `src/test/java`; the remaining
-static-analysis and formatting gates apply only to production sources. The default `verify`
+The project treats production code under `src/main/java` and `src/main/observability` as a build contract.
+A focused Checkstyle policy also rejects unnecessary fully qualified type references under `src/test/java`;
+the remaining static-analysis and formatting gates apply only to production sources. The default `verify`
 lifecycle checks deterministic properties that can be evaluated from the repository and resolved
 Maven artifacts. The opt-in `supply-chain` profile creates a production software bill of materials
 (SBOM).
@@ -64,6 +64,12 @@ Each plan names its isolated deliverables and manual-only owners for deferred
 real-environment requirements. Build development validation and deferred build
 integration validation are one application of that separation, not its scope limit.
 
+The explicit observability implementation decision of November 16, 2026 authorizes
+the repository-owned Docker telemetry services and their native Java 25 consumer
+checks, including restart, exporter-outage, and shutdown observations. This narrow
+exception does not reactivate the deferred Neo4j or unrelated process campaigns.
+See [observability](observability.md) for the service boundaries.
+
 Scope/command revisions execute no tests or acceptance campaigns. The earlier
 authorization for build development validation's complete isolated suite and fresh
 coverage remains recorded in its accepted checkpoint; it does not authorize tests
@@ -89,6 +95,7 @@ distribution checksum:
 
 | Purpose | Linux | Windows PowerShell |
 | --- | --- | --- |
+| Install the consumable library locally | `make install-library` | `.\Invoke-Build.ps1 install-library` |
 | Compile | `make compile` | `.\Invoke-Build.ps1 compile` |
 | Run development `*Test` tests when verification is requested | `make test` | `.\Invoke-Build.ps1 test` |
 | Produce unit-test coverage reports | `make coverage` | `.\Invoke-Build.ps1 coverage` |
@@ -129,6 +136,8 @@ Development test compilation still includes shared test sources; execution
 separation does not claim separate compilation roots. `quality` and
 `supply-chain-check` skip test compilation and execution. `prepare-consumers`
 packages and prepares the independent query module without executing tests.
+`install-library` packages the library and installs product-owned Maven metadata
+and artifacts locally without executing tests; see [library consumption](library.md).
 
 The [database integration runbook](../deployment/neo4j/testing.md) defines portable memory limits, disposable volumes, explicit preservation, logs, and lifecycle verification. Maven starts with a 128 MiB heap and a 1 GiB maximum through [`.mvn/jvm.config`](../.mvn/jvm.config). Forked compilers have a 1 GiB maximum. Surefire and Failsafe use a 128 MiB initial heap and a 2 GiB maximum; packaged CLI test consumers use a 512 MiB maximum, and the independent retained-AST query consumer uses 1 GiB. These budgets are independent of the container's total memory limit.
 
@@ -269,11 +278,11 @@ the namespace and ordered component, hashed with SHA-256.
 
 ## Product Compilation Partitions
 
-The single Maven project compiles seven named product modules through the
+The single Maven project compiles eight named product modules through the
 `compile-product-modules` execution in [pom.xml](../pom.xml). Production inputs
 use `src/main/java/<module-name>/`; canonical output is
 `target/classes/<module-name>/`, with module JARs under `target/modules/`.
-The compiler uses the module source path and the explicit seven-module list,
+The compiler uses the module source path and the explicit eight-module list,
 with the configured Java release, Error Prone, NullAway, JSpecify,
 `-Xlint:all`, and `-Werror`. Module ownership does not exclude sources from
 formatting, Checkstyle, PMD, CPD, SpotBugs, or Javadoc.
@@ -286,7 +295,13 @@ formatting, Checkstyle, PMD, CPD, SpotBugs, or Javadoc.
 | [Frontend](../src/main/java/org.aquilagraph.frontend/module-info.java) | Identity, Source, and public compiler modules; exports producer composition; compiler/translation implementations remain encapsulated. |
 | [Application](../src/main/java/org.aquilagraph.application/module-info.java) | Identity, Source, and CFG contracts; exports API/SPI; repository observation support is qualified to the repository module. |
 | [Repository](../src/main/java/org.aquilagraph.repository/module-info.java) | Identity, Source, CFG, Application, and Neo4j driver; exports adapter composition/settings/failure detail; storage implementations remain encapsulated. |
+| [Library](../src/main/java/org.aquilagraph.library/module-info.java) | Transitive Application API, Frontend, Repository, and Java HTTP client; exports consumer composition and lifecycle. |
 | [CLI](../src/main/java/org.aquilagraph.cli/module-info.java) | Composes the other product modules and presents application outcomes; exports no product API. |
+
+The separate `compile-observability` execution in [pom.xml](../pom.xml) compiles
+`src/main/observability` on the classpath into `target/observability-classes` with
+`-Xlint:all -Werror`. Its JAR declares the automatic module name
+`org.aquilagraph.observability`; it is not an additional module-source-path input.
 
 [ModuleDependencyBoundaryTest](../src/test/java/org/aquilagraph/architecture/ModuleDependencyBoundaryTest.java)
 inspects canonical classfile references and public signatures, including generic
@@ -399,7 +414,7 @@ define the responsibility direction. In particular:
 - CLI uses application and public graph reader contracts; the root selects concrete adapters.
 - The Neo4j adapter realizes application storage ports and uses qualified `source.retention.AstCodec` for intrinsic AST readmission without frontend/compiler or CFG construction. It cannot access frontend-only `source.admission`.
 
-The seven [named product modules](#product-compilation-partitions), qualified exports, import controls, and classfile/consumer checks define the selected [dependency closure](design/java-analysis.md#target-dependency-closure-and-enforcement). Identity domain operations close over Java base; `NullMarked` and `Nullable` are designated annotation metadata. The configured nullness rules remain in force. Module/classfile inspection and isolated consumer compilation establish their observed access properties only; they do not establish full semantic acceptance.
+The eight [named product modules](#product-compilation-partitions), qualified exports, import controls, and classfile/consumer checks define the selected [dependency closure](design/java-analysis.md#target-dependency-closure-and-enforcement). Identity domain operations close over Java base; `NullMarked` and `Nullable` are designated annotation metadata. The configured nullness rules remain in force. Module/classfile inspection and isolated consumer compilation establish their observed access properties only; they do not establish full semantic acceptance.
 
 Behavioral controls cover [required/optional source facts](design/java-analysis.md#initial-source-profile), [public graph payload/query contracts](design/java-analysis.md#public-cfg-values-and-queries) and [repository failure crossings](contracts/analysis.md#target-repository-failure-crossing). Compiler fixtures observe actual producer facts; copied-fact and driver faults observe their isolated supplied conditions; Community integration cases observe actual save/query/schema effects. The [owning verification record](design/java-analysis.md#model-acceptance-and-verification) identifies pending independent acceptance and the limits on reusing prior evidence; no diagram or documentation check supplies executable evidence.
 

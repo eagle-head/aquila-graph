@@ -17,7 +17,7 @@ record CompilationRequest(Path root, String batch, Path sources, Path resources,
   CompilationRequest {
     arguments = List.copyOf(arguments);
     environment = Map.copyOf(environment);
-    if (!List.of("production", TEST_BATCH, CONSUMER_BATCH).contains(batch)) {
+    if (!List.of("production", "observability", TEST_BATCH, CONSUMER_BATCH).contains(batch)) {
       throw new IllegalArgumentException("Unknown compilation batch: " + batch);
     }
   }

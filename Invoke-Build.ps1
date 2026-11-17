@@ -9,6 +9,7 @@ quality runs static gates without tests.
 cancel requests cleanup from the active build owner and waits for resource and lease closure.
 Real-environment integration commands are deferred until a new explicit user decision.
 check-process, check-persistence and check-lifecycle are manual integration commands.
+install-library packages and installs the library in a local Maven repository without running tests.
 prepare-consumers packages and prepares the independent query module without running tests.
 verify-all and integration-test-neo4j include real integrations; they are not development acceptance commands.
 .PARAMETER ProjectRoot

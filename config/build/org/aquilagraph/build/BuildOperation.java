@@ -9,7 +9,8 @@ enum BuildOperation {
   COMPILE("-Dmaven.test.skip=true compile"), TEST("test"), INTEGRATION_TEST("-DskipTests=true verify"),
   INTEGRATION_TEST_NEO4J("-DskipTests=true -Pneo4j-integration verify"), CHECK_PROCESS(focused("process")),
   CHECK_PERSISTENCE(focused("persistence")), CHECK_LIFECYCLE(focused("lifecycle")),
-  PREPARE_CONSUMERS("-Dmaven.test.skip=true pre-integration-test"), COVERAGE("jacoco:prepare-agent test antrun:run@report-unit-coverage"),
+  PREPARE_CONSUMERS("-Dmaven.test.skip=true pre-integration-test"), INSTALL_LIBRARY(libraryInstallation()),
+  COVERAGE("jacoco:prepare-agent test antrun:run@report-unit-coverage"),
   VERIFY_ALL(
       "-Dbuild.compilation.force=true -Pneo4j-integration help:effective-pom jacoco:prepare-agent verify antrun:run@report-unit-coverage"),
   FORMAT("validate spotless:apply"), FORMAT_CHECK("validate spotless:check"), LINE_ENDINGS_CHECK(""),
@@ -42,6 +43,12 @@ enum BuildOperation {
         + " -Dbuild.integration.includes=**/*IT.java pre-integration-test"
         + " org.apache.maven.plugins:maven-failsafe-plugin:3.6.0:integration-test"
         + " org.apache.maven.plugins:maven-failsafe-plugin:3.6.0:verify";
+  }
+
+  private static String libraryInstallation() {
+    var artifacts = List.of("identity", "source", "cfg", "frontend", "application", "repository", "observability", "library");
+    return "-Dmaven.test.skip=true package "
+        + String.join(" ", artifacts.stream().map(artifact -> "install:install-file@install-library-" + artifact).toList());
   }
 
   boolean focusedIntegration() {
