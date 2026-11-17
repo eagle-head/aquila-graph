@@ -1,6 +1,7 @@
 package org.aquilagraph.frontend.internal;
 
 import org.aquilagraph.source.admission.CoverageAdmission;
+import org.aquilagraph.source.admission.CoverageContextIndex;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -27,7 +28,6 @@ import org.aquilagraph.source.api.LanguageFeaturePolicy;
 import org.aquilagraph.source.api.SourceContext;
 import org.aquilagraph.source.api.SourceContext.Partition;
 import org.aquilagraph.source.api.SourceCoverageInventory;
-import org.aquilagraph.source.api.SourceOwnerPath;
 import org.aquilagraph.source.api.UnmatchedSourceFact;
 import org.aquilagraph.source.admission.CoverageActualFacts;
 import org.aquilagraph.source.api.JavaTypeCategory;
@@ -50,6 +50,7 @@ final class JavaSourceCoverageReconciler {
   private final SourceCoverageInventory inventory;
   private final AttributedCoverageExpectations attributed;
   private final CoverageActualFactView actualFacts;
+  private final CoverageContextIndex contexts;
   private final Optional<JavaAstAggregate> sourceAggregate;
   private final DiagnosticAssociations diagnostics;
   private final List<FeatureContextOutcome> outcomes = new ArrayList<>();
@@ -61,6 +62,7 @@ final class JavaSourceCoverageReconciler {
     this.attributed = attributed;
     sourceAggregate = aggregate;
     actualFacts = CoverageActualFacts.capture(program, aggregate);
+    contexts = new CoverageContextIndex(inventory, attributed, aggregate);
     diagnostics = new DiagnosticAssociations(emissions);
   }
 
@@ -123,9 +125,8 @@ final class JavaSourceCoverageReconciler {
 
   private void moduleEndpoints() {
     inventory.contexts().stream().filter(context -> context.address().partition() == Partition.MODULE_ENDPOINT).forEach(context -> {
-      var expected = attributed.projections().stream().filter(projection -> projection.address().equals(context.address()))
-          .map(AttributedCoverageExpectations.Projection::value).findFirst().orElseThrow();
-      var facts = CoverageActualFacts.ownedBy(context, actualFacts);
+      var expected = contexts.projection(context).value();
+      var facts = actualFacts.ownedBy(context);
       var supported = CoverageActualFacts.supportsProperty(context, expected, facts, actualFacts);
       var emissions = supported
           ? List.<DiagnosticEmission.Address>of()
@@ -144,15 +145,13 @@ final class JavaSourceCoverageReconciler {
   }
 
   private void writtenExpression(SourceContext context) {
-    var region = inventory.writtenExpressions().stream().flatMap(List::stream)
-        .filter(value -> value.compilerOwner().equals(context.address().ownerPath())
-            && value.origin().sourceFileKey().equals(context.address().sourceFileKey()))
-        .findFirst().orElseThrow();
-    var roots = sourceAggregate.stream().flatMap(value -> value.nodes().stream())
+    JavaAnalysisStage.checkCancellation();
+    var region = contexts.region(context);
+    var roots = contexts.normalizedRoots(context).stream()
         .filter(node -> sourceAggregate.orElseThrow().writtenSourceAssociation(node.nodeId()).flatMap(value -> value.normalizedExpression())
-            .filter(value -> value.occurrencePath().isEmpty() && value.region().equals(region)).isPresent())
+            .filter(value -> value.region().equals(region)).isPresent())
         .toList();
-    var facts = CoverageActualFacts.ownedBy(context, actualFacts);
+    var facts = actualFacts.ownedBy(context);
     var supported = roots.size() == 1 && region.matches(roots.getFirst()) && !facts.isEmpty();
     var emissions = supported
         ? List.<DiagnosticEmission.Address>of()
@@ -170,7 +169,9 @@ final class JavaSourceCoverageReconciler {
   }
 
   private void emptyBodyDeclaration(SourceContext context) {
-    var facts = actualFacts.stream().filter(fact -> CoverageActualFacts.matchesEmptyDeclaration(context, fact, actualFacts)).toList();
+    JavaAnalysisStage.checkCancellation();
+    var facts = actualFacts.inSource(context.address().sourceFileKey()).stream()
+        .filter(fact -> CoverageActualFacts.matchesEmptyDeclaration(context, fact, actualFacts)).toList();
     var emissions = List.<DiagnosticEmission.Address>of();
     var disposition = support(Mode.FAILED);
     if (facts.size() == EXPECTED_EMPTY_DECLARATION_FACTS) {
@@ -188,19 +189,18 @@ final class JavaSourceCoverageReconciler {
   }
 
   private void writtenTypeUse(SourceContext context) {
-    var tree = inventory.contexts().stream()
-        .filter(candidate -> candidate.address().partition() == Partition.TREE
-            && candidate.address().sourceFileKey().equals(context.address().sourceFileKey())
-            && candidate.address().ownerPath().equals(context.address().ownerPath()))
-        .findFirst().orElseThrow();
+    JavaAnalysisStage.checkCancellation();
+    var tree = contexts.tree(context);
     var kind = tree.feature().orElseThrow().identifier();
-    var facts = actualFacts.stream()
+    var facts = actualFacts.atOwner(context.address().sourceFileKey(), context.address().ownerPath()).stream()
         .filter(fact -> fact.sourceFileKey().equals(context.address().sourceFileKey())
-            && CoverageWrittenTypeUseTopology.matchesParent(fact, actualFacts)
             && actualFacts.isSource(fact,
                 syntax -> syntax.syntaxKind() == SyntaxKind.TYPE_USE && syntax.sourceKind().name().equals(kind)
-                    && syntax.sourceAssociation().filter(association -> association.ownerPath().equals(context.address().ownerPath())
-                        && association.origin().stream().toList().equals(context.origins())).isPresent()))
+                    && syntax.sourceAssociation()
+                        .filter(association -> association.ownerPath().equals(context.address().ownerPath())
+                            && association.origin().stream().toList().equals(context.origins()))
+                        .isPresent())
+            && CoverageWrittenTypeUseTopology.matchesParent(fact, actualFacts))
         .toList();
     var emissions = List.<DiagnosticEmission.Address>of();
     var disposition = support(Mode.FAILED);
@@ -235,6 +235,7 @@ final class JavaSourceCoverageReconciler {
 
   private void addKnown(SourceContext context, LanguageFeatureOccurrence occurrence, LanguageFeatureObservation observation,
       Optional<CoveragePropertyValue> encountered) {
+    JavaAnalysisStage.checkCancellation();
     var addresses = new ArrayList<DiagnosticEmission.Address>();
     observation.diagnostic().ifPresent(diagnostic -> addresses.add(diagnostics.associateKnown(diagnostic, context.address())));
     var disposition = support(Mode.NOT_REQUIRED);
@@ -254,11 +255,7 @@ final class JavaSourceCoverageReconciler {
           disposition = support(Mode.ATTRIBUTED_PAIR);
         }
       } else if (UNIT_KIND_PROPERTY.equals(context.address().role())) {
-        var tree = inventory.contexts().stream()
-            .filter(candidate -> candidate.address().partition() == Partition.TREE
-                && candidate.address().sourceFileKey().equals(context.address().sourceFileKey())
-                && candidate.address().ownerPath().equals(context.address().ownerPath()))
-            .findFirst().orElseThrow();
+        var tree = contexts.tree(context);
         disposition = new Support(Mode.POLICY_PAIR, List.of(), Optional.of(tree.address()), Optional.empty(), Optional.empty());
       } else if (UNIT_SOURCE_PROPERTY.equals(context.address().role())) {
         var source = inventory.snapshot().sourceFiles().stream()
@@ -289,33 +286,26 @@ final class JavaSourceCoverageReconciler {
   }
 
   private CoveragePropertyValue projection(SourceContext context) {
-    return context.requiresAttribution()
-        ? attributed.projections().stream().filter(value -> value.address().equals(context.address()))
-            .map(AttributedCoverageExpectations.Projection::value).findFirst().orElseThrow()
-        : context.writtenValue().orElseThrow();
+    return context.requiresAttribution() ? contexts.projection(context).value() : context.writtenValue().orElseThrow();
   }
 
   private List<CoverageFactReference> ownerFacts(SourceContext context) {
-    var owned = new ArrayList<>(CoverageActualFacts.ownedBy(context, actualFacts));
-    var ownerIdentity = attributed.projections().stream()
-        .filter(value -> value.address().partition() == Partition.ATTRIBUTED_PROPERTY
-            && value.address().sourceFileKey().equals(context.address().sourceFileKey())
-            && value.address().ownerPath().equals(context.address().ownerPath()))
-        .flatMap(value -> value.ownerIdentity().stream()).findFirst();
+    JavaAnalysisStage.checkCancellation();
+    var owned = new ArrayList<>(actualFacts.ownedBy(context));
+    var ownerIdentity = contexts.attributedDeclarationOwner(context);
     if (ownerIdentity.isPresent()) {
-      actualFacts.stream()
-          .filter(
-              fact -> fact.sourceFileKey().equals(context.address().sourceFileKey()) && (fact.identity().equals(ownerIdentity.orElseThrow())
-                  || (fact.value() instanceof CoverageFactValue.MemberOrder order
-                      && order.value().ownerTypeKey().equals(ownerIdentity.orElseThrow()))
-                  || (fact.value() instanceof CoverageFactValue.DeclarationType type
-                      && type.value().ownerTypeKey().equals(ownerIdentity.orElseThrow())))
-                  && !owned.contains(fact))
-          .forEach(owned::add);
+      actualFacts.forDeclaration(context.address().sourceFileKey(), ownerIdentity.orElseThrow()).stream()
+          .filter(fact -> !owned.contains(fact)).forEach(owned::add);
       if (owned.stream().anyMatch(fact -> fact.value() instanceof CoverageFactValue.Type type && !type.value().sourceDeclared())) {
-        actualFacts.stream().filter(fact -> fact.sourceFileKey().equals(context.address().sourceFileKey()) && actualFacts.isSource(fact,
-            syntax -> syntax.value() instanceof SyntaxValue.CompilationUnit unit && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT)
-            && !owned.contains(fact)).forEach(owned::add);
+        actualFacts
+            .inSource(
+                context.address().sourceFileKey())
+            .stream()
+            .filter(fact -> fact.sourceFileKey().equals(context.address().sourceFileKey())
+                && actualFacts.isSource(fact, syntax -> syntax.value() instanceof SyntaxValue.CompilationUnit unit
+                    && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT)
+                && !owned.contains(fact))
+            .forEach(owned::add);
       }
       owned.removeIf(fact -> (fact.kind() == CoverageFactReference.Kind.TYPE || fact.kind() == CoverageFactReference.Kind.METHOD)
           ? !fact.identity().equals(ownerIdentity.orElseThrow())
@@ -326,7 +316,7 @@ final class JavaSourceCoverageReconciler {
                       && !method.declarationKey().equals(ownerIdentity.orElseThrow()))));
     }
     if (UNIT_TYPES_PROPERTY.equals(context.address().role())) {
-      actualFacts.stream()
+      actualFacts.inSource(context.address().sourceFileKey()).stream()
           .filter(fact -> fact.sourceFileKey().equals(context.address().sourceFileKey())
               && fact.value() instanceof CoverageFactValue.Type type && !type.value().sourceDeclared() && !owned.contains(fact))
           .forEach(owned::add);
@@ -343,17 +333,13 @@ final class JavaSourceCoverageReconciler {
       if (!matching.isEmpty()) {
         return matching;
       }
-      if (CoverageWrittenQualifierTopology.requiresExactOccurrence(context, inventory)) {
+      if (CoverageWrittenQualifierTopology.requiresExactOccurrence(context, contexts)) {
         return List.of();
       }
       if (List.of("CONSTANT_CASE_LABEL", "DEFAULT_CASE_LABEL", "PATTERN_CASE_LABEL").contains(kind)) {
-        return inventory.contexts().stream()
-            .filter(candidate -> candidate.address().partition() == Partition.TREE
-                && candidate.address().sourceFileKey().equals(context.address().sourceFileKey())
-                && ancestor(candidate.address().ownerPath(), context.address().ownerPath())
-                && candidate.feature().filter(feature -> "CASE".equals(feature.identifier())).isPresent())
-            .sorted((first, second) -> Integer.compare(second.address().ownerPath().size(), first.address().ownerPath().size()))
-            .map(candidate -> CoverageActualFacts.ownedBy(candidate, actualFacts).stream()
+        return contexts.ancestors(context).stream()
+            .filter(candidate -> candidate.feature().filter(feature -> "CASE".equals(feature.identifier())).isPresent())
+            .map(candidate -> actualFacts.ownedBy(candidate).stream()
                 .filter(fact -> actualFacts.isSource(fact, syntax -> syntax.value() instanceof SyntaxValue.SwitchCase)).toList())
             .filter(facts -> !facts.isEmpty()).findFirst().orElseGet(List::of);
       }
@@ -362,23 +348,19 @@ final class JavaSourceCoverageReconciler {
       }
     } else if (!owned.isEmpty()) {
       var expected = context.requiresAttribution() ? projection(context) : context.writtenValue().orElseThrow();
-      expected.items().forEach(item -> actualFacts.stream().filter(fact -> fact.sourceFileKey().equals(context.address().sourceFileKey())
-          && fact.identity().equals(item.identity()) && !owned.contains(fact)).forEach(owned::add));
+      actualFacts.withIdentities(context.address().sourceFileKey(), expected.items().stream().map(Item::identity).toList()).stream()
+          .filter(fact -> !owned.contains(fact)).forEach(owned::add);
       if (TYPE_MEMBERS_PROPERTY.equals(context.address().role())) {
         var parameterKeys = owned.stream().map(CoverageFactReference::value).filter(CoverageFactValue.Method.class::isInstance)
             .map(CoverageFactValue.Method.class::cast).flatMap(method -> method.value().parameters().stream())
             .map(parameter -> parameter.parameterKey()).toList();
-        actualFacts.stream().filter(fact -> parameterKeys.contains(fact.identity()) && !owned.contains(fact)).forEach(owned::add);
+        actualFacts.withIdentities(context.address().sourceFileKey(), parameterKeys).stream().filter(fact -> !owned.contains(fact))
+            .forEach(owned::add);
       }
       return List.copyOf(owned);
     }
-    return inventory.contexts().stream()
-        .filter(candidate -> candidate.address().partition() == Partition.TREE
-            && candidate.address().sourceFileKey().equals(context.address().sourceFileKey())
-            && ancestor(candidate.address().ownerPath(), context.address().ownerPath()))
-        .sorted((first, second) -> Integer.compare(second.address().ownerPath().size(), first.address().ownerPath().size()))
-        .map(candidate -> CoverageActualFacts.ownedBy(candidate, actualFacts)).filter(facts -> !facts.isEmpty()).findFirst()
-        .orElseGet(List::of);
+    return contexts.ancestors(context).stream().map(candidate -> actualFacts.ownedBy(candidate)).filter(facts -> !facts.isEmpty())
+        .findFirst().orElseGet(List::of);
   }
 
   private static boolean canonicalTreeKind(String kind, CoverageFactReference fact) {
@@ -393,6 +375,7 @@ final class JavaSourceCoverageReconciler {
     var accounted = new HashSet<CoverageFactReference>();
     outcomes.forEach(outcome -> accounted.addAll(outcome.support().facts()));
     for (var ordinal = 0; ordinal < actualFacts.size(); ordinal++) {
+      JavaAnalysisStage.checkCancellation();
       var fact = actualFacts.get(ordinal);
       if (accounted.contains(fact)) {
         continue;
@@ -438,18 +421,10 @@ final class JavaSourceCoverageReconciler {
   private List<DiagnosticEmission.Address> failure(SourceContext context, String code, String message) {
     if (MISSING_SOURCE_EVIDENCE.equals(code) || "frontend.inconsistent-source-evidence".equals(code)) {
       var origins = context.origins().isEmpty()
-          ? inventory.contexts().stream()
-              .filter(owner -> owner.address().partition() == Partition.TREE
-                  && owner.address().sourceFileKey().equals(context.address().sourceFileKey())
-                  && ancestor(owner.address().ownerPath(), context.address().ownerPath()) && !owner.origins().isEmpty())
-              .sorted((first, second) -> Integer.compare(second.address().ownerPath().size(), first.address().ownerPath().size()))
-              .map(SourceContext::origins).findFirst().orElseGet(List::of)
+          ? contexts.ancestors(context).stream().filter(owner -> !owner.origins().isEmpty()).map(SourceContext::origins).findFirst()
+              .orElseGet(List::of)
           : context.origins();
-      var enclosingOrigins = inventory.contexts().stream()
-          .filter(owner -> owner.address().partition() == Partition.TREE
-              && owner.address().sourceFileKey().equals(context.address().sourceFileKey())
-              && ancestor(owner.address().ownerPath(), context.address().ownerPath()))
-          .flatMap(owner -> owner.origins().stream()).toList();
+      var enclosingOrigins = contexts.ancestors(context).stream().flatMap(owner -> owner.origins().stream()).toList();
       var declarationOwners = actualFacts.stream().filter(fact -> fact.kind() != CoverageFactReference.Kind.SYNTAX
           && fact.sourceFileKey().equals(context.address().sourceFileKey()) && fact.origin().filter(enclosingOrigins::contains).isPresent())
           .map(CoverageFactReference::identity).toList();
@@ -471,10 +446,6 @@ final class JavaSourceCoverageReconciler {
     var diagnostic = FrontendDiagnosticFactory.otherError(context.address().toString(), code, message,
         context.origins().stream().findFirst());
     return List.of(diagnostics.createFailure(diagnostic, context.address()));
-  }
-
-  private static boolean ancestor(SourceOwnerPath candidate, SourceOwnerPath path) {
-    return candidate.isAncestorOf(path);
   }
 
   private static Support support(Mode mode) {

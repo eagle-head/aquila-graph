@@ -103,6 +103,7 @@ public final class CoverageAdmission {
       throw new IllegalArgumentException("Both independent expectation stages must bind the active source and release contract");
     }
     var contexts = inventory.contexts();
+    var lookup = new CoverageContextIndex(inventory, evidence.attributedExpectations(), Optional.empty());
     if (!contexts.stream().map(SourceContext::address).toList()
         .equals(evidence.outcomes().stream().map(FeatureContextOutcome::address).toList())) {
       throw new IllegalArgumentException("Coverage outcomes must exactly match the independent context inventory in order");
@@ -127,7 +128,7 @@ public final class CoverageAdmission {
       }
     }
     for (var index = 0; index < contexts.size(); index++) {
-      validateContext(coverage, contexts.get(index), evidence.outcomes().get(index), evidence, emissions);
+      validateContext(coverage, contexts.get(index), evidence.outcomes().get(index), evidence, emissions, lookup);
     }
     var unmatched = new HashSet<String>();
     for (var fact : evidence.unmatchedFacts()) {
@@ -175,7 +176,7 @@ public final class CoverageAdmission {
   }
 
   private static void validateContext(LanguageFeatureCoverage coverage, SourceContext context, FeatureContextOutcome outcome,
-      CoverageValidationEvidence evidence, Map<DiagnosticEmission.Address, DiagnosticEmission> emissions) {
+      CoverageValidationEvidence evidence, Map<DiagnosticEmission.Address, DiagnosticEmission> emissions, CoverageContextIndex lookup) {
     context.feature().ifPresent(feature -> {
       if (outcome.occurrence().isEmpty() || !outcome.occurrence().orElseThrow().classification().feature().equals(feature)) {
         throw new IllegalArgumentException("Known source contexts require their independently produced exact policy pair");
@@ -191,18 +192,15 @@ public final class CoverageAdmission {
     outcome.occurrence().ifPresent(occurrence -> validateOccurrence(coverage, occurrence));
     validateContextBoundary(context, outcome);
     if (context.address().partition() == SourceContext.Partition.MODULE_ENDPOINT) {
-      var owners = evidence.writtenInventory().contexts().stream()
-          .filter(candidate -> candidate.address().partition() == SourceContext.Partition.TREE
-              && candidate.address().sourceFileKey().equals(context.address().sourceFileKey())
-              && candidate.address().ownerPath().equals(context.address().ownerPath()) && candidate.origins().equals(context.origins()))
-          .toList();
+      var owners = lookup.at(SourceContext.Partition.TREE, context.address().sourceFileKey(), context.address().ownerPath()).stream()
+          .filter(candidate -> candidate.origins().equals(context.origins())).toList();
       if (owners.size() != 1 || (outcome.support().mode() != FeatureContextOutcome.Mode.FACTS
           && outcome.support().mode() != FeatureContextOutcome.Mode.FAILED)) {
         throw new IllegalArgumentException("A required module endpoint needs its exact parsed owner and positive or failed evidence");
       }
     }
     if (context.address().partition() == SourceContext.Partition.WRITTEN_TYPE_USE) {
-      validateWrittenTypeUse(context, outcome, evidence);
+      validateWrittenTypeUse(context, outcome, lookup);
     }
     if (context.address().partition().isEmptyDeclaration()) {
       validateEmptyDeclaration(context, outcome, evidence);
@@ -220,8 +218,7 @@ public final class CoverageAdmission {
       }
     });
     var expected = context.requiresAttribution()
-        ? evidence.attributedExpectations().projections().stream().filter(projection -> projection.address().equals(context.address()))
-            .map(AttributedCoverageExpectations.Projection::value).findFirst()
+        ? lookup.findProjection(context.address()).map(AttributedCoverageExpectations.Projection::value)
         : context.writtenValue();
     if (expected.isPresent() && !expected.equals(outcome.encounteredValue())) {
       throw new IllegalArgumentException("Actual accessor encounters must exactly match the independent scalar/list projection");
@@ -299,8 +296,7 @@ public final class CoverageAdmission {
     });
     if (context.address().partition() == SourceContext.Partition.ATTRIBUTED_PROPERTY
         && outcome.support().mode() == FeatureContextOutcome.Mode.FACTS) {
-      var owner = evidence.attributedExpectations().projections().stream().filter(value -> value.address().equals(context.address()))
-          .flatMap(value -> value.ownerIdentity().stream()).findFirst().orElseThrow();
+      var owner = lookup.projection(context).ownerIdentity().orElseThrow();
       if (outcome.support().facts().stream().noneMatch(fact -> fact.identity().equals(owner))) {
         throw new IllegalArgumentException("Semantic property support requires its independently resolved exact retained owner");
       }
@@ -352,13 +348,9 @@ public final class CoverageAdmission {
     }
   }
 
-  private static void validateWrittenTypeUse(SourceContext context, FeatureContextOutcome outcome, CoverageValidationEvidence evidence) {
+  private static void validateWrittenTypeUse(SourceContext context, FeatureContextOutcome outcome, CoverageContextIndex lookup) {
     validateWrittenOccurrenceSupport(context, outcome);
-    var owners = evidence.writtenInventory().contexts().stream()
-        .filter(candidate -> candidate.address().partition() == SourceContext.Partition.TREE
-            && candidate.address().sourceFileKey().equals(context.address().sourceFileKey())
-            && candidate.address().ownerPath().equals(context.address().ownerPath()))
-        .toList();
+    var owners = lookup.at(SourceContext.Partition.TREE, context.address().sourceFileKey(), context.address().ownerPath());
     if (owners.size() != EXPECTED_WRITTEN_TYPE_USE_OWNERS || !owners.getFirst().origins().equals(context.origins())) {
       throw new IllegalArgumentException("Written type-use obligations require their exact independently captured tree owner");
     }

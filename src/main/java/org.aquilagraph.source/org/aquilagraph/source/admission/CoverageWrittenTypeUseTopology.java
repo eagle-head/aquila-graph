@@ -4,12 +4,14 @@ import org.aquilagraph.source.api.CoverageFactReference;
 import org.aquilagraph.source.api.JavaSourceKind;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
 import java.util.Optional;
 import org.aquilagraph.source.api.SourceOwnerPath.Role;
 
 /** Checks actual type-use parent attachments without consulting coverage expectations or outcomes. */
 public final class CoverageWrittenTypeUseTopology {
   private static final int EXPECTED_PARENT_ATTACHMENTS = 1;
+  private static final int SOURCE_ROOT_PATH_LENGTH = 1;
   private CoverageWrittenTypeUseTopology() {
   }
 
@@ -30,10 +32,12 @@ public final class CoverageWrittenTypeUseTopology {
     }
     var association = source.orElseThrow().sourceAssociation().orElseThrow();
     var steps = source.orElseThrow().structuralPath().steps();
+    if (steps.size() == SOURCE_ROOT_PATH_LENGTH) {
+      return false;
+    }
     var step = steps.getLast();
     var parentSteps = steps.subList(0, steps.size() - 1);
-    var parents = facts.stream().filter(fact -> fact.sourceFileKey().equals(reference.sourceFileKey()))
-        .filter(fact -> facts.isSource(fact, syntax -> syntax.structuralPath().steps().equals(parentSteps)))
+    var parents = facts.atPath(reference.sourceFileKey(), new SyntaxStructuralPath(parentSteps)).stream()
         .filter(parent -> facts.child(parent, step.role(), step.position()).filter(reference::equals).isPresent())
         .map(facts::requiredSyntax).toList();
     if (parents.size() != EXPECTED_PARENT_ATTACHMENTS) {

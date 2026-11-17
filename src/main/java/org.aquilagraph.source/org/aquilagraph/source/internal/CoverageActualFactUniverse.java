@@ -17,6 +17,8 @@ import org.aquilagraph.source.api.CoverageFactValue;
 import org.aquilagraph.source.api.CoverageSyntaxFactValue;
 import org.aquilagraph.source.api.CoverageSyntaxFactValue.Child;
 import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SourceContext;
+import org.aquilagraph.source.api.SourceOwnerPath;
 import org.aquilagraph.source.api.SyntaxStructuralPath;
 import org.aquilagraph.source.api.SyntaxStructuralPath.Step;
 
@@ -26,6 +28,7 @@ public final class CoverageActualFactUniverse implements CoverageActualFactView 
   private final List<CoverageFactReference> orderedReferences;
   private final Map<String, SourceEntry> sourceValues;
   private final Map<String, String> capturedSources;
+  private final CoverageFactIndex index;
 
   /**
    * Owns the copied nodes and declaration lookup used by coverage admission.
@@ -40,17 +43,59 @@ public final class CoverageActualFactUniverse implements CoverageActualFactView 
   public CoverageActualFactUniverse(List<CoverageFactReference> references, Map<String, CoverageSyntaxFactValue> syntaxValues,
       List<SourceFile> sources) {
     orderedReferences = List.copyOf(references);
+    var copiedSyntax = Map.copyOf(syntaxValues);
     var entries = new HashMap<String, SourceEntry>();
     for (var reference : orderedReferences) {
       if (reference.kind() == CoverageFactReference.Kind.SYNTAX) {
-        registerSource(reference, syntaxValues, entries);
+        registerSource(reference, copiedSyntax, entries);
       }
     }
-    if (entries.size() != syntaxValues.size()) {
+    if (entries.size() != copiedSyntax.size()) {
       throw new IllegalArgumentException("Every actual typed source view requires one exact neutral reference");
     }
     sourceValues = Map.copyOf(entries);
     capturedSources = sources.stream().collect(Collectors.toUnmodifiableMap(SourceFile::sourceFileKey, SourceFile::content));
+    index = new CoverageFactIndex(orderedReferences, copiedSyntax);
+  }
+
+  @Override
+  public int indexOf(CoverageFactReference reference) {
+    return index.indexOf(reference);
+  }
+
+  @Override
+  public List<CoverageFactReference> inSource(String sourceFileKey) {
+    return index.inSource(sourceFileKey);
+  }
+
+  @Override
+  public List<CoverageFactReference> withIdentity(String sourceFileKey, String identity) {
+    return index.withIdentity(sourceFileKey, identity);
+  }
+
+  @Override
+  public List<CoverageFactReference> withIdentities(String sourceFileKey, List<String> identities) {
+    return index.withIdentities(sourceFileKey, identities);
+  }
+
+  @Override
+  public List<CoverageFactReference> forDeclaration(String sourceFileKey, String identity) {
+    return index.forDeclaration(sourceFileKey, identity);
+  }
+
+  @Override
+  public List<CoverageFactReference> atOwner(String sourceFileKey, SourceOwnerPath owner) {
+    return index.atOwner(sourceFileKey, owner);
+  }
+
+  @Override
+  public List<CoverageFactReference> atPath(String sourceFileKey, SyntaxStructuralPath path) {
+    return index.atPath(sourceFileKey, path);
+  }
+
+  @Override
+  public List<CoverageFactReference> ownedBy(SourceContext context) {
+    return index.ownedBy(context);
   }
 
   private static void registerSource(CoverageFactReference reference, Map<String, CoverageSyntaxFactValue> syntaxValues,
