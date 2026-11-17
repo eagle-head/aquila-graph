@@ -46,7 +46,6 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.source.api.AstProductionRequest;
 import org.aquilagraph.source.retention.AstCodec;
-import org.aquilagraph.source.internal.SourceAnalysisFixture;
 import org.aquilagraph.source.api.AstOutcome;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.testsupport.AnalysisExecutionFixture;
@@ -167,7 +166,7 @@ class Neo4jExecutableAstRetentionNeo4jIT {
       // Assert
       assertEquals(PublicationStatus.SAVED, replacement.status());
       ExecutableAstRetentionFixture.assertPreserved(mixedResult, retrieved);
-      assertEquals("java-source/23", older.identity().sourceModelVersion());
+      assertEquals("java-source/24", older.identity().sourceModelVersion());
       assertEquals(AstProfile.JAVA_SOURCE_BOUNDED, older.profile());
       assertEquals(oldResult.identity(), older.identity());
       assertArrayEquals(AstCodec.encode(oldResult), AstCodec.encode(older));
@@ -507,7 +506,7 @@ class Neo4jExecutableAstRetentionNeo4jIT {
 
       // Assert
       assertEquals(PublicationStatus.SAVED, publication.status());
-      assertEquals("java-source/23", retained.identity().sourceModelVersion());
+      assertEquals("java-source/24", retained.identity().sourceModelVersion());
       assertEquals(current.identity(), retained.identity());
       assertArrayEquals(AstCodec.encode(current), AstCodec.encode(retained));
       assertEquals(current.aggregate(), retained.aggregate());

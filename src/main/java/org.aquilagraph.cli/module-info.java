@@ -4,7 +4,7 @@ module org.aquilagraph.cli {
   requires org.aquilagraph.identity;
   requires org.aquilagraph.source;
   requires org.aquilagraph.cfg;
-  requires org.aquilagraph.frontend;
+  requires org.aquilagraph.library;
   requires org.aquilagraph.application;
   requires org.aquilagraph.repository;
 }

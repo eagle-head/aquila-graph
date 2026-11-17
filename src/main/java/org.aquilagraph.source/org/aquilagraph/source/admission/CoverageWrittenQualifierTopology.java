@@ -1,7 +1,6 @@
 package org.aquilagraph.source.admission;
 
 import org.aquilagraph.source.api.SourceContext;
-import org.aquilagraph.source.api.SourceCoverageInventory;
 import org.aquilagraph.source.api.SourceOwnerPath;
 /** Independent parsed topology identifying written member qualifiers within executable source. */
 public final class CoverageWrittenQualifierTopology {
@@ -13,11 +12,11 @@ public final class CoverageWrittenQualifierTopology {
    *
    * @param context
    *          independently captured parsed context
-   * @param inventory
+   * @param contexts
    *          frozen written source inventory
    * @return whether ancestor support would omit a required written qualifier
    */
-  public static boolean requiresExactOccurrence(SourceContext context, SourceCoverageInventory inventory) {
+  public static boolean requiresExactOccurrence(SourceContext context, CoverageContextIndex contexts) {
     if (context.address().partition() != SourceContext.Partition.TREE
         || context.feature().filter(feature -> "IDENTIFIER".equals(feature.identifier()) || "MEMBER_SELECT".equals(feature.identifier()))
             .isEmpty()
@@ -27,8 +26,7 @@ public final class CoverageWrittenQualifierTopology {
       return false;
     }
     var parent = context.address().ownerPath().parent().orElseThrow();
-    return inventory.contexts().stream().anyMatch(candidate -> candidate.address().partition() == SourceContext.Partition.TREE
-        && candidate.address().sourceFileKey().equals(context.address().sourceFileKey()) && candidate.address().ownerPath().equals(parent)
-        && candidate.feature().filter(feature -> "MEMBER_SELECT".equals(feature.identifier())).isPresent());
+    return contexts.at(SourceContext.Partition.TREE, context.address().sourceFileKey(), parent).stream()
+        .anyMatch(candidate -> candidate.feature().filter(feature -> "MEMBER_SELECT".equals(feature.identifier())).isPresent());
   }
 }

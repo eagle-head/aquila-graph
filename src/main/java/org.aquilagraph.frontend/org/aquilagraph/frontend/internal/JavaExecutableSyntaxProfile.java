@@ -60,6 +60,7 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.InvocationSemantics;
+import org.aquilagraph.source.api.InvocationSelection;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.SemanticReference;
@@ -405,7 +406,9 @@ final class JavaExecutableSyntaxProfile extends SimpleTreeVisitor<SyntaxNodeMapp
         : ReferenceKind.METHOD;
     var description = invocationDescription(selector, writtenName, context, executable, children);
     children.addAll(SyntaxRole.ARGUMENT, invocation.getArguments());
-    return accepted(SyntaxKind.INVOCATION, description, children, semantics.reference(context.treePath(), expectedReference));
+    var intrinsic = description.semantics().filter(value -> value.selection() == InvocationSelection.ARRAY_CLONE).isPresent();
+    return accepted(SyntaxKind.INVOCATION, description, children,
+        intrinsic ? Optional.empty() : semantics.reference(context.treePath(), expectedReference));
   }
 
   private SyntaxValue.Invocation invocationDescription(Tree selector, String writtenName, MappingContext context,

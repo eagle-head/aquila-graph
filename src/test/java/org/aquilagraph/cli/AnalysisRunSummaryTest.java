@@ -330,7 +330,7 @@ class AnalysisRunSummaryTest {
 
   private static List<String> requestedCfg(String state, AstIdentity identity, List<String> selectedKeys) {
     var lines = new ArrayList<>(List.of("CFG: " + state, "CFG profile: \"java-cfg-bounded/1\"",
-        "CFG graph model: \"java-cfg/2\"", "CFG selection: METHODS", "CFG binding: \"" + identity.astResultKey() + "\""));
+        "CFG graph model: \"java-cfg/3\"", "CFG selection: METHODS", "CFG binding: \"" + identity.astResultKey() + "\""));
     selectedKeys.forEach(key -> lines.add("Selected method: \"" + key + "\""));
     return lines;
   }

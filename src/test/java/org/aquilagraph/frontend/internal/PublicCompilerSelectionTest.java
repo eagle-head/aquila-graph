@@ -3,7 +3,6 @@ package org.aquilagraph.frontend.internal;
 import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
 import static org.aquilagraph.testsupport.TestLocations.capturedPath;
 
-import org.aquilagraph.source.api.ConstructorEvidence;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;

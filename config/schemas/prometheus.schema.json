@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Prometheus configuration with OTLP",
+  "description": "Prometheus configuration with the OTLP receiver settings used by Aquila.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "global": {
+      "$ref": "https://json.schemastore.org/prometheus.json#/properties/global"
+    },
+    "rule_files": {
+      "$ref": "https://json.schemastore.org/prometheus.json#/properties/rule_files"
+    },
+    "remote_write": {
+      "$ref": "https://json.schemastore.org/prometheus.json#/properties/remote_write"
+    },
+    "remote_read": {
+      "$ref": "https://json.schemastore.org/prometheus.json#/properties/remote_read"
+    },
+    "scrape_config_files": {
+      "$ref": "https://json.schemastore.org/prometheus.json#/properties/scrape_config_files"
+    },
+    "scrape_configs": {
+      "$ref": "https://json.schemastore.org/prometheus.json#/properties/scrape_configs"
+    },
+    "alerting": {
+      "$ref": "https://json.schemastore.org/prometheus.json#/properties/alerting"
+    },
+    "storage": {
+      "$ref": "https://json.schemastore.org/prometheus.json#/properties/storage"
+    },
+    "otlp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "promote_resource_attributes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "promote_all_resource_attributes": {
+          "type": "boolean"
+        },
+        "ignore_resource_attributes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "translation_strategy": {
+          "type": "string",
+          "enum": [
+            "UnderscoreEscapingWithSuffixes",
+            "NoUTF8EscapingWithSuffixes",
+            "UnderscoreEscapingWithoutSuffixes",
+            "NoTranslation"
+          ]
+        },
+        "keep_identifying_resource_attributes": {
+          "type": "boolean"
+        },
+        "convert_histograms_to_nhcb": {
+          "type": "boolean"
+        },
+        "promote_scope_metadata": {
+          "type": "boolean"
+        },
+        "label_name_underscore_sanitization": {
+          "type": "boolean"
+        },
+        "label_name_preserve_multiple_underscores": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "promote_all_resource_attributes": {
+                "const": true
+              }
+            },
+            "required": [
+              "promote_all_resource_attributes"
+            ]
+          },
+          "then": {
+            "properties": {
+              "promote_resource_attributes": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

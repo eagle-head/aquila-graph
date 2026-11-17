@@ -49,8 +49,8 @@ class AnalysisRequestIdentityTest {
     var empty = new CfgSelection(List.of(), CfgProfile.JAVA_BOUNDED);
     var expected = List.of(
         "analysis-request:4af00b98bcb8647ee79f0f0f9f3a538276949c07812a7c0e5b327d0ae3c67869",
-        "analysis-request:2aec11303ce1a9407e8de7bf835839ddd98ed720c68c20b9cbab7de1c7e4c990",
-        "analysis-request:954c60c9da72e34e278f90d3cba4486a6484ade7bd91d079a06453839ff3e409");
+        "analysis-request:aad4fa7d40c4a8303828e7fdfee69309bdfc6b632d1f4c91f82278d32a1ffba9",
+        "analysis-request:3379b58b0f6ec11ded7de01a86bd4fc59aa774c9ce6cc1a9b4332fad5502b49c");
 
     // Act
     var requests = List.of(new AnalysisRequestIdentity(AnalysisOperation.AST_ONLY, subject, NotRequested.INSTANCE),
@@ -74,26 +74,26 @@ class AnalysisRequestIdentityTest {
     var selections = List.of(List.<String>of(), List.of("first", "second"), List.of("second", "first"), List.of("first", "first"),
         List.of(""), List.of("unknown"));
     var expectedProduction = List.of(
-        "analysis-request:2aec11303ce1a9407e8de7bf835839ddd98ed720c68c20b9cbab7de1c7e4c990",
-        "analysis-request:3c7a7dfd6ac35f068a7004b5f19da75344617c955e1efcfd32b5a7f1657d4c9d",
-        "analysis-request:92fbbc07d2dfdadea5a038d978c86d87bb590ec73f442274a76a9894e0775b3d",
-        "analysis-request:551e6182b6caaafb4008e85768bbf3c6751db1ece5099baa4b09f3f496097a51",
-        "analysis-request:358f48d544484b5beb00c428ae316fc7f3bdbeaeb73b2f0da5b639ab3fbee279",
-        "analysis-request:b8a1028c89a1ca13e77f2d009020f9924def055f3d34d7e9cf82dd39c149c3bc");
+        "analysis-request:aad4fa7d40c4a8303828e7fdfee69309bdfc6b632d1f4c91f82278d32a1ffba9",
+        "analysis-request:85db8eab3cae2b3f789f69e68d2613eafbe37ac78331144883d11c362bac34ce",
+        "analysis-request:f70d8b1d1976ff9be154ffff31c910df92ba8f8aba94c5a9e372b87eade74484",
+        "analysis-request:3db043ab3797866a953fc2109082bf212dd89d2a248325fff1e7f5dfa225af5d",
+        "analysis-request:cb95937205e42dc9323680e40369ed1072ff379ed51513a9321cebf20cace6a8",
+        "analysis-request:46fefd39ba887992ca16c721624da3343d69caa5baa70088722415b72aab1a4a");
     var expectedExisting = List.of(
-        "analysis-request:954c60c9da72e34e278f90d3cba4486a6484ade7bd91d079a06453839ff3e409",
-        "analysis-request:05c876e65ccca39d952548075b094a09654173bef4f432829220994f8ffc0365",
-        "analysis-request:ec964a8f8663be4290b4c7c3d548c91118217fc8f037393bd53727035e571901",
-        "analysis-request:8190342e2bc196b2b93a480495e98bb589e1635d21db27fae0a2e0add4646244",
-        "analysis-request:921a03af9f9ee90316ff2a31b67e4fbe42acbc23955202357d519552c974477a",
-        "analysis-request:2b1ae1d0321fbf70e3076cf4cb6b58b812fde90bbce7625d1af9d03e6f7cc221");
+        "analysis-request:3379b58b0f6ec11ded7de01a86bd4fc59aa774c9ce6cc1a9b4332fad5502b49c",
+        "analysis-request:a450183cad97fd94e0f04cd958283189a39c2e884959bf473fa22876640b57d8",
+        "analysis-request:e69630c244b0c4312bda11c032a363c1d2ea44a6b4bb260cc3636b2e8307272a",
+        "analysis-request:45afe2ea36c2ffcd2b10c9747e7d9754b6c58b613998af3325955b4b38487633",
+        "analysis-request:9042d7f3ffbfd9331e77d43d0052cc8a007cabcbd0a78f7827955421db958cb7",
+        "analysis-request:cc1925bbec92650dac7de12b55b7defacde0890bd3cd215807a2d0ede2fc67c9");
     var expectedUnavailable = List.of(
-        "analysis-request:964c711442aa59b4831679b2771a87e4f1fd426d5f252f620786e05ae0b67f69",
-        "analysis-request:6aca6bde3d0f97627a6b6cee79375431fd42c04f0dd08987dfc3a77fbed6da78",
-        "analysis-request:c199471ab1b08316498b7cc08b5028a4b21a07df22c1924b0d47885f7dee1501",
-        "analysis-request:3a4e4ad7c6ffc8d596442a7548cc75bbc6f9e4420c2996709c9da76b78aa2cc8",
-        "analysis-request:2126258db254a1c022af5869c4c0e430b070edee7f49255a5cbe5221f5ec5e52",
-        "analysis-request:fd331d27f6ed63a4b1b32becaf592ed1bc5e5426d3b57344250fd1b6b68a9ce8");
+        "analysis-request:c34d9b5a26516ba595bbf1c8d3220bcb6f159e63630914644997c86ae622baa5",
+        "analysis-request:dd51e5703ea122ba3674621d3ce0d1a2dc5562275f8505818023d1f7885db880",
+        "analysis-request:6915f2e83b91ca8e4f1bbe34ad6e721fa5e8d60ba379aae15f698f025aff9f9a",
+        "analysis-request:1148051db1d5c863e20eb9d9aa3ce37f4c295e604806e72418e2062dcf2ecb40",
+        "analysis-request:8fc604cf0f8f9c962e32df6732aade85ca47383e914a368da0310ed62ffd997a",
+        "analysis-request:334847ceb008a61e2a5b0c90e5c5c1e66915c59b13723467ff73b71e4bdbadf7");
 
     // Act
     var produced = selections.stream().map(selection -> production(ast, new CfgSelection(selection, CfgProfile.JAVA_BOUNDED)).key()).toList();
@@ -120,11 +120,11 @@ class AnalysisRequestIdentityTest {
         identity("software", "source/1", "profile/1", "production/1-changed", "content-a"),
         identity("software", "source/1", "profile/1", "production/1", "content-a-changed"));
     var expected = List.of(
-        "analysis-request:7d9c5ec9bdaa58e6f3957779b3aa3f416ad5351428d7ce77a8706387e944b1fc",
-        "analysis-request:604152db9a4fe3e4943936910b761a0b5f9fc10cf237fda3acc566e1a769f69e",
-        "analysis-request:399442dfc3d06bf9ac6769dba8838a770c9295d02a2425ca1a103605b96f8f48",
-        "analysis-request:0d2791eeeb06a7336f2a26ee2be53ef876356b540c4f5568b226d11f2f92c27f",
-        "analysis-request:21de5d32e261c4bde0a6890b7e261adb25b1891b6a71210d5810f0bd607d6bdb");
+        "analysis-request:57ef7bfaf4e9c8743a4ad840d4aae61e87501b0f954442dcad1529b81a7c3e72",
+        "analysis-request:adfa8854026c4caeff8c6d9294b69bc481e54e9819b8d7047709122968718d8d",
+        "analysis-request:103a4bf4a52bedd3b6bcbcfdf25014f4370faa0a2c6c3003ffe03299396104ed",
+        "analysis-request:151d5ee28da12e44d5c0025dc82fe746111810fdfa0ad8b6e53c5305006e16c2",
+        "analysis-request:0b3351e77084a18bc45154d9c24b709b577dff00d7c323726f8a3044cb810c9c");
 
     // Act
     var keys = sources.stream().map(source -> production(source, new CfgSelection(selection, CfgProfile.JAVA_BOUNDED)).key()).toList();
@@ -149,8 +149,8 @@ class AnalysisRequestIdentityTest {
         new UnavailableSource("profile/1", "captured-changed"), selection).key();
 
     // Assert
-    assertEquals("analysis-request:2e2115b2db255acc6059c9ab5ddea5f3647d46405e9419fc7fcb455687cc88f2", profile);
-    assertEquals("analysis-request:ce25ee954aa296d42b285c8b886ba437ed561b620a5505b1c48687bbed3245f9", capture);
+    assertEquals("analysis-request:07ef0cb1475efe0ec427e97cbbd4175a9c46cb05d363116118ddd60aaa561198", profile);
+    assertEquals("analysis-request:888bb1f7cb512f8f02a453122684a672c22b3aa92323812c38b43bbb79ae5a52", capture);
   }
 
   private static AnalysisRequestIdentity production(AstIdentity ast, CfgSelection selection) {

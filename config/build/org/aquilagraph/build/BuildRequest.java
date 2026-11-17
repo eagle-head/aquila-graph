@@ -125,6 +125,13 @@ record BuildRequest(Path root, Path toolRoot, Path maven, BuildOperation operati
       if (separator > PROPERTY_PREFIX_LENGTH) {
         var key = flag.substring(PROPERTY_PREFIX_LENGTH, separator);
         var value = flag.substring(separator + 1);
+        if ("aquila.library.repository".equals(key) && operation == BuildOperation.INSTALL_LIBRARY) {
+          var destination = Path.of(value);
+          if (!destination.isAbsolute()) {
+            throw new IllegalArgumentException("The library repository must be an absolute path");
+          }
+          return;
+        }
         if (POSITIVE_PROPERTIES.contains(key) && value.matches("[1-9][0-9]*")) {
           return;
         }

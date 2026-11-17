@@ -23,7 +23,7 @@ final class CanonicalGraphEncoding {
     }
     var declarationIdentities = graph.operationNodes().stream().flatMap(operation -> operation.semanticReferences().stream())
         .anyMatch(reference -> reference.declarationIdentity().isPresent());
-    var writer = new CanonicalValueWriter(declarationIdentities ? "canonical-java-cfg/4" : "canonical-java-cfg/3");
+    var writer = new CanonicalValueWriter(declarationIdentities ? "canonical-java-cfg/6" : "canonical-java-cfg/5");
     writer.text(plan.profile().version());
     writer.text(plan.profile().graphModelVersion());
     writer.text(plan.body().astIdentity().astResultKey());
@@ -67,6 +67,7 @@ final class CanonicalGraphEncoding {
         type(writer, value.qualifyingType().identity());
         text(writer, value.qualifyingType().declarationKey());
         writer.text(value.form().name());
+        writer.text(value.selection().name());
       });
       writer.count(operation.semanticReferences().size());
       operation.semanticReferences().forEach(reference -> reference(writer, reference, declarationIdentities));

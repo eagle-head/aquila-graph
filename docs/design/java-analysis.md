@@ -43,6 +43,22 @@ Coverage is release-bound. Compiler tree kinds, type kinds, and declaration acce
 
 A successful graph does not establish source completeness. A body can be structurally lowerable while missing required compiler evidence, or fully accounted while containing a diagnosed unsupported construct. Neutral input values validate coverage and body-decision correlations before lowering. Translation events carry producer-assigned diagnostic slots through transport; equal diagnostic values do not erase their independent origins.[3][5]
 
+Coverage reconciliation and admission use input-local immutable indexes. The
+[context index](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/admission/CoverageContextIndex.java)
+selects independently captured obligations by complete address or by source,
+partition, and typed owner path. Parent lookup walks those typed paths. The
+[actual fact index](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/CoverageFactIndex.java)
+selects retained facts by source, identity, declaration owner, or structural
+position and preserves their original ordinal order. Normalized expression
+aliases retain their independently captured owner and origin conditions.
+Identity lookup only narrows candidates: admission still compares the entire
+claimed reference, including its kind, source, value, and origin. These indexes
+are transient and never substitute for independent expectations or become part
+of the retained AST format. Context lookups are scoped to one validation or
+reconciliation; the
+[fact universe](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/CoverageActualFactUniverse.java)
+owns the actual fact indexes for one immutable captured input.
+
 ## Supported source profiles
 
 The versioned `AstProfile` selects capabilities and qualification for

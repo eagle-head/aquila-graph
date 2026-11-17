@@ -34,8 +34,6 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.identity.api.CanonicalValueWriter;
-import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.SourceQualificationReason;

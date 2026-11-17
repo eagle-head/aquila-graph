@@ -40,6 +40,7 @@ import javax.lang.model.util.Types;
 import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.InvocationMode;
 import org.aquilagraph.source.api.InvocationSemantics;
+import org.aquilagraph.source.api.InvocationSelection;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
 import org.aquilagraph.source.api.JavaTypeReference;
@@ -415,12 +416,45 @@ final class SemanticResolver {
     Objects.requireNonNull(invocationPath, "invocationPath");
     Objects.requireNonNull(executable, EXECUTABLE_ARGUMENT);
     Objects.requireNonNull(form, "form");
+    if (form == InvocationForm.INSTANCE_EXPRESSION) {
+      var array = arrayCloneType(invocationPath, executable);
+      if (array.isPresent()) {
+        return Optional.of(new InvocationSemantics(InvocationMode.VIRTUAL, array.orElseThrow(), form, InvocationSelection.ARRAY_CLONE));
+      }
+    }
     var qualification = qualifyingType(invocationPath, executable, form);
     if (qualification.isEmpty()) {
       return Optional.empty();
     }
     var mode = invocationMode(executable, form, qualification.orElseThrow().interfaceType());
-    return Optional.of(new InvocationSemantics(mode, qualification.orElseThrow().reference(), form));
+    return Optional.of(new InvocationSemantics(mode, qualification.orElseThrow().reference(), form, InvocationSelection.NAMED_EXECUTABLE));
+  }
+
+  Optional<JavaTypeReference> arrayCloneType(TreePath path, ExecutableElement executable) {
+    if (!(path.getLeaf() instanceof MethodInvocationTree invocation)
+        || !(invocation.getMethodSelect() instanceof MemberSelectTree selection) || !selection.getIdentifier().contentEquals("clone")
+        || !invocation.getArguments().isEmpty() || executable.getKind() != ElementKind.METHOD
+        || !executable.getSimpleName().contentEquals("clone") || !executable.getModifiers().contains(Modifier.PUBLIC)
+        || executable.getModifiers().contains(Modifier.STATIC) || executable.isVarArgs() || !executable.getParameters().isEmpty()
+        || !executable.getTypeParameters().isEmpty() || !executable.getThrownTypes().isEmpty()
+        || !executable.equals(trees.getElement(path))) {
+      return Optional.empty();
+    }
+    var selectorPath = new TreePath(path, selection);
+    var receiver = compilerType(new TreePath(selectorPath, selection.getExpression()));
+    var result = compilerType(path);
+    var selected = compilerType(selectorPath);
+    if (receiver == null || receiver.getKind() != TypeKind.ARRAY || result == null || result.getKind() != TypeKind.ARRAY
+        || !types.isSameType(receiver, result) || !executable.equals(trees.getElement(selectorPath))
+        || !(selected instanceof ExecutableType callable) || !callable.getParameterTypes().isEmpty()
+        || !callable.getTypeVariables().isEmpty() || !callable.getThrownTypes().isEmpty()
+        || !types.isSameType(executable.getReturnType(), callable.getReturnType())
+        || !(callable.getReturnType() instanceof DeclaredType returned) || !(returned.asElement() instanceof TypeElement returnType)
+        || !returnType.getQualifiedName().contentEquals("java.lang.Object") || structuredType(receiver).isEmpty()
+        || structuredType(result).isEmpty()) {
+      return Optional.empty();
+    }
+    return typeReference(receiver);
   }
 
   boolean isStatic(Element element) {

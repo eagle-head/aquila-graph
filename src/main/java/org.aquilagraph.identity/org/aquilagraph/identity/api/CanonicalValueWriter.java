@@ -5,11 +5,12 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /** Writes framed canonical values without changing Java string or floating-point content. */
 public final class CanonicalValueWriter {
   private static final int TEXT_CHUNK_CHARACTERS = 512;
-  private final ByteArrayOutputStream output = new ByteArrayOutputStream();
+  private final Destination output;
 
   /**
    * Starts an encoding with its explicit version tag.
@@ -18,7 +19,31 @@ public final class CanonicalValueWriter {
    *          canonical encoding version
    */
   public CanonicalValueWriter(String version) {
+    this(version, new Buffered(new ByteArrayOutputStream()));
+  }
+
+  private CanonicalValueWriter(String version, Destination destination) {
+    output = destination;
     text(version);
+  }
+
+  /**
+   * Hashes a complete framed encoding incrementally without retaining its byte sequence.
+   *
+   * @param version
+   *          canonical encoding version
+   * @param namespace
+   *          explicit content namespace
+   * @param encode
+   *          synchronous value emission; buffered content access is unavailable
+   * @return namespaced full-content SHA-256 digest
+   */
+  public static String hash(String version, String namespace, Consumer<CanonicalValueWriter> encode) {
+    Objects.requireNonNull(namespace, "namespace");
+    Objects.requireNonNull(encode, "encode");
+    var digest = sha256();
+    encode.accept(new CanonicalValueWriter(version, new Hashed(digest)));
+    return namespace + ":" + HexFormat.of().formatHex(digest.digest());
   }
 
   /**
@@ -120,7 +145,7 @@ public final class CanonicalValueWriter {
   public void bytes(byte[] value) {
     Objects.requireNonNull(value, "value");
     count(value.length);
-    output.writeBytes(value);
+    output.write(value, 0, value.length);
   }
 
   /**
@@ -129,7 +154,10 @@ public final class CanonicalValueWriter {
    * @return copied canonical bytes
    */
   public byte[] toByteArray() {
-    return output.toByteArray();
+    if (output instanceof Buffered buffered) {
+      return buffered.bytes().toByteArray();
+    }
+    throw new IllegalStateException("Incremental canonical hashing does not retain encoded bytes");
   }
 
   /**
@@ -141,10 +169,44 @@ public final class CanonicalValueWriter {
    */
   public String digest(String namespace) {
     Objects.requireNonNull(namespace, "namespace");
+    return namespace + ":" + HexFormat.of().formatHex(sha256().digest(toByteArray()));
+  }
+
+  private static MessageDigest sha256() {
     try {
-      return namespace + ":" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(toByteArray()));
+      return MessageDigest.getInstance("SHA-256");
     } catch (NoSuchAlgorithmException exception) {
       throw new IllegalStateException("SHA-256 is required by the Java platform", exception);
+    }
+  }
+
+  private sealed interface Destination {
+    void write(int value);
+
+    void write(byte[] value, int offset, int length);
+  }
+
+  private record Buffered(ByteArrayOutputStream bytes) implements Destination {
+    @Override
+    public void write(int value) {
+      bytes.write(value);
+    }
+
+    @Override
+    public void write(byte[] value, int offset, int length) {
+      bytes.write(value, offset, length);
+    }
+  }
+
+  private record Hashed(MessageDigest digest) implements Destination {
+    @Override
+    public void write(int value) {
+      digest.update((byte) value);
+    }
+
+    @Override
+    public void write(byte[] value, int offset, int length) {
+      digest.update(value, offset, length);
     }
   }
 }

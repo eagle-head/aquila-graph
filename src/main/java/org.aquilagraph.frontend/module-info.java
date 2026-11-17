@@ -5,5 +5,7 @@ module org.aquilagraph.frontend {
   requires transitive org.aquilagraph.source;
   requires java.compiler;
   requires static jdk.compiler;
+  requires jdk.jfr;
+  uses org.aquilagraph.frontend.AnalysisObserverFactory;
   exports org.aquilagraph.frontend;
 }

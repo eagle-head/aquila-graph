@@ -5,7 +5,6 @@ import static org.aquilagraph.testsupport.TestLocations.capturedPath;
 
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
-import org.aquilagraph.identity.api.SourceOccurrence;
 
 
 

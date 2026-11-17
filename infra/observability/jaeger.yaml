@@ -1,0 +1,33 @@
+extensions:
+  jaeger_query:
+    storage: {traces: persistent}
+  jaeger_storage:
+    backends:
+      persistent:
+        badger:
+          directories: {keys: /var/lib/jaeger, values: /var/lib/jaeger}
+          ephemeral: false
+          ttl: {spans: 168h}
+receivers:
+  otlp:
+    protocols:
+      grpc: {endpoint: '0.0.0.0:4317'}
+processors:
+  batch: {}
+exporters:
+  jaeger_storage_exporter:
+    trace_storage: persistent
+service:
+  extensions: [jaeger_query, jaeger_storage]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [jaeger_storage_exporter]
+  telemetry:
+    logs: {level: info, encoding: json}
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus: {host: 0.0.0.0, port: 8888}

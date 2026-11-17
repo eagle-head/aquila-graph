@@ -18,6 +18,58 @@ class BuildRequestTest {
   Path directory;
 
   @Test
+  void givenQualityOperations_whenRequestsAreBuilt_thenTestCompilationRemainsEnabledWithoutExecution() throws Exception {
+    // Arrange
+    var root = Path.of("").toRealPath().toString();
+
+    // Act
+    for (var operation : List.of("quality", "supply-chain-check")) {
+      var request = BuildRequest.parse("--root", root, operation);
+
+      // Assert
+      assertTrue(request.mavenArguments().contains("-DskipTests=true"));
+      assertTrue(request.mavenArguments().contains("-DskipITs=true"));
+      assertFalse(request.mavenArguments().contains("-Dmaven.test.skip=true"));
+      assertEquals(List.of("verify"), request.operation().goals());
+      assertTrue(request.operation().integrationScope().isEmpty());
+    }
+  }
+
+  @Test
+  void givenIntegrationOperations_whenRequestsAreBuilt_thenIntegrationExecutionRemainsEnabled() throws Exception {
+    // Arrange
+    var root = Path.of("").toRealPath().toString();
+
+    // Act
+    for (var operation : List.of("integration-test", "integration-test-neo4j", "check-process", "check-persistence", "check-lifecycle", "verify-all")) {
+      var request = BuildRequest.parse("--root", root, operation);
+
+      // Assert
+      assertFalse(request.mavenArguments().contains("-DskipITs=true"));
+      assertFalse(request.mavenArguments().contains("-Dmaven.test.skip=true"));
+      assertTrue(request.operation().integrationScope().isPresent());
+    }
+  }
+
+  @Test
+  void givenLibraryInstallation_whenBuildingArguments_thenProductArtifactsAndRepositoryDestinationAreOwnedByTheBuild() throws Exception {
+    // Arrange
+    var destination = directory.toAbsolutePath().toString();
+    var flag = "-Daquila.library.repository=" + destination;
+    // Act
+    var request = BuildRequest.parse("--root", Path.of("").toRealPath().toString(), "install-library", flag);
+    // Assert
+    assertTrue(request.mavenArguments().contains(flag));
+    assertTrue(request.mavenArguments().contains("-Dmaven.test.skip=true"));
+    assertEquals("package", request.operation().goals().getFirst());
+    assertEquals(9, request.operation().goals().size());
+    assertTrue(request.operation().goals().contains("install:install-file@install-library-library"));
+    assertThrows(IllegalArgumentException.class, () -> BuildRequest.validateFlag(BuildOperation.COMPILE, flag));
+    assertThrows(IllegalArgumentException.class,
+        () -> BuildRequest.validateFlag(BuildOperation.INSTALL_LIBRARY, "-Daquila.library.repository=relative"));
+  }
+
+  @Test
   void givenCancellationWithoutAWrapper_whenParsed_thenNoMavenExecutableOrGoalIsRequired() throws Exception {
     // Arrange
     var root = directory.toRealPath();

@@ -2279,6 +2279,9 @@ public sealed interface SyntaxValue {
       semantics.filter(value -> value.form() != form).ifPresent(value -> {
         throw new IllegalArgumentException("Resolved invocation semantics must retain the source form");
       });
+      if (semantics.filter(value -> value.selection() == InvocationSelection.ARRAY_CLONE).isPresent() && !"clone".equals(name)) {
+        throw new IllegalArgumentException("The array clone operation requires the clone member name");
+      }
     }
   }
 

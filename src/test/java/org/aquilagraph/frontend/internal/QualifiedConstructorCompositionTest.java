@@ -86,7 +86,7 @@ class QualifiedConstructorCompositionTest {
           assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
           assertTrue(outcome.diagnostics().isEmpty(), outcome.diagnostics().toString());
           var original = outcome.result().orElseThrow();
-          assertEquals("javac-public/14", original.identity().semanticProductionRevision());
+          assertEquals("javac-public/15", original.identity().semanticProductionRevision());
           var bytes = AstCodec.encode(original);
           var decoded = AstCodec.decode(bytes, original.identity());
           for (var ast : List.of(original, decoded)) {
@@ -350,7 +350,7 @@ class QualifiedConstructorCompositionTest {
 
     // Assert
     assertEquals(AstCompletion.COMPLETE, current.completion());
-    assertEquals("javac-public/14", current.identity().semanticProductionRevision());
+    assertEquals("javac-public/15", current.identity().semanticProductionRevision());
     assertEquals("javac-public/12", decoded.identity().semanticProductionRevision());
     assertEquals(previous.identity(), decoded.identity());
     assertEquals(previous.completion(), decoded.completion());

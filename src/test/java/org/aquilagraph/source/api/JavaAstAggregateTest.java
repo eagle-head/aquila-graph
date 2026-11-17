@@ -5,7 +5,6 @@ import static org.aquilagraph.testsupport.TestLocations.capturedPath;
 
 import java.util.Optional;
 import java.util.List;
-import org.aquilagraph.identity.api.SourceOccurrence;
 
 
 import org.aquilagraph.source.admission.AnnotationApplicationContext;

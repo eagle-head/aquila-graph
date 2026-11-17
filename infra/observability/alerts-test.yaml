@@ -1,0 +1,89 @@
+rule_files:
+  - alerts.yaml
+evaluation_interval: 10s
+tests:
+  - name: Short process first samples retain failures
+    interval: 1m
+    input_series:
+      - series: 'aquila_analysis_completed_total{aquila_outcome="FAILED",instance="short"}'
+        values: '1 stale'
+      - series: 'processedSpans_total{dropped="true",instance="short"}'
+        values: '6 stale'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: AnalysisFailure
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations: {summary: 'An analysis failed or was aborted'}
+      - eval_time: 0m
+        alertname: SdkTelemetryDropped
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations: {summary: 'The Java SDK dropped telemetry because its bounded queue was full'}
+  - name: Successful short process does not alert
+    interval: 1m
+    input_series:
+      - series: 'aquila_analysis_completed_total{aquila_outcome="COMPLETE",instance="short"}'
+        values: '1 stale'
+      - series: 'processedSpans_total{dropped="true",instance="short"}'
+        values: '0 stale'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: AnalysisFailure
+        exp_alerts: []
+      - eval_time: 0m
+        alertname: SdkTelemetryDropped
+        exp_alerts: []
+  - name: Long process does not repeat an unchanged historical failure
+    interval: 1m
+    input_series:
+      - series: 'aquila_analysis_completed_total{aquila_outcome="FAILED",instance="long"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: AnalysisFailure
+        exp_alerts: []
+  - name: givenMissingHeartbeat_whenEvaluatingAlerts_thenOnlyUnfinishedExecutionAlerts
+    interval: 10s
+    # Arrange
+    input_series:
+      - series: 'aquila_execution_state{aquila_execution_id="unfinished",instance="worker"}'
+        values: '0+0x6'
+      - series: 'aquila_execution_heartbeat_seconds{aquila_execution_id="unfinished",instance="worker"}'
+        values: '0+0x6'
+      - series: 'aquila_execution_state{aquila_execution_id="finished",instance="worker"}'
+        values: '1+0x6'
+      - series: 'aquila_execution_heartbeat_seconds{aquila_execution_id="finished",instance="worker"}'
+        values: '0+0x6'
+    # Act and Assert
+    alert_rule_test:
+      - eval_time: 10s
+        alertname: AnalysisObservationInterrupted
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: AnalysisObservationInterrupted
+        exp_alerts:
+          - exp_labels: {severity: warning, aquila_execution_id: unfinished, instance: worker}
+            exp_annotations: {summary: 'An unfinished analysis has stopped reporting; its final result is unknown'}
+  - name: givenCancelledAndNewExecutions_whenEvaluatingAlerts_thenCancellationStaysIsolated
+    interval: 1m
+    # Arrange
+    input_series:
+      - series: 'aquila_execution_state{aquila_execution_id="cancelled",instance="worker"}'
+        values: '4+0x6'
+      - series: 'aquila_execution_heartbeat_seconds{aquila_execution_id="cancelled",instance="worker"}'
+        values: '0+0x6'
+      - series: 'aquila_execution_state{aquila_execution_id="new",instance="worker"}'
+        values: '0+0x6'
+      - series: 'aquila_execution_heartbeat_seconds{aquila_execution_id="new",instance="worker"}'
+        values: '0+60x6'
+    # Act and Assert
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: AnalysisCancelled
+        exp_alerts:
+          - exp_labels: {severity: info, aquila_execution_id: cancelled, instance: worker}
+            exp_annotations: {summary: 'An analysis acknowledged cancellation and closed its observations'}
+      - eval_time: 6m
+        alertname: AnalysisCancelled
+        exp_alerts: []

@@ -28,7 +28,6 @@ import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.JavaAstAggregate;
 import org.aquilagraph.source.api.JavaTypeDeclarationIdentity;
 import org.aquilagraph.source.api.LocalBindingEvidence;
-import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.SyntaxSemanticEdge;

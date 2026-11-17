@@ -410,7 +410,7 @@ class Neo4jStoredSurfaceContractTest {
       expected.edge("HAS_METHOD_ANALYSIS", program, analysis, Integer.toString(position), "position", position);
       expected.edge("ANALYZES_METHOD", analysis, graph.methodKey(), "method");
       var values = properties("methodKey", graph.methodKey(), "astResultKey", ast.identity().astResultKey(), "cfgProfileVersion", identity.cfgProfileVersion(),
-          "graphModelVersion", "java-cfg/2", "canonicalContentDigest", identity.canonicalContentDigest());
+          "graphModelVersion", "java-cfg/3", "canonicalContentDigest", identity.canonicalContentDigest());
       var body = graph.body();
       body.sourceOccurrenceKey().ifPresent(key -> values.put("sourceOccurrenceKey", key));
       body.nonwrittenProvenance().ifPresent(origin -> {
@@ -438,6 +438,7 @@ class Neo4jStoredSurfaceContractTest {
           operation.invocationSemantics().ifPresent(semantics -> {
             props.put("invocationMode", semantics.mode().name());
             props.put("invocationForm", semantics.form().name());
+            props.put("invocationSelection", semantics.selection().name());
             putType(props, "qualifyingType", semantics.qualifyingType().identity());
             semantics.qualifyingType().declarationKey().ifPresent(key -> props.put("qualifyingTypeDeclarationKey", key));
           });

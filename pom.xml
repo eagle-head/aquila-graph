@@ -15,6 +15,7 @@
     <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
     <coverageAgentArguments />
     <jspecify.version>1.0.1</jspecify.version>
+    <opentelemetry.version>1.68.0</opentelemetry.version>
     <junit.version>6.1.2</junit.version>
     <license-maven-plugin.version>2.7.1</license-maven-plugin.version>
     <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
@@ -48,7 +49,10 @@
     <maven.test.skip>false</maven.test.skip>
     <ant.version>1.10.15</ant.version>
     <spotbugs.version>4.10.4</spotbugs.version>
-    <analysis.sourceDirectory>${project.basedir}/src/main/java</analysis.sourceDirectory>
+    <analysis.sourceDirectory>${project.basedir}/src/main</analysis.sourceDirectory>
+    <modules.outputDirectory>${project.build.directory}/classes</modules.outputDirectory>
+    <aquila.library.repository>${project.build.directory}/maven-repository</aquila.library.repository>
+    <observability.outputDirectory>${project.build.directory}/observability-classes</observability.outputDirectory>
     <analysis.ruleset>${project.basedir}/config/pmd/ruleset.xml</analysis.ruleset>
     <analysis.outputDirectory>${project.build.directory}</analysis.outputDirectory>
     <analysis.classpathFile>${project.build.directory}/build-inputs/analysis.classpath</analysis.classpathFile>
@@ -63,6 +67,69 @@
     <build.integration.includes>**/*ProcessIT.java</build.integration.includes>
   </properties>
   <dependencies>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk-metrics</artifactId>
+      <version>${opentelemetry.version}</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk-logs</artifactId>
+      <version>${opentelemetry.version}</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-api</artifactId>
+      <version>${opentelemetry.version}</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-context</artifactId>
+      <version>${opentelemetry.version}</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk</artifactId>
+      <version>${opentelemetry.version}</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk-common</artifactId>
+      <version>${opentelemetry.version}</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk-trace</artifactId>
+      <version>${opentelemetry.version}</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-exporter-otlp</artifactId>
+      <version>${opentelemetry.version}</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion><groupId>io.opentelemetry</groupId><artifactId>opentelemetry-exporter-sender-okhttp</artifactId></exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-exporter-sender-jdk</artifactId>
+      <version>${opentelemetry.version}</version>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk-testing</artifactId>
+      <version>${opentelemetry.version}</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.neo4j.driver</groupId>
       <artifactId>neo4j-java-driver</artifactId>
@@ -119,6 +186,7 @@
     </dependency>
   </dependencies>
   <build>
+    <outputDirectory>${project.build.directory}/product-classes</outputDirectory>
     <testResources>
       <testResource>
         <directory>src/test/resources</directory>
@@ -148,6 +216,8 @@
                 <directory>${project.build.directory}</directory>
                 <includes>
                   <include>classes/**</include>
+                  <include>observability-classes/**</include>
+                  <include>product-classes/**</include>
                   <include>test-classes/**</include>
                   <include>modules/**</include>
                   <include>aquila-graph/**</include>
@@ -208,6 +278,77 @@
     </pluginManagement>
     <plugins>
       <plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-install-plugin</artifactId>
+        <version>${maven-install-plugin.version}</version>
+        <configuration><localRepositoryPath>${aquila.library.repository}</localRepositoryPath></configuration>
+        <executions>
+          <execution>
+            <id>install-library-identity</id><goals><goal>install-file</goal></goals>
+            <configuration>
+              <file>${project.build.directory}/modules/aquila-graph-${project.version}-identity.jar</file>
+              <pomFile>${project.basedir}/pom.xml</pomFile><classifier>identity</classifier>
+              <generatePom>false</generatePom>
+            </configuration>
+          </execution>
+          <execution>
+            <id>install-library-source</id><goals><goal>install-file</goal></goals>
+            <configuration>
+              <file>${project.build.directory}/modules/aquila-graph-${project.version}-source.jar</file>
+              <pomFile>${project.basedir}/pom.xml</pomFile><classifier>source</classifier>
+              <generatePom>false</generatePom>
+            </configuration>
+          </execution>
+          <execution>
+            <id>install-library-cfg</id><goals><goal>install-file</goal></goals>
+            <configuration>
+              <file>${project.build.directory}/modules/aquila-graph-${project.version}-cfg.jar</file>
+              <pomFile>${project.basedir}/pom.xml</pomFile><classifier>cfg</classifier>
+              <generatePom>false</generatePom>
+            </configuration>
+          </execution>
+          <execution>
+            <id>install-library-frontend</id><goals><goal>install-file</goal></goals>
+            <configuration>
+              <file>${project.build.directory}/modules/aquila-graph-${project.version}-frontend.jar</file>
+              <pomFile>${project.basedir}/pom.xml</pomFile><classifier>frontend</classifier>
+              <generatePom>false</generatePom>
+            </configuration>
+          </execution>
+          <execution>
+            <id>install-library-application</id><goals><goal>install-file</goal></goals>
+            <configuration>
+              <file>${project.build.directory}/modules/aquila-graph-${project.version}-application.jar</file>
+              <pomFile>${project.basedir}/pom.xml</pomFile><classifier>application</classifier>
+              <generatePom>false</generatePom>
+            </configuration>
+          </execution>
+          <execution>
+            <id>install-library-repository</id><goals><goal>install-file</goal></goals>
+            <configuration>
+              <file>${project.build.directory}/modules/aquila-graph-${project.version}-repository.jar</file>
+              <pomFile>${project.basedir}/pom.xml</pomFile><classifier>repository</classifier>
+              <generatePom>false</generatePom>
+            </configuration>
+          </execution>
+          <execution>
+            <id>install-library-observability</id><goals><goal>install-file</goal></goals>
+            <configuration>
+              <file>${project.build.directory}/modules/aquila-graph-${project.version}-observability.jar</file>
+              <pomFile>${project.basedir}/pom.xml</pomFile><classifier>observability</classifier>
+              <generatePom>false</generatePom>
+            </configuration>
+          </execution>
+          <execution>
+            <id>install-library-library</id><goals><goal>install-file</goal></goals>
+            <configuration>
+              <file>${project.build.directory}/modules/aquila-graph-${project.version}-library.jar</file>
+              <pomFile>${project.build.directory}/library/aquila-graph-library.pom</pomFile>
+              <generatePom>false</generatePom>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
         <configuration>
@@ -221,7 +362,7 @@
               <goal>jar</goal>
             </goals>
             <configuration>
-              <classesDirectory>${project.build.outputDirectory}/org.aquilagraph.identity</classesDirectory>
+              <classesDirectory>${modules.outputDirectory}/org.aquilagraph.identity</classesDirectory>
               <outputDirectory>${project.build.directory}/modules</outputDirectory>
               <classifier>identity</classifier>
             </configuration>
@@ -233,7 +374,7 @@
               <goal>jar</goal>
             </goals>
             <configuration>
-              <classesDirectory>${project.build.outputDirectory}/org.aquilagraph.source</classesDirectory>
+              <classesDirectory>${modules.outputDirectory}/org.aquilagraph.source</classesDirectory>
               <outputDirectory>${project.build.directory}/modules</outputDirectory>
               <classifier>source</classifier>
             </configuration>
@@ -245,7 +386,7 @@
               <goal>jar</goal>
             </goals>
             <configuration>
-              <classesDirectory>${project.build.outputDirectory}/org.aquilagraph.cfg</classesDirectory>
+              <classesDirectory>${modules.outputDirectory}/org.aquilagraph.cfg</classesDirectory>
               <outputDirectory>${project.build.directory}/modules</outputDirectory>
               <classifier>cfg</classifier>
             </configuration>
@@ -257,7 +398,7 @@
               <goal>jar</goal>
             </goals>
             <configuration>
-              <classesDirectory>${project.build.outputDirectory}/org.aquilagraph.frontend</classesDirectory>
+              <classesDirectory>${modules.outputDirectory}/org.aquilagraph.frontend</classesDirectory>
               <outputDirectory>${project.build.directory}/modules</outputDirectory>
               <classifier>frontend</classifier>
             </configuration>
@@ -269,7 +410,7 @@
               <goal>jar</goal>
             </goals>
             <configuration>
-              <classesDirectory>${project.build.outputDirectory}/org.aquilagraph.application</classesDirectory>
+              <classesDirectory>${modules.outputDirectory}/org.aquilagraph.application</classesDirectory>
               <outputDirectory>${project.build.directory}/modules</outputDirectory>
               <classifier>application</classifier>
             </configuration>
@@ -281,9 +422,29 @@
               <goal>jar</goal>
             </goals>
             <configuration>
-              <classesDirectory>${project.build.outputDirectory}/org.aquilagraph.repository</classesDirectory>
+              <classesDirectory>${modules.outputDirectory}/org.aquilagraph.repository</classesDirectory>
               <outputDirectory>${project.build.directory}/modules</outputDirectory>
               <classifier>repository</classifier>
+            </configuration>
+          </execution>
+          <execution>
+            <id>package-observability</id>
+            <phase>package</phase>
+            <goals><goal>jar</goal></goals>
+            <configuration>
+              <classesDirectory>${observability.outputDirectory}</classesDirectory>
+              <outputDirectory>${project.build.directory}/modules</outputDirectory>
+              <classifier>observability</classifier>
+              <archive><manifestEntries><Automatic-Module-Name>org.aquilagraph.observability</Automatic-Module-Name></manifestEntries></archive>
+            </configuration>
+          </execution>
+          <execution>
+            <id>package-library</id><phase>package</phase><goals><goal>jar</goal></goals>
+            <configuration>
+              <classesDirectory>${modules.outputDirectory}/org.aquilagraph.library</classesDirectory>
+              <outputDirectory>${project.build.directory}/modules</outputDirectory>
+              <classifier>library</classifier>
+              <archive><manifest><addDefaultImplementationEntries>true</addDefaultImplementationEntries></manifest></archive>
             </configuration>
           </execution>
           <execution>
@@ -293,7 +454,7 @@
               <goal>jar</goal>
             </goals>
             <configuration>
-              <classesDirectory>${project.build.outputDirectory}/org.aquilagraph.cli</classesDirectory>
+              <classesDirectory>${modules.outputDirectory}/org.aquilagraph.cli</classesDirectory>
               <outputDirectory>${project.build.directory}/modules</outputDirectory>
             </configuration>
           </execution>
@@ -359,6 +520,9 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-resources-plugin</artifactId>
         <version>${maven-resources-plugin.version}</version>
+        <configuration>
+          <propertiesEncoding>${project.build.sourceEncoding}</propertiesEncoding>
+        </configuration>
         <executions>
           <execution>
             <id>default-resources</id>
@@ -402,7 +566,7 @@
           <java>
             <lineEndings>PRESERVE</lineEndings>
             <includes>
-              <include>src/main/java/**/*.java</include>
+              <include>src/main/**/*.java</include>
               <include>config/build/**/*.java</include>
               <include>config/build-checks/**/*.java</include>
             </includes>
@@ -448,7 +612,7 @@
           <linkXRef>false</linkXRef>
           <cacheFile>${project.build.directory}/checkstyle-cachefile</cacheFile>
           <sourceDirectories>
-            <sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
+            <sourceDirectory>${project.basedir}/src/main</sourceDirectory>
             <sourceDirectory>${project.basedir}/config/build</sourceDirectory>
             <sourceDirectory>${project.basedir}/config/build-checks</sourceDirectory>
           </sourceDirectories>
@@ -471,10 +635,13 @@
               <configLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/test-type-references.xml</configLocation>
               <sourceDirectories>
                 <sourceDirectory>${project.build.testSourceDirectory}</sourceDirectory>
+                <sourceDirectory>${project.basedir}/config/consumer</sourceDirectory>
+                <sourceDirectory>${project.basedir}/analysis-targets/calculator/src</sourceDirectory>
               </sourceDirectories>
               <includeTestSourceDirectory>false</includeTestSourceDirectory>
               <includeResources>false</includeResources>
               <includeTestResources>false</includeTestResources>
+              <outputFile>${project.build.directory}/checkstyle-test-result.xml</outputFile>
               <cacheFile>${project.build.directory}/checkstyle-test-type-references-cachefile</cacheFile>
             </configuration>
           </execution>
@@ -505,6 +672,24 @@
             <configuration>
               <includeScope>runtime</includeScope>
               <outputDirectory>${project.build.directory}/runtime-dependencies</outputDirectory>
+            </configuration>
+          </execution>
+          <execution>
+            <id>resolve-bytecode-analysis-support</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>copy</goal>
+            </goals>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>io.opentelemetry</groupId>
+                  <artifactId>opentelemetry-api-incubator</artifactId>
+                  <version>${opentelemetry.version}-alpha</version>
+                  <outputDirectory>${project.build.directory}/analysis-dependencies</outputDirectory>
+                  <destFileName>opentelemetry-api-incubator.jar</destFileName>
+                </artifactItem>
+              </artifactItems>
             </configuration>
           </execution>
         </executions>
@@ -577,13 +762,15 @@
           </includes>
           <useModulePath>false</useModulePath>
           <additionalClasspathElements>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.identity</additionalClasspathElement>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.source</additionalClasspathElement>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.cfg</additionalClasspathElement>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.frontend</additionalClasspathElement>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.application</additionalClasspathElement>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.repository</additionalClasspathElement>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.cli</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.identity</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.source</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.cfg</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.frontend</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.application</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.repository</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.library</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.cli</additionalClasspathElement>
+            <additionalClasspathElement>${observability.outputDirectory}</additionalClasspathElement>
             <additionalClasspathElement>${build.tools.outputDirectory}</additionalClasspathElement>
           </additionalClasspathElements>
         </configuration>
@@ -619,13 +806,15 @@
           </systemPropertyVariables>
           <useModulePath>false</useModulePath>
           <additionalClasspathElements>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.identity</additionalClasspathElement>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.source</additionalClasspathElement>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.cfg</additionalClasspathElement>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.frontend</additionalClasspathElement>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.application</additionalClasspathElement>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.repository</additionalClasspathElement>
-            <additionalClasspathElement>${project.build.outputDirectory}/org.aquilagraph.cli</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.identity</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.source</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.cfg</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.frontend</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.application</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.repository</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.library</additionalClasspathElement>
+            <additionalClasspathElement>${modules.outputDirectory}/org.aquilagraph.cli</additionalClasspathElement>
+            <additionalClasspathElement>${observability.outputDirectory}</additionalClasspathElement>
             <additionalClasspathElement>${build.tools.outputDirectory}</additionalClasspathElement>
           </additionalClasspathElements>
         </configuration>
@@ -648,6 +837,7 @@
                 <source>${project.basedir}/src/main/java/org.aquilagraph.frontend</source>
                 <source>${project.basedir}/src/main/java/org.aquilagraph.application</source>
                 <source>${project.basedir}/src/main/java/org.aquilagraph.repository</source>
+                <source>${project.basedir}/src/main/java/org.aquilagraph.library</source>
                 <source>${project.basedir}/src/main/java/org.aquilagraph.cli</source>
               </sources>
             </configuration>
@@ -807,7 +997,7 @@
                 <argument>production</argument>
                 <argument>${project.basedir}/src/main/java</argument>
                 <argument>${project.build.directory}/resource-staging/production</argument>
-                <argument>${project.build.outputDirectory}</argument>
+                <argument>${modules.outputDirectory}</argument>
                 <argument>${build.compilation.force}</argument>
                 <argument>-J-Xms128m</argument>
                 <argument>-J-Xmx1024m</argument>
@@ -835,10 +1025,59 @@
                 <argument>--module-source-path</argument>
                 <argument>${project.basedir}/src/main/java</argument>
                 <argument>--module</argument>
-                <argument>org.aquilagraph.identity,org.aquilagraph.source,org.aquilagraph.cfg,org.aquilagraph.frontend,org.aquilagraph.application,org.aquilagraph.repository,org.aquilagraph.cli</argument>
+                <argument>org.aquilagraph.identity,org.aquilagraph.source,org.aquilagraph.cfg,org.aquilagraph.frontend,org.aquilagraph.application,org.aquilagraph.repository,org.aquilagraph.library,org.aquilagraph.cli</argument>
                 <argument>-d</argument>
-                <argument>${project.build.outputDirectory}</argument>
+                <argument>${modules.outputDirectory}</argument>
                 <argument>@${project.build.directory}/build-inputs/production.args</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>compile-observability</id>
+            <phase>compile</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>java</executable>
+              <environmentVariables>
+                <AQUILA_BUILD_EFFECTIVE_GOALS>goals=${session.goals}</AQUILA_BUILD_EFFECTIVE_GOALS>
+              </environmentVariables>
+              <arguments>
+                <argument>--enable-native-access=ALL-UNNAMED</argument>
+                <argument>${project.basedir}/config/build/org/aquilagraph/build/CompilationPreparation.java</argument>
+                <argument>${project.basedir}</argument>
+                <argument>observability</argument>
+                <argument>${project.basedir}/src/main/observability</argument>
+                <argument>${project.build.directory}/resource-staging/observability</argument>
+                <argument>${observability.outputDirectory}</argument>
+                <argument>${build.compilation.force}</argument>
+                <argument>-J-Xms128m</argument>
+                <argument>-J-Xmx1024m</argument>
+                <argument>--release</argument>
+                <argument>${maven.compiler.release}</argument>
+                <argument>-encoding</argument>
+                <argument>${project.build.sourceEncoding}</argument>
+                <argument>-g</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED</argument>
+                <argument>-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED</argument>
+                <argument>-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED</argument>
+                <argument>-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED</argument>
+                <argument>-Xlint:all</argument>
+                <argument>-Werror</argument>
+                <argument>-parameters</argument>
+                <argument>-XDcompilePolicy=simple</argument>
+                <argument>--should-stop=ifError=FLOW</argument>
+                <argument>-Xplugin:ErrorProne -Xep:NullAway:ERROR -Xep:RequireExplicitNullMarking:ERROR -XepOpt:NullAway:OnlyNullMarked=true -XepOpt:NullAway:JSpecifyMode=true</argument>
+                <argument>-d</argument>
+                <argument>${observability.outputDirectory}</argument>
+                <argument>@${project.build.directory}/build-inputs/observability.args</argument>
               </arguments>
             </configuration>
           </execution>
@@ -870,6 +1109,8 @@
                 <argument>-encoding</argument>
                 <argument>${project.build.sourceEncoding}</argument>
                 <argument>-g</argument>
+                <argument>-Xlint:all</argument>
+                <argument>-Werror</argument>
                 <argument>-d</argument>
                 <argument>${project.build.testOutputDirectory}</argument>
                 <argument>@${project.build.directory}/build-inputs/test.args</argument>
@@ -1076,7 +1317,7 @@
                 <argument>--module-source-path</argument>
                 <argument>${project.basedir}/src/main/java</argument>
                 <argument>--module</argument>
-                <argument>org.aquilagraph.identity,org.aquilagraph.source,org.aquilagraph.cfg,org.aquilagraph.frontend,org.aquilagraph.application,org.aquilagraph.repository,org.aquilagraph.cli</argument>
+                <argument>org.aquilagraph.identity,org.aquilagraph.source,org.aquilagraph.cfg,org.aquilagraph.frontend,org.aquilagraph.application,org.aquilagraph.repository,org.aquilagraph.library,org.aquilagraph.cli</argument>
                 <argument>-Xdoclint:all</argument>
                 <argument>-Werror</argument>
                 <argument>-encoding</argument>
@@ -1088,6 +1329,35 @@
                 <argument>-d</argument>
                 <argument>${project.build.directory}/reports/apidocs</argument>
                 <argument>@${project.build.directory}/build-inputs/javadoc.args</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>validate-observability-documentation</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>javadoc</executable>
+              <arguments>
+                <argument>-J-Xms128m</argument>
+                <argument>-J-Xmx1024m</argument>
+                <argument>-quiet</argument>
+                <argument>-protected</argument>
+                <argument>--show-packages</argument>
+                <argument>all</argument>
+                <argument>-Xdoclint:all</argument>
+                <argument>-Werror</argument>
+                <argument>-encoding</argument>
+                <argument>${project.build.sourceEncoding}</argument>
+                <argument>-docencoding</argument>
+                <argument>${project.reporting.outputEncoding}</argument>
+                <argument>-charset</argument>
+                <argument>${project.reporting.outputEncoding}</argument>
+                <argument>-d</argument>
+                <argument>${project.build.directory}/reports/observability-apidocs</argument>
+                <argument>@${project.build.directory}/build-inputs/observability-javadoc.args</argument>
               </arguments>
             </configuration>
           </execution>
@@ -1228,6 +1498,12 @@ ${tool.sources}</echo>
             </configuration>
           </execution>
           <execution>
+            <id>reset-runtime-dependency-staging</id>
+            <phase>process-classes</phase>
+            <goals><goal>run</goal></goals>
+            <configuration><target><delete dir="${project.build.directory}/runtime-dependencies" /></target></configuration>
+          </execution>
+          <execution>
             <id>prepare-module-compilation</id>
             <phase>generate-sources</phase>
             <goals>
@@ -1236,7 +1512,12 @@ ${tool.sources}</echo>
             <configuration>
               <target>
                 <mkdir dir="${project.build.directory}/build-inputs" />
-                <pathconvert property="compile.dependencies" refid="maven.compile.classpath" dirsep="/" />
+                <pathconvert property="compile.dependencies" dirsep="/">
+                  <difference>
+                    <path refid="maven.compile.classpath" />
+                    <path><pathelement location="${project.build.outputDirectory}" /></path>
+                  </difference>
+                </pathconvert>
                 <pathconvert property="processor.dependencies" refid="maven.plugin.classpath" dirsep="/" />
                 <pathconvert property="production.sources" pathsep="&#10;" dirsep="/">
                   <fileset dir="${project.basedir}/src/main/java" includes="**/*.java" />
@@ -1247,6 +1528,30 @@ ${tool.sources}</echo>
 --processor-path
 "${processor.dependencies}"
 ${production.sources}</echo>
+                <mkdir dir="${project.build.directory}/resource-staging/observability/META-INF/services" />
+                <copy todir="${project.build.directory}/resource-staging/observability">
+                  <fileset dir="${project.basedir}/src/main/observability-resources" />
+                </copy>
+                <path id="observability.classpath">
+                  <difference>
+                    <path refid="maven.compile.classpath" />
+                    <path><pathelement location="${project.build.outputDirectory}" /></path>
+                  </difference>
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.frontend" />
+                </path>
+                <pathconvert property="observability.dependencies" refid="observability.classpath" dirsep="/" />
+                <pathconvert property="observability.sources" pathsep="&#10;" dirsep="/">
+                  <fileset dir="${project.basedir}/src/main/observability" includes="**/*.java" />
+                  <mapper type="glob" from="*" to="&quot;*&quot;" />
+                </pathconvert>
+                <echo file="${project.build.directory}/build-inputs/observability.args" encoding="UTF-8">--class-path
+"${observability.dependencies}"
+--processor-path
+"${processor.dependencies}"
+${observability.sources}</echo>
+                <echo file="${project.build.directory}/build-inputs/observability-javadoc.args" encoding="UTF-8">--class-path
+"${observability.dependencies}"
+${observability.sources}</echo>
               </target>
             </configuration>
           </execution>
@@ -1260,14 +1565,19 @@ ${production.sources}</echo>
               <skip>${maven.test.skip}</skip>
               <target>
                 <path id="test.classpath">
-                  <path refid="maven.test.classpath" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.identity" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.source" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.cfg" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.frontend" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.application" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.repository" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.cli" />
+                  <difference>
+                    <path refid="maven.test.classpath" />
+                    <path><pathelement location="${project.build.outputDirectory}" /></path>
+                  </difference>
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.identity" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.source" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.cfg" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.frontend" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.application" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.repository" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.library" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.cli" />
+                  <pathelement location="${observability.outputDirectory}" />
                   <pathelement location="${build.tools.outputDirectory}" />
                 </path>
                 <pathconvert property="test.dependencies" refid="test.classpath" dirsep="/" />
@@ -1284,6 +1594,29 @@ ${test.sources}</echo>
             </configuration>
           </execution>
           <execution>
+            <id>prepare-library-metadata</id><phase>prepare-package</phase><goals><goal>run</goal></goals>
+            <configuration><target>
+              <mkdir dir="${project.build.directory}/library" />
+              <echo file="${project.build.directory}/library/aquila-graph-library.pom" encoding="UTF-8"><![CDATA[<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.aquilagraph</groupId><artifactId>aquila-graph-library</artifactId><version>${project.version}</version>
+  <name>Aquila Graph Library</name>
+  <description>Configured Java source analysis with product-owned observability.</description>
+  <dependencies>
+    <dependency><groupId>org.aquilagraph</groupId><artifactId>aquila-graph</artifactId><version>${project.version}</version><classifier>identity</classifier><scope>compile</scope></dependency>
+    <dependency><groupId>org.aquilagraph</groupId><artifactId>aquila-graph</artifactId><version>${project.version}</version><classifier>source</classifier><scope>compile</scope></dependency>
+    <dependency><groupId>org.aquilagraph</groupId><artifactId>aquila-graph</artifactId><version>${project.version}</version><classifier>cfg</classifier><scope>compile</scope></dependency>
+    <dependency><groupId>org.aquilagraph</groupId><artifactId>aquila-graph</artifactId><version>${project.version}</version><classifier>frontend</classifier><scope>compile</scope></dependency>
+    <dependency><groupId>org.aquilagraph</groupId><artifactId>aquila-graph</artifactId><version>${project.version}</version><classifier>application</classifier><scope>compile</scope></dependency>
+    <dependency><groupId>org.aquilagraph</groupId><artifactId>aquila-graph</artifactId><version>${project.version}</version><classifier>repository</classifier><scope>compile</scope></dependency>
+    <dependency><groupId>org.aquilagraph</groupId><artifactId>aquila-graph</artifactId><version>${project.version}</version><classifier>observability</classifier><scope>runtime</scope></dependency>
+  </dependencies>
+</project>
+]]></echo>
+            </target></configuration>
+          </execution>
+          <execution>
             <id>prepare-analysis-inputs</id>
             <phase>prepare-package</phase>
             <goals>
@@ -1291,16 +1624,29 @@ ${test.sources}</echo>
             </goals>
             <configuration>
               <target>
+                <delete dir="${project.build.outputDirectory}" />
+                <copy todir="${project.build.outputDirectory}/modules">
+                  <fileset dir="${modules.outputDirectory}" />
+                </copy>
+                <copy todir="${project.build.outputDirectory}/observability">
+                  <fileset dir="${observability.outputDirectory}" />
+                </copy>
                 <mkdir dir="${project.build.directory}/build-inputs" />
                 <path id="analysis.classpath">
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.identity" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.source" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.cfg" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.frontend" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.application" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.repository" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.cli" />
-                  <path refid="maven.compile.classpath" />
+                  <pathelement location="${project.build.directory}/analysis-dependencies/opentelemetry-api-incubator.jar" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.identity" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.source" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.cfg" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.frontend" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.application" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.repository" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.library" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.cli" />
+                  <difference>
+                    <path refid="maven.compile.classpath" />
+                    <path><pathelement location="${project.build.outputDirectory}" /></path>
+                  </difference>
+                  <pathelement location="${observability.outputDirectory}" />
                   <pathelement location="${build.tools.outputDirectory}" />
                 </path>
                 <pathconvert property="analysis.dependencies" refid="analysis.classpath" dirsep="/" />
@@ -1308,33 +1654,42 @@ ${test.sources}</echo>
                 <pathconvert property="analysis.auxiliary" refid="analysis.classpath" pathsep="&#10;" dirsep="/" />
                 <echo file="${project.build.directory}/build-inputs/spotbugs-auxiliary.txt" encoding="UTF-8">${analysis.auxiliary}</echo>
                 <path id="analysis.targets">
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.identity" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.source" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.cfg" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.frontend" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.application" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.repository" />
-                  <pathelement location="${project.build.outputDirectory}/org.aquilagraph.cli" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.identity" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.source" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.cfg" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.frontend" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.application" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.repository" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.library" />
+                  <pathelement location="${modules.outputDirectory}/org.aquilagraph.cli" />
+                  <pathelement location="${observability.outputDirectory}" />
                   <pathelement location="${build.tools.outputDirectory}" />
                 </path>
                 <pathconvert property="analysis.classes" refid="analysis.targets" pathsep="&#10;" dirsep="/" />
                 <echo file="${project.build.directory}/build-inputs/spotbugs-classes.txt" encoding="UTF-8">${analysis.classes}</echo>
-                <pathconvert property="javadoc.dependencies" refid="maven.compile.classpath" dirsep="/" />
+                <pathconvert property="javadoc.dependencies" dirsep="/">
+                  <difference>
+                    <path refid="maven.compile.classpath" />
+                    <path><pathelement location="${project.build.outputDirectory}" /></path>
+                  </difference>
+                </pathconvert>
                 <echo file="${project.build.directory}/build-inputs/javadoc.args" encoding="UTF-8">--module-path
 "${javadoc.dependencies}"</echo>
-                <available file="${project.build.outputDirectory}/org.aquilagraph.identity/module-info.class" property="module.org.aquilagraph.identity.present" />
+                <available file="${modules.outputDirectory}/org.aquilagraph.identity/module-info.class" property="module.org.aquilagraph.identity.present" />
                 <fail unless="module.org.aquilagraph.identity.present" message="Missing canonical module output: org.aquilagraph.identity" />
-                <available file="${project.build.outputDirectory}/org.aquilagraph.source/module-info.class" property="module.org.aquilagraph.source.present" />
+                <available file="${modules.outputDirectory}/org.aquilagraph.source/module-info.class" property="module.org.aquilagraph.source.present" />
                 <fail unless="module.org.aquilagraph.source.present" message="Missing canonical module output: org.aquilagraph.source" />
-                <available file="${project.build.outputDirectory}/org.aquilagraph.cfg/module-info.class" property="module.org.aquilagraph.cfg.present" />
+                <available file="${modules.outputDirectory}/org.aquilagraph.cfg/module-info.class" property="module.org.aquilagraph.cfg.present" />
                 <fail unless="module.org.aquilagraph.cfg.present" message="Missing canonical module output: org.aquilagraph.cfg" />
-                <available file="${project.build.outputDirectory}/org.aquilagraph.frontend/module-info.class" property="module.org.aquilagraph.frontend.present" />
+                <available file="${modules.outputDirectory}/org.aquilagraph.frontend/module-info.class" property="module.org.aquilagraph.frontend.present" />
                 <fail unless="module.org.aquilagraph.frontend.present" message="Missing canonical module output: org.aquilagraph.frontend" />
-                <available file="${project.build.outputDirectory}/org.aquilagraph.application/module-info.class" property="module.org.aquilagraph.application.present" />
+                <available file="${modules.outputDirectory}/org.aquilagraph.application/module-info.class" property="module.org.aquilagraph.application.present" />
                 <fail unless="module.org.aquilagraph.application.present" message="Missing canonical module output: org.aquilagraph.application" />
-                <available file="${project.build.outputDirectory}/org.aquilagraph.repository/module-info.class" property="module.org.aquilagraph.repository.present" />
+                <available file="${modules.outputDirectory}/org.aquilagraph.repository/module-info.class" property="module.org.aquilagraph.repository.present" />
                 <fail unless="module.org.aquilagraph.repository.present" message="Missing canonical module output: org.aquilagraph.repository" />
-                <available file="${project.build.outputDirectory}/org.aquilagraph.cli/module-info.class" property="module.org.aquilagraph.cli.present" />
+                <available file="${modules.outputDirectory}/org.aquilagraph.library/module-info.class" property="module.org.aquilagraph.library.present" />
+                <available file="${modules.outputDirectory}/org.aquilagraph.cli/module-info.class" property="module.org.aquilagraph.cli.present" />
+                <fail unless="module.org.aquilagraph.library.present" message="Missing canonical module output: org.aquilagraph.library" />
                 <fail unless="module.org.aquilagraph.cli.present" message="Missing canonical module output: org.aquilagraph.cli" />
                 <delete file="${analysis.outputDirectory}/pmd.xml" />
                 <delete file="${analysis.outputDirectory}/cpd.xml" />
@@ -1402,14 +1757,20 @@ ${test.sources}</echo>
                   </chainedmapper>
                 </pathconvert>
                 <pathconvert property="editor.compile.libraries" pathsep="" dirsep="/">
-                  <path refid="maven.compile.classpath" />
+                  <difference>
+                    <path refid="maven.compile.classpath" />
+                    <path><pathelement location="${project.build.outputDirectory}" /></path>
+                  </difference>
                   <chainedmapper>
                     <globmapper from="${settings.localRepository}/*.jar" to="libraries/*.jar" handledirsep="true" />
                     <globmapper from="*" to="&lt;classpathentry kind=&quot;lib&quot; path=&quot;*&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" />
                   </chainedmapper>
                 </pathconvert>
                 <pathconvert property="editor.test.libraries" pathsep="" dirsep="/">
-                  <path refid="maven.test.classpath" />
+                  <difference>
+                    <path refid="maven.test.classpath" />
+                    <path><pathelement location="${project.build.outputDirectory}" /></path>
+                  </difference>
                   <chainedmapper>
                     <globmapper from="${settings.localRepository}/*.jar" to="libraries/*.jar" handledirsep="true" />
                     <globmapper from="*" to="&lt;classpathentry kind=&quot;lib&quot; path=&quot;*&quot; /&gt;" />
@@ -1448,8 +1809,10 @@ ${test.sources}</echo>
                 <editor-project name="org.aquilagraph.frontend" source="src/main/java/org.aquilagraph.frontend" dependencies="&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
                 <editor-project name="org.aquilagraph.application" source="src/main/java/org.aquilagraph.application" dependencies="&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
                 <editor-project name="org.aquilagraph.repository" source="src/main/java/org.aquilagraph.repository" dependencies="&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.application&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
-                <editor-project name="org.aquilagraph.cli" source="src/main/java/org.aquilagraph.cli" dependencies="&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.frontend&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.application&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.repository&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
-                <editor-project name="aquila-graph-tests" source="src/test/java" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.identity&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.source&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.cfg&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.frontend&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.application&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.repository&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.cli&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;build-tools&quot; /&gt;" libraries="${editor.test.libraries}" />
+                <editor-project name="org.aquilagraph.library" source="src/main/java/org.aquilagraph.library" dependencies="&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.frontend&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.application&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.repository&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
+                <editor-project name="org.aquilagraph.cli" source="src/main/java/org.aquilagraph.cli" dependencies="&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.library&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.identity&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.source&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.cfg&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.frontend&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.application&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;&lt;classpathentry kind=&quot;src&quot; path=&quot;/org.aquilagraph.repository&quot;&gt;&lt;attributes&gt;&lt;attribute name=&quot;module&quot; value=&quot;true&quot; /&gt;&lt;/attributes&gt;&lt;/classpathentry&gt;" libraries="${editor.compile.libraries}" />
+                <editor-project name="org.aquilagraph.observability" source="src/main/observability" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.frontend&quot; /&gt;" libraries="${editor.test.libraries}" />
+                <editor-project name="aquila-graph-tests" source="src/test/java" links="&lt;link&gt;&lt;name&gt;observability-classes&lt;/name&gt;&lt;type&gt;2&lt;/type&gt;&lt;locationURI&gt;PARENT-3-PROJECT_LOC/target/observability-classes&lt;/locationURI&gt;&lt;/link&gt;" dependencies="&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.identity&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.source&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.cfg&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.frontend&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.application&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.repository&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.library&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;classes/org.aquilagraph.cli&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;build-tools&quot; /&gt;&lt;classpathentry kind=&quot;lib&quot; path=&quot;observability-classes&quot; /&gt;" libraries="${editor.test.libraries}" />
                 <copy file="${project.basedir}/config/eclipse/aquila-graph.code-workspace" todir="${project.build.directory}/editor" overwrite="true" />
               </target>
             </configuration>
@@ -1487,7 +1850,8 @@ ${test.sources}</echo>
                   <structure name="aquila-graph">
                     <group name="Product">
                       <classfiles>
-                        <fileset dir="${project.build.outputDirectory}" includes="**/*.class" excludes="**/package-info*" />
+                        <fileset dir="${modules.outputDirectory}" includes="**/*.class" excludes="**/package-info*" />
+                        <fileset dir="${observability.outputDirectory}" includes="**/*.class" excludes="**/package-info*" />
                       </classfiles>
                       <sourcefiles encoding="UTF-8">
                         <fileset dir="${project.basedir}/src/main/java/org.aquilagraph.identity" includes="**/*.java" />
@@ -1496,7 +1860,9 @@ ${test.sources}</echo>
                         <fileset dir="${project.basedir}/src/main/java/org.aquilagraph.frontend" includes="**/*.java" />
                         <fileset dir="${project.basedir}/src/main/java/org.aquilagraph.application" includes="**/*.java" />
                         <fileset dir="${project.basedir}/src/main/java/org.aquilagraph.repository" includes="**/*.java" />
+                        <fileset dir="${project.basedir}/src/main/java/org.aquilagraph.library" includes="**/*.java" />
                         <fileset dir="${project.basedir}/src/main/java/org.aquilagraph.cli" includes="**/*.java" />
+                        <fileset dir="${project.basedir}/src/main/observability" includes="**/*.java" />
                       </sourcefiles>
                     </group>
                     <group name="Build tools">

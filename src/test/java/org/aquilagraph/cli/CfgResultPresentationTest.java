@@ -80,7 +80,7 @@ class CfgResultPresentationTest {
     CliTestFixtures.present(empty, emptyStreams);
     // Assert
     assertTrue(absentStreams.outputLines().containsAll(List.of("CFG: NOT_REQUESTED", "CFG profile: not-requested", "CFG graph model: not-requested", "CFG selection: NOT_REQUESTED", "CFG binding: NOT_REQUESTED")));
-    assertTrue(emptyStreams.outputLines().containsAll(List.of("CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"", "CFG selection: METHODS")));
+    assertTrue(emptyStreams.outputLines().containsAll(List.of("CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/3\"", "CFG selection: METHODS")));
     assertFalse(emptyStreams.outputLines().stream().anyMatch(line -> line.startsWith("Selected method:")));
     assertTrue(absentStreams.outputLines().stream().filter(line -> line.startsWith("Method CFG:")).allMatch(line -> line.endsWith(" NOT_REQUESTED")));
     assertEquals(List.of(), absentStreams.errorLines());

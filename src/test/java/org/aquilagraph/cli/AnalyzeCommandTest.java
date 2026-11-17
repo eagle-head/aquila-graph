@@ -55,6 +55,25 @@ import org.junit.jupiter.api.io.TempDir;
 class AnalyzeCommandTest {
   @TempDir Path directory;
 
+  @Test
+  void givenSupportedArrayClone_whenCommandComputesWithoutPublication_thenCompleteSourceAndGraphAreReported() throws IOException {
+    // Arrange
+    Files.writeString(directory.resolve("Example.java"),
+        "interface Example { static int[] copy(int[] values) { return values.clone(); } }");
+    var streams = new CliStreams();
+    var command = new AnalyzeCommand(CliTestFixtures.service(CliTestFixtures.runner(), CliTestFixtures.repositoriesMustNotOpen()));
+
+    // Act
+    var invocation = new CommandRunner(command).run(new String[] {directory.toString()}, CommandDestination.printStream(streams.output()),
+        CommandDestination.printStream(streams.error()));
+
+    // Assert
+    assertEquals(CommandExitPolicy.EXIT_COMPLETED, invocation.exitCode(), streams.errorText());
+    assertTrue(streams.outputLines().containsAll(List.of("Completion: COMPLETE", "AST: COMPLETE", "CFG: COMPLETE",
+        "CFG graph model: \"java-cfg/3\"", "Repository: NOT_REQUESTED")), streams.outputText());
+    assertEquals(List.of(), streams.errorLines());
+  }
+
   @TestFactory
   Stream<DynamicTest> givenPersistenceOptionsInDifferentOrders_whenCommandRuns_thenExactNormalizedRequestAndSavedResultAreObserved() {
     // Arrange
@@ -246,7 +265,7 @@ class AnalyzeCommandTest {
     var expectedOutput = new ArrayList<>(List.of("Run: \"" + run.identity().key() + "\"",
         "Software version: \"" + ast.identity().softwareSignature() + "\"",
         "Completion: PARTIAL", "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: \"java-source-bounded/1\"",
-        "CFG: PARTIAL", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"", "CFG selection: ALL_BODIES",
+        "CFG: PARTIAL", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/3\"", "CFG selection: ALL_BODIES",
         "CFG binding: \"" + ast.identity().astResultKey() + "\"", "Selected method: \"" + keys.get(1) + "\"",
         "Selected method: \"" + keys.get(2) + "\"", "Java types: 1", "Java methods: 3", "Analyzed method bodies: 1",
         "CFG operations: 2", "CFG nodes: 4", "CFG edges: 3", "Method CFG: \"" + keys.getFirst() + "\" NOT_REQUESTED",

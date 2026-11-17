@@ -7,7 +7,6 @@ import org.aquilagraph.source.retention.AstCodec;
 
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -18,14 +17,9 @@ import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
-import org.aquilagraph.identity.api.CanonicalValueWriter;
-import org.aquilagraph.identity.api.CanonicalValueReader;
 import org.aquilagraph.source.api.AstProfile;
-import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.SyntaxKind;
-import org.aquilagraph.source.api.SyntaxValue;
-import org.aquilagraph.source.api.CoverageEvidenceValue;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
@@ -42,7 +36,7 @@ class SwitchCodecTest {
     // Act
     var decoded = AstCodec.decode(AstCodec.encode(current), current.identity());
     // Assert
-    assertEquals("java-source/23", decoded.identity().sourceModelVersion());
+    assertEquals("java-source/24", decoded.identity().sourceModelVersion());
     assertEquals(current.identity(), decoded.identity());
     assertEquals(current.aggregate(), decoded.aggregate());
     assertEquals(AstCompletion.COMPLETE, decoded.completion());

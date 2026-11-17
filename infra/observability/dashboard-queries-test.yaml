@@ -1,0 +1,45 @@
+rule_files: []
+evaluation_interval: 10s
+tests:
+  - name: givenIndependentExecutions_whenQueryingDashboard_thenStatesAndCountsRemainTruthful
+    interval: 10s
+    # Arrange
+    input_series:
+      - series: 'aquila_execution_state{aquila_execution_id="running",instance="worker"}'
+        values: '0+0x12'
+      - series: 'aquila_execution_heartbeat_seconds{aquila_execution_id="running",instance="worker"}'
+        values: '0+10x12'
+      - series: 'aquila_execution_state{aquila_execution_id="lost",instance="worker"}'
+        values: '0+0x12'
+      - series: 'aquila_execution_heartbeat_seconds{aquila_execution_id="lost",instance="worker"}'
+        values: '0+0x12'
+      - series: 'aquila_execution_state{aquila_execution_id="finished",instance="worker"}'
+        values: '1+0x12'
+      - series: 'aquila_execution_heartbeat_seconds{aquila_execution_id="finished",instance="worker"}'
+        values: '0+0x12'
+      - series: 'aquila_execution_source_files{aquila_execution_id="finished",instance="worker"}'
+        values: '7+0x12'
+      - series: 'aquila_execution_source_files{aquila_execution_id="running",instance="worker"}'
+        values: '87+0x12'
+    # Act and Assert
+    promql_expr_test:
+      - expr: '(last_over_time(aquila_execution_state{aquila_execution_id="running"}[10m]) != 0) or ((last_over_time(aquila_execution_state{aquila_execution_id="running"}[10m]) == 0) and on(aquila_execution_id) (time() - last_over_time(aquila_execution_heartbeat_seconds{aquila_execution_id="running"}[10m]) < 20)) or (5 + 0 * ((last_over_time(aquila_execution_state{aquila_execution_id="running"}[10m]) == 0) and on(aquila_execution_id) (time() - last_over_time(aquila_execution_heartbeat_seconds{aquila_execution_id="running"}[10m]) >= 20)))'
+        eval_time: 1m
+        exp_samples:
+          - labels: 'aquila_execution_state{aquila_execution_id="running",instance="worker"}'
+            value: 0
+      - expr: '(last_over_time(aquila_execution_state{aquila_execution_id="lost"}[10m]) != 0) or ((last_over_time(aquila_execution_state{aquila_execution_id="lost"}[10m]) == 0) and on(aquila_execution_id) (time() - last_over_time(aquila_execution_heartbeat_seconds{aquila_execution_id="lost"}[10m]) < 20)) or (5 + 0 * ((last_over_time(aquila_execution_state{aquila_execution_id="lost"}[10m]) == 0) and on(aquila_execution_id) (time() - last_over_time(aquila_execution_heartbeat_seconds{aquila_execution_id="lost"}[10m]) >= 20)))'
+        eval_time: 1m
+        exp_samples:
+          - labels: '{aquila_execution_id="lost",instance="worker"}'
+            value: 5
+      - expr: '(last_over_time(aquila_execution_state{aquila_execution_id="finished"}[10m]) != 0) or ((last_over_time(aquila_execution_state{aquila_execution_id="finished"}[10m]) == 0) and on(aquila_execution_id) (time() - last_over_time(aquila_execution_heartbeat_seconds{aquila_execution_id="finished"}[10m]) < 20)) or (5 + 0 * ((last_over_time(aquila_execution_state{aquila_execution_id="finished"}[10m]) == 0) and on(aquila_execution_id) (time() - last_over_time(aquila_execution_heartbeat_seconds{aquila_execution_id="finished"}[10m]) >= 20)))'
+        eval_time: 1m
+        exp_samples:
+          - labels: 'aquila_execution_state{aquila_execution_id="finished",instance="worker"}'
+            value: 1
+      - expr: 'last_over_time(aquila_execution_source_files{aquila_execution_id="running"}[10m])'
+        eval_time: 1m
+        exp_samples:
+          - labels: 'aquila_execution_source_files{aquila_execution_id="running",instance="worker"}'
+            value: 87

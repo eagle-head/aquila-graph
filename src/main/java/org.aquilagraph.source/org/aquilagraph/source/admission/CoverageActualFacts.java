@@ -31,7 +31,6 @@ import org.aquilagraph.source.api.JavaTypeIdentity;
 import org.aquilagraph.source.api.JavaTypeNesting;
 import org.aquilagraph.source.api.JavaTypeStructure;
 import org.aquilagraph.source.api.LocalBindingEvidence;
-import org.aquilagraph.source.api.NormalizedExpressionCorrespondence;
 import org.aquilagraph.source.api.SourceContext;
 import org.aquilagraph.source.api.SourceCoverageInventory;
 import org.aquilagraph.source.api.SyntaxKind;
@@ -295,17 +294,16 @@ public final class CoverageActualFacts {
   }
 
   private static boolean memberDisplayMatches(DeclarationMemberOrder.Member member, String sourceFileKey, CoverageActualFactView facts) {
-    return facts.stream().filter(fact -> fact.identity().equals(member.declarationKey()) && fact.sourceFileKey().equals(sourceFileKey))
-        .findFirst().map(fact -> switch (fact.value()) {
-          case CoverageFactValue.Field field ->
-            member.displayValue().equals((field.value().enumConstant() ? "ENUM_CONSTANT:" : "FIELD:") + field.value().name());
-          case CoverageFactValue.RecordComponent component -> member.displayValue().equals("RECORD_COMPONENT:" + component.value().name());
-          case CoverageFactValue.Type type -> member.displayValue()
-              .equals((ANNOTATION_KIND.equals(type.value().kind().name()) ? ANNOTATION_TYPE_KIND : type.value().kind().name()) + ':'
-                  + type.value().qualifiedName());
-          case CoverageFactValue.Method _,CoverageFactValue.SynthesizedDeclaration _ -> true;
-          default -> false;
-        }).orElse(false);
+    return facts.withIdentity(sourceFileKey, member.declarationKey()).stream().findFirst().map(fact -> switch (fact.value()) {
+      case CoverageFactValue.Field field ->
+        member.displayValue().equals((field.value().enumConstant() ? "ENUM_CONSTANT:" : "FIELD:") + field.value().name());
+      case CoverageFactValue.RecordComponent component -> member.displayValue().equals("RECORD_COMPONENT:" + component.value().name());
+      case CoverageFactValue.Type type -> member.displayValue()
+          .equals((ANNOTATION_KIND.equals(type.value().kind().name()) ? ANNOTATION_TYPE_KIND : type.value().kind().name()) + ':'
+              + type.value().qualifiedName());
+      case CoverageFactValue.Method _,CoverageFactValue.SynthesizedDeclaration _ -> true;
+      default -> false;
+    }).orElse(false);
   }
 
   private static Optional<String> declarationKey(SyntaxValue value) {
@@ -315,43 +313,6 @@ public final class CoverageActualFacts {
       case SyntaxValue.VariableDeclaration field -> Optional.of(field.declarationKey());
       default -> Optional.empty();
     };
-  }
-
-  /**
-   * Finds retained facts at an exact captured owner, preserving typed values and order.
-   *
-   * @param context
-   *          independent source owner context
-   * @param facts
-   *          actual retained facts
-   * @return exact-owner facts
-   */
-  public static List<CoverageFactReference> ownedBy(SourceContext context, CoverageActualFactView facts) {
-    var sourceFacts = facts.stream()
-        .filter(fact -> fact.sourceFileKey().equals(context.address().sourceFileKey()) && facts.isSource(fact,
-            syntax -> syntax.sourceAssociation()
-                .filter(association -> association.ownerPath().equals(context.address().ownerPath())
-                    || association.normalizedExpression().filter(value -> normalizedOwner(context, value)).isPresent())
-                .isPresent()))
-        .toList();
-    var keys = sourceFacts.stream().map(facts::requiredSyntax).flatMap(syntax -> canonicalOwnerKeys(syntax.value()).stream()).toList();
-    return facts.stream()
-        .filter(fact -> sourceFacts.contains(fact)
-            || (fact.sourceFileKey().equals(context.address().sourceFileKey()) && (keys.contains(fact.identity())
-                || (fact.value() instanceof CoverageFactValue.MemberOrder order && keys.contains(order.value().ownerTypeKey()))
-                || (fact.value() instanceof CoverageFactValue.DeclarationType type && keys.contains(type.value().ownerTypeKey())))))
-        .toList();
-  }
-
-  private static boolean normalizedOwner(SourceContext context, NormalizedExpressionCorrespondence value) {
-    if (context.address().partition() == SourceContext.Partition.WRITTEN_EXPRESSION) {
-      return value.region().compilerOwner().equals(context.address().ownerPath());
-    }
-    return value.occurrencePath().isEmpty()
-        && value.region().occurrences().stream()
-            .noneMatch(occurrence -> occurrence.compilerOperand().filter(context.address().ownerPath()::equals).isPresent())
-        && value.observations().stream().anyMatch(property -> property.ownerPath().equals(context.address().ownerPath())
-            && property.origin().stream().toList().equals(context.origins()));
   }
 
   /**
@@ -470,18 +431,6 @@ public final class CoverageActualFacts {
         && facts.children(root, List.of(SyntaxRole.COMPACT_MEMBER)).stream().map(facts::requiredSyntax)
             .anyMatch(syntax -> (syntax.value() instanceof SyntaxValue.ExecutableDeclaration method && method.ownerKey().equals(typeKey))
                 || (syntax.value() instanceof SyntaxValue.VariableDeclaration field && field.ownerKey().equals(typeKey)));
-  }
-
-  private static List<String> canonicalOwnerKeys(SyntaxValue value) {
-    return switch (value) {
-      case SyntaxValue.TypeDeclaration declaration -> List.of(declaration.declarationKey());
-      case SyntaxValue.ExecutableDeclaration declaration -> List.of(declaration.declarationKey());
-      case SyntaxValue.VariableDeclaration declaration -> List.of(declaration.declarationKey());
-      case SyntaxValue.ParameterDeclaration declaration -> List.of(declaration.declarationKey());
-      case SyntaxValue.RecordComponentDeclaration declaration ->
-        List.of(declaration.declarationKey(), declaration.counterparts().backingFieldKey());
-      default -> List.of();
-    };
   }
 
   /**
@@ -692,11 +641,11 @@ public final class CoverageActualFacts {
                   ? scalarItem(expected, "CLASS", false)
                   : sourceSyntax.map(value -> scalarItem(expected, value.sourceKind().name(), false)).orElse(false);
       case "getEnclosingElement" ->
-        executable.map(value -> enclosingElement(expected, value.ownerTypeKey(), actualFacts))
+        executable.map(value -> enclosingElement(expected, context.address().sourceFileKey(), value.ownerTypeKey(), actualFacts))
             .orElseGet(() -> type.map(value -> value.nesting().lexicalOwnerKey().map(key -> value.nesting().ownerDetails()
                 .map(owner -> expected.equals(new CoveragePropertyValue(State.SCALAR,
                     List.of(new CoveragePropertyValue.Item(key, owner.kind() + ':' + owner.displayName(), provenance(owner.written()))))))
-                .orElseGet(() -> enclosingElement(expected, key, actualFacts)))
+                .orElseGet(() -> enclosingElement(expected, context.address().sourceFileKey(), key, actualFacts)))
                 .orElseGet(() -> packageOwner(expected, context.address().sourceFileKey(), actualFacts))).orElse(false));
       case "getNestingKind" -> type.map(value -> scalarItem(expected, value.nesting().kind().name(), true)).orElse(false);
       case "getSuperclass" -> type.map(value -> value.directSuperclass().map(reference -> scalarType(expected, reference.identity()))
@@ -878,8 +827,8 @@ public final class CoverageActualFacts {
         .equals(new CoveragePropertyValue(State.SCALAR, List.of(new CoveragePropertyValue.Item("item:0", value, provenance(!semantic)))));
   }
 
-  private static boolean enclosingElement(CoveragePropertyValue expected, String key, CoverageActualFactView facts) {
-    var field = facts.stream().map(CoverageFactReference::value).filter(CoverageFactValue.Field.class::isInstance)
+  private static boolean enclosingElement(CoveragePropertyValue expected, String source, String key, CoverageActualFactView facts) {
+    var field = facts.withIdentity(source, key).stream().map(CoverageFactReference::value).filter(CoverageFactValue.Field.class::isInstance)
         .map(CoverageFactValue.Field.class::cast).map(CoverageFactValue.Field::value).filter(value -> value.fieldKey().equals(key))
         .findFirst();
     if (field.isPresent()) {
@@ -887,21 +836,20 @@ public final class CoverageActualFacts {
       return expected.equals(new CoveragePropertyValue(State.SCALAR, List.of(new CoveragePropertyValue.Item(key,
           (value.enumConstant() ? "ENUM_CONSTANT:" : "FIELD:") + value.name(), provenance(value.sourceDeclared())))));
     }
-    var method = facts.stream().map(CoverageFactReference::value).filter(CoverageFactValue.Method.class::isInstance)
-        .map(CoverageFactValue.Method.class::cast).map(CoverageFactValue.Method::value).filter(value -> value.methodKey().equals(key))
-        .findFirst();
+    var method = facts.withIdentity(source, key).stream().map(CoverageFactReference::value)
+        .filter(CoverageFactValue.Method.class::isInstance).map(CoverageFactValue.Method.class::cast).map(CoverageFactValue.Method::value)
+        .filter(value -> value.methodKey().equals(key)).findFirst();
     if (method.isPresent()) {
       var value = method.orElseThrow();
       var kind = value.constructor() ? "CONSTRUCTOR" : "METHOD";
       return expected.state() == State.SCALAR && expected.items().size() == 1 && expected.items().getFirst().identity().equals(key)
           && expected.items().getFirst().value().startsWith(kind + ':');
     }
-    return facts.stream().map(CoverageFactReference::value).filter(CoverageFactValue.Type.class::isInstance)
+    return facts.withIdentity(source, key).stream().map(CoverageFactReference::value).filter(CoverageFactValue.Type.class::isInstance)
         .map(CoverageFactValue.Type.class::cast).map(CoverageFactValue.Type::value).filter(type -> type.typeKey().equals(key))
-        .anyMatch(type -> expected.equals(new CoveragePropertyValue(State.SCALAR,
-            List.of(new CoveragePropertyValue.Item(key,
-                (ANNOTATION_KIND.equals(type.kind().name()) ? ANNOTATION_TYPE_KIND : type.kind().name()) + ':' + type.displayName(),
-                provenance(type.sourceDeclared() || facts.stream().anyMatch(root -> compactOwns(root, type.typeKey(), facts))))))));
+        .anyMatch(type -> expected.equals(new CoveragePropertyValue(State.SCALAR, List.of(new CoveragePropertyValue.Item(key,
+            (ANNOTATION_KIND.equals(type.kind().name()) ? ANNOTATION_TYPE_KIND : type.kind().name()) + ':' + type.displayName(), provenance(
+                type.sourceDeclared() || facts.inSource(source).stream().anyMatch(root -> compactOwns(root, type.typeKey(), facts))))))));
   }
 
   private static boolean writtenPackageName(CoveragePropertyValue expected, CoverageFactReference owner,
@@ -914,9 +862,9 @@ public final class CoverageActualFacts {
   }
 
   private static boolean packageOwner(CoveragePropertyValue expected, String sourceKey, CoverageActualFactView facts) {
-    var packageName = facts.stream().filter(fact -> fact.sourceFileKey().equals(sourceKey)).flatMap(facts::syntaxValues)
-        .map(CoverageSyntaxFactValue::value).filter(SyntaxValue.PackageDeclaration.class::isInstance)
-        .map(SyntaxValue.PackageDeclaration.class::cast).map(SyntaxValue.PackageDeclaration::name).findFirst().orElse("");
+    var packageName = facts.inSource(sourceKey).stream().flatMap(facts::syntaxValues).map(CoverageSyntaxFactValue::value)
+        .filter(SyntaxValue.PackageDeclaration.class::isInstance).map(SyntaxValue.PackageDeclaration.class::cast)
+        .map(SyntaxValue.PackageDeclaration::name).findFirst().orElse("");
     return expected.equals(new CoveragePropertyValue(State.SCALAR, List
         .of(new CoveragePropertyValue.Item("package:" + packageName, "PACKAGE:" + packageName, CoveragePropertyValue.Provenance.WRITTEN))));
   }

@@ -14,6 +14,7 @@ import org.aquilagraph.source.api.InvocationApplicabilityMode;
 import org.aquilagraph.source.api.InvocationEvidence;
 import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.InvocationMode;
+import org.aquilagraph.source.api.InvocationSelection;
 import org.aquilagraph.source.api.InvocationSemantics;
 import org.aquilagraph.source.api.JavaDeclarationModifier;
 import org.aquilagraph.source.api.JavaTypeCategory;
@@ -173,6 +174,11 @@ public final class ExecutionDecisionValidation {
         continue;
       }
       var decision = evidence.applicability().knownValue().orElseThrow();
+      if (node.value() instanceof SyntaxValue.Invocation invocation
+          && invocation.semantics().filter(value -> value.selection() == InvocationSelection.ARRAY_CLONE).isPresent()
+          && (decision.mode() != InvocationApplicabilityMode.FIXED || decision.formalCount() != 0)) {
+        throw new IllegalArgumentException("Array clone applicability must select fixed arity with no formal parameters");
+      }
       var argumentCount = node.children(SyntaxRole.ARGUMENT).size();
       var insertedSuperclass = node.origin().isEmpty()
           && node.value(SyntaxValue.Invocation.class).form() == InvocationForm.SUPER_CONSTRUCTOR;

@@ -19,7 +19,6 @@ import org.aquilagraph.cfg.CfgDerivers;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -444,7 +443,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
       // Assert
       assertEquals(PublicationStatus.SAVED, publication.status());
       assertEquals(AstLookupStatus.FOUND, lookup.status());
-      assertEquals("java-source/23", retrieved.identity().sourceModelVersion());
+      assertEquals("java-source/24", retrieved.identity().sourceModelVersion());
       assertEquals(current.identity(), retrieved.identity());
       assertEquals(current.aggregate(), retrieved.aggregate());
       assertArrayEquals(AstCodec.encode(current), AstCodec.encode(retrieved));
@@ -511,7 +510,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
       var queried = query(settings).findAst(current.identity()).outcome().orElseThrow().result().orElseThrow();
       // Assert
       assertEquals(PublicationStatus.SAVED, publication.status());
-      assertEquals("java-source/23", queried.identity().sourceModelVersion());
+      assertEquals("java-source/24", queried.identity().sourceModelVersion());
       assertEquals(current.identity(), queried.identity());
       assertEquals(current.aggregate(), queried.aggregate());
       assertArrayEquals(AstCodec.encode(current), AstCodec.encode(queried));
@@ -638,7 +637,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
       // Assert
       assertEquals(PublicationStatus.SAVED, publication.status());
       assertEquals(AstLookupStatus.FOUND, lookup.status());
-      assertEquals("java-source/23", retrieved.identity().sourceModelVersion());
+      assertEquals("java-source/24", retrieved.identity().sourceModelVersion());
       assertEquals(current.identity(), retrieved.identity());
       assertEquals(current.aggregate(), retrieved.aggregate());
       assertEquals(current.coverage(), retrieved.coverage());
@@ -666,7 +665,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
     var ast = frontend().produce(snapshot("""
         import java.util.function.*;
         import java.util.ArrayList;
-import java.util.List;
+        import java.util.List;
         import java.lang.annotation.*;
         @Target(ElementType.PARAMETER) @interface Mark { String value() default ""; }
         class Stored {
@@ -757,7 +756,7 @@ import java.util.List;
       // Assert
       assertEquals(PublicationStatus.SAVED, publication.status());
       assertEquals(AstLookupStatus.FOUND, lookup.status());
-      assertEquals("java-source/23", retrieved.identity().sourceModelVersion());
+      assertEquals("java-source/24", retrieved.identity().sourceModelVersion());
       assertEquals(current.coverage(), retrieved.coverage());
       assertEquals(current.aggregate(), retrieved.aggregate());
       assertArrayEquals(AstCodec.encode(current), AstCodec.encode(retrieved));

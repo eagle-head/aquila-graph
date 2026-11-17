@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.JavacTask;
@@ -218,7 +217,7 @@ class JavaVariableDeclarationAstTest {
     var result = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture())).analyze(new JavaSourceLoader().discover(temporaryDirectory), JAVA_25, JavaTranslationPolicy.legacyAnalysis());
     var compiler = ToolProvider.getSystemJavaCompiler();
 
-    // Act and assert
+    // Act
     try (var manager = compiler.getStandardFileManager(null, null, null)) {
       var files = manager.getJavaFileObjectsFromPaths(List.of(path));
       var task = (JavacTask) compiler.getTask(null, manager, null, List.of("-proc:none", "--release", "25"), null, files);
@@ -229,6 +228,7 @@ class JavaVariableDeclarationAstTest {
       task.analyze();
       var trees = Trees.instance(task);
       var identities = new DeclarationIdentityRegistry(trees, task.getTypes(), task.getElements(), JavaTranslationPolicy.legacyAnalysis());
+      // Assert
       for (var name : List.of("Pair", "State")) {
         TypeElement element = task.getElements().getTypeElement(name);
         var modeled = type(result.program().types(), name);
@@ -266,7 +266,7 @@ class JavaVariableDeclarationAstTest {
               .findFirst().orElseThrow();
           assertEquals(identities.keyOf(canonical.getParameters().get(component.ordinal())), component.canonicalParameterKey());
           var componentTree = trees.getTree(compilerComponent);
-          var written = ((ClassTree) trees.getTree(element)).getMembers().stream().filter(VariableTree.class::isInstance)
+          var written = trees.getTree(element).getMembers().stream().filter(VariableTree.class::isInstance)
               .map(VariableTree.class::cast).filter(candidate -> inventory.isWritten(candidate)
                   && candidate.getName().contentEquals(compilerComponent.getSimpleName())
                   && trees.getSourcePositions().getStartPosition(units.getFirst(), candidate)

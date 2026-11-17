@@ -2,6 +2,8 @@ package org.aquilagraph.frontend.internal;
 
 import java.io.IOException;
 import java.util.Objects;
+import javax.tools.ToolProvider;
+import org.aquilagraph.frontend.AnalysisObserver;
 import org.aquilagraph.source.api.AnalysisEnvironmentException;
 import org.aquilagraph.source.api.AnalysisInputException;
 import org.aquilagraph.identity.api.CompilerConfiguration;
@@ -16,6 +18,7 @@ import org.aquilagraph.source.api.SourceInput;
 public final class JavaFrontend implements AstProducer {
   private final JavaSourceLoader sourceLoader;
   private final JavaAnalysisPipeline analysisPipeline;
+  private final AnalysisObserver observer;
 
   /**
    * Creates a frontend with an explicit source loader.
@@ -24,13 +27,28 @@ public final class JavaFrontend implements AstProducer {
    *          deterministic source snapshot loader
    */
   public JavaFrontend(JavaSourceLoader sourceLoader) {
+    this(sourceLoader, AnalysisObserver.none());
+  }
+
+  /**
+   * Creates a frontend with host-owned observations.
+   *
+   * @param sourceLoader
+   *          deterministic snapshot loader
+   * @param observer
+   *          observation backend
+   */
+  public JavaFrontend(JavaSourceLoader sourceLoader, AnalysisObserver observer) {
     this.sourceLoader = Objects.requireNonNull(sourceLoader, "sourceLoader");
-    analysisPipeline = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture()));
+    this.observer = Objects.requireNonNull(observer, "observer");
+    analysisPipeline = new JavaAnalysisPipeline(new AnalysisEnvironmentCapture(new CompilerDependencyCapture()),
+        ToolProvider::getSystemJavaCompiler, observer);
   }
 
   JavaFrontend(JavaSourceLoader sourceLoader, JavaAnalysisPipeline analysisPipeline) {
     this.sourceLoader = Objects.requireNonNull(sourceLoader, "sourceLoader");
     this.analysisPipeline = Objects.requireNonNull(analysisPipeline, "analysisPipeline");
+    observer = AnalysisObserver.none();
   }
 
   /**
@@ -54,7 +72,8 @@ public final class JavaFrontend implements AstProducer {
       throw new AnalysisInputException("Java source input could not be captured: " + exception.getMessage(), exception);
     }
     try {
-      return analysisPipeline.produce(snapshot, request.configuration(), policy);
+      return JavaAnalysisStage.measure(observer, "production", snapshot, request.profile(),
+          () -> analysisPipeline.produce(snapshot, request.configuration(), policy));
     } catch (IOException exception) {
       throw new AnalysisEnvironmentException("Java analysis environment could not be captured consistently: " + exception.getMessage(),
           exception);
@@ -75,7 +94,8 @@ public final class JavaFrontend implements AstProducer {
    *           if compiler dependencies cannot be captured consistently
    */
   public AstOutcome produce(InputSnapshot snapshot, CompilerConfiguration configuration, AstProfile profile) throws IOException {
-    return analysisPipeline.produce(snapshot, configuration, JavaTranslationPolicy.forProfile(profile));
+    return JavaAnalysisStage.measure(observer, "production", snapshot, profile,
+        () -> analysisPipeline.produce(snapshot, configuration, JavaTranslationPolicy.forProfile(profile)));
   }
 
 }

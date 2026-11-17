@@ -59,8 +59,8 @@ public final class ConsumerPreparation {
     var sources = staging.resolve("sources");
     var resources = staging.resolve("resources");
     var output = root.resolve("target/prepared-consumers");
-    var arguments = new ArrayList<>(List.of("-J-Xms128m", "-J-Xmx1024m", "--release", "25", "-encoding", "UTF-8", "-g", "--module-path",
-        resources.resolve("lib") + File.pathSeparator + annotations, "-proc:none", "-d", output.toString(),
+    var arguments = new ArrayList<>(List.of("-J-Xms128m", "-J-Xmx1024m", "--release", "25", "-encoding", "UTF-8", "-g", "-Xlint:all",
+        "-Werror", "--module-path", resources.resolve("lib") + File.pathSeparator + annotations, "-proc:none", "-d", output.toString(),
         sources.resolve(MODULE_DESCRIPTOR).toString()));
     for (var name : List.of("PublicAstObservation.java", "RetainedAstQueryProcess.java")) {
       arguments.add(sources.resolve(name).toString());
@@ -72,7 +72,7 @@ public final class ConsumerPreparation {
     var root = request.root();
     var distribution = root.resolve("target/aquila-graph/lib");
     var modules = ModuleFinder.of(distribution).findAll().stream().map(reference -> reference.descriptor().name()).toList();
-    for (var name : List.of("identity", "source", "cfg", "frontend", "application", "repository", "cli")) {
+    for (var name : List.of("identity", "source", "cfg", "frontend", "application", "repository", "library", "cli")) {
       if (!modules.contains("org.aquilagraph." + name)) {
         throw new IOException("Consumer preparation requires the complete packaged distribution; missing module: " + name);
       }

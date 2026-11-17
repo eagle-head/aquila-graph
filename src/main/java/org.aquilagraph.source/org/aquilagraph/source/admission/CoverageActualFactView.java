@@ -5,6 +5,9 @@ import org.aquilagraph.source.internal.CoverageActualFactUniverse;
 import org.aquilagraph.source.api.CoverageFactReference;
 import org.aquilagraph.source.api.CoverageSyntaxFactValue;
 import org.aquilagraph.source.api.SyntaxRole;
+import org.aquilagraph.source.api.SourceContext;
+import org.aquilagraph.source.api.SourceOwnerPath;
+import org.aquilagraph.source.api.SyntaxStructuralPath;
 import java.util.List;
 import java.util.Iterator;
 import java.util.Optional;
@@ -19,6 +22,79 @@ public sealed interface CoverageActualFactView extends Iterable<CoverageFactRefe
    * @return immutable actual reference list
    */
   List<CoverageFactReference> references();
+
+  /**
+   * Selects all facts in one captured source, preserving retained order.
+   *
+   * @param sourceFileKey
+   *          exact captured source
+   * @return immutable selected references
+   */
+  List<CoverageFactReference> inSource(String sourceFileKey);
+
+  /**
+   * Selects references with one identity in one source; values are not implicitly trusted.
+   *
+   * @param sourceFileKey
+   *          exact captured source
+   * @param identity
+   *          declaration or syntax identity
+   * @return immutable selected references in retained order
+   */
+  List<CoverageFactReference> withIdentity(String sourceFileKey, String identity);
+
+  /**
+   * Selects multiple identities in retained order, independently of requested identity order or repetition.
+   *
+   * @param sourceFileKey
+   *          exact captured source
+   * @param identities
+   *          requested identities
+   * @return immutable selected references in retained order
+   */
+  List<CoverageFactReference> withIdentities(String sourceFileKey, List<String> identities);
+
+  /**
+   * Selects an identity and its declaration-order and declaration-type evidence.
+   *
+   * @param sourceFileKey
+   *          exact captured source
+   * @param identity
+   *          canonical declaration identity
+   * @return immutable selected references in retained order
+   */
+  List<CoverageFactReference> forDeclaration(String sourceFileKey, String identity);
+
+  /**
+   * Selects syntax with an exact written owner, without normalized aliases or declaration expansion.
+   *
+   * @param sourceFileKey
+   *          exact captured source
+   * @param owner
+   *          exact written owner path
+   * @return immutable selected references in retained order
+   */
+  List<CoverageFactReference> atOwner(String sourceFileKey, SourceOwnerPath owner);
+
+  /**
+   * Selects syntax at an exact structural position without concealing ambiguous occurrences.
+   *
+   * @param sourceFileKey
+   *          exact captured source
+   * @param path
+   *          exact retained structural path
+   * @return immutable selected references in retained order
+   */
+  List<CoverageFactReference> atPath(String sourceFileKey, SyntaxStructuralPath path);
+
+  /**
+   * Selects exact-owner syntax, applicable normalized correspondences and their canonical declaration facts.
+   *
+   * @param context
+   *          independent captured source obligation
+   * @return immutable selected references in retained order
+   */
+  List<CoverageFactReference> ownedBy(SourceContext context);
 
   /**
    * Reads one actual retained reference by ordinal.
@@ -47,9 +123,7 @@ public sealed interface CoverageActualFactView extends Iterable<CoverageFactRefe
    *          reference to locate
    * @return actual ordinal, or minus one when absent
    */
-  default int indexOf(CoverageFactReference reference) {
-    return references().indexOf(reference);
-  }
+  int indexOf(CoverageFactReference reference);
 
   /**
    * Finds the first actual reference equal to the entire supplied reference.

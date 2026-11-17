@@ -5,6 +5,7 @@ import org.aquilagraph.cfg.api.TransferKind;
 import org.aquilagraph.cfg.api.OperationKind;
 import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.InvocationSemantics;
+import org.aquilagraph.source.api.InvocationSelection;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeReference;
 import org.aquilagraph.source.api.InvocationMode;
@@ -292,7 +293,8 @@ class DraftGraphTest {
     // Arrange
     var qualifyingType = new JavaTypeReference(new JavaTypeIdentity(JavaTypeCategory.DECLARED, "Example", "Example"),
         Optional.of("type:Example"));
-    var semantics = new InvocationSemantics(InvocationMode.VIRTUAL, qualifyingType, InvocationForm.INSTANCE_IMPLICIT);
+    var semantics = new InvocationSemantics(InvocationMode.VIRTUAL, qualifyingType, InvocationForm.INSTANCE_IMPLICIT,
+        InvocationSelection.NAMED_EXECUTABLE);
 
     // Act
     var exception = assertThrows(IllegalArgumentException.class,

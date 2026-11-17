@@ -98,39 +98,34 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
       throw new IllegalArgumentException("Actual frontend diagnostic slots must exactly match ordered creating-site events");
     }
     var facts = CoverageActualFacts.capture(program, aggregate);
+    var contexts = new CoverageContextIndex(evidence.writtenInventory(), evidence.attributedExpectations(), aggregate);
     ModuleServiceFacts.validateKnownOperands(evidence, facts);
     aggregate.ifPresent(value -> CoverageActualFacts.validateDeclarationMemberOrders(program, value));
     for (var fact : facts.references()) {
-      var selectedTypeUse = facts.isSource(fact,
-          syntax -> syntax.syntaxKind() == SyntaxKind.TYPE_USE && syntax.sourceAssociation()
-              .filter(association -> evidence.writtenInventory().contexts().stream()
-                  .anyMatch(context -> context.address().partition() == SourceContext.Partition.WRITTEN_TYPE_USE
-                      && context.address().sourceFileKey().equals(fact.sourceFileKey())
-                      && context.address().ownerPath().equals(association.ownerPath())))
-              .isPresent());
+      var selectedTypeUse = facts.isSource(fact, syntax -> syntax.syntaxKind() == SyntaxKind.TYPE_USE && syntax.sourceAssociation().filter(
+          association -> !contexts.at(SourceContext.Partition.WRITTEN_TYPE_USE, fact.sourceFileKey(), association.ownerPath()).isEmpty())
+          .isPresent());
       if (selectedTypeUse && !CoverageWrittenTypeUseTopology.matchesParent(fact, facts)) {
         throw new IllegalArgumentException("Recursive written type support requires its exact actual parent role and ordinal");
       }
     }
     var accounted = new HashSet<CoverageFactReference>();
     for (var outcome : evidence.outcomes()) {
-      var context = evidence.writtenInventory().contexts().stream().filter(value -> value.address().equals(outcome.address())).findFirst()
-          .orElseThrow();
-      var owned = actualOwner(context, evidence, facts);
+      var context = contexts.context(outcome.address()).orElseThrow();
+      var owned = actualOwner(context, facts, contexts);
       for (var reference : outcome.support().facts()) {
         accounted.add(facts.reference(reference).orElseThrow(
             () -> new IllegalArgumentException("Claimed positive coverage support must match an exact actual owned fact value")));
       }
       if (outcome.support().mode() == FeatureContextOutcome.Mode.FACTS) {
         if (context.address().partition() == SourceContext.Partition.WRITTEN_EXPRESSION) {
-          var region = evidence.writtenInventory().writtenExpressions().stream().flatMap(List::stream)
-              .filter(value -> value.compilerOwner().equals(context.address().ownerPath())
-                  && value.origin().sourceFileKey().equals(context.address().sourceFileKey())
-                  && List.of(value.origin()).equals(context.origins()))
-              .findFirst().orElseThrow();
-          var roots = aggregate.stream().flatMap(value -> value.nodes().stream())
+          var region = contexts.region(context);
+          if (!List.of(region.origin()).equals(context.origins())) {
+            throw new IllegalArgumentException("Written expression context must retain the exact independent region origin");
+          }
+          var roots = contexts.normalizedRoots(context).stream()
               .filter(node -> aggregate.orElseThrow().writtenSourceAssociation(node.nodeId()).flatMap(value -> value.normalizedExpression())
-                  .filter(value -> value.occurrencePath().isEmpty() && value.region().equals(region)).isPresent())
+                  .filter(value -> value.region().equals(region)).isPresent())
               .toList();
           if (roots.size() != 1 || !region.matches(roots.getFirst()) || !outcome.support().facts().equals(owned)) {
             throw new IllegalArgumentException(
@@ -148,11 +143,11 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
           }
         }
         if (context.address().partition() == SourceContext.Partition.WRITTEN_TYPE_USE
-            && !writtenTypeUseSupport(context, outcome.support().facts(), evidence, facts)) {
+            && !writtenTypeUseSupport(context, outcome.support().facts(), facts, contexts)) {
           throw new IllegalArgumentException("Recursive written type support requires its exact actual source occurrence");
         }
         if (context.address().partition() == SourceContext.Partition.TREE
-            && !treeSupport(context, outcome.support().facts(), evidence, facts)) {
+            && !treeSupport(context, outcome.support().facts(), facts, contexts)) {
           throw new IllegalArgumentException("Tree support must match the exact retained kind and captured owner topology: "
               + context.address() + " claimed " + outcome.support().facts().stream().map(CoverageFactReference::identity).toList());
         }
@@ -164,7 +159,7 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
           if (!owned.contains(reference)
               && outcome.encounteredValue()
                   .filter(value -> value.items().stream().anyMatch(item -> item.identity().equals(reference.identity()))).isEmpty()
-              && !projectedTreeOwner(context, reference, evidence, facts) && !enclosedParameter(context, reference, outcome)) {
+              && !projectedTreeOwner(context, reference, facts, contexts) && !enclosedParameter(context, reference, outcome)) {
             throw new IllegalArgumentException("Positive coverage support cannot account for unrelated actual facts");
           }
         }
@@ -181,11 +176,10 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
     }
     var unmatchedOrdinals = new HashSet<Integer>();
     for (var unmatched : evidence.unmatchedFacts()) {
-      var context = evidence.writtenInventory().contexts().stream().filter(value -> value.address().equals(unmatched.owner())).findFirst()
-          .orElseThrow();
+      var context = contexts.context(unmatched.owner()).orElseThrow();
       if (unmatched.ordinal() >= facts.size() || !facts.get(unmatched.ordinal()).equals(unmatched.fact())
           || accounted.contains(unmatched.fact()) || !unmatchedOrdinals.add(unmatched.ordinal())
-          || !capturedOwnerContains(context, unmatched.fact(), evidence, facts, snapshot)) {
+          || !capturedOwnerContains(context, unmatched.fact(), evidence, facts, snapshot, contexts)) {
         throw new IllegalArgumentException("Diagnosed unmatched facts must form an exact bijection with actual extra fact slots");
       }
     }
@@ -199,14 +193,14 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
     }
   }
 
-  private static boolean treeSupport(SourceContext context, List<CoverageFactReference> claimed, CoverageValidationEvidence evidence,
-      CoverageActualFactView facts) {
+  private static boolean treeSupport(SourceContext context, List<CoverageFactReference> claimed, CoverageActualFactView facts,
+      CoverageContextIndex contexts) {
     var kind = context.feature().orElseThrow().identifier();
     if (claimed.stream()
         .anyMatch(fact -> facts.isSource(fact, syntax -> CoverageActualFacts.supportsNormalizedCompilerOccurrence(context, syntax)))) {
       return true;
     }
-    var candidates = facts.stream()
+    var candidates = facts.atOwner(context.address().sourceFileKey(), context.address().ownerPath()).stream()
         .filter(fact -> fact.sourceFileKey().equals(context.address().sourceFileKey()) && facts.isSource(fact,
             syntax -> syntax.sourceAssociation()
                 .filter(association -> association.ownerPath().equals(context.address().ownerPath())
@@ -219,38 +213,34 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
       return candidates.stream().anyMatch(claimed::contains);
     }
     if (COMPILATION_UNIT_KIND.equals(kind)) {
-      return actualOwner(context, evidence, facts).stream()
+      return actualOwner(context, facts, contexts).stream()
           .filter(fact -> facts.isSource(fact, syntax -> syntax.value() instanceof SyntaxValue.CompilationUnit))
           .anyMatch(claimed::contains);
     }
     if (List.of("CLASS", "INTERFACE", "ENUM", "RECORD", "ANNOTATION_TYPE").contains(kind)) {
-      return actualOwner(context, evidence, facts).stream()
+      return actualOwner(context, facts, contexts).stream()
           .filter(fact -> fact.value() instanceof CoverageFactValue.Type type
               && ("ANNOTATION".equals(type.value().kind().name()) ? "ANNOTATION_TYPE" : type.value().kind().name()).equals(kind))
           .anyMatch(claimed::contains);
     }
     if (METHOD_TREE_KIND.equals(kind)) {
-      return actualOwner(context, evidence, facts).stream().filter(fact -> fact.value() instanceof CoverageFactValue.Method)
+      return actualOwner(context, facts, contexts).stream().filter(fact -> fact.value() instanceof CoverageFactValue.Method)
           .anyMatch(claimed::contains);
     }
-    if (CoverageWrittenQualifierTopology.requiresExactOccurrence(context, evidence.writtenInventory())) {
+    if (CoverageWrittenQualifierTopology.requiresExactOccurrence(context, contexts)) {
       return false;
     }
     if (VARIABLE_TREE_KIND.equals(kind)) {
-      return actualOwner(context, evidence, facts).stream().filter(fact -> fact.value() instanceof CoverageFactValue.Field
+      return actualOwner(context, facts, contexts).stream().filter(fact -> fact.value() instanceof CoverageFactValue.Field
           || fact.value() instanceof CoverageFactValue.Parameter || fact.value() instanceof CoverageFactValue.RecordComponent)
           .anyMatch(claimed::contains);
     }
-    return claimed.stream().allMatch(fact -> projectedTreeOwner(context, fact, evidence, facts));
+    return claimed.stream().allMatch(fact -> projectedTreeOwner(context, fact, facts, contexts));
   }
 
-  private static boolean writtenTypeUseSupport(SourceContext context, List<CoverageFactReference> claimed,
-      CoverageValidationEvidence evidence, CoverageActualFactView facts) {
-    var tree = evidence.writtenInventory().contexts().stream()
-        .filter(candidate -> candidate.address().partition() == SourceContext.Partition.TREE
-            && candidate.address().sourceFileKey().equals(context.address().sourceFileKey())
-            && candidate.address().ownerPath().equals(context.address().ownerPath()))
-        .findFirst().orElseThrow();
+  private static boolean writtenTypeUseSupport(SourceContext context, List<CoverageFactReference> claimed, CoverageActualFactView facts,
+      CoverageContextIndex contexts) {
+    var tree = contexts.tree(context);
     var kind = tree.feature().orElseThrow().identifier();
     return claimed.size() == 1 && facts.isSource(claimed.getFirst(),
         syntax -> syntax.syntaxKind() == SyntaxKind.TYPE_USE && syntax.sourceKind().name().equals(kind)
@@ -269,47 +259,37 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
             .anyMatch(parameter -> reference.value().equals(new CoverageFactValue.Parameter(parameter)));
   }
 
-  private static List<CoverageFactReference> actualOwner(SourceContext context, CoverageValidationEvidence evidence,
-      CoverageActualFactView facts) {
-    var owned = new ArrayList<>(CoverageActualFacts.ownedBy(context, facts));
-    var ownerIdentity = evidence.attributedExpectations().projections().stream()
-        .filter(projection -> projection.address().sourceFileKey().equals(context.address().sourceFileKey())
-            && projection.address().ownerPath().equals(context.address().ownerPath()))
-        .flatMap(projection -> projection.ownerIdentity().stream()).findFirst();
+  private static List<CoverageFactReference> actualOwner(SourceContext context, CoverageActualFactView facts,
+      CoverageContextIndex contexts) {
+    var owned = new ArrayList<>(facts.ownedBy(context));
+    var ownerIdentity = contexts.declarationOwner(context);
     ownerIdentity.ifPresent(owner -> {
       owned.removeIf(fact -> (fact.kind() == CoverageFactReference.Kind.TYPE || fact.kind() == CoverageFactReference.Kind.METHOD)
           && !fact.identity().equals(owner));
-      facts.stream()
-          .filter(fact -> fact.sourceFileKey().equals(context.address().sourceFileKey())
-              && (fact.identity().equals(owner)
-                  || (fact.value() instanceof CoverageFactValue.MemberOrder order && order.value().ownerTypeKey().equals(owner))
-                  || (fact.value() instanceof CoverageFactValue.DeclarationType type && type.value().ownerTypeKey().equals(owner)))
-              && !owned.contains(fact))
-          .forEach(owned::add);
+      facts.forDeclaration(context.address().sourceFileKey(), owner).stream().filter(fact -> !owned.contains(fact)).forEach(owned::add);
       if (owned.stream().anyMatch(fact -> fact.value() instanceof CoverageFactValue.Type type && !type.value().sourceDeclared())) {
-        facts.stream().filter(fact -> fact.sourceFileKey().equals(context.address().sourceFileKey()) && facts.isSource(fact,
+        facts.inSource(context.address().sourceFileKey()).stream().filter(fact -> facts.isSource(fact,
             syntax -> syntax.value() instanceof SyntaxValue.CompilationUnit unit && unit.form() == SyntaxValue.CompilationUnitForm.COMPACT)
             && !owned.contains(fact)).forEach(owned::add);
       }
     });
     if (UNIT_TYPES_PROPERTY.equals(context.address().role())) {
-      facts.stream()
-          .filter(fact -> fact.sourceFileKey().equals(context.address().sourceFileKey())
-              && fact.value() instanceof CoverageFactValue.Type type && !type.value().sourceDeclared() && !owned.contains(fact))
+      facts.inSource(context.address().sourceFileKey()).stream()
+          .filter(fact -> fact.value() instanceof CoverageFactValue.Type type && !type.value().sourceDeclared() && !owned.contains(fact))
           .forEach(owned::add);
     }
     return List.copyOf(owned);
   }
 
-  private static boolean projectedTreeOwner(SourceContext context, CoverageFactReference fact, CoverageValidationEvidence evidence,
-      CoverageActualFactView facts) {
-    if (CoverageWrittenQualifierTopology.requiresExactOccurrence(context, evidence.writtenInventory())) {
+  private static boolean projectedTreeOwner(SourceContext context, CoverageFactReference fact, CoverageActualFactView facts,
+      CoverageContextIndex contexts) {
+    if (CoverageWrittenQualifierTopology.requiresExactOccurrence(context, contexts)) {
       return false;
     }
     if (context.address().partition() == SourceContext.Partition.TREE && context.feature()
         .filter(feature -> List.of("CONSTANT_CASE_LABEL", DEFAULT_CASE_LABEL_KIND, "PATTERN_CASE_LABEL").contains(feature.identifier()))
         .isPresent()) {
-      return switchLabelSupport(context, fact, evidence, facts);
+      return switchLabelSupport(context, fact, facts, contexts);
     }
     if (context.address().partition() != SourceContext.Partition.TREE || context.feature()
         .filter(
@@ -317,38 +297,29 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
         .isEmpty()) {
       return false;
     }
-    var ancestors = facts.stream()
-        .filter(actual -> actual.sourceFileKey().equals(context.address().sourceFileKey()) && facts.isSource(actual,
-            syntax -> syntax.sourceAssociation().filter(association -> association.ownerPath().isAncestorOf(context.address().ownerPath()))
-                .isPresent()))
-        .sorted((first, second) -> Integer.compare(facts.requiredSyntax(second).sourceAssociation().orElseThrow().ownerPath().size(),
-            facts.requiredSyntax(first).sourceAssociation().orElseThrow().ownerPath().size()))
-        .toList();
-    if (ancestors.isEmpty()) {
-      return false;
+    var path = Optional.of(context.address().ownerPath());
+    while (path.isPresent()) {
+      var atOwner = facts.atOwner(context.address().sourceFileKey(), path.orElseThrow());
+      if (!atOwner.isEmpty()) {
+        return contexts.at(SourceContext.Partition.TREE, context.address().sourceFileKey(), path.orElseThrow()).stream().findFirst()
+            .filter(candidate -> actualOwner(candidate, facts, contexts).contains(fact)).isPresent();
+      }
+      path = path.orElseThrow().parent();
     }
-    var path = facts.requiredSyntax(ancestors.getFirst()).sourceAssociation().orElseThrow().ownerPath();
-    return evidence.writtenInventory().contexts().stream()
-        .filter(candidate -> candidate.address().partition() == SourceContext.Partition.TREE
-            && candidate.address().sourceFileKey().equals(context.address().sourceFileKey())
-            && candidate.address().ownerPath().equals(path))
-        .findFirst().filter(candidate -> actualOwner(candidate, evidence, facts).contains(fact)).isPresent();
+    return false;
   }
 
-  private static boolean switchLabelSupport(SourceContext context, CoverageFactReference fact, CoverageValidationEvidence evidence,
-      CoverageActualFactView facts) {
+  private static boolean switchLabelSupport(SourceContext context, CoverageFactReference fact, CoverageActualFactView facts,
+      CoverageContextIndex contexts) {
     if (!facts.isSource(fact, syntax -> syntax.value() instanceof SyntaxValue.SwitchCase)) {
       return false;
     }
     var syntax = facts.requiredSyntax(fact);
     var value = (SyntaxValue.SwitchCase) syntax.value();
-    var owner = evidence.writtenInventory().contexts().stream()
-        .filter(candidate -> candidate.address().partition() == SourceContext.Partition.TREE
-            && candidate.address().sourceFileKey().equals(context.address().sourceFileKey())
-            && candidate.feature().filter(feature -> "CASE".equals(feature.identifier())).isPresent()
-            && context.address().ownerPath().parent().filter(candidate.address().ownerPath()::equals).isPresent())
-        .findFirst();
-    if (owner.isEmpty() || !actualOwner(owner.orElseThrow(), evidence, facts).contains(fact)) {
+    var owner = context.address().ownerPath().parent().stream()
+        .flatMap(path -> contexts.at(SourceContext.Partition.TREE, context.address().sourceFileKey(), path).stream())
+        .filter(candidate -> candidate.feature().filter(feature -> "CASE".equals(feature.identifier())).isPresent()).findFirst();
+    if (owner.isEmpty() || !actualOwner(owner.orElseThrow(), facts, contexts).contains(fact)) {
       return false;
     }
     var step = context.address().ownerPath().lastStep().orElseThrow();
@@ -374,7 +345,7 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
   }
 
   private static boolean capturedOwnerContains(SourceContext owner, CoverageFactReference fact, CoverageValidationEvidence evidence,
-      CoverageActualFactView facts, InputSnapshot snapshot) {
+      CoverageActualFactView facts, InputSnapshot snapshot, CoverageContextIndex contexts) {
     if (owner.address().partition() != SourceContext.Partition.TREE || !owner.address().sourceFileKey().equals(fact.sourceFileKey())) {
       return false;
     }
@@ -384,14 +355,11 @@ public record SyntaxAnalysisInput(InputSnapshot snapshot, AnalysisEnvironmentSna
     }
     if (facts.isSource(fact, syntax -> syntax.sourceAssociation().isPresent())) {
       var path = facts.requiredSyntax(fact).sourceAssociation().orElseThrow().ownerPath();
-      var canonicalOwner = evidence.writtenInventory().contexts().stream()
-          .filter(context -> context.address().partition() == SourceContext.Partition.TREE
-              && context.address().sourceFileKey().equals(fact.sourceFileKey()) && context.address().ownerPath().equals(path))
-          .findFirst();
+      var canonicalOwner = contexts.at(SourceContext.Partition.TREE, fact.sourceFileKey(), path).stream().findFirst();
       return canonicalOwner.filter(context -> context.address().equals(owner.address())).isPresent();
     }
     var canonicalOwners = evidence.writtenInventory().contexts().stream().filter(
-        context -> context.address().partition() == SourceContext.Partition.TREE && actualOwner(context, evidence, facts).contains(fact))
+        context -> context.address().partition() == SourceContext.Partition.TREE && actualOwner(context, facts, contexts).contains(fact))
         .toList();
     if (!canonicalOwners.isEmpty()) {
       return canonicalOwners.getFirst().address().equals(owner.address());

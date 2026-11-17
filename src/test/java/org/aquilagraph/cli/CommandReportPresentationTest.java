@@ -74,7 +74,7 @@ class CommandReportPresentationTest {
     assertEquals(CommandExitPolicy.EXIT_REJECTED, exitCode);
     assertEquals(List.of("Run: \"" + run.identity().key() + "\"", "Software version: unavailable", "Completion: REJECTED",
         "Java release: 25", "Java source files: 0", "AST: UNAVAILABLE", "AST profile: \"java-source-bounded/1\"",
-        "CFG: UNAVAILABLE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"",
+        "CFG: UNAVAILABLE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/3\"",
         "CFG selection: ALL_BODIES", "CFG binding: UNBOUND", "Repository: NOT_REQUESTED", "Publication intent: DO_NOT_SAVE", "Publication subject: unavailable", "Commit knowledge: NOT_STARTED"), streams.outputLines());
     assertEquals(1, streams.errorLines().stream().filter(line -> line.equals("Diagnostic: \"" + CliTestFixtures.errorDiagnostic().diagnosticKey() + "\"")).count());
     assertEquals(true, streams.errorLines().contains("Qualification: APPLICATION APPLICATION_DIAGNOSTIC"));
@@ -250,7 +250,7 @@ class CommandReportPresentationTest {
     assertEquals(CommandExitPolicy.EXIT_COMPLETED, code);
     var expectedOutput = new ArrayList<>(List.of("Run: \"" + run.identity().key() + "\"", "Software version: \"" + source.identity().softwareSignature() + "\"",
         "Completion: COMPLETE", "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: \"java-source-bounded/1\"",
-        "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"", "CFG selection: METHODS",
+        "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/3\"", "CFG selection: METHODS",
         "CFG binding: \"" + source.identity().astResultKey() + "\"", "Selected method: \"" + last + "\"", "Selected method: \"" + first + "\"",
         "Java types: 1", "Java methods: 3", "Analyzed method bodies: 2", "CFG operations: 0", "CFG nodes: 4", "CFG edges: 2",
         "Method CFG: \"" + first + "\" AVAILABLE", "Method CFG: \"" + middle + "\" NOT_REQUESTED",
@@ -284,7 +284,7 @@ class CommandReportPresentationTest {
     var key = ast.program().methods().getFirst().methodKey();
     var result = new ArrayList<>(List.of("Run: \"" + run.identity().key() + "\"", "Software version: \"" + SoftwareVersion.from(ast.snapshot(), ast.environment()).signature() + "\"",
         "Completion: " + completion, "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: \"java-source-bounded/1\"",
-        "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"", "CFG selection: ALL_BODIES",
+        "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/3\"", "CFG selection: ALL_BODIES",
         "CFG binding: \"" + ast.identity().astResultKey() + "\"", "Selected method: \"" + key + "\"", "Java types: 1", "Java methods: 1",
         "Analyzed method bodies: 1", "CFG operations: 0", "CFG nodes: 2", "CFG edges: 1", "Method CFG: \"" + key + "\" AVAILABLE",
         "Repository: " + repository));

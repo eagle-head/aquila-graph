@@ -145,8 +145,8 @@ class CoverageNavigationContractTest {
     var changed = extendFirstPackageAnnotation(original.aggregate(), selected.address().sourceFileKey());
     var originalFacts = CoverageActualFacts.capture(original.program(), input.aggregate());
     var changedFacts = CoverageActualFacts.capture(original.program(), Optional.of(changed));
-    var originalOwners = CoverageActualFacts.ownedBy(context, originalFacts);
-    var changedOwners = CoverageActualFacts.ownedBy(context, changedFacts);
+    var originalOwners = originalFacts.ownedBy(context);
+    var changedOwners = changedFacts.ownedBy(context);
 
     // Act
     var originalMatch = CoverageActualFacts.supportsProperty(context, expected, originalOwners, originalFacts);

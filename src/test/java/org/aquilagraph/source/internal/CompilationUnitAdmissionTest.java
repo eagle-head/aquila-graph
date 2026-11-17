@@ -28,8 +28,6 @@ import org.aquilagraph.identity.api.InputSnapshot;
 import org.aquilagraph.identity.api.JavaRelease;
 import org.aquilagraph.identity.api.SourceFile;
 import org.aquilagraph.identity.api.SourceSpan;
-import org.aquilagraph.identity.api.CanonicalValueWriter;
-import org.aquilagraph.identity.api.CanonicalValueReader;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstContractException;
 import org.aquilagraph.source.api.AstProfile;
@@ -147,8 +145,8 @@ class CompilationUnitAdmissionTest {
     var profileError = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(input, AstProfile.JAVA_SOURCE_DECLARATIONS, "javac-public/6"));
     // Assert
     assertTrue(profileError.getMessage().contains("profile"), profileError.toString());
-    assertEquals("javac-public/14", ast.identity().semanticProductionRevision());
-    assertEquals("java-source/23", ast.identity().sourceModelVersion());
+    assertEquals("javac-public/15", ast.identity().semanticProductionRevision());
+    assertEquals("java-source/24", ast.identity().sourceModelVersion());
     assertEquals("java-source-expanded/6", ast.profile().version());
   }
 
