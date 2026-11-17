@@ -116,8 +116,8 @@ class EnclosingConstructorCompositionTest {
           assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
           assertTrue(outcome.diagnostics().isEmpty(), outcome.diagnostics().toString());
           var original = outcome.result().orElseThrow();
-          assertEquals("java-source/23", original.identity().sourceModelVersion());
-          assertEquals("javac-public/14", original.identity().semanticProductionRevision());
+          assertEquals("java-source/24", original.identity().sourceModelVersion());
+          assertEquals("javac-public/15", original.identity().semanticProductionRevision());
           var encoded = AstCodec.encode(original);
           var decoded = AstCodec.decode(encoded, original.identity());
           for (var ast : List.of(original, decoded)) {

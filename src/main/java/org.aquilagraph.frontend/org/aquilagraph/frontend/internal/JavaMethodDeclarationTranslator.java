@@ -109,7 +109,9 @@ final class JavaMethodDeclarationTranslator {
         type = parameterType(parameterElement);
         name = parameterElement.getSimpleName().toString();
       } else if (parameterTree != null) {
-        type = parameterType(semantics.type(parameterPath(methodPath, parameterTree)));
+        type = parameterElement == null
+            ? parameterType(semantics.type(parameterPath(methodPath, parameterTree)))
+            : semantics.typeIdentity(parameterElement.asType());
         name = parameterElement == null ? parameterTree.getName().toString() : parameterElement.getSimpleName().toString();
       } else {
         continue;
@@ -149,8 +151,9 @@ final class JavaMethodDeclarationTranslator {
   }
 
   private static JavaTypeIdentity parameterType(SyntaxType type) {
-    if (type instanceof SyntaxType.Resolved resolved) {
-      return resolved.identity();
+    var known = type.knownIdentity();
+    if (known.isPresent()) {
+      return known.orElseThrow();
     }
     return type == SyntaxType.Erroneous.INSTANCE
         ? new JavaTypeIdentity(JavaTypeCategory.ERROR, "error", "error")

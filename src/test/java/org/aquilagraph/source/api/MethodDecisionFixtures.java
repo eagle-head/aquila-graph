@@ -132,13 +132,15 @@ final class MethodDecisionFixtures {
       children.add(new SyntaxChild(SyntaxRole.ARGUMENT, index, literal(path.child(SyntaxRole.ARGUMENT, index), arguments.get(index))));
     }
     var semantics = new InvocationSemantics(form == InvocationForm.STATIC_UNQUALIFIED || form == InvocationForm.STATIC_TYPE
-        || form == InvocationForm.STATIC_EXPRESSION ? InvocationMode.STATIC : InvocationMode.VIRTUAL, owner, form);
+        || form == InvocationForm.STATIC_EXPRESSION ? InvocationMode.STATIC : InvocationMode.VIRTUAL, owner, form,
+        InvocationSelection.NAMED_EXECUTABLE);
     return node(path, JavaSourceKind.METHOD_INVOCATION, SyntaxKind.INVOCATION, new SyntaxType.Resolved(INT),
         new SyntaxValue.Invocation("call", form, Optional.of(semantics)), children, Optional.of(reference(ReferenceKind.METHOD, MEMBER)));
   }
 
   static SyntaxNode creation(SyntaxStructuralPath path, JavaTypeReference owner, JavaTypeIdentity result) {
-    var semantics = new InvocationSemantics(InvocationMode.CONSTRUCTOR, owner, InvocationForm.OBJECT_CREATION);
+    var semantics = new InvocationSemantics(InvocationMode.CONSTRUCTOR, owner, InvocationForm.OBJECT_CREATION,
+        InvocationSelection.NAMED_EXECUTABLE);
     return node(path, JavaSourceKind.NEW_CLASS, SyntaxKind.OBJECT_CREATION, new SyntaxType.Resolved(result),
         new SyntaxValue.Invocation("Owner", InvocationForm.OBJECT_CREATION, Optional.of(semantics)), List.of(),
         Optional.of(reference(ReferenceKind.CONSTRUCTOR, MEMBER)));

@@ -48,7 +48,7 @@ class SelectedGraphSummaryTest {
         + "AST profile: \"java-source-bounded/1\"" + System.lineSeparator()
         + "CFG: COMPLETE" + System.lineSeparator()
         + "CFG profile: \"java-cfg-bounded/1\"" + System.lineSeparator()
-        + "CFG graph model: \"java-cfg/2\"" + System.lineSeparator()
+        + "CFG graph model: \"java-cfg/3\"" + System.lineSeparator()
         + "CFG selection: ALL_BODIES" + System.lineSeparator()
         + "CFG binding: \"" + input.identity().astResultKey() + "\"" + System.lineSeparator()
         + input.program().methods().stream().filter(method -> method.hasBody()).map(method -> "Selected method: \"" + method.methodKey() + "\"" + System.lineSeparator()).collect(Collectors.joining())

@@ -38,6 +38,7 @@ import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
 import org.aquilagraph.identity.api.CompilerConfiguration;
+import org.aquilagraph.identity.api.CanonicalValueWriter;
 import org.aquilagraph.identity.api.GraphEdgeKey;
 import org.aquilagraph.identity.api.GraphNodeKey;
 import org.aquilagraph.identity.api.GraphValueKey;
@@ -60,6 +61,11 @@ import org.aquilagraph.source.api.ResolutionStatus;
 import org.aquilagraph.source.api.SemanticReference;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxKind;
+import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.InvocationSemantics;
+import org.aquilagraph.source.api.InvocationSelection;
+import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.DiagnosticSeverity;
@@ -69,6 +75,142 @@ import org.junit.jupiter.api.io.TempDir;
 
 class GraphAdmissionTest {
   @TempDir Path directory;
+
+  @Test
+  void givenIntrinsicOperation_whenGraphIsQualified_thenCanonicalDigestBindsTheIndependentSelectionAndArrayFields() throws IOException {
+    // Arrange
+    var fixture = fixture("class Stored { int[] value(int[] input) { return input.clone(); } }", false);
+    var source = fixture.ast().body(fixture.plan().body().methodKey()).orElseThrow().root().descendantsAndSelf().stream()
+        .filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION).findFirst().orElseThrow();
+    var array = new JavaTypeIdentity(JavaTypeCategory.ARRAY, "int[]", "int[]");
+    var receiver = new DraftValue("receiver", "graph", ValueKind.TEMPORARY, Optional.empty(), Optional.empty(), Optional.of(array));
+    var result = new DraftValue("result", "graph", ValueKind.TEMPORARY, Optional.empty(), Optional.empty(), Optional.of(array));
+    var selection = source.value(SyntaxValue.Invocation.class).semantics().orElseThrow();
+    var operation = new DraftOperation("call", "graph", OperationKind.INVOKE, "clone", List.of(new DraftOperand(0, receiver)),
+        Optional.of(result), Optional.of(selection), List.of(), List.of(), List.of());
+    var draft = new DraftGraph("graph", fixture.plan().body().methodKey(), new DraftEntry("entry", "graph"), List.of(operation),
+        List.of(receiver, result), new DraftExit("exit", "graph"), List.of());
+    var expected = new CanonicalValueWriter("canonical-java-cfg/5");
+    expected.text("java-cfg-bounded/1");
+    expected.text("java-cfg/3");
+    expected.text(fixture.ast().identity().astResultKey());
+    expected.text(fixture.plan().body().methodKey());
+    expected.flag(true);
+    expected.text(fixture.plan().body().sourceOccurrenceKey().orElseThrow());
+    expected.flag(false);
+    expected.count(2);
+    for (var value : List.of("receiver", "result")) {
+      expected.text(value);
+      expected.text("TEMPORARY");
+      expected.flag(false);
+      expected.flag(false);
+      expected.flag(true);
+      expected.text("ARRAY");
+      expected.text("int[]");
+      expected.text("int[]");
+    }
+    expected.text("entry");
+    expected.text("entry");
+    expected.count(1);
+    expected.text("call");
+    expected.text("INVOKE");
+    expected.text("clone");
+    expected.count(1);
+    expected.integer(0);
+    expected.integer(0);
+    expected.flag(true);
+    expected.integer(1);
+    expected.flag(true);
+    expected.text("VIRTUAL");
+    expected.text("ARRAY");
+    expected.text("int[]");
+    expected.text("int[]");
+    expected.flag(false);
+    expected.text("INSTANCE_EXPRESSION");
+    expected.text("ARRAY_CLONE");
+    expected.count(0);
+    expected.count(0);
+    expected.count(0);
+    expected.flag(true);
+    expected.text(fixture.ast().occurrence(source).orElseThrow().nodeKey());
+    expected.text("operation/INVOKE");
+    expected.text("exit");
+    expected.text("exit");
+    expected.count(0);
+    expected.count(0);
+
+    // Act
+    var graph = new GraphAdmission(fixture.ast(), fixture.plan()).admit(draft, Map.of("call", source), Map.of());
+
+    // Assert
+    assertEquals(expected.digest("cfg-content"), graph.identity().canonicalContentDigest());
+  }
+
+  @Test
+  void givenIntrinsicSourceWithRelabeledGraphSelection_whenGraphIsAdmitted_thenContradictionIsRejected() throws IOException {
+    // Arrange
+    var fixture = fixture("class Stored { int[] value(int[] input) { return input.clone(); } }", false);
+    var original = fixture.draft();
+    var operations = original.operationNodes().stream().map(operation -> {
+      if (operation.kind() != OperationKind.INVOKE) {
+        return operation;
+      }
+      var selected = operation.invocationSemantics().orElseThrow();
+      var changed = new InvocationSemantics(selected.mode(), selected.qualifyingType(), selected.form(), InvocationSelection.NAMED_EXECUTABLE);
+      return new DraftOperation(operation.nodeId(), operation.graphId(), operation.kind(), operation.detail(), operation.operands(),
+          operation.definedValue(), Optional.of(changed), operation.semanticReferences(), operation.possibleExceptions(), operation.origins());
+    }).toList();
+    var changed = new DraftGraph(original.graphId(), original.methodKey(), original.entry(), operations, original.values(), original.exit(), original.edges());
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class,
+        () -> new GraphAdmission(fixture.ast(), fixture.plan()).admit(changed, fixture.creating(), Map.of()));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("exact source selection"));
+  }
+
+  @Test
+  void givenIntrinsicSourceWithChangedGraphReceiverType_whenGraphIsAdmitted_thenContradictionIsRejected() throws IOException {
+    // Arrange
+    var fixture = fixture("class Stored { int[] value(int[] input) { return input.clone(); } }", false);
+    var call = fixture.draft().operationNodes().stream().filter(node -> node.kind() == OperationKind.INVOKE).findFirst().orElseThrow();
+    var changed = withValueType(fixture.draft(), call.operands().getFirst().value().valueId(), new JavaTypeIdentity(JavaTypeCategory.ARRAY, "long[]", "long[]"));
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class,
+        () -> new GraphAdmission(fixture.ast(), fixture.plan()).admit(changed, fixture.creating(), Map.of()));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("receiver, and result types"));
+  }
+
+  @Test
+  void givenIntrinsicSourceWithChangedGraphResultType_whenGraphIsAdmitted_thenContradictionIsRejected() throws IOException {
+    // Arrange
+    var fixture = fixture("class Stored { int[] value(int[] input) { return input.clone(); } }", false);
+    var call = fixture.draft().operationNodes().stream().filter(node -> node.kind() == OperationKind.INVOKE).findFirst().orElseThrow();
+    var changed = withValueType(fixture.draft(), call.definedValue().orElseThrow().valueId(), new JavaTypeIdentity(JavaTypeCategory.ARRAY, "int[][]", "int[][]"));
+
+    // Act
+    var failure = assertThrows(IllegalArgumentException.class,
+        () -> new GraphAdmission(fixture.ast(), fixture.plan()).admit(changed, fixture.creating(), Map.of()));
+
+    // Assert
+    assertTrue(failure.getMessage().contains("receiver, and result types"));
+  }
+
+  private static DraftGraph withValueType(DraftGraph original, String key, JavaTypeIdentity type) {
+    var values = new HashMap<String, DraftValue>();
+    original.values().forEach(value -> values.put(value.valueId(), value.valueId().equals(key)
+        ? new DraftValue(value.valueId(), value.graphId(), value.kind(), value.displayName(), value.literal(), Optional.of(type)) : value));
+    var operations = original.operationNodes().stream().map(operation -> new DraftOperation(operation.nodeId(), operation.graphId(), operation.kind(),
+        operation.detail(), operation.operands().stream().map(operand -> new DraftOperand(operand.position(), values.get(operand.value().valueId()))).toList(),
+        operation.definedValue().map(value -> values.get(value.valueId())), operation.invocationSemantics(), operation.semanticReferences(),
+        operation.possibleExceptions(), operation.origins())).toList();
+    return new DraftGraph(original.graphId(), original.methodKey(), original.entry(), operations,
+        original.values().stream().map(value -> values.get(value.valueId())).toList(), original.exit(), original.edges());
+  }
 
   @Test
   void givenTypedAndUntypedReferenceValues_whenSupportedGraphsAreAdmitted_thenTheirCompletePublicContentQualifiesIdentity() throws IOException {

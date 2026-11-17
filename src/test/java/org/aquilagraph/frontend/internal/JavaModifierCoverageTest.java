@@ -81,7 +81,7 @@ class JavaModifierCoverageTest {
             .flatMap(value -> value.encounteredValue().stream()).flatMap(value -> value.items().stream()).toList();
         assertEquals(List.of("CLASS", "CLASS", "INTERFACE", "INTERFACE"), kinds.stream().map(Item::identity).toList());
         assertEquals(kinds.stream().map(Item::identity).toList(), kinds.stream().map(Item::value).toList());
-        assertEquals("javac-public/14", result.identity().semanticProductionRevision());
+        assertEquals("javac-public/15", result.identity().semanticProductionRevision());
         var encoded = AstCodec.encode(result);
         var decoded = AstCodec.decode(encoded, result.identity());
         assertEquals(result.program(), decoded.program());

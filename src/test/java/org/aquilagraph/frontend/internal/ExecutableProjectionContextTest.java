@@ -190,7 +190,7 @@ class ExecutableProjectionContextTest {
       assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
       assertNotEquals(AstCompletion.COMPLETE, bounded.completion());
       assertEquals(profile, result.profile());
-      assertEquals("javac-public/14", result.identity().semanticProductionRevision());
+      assertEquals("javac-public/15", result.identity().semanticProductionRevision());
       var local = result.program().types().stream().filter(type -> type.nesting().kind() == JavaTypeNesting.Kind.LOCAL)
           .findFirst().orElseThrow();
       var nested = local.methods().stream().filter(method -> method.name().equals("nested")).findFirst().orElseThrow();

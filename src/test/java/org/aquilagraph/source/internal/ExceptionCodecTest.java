@@ -45,7 +45,7 @@ class ExceptionCodecTest {
     var retained = AstCodec.decode(bytes, original.identity());
 
     // Assert
-    assertEquals("java-source/23", retained.identity().sourceModelVersion());
+    assertEquals("java-source/24", retained.identity().sourceModelVersion());
     assertEquals(original.identity(), retained.identity());
     assertEquals(original.aggregate(), retained.aggregate());
     assertEquals(AstCompletion.COMPLETE, retained.completion());

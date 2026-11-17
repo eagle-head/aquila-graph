@@ -32,7 +32,7 @@ final class PackagedAnalysisSummary {
     var graphs = run.representation().cfg().orElseThrow().methods().stream().map(method -> method.graph().orElseThrow()).toList();
     var lines = new ArrayList<>(List.of("Run: \"" + run.identity().key() + "\"", "Software version: \"" + ast.identity().softwareSignature() + "\"",
         "Completion: COMPLETE", "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: \"java-source-bounded/1\"",
-        "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"", "CFG selection: ALL_BODIES",
+        "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/3\"", "CFG selection: ALL_BODIES",
         "CFG binding: \"" + ast.identity().astResultKey() + "\""));
     methods.forEach(method -> lines.add("Selected method: \"" + method.methodKey() + "\""));
     lines.addAll(List.of("Java types: 1", "Java methods: " + methods.size(), "Analyzed method bodies: " + graphs.size(),

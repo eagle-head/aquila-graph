@@ -11,6 +11,7 @@ import java.util.Optional;
 import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.InvocationMode;
 import org.aquilagraph.source.api.InvocationSemantics;
+import org.aquilagraph.source.api.InvocationSelection;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
 import org.aquilagraph.source.api.JavaTypeReference;
@@ -288,7 +289,7 @@ class ExceptionDomainTest {
 
   private static SyntaxNode creation(SyntaxStructuralPath path, ResolutionStatus status) {
     var semantics = new InvocationSemantics(InvocationMode.CONSTRUCTOR, new JavaTypeReference(PROBLEM_TYPE, Optional.of("problem")),
-        InvocationForm.OBJECT_CREATION);
+        InvocationForm.OBJECT_CREATION, InvocationSelection.NAMED_EXECUTABLE);
     var reference = new SemanticReference(ReferenceKind.CONSTRUCTOR, status,
         status == ResolutionStatus.RESOLVED ? Optional.of("constructor") : Optional.empty(), Optional.of(PROBLEM), List.of(PROBLEM),
         List.of(PROBLEM, "sample.Parent", "java.lang.Throwable"), Optional.empty());

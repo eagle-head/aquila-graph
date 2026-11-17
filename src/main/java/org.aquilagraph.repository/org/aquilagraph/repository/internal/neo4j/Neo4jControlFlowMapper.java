@@ -81,6 +81,7 @@ final class Neo4jControlFlowMapper {
       operationNode.invocationSemantics().ifPresent(semantics -> {
         properties.put("invocationMode", semantics.mode().name());
         properties.put("invocationForm", semantics.form().name());
+        properties.put("invocationSelection", semantics.selection().name());
         Neo4jTypeProperties.put(properties, "qualifyingType", semantics.qualifyingType().identity());
         semantics.qualifyingType().declarationKey().ifPresent(key -> properties.put("qualifyingTypeDeclarationKey", key));
       });

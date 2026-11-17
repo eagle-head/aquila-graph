@@ -191,7 +191,7 @@ class FrontendContractIntegrationTest {
     // Assert
     assertEquals(AstCompletion.COMPLETE, outcome.completion(), outcome.diagnostics().toString());
     assertTrue(outcome.diagnostics().isEmpty());
-    assertEquals("java-source/23", result.identity().sourceModelVersion());
+    assertEquals("java-source/24", result.identity().sourceModelVersion());
     assertEquals(List.of("field", "STATIC_INITIALIZER_BLOCK", "INSTANCE_INITIALIZER_BLOCK", "subject", "plain", "Choice", "Pair"),
         type(result, "Matrix").children(SyntaxRole.MEMBER).stream().map(FrontendContractIntegrationTest::memberName).toList());
     var declaration = result.aggregate().nodes().stream().filter(node -> node.value() instanceof ExecutableDeclaration value

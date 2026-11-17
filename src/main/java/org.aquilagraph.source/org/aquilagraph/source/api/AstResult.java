@@ -12,7 +12,7 @@ import org.aquilagraph.source.internal.AdmittedAstResult;
 /** Intrinsically admitted, content-qualified source result with one canonical aggregate. */
 public sealed interface AstResult permits AdmittedAstResult {
   /** Version of the retained source value schema. */
-  public static final String SOURCE_MODEL_VERSION = "java-source/23";
+  public static final String SOURCE_MODEL_VERSION = "java-source/24";
 
   /**
    * Tests whether a retained schema can be admitted without changing its qualified identity.

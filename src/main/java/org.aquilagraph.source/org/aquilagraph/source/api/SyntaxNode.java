@@ -49,6 +49,9 @@ public final class SyntaxNode {
     validateChildPositions(childNodes);
     validateAnnotationChildLocations(childNodes);
     validateShape(syntaxKind, sourceKind, value, childNodes, semanticReference);
+    if (value instanceof SyntaxValue.Invocation invocation) {
+      InvocationSyntaxValidation.validate(syntaxKind, type, invocation, childNodes, semanticReference);
+    }
     if (syntaxKind == SyntaxKind.MODULE_TYPE_REFERENCE && (sourceOrigin.isEmpty() || path.steps().size() < 2
         || !Set.of(SyntaxRole.SERVICE_TYPE, SyntaxRole.PROVIDER_TYPE).contains(path.steps().getLast().role())
         || path.steps().get(path.steps().size() - 2).role() != SyntaxRole.MODULE_DIRECTIVE)) {
@@ -636,6 +639,13 @@ public final class SyntaxNode {
   }
 
   private static void validateReference(SyntaxKind kind, SyntaxValue syntaxValue, Optional<SemanticReference> reference) {
+    if (syntaxValue instanceof SyntaxValue.Invocation invocation
+        && invocation.semantics().filter(value -> value.selection() == InvocationSelection.ARRAY_CLONE).isPresent()) {
+      if (reference.isPresent()) {
+        throw new IllegalArgumentException("An intrinsic array invocation has no named executable declaration");
+      }
+      return;
+    }
     if (kind == SyntaxKind.CLASS_LITERAL) {
       if (reference.isPresent()) {
         throw new IllegalArgumentException("A class literal has no field or executable selection");

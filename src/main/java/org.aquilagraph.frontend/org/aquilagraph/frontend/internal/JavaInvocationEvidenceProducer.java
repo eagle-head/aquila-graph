@@ -18,6 +18,8 @@ import org.aquilagraph.source.api.AnalysisOutcomeKind;
 import org.aquilagraph.source.api.ChildUseEvidence;
 import org.aquilagraph.source.api.ConversionEvidence;
 import org.aquilagraph.source.api.InvocationApplicability;
+import org.aquilagraph.source.api.InvocationApplicabilityMode;
+import org.aquilagraph.source.api.InvocationSelection;
 import org.aquilagraph.source.api.SemanticReference;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.SyntaxRole;
@@ -37,8 +39,14 @@ final class JavaInvocationEvidenceProducer {
 
   Optional<Selection> produce(String scopeKey, NodeProjection consumer, JavaExecutableProjectionProof bindings,
       DiagnosticEmissionCollector diagnostics) {
-    if (!(semantics.element(consumer.compilerAnchor()) instanceof ExecutableElement executable)
-        || !JavaSelectedMemberProof.matches(consumer.node(), executable, semantics)) {
+    if (!(semantics.element(consumer.compilerAnchor()) instanceof ExecutableElement executable)) {
+      return Optional.empty();
+    }
+    if (consumer.node().value() instanceof SyntaxValue.Invocation invocation
+        && invocation.semantics().filter(value -> value.selection() == InvocationSelection.ARRAY_CLONE).isPresent()) {
+      return intrinsicInvocation(scopeKey, consumer, executable, invocation);
+    }
+    if (!JavaSelectedMemberProof.matches(consumer.node(), executable, semantics)) {
       return Optional.empty();
     }
     if (consumer.compilerAnchor().getLeaf() instanceof NewClassTree creation
@@ -71,6 +79,20 @@ final class JavaInvocationEvidenceProducer {
       }
       return new Selection(invocation, uses);
     });
+  }
+
+  private Optional<Selection> intrinsicInvocation(String scopeKey, NodeProjection consumer, ExecutableElement executable,
+      SyntaxValue.Invocation invocation) {
+    var selected = semantics.arrayCloneType(consumer.compilerAnchor(), executable);
+    if (selected.isEmpty()) {
+      return Optional.empty();
+    }
+    if (!selected.equals(invocation.semantics().map(value -> value.qualifyingType())) || consumer.node().semanticReference().isPresent()
+        || !consumer.node().children(SyntaxRole.ARGUMENT).isEmpty()) {
+      throw new IllegalArgumentException("Selected compiler intrinsic contradicts the emitted invocation");
+    }
+    return Optional.of(new Selection(new InvocationApplicability(scopeKey, consumer.node().nodeId(), InvocationApplicabilityMode.FIXED, 0,
+        Optional.empty(), Optional.empty(), Optional.empty()), List.of()));
   }
 
   Optional<Selection> enumConstant(String scopeKey, SyntaxNode constant, TreePath creationPath, Optional<SemanticReference> constructor,

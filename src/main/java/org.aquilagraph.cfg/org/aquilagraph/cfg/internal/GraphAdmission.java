@@ -27,6 +27,10 @@ import org.aquilagraph.source.api.AstResult;
 import org.aquilagraph.source.api.SyntaxNode;
 import org.aquilagraph.source.api.CompilerInsertedInvocation;
 import org.aquilagraph.source.api.InvocationApplicabilityMode;
+import org.aquilagraph.source.api.InvocationSelection;
+import org.aquilagraph.source.api.InvocationSemantics;
+import org.aquilagraph.source.api.SyntaxValue;
+import org.aquilagraph.source.api.SyntaxRole;
 import org.aquilagraph.source.api.AnalysisDiagnostic;
 
 /** Privileged atomic graph admission, excluded from the immutable reader contract. */
@@ -118,6 +122,7 @@ final class GraphAdmission {
             body.constructorEvidence(node.nodeId()).orElseThrow().corroboration().knownValue().orElseThrow().insertedInvocation()
                 .orElseThrow());
       }
+      validateIntrinsicInvocation(operation, node);
       Optional<SourceOccurrence> occurrence = generated ? Optional.empty() : ast.occurrence(node);
       if (occurrence.isEmpty() && !generated && plan.body().sourceOccurrenceKey().isPresent() && node.origin().isPresent()) {
         throw new IllegalArgumentException("A written operation requires its owned canonical source occurrence");
@@ -164,6 +169,24 @@ final class GraphAdmission {
     };
     if (!valid) {
       throw new IllegalArgumentException("Generated operation role and payload must match the actual corroborated compiler insertion");
+    }
+  }
+
+  private static void validateIntrinsicInvocation(DraftOperation operation, SyntaxNode source) {
+    Optional<InvocationSemantics> sourceSelection = source.value() instanceof SyntaxValue.Invocation invocation
+        ? invocation.semantics()
+        : Optional.empty();
+    var intrinsicSource = sourceSelection.filter(value -> value.selection() == InvocationSelection.ARRAY_CLONE).isPresent();
+    var intrinsicOperation = operation.invocationSemantics().filter(value -> value.selection() == InvocationSelection.ARRAY_CLONE)
+        .isPresent();
+    if (!intrinsicOperation && !(intrinsicSource && operation.kind() == OperationKind.INVOKE)) {
+      return;
+    }
+    if (!intrinsicSource || !operation.invocationSemantics().equals(sourceSelection) || operation.kind() != OperationKind.INVOKE
+        || operation.operands().size() != 1 || !operation.semanticReferences().isEmpty()
+        || !operation.operands().getFirst().value().staticType().equals(source.requiredChild(SyntaxRole.RECEIVER).resolvedType())
+        || !operation.definedValue().flatMap(DraftValue::staticType).equals(source.resolvedType())) {
+      throw new IllegalArgumentException("Array clone operation must retain its exact source selection, receiver, and result types");
     }
   }
 

@@ -12,10 +12,10 @@ import java.util.Objects;
  */
 public record CfgProfile(String version, String graphModelVersion) {
   /** Initial bounded Java control-flow interpretation. */
-  public static final CfgProfile JAVA_BOUNDED = new CfgProfile("java-cfg-bounded/1", "java-cfg/2");
+  public static final CfgProfile JAVA_BOUNDED = new CfgProfile("java-cfg-bounded/1", "java-cfg/3");
 
   /** Compatible bounded interpretation that explicitly refuses represented switch expressions. */
-  public static final CfgProfile JAVA_WITHOUT_SWITCH_EXPRESSIONS = new CfgProfile("java-cfg-without-switch-expressions/1", "java-cfg/2");
+  public static final CfgProfile JAVA_WITHOUT_SWITCH_EXPRESSIONS = new CfgProfile("java-cfg-without-switch-expressions/1", "java-cfg/3");
 
   /** Requires explicit nonblank versions without normalizing an unsupported request. */
   public CfgProfile {

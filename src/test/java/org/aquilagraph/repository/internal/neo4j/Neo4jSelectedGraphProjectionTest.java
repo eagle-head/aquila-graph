@@ -490,7 +490,8 @@ class Neo4jSelectedGraphProjectionTest {
   private static void assertInvocation(ProducedGraph produced, Neo4jGraphProjection projection, OperationNode operation, String kind,
       String detail, List<String> exceptions, String mode, String form, String typeDisplay, String typeErasure, String declaration) {
     var expected = headers(produced.run().identity().key(), operation.nodeId(), "graphId", produced.graph().graphId(), "kind", kind, "detail", detail,
-        "possibleExceptions", exceptions, "invocationMode", mode, "invocationForm", form, "qualifyingTypeDeclarationKey", declaration);
+        "possibleExceptions", exceptions, "invocationMode", mode, "invocationForm", form, "invocationSelection", "NAMED_EXECUTABLE",
+        "qualifyingTypeDeclarationKey", declaration);
     addType(expected, "qualifyingType", "DECLARED", typeDisplay, typeErasure);
     assertEquals(new NodeExpectation("OperationNode", expected), new NodeExpectation(node(projection, operation.nodeId()).label(),
         node(projection, operation.nodeId()).properties()));

@@ -43,7 +43,7 @@ final class PackagedQualificationExpectations {
         AST profile: "java-source-bounded/1"
         CFG: PARTIAL
         CFG profile: "java-cfg-bounded/1"
-        CFG graph model: "java-cfg/2"
+        CFG graph model: "java-cfg/3"
         CFG selection: ALL_BODIES
         CFG binding: "%3$s"
         Selected method: "type:Example#<init>()"
@@ -60,9 +60,9 @@ final class PackagedQualificationExpectations {
         Publication intent: DO_NOT_SAVE
         Publication subject: AST "%3$s"
         Publication software signature: "%2$s"
-        Publication source model: "java-source/23"
+        Publication source model: "java-source/24"
         Publication AST profile: "java-source-bounded/1"
-        Publication production revision: "javac-public/14"
+        Publication production revision: "javac-public/15"
         Publication content digest: "%4$s"
         Commit knowledge: NOT_STARTED
         """.formatted(run.identity().key(), identity.softwareSignature(), identity.astResultKey(), identity.canonicalContentDigest()));
@@ -124,7 +124,7 @@ final class PackagedQualificationExpectations {
         AST profile: "java-source-bounded/1"
         CFG: UNAVAILABLE
         CFG profile: "java-cfg-bounded/1"
-        CFG graph model: "java-cfg/2"
+        CFG graph model: "java-cfg/3"
         CFG selection: ALL_BODIES
         CFG binding: UNBOUND
         Repository: NOT_REQUESTED

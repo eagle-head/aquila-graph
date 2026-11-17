@@ -100,7 +100,7 @@ class ModuleEnvironmentIdentityTest {
     assertNotEquals(first.environment().environmentDigest(), secondEnvironment.environmentDigest());
     assertNotEquals(SoftwareVersion.from(source, first.environment()).signature(), SoftwareVersion.from(source, secondEnvironment).signature());
     assertEquals(source, nonmatching.capturedInput().orElseThrow());
-    assertEquals("java-source/23", first.identity().sourceModelVersion());
+    assertEquals("java-source/24", first.identity().sourceModelVersion());
     assertEquals(first.environment(), decoded.environment());
     assertArrayEquals(AstCodec.encode(first), AstCodec.encode(decoded));
   }

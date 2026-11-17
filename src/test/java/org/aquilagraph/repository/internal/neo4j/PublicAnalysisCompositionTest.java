@@ -75,6 +75,9 @@ import org.aquilagraph.cli.CommandExitPolicy;
 import org.aquilagraph.cli.CommandInvocation;
 import org.aquilagraph.cli.CommandRunner;
 import org.aquilagraph.frontend.JavaFrontends;
+import org.aquilagraph.library.AquilaGraph;
+import org.aquilagraph.library.ObservabilityConfiguration;
+import org.aquilagraph.source.api.InvocationSelection;
 import org.aquilagraph.identity.api.AstIdentity;
 import org.aquilagraph.identity.api.CapturedLocation;
 import org.aquilagraph.identity.api.CapturedLocation.RootKind;
@@ -114,6 +117,51 @@ import org.neo4j.driver.Values;
 import org.neo4j.driver.exceptions.Neo4jException;
 
 class PublicAnalysisCompositionTest {
+  @Test
+  void givenIntrinsicArrayClone_whenLibraryAnalysisIsRetainedAndProjected_thenExplicitSelectionAndExactTypesSurvive() {
+    // Arrange
+    var write = new AstRepositoryDriverStub();
+    var read = new AstRepositoryDriverStub();
+    var request = source("interface Sample<T> { default T[][] copy(T[][] value) { return value.clone(); } }");
+    try (var library = AquilaGraph.open(ObservabilityConfiguration.disabled(), NO_AST_STORAGE, NO_RUN_STORAGE)) {
+      // Act
+      var run = library.analyze(new AnalysisComputationRequest(request, Optional.of(CfgSelection.allBodies(CFG))));
+      var outcome = run.representation().ast();
+      var original = outcome.result().orElseThrow();
+      write.lockedAstSubject = original.identity().astResultKey();
+      var publication = AnalysisCapabilities.astRetention(astFactory(write)::openRetention)
+          .retainAst(new AstPublicationRequest(outcome, PublicationIntent.SAVE_COMPLETE_AST));
+      read.stored = write.writtenAst(original.identity());
+      var lookup = AnalysisCapabilities.astQuery(astFactory(read)::openQuery).findAst(original.identity());
+      var retained = lookup.outcome().orElseThrow().result().orElseThrow();
+      var projection = new Neo4jAnalysisRunMapper().map(run);
+
+      // Assert
+      assertEquals(AnalysisCompletion.COMPLETE, run.completion(), run.diagnostics().values().toString());
+      assertPublication(publication, PublicationIntent.SAVE_COMPLETE_AST, Optional.of(new Ast(original.identity())),
+          PublicationStatus.SAVED, CommitKnowledge.KNOWN_COMMIT);
+      assertEquals(AstLookupStatus.FOUND, lookup.status());
+      assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retained));
+      var clone = retained.aggregate().nodes().stream().filter(node -> node.syntaxKind() == SyntaxKind.INVOCATION)
+          .findFirst().orElseThrow();
+      assertEquals(InvocationSelection.ARRAY_CLONE, clone.value(SyntaxValue.Invocation.class).semantics().orElseThrow().selection());
+      assertTrue(clone.semanticReference().isEmpty());
+      assertEquals("T[][]", clone.resolvedType().orElseThrow().displayName());
+      assertEquals("java.lang.Object[][]", clone.resolvedType().orElseThrow().erasedName());
+      var mapped = projection.nodes().stream().filter(node -> node.label().equals("OperationNode"))
+          .filter(node -> "INVOKE".equals(node.properties().get("kind"))).findFirst().orElseThrow();
+      assertEquals("ARRAY_CLONE", mapped.properties().get("invocationSelection"));
+      assertEquals("VIRTUAL", mapped.properties().get("invocationMode"));
+      assertEquals("INSTANCE_EXPRESSION", mapped.properties().get("invocationForm"));
+      assertEquals("ARRAY", mapped.properties().get("qualifyingTypeCategory"));
+      assertEquals("T[][]", mapped.properties().get("qualifyingType"));
+      assertEquals("java.lang.Object[][]", mapped.properties().get("qualifyingTypeErasure"));
+      assertFalse(mapped.properties().containsKey("qualifyingTypeDeclarationKey"));
+      assertFalse(projection.relationships().stream().anyMatch(link -> link.sourceKey().equals(mapped.key())
+          && link.type().equals("HAS_REFERENCE")));
+    }
+  }
+
   private static final String BRANCHING = """
       interface Sample {
         static int choose(boolean positive) {
@@ -225,7 +273,7 @@ class PublicAnalysisCompositionTest {
     assertEquals(AstLookupStatus.FOUND, lookup.status());
     assertEquals(identity, lookup.requestedIdentity());
     assertEquals(identity, retained.identity());
-    assertEquals("java-source/23", retained.identity().sourceModelVersion());
+    assertEquals("java-source/24", retained.identity().sourceModelVersion());
     assertEquals(original.qualification(), retained.qualification());
     assertArrayEquals(AstCodec.encode(original), AstCodec.encode(retained));
     assertEquals(PublicAstObservation.describe(original), PublicAstObservation.describe(retained));
@@ -368,8 +416,8 @@ class PublicAnalysisCompositionTest {
     assertEquals(AstLookupStatus.FOUND, lookup.status());
     assertEquals(identity, lookup.requestedIdentity());
     assertEquals(identity, retained.identity());
-    assertEquals("java-source/23", identity.sourceModelVersion());
-    assertEquals("javac-public/14", identity.semanticProductionRevision());
+    assertEquals("java-source/24", identity.sourceModelVersion());
+    assertEquals("javac-public/15", identity.semanticProductionRevision());
     var bytes = AstCodec.encode(original);
     assertArrayEquals(bytes, AstCodec.encode(retained));
     var decoded = AstCodec.decode(bytes, identity);
@@ -489,8 +537,8 @@ class PublicAnalysisCompositionTest {
     assertEquals(identity, lookup.requestedIdentity());
     var retained = restored.result().orElseThrow();
     assertEquals(identity, retained.identity());
-    assertEquals("java-source/23", identity.sourceModelVersion());
-    assertEquals("javac-public/14", identity.semanticProductionRevision());
+    assertEquals("java-source/24", identity.sourceModelVersion());
+    assertEquals("javac-public/15", identity.semanticProductionRevision());
     for (var result : List.of(original, retained)) {
       assertEquals(root, result.snapshot().sourceRoot());
       assertEquals(List.of(moduleFile, labelFile, sampleFile), result.snapshot().sourceFiles());

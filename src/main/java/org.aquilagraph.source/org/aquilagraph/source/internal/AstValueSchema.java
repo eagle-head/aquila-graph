@@ -86,6 +86,7 @@ import org.aquilagraph.source.api.InvocationApplicabilityMode;
 import org.aquilagraph.source.api.InvocationForm;
 import org.aquilagraph.source.api.InvocationMode;
 import org.aquilagraph.source.api.InvocationSemantics;
+import org.aquilagraph.source.api.InvocationSelection;
 import org.aquilagraph.source.api.JavaDeclarationModifier;
 import org.aquilagraph.source.api.JavaField;
 import org.aquilagraph.source.api.JavaMethod;
@@ -332,7 +333,8 @@ final class AstValueSchema {
     record(types, InvocationEvidence.class, "invocation-evidence", "applicability");
     enumeration(types, InvocationForm.class, "invocation-form");
     enumeration(types, InvocationMode.class, "invocation-mode");
-    record(types, InvocationSemantics.class, "invocation-semantics", MODE_FIELD, "qualifyingType", FORM_FIELD);
+    enumeration(types, InvocationSelection.class, "invocation-selection");
+    record(types, InvocationSemantics.class, "invocation-semantics", MODE_FIELD, "qualifyingType", FORM_FIELD, "selection");
     enumeration(types, JavaDeclarationModifier.class, "java-declaration-modifier");
     record(types, JavaField.class, "java-field", "fieldKey", OWNER_TYPE_KEY_FIELD, NAME_FIELD, STATIC_TYPE_FIELD, "modifiers",
         "enumConstant", SOURCE_DECLARED_FIELD, ORIGINS_FIELD);

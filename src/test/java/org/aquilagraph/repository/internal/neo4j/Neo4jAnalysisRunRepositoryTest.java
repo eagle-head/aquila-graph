@@ -1032,7 +1032,7 @@ class Neo4jAnalysisRunRepositoryTest {
     var methodKey = ast.result().orElseThrow().program().methods().getFirst().methodKey();
     assertEquals(List.of("Run: \"" + run.identity().key() + "\"", "Software version: \"" + identity.softwareSignature() + "\"",
         "Completion: COMPLETE", "Java release: 25", "Java source files: 1", "AST: COMPLETE", "AST profile: \"java-source-bounded/1\"",
-        "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/2\"", "CFG selection: ALL_BODIES",
+        "CFG: COMPLETE", "CFG profile: \"java-cfg-bounded/1\"", "CFG graph model: \"java-cfg/3\"", "CFG selection: ALL_BODIES",
         "CFG binding: \"" + identity.astResultKey() + "\"", "Selected method: \"" + methodKey + "\"", "Java types: 1", "Java methods: 1",
         "Analyzed method bodies: 1", "CFG operations: 0", "CFG nodes: 2", "CFG edges: 1", "Method CFG: \"" + methodKey + "\" AVAILABLE",
         "Repository: FAILED", "Publication intent: SAVE_COMPLETED", "Publication subject: COMPLETED_RUN \"" + run.identity().key() + "\"",

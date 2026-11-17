@@ -5,6 +5,7 @@ import java.util.Objects;
 import java.util.Optional;
 import org.aquilagraph.cfg.api.OperationKind;
 import org.aquilagraph.source.api.InvocationSemantics;
+import org.aquilagraph.source.api.InvocationSelection;
 import org.aquilagraph.source.api.ReferenceKind;
 import org.aquilagraph.source.api.ResolutionStatus;
 import org.aquilagraph.source.api.SemanticReference;
@@ -62,6 +63,10 @@ public final class OperationPayloadValidation {
     var invocationOperation = kind == OperationKind.INVOKE || kind == OperationKind.NEW_OBJECT;
     if (invocationOperation != invocation.isPresent()) {
       throw new IllegalArgumentException("Invocation semantics must be present exactly for invocation and construction operations");
+    }
+    if (invocation.filter(value -> value.selection() == InvocationSelection.ARRAY_CLONE).isPresent()
+        && (kind != OperationKind.INVOKE || positions.size() != 1 || !hasDefinition || !references.isEmpty())) {
+      throw new IllegalArgumentException("Array clone requires one receiver, an array result, and no declaration reference");
     }
     if (kind == OperationKind.CLASS_INITIALIZATION) {
       validateInitialization(!positions.isEmpty(), hasDefinition, references);

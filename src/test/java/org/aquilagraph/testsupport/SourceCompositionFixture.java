@@ -74,7 +74,7 @@ public final class SourceCompositionFixture {
     assertEquals(text, ast.snapshot().sourceFiles().getFirst().content());
     assertEquals(AstCompletion.COMPLETE, ast.completion());
     assertEquals(AstProfile.JAVA_SOURCE_MODULE_SERVICES, ast.profile());
-    assertEquals("javac-public/14", ast.identity().semanticProductionRevision());
+    assertEquals("javac-public/15", ast.identity().semanticProductionRevision());
     var creation = occurrence(ast, SyntaxKind.OBJECT_CREATION, "new Box(1)");
     var literal = occurrence(ast, SyntaxKind.LITERAL, escaped ? "tr" + "\\" + "u0000ue" : "true", text.indexOf("boolean truth"));
     assertEquals(JavaSourceKind.BOOLEAN_LITERAL, literal.sourceKind());

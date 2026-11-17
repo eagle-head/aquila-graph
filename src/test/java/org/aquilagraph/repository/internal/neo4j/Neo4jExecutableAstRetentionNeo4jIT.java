@@ -167,7 +167,7 @@ class Neo4jExecutableAstRetentionNeo4jIT {
       // Assert
       assertEquals(PublicationStatus.SAVED, replacement.status());
       ExecutableAstRetentionFixture.assertPreserved(mixedResult, retrieved);
-      assertEquals("java-source/23", older.identity().sourceModelVersion());
+      assertEquals("java-source/24", older.identity().sourceModelVersion());
       assertEquals(AstProfile.JAVA_SOURCE_BOUNDED, older.profile());
       assertEquals(oldResult.identity(), older.identity());
       assertArrayEquals(AstCodec.encode(oldResult), AstCodec.encode(older));
@@ -507,7 +507,7 @@ class Neo4jExecutableAstRetentionNeo4jIT {
 
       // Assert
       assertEquals(PublicationStatus.SAVED, publication.status());
-      assertEquals("java-source/23", retained.identity().sourceModelVersion());
+      assertEquals("java-source/24", retained.identity().sourceModelVersion());
       assertEquals(current.identity(), retained.identity());
       assertArrayEquals(AstCodec.encode(current), AstCodec.encode(retained));
       assertEquals(current.aggregate(), retained.aggregate());

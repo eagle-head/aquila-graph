@@ -147,8 +147,8 @@ class CompilationUnitAdmissionTest {
     var profileError = assertThrows(AstContractException.class, () -> AstResultAdmission.admit(input, AstProfile.JAVA_SOURCE_DECLARATIONS, "javac-public/6"));
     // Assert
     assertTrue(profileError.getMessage().contains("profile"), profileError.toString());
-    assertEquals("javac-public/14", ast.identity().semanticProductionRevision());
-    assertEquals("java-source/23", ast.identity().sourceModelVersion());
+    assertEquals("javac-public/15", ast.identity().semanticProductionRevision());
+    assertEquals("java-source/24", ast.identity().sourceModelVersion());
     assertEquals("java-source-expanded/6", ast.profile().version());
   }
 

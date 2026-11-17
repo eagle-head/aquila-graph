@@ -42,7 +42,7 @@ class SwitchCodecTest {
     // Act
     var decoded = AstCodec.decode(AstCodec.encode(current), current.identity());
     // Assert
-    assertEquals("java-source/23", decoded.identity().sourceModelVersion());
+    assertEquals("java-source/24", decoded.identity().sourceModelVersion());
     assertEquals(current.identity(), decoded.identity());
     assertEquals(current.aggregate(), decoded.aggregate());
     assertEquals(AstCompletion.COMPLETE, decoded.completion());

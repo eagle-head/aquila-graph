@@ -444,7 +444,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
       // Assert
       assertEquals(PublicationStatus.SAVED, publication.status());
       assertEquals(AstLookupStatus.FOUND, lookup.status());
-      assertEquals("java-source/23", retrieved.identity().sourceModelVersion());
+      assertEquals("java-source/24", retrieved.identity().sourceModelVersion());
       assertEquals(current.identity(), retrieved.identity());
       assertEquals(current.aggregate(), retrieved.aggregate());
       assertArrayEquals(AstCodec.encode(current), AstCodec.encode(retrieved));
@@ -511,7 +511,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
       var queried = query(settings).findAst(current.identity()).outcome().orElseThrow().result().orElseThrow();
       // Assert
       assertEquals(PublicationStatus.SAVED, publication.status());
-      assertEquals("java-source/23", queried.identity().sourceModelVersion());
+      assertEquals("java-source/24", queried.identity().sourceModelVersion());
       assertEquals(current.identity(), queried.identity());
       assertEquals(current.aggregate(), queried.aggregate());
       assertArrayEquals(AstCodec.encode(current), AstCodec.encode(queried));
@@ -638,7 +638,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
       // Assert
       assertEquals(PublicationStatus.SAVED, publication.status());
       assertEquals(AstLookupStatus.FOUND, lookup.status());
-      assertEquals("java-source/23", retrieved.identity().sourceModelVersion());
+      assertEquals("java-source/24", retrieved.identity().sourceModelVersion());
       assertEquals(current.identity(), retrieved.identity());
       assertEquals(current.aggregate(), retrieved.aggregate());
       assertEquals(current.coverage(), retrieved.coverage());
@@ -757,7 +757,7 @@ import java.util.List;
       // Assert
       assertEquals(PublicationStatus.SAVED, publication.status());
       assertEquals(AstLookupStatus.FOUND, lookup.status());
-      assertEquals("java-source/23", retrieved.identity().sourceModelVersion());
+      assertEquals("java-source/24", retrieved.identity().sourceModelVersion());
       assertEquals(current.coverage(), retrieved.coverage());
       assertEquals(current.aggregate(), retrieved.aggregate());
       assertArrayEquals(AstCodec.encode(current), AstCodec.encode(retrieved));
