@@ -17,6 +17,19 @@ class PreparedConsumerTest {
   @TempDir Path directory;
 
   @Test
+  void givenConsumerPreparation_whenCompilerArgumentsAreCreated_thenAllWarningsAreErrors() throws Exception {
+    // Arrange
+    var root = directory.toRealPath();
+
+    // Act
+    var request = ConsumerPreparation.request(root, root.resolve("annotations.jar"), false);
+
+    // Assert
+    assertTrue(request.arguments().contains("-Xlint:all"));
+    assertTrue(request.arguments().contains("-Werror"));
+  }
+
+  @Test
   void givenMissingOrForeignReceipt_whenTheCallerRequestsAnArtifact_thenNoAmbientArtifactIsSelected() throws Exception {
     // Arrange
     var root = directory.toRealPath();

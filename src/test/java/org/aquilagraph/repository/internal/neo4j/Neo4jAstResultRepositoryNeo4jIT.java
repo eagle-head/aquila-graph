@@ -19,7 +19,6 @@ import org.aquilagraph.cfg.CfgDerivers;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -666,7 +665,7 @@ class Neo4jAstResultRepositoryNeo4jIT {
     var ast = frontend().produce(snapshot("""
         import java.util.function.*;
         import java.util.ArrayList;
-import java.util.List;
+        import java.util.List;
         import java.lang.annotation.*;
         @Target(ElementType.PARAMETER) @interface Mark { String value() default ""; }
         class Stored {

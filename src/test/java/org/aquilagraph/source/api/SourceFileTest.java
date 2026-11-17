@@ -6,17 +6,13 @@ import org.aquilagraph.identity.api.CapturedLocation.Syntax;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import java.nio.file.FileSystems;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import org.aquilagraph.identity.api.SourceFile;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.function.Executable;
 
 class SourceFileTest {
   @Test

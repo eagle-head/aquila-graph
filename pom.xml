@@ -520,6 +520,9 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-resources-plugin</artifactId>
         <version>${maven-resources-plugin.version}</version>
+        <configuration>
+          <propertiesEncoding>${project.build.sourceEncoding}</propertiesEncoding>
+        </configuration>
         <executions>
           <execution>
             <id>default-resources</id>
@@ -632,10 +635,13 @@
               <configLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/test-type-references.xml</configLocation>
               <sourceDirectories>
                 <sourceDirectory>${project.build.testSourceDirectory}</sourceDirectory>
+                <sourceDirectory>${project.basedir}/config/consumer</sourceDirectory>
+                <sourceDirectory>${project.basedir}/analysis-targets/calculator/src</sourceDirectory>
               </sourceDirectories>
               <includeTestSourceDirectory>false</includeTestSourceDirectory>
               <includeResources>false</includeResources>
               <includeTestResources>false</includeTestResources>
+              <outputFile>${project.build.directory}/checkstyle-test-result.xml</outputFile>
               <cacheFile>${project.build.directory}/checkstyle-test-type-references-cachefile</cacheFile>
             </configuration>
           </execution>
@@ -1103,6 +1109,8 @@
                 <argument>-encoding</argument>
                 <argument>${project.build.sourceEncoding}</argument>
                 <argument>-g</argument>
+                <argument>-Xlint:all</argument>
+                <argument>-Werror</argument>
                 <argument>-d</argument>
                 <argument>${project.build.testOutputDirectory}</argument>
                 <argument>@${project.build.directory}/build-inputs/test.args</argument>

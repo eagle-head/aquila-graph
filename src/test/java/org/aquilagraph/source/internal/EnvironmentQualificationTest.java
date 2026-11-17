@@ -8,7 +8,6 @@ import org.aquilagraph.source.admission.AstProductionAdmission;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -19,8 +18,6 @@ import org.aquilagraph.frontend.internal.JavaFrontend;
 import org.aquilagraph.frontend.internal.JavaSourceLoader;
 import org.aquilagraph.frontend.internal.JavaCoverageTestSupport;
 import org.aquilagraph.identity.api.AnalysisEnvironmentSnapshot;
-import org.aquilagraph.identity.api.CanonicalValueReader;
-import org.aquilagraph.identity.api.CanonicalValueWriter;
 import org.aquilagraph.identity.api.CompilerConfiguration;
 import org.aquilagraph.identity.api.DependencyKind;
 import org.aquilagraph.identity.api.DependencySemantics;

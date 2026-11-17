@@ -121,7 +121,7 @@ public final class OwnedProcess implements AutoCloseable {
           interrupted = true;
         }
       }
-      try (var input = process.getInputStream(); var error = process.getErrorStream(); var output = process.getOutputStream()) {
+      try (var _ = process.getInputStream(); var _ = process.getErrorStream(); var _ = process.getOutputStream()) {
         closed = true;
       }
     } finally {

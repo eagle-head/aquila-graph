@@ -1,7 +1,6 @@
 package org.aquilagraph.identity.api;
 
 import static org.aquilagraph.testsupport.TestLocations.capturedAbsolute;
-import static org.aquilagraph.testsupport.TestLocations.capturedPath;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;

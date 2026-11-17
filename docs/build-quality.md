@@ -3,8 +3,10 @@
 ## Purpose
 
 The project treats production code under `src/main/java` and `src/main/observability` as a build contract.
-A focused Checkstyle policy also rejects unnecessary fully qualified type references under `src/test/java`;
-the remaining static-analysis and formatting gates apply only to production sources. The default `verify`
+Checkstyle also rejects unused, redundant and wildcard imports and unnecessary fully qualified type
+references in `src/test/java`, `config/consumer` and the maintained calculator analysis target.
+Production, test, build-tool and prepared-consumer compilation treats all javac warnings as errors.
+The remaining static-analysis and formatting gates retain their production/build-tool scope. The default `verify`
 lifecycle checks deterministic properties that can be evaluated from the repository and resolved
 Maven artifacts. The opt-in `supply-chain` profile creates a production software bill of materials
 (SBOM).
@@ -102,8 +104,8 @@ distribution checksum:
 | Format production Java | `make format` | `.\Invoke-Build.ps1 format` |
 | Check production Java formatting | `make format-check` | `.\Invoke-Build.ps1 format-check` |
 | Check LF in Git text and reachable commits | `make line-endings-check` | `.\Invoke-Build.ps1 line-endings-check` |
-| Run static quality gates without tests | `make quality` | `.\Invoke-Build.ps1 quality` |
-| Run supply-chain gates without tests | `make supply-chain-check` | `.\Invoke-Build.ps1 supply-chain-check` |
+| Compile tests and run static quality gates without test execution | `make quality` | `.\Invoke-Build.ps1 quality` |
+| Run supply-chain and quality gates without test execution | `make supply-chain-check` | `.\Invoke-Build.ps1 supply-chain-check` |
 
 The following commands remain available for a later explicit decision. Their
 presence is not authorization to execute them during development or task closure.
@@ -134,7 +136,12 @@ remain integration commands even when only one class is selected. The integratio
 targets compile test sources and package the application but skip Surefire.
 Development test compilation still includes shared test sources; execution
 separation does not claim separate compilation roots. `quality` and
-`supply-chain-check` skip test compilation and execution. `prepare-consumers`
+`supply-chain-check` compile tests with `-Xlint:all -Werror` and skip test execution
+through both Surefire's `skipTests` and Failsafe's `skipITs` controls. Failsafe 3.6.0
+does not bind its `skipTests` parameter to the command-line property; see the
+[Failsafe parameter contract](https://maven.apache.org/surefire/maven-failsafe-plugin/integration-test-mojo.html#skipTests).
+The separate controls preserve the explicit integration operations, which skip
+Surefire while retaining Failsafe execution. `prepare-consumers`
 packages and prepares the independent query module without executing tests.
 `install-library` packages the library and installs product-owned Maven metadata
 and artifacts locally without executing tests; see [library consumption](library.md).
@@ -383,7 +390,7 @@ repository does not configure remote CI.
 | Error Prone | Detect compiler-integrated Java correctness defects. |
 | NullAway with JSpecify | Enforce explicit package nullness and reject unsafe null flows in production code. |
 | Spotless with Eclipse JDT | Own Java formatting and the 140-character line limit. |
-| Checkstyle | Enforce production import hygiene, naming, structural rules, final newlines, and package dependency boundaries, plus unnecessary fully qualified type references in tests. |
+| Checkstyle | Enforce production import hygiene, naming, structural rules, final newlines, and package dependency boundaries, plus import hygiene and unnecessary fully qualified type references in tests and maintained analysis inputs. |
 | PMD | Detect source-level correctness, maintainability, performance, and security patterns. |
 | CPD | Reject substantial duplicated production Java blocks. |
 | SpotBugs | Inspect compiled production bytecode at maximum effort and low confidence threshold. |
@@ -423,6 +430,20 @@ Imports from `com.sun.tools.javac`, `jdk.internal`, and `sun` are rejected throu
 code.
 
 ## Failure and Exception Policy
+
+Compilation warnings, source-policy violations and analyzer failures must fail their owning gate.
+The production and test/reference Checkstyle executions write separate reports:
+`target/checkstyle-result.xml` and `target/checkstyle-test-result.xml`. A successful
+formatter run does not establish import hygiene; `quality` runs the import checks.
+`BuildRequestTest` checks that quality operations retain test compilation while skipping execution;
+`PreparedConsumerTest` checks strict compiler arguments at the consumer boundary.
+
+Evaluate each diagnostic at its actual source. Runtime warnings from deliberately failing test
+observers are expected outcomes checked by those tests; matching the words `warning` or `error`
+in a log is not an adequate gate. Maven's warning when installing changed local SNAPSHOT bytes
+reports a real artifact replacement and must remain visible with its provenance. It is not a Java
+compiler warning or permission to disregard a compiler/analyzer failure. Historical failure logs
+remain failure evidence even after a corrected candidate passes.
 
 Fix the cause of a failed gate. Do not add suppressions, baselines, ignore lists, exclusions, or
 reduced severities merely to make the build pass. A technically unavoidable exception requires

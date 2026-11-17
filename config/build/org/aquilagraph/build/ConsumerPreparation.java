@@ -59,8 +59,8 @@ public final class ConsumerPreparation {
     var sources = staging.resolve("sources");
     var resources = staging.resolve("resources");
     var output = root.resolve("target/prepared-consumers");
-    var arguments = new ArrayList<>(List.of("-J-Xms128m", "-J-Xmx1024m", "--release", "25", "-encoding", "UTF-8", "-g", "--module-path",
-        resources.resolve("lib") + File.pathSeparator + annotations, "-proc:none", "-d", output.toString(),
+    var arguments = new ArrayList<>(List.of("-J-Xms128m", "-J-Xmx1024m", "--release", "25", "-encoding", "UTF-8", "-g", "-Xlint:all",
+        "-Werror", "--module-path", resources.resolve("lib") + File.pathSeparator + annotations, "-proc:none", "-d", output.toString(),
         sources.resolve(MODULE_DESCRIPTOR).toString()));
     for (var name : List.of("PublicAstObservation.java", "RetainedAstQueryProcess.java")) {
       arguments.add(sources.resolve(name).toString());

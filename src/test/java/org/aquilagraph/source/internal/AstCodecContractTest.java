@@ -4,7 +4,6 @@ import org.aquilagraph.source.admission.AstProductionAdmission;
 import org.aquilagraph.source.admission.AstValueAdmission;
 import org.aquilagraph.source.admission.CopiedAstValues;
 import org.aquilagraph.source.admission.CoverageAdmission;
-import org.aquilagraph.identity.api.SourceOccurrence;
 
 
 import org.aquilagraph.source.retention.AstCodec;

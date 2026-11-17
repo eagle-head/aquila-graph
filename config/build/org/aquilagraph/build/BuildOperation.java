@@ -14,7 +14,8 @@ enum BuildOperation {
   VERIFY_ALL(
       "-Dbuild.compilation.force=true -Pneo4j-integration help:effective-pom jacoco:prepare-agent verify antrun:run@report-unit-coverage"),
   FORMAT("validate spotless:apply"), FORMAT_CHECK("validate spotless:check"), LINE_ENDINGS_CHECK(""),
-  QUALITY("-Dmaven.test.skip=true verify"), SUPPLY_CHAIN_CHECK("-Dmaven.test.skip=true -Psupply-chain verify"), CLEAN("clean"), CANCEL("");
+  QUALITY("-DskipTests=true -DskipITs=true verify"), SUPPLY_CHAIN_CHECK("-DskipTests=true -DskipITs=true -Psupply-chain verify"),
+  CLEAN("clean"), CANCEL("");
 
   private final String mavenArgumentsText;
 
