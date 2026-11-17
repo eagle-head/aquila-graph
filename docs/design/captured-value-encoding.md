@@ -15,6 +15,16 @@ Every integer is big-endian. A string is a nonnegative 32-bit Java character cou
 
 Text emission fills a bounded byte buffer with raw big-endian UTF-16 code units and appends each chunk to the output in one write. Chunk boundaries are absent from the encoding. The [writer compatibility test](../../src/test/java/org/aquilagraph/identity/api/CanonicalValueWriterTest.java) uses `DataOutputStream.writeChars` as an independent byte oracle across chunk boundaries.
 
+`CanonicalValueWriter.hash` sends those same primitive frames directly to an
+operation-local SHA-256 digest. It does not retain the complete encoded byte
+sequence; buffered byte access is unavailable in its emission callback. A failed
+emission propagates its exception without returning a digest. Source content and
+unavailable-subject identities use this path through
+[CanonicalAstEncoding](../../src/main/java/org.aquilagraph.source/org/aquilagraph/source/internal/CanonicalAstEncoding.java).
+This changes the destination of encoding, not its field order, primitive bytes,
+version tags, namespaces, or content identity. Incremental hashing follows the
+[Java 25 MessageDigest update/digest contract](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/security/MessageDigest.html).
+
 `CanonicalValueReader` copies the supplied payload, verifies the exact framed format tag,
 and reads those primitive representations without normalization. String and byte lengths
 must fit the remaining payload before allocation; negative counts, truncated scalars,

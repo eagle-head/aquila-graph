@@ -26,10 +26,11 @@ public final class CanonicalAstEncoding {
    * @return the resulting string
    */
   public static String canonicalDigest(SyntaxAnalysisInput input, AstProfile profile, String semanticRevision) {
-    var writer = sourceFrame("canonical-java-source/1", profile);
-    writer.text(semanticRevision);
-    new RetainedValueCodec(true).write(writer, input);
-    return writer.digest("ast-content");
+    return CanonicalValueWriter.hash("canonical-java-source/1", "ast-content", writer -> {
+      sourceFrame(writer, profile);
+      writer.text(semanticRevision);
+      new RetainedValueCodec(true).write(writer, input);
+    });
   }
 
   /**
@@ -47,20 +48,19 @@ public final class CanonicalAstEncoding {
    */
   public static String emptyDigest(InputSnapshot snapshot, CompilerConfiguration configuration, AstProfile profile,
       LanguageFeatureCoverageResult coverage) {
-    var writer = sourceFrame("unavailable-java-source/1", profile);
-    var codec = new RetainedValueCodec(true);
-    codec.write(writer, Optional.of(snapshot));
-    codec.write(writer, Optional.empty());
-    codec.write(writer, configuration);
-    codec.write(writer, coverage);
-    codec.write(writer, List.of());
-    return writer.digest("source-subject");
+    return CanonicalValueWriter.hash("unavailable-java-source/1", "source-subject", writer -> {
+      sourceFrame(writer, profile);
+      var codec = new RetainedValueCodec(true);
+      codec.write(writer, Optional.of(snapshot));
+      codec.write(writer, Optional.empty());
+      codec.write(writer, configuration);
+      codec.write(writer, coverage);
+      codec.write(writer, List.of());
+    });
   }
 
-  private static CanonicalValueWriter sourceFrame(String domain, AstProfile profile) {
-    var writer = new CanonicalValueWriter(domain);
+  private static void sourceFrame(CanonicalValueWriter writer, AstProfile profile) {
     writer.text(AstResult.SOURCE_MODEL_VERSION);
     writer.text(profile.version());
-    return writer;
   }
 }
