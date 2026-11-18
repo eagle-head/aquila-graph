@@ -12,11 +12,13 @@ import java.util.Map;
 import java.util.Optional;
 import org.aquilagraph.application.AnalysisComputationRequest;
 import org.aquilagraph.application.AnalysisCompletion;
+import org.aquilagraph.application.AnalysisRun;
 import org.aquilagraph.application.CfgSelection;
 import org.aquilagraph.cfg.CfgDerivers;
 import org.aquilagraph.cfg.api.CfgProfile;
 import org.aquilagraph.cfg.api.CfgRequest;
 import org.aquilagraph.cfg.api.CfgState;
+import org.aquilagraph.cfg.api.MethodCfgState;
 import org.aquilagraph.cfg.api.OperationKind;
 import org.aquilagraph.cfg.api.TransferKind;
 import org.aquilagraph.identity.api.CompilerConfiguration;
@@ -33,12 +35,79 @@ import org.aquilagraph.source.api.InvocationMode;
 import org.aquilagraph.source.api.InvocationSelection;
 import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.JavaTypeIdentity;
+import org.aquilagraph.source.api.SyntaxValue;
 import org.aquilagraph.source.retention.AstCodec;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class ArrayCloneGraphTest {
   @TempDir Path directory;
+
+  @Test
+  void givenMixedCloneSelections_whenLibraryCloses_thenRetainedOccurrencesIdentifyEachGraphCallAndSourceOnlyReference() {
+    // Arrange
+    var source = """
+        import java.util.function.Supplier;
+        abstract class Copies {
+          public abstract int[][] clone();
+          static int[][] copy(Copies value) { return value.clone().clone().clone(); }
+          static Supplier<int[][]> reference(int[][] value) { return value::clone; }
+        }
+        """;
+    var computation = new AnalysisComputationRequest(request(source), Optional.of(CfgSelection.allBodies(CfgProfile.JAVA_BOUNDED)));
+
+    // Act
+    AnalysisRun run;
+    try (var library = AquilaGraph.open(ObservabilityConfiguration.disabled())) {
+      run = library.analyze(computation);
+    }
+    var original = run.representation().ast().result().orElseThrow();
+    var retained = AstCodec.decode(AstCodec.encode(original), original.identity());
+    var cfg = run.representation().cfg().orElseThrow();
+    var copy = retained.program().methods().stream().filter(method -> method.name().equals("copy")).findFirst().orElseThrow();
+    var selected = new CfgRequest(retained.identity(), List.of(copy.methodKey()), CfgProfile.JAVA_BOUNDED);
+    var derived = CfgDerivers.standard().derive(retained, selected);
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, retained.completion(), retained.diagnostics().toString());
+    assertEquals(AnalysisCompletion.PARTIAL, run.completion());
+    assertEquals(CfgState.PARTIAL, cfg.state());
+    var reference = cfg.methods().stream().filter(method -> retained.method(method.methodKey()).orElseThrow().name().equals("reference"))
+        .findFirst().orElseThrow();
+    assertEquals(MethodCfgState.UNSUPPORTED, reference.state());
+    var references = retained.body(reference.methodKey()).orElseThrow().root().descendantsAndSelf().stream()
+        .filter(node -> node.value() instanceof SyntaxValue.MemberReference).toList();
+    assertEquals(1, references.size());
+    assertEquals(SyntaxValue.ReferenceSelection.ARRAY_CLONE, references.getFirst().value(SyntaxValue.MemberReference.class).selection());
+
+    assertEquals(CfgState.COMPLETE, derived.state());
+    var graph = derived.methods().getFirst().graph().orElseThrow();
+    var originalGraph = cfg.methods().stream().filter(method -> method.methodKey().equals(copy.methodKey())).findFirst().orElseThrow();
+    assertEquals(originalGraph.graph().orElseThrow().identity(), graph.identity());
+    assertEquals(retained.identity(), graph.identity().astIdentity());
+    var calls = graph.operationNodes().stream().filter(node -> node.kind() == OperationKind.INVOKE).toList();
+    var written = List.of("value.clone()", "value.clone().clone()", "value.clone().clone().clone()");
+    var selections = List.of(InvocationSelection.NAMED_EXECUTABLE, InvocationSelection.ARRAY_CLONE, InvocationSelection.ARRAY_CLONE);
+    var named = retained.program().methods().stream().filter(method -> method.name().equals("clone")).findFirst().orElseThrow();
+    assertEquals(written.size(), calls.size());
+    for (var index = 0; index < calls.size(); index++) {
+      var call = calls.get(index);
+      var syntax = retained.node(call.sourceRef().occurrence().orElseThrow()).orElseThrow();
+      var span = syntax.origin().orElseThrow();
+      assertEquals(written.get(index), source.substring(Math.toIntExact(span.startOffset()), Math.toIntExact(span.endOffsetExclusive())));
+      assertEquals(selections.get(index), syntax.value(SyntaxValue.Invocation.class).semantics().orElseThrow().selection());
+      assertEquals(syntax.value(SyntaxValue.Invocation.class).semantics(), call.invocationSemantics());
+      assertEquals(Optional.of(type("int[][]", "int[][]")), call.definedValue().orElseThrow().staticType());
+      if (index == 0) {
+        assertEquals(Optional.of(named.methodKey()), syntax.requiredReference().symbolKey());
+        assertEquals(List.of(syntax.requiredReference()), call.semanticReferences());
+      } else {
+        assertTrue(syntax.semanticReference().isEmpty());
+        assertTrue(call.semanticReferences().isEmpty());
+        assertEquals(calls.get(index - 1).definedValue().orElseThrow(), call.operands().getFirst().value());
+      }
+    }
+  }
 
   @Test
   void givenArrayCloneVariants_whenLibraryDerivesAndRetainedSourceIsReused_thenExactSelectionsAndTypesReachGraphs() {
