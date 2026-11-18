@@ -9,8 +9,10 @@ import java.util.function.Consumer;
 
 /** Writes framed canonical values without changing Java string or floating-point content. */
 public final class CanonicalValueWriter {
-  private static final int TEXT_CHUNK_CHARACTERS = 512;
+  private static final int BUFFER_CAPACITY = 256;
   private final Destination output;
+  private final byte[] buffer = new byte[BUFFER_CAPACITY];
+  private int used;
 
   /**
    * Starts an encoding with its explicit version tag.
@@ -42,7 +44,9 @@ public final class CanonicalValueWriter {
     Objects.requireNonNull(namespace, "namespace");
     Objects.requireNonNull(encode, "encode");
     var digest = sha256();
-    encode.accept(new CanonicalValueWriter(version, new Hashed(digest)));
+    var writer = new CanonicalValueWriter(version, new Hashed(digest));
+    encode.accept(writer);
+    writer.flush();
     return namespace + ":" + HexFormat.of().formatHex(digest.digest());
   }
 
@@ -55,17 +59,10 @@ public final class CanonicalValueWriter {
   public void text(String value) {
     Objects.requireNonNull(value, "value");
     count(value.length());
-    var encoded = new byte[Math.min(value.length(), TEXT_CHUNK_CHARACTERS) * Character.BYTES];
-    var first = 0;
-    while (first < value.length()) {
-      var length = Math.min(encoded.length / Character.BYTES, value.length() - first);
-      for (var index = 0; index < length; index++) {
-        var character = value.charAt(first + index);
-        encoded[index * Character.BYTES] = (byte) (character >>> Byte.SIZE);
-        encoded[index * Character.BYTES + 1] = (byte) character;
-      }
-      output.write(encoded, 0, length * Character.BYTES);
-      first += length;
+    for (var index = 0; index < value.length(); index++) {
+      var character = value.charAt(index);
+      writeByte(character >>> Byte.SIZE);
+      writeByte(character);
     }
   }
 
@@ -90,7 +87,7 @@ public final class CanonicalValueWriter {
    */
   public void integer(int value) {
     for (var shift = 24; shift >= 0; shift -= 8) {
-      output.write((value >>> shift) & 0xff);
+      writeByte(value >>> shift);
     }
   }
 
@@ -102,7 +99,7 @@ public final class CanonicalValueWriter {
    */
   public void longInteger(long value) {
     for (var shift = 56; shift >= 0; shift -= 8) {
-      output.write((int) ((value >>> shift) & 0xff));
+      writeByte((int) (value >>> shift));
     }
   }
 
@@ -113,7 +110,7 @@ public final class CanonicalValueWriter {
    *          retained Boolean
    */
   public void flag(boolean value) {
-    output.write(value ? 1 : 0);
+    writeByte(value ? 1 : 0);
   }
 
   /**
@@ -145,7 +142,16 @@ public final class CanonicalValueWriter {
   public void bytes(byte[] value) {
     Objects.requireNonNull(value, "value");
     count(value.length);
-    output.write(value, 0, value.length);
+    var offset = 0;
+    while (offset < value.length) {
+      if (used == buffer.length) {
+        flush();
+      }
+      var length = Math.min(buffer.length - used, value.length - offset);
+      System.arraycopy(value, offset, buffer, used, length);
+      used += length;
+      offset += length;
+    }
   }
 
   /**
@@ -155,6 +161,7 @@ public final class CanonicalValueWriter {
    */
   public byte[] toByteArray() {
     if (output instanceof Buffered buffered) {
+      flush();
       return buffered.bytes().toByteArray();
     }
     throw new IllegalStateException("Incremental canonical hashing does not retain encoded bytes");
@@ -172,6 +179,21 @@ public final class CanonicalValueWriter {
     return namespace + ":" + HexFormat.of().formatHex(sha256().digest(toByteArray()));
   }
 
+  private void writeByte(int value) {
+    if (used == buffer.length) {
+      flush();
+    }
+    buffer[used] = (byte) value;
+    used++;
+  }
+
+  private void flush() {
+    if (used != 0) {
+      output.write(buffer, used);
+      used = 0;
+    }
+  }
+
   private static MessageDigest sha256() {
     try {
       return MessageDigest.getInstance("SHA-256");
@@ -181,32 +203,20 @@ public final class CanonicalValueWriter {
   }
 
   private sealed interface Destination {
-    void write(int value);
-
-    void write(byte[] value, int offset, int length);
+    void write(byte[] value, int length);
   }
 
   private record Buffered(ByteArrayOutputStream bytes) implements Destination {
     @Override
-    public void write(int value) {
-      bytes.write(value);
-    }
-
-    @Override
-    public void write(byte[] value, int offset, int length) {
-      bytes.write(value, offset, length);
+    public void write(byte[] value, int length) {
+      bytes.write(value, 0, length);
     }
   }
 
   private record Hashed(MessageDigest digest) implements Destination {
     @Override
-    public void write(int value) {
-      digest.update((byte) value);
-    }
-
-    @Override
-    public void write(byte[] value, int offset, int length) {
-      digest.update(value, offset, length);
+    public void write(byte[] value, int length) {
+      digest.update(value, 0, length);
     }
   }
 }
