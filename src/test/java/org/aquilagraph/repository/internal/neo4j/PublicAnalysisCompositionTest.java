@@ -222,6 +222,72 @@ class PublicAnalysisCompositionTest {
   @TempDir Path directory;
 
   @Test
+  void givenUnacknowledgedArrayClonePublication_whenTheSessionPublishesANamedClone_thenEachCommandReportsItsOwnOutcome()
+      throws IOException {
+    // Arrange
+    var sourceFile = directory.resolve("Sample.java");
+    Files.writeString(sourceFile, "interface Sample { static int[] copy(int[] value) { return value.clone(); } }");
+    var failedDriver = AstRepositoryDriverStub.completedRuns();
+    var failure = new Neo4jException("Missing acknowledgement for array copy");
+    failedDriver.writeFailure = failure;
+    var recoveredDriver = AstRepositoryDriverStub.completedRuns();
+    var drivers = List.of(failedDriver, recoveredDriver).iterator();
+    var repositories = Neo4jAnalysisRunRepository.factory(PublicAnalysisCompositionTest::settings, (uri, auth) -> drivers.next().driver());
+    var failedOutput = new StringWriter();
+    var failedError = new StringWriter();
+    var recoveredOutput = new StringWriter();
+    var recoveredError = new StringWriter();
+
+    try (var library = AquilaGraph.open(ObservabilityConfiguration.disabled(), NO_AST_STORAGE, repositories)) {
+      var runner = CliPublicationReporting.runner(library::execute);
+
+      // Act
+      var failed = runPersistingCommand(runner, failedOutput, failedError);
+      Files.writeString(sourceFile, """
+          interface Sample {
+            static int[] copy(int[] value) { return Sample.clone(value); }
+            static int[] clone(int[] value) { return value; }
+          }
+          """);
+      var recovered = runPersistingCommand(runner, recoveredOutput, recoveredError);
+
+      // Assert
+      var first = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, failed.outcome()).execution();
+      assertEquals(CommandExitPolicy.EXIT_REPOSITORY_FAILED, failed.exitCode(), failedError.toString());
+      assertEquals(AnalysisCompletion.COMPLETE, first.run().completion());
+      assertEquals(PublicationStatus.FAILED, first.publication().status());
+      assertEquals(CommitKnowledge.UNKNOWN, first.publication().knowledge());
+      var carrier = assertInstanceOf(Neo4jRepositoryOperationException.class, first.publication().failure().orElseThrow().carrier());
+      assertEquals(Neo4jRepositoryPhase.REPLACEMENT, carrier.phase());
+      assertSame(failure, assertInstanceOf(RepositoryException.class, carrier.effectivePrimary()).getCause());
+      assertTrue(failedError.toString().contains(failure.getMessage()), failedError.toString());
+      assertTrue(failedOutput.toString().lines().toList().containsAll(List.of("AST: COMPLETE", "Repository: FAILED", "Commit knowledge: UNKNOWN")),
+          failedOutput.toString());
+      assertFalse(failedDriver.events.contains("write.acknowledged"));
+      assertEquals("driver.close", failedDriver.events.getLast());
+      assertEquals(List.of("ARRAY_CLONE"), writtenInvocationSelections(failedDriver));
+
+      var second = assertInstanceOf(AnalyzeCommandOutcome.Executed.class, recovered.outcome()).execution();
+      assertEquals(CommandExitPolicy.EXIT_COMPLETED, recovered.exitCode(), recoveredError.toString());
+      assertNotEquals(first.run().identity(), second.run().identity());
+      assertPublication(second.publication(), PublicationIntent.SAVE_COMPLETED, Optional.of(new CompletedRun(second.run().identity().key())),
+          PublicationStatus.SAVED, CommitKnowledge.KNOWN_COMMIT);
+      assertEquals("", recoveredError.toString());
+      assertTrue(recoveredOutput.toString().lines().toList().containsAll(List.of("AST: COMPLETE", "Repository: SAVED",
+          "Commit knowledge: KNOWN_COMMIT")), recoveredOutput.toString());
+      assertEquals(List.of("NAMED_EXECUTABLE"), writtenInvocationSelections(recoveredDriver));
+      assertTrue(recoveredDriver.events.contains("write.acknowledged"));
+      assertEquals("driver.close", recoveredDriver.events.getLast());
+    }
+  }
+
+  private static List<String> writtenInvocationSelections(AstRepositoryDriverStub driver) {
+    return driver.statements.stream().filter(statement -> statement.query().startsWith(RUN_NODE_CREATE + "OperationNode`)"))
+        .map(statement -> statement.parameters().get("properties")).filter(properties -> "INVOKE".equals(properties.get("kind").asString()))
+        .map(properties -> properties.get("invocationSelection").asString()).toList();
+  }
+
+  @Test
   void givenBranchingSource_whenRetainedAndQueried_thenConsumerTraversesTheActualWrittenValuesAndDerivesTheSameGraph() {
     // Arrange
     var computation = AnalysisCapabilities.computation(JavaFrontends.standard(), CfgDerivers.standard());
