@@ -23,6 +23,8 @@ import org.aquilagraph.source.retention.AstCodec;
 import org.aquilagraph.source.api.AstCompletion;
 import org.aquilagraph.source.api.AstProfile;
 import org.aquilagraph.source.api.AstResult;
+import org.aquilagraph.source.api.InvocationApplicabilityMode;
+import org.aquilagraph.source.api.JavaTypeCategory;
 import org.aquilagraph.source.api.LocalBindingEvidence;
 import org.aquilagraph.source.api.SyntaxKind;
 import org.aquilagraph.source.api.SyntaxNode;
@@ -39,6 +41,45 @@ import org.junit.jupiter.api.io.TempDir;
 
 class ExceptionAstTest {
   @TempDir Path directory;
+
+  @Test
+  void givenMultiCatchArgument_whenCallsAreAdmitted_thenSelectedFormalsAndVarargsElementsAreRetained() throws IOException {
+    // Arrange
+    var source = """
+        class Example {
+          static class Box {
+            <T extends Throwable> Box(String message, T cause) {}
+          }
+          static void record(Throwable... causes) {}
+          void subject() {
+            try {} catch (IllegalArgumentException | IllegalStateException failure) {
+              record(failure);
+              new IllegalStateException("message", failure);
+              new Box("message", failure);
+            }
+          }
+        }
+        """;
+
+    // Act
+    var result = produce(source, AstProfile.JAVA_SOURCE_MODULE_SERVICES);
+
+    // Assert
+    assertEquals(AstCompletion.COMPLETE, result.completion(), () -> result.qualification().reasons().toString());
+    var method = result.program().methods().stream().filter(item -> item.name().equals("subject")).findFirst().orElseThrow();
+    var body = result.aggregate().methodSyntax(method.methodKey()).orElseThrow();
+    var calls = body.root().descendantsAndSelf().stream().filter(node -> node.value() instanceof SyntaxValue.Invocation).toList();
+    assertEquals(List.of(InvocationApplicabilityMode.VARIABLE, InvocationApplicabilityMode.FIXED, InvocationApplicabilityMode.FIXED),
+        calls.stream().map(call -> body.invocationArity(call.nodeId()).orElseThrow().mode()).toList());
+    var causes = calls.stream().map(call -> body.useEvidence(call.nodeId(), SyntaxRole.ARGUMENT, call.children(SyntaxRole.ARGUMENT).size() - 1)
+        .orElseThrow()).toList();
+    assertTrue(causes.stream().allMatch(use -> use.sourceType().category() == JavaTypeCategory.UNION));
+    assertEquals(List.of("java.lang.Throwable", "java.lang.Throwable", "java.lang.RuntimeException"),
+        causes.stream().map(use -> use.selectedTarget().displayName()).toList());
+    for (var creation : calls.subList(1, 3)) {
+      assertEquals("java.lang.String", body.useEvidence(creation.nodeId(), SyntaxRole.ARGUMENT, 0).orElseThrow().selectedTarget().displayName());
+    }
+  }
 
   @TestFactory
   Stream<DynamicTest> givenLegalExceptionForms_whenProducedAndDecoded_thenEveryWrittenClauseRemainsQueryable() {

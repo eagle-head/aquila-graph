@@ -38,6 +38,37 @@ class ConstructorTypeCorrespondenceTest {
       """;
 
   @Test
+  void givenMultiCatchArgumentsWithDifferentAlternatives_whenCorrelated_thenTheirCommonSupertypeDoesNotEstablishAMatch() throws IOException {
+    // Arrange
+    var source = """
+        class Types {
+          void collect() {
+            try {} catch (IllegalArgumentException | IllegalStateException failure) { Throwable value = failure; }
+          }
+        }
+        """;
+    var compiler = ToolProvider.getSystemJavaCompiler();
+    try (var originalFiles = compiler.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8);
+        var witnessFiles = compiler.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8)) {
+      var original = attribute(originalFiles, source);
+      var witness = attribute(witnessFiles, source.replace("IllegalStateException", "ArithmeticException"));
+      var correspondence = new ConstructorTypeCorrespondence(original.task().getElements(), witness.task().getElements());
+      var originalArgument = original.initializer();
+      var witnessArgument = witness.initializer();
+      var witnessType = witness.trees().getTypeMirror(witnessArgument);
+
+      // Act
+      var matched = correspondence.matchesArgument(originalArgument, original.trees(), witnessArgument, witness.trees());
+
+      // Assert
+      assertEquals("java.lang.RuntimeException", original.task().getTypes().erasure(original.trees().getTypeMirror(originalArgument)).toString());
+      assertEquals("java.lang.RuntimeException", witness.task().getTypes().erasure(witnessType).toString());
+      assertFalse(matched);
+      assertTrue(correspondence.originalType(witnessType, original.task().getTypes(), witness.task().getTypes()).isEmpty());
+    }
+  }
+
+  @Test
   void givenSemanticTypeCorrespondence_whenStrictMetadataIsCheckedAfterward_thenSemanticCachingCannotHideAnnotationChanges() throws IOException {
     // Arrange
     var source = "import java.lang.annotation.*; @Target(ElementType.TYPE_USE) @interface Mark { int value(); } "
