@@ -16,6 +16,7 @@ import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.IntersectionType;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.type.TypeVariable;
+import javax.lang.model.type.UnionType;
 import javax.lang.model.type.WildcardType;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
@@ -168,8 +169,9 @@ final class ConstructorTypeCorrespondence {
         case WILDCARD -> matches(((WildcardType) original).getExtendsBound(), ((WildcardType) witness).getExtendsBound())
             && matches(((WildcardType) original).getSuperBound(), ((WildcardType) witness).getSuperBound());
         case INTERSECTION -> ordered(((IntersectionType) original).getBounds(), ((IntersectionType) witness).getBounds());
+        case UNION -> ordered(((UnionType) original).getAlternatives(), ((UnionType) witness).getAlternatives());
         case BOOLEAN, BYTE, SHORT, INT, LONG, CHAR, FLOAT, DOUBLE, NULL, NONE, VOID -> true;
-        case ERROR, EXECUTABLE, PACKAGE, MODULE, UNION, OTHER -> false;
+        case ERROR, EXECUTABLE, PACKAGE, MODULE, OTHER -> false;
       };
     }
 

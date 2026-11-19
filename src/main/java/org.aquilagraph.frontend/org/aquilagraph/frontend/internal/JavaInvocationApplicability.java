@@ -86,8 +86,8 @@ final class JavaInvocationApplicability {
   private static boolean valueType(TypeMirror type) {
     Objects.requireNonNull(type, "type");
     return switch (type.getKind()) {
-      case BOOLEAN, BYTE, SHORT, INT, LONG, CHAR, FLOAT, DOUBLE, ARRAY, DECLARED, TYPEVAR, WILDCARD, NULL, INTERSECTION -> true;
-      case VOID, NONE, ERROR, EXECUTABLE, PACKAGE, MODULE, UNION, OTHER -> false;
+      case BOOLEAN, BYTE, SHORT, INT, LONG, CHAR, FLOAT, DOUBLE, ARRAY, DECLARED, TYPEVAR, WILDCARD, NULL, INTERSECTION, UNION -> true;
+      case VOID, NONE, ERROR, EXECUTABLE, PACKAGE, MODULE, OTHER -> false;
     };
   }
 
